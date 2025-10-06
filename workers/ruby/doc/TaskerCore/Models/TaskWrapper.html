@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>
+  Class: TaskerCore::Models::TaskWrapper
+  
+    &mdash; Documentation by YARD 0.9.37
+  
+</title>
+
+  <link rel="stylesheet" href="../../css/style.css" type="text/css" />
+
+  <link rel="stylesheet" href="../../css/common.css" type="text/css" />
+
+<script type="text/javascript">
+  pathId = "TaskerCore::Models::TaskWrapper";
+  relpath = '../../';
+</script>
+
+
+  <script type="text/javascript" charset="utf-8" src="../../js/jquery.js"></script>
+
+  <script type="text/javascript" charset="utf-8" src="../../js/app.js"></script>
+
+
+  </head>
+  <body>
+    <div class="nav_wrap">
+      <iframe id="nav" src="../../class_list.html?1"></iframe>
+      <div id="resizer"></div>
+    </div>
+
+    <div id="main" tabindex="-1">
+      <div id="header">
+        <div id="menu">
+  
+    <a href="../../_index.html">Index (T)</a> &raquo;
+    <span class='title'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span> &raquo; <span class='title'><span class='object_link'><a href="../Models.html" title="TaskerCore::Models (module)">Models</a></span></span>
+     &raquo; 
+    <span class="title">TaskWrapper</span>
+  
+</div>
+
+        <div id="search">
+  
+    <a class="full_list_link" id="class_list_link"
+        href="../../class_list.html">
+
+        <svg width="24" height="24">
+          <rect x="0" y="4" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="12" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="20" width="24" height="4" rx="1" ry="1"></rect>
+        </svg>
+    </a>
+  
+</div>
+        <div class="clear"></div>
+      </div>
+
+      <div id="content"><h1>Class: TaskerCore::Models::TaskWrapper
+  
+  
+  
+</h1>
+<div class="box_info">
+  
+  <dl>
+    <dt>Inherits:</dt>
+    <dd>
+      <span class="inheritName">Object</span>
+      
+        <ul class="fullTree">
+          <li>Object</li>
+          
+            <li class="next">TaskerCore::Models::TaskWrapper</li>
+          
+        </ul>
+        <a href="#" class="inheritanceTree">show all</a>
+      
+    </dd>
+  </dl>
+  
+
+  
+  
+  
+  
+  
+
+  
+
+  
+  <dl>
+    <dt>Defined in:</dt>
+    <dd>lib/tasker_core/models.rb</dd>
+  </dl>
+  
+</div>
+
+<h2>Overview</h2><div class="docstring">
+  <div class="discussion">
+    
+<p>Wrapper for task metadata and context.</p>
+
+<p>Handles the nested task structure from Rust FFI where the actual task data is nested under a :task key within the parent task hash.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+  <div class="examples">
+    <h4 class="tag_title">Examples:</h4>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Accessing task properties</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_task'>task</span><span class='period'>.</span><span class='id identifier rubyid_task_uuid'>task_uuid</span>        <span class='comment'># =&gt; &quot;0199a46a-11a8-7d53-83da-0b13513dab49&quot;
+</span><span class='id identifier rubyid_task'>task</span><span class='period'>.</span><span class='id identifier rubyid_context'>context</span>          <span class='comment'># =&gt; { &quot;even_number&quot; =&gt; 2 }
+</span><span class='id identifier rubyid_task'>task</span><span class='period'>.</span><span class='id identifier rubyid_namespace_name'>namespace_name</span>   <span class='comment'># =&gt; &quot;linear_workflow&quot;</span></code></pre>
+    
+  </div>
+
+
+</div>
+
+
+
+  <h2>Instance Attribute Summary <small><a href="#" class="summary_toggle">collapse</a></small></h2>
+  <ul class="summary">
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#context-instance_method" title="#context (instance method)">#<strong>context</strong>  &#x21d2; String, ActiveSupport::HashWithIndifferentAccess </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'></div></span>
+  
+</li>
+
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#namespace_name-instance_method" title="#namespace_name (instance method)">#<strong>namespace_name</strong>  &#x21d2; String, ActiveSupport::HashWithIndifferentAccess </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'></div></span>
+  
+</li>
+
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#task_name-instance_method" title="#task_name (instance method)">#<strong>task_name</strong>  &#x21d2; String, ActiveSupport::HashWithIndifferentAccess </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'></div></span>
+  
+</li>
+
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#task_uuid-instance_method" title="#task_uuid (instance method)">#<strong>task_uuid</strong>  &#x21d2; String, ActiveSupport::HashWithIndifferentAccess </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'></div></span>
+  
+</li>
+
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#task_version-instance_method" title="#task_version (instance method)">#<strong>task_version</strong>  &#x21d2; String, ActiveSupport::HashWithIndifferentAccess </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'></div></span>
+  
+</li>
+
+    
+  </ul>
+
+
+
+
+  
+    <h2>
+      Instance Method Summary
+      <small><a href="#" class="summary_toggle">collapse</a></small>
+    </h2>
+
+    <ul class="summary">
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#initialize-instance_method" title="#initialize (instance method)">#<strong>initialize</strong>(task_data)  &#x21d2; TaskWrapper </a>
+    
+
+    
+  </span>
+  
+  
+    <span class="note title constructor">constructor</span>
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Creates a new TaskWrapper from FFI data.</p>
+</div></span>
+  
+</li>
+
+      
+    </ul>
+  
+
+<div id="constructor_details" class="method_details_list">
+  <h2>Constructor Details</h2>
+  
+    <div class="method_details first">
+  <h3 class="signature first" id="initialize-instance_method">
+  
+    #<strong>initialize</strong>(task_data)  &#x21d2; <tt><span class='object_link'><a href="" title="TaskerCore::Models::TaskWrapper (class)">TaskWrapper</a></span></tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Creates a new TaskWrapper from FFI data</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>task_data</span>
+      
+      
+        <span class='type'>(<tt>Hash</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task data with nested structure from Rust</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+  
+    
+    
+    <p class="tag_title">Options Hash (<tt>task_data</tt>):</p>
+    <ul class="option">
+      
+        <li>
+          <span class="name">:task</span>
+          <span class="type">(<tt>Hash</tt>)</span>
+          <span class="default">
+            
+          </span>
+          
+            &mdash; <div class='inline'>
+<p>Nested task object with context</p>
+</div>
+          
+        </li>
+      
+        <li>
+          <span class="name">:task_name</span>
+          <span class="type">(<tt>String</tt>)</span>
+          <span class="default">
+            
+          </span>
+          
+            &mdash; <div class='inline'>
+<p>Template name</p>
+</div>
+          
+        </li>
+      
+        <li>
+          <span class="name">:namespace_name</span>
+          <span class="type">(<tt>String</tt>)</span>
+          <span class="default">
+            
+          </span>
+          
+            &mdash; <div class='inline'>
+<p>Namespace from template</p>
+</div>
+          
+        </li>
+      
+        <li>
+          <span class="name">:task_version</span>
+          <span class="type">(<tt>String</tt>)</span>
+          <span class="default">
+            
+          </span>
+          
+            &mdash; <div class='inline'>
+<p>Template version</p>
+</div>
+          
+        </li>
+      
+    </ul>
+  
+
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/models.rb', line 102</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_initialize'>initialize</span><span class='lparen'>(</span><span class='id identifier rubyid_task_data'>task_data</span><span class='rparen'>)</span>
+  <span class='comment'># Handle nested task structure from Rust FFI
+</span>  <span class='comment'># Data comes as: { task: { task_uuid: ..., context: ... }, task_name: &quot;...&quot;, namespace_name: &quot;...&quot; }
+</span>  <span class='comment'># The actual task fields are nested under :task key
+</span>  <span class='id identifier rubyid_inner_task'>inner_task</span> <span class='op'>=</span> <span class='id identifier rubyid_task_data'>task_data</span><span class='lbracket'>[</span><span class='symbol'>:task</span><span class='rbracket'>]</span> <span class='op'>||</span> <span class='id identifier rubyid_task_data'>task_data</span>
+
+  <span class='ivar'>@task_uuid</span> <span class='op'>=</span> <span class='id identifier rubyid_inner_task'>inner_task</span><span class='lbracket'>[</span><span class='symbol'>:task_uuid</span><span class='rbracket'>]</span>
+  <span class='comment'># Use HashWithIndifferentAccess for developer-friendly context access
+</span>  <span class='ivar'>@context</span> <span class='op'>=</span> <span class='lparen'>(</span><span class='id identifier rubyid_inner_task'>inner_task</span><span class='lbracket'>[</span><span class='symbol'>:context</span><span class='rbracket'>]</span> <span class='op'>||</span> <span class='lbrace'>{</span><span class='rbrace'>}</span><span class='rparen'>)</span><span class='period'>.</span><span class='id identifier rubyid_with_indifferent_access'>with_indifferent_access</span>
+  <span class='ivar'>@namespace_name</span> <span class='op'>=</span> <span class='id identifier rubyid_task_data'>task_data</span><span class='lbracket'>[</span><span class='symbol'>:namespace_name</span><span class='rbracket'>]</span> <span class='op'>||</span> <span class='id identifier rubyid_inner_task'>inner_task</span><span class='lbracket'>[</span><span class='symbol'>:namespace_name</span><span class='rbracket'>]</span>
+  <span class='ivar'>@task_name</span> <span class='op'>=</span> <span class='id identifier rubyid_task_data'>task_data</span><span class='lbracket'>[</span><span class='symbol'>:task_name</span><span class='rbracket'>]</span> <span class='op'>||</span> <span class='id identifier rubyid_inner_task'>inner_task</span><span class='lbracket'>[</span><span class='symbol'>:task_name</span><span class='rbracket'>]</span>
+  <span class='ivar'>@task_version</span> <span class='op'>=</span> <span class='id identifier rubyid_task_data'>task_data</span><span class='lbracket'>[</span><span class='symbol'>:task_version</span><span class='rbracket'>]</span> <span class='op'>||</span> <span class='id identifier rubyid_inner_task'>inner_task</span><span class='lbracket'>[</span><span class='symbol'>:task_version</span><span class='rbracket'>]</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+  
+</div>
+
+  <div id="instance_attr_details" class="attr_details">
+    <h2>Instance Attribute Details</h2>
+    
+      
+      <span id=""></span>
+      <div class="method_details first">
+  <h3 class="signature first" id="context-instance_method">
+  
+    #<strong>context</strong>  &#x21d2; <tt>String</tt>, <tt>ActiveSupport::HashWithIndifferentAccess</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>UUID v7 of the task instance</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>ActiveSupport::HashWithIndifferentAccess</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task context with input data and accumulated state</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Namespace name from task template</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template name</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template version</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+93
+94
+95</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/models.rb', line 93</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_context'>context</span>
+  <span class='ivar'>@context</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      
+      <span id=""></span>
+      <div class="method_details ">
+  <h3 class="signature " id="namespace_name-instance_method">
+  
+    #<strong>namespace_name</strong>  &#x21d2; <tt>String</tt>, <tt>ActiveSupport::HashWithIndifferentAccess</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>UUID v7 of the task instance</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>ActiveSupport::HashWithIndifferentAccess</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task context with input data and accumulated state</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Namespace name from task template</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template name</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template version</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+93
+94
+95</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/models.rb', line 93</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_namespace_name'>namespace_name</span>
+  <span class='ivar'>@namespace_name</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      
+      <span id=""></span>
+      <div class="method_details ">
+  <h3 class="signature " id="task_name-instance_method">
+  
+    #<strong>task_name</strong>  &#x21d2; <tt>String</tt>, <tt>ActiveSupport::HashWithIndifferentAccess</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>UUID v7 of the task instance</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>ActiveSupport::HashWithIndifferentAccess</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task context with input data and accumulated state</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Namespace name from task template</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template name</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template version</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+93
+94
+95</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/models.rb', line 93</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_task_name'>task_name</span>
+  <span class='ivar'>@task_name</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      
+      <span id=""></span>
+      <div class="method_details ">
+  <h3 class="signature " id="task_uuid-instance_method">
+  
+    #<strong>task_uuid</strong>  &#x21d2; <tt>String</tt>, <tt>ActiveSupport::HashWithIndifferentAccess</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>UUID v7 of the task instance</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>ActiveSupport::HashWithIndifferentAccess</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task context with input data and accumulated state</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Namespace name from task template</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template name</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template version</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+93
+94
+95</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/models.rb', line 93</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_task_uuid'>task_uuid</span>
+  <span class='ivar'>@task_uuid</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      
+      <span id=""></span>
+      <div class="method_details ">
+  <h3 class="signature " id="task_version-instance_method">
+  
+    #<strong>task_version</strong>  &#x21d2; <tt>String</tt>, <tt>ActiveSupport::HashWithIndifferentAccess</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>UUID v7 of the task instance</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>ActiveSupport::HashWithIndifferentAccess</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task context with input data and accumulated state</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Namespace name from task template</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template name</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>Task template version</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+93
+94
+95</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/models.rb', line 93</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_task_version'>task_version</span>
+  <span class='ivar'>@task_version</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+
+</div>
+
+      <div id="footer">
+  Generated on Mon Oct  6 16:44:00 2025 by
+  <a href="https://yardoc.org" title="Yay! A Ruby Documentation Tool" target="_parent">yard</a>
+  0.9.37 (ruby-3.4.4).
+</div>
+
+    </div>
+  </body>
+</html>

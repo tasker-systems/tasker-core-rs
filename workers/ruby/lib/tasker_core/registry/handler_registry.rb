@@ -321,13 +321,13 @@ module TaskerCore
           if klass.name&.end_with?('Handler') &&
              klass.ancestors.any? { |ancestor| ancestor.name&.include?('StepHandler') }
             handler_count += 1
-            break if handler_count > 0 # We just need to know if any exist
+            break if handler_count.positive? # We just need to know if any exist
           end
         rescue StandardError
           next # Skip classes that can't be introspected
         end
 
-        handler_count > 0
+        handler_count.positive?
       end
 
       # Register preloaded handlers from test environment
@@ -369,7 +369,6 @@ module TaskerCore
             klass < TaskerCore::StepHandler::Base
         end
       end
-
     end
   end
 end

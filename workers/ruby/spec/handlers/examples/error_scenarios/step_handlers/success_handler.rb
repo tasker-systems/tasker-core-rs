@@ -15,7 +15,7 @@ module ErrorScenarios
     # @param sequence [TaskerCore::Types::TaskSequenceStep] The sequence context
     # @param step [TaskerCore::Types::TaskSequenceStep] The current step
     # @return [Hash] Success result
-    def call(task, sequence, step)
+    def call(_task, _sequence, step)
       TaskerCore::Logger.instance.log_step(
         :info,
         'success_handler_execution',

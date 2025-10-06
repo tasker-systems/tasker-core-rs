@@ -8,6 +8,8 @@
 //!
 //! Uses sqlx::migrate! macro for simple, reliable test database setup.
 
+#![allow(dead_code)]
+
 use dotenvy::dotenv;
 use sqlx::PgPool;
 use std::env;

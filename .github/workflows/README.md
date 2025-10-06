@@ -1,432 +1,331 @@
-# CI/CD Pipeline Documentation
+# GitHub Actions CI/CD Workflows
 
-## Architecture
+This directory contains the CI/CD pipeline for tasker-core, implementing TAS-42's unified testing architecture.
 
-Our CI pipeline uses modular workflows for better maintainability and faster feedback cycles:
+## Workflow Overview
 
-- **ci.yml**: Main orchestrator that calls other workflows
-- **build-docker-images.yml**: Builds and caches Docker images with GitHub Container Registry
-- **code-quality.yml**: Formatting, linting, security checks (sccache temporarily disabled)
-- **test-unit.yml**: Unit tests with nextest and parallel execution
-- **test-integration.yml**: Docker Compose integration tests
-- **ci-success.yml**: Final status check
+### Main Pipeline
 
-## Execution Flow
+**File**: `ci.yml`
 
-```mermaid
-graph TD
-    A[Push/PR Trigger] --> B[Build Docker Images]
-    B --> C[Code Quality Checks]
-    B --> D[Unit Tests]
-    C --> E{All Pass?}
-    D --> E
-    E -->|Yes| F[Integration Tests]
-    E -->|No| G[Fail Fast]
-    F --> H[CI Success]
-    G --> I[CI Failed]
+The main orchestrator that runs all CI checks in parallel where possible.
+
+**Job Flow**:
+```
+docker-build
+    ├─→ code-quality
+    ├─→ unit-tests
+    ├─→ ruby-unit-tests
+    └─→ ruby-framework-tests
+
+code-quality + unit-tests
+    └─→ e2e-tests (all workers)
+
+e2e-tests + ruby-framework-tests + ruby-unit-tests
+    └─→ performance-analysis
+
+performance-analysis
+    └─→ ci-success
 ```
 
-## Key Features
+---
 
-### ✨ **Parallel Test Execution with Nextest**
-- Uses `cargo-nextest` for faster, parallel test execution
-- CI profile with JUnit output for GitHub test reporting
-- Configurable timeouts and thread counts
+## Test Workflows
 
-### 🐳 **Docker Image Caching**
-- Builds PostgreSQL+PGMQ image once, reuses across all jobs
-- GitHub Container Registry (GHCR) caching with fallback
-- Automatic cache invalidation based on git SHA
+### E2E Tests (`test-e2e.yml`)
 
-### ⚡ **Build Caching with sccache** (Temporarily Disabled)
-- Mozilla sccache for Rust compilation caching
-- Dramatically reduces build times across CI runs
-- **Currently disabled** due to GitHub Actions cache service issues
-- See `docs/sccache-configuration.md` for planned configuration
-- Integrated into all workflows that compile Rust code
+**Purpose**: Unified end-to-end testing for all workers
 
-### 🔄 **Modular Workflow Design**
-- Each workflow is focused on a specific concern
-- Reusable components with `workflow_call`
-- Easy to modify individual stages without affecting others
+**Runs**:
+- Rust integration tests (`tests/integration/`)
+- Rust worker E2E tests (`tests/e2e/rust/`)
+- Ruby worker E2E tests (`tests/e2e/ruby/`)
 
-### 🧪 **True Integration Testing**
-- Uses Docker Compose to start real services
-- Tests against actual orchestration and worker containers
-- Service health checks ensure proper initialization
+**Requirements**:
+- Docker Compose with all services (postgres, orchestration, rust-worker, ruby-worker)
+- Extended timeout for Ruby worker FFI bootstrap (30-60s)
 
-### 🔗 **Shared Environment Variables**
-- Consistent environment setup via `.github/actions/setup-env`
-- Single source of truth for all CI environment variables
-- Eliminates configuration drift between workflows
+**Command**: `cargo nextest run --test '*' --profile ci`
 
-## Environment Variables
+**Duration**: ~10-15 minutes
 
-All workflows use consistent environment variables via the shared setup action:
+**Key Features**:
+- Single Docker startup for all tests (~71 tests total)
+- Health checks for all services before testing
+- Handler discovery validation
+- Comprehensive service logs on failure
 
-### Shared Environment Setup
+---
 
-Each workflow includes:
-```yaml
-- name: Setup shared environment variables
-  uses: ./.github/actions/setup-env
-```
+### Ruby Framework Tests (`test-ruby-framework.yml`)
 
-This action sets the following variables:
-- `CARGO_TERM_COLOR=always` - Colored Cargo output
-- `RUST_BACKTRACE=1` - Stack traces on panic
-- ~~`RUSTC_WRAPPER=sccache`~~ - Build caching (temporarily disabled)
-- ~~`SCCACHE_GHA_ENABLED=true`~~ - GitHub Actions cache integration (temporarily disabled)
-- `DATABASE_URL=postgres://tasker:tasker@localhost:5432/tasker_rust_test`
-- `TASKER_ENV=test` - Application environment
-- `LOG_LEVEL=warn` & `RUST_LOG=warn` - Logging levels
-- `JWT_PRIVATE_KEY` & `JWT_PUBLIC_KEY` - Test authentication keys
-- `API_KEY` - Test API authentication
+**Purpose**: Ruby-specific framework testing (no Docker needed)
 
-### Benefits
-- **Consistency**: All workflows use identical environment settings
-- **Maintainability**: Single place to update environment variables
-- **DRY Principle**: No duplication of environment setup across workflows
+**Runs**:
+- FFI layer tests (`workers/ruby/spec/ffi/`)
+- Type wrapper tests (`workers/ruby/spec/types/`)
+- Worker core tests (`workers/ruby/spec/worker/`)
 
-## Local Development
+**Requirements**:
+- Ruby 3.4
+- Rust toolchain (for FFI extension compilation)
+- Bundle install + rake compile
 
-### Running Tests Locally
+**Command**: `bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb`
 
-1. **Start services:**
-   ```bash
-   docker compose -f docker/docker-compose.test.yml up -d --build
-   ```
+**Duration**: ~1-2 minutes
 
-2. **Run unit tests with nextest:**
-   ```bash
-   cargo nextest run --profile default
-   ```
+**Key Features**:
+- Fast feedback (no Docker overhead)
+- Validates Ruby FFI bindings
+- Tests Ruby-specific framework logic
 
-3. **Run integration tests:**
-   ```bash
-   cargo nextest run --package tasker-core --test '*'
-   ```
+---
 
-4. **Run with CI profile:**
-   ```bash
-   cargo nextest run --profile ci
-   ```
+### Unit Tests (`test-unit.yml`)
 
-5. **Clean up:**
-   ```bash
-   docker compose -f docker/docker-compose.test.yml down
-   ```
+**Purpose**: Rust unit tests with PostgreSQL integration
 
-### Installing Tools
+**Runs**: `cargo nextest run --lib --bins`
 
-```bash
-# Install nextest
-cargo binstall cargo-nextest -y
+**Duration**: ~3-5 minutes
 
-# Install sqlx-cli
-cargo binstall sqlx-cli --no-default-features --features rustls,postgres -y
+---
 
-# Install sccache (optional for local)
-cargo binstall sccache -y
-```
+### Ruby Unit Tests (`test-ruby-unit.yml`)
 
-## Shared Actions
+**Purpose**: Ruby unit tests (no Docker)
 
-### 🔗 Setup Environment (`.github/actions/setup-env/action.yml`)
+**Runs**: `bundle exec rspec spec/unit/` (if unit tests exist)
 
-**Purpose**: Consistent environment variable setup across all workflows
+**Duration**: ~1 minute
 
-**Features**:
-- Sets all standard environment variables for CI
-- Configures Rust compilation settings
-- Sets up database connection and application environment
-- Provides test authentication keys
-- Displays configuration summary for debugging
+---
 
-**Usage**:
-```yaml
-- name: Setup shared environment variables
-  uses: ./.github/actions/setup-env
-```
+## Support Workflows
 
-**Environment Variables Set**:
-- Core Rust settings (CARGO_TERM_COLOR, RUST_BACKTRACE, etc.)
-- Build caching (sccache temporarily disabled due to service issues)
-- Database and application (DATABASE_URL, TASKER_ENV, LOG_LEVEL)
-- Authentication (JWT keys, API_KEY)
+### Build Docker Images (`build-docker-images.yml`)
 
-### 🔧 Install Tools (`.github/actions/install-tools/action.yml`)
-
-**Purpose**: Fast installation of Rust development tools using a hybrid approach with proven working commands
-
-**Features**:
-- Uses `cargo-bins/cargo-binstall@main` for cargo-binstall installation
-- Hybrid approach: `cargo binstall --secure` for nextest, `cargo install` for others
-- Intelligent caching of `~/.cargo/bin` for faster subsequent runs
-- Proven working commands that eliminate version parameter issues
-
-**Usage**:
-```yaml
-- name: Install development tools
-  uses: ./.github/actions/install-tools
-  with:
-    tools: "nextest sqlx-cli audit"
-```
-
-**Available Tools**:
-- `nextest` - Uses `cargo binstall cargo-nextest --secure` (fast, secure)
-- `sqlx-cli` - Uses `cargo install` with native-tls and postgres features  
-- `audit` - Uses `cargo install cargo-audit --locked` (reproducible builds)
-- `llvm-cov` - Uses `cargo binstall cargo-llvm-cov` (fast binary install)
-
-**Benefits**: Combines speed of binstall with reliability of cargo install, includes caching
-
-## Workflow Details
-
-### 🏗️ Build Docker Images (`build-docker-images.yml`)
-
-**Purpose**: Build PostgreSQL with PGMQ extension once, reuse everywhere
-
-**Features**:
-- Builds from `docker/db/Dockerfile` (fixed from old incorrect reference)
-- Pushes to GHCR with SHA-based tagging
-- Fallback to public PGMQ image if GHCR unavailable
-- Docker layer caching via GitHub Actions cache
+**Purpose**: Build and cache Docker images for CI
 
 **Outputs**:
-- `postgres-image`: Image tag to use in subsequent jobs
+- `postgres-image`: PostgreSQL with PGMQ extension
+- Other service images as needed
 
-### 🔍 Code Quality (`code-quality.yml`)
+---
 
-**Purpose**: Fast feedback on code quality issues
+### Code Quality (`code-quality.yml`)
 
-**Checks**:
-- `cargo fmt --check`: Code formatting
-- `cargo clippy`: Linting with error promotion
-- `cargo audit`: Security vulnerability scanning  
-- `cargo doc`: Documentation building
+**Purpose**: Linting and formatting checks
 
-**Features**:
-- Uses shared environment setup for consistency
-- Compilation caching (sccache temporarily disabled)
-- Runs against the built PostgreSQL image
-- Installs tools via `cargo binstall` for speed
-- Generates JUnit XML artifacts for test reporting
+**Runs**:
+- `cargo clippy`
+- `cargo fmt --check`
+- Ruby linting (if configured)
 
-### 🧪 Unit Tests (`test-unit.yml`)
+**Duration**: ~2-3 minutes
 
-**Purpose**: Run unit tests with maximum parallelization
+---
 
-**Features**:
-- **Shared environment**: Consistent setup across all test runs
-- **Matrix strategy**: Tests on Rust stable and beta
-- **Nextest integration**: Parallel test execution with `--profile ci`
-- **JUnit output**: Test results uploaded as artifacts
-- **Doctests**: Separate `cargo test --doc` run (nextest doesn't handle these)
-- **Core packages**: Tests specific packages in parallel
+### CI Success (`ci-success.yml`)
 
-**Test Selection**:
+**Purpose**: Final success gate for branch protection
+
+**Status**: Passes only if all required jobs succeed
+
+---
+
+## Test Organization
+
+### E2E Tests (Language-Agnostic)
+
+**Location**: `tests/e2e/`
+
+**Purpose**: Black-box API testing regardless of worker language
+
+**Structure**:
+```
+tests/e2e/
+├── rust/          # Rust worker scenarios
+│   ├── linear_workflow.rs
+│   ├── diamond_workflow.rs
+│   └── ...
+└── ruby/          # Ruby FFI worker scenarios
+    ├── error_scenarios_test.rs
+    └── ...
+```
+
+**Philosophy**: Tests call orchestration APIs and verify responses. The handler implementation language is irrelevant.
+
+---
+
+### Framework Tests (Language-Specific)
+
+**Ruby Location**: `workers/ruby/spec/`
+
+**Purpose**: Test Ruby-specific framework concerns
+
+**Structure**:
+```
+workers/ruby/spec/
+├── ffi/           # FFI bootstrap and calls
+├── types/         # Type wrappers
+├── worker/        # Worker core logic
+├── fixtures/      # Test templates and handlers
+└── handlers/      # Test handler implementations
+```
+
+**Philosophy**: Tests Ruby code that interacts with Rust FFI layer. No distributed system testing.
+
+---
+
+## Running Tests Locally
+
+### E2E Tests
+
 ```bash
-cargo nextest run \
-  --profile ci \
-  --package tasker-shared \
-  --package tasker-orchestration \
-  --package tasker-worker \
-  --package pgmq-notify \
-  --package tasker-client \
-  --no-fail-fast
+# Start Docker services
+docker compose -f docker/docker-compose.test.yml up --build -d
+
+# Wait for services
+curl http://localhost:8080/health  # Orchestration
+curl http://localhost:8081/health  # Rust worker
+curl http://localhost:8082/health  # Ruby worker (may take 60s)
+
+# Run all E2E tests
+cargo nextest run --test '*' --profile ci
+
+# Cleanup
+docker compose -f docker/docker-compose.test.yml down -v
 ```
 
-### 🔄 Integration Tests (`test-integration.yml`)
+### Ruby Framework Tests
 
-**Purpose**: End-to-end testing with real services
-
-**Features**:
-- **Shared environment**: Consistent configuration for integration testing
-- **Docker Compose**: Uses `hoverkraft-tech/compose-action@v2.0.1`
-- **Service Health**: Waits for `/health` endpoints on ports 8080, 8081
-- **Real Services**: Tests against actual orchestration and worker containers
-- **Log Collection**: Captures service logs on failure
-- **Nextest Integration**: Uses CI profile for consistent reporting
-
-**Services Started**:
-- PostgreSQL with PGMQ on port 5432
-- Orchestration service on port 8080  
-- Rust worker service on port 8081
-
-### ✅ CI Success (`ci-success.yml`)
-
-**Purpose**: Final status aggregation
-
-Simple success marker that only runs if all previous jobs pass.
-
-## Configuration Files
-
-### Nextest Configuration (`.config/nextest.toml`)
-
-```toml
-[profile.default]
-retries = 0
-leak-timeout = { period = "500ms", result = "fail" }
-fail-fast = false
-
-[profile.ci]
-# CI-specific settings
-fail-fast = false
-slow-timeout = { period = "60s", terminate-after = 2 }
-test-threads = "num-cpus"
-status-level = "pass"
-final-status-level = "slow"
-
-# Archive settings for test result uploads
-[profile.ci.junit]
-path = "target/nextest/ci/junit.xml"
-
-[profile.local]
-# Local development settings
-fail-fast = true
-status-level = "retry"
-```
-
-### Docker Compose (`docker/docker-compose.test.yml`)
-
-The integration tests use the existing test compose file which includes:
-- PostgreSQL with PGMQ extension
-- Orchestration service with health checks
-- Rust worker service with health checks
-- Proper networking and volume mounts
-
-## Performance Improvements
-
-### Before TAS-41
-- Sequential test execution
-- No build caching
-- Monolithic 600+ line CI file
-- Manual tool installation
-- No real integration testing
-
-### After TAS-41
-- ⚡ **10x faster tests** with nextest parallelization
-- 🚀 **50%+ faster builds** planned with sccache (when re-enabled)
-- 📊 **Better test reporting** with JUnit artifacts
-- 🔧 **Faster tool installation** with cargo binstall
-- 🧪 **Real integration testing** with Docker Compose
-- 📝 **Maintainable workflows** with modular design
-
-## Troubleshooting
-
-### Services fail to start
 ```bash
-# Check Docker daemon
-docker info
-
-# Verify ports are available
-lsof -i :5432 -i :8080 -i :8081
-
-# Check service logs
-docker compose -f docker/docker-compose.test.yml logs
+cd workers/ruby
+bundle install
+bundle exec rake compile
+bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb
 ```
 
-### Tests timeout
-- Check service health endpoints: `curl http://localhost:8080/health`
-- Verify DATABASE_URL is correct
-- Increase timeout in nextest configuration if needed
+### Unit Tests
 
-### Build caching issues
-### sccache issues (currently disabled)
-- Temporarily disabled due to GitHub Actions cache service outage
-- See `docs/sccache-configuration.md` for planned re-enablement
-- When working: requires `RUSTC_WRAPPER=sccache` environment variable
-
-### Tool installation fails
 ```bash
-# Install cargo-binstall first
-curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+# Rust unit tests
+cargo nextest run --lib --bins
 
-# Then install tools
-cargo binstall cargo-nextest -y
+# Ruby unit tests (if they exist)
+cd workers/ruby
+bundle exec rspec spec/unit/
 ```
 
-## Migration from Old CI
+---
 
-### What Changed
-- ❌ **Removed**: Ruby bindings tests (no longer in workspace)
-- ❌ **Removed**: Benchmark job (deferred for redesign)
-- ❌ **Fixed**: `Dockerfile.postgres-extensions` → `docker/db/Dockerfile`
-- ❌ **Fixed**: `docker-compose.ci.yml` → `docker/docker-compose.test.yml`
-- ✅ **Added**: Nextest for parallel execution
-- ⏸️ **Planned**: sccache for build caching (temporarily disabled)
-- ✅ **Added**: Real integration testing
-- ✅ **Added**: Modular workflow design
-- ✅ **Added**: Shared environment variables via composite action
+## Adding New Tests
 
-### Rollback Plan
-The old CI configuration is preserved in `.github/workflows/archived/` for emergency rollback.
+### Adding E2E Test
 
-## Future Enhancements
+1. Create test file in `tests/e2e/rust/` or `tests/e2e/ruby/`
+2. Use `DockerIntegrationManager` for setup
+3. Test runs automatically via `cargo nextest run --test '*'`
+4. No CI changes needed
 
-### Planned Improvements
-- **End-to-end benchmarks**: Redesign benchmarks to measure realistic workflow performance
-- **Coverage reporting**: Integrate with codecov for coverage tracking
-- **Security scanning**: Add container image vulnerability scanning
-- **Example validation**: Ensure all examples in `/examples` work correctly
+**Example**:
+```rust
+// tests/e2e/ruby/my_new_test.rs
+use crate::common::integration_test_manager::IntegrationTestManager;
 
-### Additional Examples
-Based on the current single example (`config_demo.rs`), we should add:
-- `client_usage.rs`: Demonstrate tasker-client usage
-- `worker_setup.rs`: Show worker configuration
-- `workflow_patterns.rs`: Common workflow patterns
-
-## Monitoring
-
-### GitHub Actions Insights
-- Monitor workflow duration trends
-- Track success/failure rates
-- Identify bottlenecks in the pipeline
-
-### JUnit Test Reporting
-
-All test workflows generate JUnit XML artifacts for better test result visualization:
-
-**Configuration** (`.config/nextest.toml`):
-```toml
-[profile.ci.junit]
-path = "target/nextest/ci/junit.xml"
+#[tokio::test]
+#[ignore]  // Run only when Docker services available
+async fn test_my_scenario() -> anyhow::Result<()> {
+    let manager = IntegrationTestManager::setup().await?;
+    // ... test logic ...
+    Ok(())
+}
 ```
 
-**Usage in workflows**:
-- Tests run with `--profile ci` to generate JUnit XML
-- Artifacts uploaded conditionally when files exist
-- Available in GitHub Actions artifacts for download
-- Enables rich test reporting in PR comments and CI dashboards
+### Adding Framework Test
 
-**Benefits**:
-- Visual test result reporting in GitHub UI
-- Test timing and failure analysis
-- Historical test performance tracking
-- Integration with external reporting tools
+1. Create test file in `workers/ruby/spec/{ffi,types,worker}/`
+2. No Docker dependencies
+3. Test runs automatically via `bundle exec rspec spec/`
+4. No CI changes needed
 
-### Key Metrics to Track
-- **Total CI time**: Target < 10 minutes for typical PRs
-- **Build cache hit rate**: Target > 80% with sccache (when re-enabled)
-- **Test parallelization**: Monitor nextest performance gains
-- **Integration test stability**: Ensure consistent service startup
+---
 
-## Contributing
+## Debugging CI Failures
 
-When modifying CI workflows:
+### E2E Test Failures
 
-1. **Test locally first**: Use Docker Compose to replicate CI environment
-2. **Update shared environment**: If changing environment variables, update `.github/actions/setup-env/action.yml`
-3. **Update documentation**: Keep this README current with changes
-4. **Consider dependencies**: Modular design means changes can affect multiple workflows
-5. **Test with feature branch**: Validate changes before merging to main
-6. **Monitor performance**: Check that changes don't regress build times
+1. **Check service logs**: Download `e2e-service-logs` artifact
+2. **Check test output**: Download `e2e-test-results` artifact (JUnit XML)
+3. **Reproduce locally**:
+   ```bash
+   docker compose -f docker/docker-compose.test.yml up --build
+   cargo nextest run --test '*' --nocapture
+   ```
 
-## Support
+### Ruby Framework Test Failures
 
-For CI-related issues:
-- Check this documentation first
-- Review GitHub Actions logs for specific errors
-- Test locally with Docker Compose to isolate issues
-- Consider the modular design when debugging workflow dependencies
+1. **Check test output**: Download `ruby-framework-test-results` artifact
+2. **Reproduce locally**:
+   ```bash
+   cd workers/ruby
+   bundle exec rake compile
+   bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb
+   ```
+
+### Common Issues
+
+**Ruby worker not starting**:
+- FFI bootstrap can take 30-60 seconds
+- Check `ruby-worker` logs for compilation errors
+- Verify Rust toolchain installed in CI
+
+**Handler discovery failing**:
+- Check `TASKER_TEMPLATE_PATH` environment variable
+- Verify templates mounted in Docker volumes
+- Check handler registry logs
+
+**Flaky tests**:
+- Increase health check timeout
+- Add retry logic for transient failures
+- Check for timing dependencies
+
+---
+
+## CI Performance Targets
+
+| Workflow | Target Duration | Actual |
+|----------|----------------|--------|
+| E2E Tests | < 15 minutes | ~10-15 min |
+| Ruby Framework | < 2 minutes | ~1-2 min |
+| Unit Tests | < 5 minutes | ~3-5 min |
+| Code Quality | < 3 minutes | ~2-3 min |
+| **Total CI** | **< 20 minutes** | **~15-20 min** |
+
+---
+
+## Migration from Old Structure
+
+**Previous**: Separate `test-integration.yml` and `test-ruby-integration.yml`
+
+**Now**: Unified `test-e2e.yml` + separate `test-ruby-framework.yml`
+
+**Changes**:
+- ✅ Consolidated E2E testing (single Docker startup)
+- ✅ Removed duplicate test infrastructure
+- ✅ Separated framework tests (fast, no Docker)
+- ✅ Removed `workers/ruby/spec/integration/` (migrated to `tests/e2e/ruby/`)
+
+---
+
+## Related Documentation
+
+- [TAS-42 Specification](../../docs/ticket-specs/TAS-42/TAS-42-ci-and-e2e.md)
+- [E2E Testing Guide](../../docs/testing-e2e.md) (TODO)
+- [Ruby Framework Testing](../../workers/ruby/docs/framework-testing.md) (TODO)
+
+---
+
+**Last Updated**: 2025-10-06 (TAS-42 Phase 6 completion)

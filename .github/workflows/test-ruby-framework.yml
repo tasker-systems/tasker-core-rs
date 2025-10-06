@@ -1,0 +1,80 @@
+name: Ruby Framework Tests
+
+on:
+  workflow_call:
+
+jobs:
+  ruby-framework:
+    name: Ruby Framework Tests (No Docker)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: workers/ruby
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+          working-directory: workers/ruby
+
+      - name: Setup Rust (for FFI extension)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install Ruby dependencies
+        run: bundle install
+
+      - name: Compile Ruby FFI extension
+        run: bundle exec rake compile
+
+      - name: Create test results directory
+        run: mkdir -p ../../target
+
+      - name: Run Ruby framework tests
+        run: |
+          echo "🧪 Running Ruby framework tests (FFI, types, events, worker)..."
+          echo "   - spec/ffi/ - FFI layer integration"
+          echo "   - spec/types/ - Type wrappers and conversions"
+          echo "   - spec/worker/ - Worker core functionality"
+          echo "   - spec/events/ - Event system (if exists)"
+          echo ""
+          echo "   ❌ EXCLUDING spec/integration/ (moved to Rust E2E tests)"
+          echo ""
+
+          bundle exec rspec spec/ \
+            --exclude-pattern "spec/integration/**/*_spec.rb" \
+            --format documentation \
+            --format RspecJunitFormatter \
+            --out ../../target/ruby-framework-results.xml
+        env:
+          TASKER_ENV: test
+          TASKER_TEMPLATE_PATH: ./spec/fixtures/templates
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always() && hashFiles('target/ruby-framework-results.xml') != ''
+        with:
+          name: ruby-framework-test-results
+          path: target/ruby-framework-results.xml
+
+      - name: Display test summary
+        if: always()
+        run: |
+          echo "📊 Ruby Framework Test Summary"
+          echo "================================"
+          if [ -f "../../target/ruby-framework-results.xml" ]; then
+            test_count=$(grep -o '<testcase' ../../target/ruby-framework-results.xml | wc -l || echo "0")
+            echo "Total tests: $test_count"
+            echo "✅ Framework tests completed"
+          else
+            echo "⚠️ No test results file found"
+          fi

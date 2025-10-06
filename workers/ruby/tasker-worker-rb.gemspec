@@ -40,13 +40,13 @@ Gem::Specification.new do |spec|
     'LICENSE'
   ].select { |f| File.file?(f) }.reject do |f|
     # Exclude test-specific files and directories from production gem
-    f.match?(%r{^spec/}) ||           # Exclude entire spec/ directory
-      f.match?(%r{test}) ||           # Exclude any test files
-      f.match?(%r{fixtures}) ||       # Exclude test fixtures
-      f.match?(%r{examples}) ||       # Exclude example code
-      f.match?(%r{\.rspec}) ||        # Exclude RSpec configuration
-      f.match?(%r{_spec\.rb$}) ||     # Exclude RSpec spec files
-      f.match?(%r{_test\.rb$}) ||     # Exclude test files
+    f.match?(%r{^spec/}) || # Exclude entire spec/ directory
+      f.match?(/test/) ||           # Exclude any test files
+      f.match?(/fixtures/) ||       # Exclude test fixtures
+      f.match?(/examples/) ||       # Exclude example code
+      f.match?(/\.rspec/) ||        # Exclude RSpec configuration
+      f.match?(/_spec\.rb$/) ||     # Exclude RSpec spec files
+      f.match?(/_test\.rb$/) ||     # Exclude test files
       f.include?('spec_helper') ||    # Exclude spec helpers
       f.include?('test_helper')       # Exclude test helpers
   end

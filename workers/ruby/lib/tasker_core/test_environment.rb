@@ -88,7 +88,7 @@ module TaskerCore
         return {} unless @loaded
 
         {
-          template_path: ENV['TASKER_TEMPLATE_PATH'],
+          template_path: ENV.fetch('TASKER_TEMPLATE_PATH', nil),
           fixtures_path: @template_fixtures_path,
           fixtures_exist: Dir.exist?(@template_fixtures_path),
           template_files: Dir.exist?(@template_fixtures_path) ? Dir.glob("#{@template_fixtures_path}/*.yaml").count : 0,
@@ -109,7 +109,7 @@ module TaskerCore
       end
 
       def log_debug(message)
-        if @logger && @logger.respond_to?(:debug)
+        if @logger.respond_to?(:debug)
           @logger.debug(message)
         elsif ENV['LOG_LEVEL'] == 'debug'
           puts "[DEBUG] #{message}"
@@ -126,13 +126,13 @@ module TaskerCore
 
       def setup_test_template_path!
         # Override template path to use test fixtures if not already set
-        unless ENV['TASKER_TEMPLATE_PATH']
-          if Dir.exist?(@template_fixtures_path)
-            ENV['TASKER_TEMPLATE_PATH'] = @template_fixtures_path
-            log_debug("📁 Set TASKER_TEMPLATE_PATH to: #{@template_fixtures_path}")
-          else
-            log_warn("⚠️  Test template fixtures directory not found: #{@template_fixtures_path}")
-          end
+        return if ENV['TASKER_TEMPLATE_PATH']
+
+        if Dir.exist?(@template_fixtures_path)
+          ENV['TASKER_TEMPLATE_PATH'] = @template_fixtures_path
+          log_debug("📁 Set TASKER_TEMPLATE_PATH to: #{@template_fixtures_path}")
+        else
+          log_warn("⚠️  Test template fixtures directory not found: #{@template_fixtures_path}")
         end
       end
 
@@ -144,16 +144,14 @@ module TaskerCore
 
         loaded_count = 0
         handler_files.each do |handler_file|
-          begin
-            # Use require instead of require_relative to avoid duplicate loading
-            require handler_file
-            loaded_count += 1
-            log_debug("✅ Loaded handler file: #{File.basename(handler_file)}")
-          rescue LoadError => e
-            log_warn("❌ Failed to load handler file #{handler_file}: #{e.message}")
-          rescue StandardError => e
-            log_warn("❌ Error loading handler file #{handler_file}: #{e.class} - #{e.message}")
-          end
+          # Use require instead of require_relative to avoid duplicate loading
+          require handler_file
+          loaded_count += 1
+          log_debug("✅ Loaded handler file: #{File.basename(handler_file)}")
+        rescue LoadError => e
+          log_warn("❌ Failed to load handler file #{handler_file}: #{e.message}")
+        rescue StandardError => e
+          log_warn("❌ Error loading handler file #{handler_file}: #{e.class} - #{e.message}")
         end
 
         log_info("📚 Loaded #{loaded_count}/#{handler_files.count} example handler files")
@@ -161,7 +159,7 @@ module TaskerCore
 
       def verify_test_setup!
         # Verify template path is set correctly
-        template_path = ENV['TASKER_TEMPLATE_PATH']
+        template_path = ENV.fetch('TASKER_TEMPLATE_PATH', nil)
         if template_path.nil?
           log_warn('⚠️  TASKER_TEMPLATE_PATH not set, template discovery may fail')
         elsif !Dir.exist?(template_path)

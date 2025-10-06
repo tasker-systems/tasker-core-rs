@@ -12,7 +12,7 @@ async fn test_linear_workflow_max_attempts_exhaustion(pool: PgPool) -> Result<()
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -106,7 +106,7 @@ async fn test_linear_workflow_recovery_after_retry(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -222,7 +222,7 @@ async fn test_linear_workflow_retryable_error_with_backoff(pool: PgPool) -> Resu
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -348,7 +348,7 @@ async fn test_linear_workflow_mid_chain_failure_blocks_downstream(pool: PgPool) 
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -446,7 +446,7 @@ async fn test_linear_workflow_transient_failure_eventual_completion(pool: PgPool
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 

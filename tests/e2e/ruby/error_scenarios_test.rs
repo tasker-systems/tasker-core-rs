@@ -19,7 +19,6 @@ use crate::common::integration_test_utils::{
 /// - No retries needed
 /// - Fast execution (< 3s)
 #[tokio::test]
-#[ignore] // Run with --ignored when Docker services are running
 async fn test_success_scenario() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
@@ -77,7 +76,6 @@ async fn test_success_scenario() -> Result<()> {
 /// - No retries attempted (< 2s total)
 /// - Step marked as non-retryable error
 #[tokio::test]
-#[ignore] // Run with --ignored when Docker services are running
 async fn test_permanent_failure_scenario() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
@@ -146,7 +144,6 @@ async fn test_permanent_failure_scenario() -> Result<()> {
 /// - Eventually fails after retry exhaustion
 /// - Takes measurable time for retries (>100ms, <3s)
 #[tokio::test]
-#[ignore] // Run with --ignored when Docker services are running
 async fn test_retryable_failure_scenario() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
@@ -219,7 +216,6 @@ async fn test_retryable_failure_scenario() -> Result<()> {
 /// - Some steps succeed, others fail
 /// - Overall task marked as failed
 #[tokio::test]
-#[ignore] // Run with --ignored when Docker services are running
 async fn test_mixed_workflow_scenario() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 

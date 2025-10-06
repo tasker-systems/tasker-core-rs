@@ -17,7 +17,7 @@ module ErrorScenarios
     # @param sequence [TaskerCore::Types::TaskSequenceStep] The sequence context
     # @param step [TaskerCore::Types::TaskSequenceStep] The current step
     # @raise [TaskerCore::Errors::RetryableError] Always raises retryable error
-    def call(task, sequence, step)
+    def call(_task, _sequence, step)
       retry_count = step.results&.dig('retry_count') || 0
 
       TaskerCore::Logger.instance.log_step(

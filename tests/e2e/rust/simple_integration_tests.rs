@@ -24,7 +24,7 @@ async fn demo_full_integration_test_suite() -> Result<()> {
 
     // Create a simple task
     let task_request = create_task_request(
-        "linear_workflow",
+        "rust_e2e_linear",
         "mathematical_sequence",
         json!({"even_number": 8}),
     );
@@ -67,7 +67,7 @@ async fn demo_api_only_test_suite() -> Result<()> {
 
     // Test 2: Task creation API
     let task_request = create_task_request(
-        "linear_workflow",
+        "rust_e2e_linear",
         "mathematical_sequence",
         json!({"even_number": 6}),
     );

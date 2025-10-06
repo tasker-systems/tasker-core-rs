@@ -45,7 +45,7 @@ async fn test_end_to_end_diamond_workflow() -> Result<()> {
     println!("     --input '{{\"even_number\": 6}}'");
 
     let task_request = create_task_request(
-        "diamond_workflow",
+        "rust_e2e_diamond",
         "diamond_pattern",
         json!({
             "even_number": 6  // This will be processed through diamond workflow: 6^16 = 2,821,109,907,456
@@ -179,7 +179,7 @@ async fn test_diamond_workflow_api_validation() -> Result<()> {
 
     // Test 1: Valid diamond workflow task creation
     let task_request = create_task_request(
-        "diamond_workflow",
+        "rust_e2e_diamond",
         "diamond_pattern",
         json!({"even_number": 8}), // Valid even number within range
     );

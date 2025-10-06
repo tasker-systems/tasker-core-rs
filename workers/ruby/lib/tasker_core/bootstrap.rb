@@ -361,7 +361,7 @@ module TaskerCore
         # Start the EventPoller to poll for events from Rust
         EventPoller.instance.start!
 
-        # Note: StepExecutionSubscriber already subscribes to step execution events
+        # NOTE: StepExecutionSubscriber already subscribes to step execution events
         # in its initializer, so we don't need to subscribe again here.
         # Duplicate subscriptions cause the same event to be processed twice,
         # leading to double state transitions.

@@ -41,7 +41,7 @@ async fn test_end_to_end_linear_workflow_with_rust_worker() -> Result<()> {
     println!("     --input '{{\"even_number\": 8}}'");
 
     let task_request = create_task_request(
-        "linear_workflow",
+        "rust_e2e_linear",
         "mathematical_sequence",
         json!({
             "even_number": 8  // This will be processed through the linear workflow steps
@@ -136,7 +136,7 @@ async fn test_orchestration_api_with_docker_compose() -> Result<()> {
 
     // Test 2: Task creation API
     let task_request = create_task_request(
-        "linear_workflow",
+        "rust_e2e_linear",
         "mathematical_sequence",
         json!({"even_number": 6}),
     );

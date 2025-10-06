@@ -49,7 +49,7 @@ async fn test_end_to_end_tree_workflow() -> Result<()> {
     println!("     --input '{{\"even_number\": 6}}'");
 
     let task_request = create_task_request(
-        "tree_workflow",
+        "rust_e2e_tree",
         "hierarchical_tree",
         json!({
             "even_number": 6  // This will be processed through tree workflow: 6^32 (extremely large number)
@@ -227,7 +227,7 @@ async fn test_tree_workflow_api_validation() -> Result<()> {
 
     // Test 1: Valid tree workflow task creation
     let task_request = create_task_request(
-        "tree_workflow",
+        "rust_e2e_tree",
         "hierarchical_tree",
         json!({"even_number": 4}), // Valid even number within range
     );

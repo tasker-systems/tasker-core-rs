@@ -82,7 +82,11 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
     println!("     --input '<complex_order_structure>'");
 
     let order_data = create_order_fulfillment_request();
-    let task_request = create_task_request("order_fulfillment", "business_workflow", order_data);
+    let task_request = create_task_request(
+        "rust_e2e_order_fulfillment",
+        "business_workflow",
+        order_data,
+    );
 
     let task_response = manager
         .orchestration_client
@@ -298,7 +302,11 @@ async fn test_order_fulfillment_api_validation() -> Result<()> {
 
     // Test 1: Valid order fulfillment workflow task creation
     let order_data = create_order_fulfillment_request();
-    let task_request = create_task_request("order_fulfillment", "business_workflow", order_data);
+    let task_request = create_task_request(
+        "rust_e2e_order_fulfillment",
+        "business_workflow",
+        order_data,
+    );
 
     let task_response = manager
         .orchestration_client
@@ -341,8 +349,11 @@ async fn test_order_fulfillment_api_validation() -> Result<()> {
         // Missing payment and shipping
     });
 
-    let invalid_task_request =
-        create_task_request("order_fulfillment", "business_workflow", invalid_order_data);
+    let invalid_task_request = create_task_request(
+        "rust_e2e_order_fulfillment",
+        "business_workflow",
+        invalid_order_data,
+    );
 
     // This should either fail immediately or be created but fail during validation step
     match manager

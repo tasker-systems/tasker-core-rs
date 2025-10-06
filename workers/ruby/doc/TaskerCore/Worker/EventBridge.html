@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>
+  Class: TaskerCore::Worker::EventBridge
+  
+    &mdash; Documentation by YARD 0.9.37
+  
+</title>
+
+  <link rel="stylesheet" href="../../css/style.css" type="text/css" />
+
+  <link rel="stylesheet" href="../../css/common.css" type="text/css" />
+
+<script type="text/javascript">
+  pathId = "TaskerCore::Worker::EventBridge";
+  relpath = '../../';
+</script>
+
+
+  <script type="text/javascript" charset="utf-8" src="../../js/jquery.js"></script>
+
+  <script type="text/javascript" charset="utf-8" src="../../js/app.js"></script>
+
+
+  </head>
+  <body>
+    <div class="nav_wrap">
+      <iframe id="nav" src="../../class_list.html?1"></iframe>
+      <div id="resizer"></div>
+    </div>
+
+    <div id="main" tabindex="-1">
+      <div id="header">
+        <div id="menu">
+  
+    <a href="../../_index.html">Index (E)</a> &raquo;
+    <span class='title'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span> &raquo; <span class='title'><span class='object_link'><a href="../Worker.html" title="TaskerCore::Worker (module)">Worker</a></span></span>
+     &raquo; 
+    <span class="title">EventBridge</span>
+  
+</div>
+
+        <div id="search">
+  
+    <a class="full_list_link" id="class_list_link"
+        href="../../class_list.html">
+
+        <svg width="24" height="24">
+          <rect x="0" y="4" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="12" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="20" width="24" height="4" rx="1" ry="1"></rect>
+        </svg>
+    </a>
+  
+</div>
+        <div class="clear"></div>
+      </div>
+
+      <div id="content"><h1>Class: TaskerCore::Worker::EventBridge
+  
+  
+  
+</h1>
+<div class="box_info">
+  
+  <dl>
+    <dt>Inherits:</dt>
+    <dd>
+      <span class="inheritName">Object</span>
+      
+        <ul class="fullTree">
+          <li>Object</li>
+          
+            <li class="next">TaskerCore::Worker::EventBridge</li>
+          
+        </ul>
+        <a href="#" class="inheritanceTree">show all</a>
+      
+    </dd>
+  </dl>
+  
+
+  
+  
+  
+  
+  <dl>
+      <dt>Includes:</dt>
+      <dd>Singleton</dd>
+  </dl>
+  
+  
+
+  
+
+  
+  <dl>
+    <dt>Defined in:</dt>
+    <dd>lib/tasker_core/event_bridge.rb</dd>
+  </dl>
+  
+</div>
+
+<h2>Overview</h2><div class="docstring">
+  <div class="discussion">
+    
+<p>Event bridge between Rust and Ruby using dry-events</p>
+
+<p>Handles bidirectional event communication between the Rust orchestration layer and Ruby business logic handlers. The bridge uses dry-events for Ruby-side pub/sub and FFI for cross-language communication.</p>
+
+<p>Event Flow:</p>
+<ol><li>
+<p>**Rust → Ruby**: StepExecutionEvent indicates step is ready for processing</p>
+</li><li>
+<p>**Ruby Processing**: Handler executes business logic</p>
+</li><li>
+<p>**Ruby → Rust**: StepExecutionCompletionEvent returns results</p>
+</li></ol>
+
+<p>The EventBridge automatically wraps raw FFI data in accessor objects for developer convenience and maintains event schema validation.</p>
+
+<p>Event Flow Diagram:</p>
+
+<p>“‘ Rust Orchestration                EventBridge                 Ruby Handler —————–                ———–                 ————</p>
+
+<pre class="code ruby"><code class="ruby">|                                |                           |
+| 1. Step ready for execution    |                           |
+|-------------------------------&gt;|                           |
+|    publish_step_execution      |                           |
+|                                | 2. Publish event          |
+|                                |--------------------------&gt;|
+|                                |    step.execution.received|
+|                                |                           |
+|                                |                  3. Execute handler
+|                                |                           |
+|                                | 4. Completion             |
+|                                |&lt;--------------------------|
+| 5. FFI completion              |    publish_step_completion|
+|&lt;-------------------------------|                           |
+|    send_step_completion_event  |                           |
+</code></pre>
+
+<p>“‘</p>
+
+<p>Registered Events:</p>
+<ul><li>
+<p><strong>step.execution.received</strong>: Step ready for execution (Rust → Ruby)</p>
+</li><li>
+<p><strong>step.completion.sent</strong>: Step execution completed (Ruby → Rust)</p>
+</li><li>
+<p><strong>bridge.error</strong>: Error in event processing</p>
+</li></ul>
+
+<p>Completion Data Validation: The bridge validates completion data before sending to Rust:</p>
+<ul><li>
+<p><strong>event_id</strong>: Required, UUID of the original execution event</p>
+</li><li>
+<p><strong>task_uuid</strong>: Required, UUID of the task</p>
+</li><li>
+<p><strong>step_uuid</strong>: Required, UUID of the step</p>
+</li><li>
+<p><strong>success</strong>: Required, boolean indicating success/failure</p>
+</li><li>
+<p><strong>metadata</strong>: Optional, hash with additional context</p>
+</li><li>
+<p><strong>completed_at</strong>: Optional, ISO 8601 timestamp (auto-generated if missing)</p>
+</li></ul>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+  <div class="examples">
+    <h4 class="tag_title">Examples:</h4>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Publishing step execution (from Rust FFI)</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='comment'># This is called automatically by Rust via FFI when a step is ready
+</span><span class='id identifier rubyid_bridge'>bridge</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Worker.html" title="TaskerCore::Worker (module)">Worker</a></span></span><span class='op'>::</span><span class='const'>EventBridge</span><span class='period'>.</span><span class='id identifier rubyid_instance'>instance</span>
+<span class='id identifier rubyid_bridge'>bridge</span><span class='period'>.</span><span class='id identifier rubyid_publish_step_execution'>publish_step_execution</span><span class='lparen'>(</span><span class='lbrace'>{</span>
+  <span class='label'>event_id:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>550e8400-e29b-41d4-a716-446655440000</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+  <span class='label'>task_uuid:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>7c9e6679-7425-40de-944b-e07fc1f90ae7</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+  <span class='label'>step_uuid:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>123e4567-e89b-12d3-a456-426614174000</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+  <span class='label'>task_sequence_step:</span> <span class='lbrace'>{</span>
+    <span class='label'>task:</span> <span class='lbrace'>{</span> <span class='label'>context:</span> <span class='lbrace'>{</span> <span class='label'>amount:</span> <span class='float'>100.00</span><span class='comma'>,</span> <span class='label'>currency:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>USD</span><span class='tstring_end'>&quot;</span></span> <span class='rbrace'>}</span> <span class='rbrace'>}</span><span class='comma'>,</span>
+    <span class='label'>step:</span> <span class='lbrace'>{</span> <span class='label'>name:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>process_payment</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='label'>handler_class:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>ProcessPaymentHandler</span><span class='tstring_end'>&quot;</span></span> <span class='rbrace'>}</span><span class='comma'>,</span>
+    <span class='label'>workflow_step:</span> <span class='lbrace'>{</span> <span class='label'>state:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>in_progress</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='label'>attempts:</span> <span class='int'>1</span> <span class='rbrace'>}</span>
+  <span class='rbrace'>}</span>
+<span class='rbrace'>}</span><span class='rparen'>)</span>
+<span class='comment'># =&gt; Publishes &#39;step.execution.received&#39; event to Ruby subscribers</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Subscribing to step execution events</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='comment'># This is typically done in StepExecutionSubscriber
+</span><span class='id identifier rubyid_bridge'>bridge</span><span class='period'>.</span><span class='id identifier rubyid_subscribe_to_step_execution'>subscribe_to_step_execution</span> <span class='kw'>do</span> <span class='op'>|</span><span class='id identifier rubyid_event'>event</span><span class='op'>|</span>
+  <span class='comment'># Resolve handler
+</span>  <span class='id identifier rubyid_handler_class'>handler_class</span> <span class='op'>=</span> <span class='id identifier rubyid_event'>event</span><span class='lbracket'>[</span><span class='symbol'>:task_sequence_step</span><span class='rbracket'>]</span><span class='period'>.</span><span class='id identifier rubyid_handler_class'>handler_class</span>
+  <span class='id identifier rubyid_handler'>handler</span> <span class='op'>=</span> <span class='id identifier rubyid_registry'>registry</span><span class='period'>.</span><span class='id identifier rubyid_resolve_handler'>resolve_handler</span><span class='lparen'>(</span><span class='id identifier rubyid_handler_class'>handler_class</span><span class='rparen'>)</span>
+
+  <span class='comment'># Execute handler
+</span>  <span class='id identifier rubyid_result'>result</span> <span class='op'>=</span> <span class='id identifier rubyid_handler'>handler</span><span class='period'>.</span><span class='id identifier rubyid_call'>call</span><span class='lparen'>(</span>
+    <span class='id identifier rubyid_event'>event</span><span class='lbracket'>[</span><span class='symbol'>:task_sequence_step</span><span class='rbracket'>]</span><span class='period'>.</span><span class='id identifier rubyid_task'>task</span><span class='comma'>,</span>
+    <span class='id identifier rubyid_event'>event</span><span class='lbracket'>[</span><span class='symbol'>:task_sequence_step</span><span class='rbracket'>]</span><span class='period'>.</span><span class='id identifier rubyid_sequence'>sequence</span><span class='comma'>,</span>
+    <span class='id identifier rubyid_event'>event</span><span class='lbracket'>[</span><span class='symbol'>:task_sequence_step</span><span class='rbracket'>]</span><span class='period'>.</span><span class='id identifier rubyid_workflow_step'>workflow_step</span>
+  <span class='rparen'>)</span>
+
+  <span class='comment'># Send completion back to Rust
+</span>  <span class='id identifier rubyid_bridge'>bridge</span><span class='period'>.</span><span class='id identifier rubyid_publish_step_completion'>publish_step_completion</span><span class='lparen'>(</span><span class='lbrace'>{</span>
+    <span class='label'>event_id:</span> <span class='id identifier rubyid_event'>event</span><span class='lbracket'>[</span><span class='symbol'>:event_id</span><span class='rbracket'>]</span><span class='comma'>,</span>
+    <span class='label'>task_uuid:</span> <span class='id identifier rubyid_event'>event</span><span class='lbracket'>[</span><span class='symbol'>:task_uuid</span><span class='rbracket'>]</span><span class='comma'>,</span>
+    <span class='label'>step_uuid:</span> <span class='id identifier rubyid_event'>event</span><span class='lbracket'>[</span><span class='symbol'>:step_uuid</span><span class='rbracket'>]</span><span class='comma'>,</span>
+    <span class='label'>success:</span> <span class='kw'>true</span><span class='comma'>,</span>
+    <span class='label'>result:</span> <span class='id identifier rubyid_result'>result</span>
+  <span class='rbrace'>}</span><span class='rparen'>)</span>
+<span class='kw'>end</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Sending completion back to Rust</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_bridge'>bridge</span><span class='period'>.</span><span class='id identifier rubyid_publish_step_completion'>publish_step_completion</span><span class='lparen'>(</span><span class='lbrace'>{</span>
+  <span class='label'>event_id:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>550e8400-e29b-41d4-a716-446655440000</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+  <span class='label'>task_uuid:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>7c9e6679-7425-40de-944b-e07fc1f90ae7</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+  <span class='label'>step_uuid:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>123e4567-e89b-12d3-a456-426614174000</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+  <span class='label'>success:</span> <span class='kw'>true</span><span class='comma'>,</span>
+  <span class='label'>result:</span> <span class='lbrace'>{</span> <span class='label'>payment_id:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>pay_123</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='label'>status:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>succeeded</span><span class='tstring_end'>&quot;</span></span> <span class='rbrace'>}</span><span class='comma'>,</span>
+  <span class='label'>metadata:</span> <span class='lbrace'>{</span>
+    <span class='label'>handler_class:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>ProcessPaymentHandler</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+    <span class='label'>execution_time_ms:</span> <span class='int'>125</span>
+  <span class='rbrace'>}</span>
+<span class='rbrace'>}</span><span class='rparen'>)</span>
+<span class='comment'># =&gt; Sends completion to Rust via FFI and publishes &#39;step.completion.sent&#39;</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Handling errors in step execution</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='kw'>begin</span>
+  <span class='id identifier rubyid_result'>result</span> <span class='op'>=</span> <span class='id identifier rubyid_handler'>handler</span><span class='period'>.</span><span class='id identifier rubyid_call'>call</span><span class='lparen'>(</span><span class='id identifier rubyid_task'>task</span><span class='comma'>,</span> <span class='id identifier rubyid_sequence'>sequence</span><span class='comma'>,</span> <span class='id identifier rubyid_step'>step</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_bridge'>bridge</span><span class='period'>.</span><span class='id identifier rubyid_publish_step_completion'>publish_step_completion</span><span class='lparen'>(</span><span class='lbrace'>{</span>
+    <span class='label'>event_id:</span> <span class='id identifier rubyid_event_id'>event_id</span><span class='comma'>,</span>
+    <span class='label'>task_uuid:</span> <span class='id identifier rubyid_task_uuid'>task_uuid</span><span class='comma'>,</span>
+    <span class='label'>step_uuid:</span> <span class='id identifier rubyid_step_uuid'>step_uuid</span><span class='comma'>,</span>
+    <span class='label'>success:</span> <span class='kw'>true</span><span class='comma'>,</span>
+    <span class='label'>result:</span> <span class='id identifier rubyid_result'>result</span>
+  <span class='rbrace'>}</span><span class='rparen'>)</span>
+<span class='kw'>rescue</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Errors.html" title="TaskerCore::Errors (module)">Errors</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Errors/RetryableError.html" title="TaskerCore::Errors::RetryableError (class)">RetryableError</a></span></span> <span class='op'>=&gt;</span> <span class='id identifier rubyid_e'>e</span>
+  <span class='id identifier rubyid_bridge'>bridge</span><span class='period'>.</span><span class='id identifier rubyid_publish_step_completion'>publish_step_completion</span><span class='lparen'>(</span><span class='lbrace'>{</span>
+    <span class='label'>event_id:</span> <span class='id identifier rubyid_event_id'>event_id</span><span class='comma'>,</span>
+    <span class='label'>task_uuid:</span> <span class='id identifier rubyid_task_uuid'>task_uuid</span><span class='comma'>,</span>
+    <span class='label'>step_uuid:</span> <span class='id identifier rubyid_step_uuid'>step_uuid</span><span class='comma'>,</span>
+    <span class='label'>success:</span> <span class='kw'>false</span><span class='comma'>,</span>
+    <span class='label'>error_message:</span> <span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_message'>message</span><span class='comma'>,</span>
+    <span class='label'>error_class:</span> <span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_class'>class</span><span class='period'>.</span><span class='id identifier rubyid_name'>name</span><span class='comma'>,</span>
+    <span class='label'>retryable:</span> <span class='kw'>true</span><span class='comma'>,</span>
+    <span class='label'>retry_after:</span> <span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_retry_after'>retry_after</span>
+  <span class='rbrace'>}</span><span class='rparen'>)</span>
+<span class='kw'>rescue</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Errors.html" title="TaskerCore::Errors (module)">Errors</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Errors/PermanentError.html" title="TaskerCore::Errors::PermanentError (class)">PermanentError</a></span></span> <span class='op'>=&gt;</span> <span class='id identifier rubyid_e'>e</span>
+  <span class='id identifier rubyid_bridge'>bridge</span><span class='period'>.</span><span class='id identifier rubyid_publish_step_completion'>publish_step_completion</span><span class='lparen'>(</span><span class='lbrace'>{</span>
+    <span class='label'>event_id:</span> <span class='id identifier rubyid_event_id'>event_id</span><span class='comma'>,</span>
+    <span class='label'>task_uuid:</span> <span class='id identifier rubyid_task_uuid'>task_uuid</span><span class='comma'>,</span>
+    <span class='label'>step_uuid:</span> <span class='id identifier rubyid_step_uuid'>step_uuid</span><span class='comma'>,</span>
+    <span class='label'>success:</span> <span class='kw'>false</span><span class='comma'>,</span>
+    <span class='label'>error_message:</span> <span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_message'>message</span><span class='comma'>,</span>
+    <span class='label'>error_class:</span> <span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_class'>class</span><span class='period'>.</span><span class='id identifier rubyid_name'>name</span><span class='comma'>,</span>
+    <span class='label'>retryable:</span> <span class='kw'>false</span>
+  <span class='rbrace'>}</span><span class='rparen'>)</span>
+<span class='kw'>end</span></code></pre>
+    
+  </div>
+
+
+  <p class="tag_title">See Also:</p>
+  <ul class="see">
+    
+      <li>For event subscription implementation</li>
+    
+      <li><span class='object_link'><a href="EventPoller.html" title="TaskerCore::Worker::EventPoller (class)">For polling mechanism</a></span></li>
+    
+      <li>For Rust FFI operations</li>
+    
+      <li><span class='object_link'><a href="../Models/TaskSequenceStepWrapper.html" title="TaskerCore::Models::TaskSequenceStepWrapper (class)">For data wrappers</a></span></li>
+    
+  </ul>
+
+</div>
+
+
+
+  <h2>Instance Attribute Summary <small><a href="#" class="summary_toggle">collapse</a></small></h2>
+  <ul class="summary">
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#active-instance_method" title="#active (instance method)">#<strong>active</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Returns the value of attribute active.</p>
+</div></span>
+  
+</li>
+
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#logger-instance_method" title="#logger (instance method)">#<strong>logger</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Returns the value of attribute logger.</p>
+</div></span>
+  
+</li>
+
+    
+  </ul>
+
+
+
+
+  
+    <h2>
+      Instance Method Summary
+      <small><a href="#" class="summary_toggle">collapse</a></small>
+    </h2>
+
+    <ul class="summary">
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#active%3F-instance_method" title="#active? (instance method)">#<strong>active?</strong>  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Check if bridge is active.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#initialize-instance_method" title="#initialize (instance method)">#<strong>initialize</strong>  &#x21d2; EventBridge </a>
+    
+
+    
+  </span>
+  
+  
+    <span class="note title constructor">constructor</span>
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>A new instance of EventBridge.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#publish_step_completion-instance_method" title="#publish_step_completion (instance method)">#<strong>publish_step_completion</strong>(completion_data)  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Send completion event back to Rust Called by StepExecutionSubscriber after handler execution.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#publish_step_execution-instance_method" title="#publish_step_execution (instance method)">#<strong>publish_step_execution</strong>(event_data)  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Called by Rust FFI when StepExecutionEvent is received This is the entry point for events from Rust.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#stop!-instance_method" title="#stop! (instance method)">#<strong>stop!</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Stop the event bridge.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#subscribe_to_step_execution-instance_method" title="#subscribe_to_step_execution (instance method)">#<strong>subscribe_to_step_execution</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Subscribe to step execution events (used by StepExecutionSubscriber).</p>
+</div></span>
+  
+</li>
+
+      
+    </ul>
+  
+
+
+  <div id="constructor_details" class="method_details_list">
+  <h2>Constructor Details</h2>
+  
+    <div class="method_details first">
+  <h3 class="signature first" id="initialize-instance_method">
+  
+    #<strong>initialize</strong>  &#x21d2; <tt><span class='object_link'><a href="" title="TaskerCore::Worker::EventBridge (class)">EventBridge</a></span></tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns a new instance of EventBridge.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+153
+154
+155
+156
+157
+158</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/event_bridge.rb', line 153</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_initialize'>initialize</span>
+  <span class='ivar'>@logger</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Logger.html" title="TaskerCore::Logger (class)">Logger</a></span></span><span class='period'>.</span><span class='id identifier rubyid_instance'>instance</span>
+  <span class='ivar'>@active</span> <span class='op'>=</span> <span class='kw'>true</span>
+
+  <span class='id identifier rubyid_setup_event_schema!'>setup_event_schema!</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+  
+</div>
+
+  <div id="instance_attr_details" class="attr_details">
+    <h2>Instance Attribute Details</h2>
+    
+      
+      <span id=""></span>
+      <div class="method_details first">
+  <h3 class="signature first" id="active-instance_method">
+  
+    #<strong>active</strong>  &#x21d2; <tt>Object</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns the value of attribute active.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+151
+152
+153</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/event_bridge.rb', line 151</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_active'>active</span>
+  <span class='ivar'>@active</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      
+      <span id=""></span>
+      <div class="method_details ">
+  <h3 class="signature " id="logger-instance_method">
+  
+    #<strong>logger</strong>  &#x21d2; <tt>Object</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns the value of attribute logger.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+151
+152
+153</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/event_bridge.rb', line 151</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_logger'>logger</span>
+  <span class='ivar'>@logger</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+
+  <div id="instance_method_details" class="method_details_list">
+    <h2>Instance Method Details</h2>
+
+    
+      <div class="method_details first">
+  <h3 class="signature first" id="active?-instance_method">
+  
+    #<strong>active?</strong>  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Check if bridge is active</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+161
+162
+163</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/event_bridge.rb', line 161</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_active?'>active?</span>
+  <span class='ivar'>@active</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="publish_step_completion-instance_method">
+  
+    #<strong>publish_step_completion</strong>(completion_data)  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Send completion event back to Rust Called by StepExecutionSubscriber after handler execution</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+200
+201
+202
+203
+204
+205
+206
+207
+208
+209
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/event_bridge.rb', line 200</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_publish_step_completion'>publish_step_completion</span><span class='lparen'>(</span><span class='id identifier rubyid_completion_data'>completion_data</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>unless</span> <span class='id identifier rubyid_active?'>active?</span>
+
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_debug'>debug</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Sending step completion to Rust: </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_completion_data'>completion_data</span><span class='lbracket'>[</span><span class='symbol'>:event_id</span><span class='rbracket'>]</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span>
+
+  <span class='comment'># Validate completion data
+</span>  <span class='id identifier rubyid_validate_completion!'>validate_completion!</span><span class='lparen'>(</span><span class='id identifier rubyid_completion_data'>completion_data</span><span class='rparen'>)</span>
+
+  <span class='comment'># Send to Rust via FFI
+</span>  <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>FFI</span><span class='period'>.</span><span class='id identifier rubyid_send_step_completion_event'>send_step_completion_event</span><span class='lparen'>(</span><span class='id identifier rubyid_completion_data'>completion_data</span><span class='rparen'>)</span>
+
+  <span class='comment'># Also publish locally for monitoring/debugging
+</span>  <span class='id identifier rubyid_publish'>publish</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>step.completion.sent</span><span class='tstring_end'>&#39;</span></span><span class='comma'>,</span> <span class='id identifier rubyid_completion_data'>completion_data</span><span class='rparen'>)</span>
+
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_debug'>debug</span> <span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>Step completion sent to Rust</span><span class='tstring_end'>&#39;</span></span>
+<span class='kw'>rescue</span> <span class='const'>StandardError</span> <span class='op'>=&gt;</span> <span class='id identifier rubyid_e'>e</span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_error'>error</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Failed to send step completion: </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_message'>message</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_error'>error</span> <span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_backtrace'>backtrace</span><span class='period'>.</span><span class='id identifier rubyid_join'>join</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>\n</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_raise'>raise</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="publish_step_execution-instance_method">
+  
+    #<strong>publish_step_execution</strong>(event_data)  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Called by Rust FFI when StepExecutionEvent is received This is the entry point for events from Rust</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+173
+174
+175
+176
+177
+178
+179
+180
+181
+182
+183
+184
+185
+186
+187
+188
+189
+190
+191</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/event_bridge.rb', line 173</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_publish_step_execution'>publish_step_execution</span><span class='lparen'>(</span><span class='id identifier rubyid_event_data'>event_data</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>unless</span> <span class='id identifier rubyid_active?'>active?</span>
+
+  <span class='id identifier rubyid_event_data'>event_data</span> <span class='op'>=</span> <span class='id identifier rubyid_event_data'>event_data</span><span class='period'>.</span><span class='id identifier rubyid_to_h'>to_h</span><span class='period'>.</span><span class='id identifier rubyid_deep_symbolize_keys'>deep_symbolize_keys</span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_debug'>debug</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Publishing step execution event: </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_event_data'>event_data</span><span class='lbracket'>[</span><span class='symbol'>:event_id</span><span class='rbracket'>]</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span>
+
+  <span class='comment'># Wrap the raw data in accessor objects for easier use
+</span>  <span class='id identifier rubyid_wrapped_event'>wrapped_event</span> <span class='op'>=</span> <span class='id identifier rubyid_wrap_step_execution_event'>wrap_step_execution_event</span><span class='lparen'>(</span><span class='id identifier rubyid_event_data'>event_data</span><span class='rparen'>)</span>
+
+  <span class='comment'># Publish to dry-events subscribers (Ruby handlers)
+</span>  <span class='id identifier rubyid_publish'>publish</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>step.execution.received</span><span class='tstring_end'>&#39;</span></span><span class='comma'>,</span> <span class='id identifier rubyid_wrapped_event'>wrapped_event</span><span class='rparen'>)</span>
+
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_debug'>debug</span> <span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>Step execution event published successfully</span><span class='tstring_end'>&#39;</span></span>
+  <span class='kw'>true</span>
+<span class='kw'>rescue</span> <span class='const'>StandardError</span> <span class='op'>=&gt;</span> <span class='id identifier rubyid_e'>e</span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_error'>error</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Failed to publish step execution: </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_message'>message</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_error'>error</span> <span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_backtrace'>backtrace</span><span class='period'>.</span><span class='id identifier rubyid_join'>join</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>\n</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_raise'>raise</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="stop!-instance_method">
+  
+    #<strong>stop!</strong>  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Stop the event bridge</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+166
+167
+168
+169</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/event_bridge.rb', line 166</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_stop!'>stop!</span>
+  <span class='ivar'>@active</span> <span class='op'>=</span> <span class='kw'>false</span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_info'>info</span> <span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>Event bridge stopped</span><span class='tstring_end'>&#39;</span></span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="subscribe_to_step_execution-instance_method">
+  
+    #<strong>subscribe_to_step_execution</strong>  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Subscribe to step execution events (used by StepExecutionSubscriber)</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+194
+195
+196</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/event_bridge.rb', line 194</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_subscribe_to_step_execution'>subscribe_to_step_execution</span><span class='lparen'>(</span><span class='op'>&amp;</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_subscribe'>subscribe</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>step.execution.received</span><span class='tstring_end'>&#39;</span></span><span class='comma'>,</span> <span class='op'>&amp;</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+</div>
+
+      <div id="footer">
+  Generated on Mon Oct  6 16:44:00 2025 by
+  <a href="https://yardoc.org" title="Yay! A Ruby Documentation Tool" target="_parent">yard</a>
+  0.9.37 (ruby-3.4.4).
+</div>
+
+    </div>
+  </body>
+</html>

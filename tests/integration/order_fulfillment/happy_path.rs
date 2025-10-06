@@ -12,7 +12,7 @@ async fn test_order_fulfillment_initialization(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {
                 "id": 12345,
@@ -68,7 +68,7 @@ async fn test_order_fulfillment_linear_dependency_chain(pool: PgPool) -> Result<
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "jane.doe@example.com"},
             "items": [{"sku": "WIDGET-001", "quantity": 2, "price": 29.99}],
@@ -157,7 +157,7 @@ async fn test_order_fulfillment_complete_execution(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "jane.doe@example.com"},
             "items": [

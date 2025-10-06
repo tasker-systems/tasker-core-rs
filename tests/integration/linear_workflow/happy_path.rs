@@ -12,7 +12,7 @@ async fn test_linear_workflow_initialization(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -45,7 +45,7 @@ async fn test_linear_workflow_dependency_chain(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -118,7 +118,7 @@ async fn test_linear_workflow_complete_execution(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 

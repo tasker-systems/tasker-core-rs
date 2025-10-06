@@ -12,7 +12,7 @@ async fn test_tree_workflow_max_attempts_exhaustion(pool: PgPool) -> Result<()> 
 
     let task_request = manager.create_task_request_for_template(
         "hierarchical_tree",
-        "tree_workflow",
+        "rust_e2e_tree",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -115,7 +115,7 @@ async fn test_tree_workflow_recovery_after_retry(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "hierarchical_tree",
-        "tree_workflow",
+        "rust_e2e_tree",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -275,7 +275,7 @@ async fn test_tree_workflow_leaf_failure_blocks_convergence(pool: PgPool) -> Res
 
     let task_request = manager.create_task_request_for_template(
         "hierarchical_tree",
-        "tree_workflow",
+        "rust_e2e_tree",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -375,7 +375,7 @@ async fn test_tree_workflow_multiple_leaf_failures(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "hierarchical_tree",
-        "tree_workflow",
+        "rust_e2e_tree",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -542,7 +542,7 @@ async fn test_tree_workflow_branch_transient_failure_eventual_convergence(
 
     let task_request = manager.create_task_request_for_template(
         "hierarchical_tree",
-        "tree_workflow",
+        "rust_e2e_tree",
         serde_json::json!({"even_number": 2}),
     );
 

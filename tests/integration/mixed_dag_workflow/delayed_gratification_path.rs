@@ -12,7 +12,7 @@ async fn test_complex_dag_init_retry_exhaustion(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -73,7 +73,7 @@ async fn test_complex_dag_process_retry_recovery(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -153,7 +153,7 @@ async fn test_complex_dag_convergence_retry_backoff(pool: PgPool) -> Result<()> 
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -236,7 +236,7 @@ async fn test_complex_dag_mid_dag_permanent_failure(pool: PgPool) -> Result<()> 
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -322,7 +322,7 @@ async fn test_complex_dag_transient_failure_eventual_convergence(pool: PgPool) -
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 

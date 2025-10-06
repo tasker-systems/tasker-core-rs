@@ -26,7 +26,7 @@ async fn test_diamond_pattern_early_permanent_failure(pool: PgPool) -> Result<()
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -114,7 +114,7 @@ async fn test_diamond_pattern_mid_workflow_permanent_failure(pool: PgPool) -> Re
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 8}),
     );
 
@@ -233,7 +233,7 @@ async fn test_diamond_pattern_dual_branch_permanent_failure(pool: PgPool) -> Res
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 12}),
     );
 
@@ -352,7 +352,7 @@ async fn test_diamond_pattern_mixed_states_sql_accuracy(pool: PgPool) -> Result<
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 14}),
     );
 

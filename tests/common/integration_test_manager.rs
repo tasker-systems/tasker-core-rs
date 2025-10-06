@@ -13,7 +13,9 @@
 //! # Then run your integration tests
 //! cargo test --test rust_worker_e2e_integration_tests
 //! ```
-#[allow(dead_code)]
+
+#![allow(dead_code)]
+
 use anyhow::Result;
 use reqwest;
 use serde_json::Value;

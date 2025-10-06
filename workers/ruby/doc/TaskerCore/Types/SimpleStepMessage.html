@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>
+  Class: TaskerCore::Types::SimpleStepMessage
+  
+    &mdash; Documentation by YARD 0.9.37
+  
+</title>
+
+  <link rel="stylesheet" href="../../css/style.css" type="text/css" />
+
+  <link rel="stylesheet" href="../../css/common.css" type="text/css" />
+
+<script type="text/javascript">
+  pathId = "TaskerCore::Types::SimpleStepMessage";
+  relpath = '../../';
+</script>
+
+
+  <script type="text/javascript" charset="utf-8" src="../../js/jquery.js"></script>
+
+  <script type="text/javascript" charset="utf-8" src="../../js/app.js"></script>
+
+
+  </head>
+  <body>
+    <div class="nav_wrap">
+      <iframe id="nav" src="../../class_list.html?1"></iframe>
+      <div id="resizer"></div>
+    </div>
+
+    <div id="main" tabindex="-1">
+      <div id="header">
+        <div id="menu">
+  
+    <a href="../../_index.html">Index (S)</a> &raquo;
+    <span class='title'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span> &raquo; <span class='title'><span class='object_link'><a href="../Types.html" title="TaskerCore::Types (module)">Types</a></span></span>
+     &raquo; 
+    <span class="title">SimpleStepMessage</span>
+  
+</div>
+
+        <div id="search">
+  
+    <a class="full_list_link" id="class_list_link"
+        href="../../class_list.html">
+
+        <svg width="24" height="24">
+          <rect x="0" y="4" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="12" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="20" width="24" height="4" rx="1" ry="1"></rect>
+        </svg>
+    </a>
+  
+</div>
+        <div class="clear"></div>
+      </div>
+
+      <div id="content"><h1>Class: TaskerCore::Types::SimpleStepMessage
+  
+  
+  
+</h1>
+<div class="box_info">
+  
+  <dl>
+    <dt>Inherits:</dt>
+    <dd>
+      <span class="inheritName">Dry::Struct</span>
+      
+        <ul class="fullTree">
+          <li>Object</li>
+          
+            <li class="next">Dry::Struct</li>
+          
+            <li class="next">TaskerCore::Types::SimpleStepMessage</li>
+          
+        </ul>
+        <a href="#" class="inheritanceTree">show all</a>
+      
+    </dd>
+  </dl>
+  
+
+  
+  
+  
+  
+  
+
+  
+
+  
+  <dl>
+    <dt>Defined in:</dt>
+    <dd>lib/tasker_core/types/simple_message.rb</dd>
+  </dl>
+  
+</div>
+
+<h2>Overview</h2><div class="docstring">
+  <div class="discussion">
+    
+<p>Simple message structure for UUID-based step processing</p>
+
+<p>This replaces the complex nested StepMessage with a minimal 3-field structure that leverages the shared database as the API layer. Ruby workers receive this simple message and use the UUIDs to fetch ActiveRecord models directly.</p>
+
+<p>Benefits:</p>
+<ul><li>
+<p>80%+ message size reduction (3 UUIDs vs complex nested JSON)</p>
+</li><li>
+<p>Eliminates type conversion issues (no hash-to-object conversion)</p>
+</li><li>
+<p>Prevents stale queue messages (UUIDs are globally unique)</p>
+</li><li>
+<p>Real ActiveRecord models for handlers (full ORM functionality)</p>
+</li><li>
+<p>Database as single source of truth</p>
+</li></ul>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+  <div class="examples">
+    <h4 class="tag_title">Examples:</h4>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Message structure</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='lbrace'>{</span>
+  <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>task_uuid</span><span class='label_end'>&quot;:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>550e8400-e29b-41d4-a716-446655440001</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+  <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>step_uuid</span><span class='label_end'>&quot;:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>550e8400-e29b-41d4-a716-446655440002</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+  <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>ready_dependency_step_uuids</span><span class='label_end'>&quot;:</span> <span class='lbracket'>[</span>
+    <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>550e8400-e29b-41d4-a716-446655440003</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span>
+    <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>550e8400-e29b-41d4-a716-446655440004</span><span class='tstring_end'>&quot;</span></span>
+  <span class='rbracket'>]</span>
+<span class='rbrace'>}</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Ruby processing</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='comment'># 1. Receive simple message
+</span><span class='id identifier rubyid_task'>task</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>Task</span><span class='period'>.</span><span class='id identifier rubyid_find_by!'>find_by!</span><span class='lparen'>(</span><span class='label'>task_uuid:</span> <span class='id identifier rubyid_message'>message</span><span class='period'>.</span><span class='id identifier rubyid_task_uuid'>task_uuid</span><span class='rparen'>)</span>
+<span class='id identifier rubyid_step'>step</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>WorkflowStep</span><span class='period'>.</span><span class='id identifier rubyid_find_by!'>find_by!</span><span class='lparen'>(</span><span class='label'>step_uuid:</span> <span class='id identifier rubyid_message'>message</span><span class='period'>.</span><span class='id identifier rubyid_step_uuid'>step_uuid</span><span class='rparen'>)</span>
+<span class='id identifier rubyid_dependencies'>dependencies</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>WorkflowStep</span><span class='period'>.</span><span class='id identifier rubyid_where'>where</span><span class='lparen'>(</span>
+  <span class='label'>step_uuid:</span> <span class='id identifier rubyid_message'>message</span><span class='period'>.</span><span class='id identifier rubyid_ready_dependency_step_uuids'>ready_dependency_step_uuids</span>
+<span class='rparen'>)</span><span class='period'>.</span><span class='id identifier rubyid_includes'>includes</span><span class='lparen'>(</span><span class='symbol'>:results</span><span class='rparen'>)</span>
+
+<span class='comment'># 2. Call handler with real ActiveRecord models
+</span><span class='id identifier rubyid_handler'>handler</span><span class='period'>.</span><span class='id identifier rubyid_call'>call</span><span class='lparen'>(</span><span class='id identifier rubyid_task'>task</span><span class='comma'>,</span> <span class='id identifier rubyid_sequence'>sequence</span><span class='comma'>,</span> <span class='id identifier rubyid_step'>step</span><span class='rparen'>)</span></code></pre>
+    
+  </div>
+
+
+</div>
+
+
+
+
+
+
+  
+    <h2>
+      Class Method Summary
+      <small><a href="#" class="summary_toggle">collapse</a></small>
+    </h2>
+
+    <ul class="summary">
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#build_test-class_method" title="build_test (class method)">.<strong>build_test</strong>(task_uuid:, step_uuid:, ready_dependency_step_uuids: [])  &#x21d2; SimpleStepMessage </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Create a step message for testing with generated UUIDs.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#from_hash-class_method" title="from_hash (class method)">.<strong>from_hash</strong>(hash)  &#x21d2; SimpleStepMessage </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Create from hash (for deserialization from JSON).</p>
+</div></span>
+  
+</li>
+
+      
+    </ul>
+  
+    <h2>
+      Instance Method Summary
+      <small><a href="#" class="summary_toggle">collapse</a></small>
+    </h2>
+
+    <ul class="summary">
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#all_dependencies_exist%3F-instance_method" title="#all_dependencies_exist? (instance method)">#<strong>all_dependencies_exist?</strong>  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Check if all dependency UUIDs exist in the database.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#fetch_dependencies-instance_method" title="#fetch_dependencies (instance method)">#<strong>fetch_dependencies</strong>  &#x21d2; ActiveRecord::Relation&lt;TaskerCore::Database::Models::WorkflowStep&gt; </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Fetch the dependency step records from the database.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#fetch_step-instance_method" title="#fetch_step (instance method)">#<strong>fetch_step</strong>  &#x21d2; TaskerCore::Database::Models::WorkflowStep </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Fetch the actual step record from the database.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#fetch_task-instance_method" title="#fetch_task (instance method)">#<strong>fetch_task</strong>  &#x21d2; TaskerCore::Database::Models::Task </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Fetch the actual task record from the database.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#step_exists%3F-instance_method" title="#step_exists? (instance method)">#<strong>step_exists?</strong>  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Check if the step UUID exists in the database.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#task_exists%3F-instance_method" title="#task_exists? (instance method)">#<strong>task_exists?</strong>  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Check if the task UUID exists in the database.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#to_h-instance_method" title="#to_h (instance method)">#<strong>to_h</strong>  &#x21d2; Hash </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Convert to hash for JSON serialization.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#valid_references%3F-instance_method" title="#valid_references? (instance method)">#<strong>valid_references?</strong>  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Validate that all UUIDs exist in the database.</p>
+</div></span>
+  
+</li>
+
+      
+    </ul>
+  
+
+
+  
+
+  <div id="class_method_details" class="method_details_list">
+    <h2>Class Method Details</h2>
+
+    
+      <div class="method_details first">
+  <h3 class="signature first" id="build_test-class_method">
+  
+    .<strong>build_test</strong>(task_uuid:, step_uuid:, ready_dependency_step_uuids: [])  &#x21d2; <tt><span class='object_link'><a href="" title="TaskerCore::Types::SimpleStepMessage (class)">SimpleStepMessage</a></span></tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Create a step message for testing with generated UUIDs</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>task_uuid</span>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>task UUID</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>step_uuid</span>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>step UUID</p>
+</div>
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>ready_dependency_step_uuids</span>
+      
+      
+        <span class='type'>(<tt>Array&lt;String&gt;</tt>)</span>
+      
+      
+        <em class="default">(defaults to: <tt>[]</tt>)</em>
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>dependency step UUIDs</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt><span class='object_link'><a href="" title="TaskerCore::Types::SimpleStepMessage (class)">SimpleStepMessage</a></span></tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>new simple message</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+141
+142
+143
+144
+145
+146
+147</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 141</span>
+
+<span class='kw'>def</span> <span class='kw'>self</span><span class='period'>.</span><span class='id identifier rubyid_build_test'>build_test</span><span class='lparen'>(</span><span class='label'>task_uuid:</span><span class='comma'>,</span> <span class='label'>step_uuid:</span><span class='comma'>,</span> <span class='label'>ready_dependency_step_uuids:</span> <span class='lbracket'>[</span><span class='rbracket'>]</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_new'>new</span><span class='lparen'>(</span>
+    <span class='label'>task_uuid:</span> <span class='id identifier rubyid_task_uuid'>task_uuid</span><span class='comma'>,</span>
+    <span class='label'>step_uuid:</span> <span class='id identifier rubyid_step_uuid'>step_uuid</span><span class='comma'>,</span>
+    <span class='label'>ready_dependency_step_uuids:</span> <span class='id identifier rubyid_ready_dependency_step_uuids'>ready_dependency_step_uuids</span>
+  <span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="from_hash-class_method">
+  
+    .<strong>from_hash</strong>(hash)  &#x21d2; <tt><span class='object_link'><a href="" title="TaskerCore::Types::SimpleStepMessage (class)">SimpleStepMessage</a></span></tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Create from hash (for deserialization from JSON)</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>hash</span>
+      
+      
+        <span class='type'>(<tt>Hash</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>hash representation</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt><span class='object_link'><a href="" title="TaskerCore::Types::SimpleStepMessage (class)">SimpleStepMessage</a></span></tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>new simple message instance</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+77
+78
+79
+80</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 77</span>
+
+<span class='kw'>def</span> <span class='kw'>self</span><span class='period'>.</span><span class='id identifier rubyid_from_hash'>from_hash</span><span class='lparen'>(</span><span class='id identifier rubyid_hash'>hash</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_symbolized'>symbolized</span> <span class='op'>=</span> <span class='id identifier rubyid_hash'>hash</span><span class='period'>.</span><span class='id identifier rubyid_transform_keys'>transform_keys</span><span class='lparen'>(</span><span class='op'>&amp;</span><span class='symbol'>:to_sym</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_new'>new</span><span class='lparen'>(</span><span class='id identifier rubyid_symbolized'>symbolized</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+  <div id="instance_method_details" class="method_details_list">
+    <h2>Instance Method Details</h2>
+
+    
+      <div class="method_details first">
+  <h3 class="signature first" id="all_dependencies_exist?-instance_method">
+  
+    #<strong>all_dependencies_exist?</strong>  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Check if all dependency UUIDs exist in the database</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>true if all dependencies exist</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+102
+103
+104
+105
+106
+107
+108
+109
+110</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 102</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_all_dependencies_exist?'>all_dependencies_exist?</span>
+  <span class='kw'>return</span> <span class='kw'>true</span> <span class='kw'>if</span> <span class='id identifier rubyid_ready_dependency_step_uuids'>ready_dependency_step_uuids</span><span class='period'>.</span><span class='id identifier rubyid_empty?'>empty?</span>
+
+  <span class='id identifier rubyid_existing_count'>existing_count</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>WorkflowStep</span>
+                   <span class='period'>.</span><span class='id identifier rubyid_where'>where</span><span class='lparen'>(</span><span class='label'>workflow_step_uuid:</span> <span class='id identifier rubyid_ready_dependency_step_uuids'>ready_dependency_step_uuids</span><span class='rparen'>)</span>
+                   <span class='period'>.</span><span class='id identifier rubyid_count'>count</span>
+
+  <span class='id identifier rubyid_existing_count'>existing_count</span> <span class='op'>==</span> <span class='id identifier rubyid_ready_dependency_step_uuids'>ready_dependency_step_uuids</span><span class='period'>.</span><span class='id identifier rubyid_length'>length</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="fetch_dependencies-instance_method">
+  
+    #<strong>fetch_dependencies</strong>  &#x21d2; <tt>ActiveRecord::Relation&lt;TaskerCore::Database::Models::WorkflowStep&gt;</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Fetch the dependency step records from the database</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>ActiveRecord::Relation&lt;TaskerCore::Database::Models::WorkflowStep&gt;</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>dependency steps</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+128
+129
+130
+131
+132
+133
+134</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 128</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_fetch_dependencies'>fetch_dependencies</span>
+  <span class='kw'>return</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>WorkflowStep</span><span class='period'>.</span><span class='id identifier rubyid_none'>none</span> <span class='kw'>if</span> <span class='id identifier rubyid_ready_dependency_step_uuids'>ready_dependency_step_uuids</span><span class='period'>.</span><span class='id identifier rubyid_empty?'>empty?</span>
+
+  <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>WorkflowStep</span>
+    <span class='period'>.</span><span class='id identifier rubyid_where'>where</span><span class='lparen'>(</span><span class='label'>workflow_step_uuid:</span> <span class='id identifier rubyid_ready_dependency_step_uuids'>ready_dependency_step_uuids</span><span class='rparen'>)</span>
+    <span class='period'>.</span><span class='id identifier rubyid_includes'>includes</span><span class='lparen'>(</span><span class='symbol'>:results</span><span class='comma'>,</span> <span class='symbol'>:named_step</span><span class='rparen'>)</span> <span class='comment'># Preload commonly needed associations
+</span><span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="fetch_step-instance_method">
+  
+    #<strong>fetch_step</strong>  &#x21d2; <tt>TaskerCore::Database::Models::WorkflowStep</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Fetch the actual step record from the database</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>TaskerCore::Database::Models::WorkflowStep</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>the step record</p>
+</div>
+      
+    </li>
+  
+</ul>
+<p class="tag_title">Raises:</p>
+<ul class="raise">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>ActiveRecord::RecordNotFound</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>if step doesn’t exist</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+122
+123
+124</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 122</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_fetch_step'>fetch_step</span>
+  <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>WorkflowStep</span><span class='period'>.</span><span class='id identifier rubyid_find_by!'>find_by!</span><span class='lparen'>(</span><span class='label'>workflow_step_uuid:</span> <span class='id identifier rubyid_step_uuid'>step_uuid</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="fetch_task-instance_method">
+  
+    #<strong>fetch_task</strong>  &#x21d2; <tt>TaskerCore::Database::Models::Task</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Fetch the actual task record from the database</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>TaskerCore::Database::Models::Task</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>the task record</p>
+</div>
+      
+    </li>
+  
+</ul>
+<p class="tag_title">Raises:</p>
+<ul class="raise">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>ActiveRecord::RecordNotFound</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>if task doesn’t exist</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+115
+116
+117</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 115</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_fetch_task'>fetch_task</span>
+  <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>Task</span><span class='period'>.</span><span class='id identifier rubyid_find_by!'>find_by!</span><span class='lparen'>(</span><span class='label'>task_uuid:</span> <span class='id identifier rubyid_task_uuid'>task_uuid</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="step_exists?-instance_method">
+  
+    #<strong>step_exists?</strong>  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Check if the step UUID exists in the database</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>true if step exists</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+96
+97
+98</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 96</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_step_exists?'>step_exists?</span>
+  <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>WorkflowStep</span><span class='period'>.</span><span class='id identifier rubyid_exists?'>exists?</span><span class='lparen'>(</span><span class='label'>workflow_step_uuid:</span> <span class='id identifier rubyid_step_uuid'>step_uuid</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="task_exists?-instance_method">
+  
+    #<strong>task_exists?</strong>  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Check if the task UUID exists in the database</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>true if task exists</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+90
+91
+92</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 90</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_task_exists?'>task_exists?</span>
+  <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Database</span><span class='op'>::</span><span class='const'>Models</span><span class='op'>::</span><span class='const'>Task</span><span class='period'>.</span><span class='id identifier rubyid_exists?'>exists?</span><span class='lparen'>(</span><span class='label'>task_uuid:</span> <span class='id identifier rubyid_task_uuid'>task_uuid</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="to_h-instance_method">
+  
+    #<strong>to_h</strong>  &#x21d2; <tt>Hash</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Convert to hash for JSON serialization</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Hash</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>hash representation suitable for JSON</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+66
+67
+68
+69
+70
+71
+72</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 66</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_to_h'>to_h</span>
+  <span class='lbrace'>{</span>
+    <span class='label'>task_uuid:</span> <span class='id identifier rubyid_task_uuid'>task_uuid</span><span class='comma'>,</span>
+    <span class='label'>step_uuid:</span> <span class='id identifier rubyid_step_uuid'>step_uuid</span><span class='comma'>,</span>
+    <span class='label'>ready_dependency_step_uuids:</span> <span class='id identifier rubyid_ready_dependency_step_uuids'>ready_dependency_step_uuids</span>
+  <span class='rbrace'>}</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="valid_references?-instance_method">
+  
+    #<strong>valid_references?</strong>  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Validate that all UUIDs exist in the database</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'>
+<p>true if all referenced records exist</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+84
+85
+86</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/simple_message.rb', line 84</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_valid_references?'>valid_references?</span>
+  <span class='id identifier rubyid_task_exists?'>task_exists?</span> <span class='op'>&amp;&amp;</span> <span class='id identifier rubyid_step_exists?'>step_exists?</span> <span class='op'>&amp;&amp;</span> <span class='id identifier rubyid_all_dependencies_exist?'>all_dependencies_exist?</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+</div>
+
+      <div id="footer">
+  Generated on Mon Oct  6 16:44:01 2025 by
+  <a href="https://yardoc.org" title="Yay! A Ruby Documentation Tool" target="_parent">yard</a>
+  0.9.37 (ruby-3.4.4).
+</div>
+
+    </div>
+  </body>
+</html>

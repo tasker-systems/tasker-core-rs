@@ -27,7 +27,7 @@ async fn test_diamond_pattern_retryable_error_with_backoff(pool: PgPool) -> Resu
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -104,7 +104,7 @@ async fn test_diamond_pattern_max_attempts_exhaustion(pool: PgPool) -> Result<()
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 8}),
     );
 
@@ -200,7 +200,7 @@ async fn test_diamond_pattern_recovery_after_retry(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 4}),
     );
 
@@ -299,7 +299,7 @@ async fn test_diamond_pattern_branch_failure_blocks_convergence(pool: PgPool) ->
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 10}),
     );
 
@@ -393,7 +393,7 @@ async fn test_diamond_pattern_branch_transient_failure_eventual_convergence(
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 10}),
     );
 

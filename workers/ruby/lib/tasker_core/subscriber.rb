@@ -44,7 +44,10 @@ module TaskerCore
           # Resolve step handler from registry
           handler = @handler_registry.resolve_handler(step_data.step_definition.handler.callable)
 
-          raise Errors::ConfigurationError, "No handler found for #{step_data.step_definition.handler.callable}" unless handler
+          unless handler
+            raise Errors::ConfigurationError,
+                  "No handler found for #{step_data.step_definition.handler.callable}"
+          end
 
           # Execute handler with step data
           result = handler.call(

@@ -22,20 +22,23 @@ jobs:
     with:
       postgres-image: ${{ needs.docker-build.outputs.postgres-image }}
 
-  integration-tests:
+  # Unified E2E tests - covers all integration scenarios (Rust + Ruby workers)
+  e2e-tests:
     needs: [code-quality, unit-tests]
-    uses: ./.github/workflows/test-integration.yml
+    uses: ./.github/workflows/test-e2e.yml
 
+  # Ruby unit tests (fast, no Docker)
   ruby-unit-tests:
     needs: docker-build
     uses: ./.github/workflows/test-ruby-unit.yml
 
-  ruby-integration-tests:
-    needs: [docker-build, ruby-unit-tests]
-    uses: ./.github/workflows/test-ruby-integration.yml
+  # Ruby framework tests (FFI, types, events - no Docker)
+  ruby-framework-tests:
+    needs: docker-build
+    uses: ./.github/workflows/test-ruby-framework.yml
 
   performance-analysis:
-    needs: [integration-tests, ruby-integration-tests, ruby-unit-tests]
+    needs: [e2e-tests, ruby-framework-tests, ruby-unit-tests]
     runs-on: ubuntu-22.04
     if: always()
     steps:
@@ -97,5 +100,5 @@ jobs:
             performance-data/
 
   ci-success:
-    needs: [integration-tests, ruby-integration-tests, performance-analysis]
+    needs: [e2e-tests, ruby-framework-tests, performance-analysis]
     uses: ./.github/workflows/ci-success.yml

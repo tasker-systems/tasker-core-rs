@@ -48,7 +48,7 @@ async fn test_end_to_end_mixed_dag_workflow() -> Result<()> {
     println!("     --input '{{\"even_number\": 6}}'");
 
     let task_request = create_task_request(
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         "complex_dag",
         json!({
             "even_number": 6  // This will be processed through mixed DAG workflow: 6^64 (astronomically large)
@@ -231,7 +231,7 @@ async fn test_mixed_dag_workflow_api_validation() -> Result<()> {
 
     // Test 1: Valid mixed DAG workflow task creation
     let task_request = create_task_request(
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         "complex_dag",
         json!({"even_number": 8}), // Valid even number within range
     );

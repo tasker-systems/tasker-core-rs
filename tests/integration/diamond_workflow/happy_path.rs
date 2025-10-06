@@ -38,7 +38,7 @@ async fn test_diamond_pattern_initialization(pool: PgPool) -> Result<()> {
     // Create task request for diamond pattern
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -114,7 +114,7 @@ async fn test_diamond_pattern_dependency_structure(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 8}),
     );
 
@@ -179,7 +179,7 @@ async fn test_diamond_pattern_complete_execution(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "diamond_pattern",
-        "diamond_workflow",
+        "rust_e2e_diamond",
         serde_json::json!({"even_number": 4}),
     );
 

@@ -20,7 +20,7 @@
 #
 ---
 name: hierarchical_tree
-namespace_name: tree_workflow
+namespace_name: rust_e2e_tree
 version: 1.0.0
 description: "Complex hierarchical tree workflow using native Rust handlers: root → branches → leaves → convergence (input^32)"
 metadata:

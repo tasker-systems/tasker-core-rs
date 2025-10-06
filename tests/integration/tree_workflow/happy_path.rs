@@ -12,7 +12,7 @@ async fn test_tree_workflow_initialization(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "hierarchical_tree",
-        "tree_workflow",
+        "rust_e2e_tree",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -45,7 +45,7 @@ async fn test_tree_workflow_hierarchical_dependencies(pool: PgPool) -> Result<()
 
     let task_request = manager.create_task_request_for_template(
         "hierarchical_tree",
-        "tree_workflow",
+        "rust_e2e_tree",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -123,7 +123,7 @@ async fn test_tree_workflow_complete_execution(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "hierarchical_tree",
-        "tree_workflow",
+        "rust_e2e_tree",
         serde_json::json!({"even_number": 2}),
     );
 

@@ -16,7 +16,7 @@
 #
 ---
 name: diamond_pattern
-namespace_name: diamond_workflow
+namespace_name: rust_e2e_diamond
 version: 1.0.0
 description: "Diamond pattern workflow using native Rust handlers: parallel execution with convergence (input^16)"
 metadata:

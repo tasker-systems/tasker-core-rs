@@ -17,7 +17,7 @@ module ErrorScenarios
     # @param sequence [TaskerCore::Types::TaskSequenceStep] The sequence context
     # @param step [TaskerCore::Types::TaskSequenceStep] The current step
     # @raise [TaskerCore::Errors::PermanentError] Always raises permanent error
-    def call(task, sequence, step)
+    def call(_task, _sequence, step)
       TaskerCore::Logger.instance.log_step(
         :error,
         'permanent_failure_injection',
@@ -28,7 +28,7 @@ module ErrorScenarios
 
       # Simulate permanent business logic failure
       raise TaskerCore::Errors::PermanentError.new(
-        "Invalid payment method: test_invalid_card",
+        'Invalid payment method: test_invalid_card',
         context: {
           error_code: 'INVALID_PAYMENT_METHOD',
           reason: 'Test failure scenario',

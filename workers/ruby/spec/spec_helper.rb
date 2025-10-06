@@ -48,7 +48,7 @@ begin
     # Show loaded handlers for debugging
     handler_names = TaskerCore::TestEnvironment.handler_names
     unless handler_names.empty?
-      puts "🎯 Example handlers loaded:"
+      puts '🎯 Example handlers loaded:'
       handler_names.first(5).each { |name| puts "   - #{name}" }
       puts "   ... and #{handler_names.size - 5} more" if handler_names.size > 5
     end

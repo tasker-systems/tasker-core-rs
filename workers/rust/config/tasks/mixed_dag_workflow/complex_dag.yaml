@@ -19,7 +19,7 @@
 #
 ---
 name: complex_dag
-namespace_name: mixed_dag_workflow
+namespace_name: rust_e2e_mixed_dag
 version: 1.0.0
 description: "Complex DAG workflow using native Rust handlers: mixed patterns with linear, parallel, and convergence operations (input^64)"
 metadata:

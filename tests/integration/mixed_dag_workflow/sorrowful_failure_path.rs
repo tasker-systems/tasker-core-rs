@@ -12,7 +12,7 @@ async fn test_complex_dag_init_permanent_failure(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -72,7 +72,7 @@ async fn test_complex_dag_process_permanent_failure(pool: PgPool) -> Result<()> 
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -162,7 +162,7 @@ async fn test_complex_dag_convergence_permanent_failure(pool: PgPool) -> Result<
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -244,7 +244,7 @@ async fn test_complex_dag_mixed_states_sql_accuracy(pool: PgPool) -> Result<()> 
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 

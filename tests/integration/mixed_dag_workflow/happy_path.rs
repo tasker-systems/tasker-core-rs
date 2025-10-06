@@ -12,7 +12,7 @@ async fn test_complex_dag_initialization(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -45,7 +45,7 @@ async fn test_complex_dag_mixed_dependency_structure(pool: PgPool) -> Result<()>
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 
@@ -153,7 +153,7 @@ async fn test_complex_dag_complete_execution(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "complex_dag",
-        "mixed_dag_workflow",
+        "rust_e2e_mixed_dag",
         serde_json::json!({"even_number": 2}),
     );
 

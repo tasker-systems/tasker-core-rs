@@ -12,7 +12,7 @@ async fn test_order_fulfillment_validation_retry_exhaustion(pool: PgPool) -> Res
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "invalid-email"},
             "items": [{"sku": "WIDGET-001", "quantity": 2, "price": 29.99}],
@@ -75,7 +75,7 @@ async fn test_order_fulfillment_inventory_retry_recovery(pool: PgPool) -> Result
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "jane.doe@example.com"},
             "items": [{"sku": "WIDGET-001", "quantity": 2, "price": 29.99}],
@@ -165,7 +165,7 @@ async fn test_order_fulfillment_payment_retry_backoff(pool: PgPool) -> Result<()
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "jane.doe@example.com"},
             "items": [{"sku": "WIDGET-001", "quantity": 2, "price": 29.99}],
@@ -238,7 +238,7 @@ async fn test_order_fulfillment_mid_workflow_permanent_failure(pool: PgPool) -> 
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "jane.doe@example.com"},
             "items": [{"sku": "OUT-OF-STOCK", "quantity": 100, "price": 29.99}],
@@ -309,7 +309,7 @@ async fn test_order_fulfillment_transient_failure_eventual_completion(pool: PgPo
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "jane.doe@example.com"},
             "items": [{"sku": "WIDGET-001", "quantity": 2, "price": 29.99}],

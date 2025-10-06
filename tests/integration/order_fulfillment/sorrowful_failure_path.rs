@@ -12,7 +12,7 @@ async fn test_order_fulfillment_validation_permanent_failure(pool: PgPool) -> Re
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": -1, "name": "", "email": "invalid"},
             "items": [],
@@ -74,7 +74,7 @@ async fn test_order_fulfillment_inventory_permanent_failure(pool: PgPool) -> Res
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "jane.doe@example.com"},
             "items": [{"sku": "DISCONTINUED", "quantity": 1, "price": 99.99}],
@@ -144,7 +144,7 @@ async fn test_order_fulfillment_payment_permanent_failure(pool: PgPool) -> Resul
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "jane.doe@example.com"},
             "items": [{"sku": "WIDGET-001", "quantity": 2, "price": 29.99}],
@@ -222,7 +222,7 @@ async fn test_order_fulfillment_mixed_states_sql_accuracy(pool: PgPool) -> Resul
 
     let task_request = manager.create_task_request_for_template(
         "business_workflow",
-        "order_fulfillment",
+        "rust_e2e_order_fulfillment",
         serde_json::json!({
             "customer": {"id": 12345, "name": "Jane Doe", "email": "jane.doe@example.com"},
             "items": [{"sku": "WIDGET-001", "quantity": 2, "price": 29.99}],

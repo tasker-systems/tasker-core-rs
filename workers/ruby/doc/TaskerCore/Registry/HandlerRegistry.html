@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>
+  Class: TaskerCore::Registry::HandlerRegistry
+  
+    &mdash; Documentation by YARD 0.9.37
+  
+</title>
+
+  <link rel="stylesheet" href="../../css/style.css" type="text/css" />
+
+  <link rel="stylesheet" href="../../css/common.css" type="text/css" />
+
+<script type="text/javascript">
+  pathId = "TaskerCore::Registry::HandlerRegistry";
+  relpath = '../../';
+</script>
+
+
+  <script type="text/javascript" charset="utf-8" src="../../js/jquery.js"></script>
+
+  <script type="text/javascript" charset="utf-8" src="../../js/app.js"></script>
+
+
+  </head>
+  <body>
+    <div class="nav_wrap">
+      <iframe id="nav" src="../../class_list.html?1"></iframe>
+      <div id="resizer"></div>
+    </div>
+
+    <div id="main" tabindex="-1">
+      <div id="header">
+        <div id="menu">
+  
+    <a href="../../_index.html">Index (H)</a> &raquo;
+    <span class='title'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span> &raquo; <span class='title'><span class='object_link'><a href="../Registry.html" title="TaskerCore::Registry (module)">Registry</a></span></span>
+     &raquo; 
+    <span class="title">HandlerRegistry</span>
+  
+</div>
+
+        <div id="search">
+  
+    <a class="full_list_link" id="class_list_link"
+        href="../../class_list.html">
+
+        <svg width="24" height="24">
+          <rect x="0" y="4" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="12" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="20" width="24" height="4" rx="1" ry="1"></rect>
+        </svg>
+    </a>
+  
+</div>
+        <div class="clear"></div>
+      </div>
+
+      <div id="content"><h1>Class: TaskerCore::Registry::HandlerRegistry
+  
+  
+  
+</h1>
+<div class="box_info">
+  
+  <dl>
+    <dt>Inherits:</dt>
+    <dd>
+      <span class="inheritName">Object</span>
+      
+        <ul class="fullTree">
+          <li>Object</li>
+          
+            <li class="next">TaskerCore::Registry::HandlerRegistry</li>
+          
+        </ul>
+        <a href="#" class="inheritanceTree">show all</a>
+      
+    </dd>
+  </dl>
+  
+
+  
+  
+  
+  
+  <dl>
+      <dt>Includes:</dt>
+      <dd>Singleton</dd>
+  </dl>
+  
+  
+
+  
+
+  
+  <dl>
+    <dt>Defined in:</dt>
+    <dd>lib/tasker_core/registry/handler_registry.rb</dd>
+  </dl>
+  
+</div>
+
+<h2>Overview</h2><div class="docstring">
+  <div class="discussion">
+    
+<p>Simplified handler registry for pure business logic handlers</p>
+
+<p>Manages the discovery, registration, and instantiation of step handlers throughout the worker lifecycle. The registry supports multiple discovery modes to handle different deployment scenarios and environments.</p>
+
+<p>Discovery Modes (in priority order):</p>
+<ol><li>
+<p>**Preloaded Handlers**: Test environment handlers loaded at startup</p>
+</li><li>
+<p>**Template-Driven Discovery**: YAML templates defining workflow handlers</p>
+</li></ol>
+
+<p>The registry automatically bootstraps on initialization, discovering and registering all available handlers based on the current environment and configuration.</p>
+
+<p>Discovery Priority Explained:</p>
+<ol><li>
+<p>**Test Environment Preloaded Handlers** (TASKER_ENV=test):</p>
+<ul><li>
+<p>Checks if TaskerCore::TestEnvironment has loaded handlers</p>
+</li><li>
+<p>Uses ObjectSpace to find loaded handler classes</p>
+</li><li>
+<p>Fastest discovery, no file I/O needed</p>
+</li></ul>
+</li><li>
+<p>**YAML Template-Driven Discovery**:</p>
+<ul><li>
+<p>Scans template directory for YAML files</p>
+</li><li>
+<p>Extracts handler_class from step definitions</p>
+</li><li>
+<p>Loads handler files and registers classes</p>
+</li></ul>
+</li></ol>
+
+<p>Template Path Resolution (in priority order):</p>
+<ol><li>
+<p><strong>TASKER_TEMPLATE_PATH</strong>: Explicit override (highest priority)</p>
+</li><li>
+<p>**TASKER_ENV=test**: Defaults to spec/fixtures/templates</p>
+</li><li>
+<p><strong>Production/Development</strong>: Uses standard config/tasker/tasks discovery</p>
+</li></ol>
+
+<p>Environment Variables:</p>
+<ul><li>
+<p><strong>TASKER_ENV</strong>: Current environment (test/development/production)</p>
+</li><li>
+<p><strong>RAILS_ENV</strong>: Rails environment (fallback for TASKER_ENV)</p>
+</li><li>
+<p><strong>TASKER_TEMPLATE_PATH</strong>: Explicit template directory override</p>
+</li></ul>
+
+<p>Handler Search Paths:</p>
+<ul><li>
+<p>app/handlers/</p>
+</li><li>
+<p>lib/handlers/</p>
+</li><li>
+<p>handlers/</p>
+</li><li>
+<p>app/tasker/handlers/</p>
+</li><li>
+<p>lib/tasker/handlers/</p>
+</li><li>
+<p>spec/handlers/examples/ (test environment only)</p>
+</li></ul>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+  <div class="examples">
+    <h4 class="tag_title">Examples:</h4>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Resolving a handler by class name</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_registry'>registry</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Registry.html" title="TaskerCore::Registry (module)">Registry</a></span></span><span class='op'>::</span><span class='const'>HandlerRegistry</span><span class='period'>.</span><span class='id identifier rubyid_instance'>instance</span>
+<span class='id identifier rubyid_handler'>handler</span> <span class='op'>=</span> <span class='id identifier rubyid_registry'>registry</span><span class='period'>.</span><span class='id identifier rubyid_resolve_handler'>resolve_handler</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>ValidateOrderHandler</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+<span class='comment'># =&gt; Instance of ValidateOrderHandler or nil if not found
+</span>
+<span class='kw'>if</span> <span class='id identifier rubyid_handler'>handler</span>
+  <span class='id identifier rubyid_result'>result</span> <span class='op'>=</span> <span class='id identifier rubyid_handler'>handler</span><span class='period'>.</span><span class='id identifier rubyid_call'>call</span><span class='lparen'>(</span><span class='id identifier rubyid_task'>task</span><span class='comma'>,</span> <span class='id identifier rubyid_sequence'>sequence</span><span class='comma'>,</span> <span class='id identifier rubyid_step'>step</span><span class='rparen'>)</span>
+<span class='kw'>else</span>
+  <span class='id identifier rubyid_raise'>raise</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Handler not found: ValidateOrderHandler</span><span class='tstring_end'>&quot;</span></span>
+<span class='kw'>end</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Checking handler availability</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_registry'>registry</span><span class='period'>.</span><span class='id identifier rubyid_handler_available?'>handler_available?</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>ProcessPaymentHandler</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+<span class='comment'># =&gt; true/false
+</span>
+<span class='kw'>if</span> <span class='id identifier rubyid_registry'>registry</span><span class='period'>.</span><span class='id identifier rubyid_handler_available?'>handler_available?</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>ProcessPaymentHandler</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_puts'>puts</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Payment processing is available</span><span class='tstring_end'>&quot;</span></span>
+<span class='kw'>end</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Getting list of registered handlers</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_handlers'>handlers</span> <span class='op'>=</span> <span class='id identifier rubyid_registry'>registry</span><span class='period'>.</span><span class='id identifier rubyid_registered_handlers'>registered_handlers</span>
+<span class='comment'># =&gt; [&quot;LinearStep1Handler&quot;, &quot;LinearStep2Handler&quot;, &quot;ValidateOrderHandler&quot;, ...]
+</span>
+<span class='id identifier rubyid_puts'>puts</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Available handlers:</span><span class='tstring_end'>&quot;</span></span>
+<span class='id identifier rubyid_handlers'>handlers</span><span class='period'>.</span><span class='id identifier rubyid_each'>each</span> <span class='lbrace'>{</span> <span class='op'>|</span><span class='id identifier rubyid_name'>name</span><span class='op'>|</span> <span class='id identifier rubyid_puts'>puts</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>  - </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_name'>name</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span> <span class='rbrace'>}</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Debugging template discovery</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_info'>info</span> <span class='op'>=</span> <span class='id identifier rubyid_registry'>registry</span><span class='period'>.</span><span class='id identifier rubyid_template_discovery_info'>template_discovery_info</span>
+<span class='comment'># =&gt; {
+</span><span class='comment'>#   template_path: &quot;/app/config/tasker/tasks&quot;,
+</span><span class='comment'>#   template_files: [&quot;linear_workflow.yml&quot;, &quot;order_fulfillment.yml&quot;],
+</span><span class='comment'>#   discovered_handlers: [&quot;ValidateOrderHandler&quot;, &quot;ProcessPaymentHandler&quot;, ...],
+</span><span class='comment'>#   handlers_by_namespace: {
+</span><span class='comment'>#     &quot;payments&quot; =&gt; [&quot;ProcessPaymentHandler&quot;, &quot;RefundHandler&quot;],
+</span><span class='comment'>#     &quot;fulfillment&quot; =&gt; [&quot;ValidateOrderHandler&quot;, &quot;ShipOrderHandler&quot;]
+</span><span class='comment'>#   },
+</span><span class='comment'>#   environment: &quot;production&quot;,
+</span><span class='comment'>#   fallback_enabled: false
+</span><span class='comment'># }
+</span>
+<span class='id identifier rubyid_puts'>puts</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Template path: </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_info'>info</span><span class='lbracket'>[</span><span class='symbol'>:template_path</span><span class='rbracket'>]</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span>
+<span class='id identifier rubyid_puts'>puts</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Discovered </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_info'>info</span><span class='lbracket'>[</span><span class='symbol'>:discovered_handlers</span><span class='rbracket'>]</span><span class='period'>.</span><span class='id identifier rubyid_size'>size</span><span class='embexpr_end'>}</span><span class='tstring_content'> handlers</span><span class='tstring_end'>&quot;</span></span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Manual handler registration</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='comment'># Register a custom handler at runtime
+</span><span class='id identifier rubyid_registry'>registry</span><span class='period'>.</span><span class='id identifier rubyid_register_handler'>register_handler</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>CustomHandler</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='const'>CustomHandlerClass</span><span class='rparen'>)</span>
+<span class='comment'># =&gt; Logs: &quot;✅ Registered handler: CustomHandler&quot;</span></code></pre>
+    
+  </div>
+
+
+  <p class="tag_title">See Also:</p>
+  <ul class="see">
+    
+      <li><span class='object_link'><a href="../TemplateDiscovery.html" title="TaskerCore::TemplateDiscovery (module)">For template discovery implementation</a></span></li>
+    
+      <li><span class='object_link'><a href="../TestEnvironment.html" title="TaskerCore::TestEnvironment (module)">For test environment integration</a></span></li>
+    
+      <li><span class='object_link'><a href="../StepHandler/Base.html" title="TaskerCore::StepHandler::Base (class)">For handler base class</a></span></li>
+    
+  </ul>
+
+</div>
+
+
+
+  <h2>Instance Attribute Summary <small><a href="#" class="summary_toggle">collapse</a></small></h2>
+  <ul class="summary">
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#handlers-instance_method" title="#handlers (instance method)">#<strong>handlers</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Returns the value of attribute handlers.</p>
+</div></span>
+  
+</li>
+
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#logger-instance_method" title="#logger (instance method)">#<strong>logger</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Returns the value of attribute logger.</p>
+</div></span>
+  
+</li>
+
+    
+  </ul>
+
+
+
+
+  
+    <h2>
+      Instance Method Summary
+      <small><a href="#" class="summary_toggle">collapse</a></small>
+    </h2>
+
+    <ul class="summary">
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#handler_available%3F-instance_method" title="#handler_available? (instance method)">#<strong>handler_available?</strong>(class_name)  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Check if handler is available.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#initialize-instance_method" title="#initialize (instance method)">#<strong>initialize</strong>  &#x21d2; HandlerRegistry </a>
+    
+
+    
+  </span>
+  
+  
+    <span class="note title constructor">constructor</span>
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>A new instance of HandlerRegistry.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#register_handler-instance_method" title="#register_handler (instance method)">#<strong>register_handler</strong>(class_name, handler_class)  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Register handler class.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#registered_handlers-instance_method" title="#registered_handlers (instance method)">#<strong>registered_handlers</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Get all registered handler names.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#resolve_handler-instance_method" title="#resolve_handler (instance method)">#<strong>resolve_handler</strong>(handler_class_name)  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Resolve handler by class name.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#template_discovery_info-instance_method" title="#template_discovery_info (instance method)">#<strong>template_discovery_info</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Get template discovery information for debugging.</p>
+</div></span>
+  
+</li>
+
+      
+    </ul>
+  
+
+
+  <div id="constructor_details" class="method_details_list">
+  <h2>Constructor Details</h2>
+  
+    <div class="method_details first">
+  <h3 class="signature first" id="initialize-instance_method">
+  
+    #<strong>initialize</strong>  &#x21d2; <tt><span class='object_link'><a href="" title="TaskerCore::Registry::HandlerRegistry (class)">HandlerRegistry</a></span></tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns a new instance of HandlerRegistry.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+107
+108
+109
+110
+111</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/registry/handler_registry.rb', line 107</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_initialize'>initialize</span>
+  <span class='ivar'>@logger</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Logger.html" title="TaskerCore::Logger (class)">Logger</a></span></span><span class='period'>.</span><span class='id identifier rubyid_instance'>instance</span>
+  <span class='ivar'>@handlers</span> <span class='op'>=</span> <span class='lbrace'>{</span><span class='rbrace'>}</span>
+  <span class='id identifier rubyid_bootstrap_handlers!'>bootstrap_handlers!</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+  
+</div>
+
+  <div id="instance_attr_details" class="attr_details">
+    <h2>Instance Attribute Details</h2>
+    
+      
+      <span id=""></span>
+      <div class="method_details first">
+  <h3 class="signature first" id="handlers-instance_method">
+  
+    #<strong>handlers</strong>  &#x21d2; <tt>Object</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns the value of attribute handlers.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+105
+106
+107</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/registry/handler_registry.rb', line 105</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_handlers'>handlers</span>
+  <span class='ivar'>@handlers</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      
+      <span id=""></span>
+      <div class="method_details ">
+  <h3 class="signature " id="logger-instance_method">
+  
+    #<strong>logger</strong>  &#x21d2; <tt>Object</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns the value of attribute logger.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+105
+106
+107</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/registry/handler_registry.rb', line 105</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_logger'>logger</span>
+  <span class='ivar'>@logger</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+
+  <div id="instance_method_details" class="method_details_list">
+    <h2>Instance Method Details</h2>
+
+    
+      <div class="method_details first">
+  <h3 class="signature first" id="handler_available?-instance_method">
+  
+    #<strong>handler_available?</strong>(class_name)  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Check if handler is available</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+132
+133
+134</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/registry/handler_registry.rb', line 132</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_handler_available?'>handler_available?</span><span class='lparen'>(</span><span class='id identifier rubyid_class_name'>class_name</span><span class='rparen'>)</span>
+  <span class='ivar'>@handlers</span><span class='period'>.</span><span class='id identifier rubyid_key?'>key?</span><span class='lparen'>(</span><span class='id identifier rubyid_class_name'>class_name</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="register_handler-instance_method">
+  
+    #<strong>register_handler</strong>(class_name, handler_class)  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Register handler class</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+126
+127
+128
+129</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/registry/handler_registry.rb', line 126</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_register_handler'>register_handler</span><span class='lparen'>(</span><span class='id identifier rubyid_class_name'>class_name</span><span class='comma'>,</span> <span class='id identifier rubyid_handler_class'>handler_class</span><span class='rparen'>)</span>
+  <span class='ivar'>@handlers</span><span class='lbracket'>[</span><span class='id identifier rubyid_class_name'>class_name</span><span class='rbracket'>]</span> <span class='op'>=</span> <span class='id identifier rubyid_handler_class'>handler_class</span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_debug'>debug</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>✅ Registered handler: </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_class_name'>class_name</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="registered_handlers-instance_method">
+  
+    #<strong>registered_handlers</strong>  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Get all registered handler names</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+137
+138
+139</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/registry/handler_registry.rb', line 137</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_registered_handlers'>registered_handlers</span>
+  <span class='ivar'>@handlers</span><span class='period'>.</span><span class='id identifier rubyid_keys'>keys</span><span class='period'>.</span><span class='id identifier rubyid_sort'>sort</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="resolve_handler-instance_method">
+  
+    #<strong>resolve_handler</strong>(handler_class_name)  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Resolve handler by class name</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/registry/handler_registry.rb', line 114</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_resolve_handler'>resolve_handler</span><span class='lparen'>(</span><span class='id identifier rubyid_handler_class_name'>handler_class_name</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_handler_class'>handler_class</span> <span class='op'>=</span> <span class='ivar'>@handlers</span><span class='lbracket'>[</span><span class='id identifier rubyid_handler_class_name'>handler_class_name</span><span class='rbracket'>]</span>
+  <span class='kw'>return</span> <span class='kw'>nil</span> <span class='kw'>unless</span> <span class='id identifier rubyid_handler_class'>handler_class</span>
+
+  <span class='comment'># Simple instantiation - no infrastructure setup needed
+</span>  <span class='id identifier rubyid_handler_class'>handler_class</span><span class='period'>.</span><span class='id identifier rubyid_new'>new</span>
+<span class='kw'>rescue</span> <span class='const'>StandardError</span> <span class='op'>=&gt;</span> <span class='id identifier rubyid_e'>e</span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_error'>error</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>💥 Failed to instantiate handler </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_handler_class_name'>handler_class_name</span><span class='embexpr_end'>}</span><span class='tstring_content'>: </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_e'>e</span><span class='period'>.</span><span class='id identifier rubyid_message'>message</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+  <span class='kw'>nil</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="template_discovery_info-instance_method">
+  
+    #<strong>template_discovery_info</strong>  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Get template discovery information for debugging</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+142
+143
+144
+145
+146
+147
+148
+149
+150
+151
+152</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/registry/handler_registry.rb', line 142</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_template_discovery_info'>template_discovery_info</span>
+  <span class='id identifier rubyid_template_path'>template_path</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../TemplateDiscovery.html" title="TaskerCore::TemplateDiscovery (module)">TemplateDiscovery</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../TemplateDiscovery/TemplatePath.html" title="TaskerCore::TemplateDiscovery::TemplatePath (class)">TemplatePath</a></span></span><span class='period'>.</span><span class='id identifier rubyid_find_template_config_directory'><span class='object_link'><a href="../TemplateDiscovery/TemplatePath.html#find_template_config_directory-class_method" title="TaskerCore::TemplateDiscovery::TemplatePath.find_template_config_directory (method)">find_template_config_directory</a></span></span>
+
+  <span class='lbrace'>{</span>
+    <span class='label'>template_path:</span> <span class='id identifier rubyid_template_path'>template_path</span><span class='comma'>,</span>
+    <span class='label'>template_files:</span> <span class='id identifier rubyid_template_path'>template_path</span> <span class='op'>?</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../TemplateDiscovery.html" title="TaskerCore::TemplateDiscovery (module)">TemplateDiscovery</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../TemplateDiscovery/TemplatePath.html" title="TaskerCore::TemplateDiscovery::TemplatePath (class)">TemplatePath</a></span></span><span class='period'>.</span><span class='id identifier rubyid_discover_template_files'><span class='object_link'><a href="../TemplateDiscovery/TemplatePath.html#discover_template_files-class_method" title="TaskerCore::TemplateDiscovery::TemplatePath.discover_template_files (method)">discover_template_files</a></span></span><span class='lparen'>(</span><span class='id identifier rubyid_template_path'>template_path</span><span class='rparen'>)</span> <span class='op'>:</span> <span class='lbracket'>[</span><span class='rbracket'>]</span><span class='comma'>,</span>
+    <span class='label'>discovered_handlers:</span> <span class='id identifier rubyid_template_path'>template_path</span> <span class='op'>?</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../TemplateDiscovery.html" title="TaskerCore::TemplateDiscovery (module)">TemplateDiscovery</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../TemplateDiscovery/HandlerDiscovery.html" title="TaskerCore::TemplateDiscovery::HandlerDiscovery (class)">HandlerDiscovery</a></span></span><span class='period'>.</span><span class='id identifier rubyid_discover_all_handlers'><span class='object_link'><a href="../TemplateDiscovery/HandlerDiscovery.html#discover_all_handlers-class_method" title="TaskerCore::TemplateDiscovery::HandlerDiscovery.discover_all_handlers (method)">discover_all_handlers</a></span></span><span class='lparen'>(</span><span class='id identifier rubyid_template_path'>template_path</span><span class='rparen'>)</span> <span class='op'>:</span> <span class='lbracket'>[</span><span class='rbracket'>]</span><span class='comma'>,</span>
+    <span class='label'>handlers_by_namespace:</span> <span class='id identifier rubyid_template_path'>template_path</span> <span class='op'>?</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../TemplateDiscovery.html" title="TaskerCore::TemplateDiscovery (module)">TemplateDiscovery</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../TemplateDiscovery/HandlerDiscovery.html" title="TaskerCore::TemplateDiscovery::HandlerDiscovery (class)">HandlerDiscovery</a></span></span><span class='period'>.</span><span class='id identifier rubyid_discover_handlers_by_namespace'><span class='object_link'><a href="../TemplateDiscovery/HandlerDiscovery.html#discover_handlers_by_namespace-class_method" title="TaskerCore::TemplateDiscovery::HandlerDiscovery.discover_handlers_by_namespace (method)">discover_handlers_by_namespace</a></span></span><span class='lparen'>(</span><span class='id identifier rubyid_template_path'>template_path</span><span class='rparen'>)</span> <span class='op'>:</span> <span class='lbrace'>{</span><span class='rbrace'>}</span><span class='comma'>,</span>
+    <span class='label'>environment:</span> <span class='const'>ENV</span><span class='lbracket'>[</span><span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>TASKER_ENV</span><span class='tstring_end'>&#39;</span></span><span class='rbracket'>]</span> <span class='op'>||</span> <span class='const'>ENV</span><span class='lbracket'>[</span><span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>RAILS_ENV</span><span class='tstring_end'>&#39;</span></span><span class='rbracket'>]</span> <span class='op'>||</span> <span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>development</span><span class='tstring_end'>&#39;</span></span>
+  <span class='rbrace'>}</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+</div>
+
+      <div id="footer">
+  Generated on Mon Oct  6 16:44:01 2025 by
+  <a href="https://yardoc.org" title="Yay! A Ruby Documentation Tool" target="_parent">yard</a>
+  0.9.37 (ruby-3.4.4).
+</div>
+
+    </div>
+  </body>
+</html>

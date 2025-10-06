@@ -151,7 +151,6 @@ module TaskerCore
 
             # Process the event through EventBridge
             process_event(event_data)
-
           rescue StandardError => e
             logger.error "EventPoller error: #{e.message}"
             logger.error e.backtrace.join("\n")

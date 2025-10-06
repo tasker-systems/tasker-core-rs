@@ -12,7 +12,7 @@ async fn test_linear_workflow_early_failure(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -90,7 +90,7 @@ async fn test_linear_workflow_mid_workflow_permanent_failure(pool: PgPool) -> Re
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -199,7 +199,7 @@ async fn test_linear_workflow_late_failure(pool: PgPool) -> Result<()> {
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 
@@ -295,7 +295,7 @@ async fn test_linear_workflow_mixed_states_sql_accuracy(pool: PgPool) -> Result<
 
     let task_request = manager.create_task_request_for_template(
         "mathematical_sequence",
-        "linear_workflow",
+        "rust_e2e_linear",
         serde_json::json!({"even_number": 6}),
     );
 

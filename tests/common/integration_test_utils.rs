@@ -1,6 +1,8 @@
 //! Helper functions for integration tests
 //!
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use std::time::Duration;
 use tokio::time::sleep;
