@@ -99,7 +99,7 @@ impl OrchestrationResultProcessor {
             status = %status,
             execution_time_ms = execution_time_ms,
             has_orchestration_metadata = orchestration_metadata.is_some(),
-            "ORCHESTRATION_Starting step result notification processing"
+            "Starting step result notification processing"
         );
 
         // Process orchestration metadata for backoff decisions (coordinating retry timing)
@@ -111,7 +111,7 @@ impl OrchestrationResultProcessor {
                 has_error_context = metadata.error_context.is_some(),
                 has_backoff_hint = metadata.backoff_hint.is_some(),
                 custom_fields_count = metadata.custom.len(),
-                "ORCHESTRATION_Processing orchestration metadata"
+                "Processing orchestration metadata"
             );
 
             match step_result.status {
@@ -129,7 +129,7 @@ impl OrchestrationResultProcessor {
             debug!(
                 correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
-                "ORCHESTRATION_No orchestration metadata to process"
+                "No orchestration metadata to process"
             );
         }
 
@@ -138,7 +138,7 @@ impl OrchestrationResultProcessor {
             correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
-            "ORCHESTRATION_Delegating to handle_step_result for coordination-only processing"
+            "Delegating to handle_step_result for coordination-only processing"
         );
 
         match self
@@ -155,7 +155,7 @@ impl OrchestrationResultProcessor {
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     status = %status,
-                    "ORCHESTRATION_Step result notification processing completed successfully"
+                    "Step result notification processing completed successfully"
                 );
                 Ok(())
             }
@@ -165,7 +165,7 @@ impl OrchestrationResultProcessor {
                     step_uuid = %step_uuid,
                     status = %status,
                     error = %e,
-                    "ORCHESTRATION_Step result notification processing failed"
+                    "Step result notification processing failed"
                 );
                 Err(e)
             }
@@ -207,7 +207,7 @@ impl OrchestrationResultProcessor {
             status = %status,
             execution_time_ms = execution_time_ms,
             processor_uuid = %self.context.processor_uuid(),
-            "ORCHESTRATION_Step execution result notification processing completed successfully"
+            "Step execution result notification processing completed successfully"
         );
         // Process orchestration metadata for backoff decisions (coordinating retry timing)
         if let Some(metadata) = &orchestration_metadata {
@@ -218,7 +218,7 @@ impl OrchestrationResultProcessor {
                 has_error_context = metadata.error_context.is_some(),
                 has_backoff_hint = metadata.backoff_hint.is_some(),
                 custom_fields_count = metadata.custom.len(),
-                "ORCHESTRATION_Processing orchestration metadata"
+                "Processing orchestration metadata"
             );
 
             if let Err(e) = self
@@ -229,20 +229,20 @@ impl OrchestrationResultProcessor {
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     error = %e,
-                    "ORCHESTRATION_Failed to process orchestration metadata"
+                    "Failed to process orchestration metadata"
                 );
             } else {
                 debug!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
-                    "ORCHESTRATION_Successfully processed orchestration metadata"
+                    "Successfully processed orchestration metadata"
                 );
             }
         } else {
             debug!(
                 correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
-                "ORCHESTRATION_No orchestration metadata to process"
+                "No orchestration metadata to process"
             );
         }
 
@@ -251,7 +251,7 @@ impl OrchestrationResultProcessor {
             correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
-            "ORCHESTRATION_Delegating to handle_step_result for coordination-only processing"
+            "Delegating to handle_step_result for coordination-only processing"
         );
 
         match self
@@ -268,7 +268,7 @@ impl OrchestrationResultProcessor {
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     status = %status,
-                    "ORCHESTRATION_Step result notification processing completed successfully"
+                    "Step result notification processing completed successfully"
                 );
                 Ok(())
             }
@@ -278,7 +278,7 @@ impl OrchestrationResultProcessor {
                     step_uuid = %step_uuid,
                     status = %status,
                     error = %e,
-                    "ORCHESTRATION_Step result notification processing failed"
+                    "Step result notification processing failed"
                 );
                 Err(e)
             }
@@ -305,7 +305,7 @@ impl OrchestrationResultProcessor {
             status = %status,
             execution_time_ms = execution_time_ms,
             processor_uuid = %self.context.processor_uuid(),
-            "ORCHESTRATION_PROCESSING: Processing step result for orchestration and task coordination"
+            "Processing step result for orchestration and task coordination"
         );
 
         if let Err(e) = self
@@ -316,7 +316,7 @@ impl OrchestrationResultProcessor {
                 correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
                 error = %e,
-                "ORCHESTRATION_PROCESSING: Failed to process orchestration state transition"
+                "Failed to process orchestration state transition"
             );
             return Err(e);
         }
@@ -325,7 +325,7 @@ impl OrchestrationResultProcessor {
             correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
-            "TASK_COORDINATION: Status qualifies for finalization check - looking up WorkflowStep"
+            "Status qualifies for finalization check - looking up WorkflowStep"
         );
 
         let workflow_step =
@@ -349,7 +349,7 @@ impl OrchestrationResultProcessor {
                     task_uuid = %workflow_step.task_uuid,
                     current_state = ?current_state,
                     step_uuid = %step_uuid,
-                    "TASK_COORDINATION: Current task state before attempting transition"
+                    "Current task state before attempting transition"
                 );
 
                 // Only transition with StepCompleted if we're in StepsInProcess state
@@ -391,7 +391,7 @@ impl OrchestrationResultProcessor {
                                 step_uuid = %step_uuid,
                                 action = ?result.action,
                                 reason = ?result.reason,
-                                "TASK_COORDINATION: Task finalization completed successfully"
+                                "Task finalization completed successfully"
                             );
                         }
                         Err(err) => {
@@ -399,7 +399,7 @@ impl OrchestrationResultProcessor {
                                 correlation_id = %correlation_id,
                                 task_uuid = %workflow_step.task_uuid,
                                 step_uuid = %step_uuid,
-                                "TASK_COORDINATION: Failed to finalize task"
+                                "Failed to finalize task"
                             );
                             return Err(OrchestrationError::DatabaseError {
                                 operation: format!("TaskFinalizer.finalize_task for {step_uuid}"),
@@ -412,7 +412,7 @@ impl OrchestrationResultProcessor {
                         correlation_id = %correlation_id,
                         task_uuid = %workflow_step.task_uuid,
                         step_uuid = %step_uuid,
-                        "TASK_COORDINATION: Failed to transition state machine"
+                        "Failed to transition state machine"
                     );
                     return Err(OrchestrationError::DatabaseError {
                         operation: format!("TaskStateMachine.transition for {step_uuid}"),
@@ -424,7 +424,7 @@ impl OrchestrationResultProcessor {
                 error!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
-                    "TASK_COORDINATION: Failed to find WorkflowStep"
+                    "Failed to find WorkflowStep"
                 );
                 return Err(OrchestrationError::DatabaseError {
                     operation: format!("WorkflowStep.find for {step_uuid}"),
