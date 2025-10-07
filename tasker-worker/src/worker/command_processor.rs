@@ -519,7 +519,11 @@ impl WorkerProcessor {
             Ok(step) => match step {
                 Some(step) => step,
                 None => {
-                    error!("Failed to get task sequence step");
+                    error!(
+                        correlation_id = %step_message.correlation_id,
+                        step_uuid = %step_message.step_uuid,
+                        "Failed to get task sequence step"
+                    );
                     return Err(TaskerError::DatabaseError(format!(
                         "Step not found for {}",
                         step_message.step_uuid
@@ -527,15 +531,28 @@ impl WorkerProcessor {
                 }
             },
             Err(err) => {
-                error!("Failed to get task sequence step: {err}");
+                error!(
+                    correlation_id = %step_message.correlation_id,
+                    step_uuid = %step_message.step_uuid,
+                    error = %err,
+                    "Failed to get task sequence step"
+                );
                 return Err(err);
             }
         };
 
-        let claimed = match step_claimer.try_claim_step(&task_sequence_step).await {
+        let claimed = match step_claimer
+            .try_claim_step(&task_sequence_step, step_message.correlation_id)
+            .await
+        {
             Ok(claimed) => claimed,
             Err(err) => {
-                error!("Failed to claim step: {err}");
+                error!(
+                    correlation_id = %step_message.correlation_id,
+                    step_uuid = %step_message.step_uuid,
+                    error = %err,
+                    "Failed to claim step"
+                );
                 return Err(err);
             }
         };

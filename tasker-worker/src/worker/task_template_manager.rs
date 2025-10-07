@@ -310,8 +310,7 @@ impl TaskTemplateManager {
             Ok(discovery_result) => {
                 info!(
                     "TaskTemplate discovery complete - {} templates registered from {} files",
-                    discovery_result.successful_registrations,
-                    discovery_result.total_files
+                    discovery_result.successful_registrations, discovery_result.total_files
                 );
 
                 if !discovery_result.errors.is_empty() {
@@ -342,9 +341,7 @@ impl TaskTemplateManager {
                 Ok(discovery_result)
             }
             Err(e) => {
-                error!(
-                    "TaskTemplate discovery failed (worker will use registry-only): {e}"
-                );
+                error!("TaskTemplate discovery failed (worker will use registry-only): {e}");
                 Err(TaskerError::ConfigurationError(format!(
                     "TaskTemplate discovery failed (worker will use registry-only): {e}"
                 )))

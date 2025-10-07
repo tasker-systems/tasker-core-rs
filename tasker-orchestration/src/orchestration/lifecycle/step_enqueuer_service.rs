@@ -170,7 +170,11 @@ impl StepEnqueuerService {
         for task in &ready_tasks {
             debug!(
                 "📋 Ready task {} (namespace: '{}') with {} ready steps, priority: {}, state: {}",
-                task.task_uuid, task.namespace_name, task.ready_steps_count, task.priority, task.current_state
+                task.task_uuid,
+                task.namespace_name,
+                task.ready_steps_count,
+                task.priority,
+                task.current_state
             );
         }
 

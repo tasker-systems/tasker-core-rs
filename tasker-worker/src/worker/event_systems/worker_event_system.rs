@@ -299,9 +299,7 @@ impl WorkerEventSystem {
                     })?,
                 );
 
-                info!(
-                    "Fallback poller initialized for reliable processing"
-                );
+                info!("Fallback poller initialized for reliable processing");
             }
             _ => {}
         }

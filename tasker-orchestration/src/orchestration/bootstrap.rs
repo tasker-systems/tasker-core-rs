@@ -213,10 +213,7 @@ impl OrchestrationBootstrap {
                 .context
                 .initialize_queues(&namespace_refs)
                 .await?;
-            info!(
-                "Initialized queues for namespaces: {:?}",
-                config.namespaces
-            );
+            info!("Initialized queues for namespaces: {:?}", config.namespaces);
         }
 
         // Create web API state if enabled
@@ -323,10 +320,7 @@ impl OrchestrationBootstrap {
                 }
             });
 
-            info!(
-                "Orchestration web server started on {}",
-                bind_address
-            );
+            info!("Orchestration web server started on {}", bind_address);
             info!("📖 API Documentation: http://{}/api-docs/ui", bind_address);
             info!("🏥 Health Check: http://{}/health", bind_address);
         }

@@ -711,7 +711,9 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
             }
 
             if !orchestration && !workers {
-                println!("\nOverall system health: Both orchestration and worker services checked above");
+                println!(
+                    "\nOverall system health: Both orchestration and worker services checked above"
+                );
             }
         }
         SystemCommands::Info => {

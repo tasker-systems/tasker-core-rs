@@ -212,10 +212,7 @@ impl UnifiedConfigLoader {
         self.component_cache
             .insert(component.to_string(), config.clone());
 
-        debug!(
-            "Successfully loaded and validated component: {}",
-            component
-        );
+        debug!("Successfully loaded and validated component: {}", component);
         Ok(config)
     }
 
@@ -561,9 +558,7 @@ impl UnifiedConfigLoader {
                 );
             }
         } else {
-            debug!(
-                "ENVIRONMENT_DETECT: Could not find workspace root, trying current directory"
-            );
+            debug!("ENVIRONMENT_DETECT: Could not find workspace root, trying current directory");
             if let Err(e) = dotenv() {
                 debug!(
                     "ENVIRONMENT_DETECT: Could not load .env file from current directory: {}",
@@ -578,10 +573,7 @@ impl UnifiedConfigLoader {
             .unwrap_or_else(|_| "development".to_string())
             .to_lowercase();
 
-        debug!(
-            "ENVIRONMENT_DETECT: Final detected environment: '{}'",
-            env
-        );
+        debug!("ENVIRONMENT_DETECT: Final detected environment: '{}'", env);
         env
     }
 

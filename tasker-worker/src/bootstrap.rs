@@ -312,10 +312,7 @@ impl WorkerBootstrap {
                 }
             });
 
-            info!(
-                "Worker web server started on {}",
-                bind_address
-            );
+            info!("Worker web server started on {}", bind_address);
         }
 
         // Create shutdown channel

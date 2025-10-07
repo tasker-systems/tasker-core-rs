@@ -139,7 +139,14 @@ impl TaskFinalizer {
     /// @param task_uuid The task ID to check
     /// @return True if task is blocked by errors
     pub async fn blocked_by_errors(&self, task_uuid: Uuid) -> Result<bool, FinalizationError> {
-        let context = self.get_task_execution_context(task_uuid).await?;
+        // Fetch correlation_id from task
+        let correlation_id = {
+            let task = Task::find_by_id(self.context.database_pool(), task_uuid).await?;
+            task.map(|t| t.correlation_id).unwrap_or_else(Uuid::nil)
+        };
+        let context = self
+            .get_task_execution_context(task_uuid, correlation_id)
+            .await?;
 
         // If no context is available, the task has no steps or doesn't exist
         // In either case, it's not blocked by errors
@@ -164,18 +171,22 @@ impl TaskFinalizer {
 
         let correlation_id = task.correlation_id;
         debug!(
-            task_uuid = %task_uuid,
             correlation_id = %correlation_id,
+            task_uuid = %task_uuid,
             "TaskFinalizer: Starting task finalization"
         );
 
-        let context = self.get_task_execution_context(task_uuid).await?;
+        let context = self
+            .get_task_execution_context(task_uuid, correlation_id)
+            .await?;
 
-        let finalization_result = self.make_finalization_decision(task, context).await?;
+        let finalization_result = self
+            .make_finalization_decision(task, context, correlation_id)
+            .await?;
 
         debug!(
-            task_uuid = %task_uuid,
             correlation_id = %correlation_id,
+            task_uuid = %task_uuid,
             action = ?finalization_result.action,
             "TaskFinalizer: Finalization completed"
         );
@@ -188,6 +199,7 @@ impl TaskFinalizer {
         &self,
         mut task: Task,
         context: Option<TaskExecutionContext>,
+        correlation_id: Uuid,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
 
@@ -259,6 +271,7 @@ impl TaskFinalizer {
             TaskState::Pending => {
                 // This should not happen anymore with the proper initialization fix
                 error!(
+                    correlation_id = %correlation_id,
                     task_uuid = %task_uuid,
                     current_state = %current_state,
                     "Task is still in Pending state when trying to complete - this indicates an initialization issue"
@@ -317,6 +330,7 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
+        _correlation_id: Uuid,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
 
@@ -354,11 +368,13 @@ impl TaskFinalizer {
     async fn get_task_execution_context(
         &self,
         task_uuid: Uuid,
+        correlation_id: Uuid,
     ) -> Result<Option<TaskExecutionContext>, FinalizationError> {
         match TaskExecutionContext::get_for_task(self.context.database_pool(), task_uuid).await {
             Ok(context) => Ok(context),
             Err(e) => {
                 debug!(
+                    correlation_id = %correlation_id,
                     task_uuid = %task_uuid,
                     error = %e,
                     "Failed to get task execution context"
@@ -373,10 +389,12 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
+        correlation_id: Uuid,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
 
         debug!(
+            correlation_id = %correlation_id,
             task_uuid = %task_uuid,
             execution_status = ?context.as_ref().map(|c| &c.execution_status),
             "TaskFinalizer: Making decision for task"
@@ -385,32 +403,37 @@ impl TaskFinalizer {
         // Handle nil context case
         let Some(context) = context else {
             debug!(
+                correlation_id = %correlation_id,
                 task_uuid = %task_uuid,
                 "TaskFinalizer: Task - no context available, handling as unclear state"
             );
-            return self.handle_unclear_state(task, None).await;
+            return self.handle_unclear_state(task, None, correlation_id).await;
         };
 
         match context.execution_status {
             ExecutionStatus::AllComplete => {
-                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - calling complete_task");
-                self.complete_task(task, Some(context)).await
+                debug!(correlation_id = %correlation_id, task_uuid = %task_uuid, "TaskFinalizer: Task - calling complete_task");
+                self.complete_task(task, Some(context), correlation_id)
+                    .await
             }
             ExecutionStatus::BlockedByFailures => {
-                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - calling error_task");
-                self.error_task(task, Some(context)).await
+                debug!(correlation_id = %correlation_id, task_uuid = %task_uuid, "TaskFinalizer: Task - calling error_task");
+                self.error_task(task, Some(context), correlation_id).await
             }
             ExecutionStatus::HasReadySteps => {
-                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - has ready steps, should execute them");
-                self.handle_ready_steps_state(task, Some(context)).await
+                debug!(correlation_id = %correlation_id, task_uuid = %task_uuid, "TaskFinalizer: Task - has ready steps, should execute them");
+                self.handle_ready_steps_state(task, Some(context), correlation_id)
+                    .await
             }
             ExecutionStatus::WaitingForDependencies => {
-                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - waiting for dependencies");
-                self.handle_waiting_state(task, Some(context)).await
+                debug!(correlation_id = %correlation_id, task_uuid = %task_uuid, "TaskFinalizer: Task - waiting for dependencies");
+                self.handle_waiting_state(task, Some(context), correlation_id)
+                    .await
             }
             ExecutionStatus::Processing => {
-                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - handling processing state");
-                self.handle_processing_state(task, Some(context)).await
+                debug!(correlation_id = %correlation_id, task_uuid = %task_uuid, "TaskFinalizer: Task - handling processing state");
+                self.handle_processing_state(task, Some(context), correlation_id)
+                    .await
             }
         }
     }
@@ -420,11 +443,13 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
+        correlation_id: Uuid,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
         let ready_steps = context.as_ref().map(|c| c.ready_steps).unwrap_or(0);
 
         debug!(
+            correlation_id = %correlation_id,
             task_uuid = %task_uuid,
             ready_steps = ready_steps,
             "TaskFinalizer: Task has ready steps - transitioning to in_progress"
@@ -460,7 +485,8 @@ impl TaskFinalizer {
 
         // Use TaskClaimStepEnqueuer for step processing
         debug!(
-            task_uuid = task.task_uuid.to_string(),
+            correlation_id = %correlation_id,
+            task_uuid = %task.task_uuid,
             "Processing ready steps with TaskClaimStepEnqueuer"
         );
         let maybe_task_info = self.sql_executor.get_task_ready_info(task_uuid).await?;
@@ -515,15 +541,17 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
+        correlation_id: Uuid,
     ) -> Result<FinalizationResult, FinalizationError> {
         // Defensive check: verify we're not blocked by errors before trying to re-enqueue
         if let Some(ref ctx) = context {
             if ctx.execution_status == ExecutionStatus::BlockedByFailures {
                 warn!(
+                    correlation_id = %correlation_id,
                     task_uuid = %task.task_uuid,
                     "Task in waiting state is actually blocked by failures, transitioning to error"
                 );
-                return self.error_task(task, context).await;
+                return self.error_task(task, context, correlation_id).await;
             }
 
             // Additional verification: check if all failed steps are permanent errors
@@ -533,21 +561,24 @@ impl TaskFinalizer {
                 let is_blocked = self.blocked_by_errors(task.task_uuid).await?;
                 if is_blocked {
                     warn!(
+                        correlation_id = %correlation_id,
                         task_uuid = %task.task_uuid,
                         failed_steps = ctx.failed_steps,
                         ready_steps = ctx.ready_steps,
                         "Independent verification detected task is blocked by permanent errors - SQL function may be out of sync"
                     );
-                    return self.error_task(task, context).await;
+                    return self.error_task(task, context, correlation_id).await;
                 }
             }
         }
 
         info!(
-            "Handling waiting state for task {} by delegating to ready steps state",
-            task.task_uuid
+            correlation_id = %correlation_id,
+            task_uuid = %task.task_uuid,
+            "Handling waiting state by delegating to ready steps state"
         );
-        self.handle_ready_steps_state(task, context).await
+        self.handle_ready_steps_state(task, context, correlation_id)
+            .await
     }
 
     /// Handle processing state
@@ -555,10 +586,12 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
+        correlation_id: Uuid,
     ) -> Result<FinalizationResult, FinalizationError> {
         debug!(
-            "Handling processing state for task {}, no action taken",
-            task.task_uuid
+            correlation_id = %correlation_id,
+            task_uuid = %task.task_uuid,
+            "Handling processing state, no action taken"
         );
 
         Ok(FinalizationResult {
@@ -579,11 +612,16 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
+        correlation_id: Uuid,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
-        error!("TaskFinalizer: Task {task_uuid} has no execution context and unclear state");
+        error!(
+            correlation_id = %correlation_id,
+            task_uuid = %task_uuid,
+            "TaskFinalizer: Task has no execution context and unclear state"
+        );
         // Without context, attempt to transition to error state
-        self.error_task(task, context).await
+        self.error_task(task, context, correlation_id).await
     }
 
     async fn publish_task_completed(

@@ -140,9 +140,11 @@ impl StepClaim {
     pub async fn try_claim_step(
         &self,
         task_sequence_step: &TaskSequenceStep,
+        correlation_id: Uuid,
     ) -> TaskerResult<bool> {
         let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
         debug!(
+            correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             "Attempting to claim step using state machine transition"
         );
@@ -164,6 +166,7 @@ impl StepClaim {
                     WorkflowStepState::Enqueued => StepEvent::Start, // TAS-32 compliant transition
                     _ => {
                         debug!(
+                            correlation_id = %correlation_id,
                             step_uuid = %step_uuid,
                             current_state = %current_state,
                             "Step is not in a claimable state"
@@ -203,6 +206,7 @@ impl StepClaim {
                             })?;
 
                             debug!(
+                                correlation_id = %correlation_id,
                                 step_uuid = %step_uuid,
                                 new_state = %new_state,
                                 "Successfully claimed step by transitioning to InProgress and incremented attempts"
@@ -210,6 +214,7 @@ impl StepClaim {
                             Ok(true)
                         } else {
                             debug!(
+                                correlation_id = %correlation_id,
                                 step_uuid = %step_uuid,
                                 new_state = %new_state,
                                 "Unexpected state after transition"
@@ -219,6 +224,7 @@ impl StepClaim {
                     }
                     Err(e) => {
                         debug!(
+                            correlation_id = %correlation_id,
                             step_uuid = %step_uuid,
                             error = %e,
                             "Failed to claim step - likely already claimed by another worker"
@@ -230,6 +236,7 @@ impl StepClaim {
             }
             Err(e) => {
                 error!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     error = %e,
                     "Failed to get current state for step claiming"

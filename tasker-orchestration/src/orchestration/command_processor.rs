@@ -765,20 +765,21 @@ impl OrchestrationProcessorCommandHandler {
         );
 
         // Deserialize StepExecutionResult from results JSONB column
-        let step_execution_result: StepExecutionResult =
-            serde_json::from_value(results_json.clone())
-            .map_err(|e| {
-                error!(
-                    step_uuid = %simple_message.step_uuid,
-                    task_uuid = %workflow_step.task_uuid,
-                    results_json = %results_json,
-                    error = %e,
-                    "STEP_RESULT_HANDLER: Failed to deserialize StepExecutionResult from results JSONB"
-                );
-                TaskerError::ValidationError(format!(
-                    "Failed to deserialize StepExecutionResult from results JSONB: {e}"
-                ))
-            })?;
+        let step_execution_result: StepExecutionResult = serde_json::from_value(
+            results_json.clone(),
+        )
+        .map_err(|e| {
+            error!(
+                step_uuid = %simple_message.step_uuid,
+                task_uuid = %workflow_step.task_uuid,
+                results_json = %results_json,
+                error = %e,
+                "STEP_RESULT_HANDLER: Failed to deserialize StepExecutionResult from results JSONB"
+            );
+            TaskerError::ValidationError(format!(
+                "Failed to deserialize StepExecutionResult from results JSONB: {e}"
+            ))
+        })?;
 
         info!(
             step_uuid = %simple_message.step_uuid,

@@ -94,8 +94,8 @@ impl OrchestrationResultProcessor {
         let orchestration_metadata = &step_result.orchestration_metadata;
 
         info!(
-            step_uuid = %step_uuid,
             correlation_id = %correlation_id,
+            step_uuid = %step_uuid,
             status = %status,
             execution_time_ms = execution_time_ms,
             has_orchestration_metadata = orchestration_metadata.is_some(),
@@ -105,6 +105,7 @@ impl OrchestrationResultProcessor {
         // Process orchestration metadata for backoff decisions (coordinating retry timing)
         if let Some(metadata) = &orchestration_metadata {
             debug!(
+                correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
                 headers_count = metadata.headers.len(),
                 has_error_context = metadata.error_context.is_some(),
@@ -115,17 +116,18 @@ impl OrchestrationResultProcessor {
 
             match step_result.status {
                 StepExecutionStatus::Failed => {
-                    self.process_orchestration_metadata(step_uuid, metadata)
+                    self.process_orchestration_metadata(step_uuid, metadata, *correlation_id)
                         .await?;
                 }
                 StepExecutionStatus::Timeout => {
-                    self.process_orchestration_metadata(step_uuid, metadata)
+                    self.process_orchestration_metadata(step_uuid, metadata, *correlation_id)
                         .await?;
                 }
                 _ => {}
             }
         } else {
             debug!(
+                correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
                 "ORCHESTRATION_No orchestration metadata to process"
             );
@@ -133,6 +135,7 @@ impl OrchestrationResultProcessor {
 
         // Delegate to coordination-only result handling (no state updates)
         debug!(
+            correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
             "ORCHESTRATION_Delegating to handle_step_result for coordination-only processing"
@@ -143,11 +146,13 @@ impl OrchestrationResultProcessor {
                 &step_result.step_uuid,
                 &step_result.status.clone().into(),
                 &(step_result.execution_time_ms as i64),
+                *correlation_id,
             )
             .await
         {
             Ok(()) => {
                 info!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     status = %status,
                     "ORCHESTRATION_Step result notification processing completed successfully"
@@ -156,6 +161,7 @@ impl OrchestrationResultProcessor {
             }
             Err(e) => {
                 error!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     status = %status,
                     error = %e,
@@ -175,7 +181,28 @@ impl OrchestrationResultProcessor {
         let execution_time_ms = &step_result.metadata.execution_time_ms;
         let orchestration_metadata = &step_result.orchestration_metadata;
 
+        // Fetch correlation_id from task for distributed tracing
+        let correlation_id = {
+            use tasker_shared::models::{Task, WorkflowStep};
+            // First get the step to find its task_uuid
+            match WorkflowStep::find_by_id(self.context.database_pool(), step_result.step_uuid)
+                .await
+            {
+                Ok(Some(workflow_step)) => {
+                    // Now get the task to extract correlation_id
+                    match Task::find_by_id(self.context.database_pool(), workflow_step.task_uuid)
+                        .await
+                    {
+                        Ok(Some(task)) => task.correlation_id,
+                        Ok(None) | Err(_) => Uuid::nil(),
+                    }
+                }
+                Ok(None) | Err(_) => Uuid::nil(),
+            }
+        };
+
         info!(
+            correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
             execution_time_ms = execution_time_ms,
@@ -185,6 +212,7 @@ impl OrchestrationResultProcessor {
         // Process orchestration metadata for backoff decisions (coordinating retry timing)
         if let Some(metadata) = &orchestration_metadata {
             debug!(
+                correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
                 headers_count = metadata.headers.len(),
                 has_error_context = metadata.error_context.is_some(),
@@ -194,22 +222,25 @@ impl OrchestrationResultProcessor {
             );
 
             if let Err(e) = self
-                .process_orchestration_metadata(step_uuid, metadata)
+                .process_orchestration_metadata(step_uuid, metadata, correlation_id)
                 .await
             {
                 error!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     error = %e,
                     "ORCHESTRATION_Failed to process orchestration metadata"
                 );
             } else {
                 debug!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     "ORCHESTRATION_Successfully processed orchestration metadata"
                 );
             }
         } else {
             debug!(
+                correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
                 "ORCHESTRATION_No orchestration metadata to process"
             );
@@ -217,6 +248,7 @@ impl OrchestrationResultProcessor {
 
         // Delegate to coordination-only result handling (no state updates)
         debug!(
+            correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
             "ORCHESTRATION_Delegating to handle_step_result for coordination-only processing"
@@ -227,11 +259,13 @@ impl OrchestrationResultProcessor {
                 &step_result.step_uuid,
                 &step_result.status,
                 &step_result.metadata.execution_time_ms,
+                correlation_id,
             )
             .await
         {
             Ok(()) => {
                 info!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     status = %status,
                     "ORCHESTRATION_Step result notification processing completed successfully"
@@ -240,6 +274,7 @@ impl OrchestrationResultProcessor {
             }
             Err(e) => {
                 error!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     status = %status,
                     error = %e,
@@ -262,8 +297,10 @@ impl OrchestrationResultProcessor {
         step_uuid: &Uuid,
         status: &String,
         execution_time_ms: &i64,
+        correlation_id: Uuid,
     ) -> OrchestrationResult<()> {
         info!(
+            correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
             execution_time_ms = execution_time_ms,
@@ -272,10 +309,11 @@ impl OrchestrationResultProcessor {
         );
 
         if let Err(e) = self
-            .process_orchestration_state_transition(step_uuid, status)
+            .process_orchestration_state_transition(step_uuid, status, correlation_id)
             .await
         {
             error!(
+                correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
                 error = %e,
                 "ORCHESTRATION_PROCESSING: Failed to process orchestration state transition"
@@ -284,6 +322,7 @@ impl OrchestrationResultProcessor {
         }
 
         debug!(
+            correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
             "TASK_COORDINATION: Status qualifies for finalization check - looking up WorkflowStep"
@@ -306,6 +345,7 @@ impl OrchestrationResultProcessor {
                 let current_state = task_state_machine.current_state().await?;
 
                 debug!(
+                    correlation_id = %correlation_id,
                     task_uuid = %workflow_step.task_uuid,
                     current_state = ?current_state,
                     step_uuid = %step_uuid,
@@ -323,12 +363,14 @@ impl OrchestrationResultProcessor {
                     // We're already evaluating results, need to check if we should finalize
                     // This happens when multiple steps complete in quick succession
                     debug!(
+                        correlation_id = %correlation_id,
                         task_uuid = %workflow_step.task_uuid,
                         "Task already in EvaluatingResults state, checking if finalization is needed"
                     );
                     true // Check if finalization is needed
                 } else {
                     debug!(
+                        correlation_id = %correlation_id,
                         task_uuid = %workflow_step.task_uuid,
                         current_state = ?current_state,
                         "Task in state that doesn't require immediate finalization check"
@@ -344,6 +386,7 @@ impl OrchestrationResultProcessor {
                     {
                         Ok(result) => {
                             info!(
+                                correlation_id = %correlation_id,
                                 task_uuid = %workflow_step.task_uuid,
                                 step_uuid = %step_uuid,
                                 action = ?result.action,
@@ -353,6 +396,7 @@ impl OrchestrationResultProcessor {
                         }
                         Err(err) => {
                             error!(
+                                correlation_id = %correlation_id,
                                 task_uuid = %workflow_step.task_uuid,
                                 step_uuid = %step_uuid,
                                 "TASK_COORDINATION: Failed to finalize task"
@@ -365,6 +409,7 @@ impl OrchestrationResultProcessor {
                     }
                 } else {
                     error!(
+                        correlation_id = %correlation_id,
                         task_uuid = %workflow_step.task_uuid,
                         step_uuid = %step_uuid,
                         "TASK_COORDINATION: Failed to transition state machine"
@@ -377,6 +422,7 @@ impl OrchestrationResultProcessor {
             }
             None => {
                 error!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     "TASK_COORDINATION: Failed to find WorkflowStep"
                 );
@@ -399,13 +445,15 @@ impl OrchestrationResultProcessor {
         &self,
         step_uuid: &Uuid,
         metadata: &OrchestrationMetadata,
+        correlation_id: Uuid,
     ) -> OrchestrationResult<()> {
-        tracing::debug!(
-            "Processing orchestration metadata for step {}: headers={}, error_context={:?}, backoff_hint={:?}",
-            step_uuid,
-            metadata.headers.len(),
-            metadata.error_context,
-            metadata.backoff_hint
+        debug!(
+            correlation_id = %correlation_id,
+            step_uuid = %step_uuid,
+            headers_count = metadata.headers.len(),
+            has_error_context = metadata.error_context.is_some(),
+            has_backoff_hint = metadata.backoff_hint.is_some(),
+            "Processing orchestration metadata"
         );
 
         // Create backoff context from orchestration metadata
@@ -435,9 +483,11 @@ impl OrchestrationResultProcessor {
                         "handler_delay_seconds".to_string(),
                         serde_json::Value::Number(backoff_hint.delay_seconds.into()),
                     );
-                    tracing::info!(
-                        "Handler provided server-requested backoff: {}s",
-                        backoff_hint.delay_seconds
+                    info!(
+                        correlation_id = %correlation_id,
+                        step_uuid = %step_uuid,
+                        delay_seconds = backoff_hint.delay_seconds,
+                        "Handler provided server-requested backoff"
                     );
                 }
                 tasker_shared::messaging::message::BackoffHintType::RateLimit => {
@@ -449,7 +499,11 @@ impl OrchestrationResultProcessor {
                     if let Some(context) = &backoff_hint.context {
                         backoff_context = backoff_context.with_error(context.clone());
                     }
-                    tracing::info!("Handler detected rate limit for step {}", step_uuid);
+                    info!(
+                        correlation_id = %correlation_id,
+                        step_uuid = %step_uuid,
+                        "Handler detected rate limit"
+                    );
                 }
                 tasker_shared::messaging::message::BackoffHintType::ServiceUnavailable => {
                     // Service unavailable - use longer backoff
@@ -461,9 +515,11 @@ impl OrchestrationResultProcessor {
                         "handler_delay_seconds".to_string(),
                         serde_json::Value::Number(backoff_hint.delay_seconds.into()),
                     );
-                    tracing::info!(
-                        "Handler reported service unavailable for step {}",
-                        step_uuid
+                    info!(
+                        correlation_id = %correlation_id,
+                        step_uuid = %step_uuid,
+                        delay_seconds = backoff_hint.delay_seconds,
+                        "Handler reported service unavailable"
                     );
                 }
                 tasker_shared::messaging::message::BackoffHintType::Custom => {
@@ -477,9 +533,11 @@ impl OrchestrationResultProcessor {
                     if let Some(context) = &backoff_hint.context {
                         backoff_context = backoff_context.with_error(context.clone());
                     }
-                    tracing::info!(
-                        "Handler provided custom backoff strategy for step {}",
-                        step_uuid
+                    info!(
+                        correlation_id = %correlation_id,
+                        step_uuid = %step_uuid,
+                        delay_seconds = backoff_hint.delay_seconds,
+                        "Handler provided custom backoff strategy"
                     );
                 }
             }
@@ -492,19 +550,21 @@ impl OrchestrationResultProcessor {
             .await
         {
             Ok(backoff_result) => {
-                tracing::info!(
-                    "Applied {:?} backoff to step {}: delay={}s, next_retry={}",
-                    backoff_result.backoff_type,
-                    step_uuid,
-                    backoff_result.delay_seconds,
-                    backoff_result.next_retry_at
+                info!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    backoff_type = ?backoff_result.backoff_type,
+                    delay_seconds = backoff_result.delay_seconds,
+                    next_retry_at = %backoff_result.next_retry_at,
+                    "Applied backoff"
                 );
             }
             Err(e) => {
-                tracing::error!(
-                    "Failed to calculate backoff for step {} with metadata: {}",
-                    step_uuid,
-                    e
+                error!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    error = %e,
+                    "Failed to calculate backoff with metadata"
                 );
                 return Err(e.into());
             }
@@ -522,6 +582,7 @@ impl OrchestrationResultProcessor {
         &self,
         step_uuid: &Uuid,
         original_status: &String,
+        correlation_id: Uuid,
     ) -> OrchestrationResult<()> {
         // Load the current step to check its state
         let step = WorkflowStep::find_by_id(self.context.database_pool(), *step_uuid)
@@ -535,6 +596,7 @@ impl OrchestrationResultProcessor {
 
         let Some(step) = step else {
             warn!(
+                correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
                 "Step not found - may have been processed by another processor"
             );
@@ -567,6 +629,7 @@ impl OrchestrationResultProcessor {
                     | WorkflowStepState::EnqueuedAsErrorForOrchestration
             ) {
                 info!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     original_status = %original_status,
                     step_state = %step_state,
@@ -643,6 +706,7 @@ impl OrchestrationResultProcessor {
 
                                     if !retryable_from_metadata {
                                         info!(
+                                            correlation_id = %correlation_id,
                                             step_uuid = %step_uuid,
                                             "Error marked as non-retryable by worker"
                                         );
@@ -654,6 +718,7 @@ impl OrchestrationResultProcessor {
 
                                         if current_attempts >= max_attempts {
                                             info!(
+                                                correlation_id = %correlation_id,
                                                 step_uuid = %step_uuid,
                                                 current_attempts = current_attempts,
                                                 max_attempts = max_attempts,
@@ -662,6 +727,7 @@ impl OrchestrationResultProcessor {
                                             false
                                         } else {
                                             info!(
+                                                correlation_id = %correlation_id,
                                                 step_uuid = %step_uuid,
                                                 current_attempts = current_attempts,
                                                 max_attempts = max_attempts,
@@ -689,6 +755,7 @@ impl OrchestrationResultProcessor {
                         if should_retry {
                             // Transition to WaitingForRetry (backoff already calculated)
                             info!(
+                                correlation_id = %correlation_id,
                                 step_uuid = %step_uuid,
                                 "Transitioning to WaitingForRetry state"
                             );
@@ -714,6 +781,7 @@ impl OrchestrationResultProcessor {
                         } else {
                             // Transition to Error (permanent failure or max retries)
                             info!(
+                                correlation_id = %correlation_id,
                                 step_uuid = %step_uuid,
                                 "Transitioning to Error state (permanent or max retries)"
                             );
@@ -748,12 +816,14 @@ impl OrchestrationResultProcessor {
                 })?;
 
                 info!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     final_state = %final_state,
                     "Successfully transitioned step from notification state to final state"
                 );
             } else {
                 debug!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     current_state = %step_state,
                     "Step not in EnqueuedForOrchestration or EnqueuedAsErrorForOrchestration state - skipping orchestration transition"
@@ -761,6 +831,7 @@ impl OrchestrationResultProcessor {
             }
         } else {
             warn!(
+                correlation_id = %correlation_id,
                 step_uuid = %step_uuid,
                 "Step has no current state - may be in inconsistent state"
             );
