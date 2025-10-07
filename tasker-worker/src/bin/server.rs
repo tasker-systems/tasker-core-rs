@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing for console logging
     logging::init_tracing();
 
-    info!("🚀 Starting Tasker Worker Server with TAS-43 Event-Driven Architecture...");
+    info!("Starting Tasker Worker Server with TAS-43 Event-Driven Architecture...");
     info!("   Version: {}", env!("CARGO_PKG_VERSION"));
     info!(
         "   Build Mode: {}",
@@ -46,13 +46,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Bootstrap worker system with web API enabled
-    info!("🔧 Bootstrapping worker system...");
+    info!("Bootstrapping worker system...");
 
     let mut worker_handle = WorkerBootstrap::bootstrap()
         .await
         .map_err(|e| format!("Failed to bootstrap worker: {e}"))?;
 
-    info!("🎉 Worker Server started successfully with TAS-43 Event-Driven Architecture!");
+    info!("Worker Server started successfully with TAS-43 Event-Driven Architecture!");
 
     if worker_handle.web_state.is_some() {
         info!("   Web API: Running");
@@ -82,14 +82,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wait for shutdown signal
     shutdown_signal().await;
 
-    info!("🛑 Shutdown signal received, initiating graceful shutdown...");
+    info!("Shutdown signal received, initiating graceful shutdown...");
 
     // Stop worker system using handle (includes web server)
-    info!("🔧 Stopping worker system...");
+    info!("Stopping worker system...");
     if let Err(e) = worker_handle.stop() {
         error!("Failed to stop worker cleanly: {}", e);
     } else {
-        info!("✅ Worker system stopped");
+        info!("Worker system stopped");
     }
 
     info!("👋 Worker Server shutdown complete");

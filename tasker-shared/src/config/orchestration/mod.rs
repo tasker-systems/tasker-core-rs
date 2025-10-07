@@ -23,7 +23,7 @@ pub struct OrchestrationConfig {
     // Note: Heartbeat configuration removed - moved to task_claim_step_enqueuer for TAS-41
     /// TAS-37 Supplemental: Shutdown-aware monitoring configuration
     pub operational_state: OperationalStateConfig,
-    /// Web API configuration (TAS-28)
+    /// Web API configuration
     pub web: WebConfig,
 }
 

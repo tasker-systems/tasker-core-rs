@@ -1531,9 +1531,9 @@ impl Task {
     ///
     /// // Check if intervention needed
     /// if context.failed_steps > 0 && context.ready_steps == 0 {
-    ///     println!("⚠️  Task is blocked - manual intervention may be required");
+    ///     println!(" Task is blocked - manual intervention may be required");
     /// } else if context.ready_steps > 0 {
-    ///     println!("✅ Task has {} steps ready for execution", context.ready_steps);
+    ///     println!("Task has {} steps ready for execution", context.ready_steps);
     /// }
     ///
     /// # Ok(())
@@ -1601,8 +1601,8 @@ impl Task {
     ///
     /// // Print summary
     /// println!("\n=== Summary ===");
-    /// println!("✅ Complete: {}", summary.complete_tasks);
-    /// println!("🔄 In Progress: {}", summary.in_progress_tasks);
+    /// println!("Complete: {}", summary.complete_tasks);
+    /// println!("In Progress: {}", summary.in_progress_tasks);
     /// println!("⚡ Ready: {} ({} steps)", summary.ready_tasks, summary.total_ready_steps);
     /// println!("🚫 Blocked: {}", summary.blocked_tasks);
     ///

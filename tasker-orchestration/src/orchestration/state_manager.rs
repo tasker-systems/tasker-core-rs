@@ -774,7 +774,7 @@ impl StateManager {
 
         debug!(
             step_uuid = step_uuid.to_string(),
-            "Marked step as enqueued (TAS-32)"
+            "Marked step as enqueued"
         );
         Ok(())
     }

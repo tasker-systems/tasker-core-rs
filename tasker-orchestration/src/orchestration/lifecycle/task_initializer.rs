@@ -185,7 +185,7 @@ impl TaskInitializer {
                     Some(&format!("Registry lookup failed: {e}")),
                 );
                 error!(
-                  task_uuid = task_uuid.to_string(),
+                  task_uuid = %task_uuid,
                   task_name = %task_name,
                   error = %e,
                   "Failed to load task template"
@@ -258,9 +258,10 @@ impl TaskInitializer {
         );
 
         info!(
-            task_uuid = task_uuid.to_string(),
-            step_count = step_count,
+            correlation_id = %correlation_id,
+            task_uuid = %task_uuid,
             task_name = %task_name,
+            step_count = step_count,
             "Task initialization completed successfully"
         );
 
@@ -269,7 +270,7 @@ impl TaskInitializer {
 
     /// Create a task and immediately enqueue its ready steps
     ///
-    /// This method combines task creation with immediate step enqueuing (TAS-41)
+    /// This method combines task creation with immediate step enqueuing
     /// to reduce latency between task creation and step execution.
     #[instrument(skip(self), fields(task_name = %task_request.name))]
     pub async fn create_and_enqueue_task_from_request(
@@ -282,7 +283,7 @@ impl TaskInitializer {
         let task_uuid = initialization_result.task_uuid;
 
         info!(
-            task_uuid = task_uuid.to_string(),
+            task_uuid = %task_uuid,
             step_count = initialization_result.step_count,
             "Task created, attempting immediate step enqueuing"
         );
@@ -623,7 +624,7 @@ impl TaskInitializer {
         })?;
 
         info!(
-            task_uuid = task_uuid.to_string(),
+            task_uuid = %task_uuid,
             current_state = %current_state,
             "Task state machine created, transitioning from Pending to Initializing"
         );
@@ -634,19 +635,19 @@ impl TaskInitializer {
                 Ok(success) => {
                     if success {
                         info!(
-                            task_uuid = task_uuid.to_string(),
+                            task_uuid = %task_uuid,
                             "Successfully transitioned task from Pending to Initializing"
                         );
                     } else {
                         warn!(
-                            task_uuid = task_uuid.to_string(),
+                            task_uuid = %task_uuid,
                             "Task state transition returned false - task may already be in correct state"
                         );
                     }
                 }
                 Err(e) => {
                     error!(
-                        task_uuid = task_uuid.to_string(),
+                        task_uuid = %task_uuid,
                         error = %e,
                         "Failed to transition task from Pending to Initializing"
                     );
@@ -657,7 +658,7 @@ impl TaskInitializer {
             }
         } else {
             info!(
-                task_uuid = task_uuid.to_string(),
+                task_uuid = %task_uuid,
                 current_state = %current_state,
                 "Task already in non-Pending state, no transition needed"
             );
@@ -677,7 +678,7 @@ impl TaskInitializer {
                     Ok(_current_state) => {}
                     Err(e) => {
                         warn!(
-                            step_uuid = workflow_step_uuid.to_string(),
+                            step_uuid = %workflow_step_uuid,
                             error = %e,
                             "Failed to get current state from step state machine"
                         );
@@ -685,7 +686,7 @@ impl TaskInitializer {
                 },
                 Err(e) => {
                     warn!(
-                        step_uuid = workflow_step_uuid.to_string(),
+                        step_uuid = %workflow_step_uuid,
                         error = %e,
                         "Failed to initialize step state machine, basic initialization completed"
                     );

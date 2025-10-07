@@ -162,7 +162,6 @@ impl TaskFinalizer {
             return Err(FinalizationError::TaskNotFound { task_uuid });
         };
 
-        // TAS-29: Extract correlation_id for observability
         let correlation_id = task.correlation_id;
         debug!(
             task_uuid = %task_uuid,

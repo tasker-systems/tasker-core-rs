@@ -272,7 +272,7 @@ impl TaskTemplateManager {
     ) -> TaskerResult<TaskTemplateDiscoveryResult> {
         info!(
             directory = config_directory,
-            "🔍 Worker discovering TaskTemplates",
+            "Worker discovering TaskTemplates",
         );
 
         // Use the registry to discover and register templates
@@ -282,7 +282,7 @@ impl TaskTemplateManager {
             .await?;
 
         info!(
-            "📊 Worker template discovery complete: {} total files, {} supported templates registered, {} failed, discovered namespaces: {:?}",
+            "Worker template discovery complete: {} total files, {} supported templates registered, {} failed, discovered namespaces: {:?}",
             discovery_result.total_files,
             discovery_result.successful_registrations,
             discovery_result.failed_registrations,
@@ -295,7 +295,7 @@ impl TaskTemplateManager {
     /// Load TaskTemplates to database during worker startup
     /// This ensures workers have their required templates available in the database
     pub async fn ensure_templates_in_database(&self) -> TaskerResult<TaskTemplateDiscoveryResult> {
-        info!("🚀 Ensuring TaskTemplates are loaded to database for worker startup");
+        info!("Ensuring TaskTemplates are loaded to database for worker startup");
 
         // Try to find template configuration directory
         let config_directory = self.find_template_config_directory()?;
@@ -309,14 +309,14 @@ impl TaskTemplateManager {
         {
             Ok(discovery_result) => {
                 info!(
-                    "✅ BOOTSTRAP: TaskTemplate discovery complete - {} templates registered from {} files",
+                    "TaskTemplate discovery complete - {} templates registered from {} files",
                     discovery_result.successful_registrations,
                     discovery_result.total_files
                 );
 
                 if !discovery_result.errors.is_empty() {
                     warn!(
-                        "⚠️ BOOTSTRAP: {} errors during TaskTemplate discovery: {:?}",
+                        "{} errors during TaskTemplate discovery: {:?}",
                         discovery_result.errors.len(),
                         discovery_result.errors
                     );
@@ -324,7 +324,7 @@ impl TaskTemplateManager {
 
                 if !discovery_result.discovered_templates.is_empty() {
                     info!(
-                        "📋 BOOTSTRAP: Registered templates: {:?}",
+                        "📋 Registered templates: {:?}",
                         discovery_result.discovered_templates
                     );
                 }
@@ -334,7 +334,7 @@ impl TaskTemplateManager {
                     let mut config = self.config.write().await;
                     config.supported_namespaces = discovery_result.discovered_namespaces.clone();
                     info!(
-                        "✅ BOOTSTRAP: Updated supported namespaces: {:?}",
+                        "Updated supported namespaces: {:?}",
                         config.supported_namespaces
                     );
                 }
@@ -343,7 +343,7 @@ impl TaskTemplateManager {
             }
             Err(e) => {
                 error!(
-                    "⚠️ BOOTSTRAP: TaskTemplate discovery failed (worker will use registry-only): {e}"
+                    "TaskTemplate discovery failed (worker will use registry-only): {e}"
                 );
                 Err(TaskerError::ConfigurationError(format!(
                     "TaskTemplate discovery failed (worker will use registry-only): {e}"

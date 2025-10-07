@@ -586,7 +586,7 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
             workers,
         } => {
             if orchestration || !workers {
-                println!("🔍 Checking orchestration health...");
+                println!("Checking orchestration health...");
 
                 let orchestration_config = OrchestrationApiConfig {
                     base_url: config.orchestration.base_url.clone(),
@@ -647,13 +647,13 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
                         }
                     }
                     Err(e) => {
-                        println!("  ⚠ Could not get detailed health info: {}", e);
+                        println!("  Could not get detailed health info: {}", e);
                     }
                 }
             }
 
             if workers || !orchestration {
-                println!("\n🔍 Checking worker health...");
+                println!("\nChecking worker health...");
 
                 let worker_config = WorkerApiConfig {
                     base_url: config.worker.base_url.clone(),
@@ -711,11 +711,11 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
             }
 
             if !orchestration && !workers {
-                println!("\n🎯 Overall system health: Both orchestration and worker services checked above");
+                println!("\nOverall system health: Both orchestration and worker services checked above");
             }
         }
         SystemCommands::Info => {
-            println!("📊 Tasker System Information");
+            println!("Tasker System Information");
             println!("================================");
             println!("CLI Version: {}", env!("CARGO_PKG_VERSION"));
             println!("Build Target: {}", std::env::consts::ARCH);

@@ -247,7 +247,6 @@ impl WorkerFallbackPoller {
         );
 
         for message in messages {
-            // TAS-43: Pass the message directly to avoid visibility timeout race condition
             // This is the key insight - we don't need to re-read the message, we already have it
             let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
 

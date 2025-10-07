@@ -653,7 +653,6 @@ impl WorkerProcessor {
         let mut state_machine = StepStateMachine::new(workflow_step, self.context.clone());
 
         // 3. Transition using appropriate notification state based on step execution result
-        // TAS-41: Route successful vs failed steps to different notification states
         // This enables proper error notification pathway to orchestration
         let step_event = if step_result.success {
             StepEvent::EnqueueForOrchestration(Some(serde_json::to_value(&step_result)?))
@@ -666,7 +665,6 @@ impl WorkerProcessor {
             TaskerError::StateTransitionError(format!("Step transition failed: {e}"))
         })?;
 
-        // TAS-29: Fetch correlation_id from task for distributed tracing
         let task_uuid = state_machine.task_uuid();
         let task = Task::find_by_id(db_pool, task_uuid)
             .await

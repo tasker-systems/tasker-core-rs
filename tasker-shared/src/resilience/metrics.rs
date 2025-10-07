@@ -245,7 +245,7 @@ impl MetricsCollector for PrometheusMetricsExporter {
             failure_count = metrics.failure_count,
             failure_rate = metrics.failure_rate,
             state = ?metrics.current_state,
-            "📊 Circuit breaker metrics"
+            "Circuit breaker metrics"
         );
     }
 
@@ -254,7 +254,7 @@ impl MetricsCollector for PrometheusMetricsExporter {
             circuit_breaker = name,
             from_state = ?from,
             to_state = ?to,
-            "🔄 Circuit breaker state transition"
+            "Circuit breaker state transition"
         );
     }
 
@@ -263,7 +263,7 @@ impl MetricsCollector for PrometheusMetricsExporter {
             circuit_breaker = name,
             duration_ms = duration.as_millis(),
             success = success,
-            "⏱️ Operation timing"
+            "Operation timing"
         );
     }
 }

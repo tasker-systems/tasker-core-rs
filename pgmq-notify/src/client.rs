@@ -35,7 +35,7 @@ impl PgmqClient {
 
     /// Create new unified PGMQ client with custom configuration
     pub async fn new_with_config(database_url: &str, config: PgmqNotifyConfig) -> Result<Self> {
-        info!("🚀 Connecting to pgmq using unified client");
+        info!("Connecting to pgmq using unified client");
 
         let pgmq = PGMQueue::new(database_url.to_string()).await?;
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -43,7 +43,7 @@ impl PgmqClient {
             .connect(database_url)
             .await?;
 
-        info!("✅ Connected to pgmq using unified client");
+        info!("Connected to pgmq using unified client");
         Ok(Self { pgmq, pool, config })
     }
 
@@ -54,11 +54,11 @@ impl PgmqClient {
 
     /// Create new unified PGMQ client with existing pool and custom configuration
     pub async fn new_with_pool_and_config(pool: sqlx::PgPool, config: PgmqNotifyConfig) -> Self {
-        info!("🚀 Creating unified pgmq client with shared connection pool");
+        info!("Creating unified pgmq client with shared connection pool");
 
         let pgmq = PGMQueue::new_with_pool(pool.clone()).await;
 
-        info!("✅ Unified pgmq client created with shared pool");
+        info!("Unified pgmq client created with shared pool");
         Self { pgmq, pool, config }
     }
 
@@ -69,7 +69,7 @@ impl PgmqClient {
 
         self.pgmq.create(queue_name).await?;
 
-        info!("✅ Queue created: {}", queue_name);
+        info!("Queue created: {}", queue_name);
         Ok(())
     }
 
@@ -98,7 +98,7 @@ impl PgmqClient {
         })?;
 
         info!(
-            "✅ JSON message sent to queue: {} with ID: {} (with notification)",
+            "JSON message sent to queue: {} with ID: {} (with notification)",
             queue_name, message_id
         );
         Ok(message_id)
@@ -137,7 +137,7 @@ impl PgmqClient {
         })?;
 
         info!(
-            "✅ Delayed message sent to queue: {} with ID: {} (with notification)",
+            "Delayed message sent to queue: {} with ID: {} (with notification)",
             queue_name, message_id
         );
         Ok(message_id)
@@ -237,7 +237,7 @@ impl PgmqClient {
                         vt,
                         message: deserialized,
                     };
-                    debug!("✅ Found and deserialized specific message {}", message_id);
+                    debug!("Found and deserialized specific message {}", message_id);
                     Ok(Some(typed_message))
                 }
                 Err(e) => {
@@ -258,13 +258,13 @@ impl PgmqClient {
     #[instrument(skip(self), fields(queue = %queue_name, message_id = %message_id))]
     pub async fn delete_message(&self, queue_name: &str, message_id: i64) -> Result<()> {
         debug!(
-            "🗑️ Deleting message {} from queue: {}",
+            "🗑Deleting message {} from queue: {}",
             message_id, queue_name
         );
 
         self.pgmq.delete(queue_name, message_id).await?;
 
-        debug!("✅ Message deleted: {}", message_id);
+        debug!("Message deleted: {}", message_id);
         Ok(())
     }
 
@@ -272,13 +272,13 @@ impl PgmqClient {
     #[instrument(skip(self), fields(queue = %queue_name, message_id = %message_id))]
     pub async fn archive_message(&self, queue_name: &str, message_id: i64) -> Result<()> {
         debug!(
-            "📦 Archiving message {} from queue: {}",
+            "Archiving message {} from queue: {}",
             message_id, queue_name
         );
 
         self.pgmq.archive(queue_name, message_id).await?;
 
-        debug!("✅ Message archived: {}", message_id);
+        debug!("Message archived: {}", message_id);
         Ok(())
     }
 
@@ -290,7 +290,7 @@ impl PgmqClient {
         let purged_count = self.pgmq.purge(queue_name).await?;
 
         warn!(
-            "🗑️ Purged {} messages from queue: {}",
+            "🗑Purged {} messages from queue: {}",
             purged_count, queue_name
         );
         Ok(purged_count)
@@ -303,14 +303,14 @@ impl PgmqClient {
 
         self.pgmq.destroy(queue_name).await?;
 
-        warn!("🗑️ Queue dropped: {}", queue_name);
+        warn!("🗑Queue dropped: {}", queue_name);
         Ok(())
     }
 
     /// Get queue metrics/statistics
     #[instrument(skip(self), fields(queue = %queue_name))]
     pub async fn queue_metrics(&self, queue_name: &str) -> Result<QueueMetrics> {
-        debug!("📊 Getting metrics for queue: {}", queue_name);
+        debug!("Getting metrics for queue: {}", queue_name);
 
         // Query actual pgmq metrics from the database using pgmq.metrics() function
         let row = sqlx::query!(
@@ -367,11 +367,11 @@ impl PgmqClient {
             .await
         {
             Ok(_) => {
-                debug!("✅ Health check passed");
+                debug!("Health check passed");
                 Ok(true)
             }
             Err(e) => {
-                error!("❌ Health check failed: {}", e);
+                error!("Health check failed: {}", e);
                 Ok(false)
             }
         }
@@ -457,14 +457,14 @@ impl PgmqClient {
     /// Initialize standard namespace queues
     #[instrument(skip(self, namespaces))]
     pub async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> Result<()> {
-        info!("🏗️ Initializing {} namespace queues", namespaces.len());
+        info!("Initializing {} namespace queues", namespaces.len());
 
         for namespace in namespaces {
             let queue_name = format!("worker_{namespace}_queue");
             self.create_queue(&queue_name).await?;
         }
 
-        info!("✅ Initialized all namespace queues");
+        info!("Initialized all namespace queues");
         Ok(())
     }
 
@@ -501,7 +501,7 @@ impl PgmqClient {
         })?;
 
         debug!(
-            "✅ Message sent in transaction with id: {} (with notification)",
+            "Message sent in transaction with id: {} (with notification)",
             message_id
         );
         Ok(message_id)
@@ -559,12 +559,12 @@ mod tests {
         match PgmqClient::new(&database_url).await {
             Ok(_) => {
                 // Client creation succeeded
-                println!("✅ PgmqClient created successfully");
+                println!("PgmqClient created successfully");
             }
             Err(e) => {
                 // Skip test if it's a URL parsing or connection error
                 // This allows the test to pass in environments without proper database setup
-                println!("⚠️  Skipping test due to client creation error: {e:?}");
+                println!(" Skipping test due to client creation error: {e:?}");
                 return;
             }
         }
@@ -616,6 +616,6 @@ mod tests {
         // Verify we can access the pool
         assert_eq!(client.pool().size(), pool.size());
 
-        println!("✅ Shared pool pattern working correctly");
+        println!("Shared pool pattern working correctly");
     }
 }

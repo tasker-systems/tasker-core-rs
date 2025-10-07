@@ -43,7 +43,7 @@ pub use lifecycle::task_initializer::{
 };
 pub use viable_step_discovery::ViableStepDiscovery;
 
-// Re-export command pattern components (TAS-40)
+// Re-export command pattern components
 pub use command_processor::{
     OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, StepProcessResult,
     SystemHealth, TaskFinalizationResult, TaskInitializeResult,

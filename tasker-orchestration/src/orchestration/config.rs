@@ -26,7 +26,6 @@ mod tests {
 
     #[test]
     fn test_configuration_loading() {
-        // TAS-43: Replace ::default() usage with proper configuration loading
         let config_manager = ConfigManager::new();
         let config = config_manager.config();
 
@@ -40,7 +39,6 @@ mod tests {
         assert_eq!(config.backoff.max_backoff_seconds, 300);
         assert!(config.backoff.jitter_enabled);
 
-        // TAS-43: Test that queues configuration is properly loaded
         assert!(!config.queues.orchestration_namespace.is_empty());
         assert!(!config.queues.worker_namespace.is_empty());
         assert_eq!(config.queues.backend, "pgmq");

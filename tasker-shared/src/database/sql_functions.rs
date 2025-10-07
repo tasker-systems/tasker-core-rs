@@ -64,7 +64,6 @@ use sqlx::{types::BigDecimal, types::Uuid, FromRow, PgPool};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
-// TAS-41: Import TaskState for query methods
 use crate::state_machine::TaskState;
 
 // Import the orchestration models for transitive dependencies
@@ -875,7 +874,7 @@ impl SqlFunctionExecutor {
 // 8. TAS-41 QUERY METHODS
 // ============================================================================
 
-/// Task info for batch processing with current state (TAS-41)
+/// Task info for batch processing with current state
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ReadyTaskInfo {
     pub task_uuid: Uuid,
@@ -888,7 +887,7 @@ pub struct ReadyTaskInfo {
 }
 
 impl SqlFunctionExecutor {
-    // Get next ready task with type-safe result (TAS-41)
+    // Get next ready task with type-safe result
     pub async fn get_task_ready_info(
         &self,
         task_uuid: Uuid,
@@ -912,7 +911,7 @@ impl SqlFunctionExecutor {
         .await
     }
 
-    /// Get next ready task with type-safe result (TAS-41)
+    /// Get next ready task with type-safe result
     pub async fn get_next_ready_task(&self) -> Result<Option<ReadyTaskInfo>, sqlx::Error> {
         sqlx::query_as!(
             ReadyTaskInfo,
@@ -932,7 +931,7 @@ impl SqlFunctionExecutor {
         .await
     }
 
-    /// Get batch of ready tasks with their current states (TAS-41)
+    /// Get batch of ready tasks with their current states
     pub async fn get_next_ready_tasks(
         &self,
         limit: i32,
@@ -956,7 +955,7 @@ impl SqlFunctionExecutor {
         .await
     }
 
-    /// Get current state of a task (TAS-41)
+    /// Get current state of a task
     pub async fn get_current_task_state(&self, task_uuid: Uuid) -> Result<TaskState, sqlx::Error> {
         let state_str =
             sqlx::query_scalar!(r#"SELECT get_current_task_state($1) as "state""#, task_uuid)

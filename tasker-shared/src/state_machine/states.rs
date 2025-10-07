@@ -1,4 +1,3 @@
-// TAS-41: Richer Task States - Comprehensive task state machine
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 

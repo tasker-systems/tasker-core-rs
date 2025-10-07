@@ -40,7 +40,6 @@ impl StepClaim {
         &self,
         message: &SimpleStepMessage,
     ) -> TaskerResult<Option<TaskSequenceStep>> {
-        // TAS-29: Extract correlation_id for distributed tracing
         debug!(
             task_uuid = %message.task_uuid,
             step_uuid = %message.step_uuid,

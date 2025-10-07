@@ -355,7 +355,6 @@ impl Default for ErrorHandlingConfig {
         Self {
             max_consecutive_errors: 10,
             error_rate_threshold_per_minute: 5,
-            // TAS-43: Circuit breaker configuration now handled centrally via TaskerConfig.circuit_breakers
         }
     }
 }

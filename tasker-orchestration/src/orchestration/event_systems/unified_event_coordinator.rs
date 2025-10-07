@@ -68,7 +68,7 @@ impl Default for UnifiedCoordinatorConfig {
 }
 
 impl UnifiedCoordinatorConfig {
-    /// Create configuration from ConfigManager (TAS-43)
+    /// Create configuration from ConfigManager
     ///
     /// Loads deployment mode and task readiness configuration from TOML configuration
     /// to drive the behavior of the unified event coordination system.

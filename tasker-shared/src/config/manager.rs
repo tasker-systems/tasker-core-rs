@@ -55,7 +55,7 @@ impl ConfigManager {
         config.validate()?;
 
         info!(
-            "✅ Configuration loaded successfully for environment: {}",
+            "Configuration loaded successfully for environment: {}",
             environment
         );
 

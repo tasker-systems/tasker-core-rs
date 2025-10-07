@@ -1,4 +1,4 @@
-//! # Web API Module (TAS-28)
+//! # Web API Module
 //!
 //! Axum-based REST API for the Tasker orchestration system.
 //! Provides HTTP endpoints for worker system integration and administrative operations.

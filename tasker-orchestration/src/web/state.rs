@@ -3,7 +3,6 @@
 //! Defines the shared state for the web API including database pools,
 //! configuration, and circuit breaker health monitoring.
 
-// TAS-40: Simplified operational state for web API compatibility with command pattern
 
 use crate::orchestration::core::{OrchestrationCore, OrchestrationCoreStatus};
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
@@ -158,7 +157,7 @@ impl AppState {
             })?;
         let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
 
-        // Create TaskInitializer with step enqueuer for immediate step enqueuing (TAS-41)
+        // Create TaskInitializer with step enqueuer for immediate step enqueuing
         let task_initializer = Arc::new(TaskInitializer::new(
             orchestration_core.context.clone(),
             task_claim_step_enqueuer,

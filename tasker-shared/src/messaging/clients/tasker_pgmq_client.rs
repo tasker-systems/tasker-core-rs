@@ -135,7 +135,7 @@ impl TaskerPgmqClientExt for PgmqClient {
         })?;
 
         info!(
-            "✅ Step message sent to queue: {} with ID: {}",
+            "Step message sent to queue: {} with ID: {}",
             queue_name, message_id
         );
         Ok(message_id)
@@ -200,7 +200,7 @@ impl TaskerPgmqClientExt for PgmqClient {
             .map_err(crate::messaging::MessagingError::from)?;
 
         debug!(
-            "✅ Step message processing completed: namespace={}, message_id={}",
+            "Step message processing completed: namespace={}, message_id={}",
             namespace, message_id
         );
 

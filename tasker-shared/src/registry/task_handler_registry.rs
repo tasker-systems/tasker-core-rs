@@ -163,7 +163,7 @@ impl TaskHandlerRegistry {
             namespace = &template.namespace_name,
             name = &template.name,
             version = &template.version,
-            "🔄 Registering TaskTemplate to database"
+            "Registering TaskTemplate to database"
         );
 
         // Validate template has required fields
@@ -196,7 +196,7 @@ impl TaskHandlerRegistry {
         // Validate configuration is not empty
         if configuration.is_null() || configuration == serde_json::json!({}) {
             error!(
-                "❌ Template configuration is empty or invalid for {}/{}/{}",
+                "Template configuration is empty or invalid for {}/{}/{}",
                 template.namespace_name, template.name, template.version
             );
             return Err(TaskerError::ValidationError(format!(
@@ -208,7 +208,7 @@ impl TaskHandlerRegistry {
         // Log configuration size for debugging
         let config_str = serde_json::to_string(&configuration).unwrap_or_default();
         debug!(
-            "📊 Template configuration size: {} bytes for {}/{}/{}",
+            "Template configuration size: {} bytes for {}/{}/{}",
             config_str.len(),
             template.namespace_name,
             template.name,
@@ -266,7 +266,7 @@ impl TaskHandlerRegistry {
             namespace = &template.namespace_name,
             name = &template.name,
             version = &template.version,
-            "✅ TaskTemplate registered to database successfully"
+            "TaskTemplate registered to database successfully"
         );
 
         Ok(())
@@ -329,7 +329,7 @@ impl TaskHandlerRegistry {
                             .discovered_namespaces
                             .push(template.namespace_name.clone());
                         debug!(
-                            "✅ Registered template from {}: {}/{}:{}",
+                            "Registered template from {}: {}/{}:{}",
                             yaml_path.display(),
                             template.namespace_name,
                             template.name,
@@ -344,7 +344,7 @@ impl TaskHandlerRegistry {
                             e
                         );
                         result.errors.push(error_msg.clone());
-                        debug!("❌ {error_msg}");
+                        debug!("{error_msg}");
                     }
                 },
                 Err(e) => {
@@ -355,7 +355,7 @@ impl TaskHandlerRegistry {
                         e
                     );
                     result.errors.push(error_msg.clone());
-                    debug!("❌ {error_msg}");
+                    debug!("{error_msg}");
                 }
             }
         }
@@ -365,7 +365,7 @@ impl TaskHandlerRegistry {
         result.discovered_namespaces.dedup();
 
         info!(
-            "📊 Template discovery complete: {} files, {} successful, {} failed",
+            "Template discovery complete: {} files, {} successful, {} failed",
             result.total_files, result.successful_registrations, result.failed_registrations
         );
 
@@ -498,7 +498,7 @@ impl TaskHandlerRegistry {
             namespace = &request.namespace,
             name = &request.name,
             version = &request.version,
-            "🎯 DATABASE-FIRST: Resolving handler via database queries"
+            "DATABASE-FIRST: Resolving handler via database queries"
         );
 
         let handler_metadata = self
@@ -518,7 +518,7 @@ impl TaskHandlerRegistry {
             namespace = namespace,
             name = name,
             version = version,
-            "🔍 Starting database lookup for TaskTemplate"
+            "Starting database lookup for TaskTemplate"
         );
 
         // 1. Find the task namespace
@@ -526,14 +526,14 @@ impl TaskHandlerRegistry {
             .await
             .map_err(|e| TaskerError::DatabaseError(format!("Failed to query namespace: {e}")))?
             .ok_or_else(|| {
-                debug!(namespace = namespace, "❌ Namespace not found in database");
+                debug!(namespace = namespace, "Namespace not found in database");
                 TaskerError::ValidationError(format!("Namespace not found: {namespace}"))
             })?;
 
         debug!(
             namespace = namespace,
             namespace_uuid = %task_namespace.task_namespace_uuid,
-            "✅ Found namespace in database"
+            "Found namespace in database"
         );
 
         // 2. Find the named task in that namespace with specific version
@@ -550,7 +550,7 @@ impl TaskHandlerRegistry {
                 namespace = namespace,
                 name = name,
                 namespace_uuid = %task_namespace.task_namespace_uuid,
-                "❌ Named task not found in database"
+                "Named task not found in database"
             );
             TaskerError::ValidationError(format!("Task not found: {namespace}/{name}"))
         })?;
@@ -562,7 +562,7 @@ impl TaskHandlerRegistry {
             task_uuid = %named_task.named_task_uuid,
             config_present = named_task.configuration.is_some(),
             config_size = named_task.configuration.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default().len()).unwrap_or(0),
-            "✅ Found named task in database"
+            "Found named task in database"
         );
 
         let default_dependent_system = named_task.configuration.as_ref().and_then(|config| {
@@ -594,17 +594,17 @@ impl TaskHandlerRegistry {
             || named_task.configuration == Some(serde_json::json!({}))
         {
             error!(
-                "❌ Empty or invalid configuration detected for {}/{}/{}",
+                "Empty or invalid configuration detected for {}/{}/{}",
                 namespace, name, version
             );
             error!(
-                "❌ DEBUG: configuration.is_none()={}, configuration={:?}",
+                "DEBUG: configuration.is_none()={}, configuration={:?}",
                 named_task.configuration.is_none(),
                 named_task.configuration
             );
             if let Some(ref config) = named_task.configuration {
                 error!(
-                    "❌ Configuration JSON: {}",
+                    "Configuration JSON: {}",
                     serde_json::to_string_pretty(config).unwrap_or_default()
                 );
             }

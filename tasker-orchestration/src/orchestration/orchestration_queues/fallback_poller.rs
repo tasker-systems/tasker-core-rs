@@ -20,7 +20,6 @@ use tasker_shared::{
     TaskerResult,
 };
 
-// TAS-43: Import command pattern types for direct command sending
 use crate::orchestration::command_processor::OrchestrationCommand;
 
 /// Configuration for orchestration queue fallback polling

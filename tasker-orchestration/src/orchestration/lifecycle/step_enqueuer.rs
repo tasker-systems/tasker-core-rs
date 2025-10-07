@@ -432,7 +432,7 @@ impl StepEnqueuer {
         viable_step: &ViableStep,
     ) -> TaskerResult<String> {
         info!(
-            "🚀 STEP_ENQUEUER: Preparing to enqueue step {} (name: '{}') from task {} (namespace: '{}')",
+            "Preparing to enqueue step {} (name: '{}') from task {} (namespace: '{}')",
             viable_step.step_uuid, viable_step.name, task_info.task_uuid, task_info.namespace_name
         );
 
@@ -445,7 +445,7 @@ impl StepEnqueuer {
         let queue_name = format!("worker_{}_queue", task_info.namespace_name);
 
         info!(
-            "📝 STEP_ENQUEUER: Created simple step message - targeting queue '{}' for step UUID '{}'",
+            "Created simple step message - targeting queue '{}' for step UUID '{}'",
             queue_name, simple_message.step_uuid
         );
 
@@ -456,7 +456,7 @@ impl StepEnqueuer {
             .await
             .map_err(|e| {
                 error!(
-                    "❌ STEP_ENQUEUER: Failed to enqueue step {} to queue '{}': {}",
+                    "Failed to enqueue step {} to queue '{}': {}",
                     viable_step.step_uuid, queue_name, e
                 );
                 TaskerError::OrchestrationError(format!(
@@ -466,11 +466,10 @@ impl StepEnqueuer {
             })?;
 
         info!(
-            "✅ STEP_ENQUEUER: Successfully sent step {} to pgmq queue '{}' with message ID {}",
+            "Successfully sent step {} to pgmq queue '{}' with message ID {}",
             viable_step.step_uuid, queue_name, msg_id
         );
 
-        // TAS-32: Transition the step to "enqueued" state since it's now enqueued for processing
         // This replaces the old behavior of marking steps as in_progress when enqueued
         if let Err(e) = self
             .state_manager
@@ -478,19 +477,19 @@ impl StepEnqueuer {
             .await
         {
             error!(
-                "❌ STEP_ENQUEUER: Failed to transition step {} to enqueued state after enqueueing: {}",
+                "Failed to transition step {} to enqueued state after enqueueing: {}",
                 viable_step.step_uuid, e
             );
             // Continue execution - enqueueing succeeded, state transition failure shouldn't block workflow
         } else {
             info!(
-                "✅ STEP_ENQUEUER: Successfully marked step {} as enqueued (TAS-32)",
+                "Successfully marked step {} as enqueued",
                 viable_step.step_uuid
             );
         }
 
         info!(
-            "🎯 STEP_ENQUEUER: Step enqueueing complete - step_uuid: {}, task_uuid: {}, namespace: '{}', queue: '{}', msg_id: {}",
+            "Step enqueueing complete - step_uuid: {}, task_uuid: {}, namespace: '{}', queue: '{}', msg_id: {}",
             viable_step.step_uuid,
             task_info.task_uuid,
             task_info.namespace_name,
@@ -522,7 +521,7 @@ impl StepEnqueuer {
         };
 
         debug!(
-            "✅ STEP_ENQUEUER: Created minimal message - task_uuid: {}, step_uuid: {}, correlation_id: {} (dependencies queried by workers)",
+            "Created minimal message - task_uuid: {}, step_uuid: {}, correlation_id: {} (dependencies queried by workers)",
             simple_message.task_uuid,
             simple_message.step_uuid,
             simple_message.correlation_id

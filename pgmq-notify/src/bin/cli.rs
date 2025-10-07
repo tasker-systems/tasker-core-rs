@@ -160,13 +160,13 @@ fn validate_config(args: ValidateConfigArgs) -> Result<(), Box<dyn std::error::E
 
     match pgmq_config.validate() {
         Ok(()) => {
-            println!("✅ Configuration is valid");
+            println!("Configuration is valid");
             println!("   Queue pattern: {}", cli_config.queue_naming_pattern);
             println!("   Channel prefix: {:?}", cli_config.channels_prefix);
             println!("   Max payload: {} bytes", cli_config.max_payload_size);
         }
         Err(e) => {
-            eprintln!("❌ Configuration validation failed: {}", e);
+            eprintln!("Configuration validation failed: {}", e);
             std::process::exit(1);
         }
     }

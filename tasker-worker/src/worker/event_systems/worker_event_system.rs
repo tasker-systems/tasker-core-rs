@@ -165,7 +165,7 @@ impl WorkerEventSystem {
         info!(
             system_id = %system_id,
             deployment_mode = ?deployment_mode,
-            "🔄 WORKER_EVENT_SYSTEM: Initializing with unified configuration"
+            "Initializing with unified configuration"
         );
 
         Self {
@@ -257,7 +257,7 @@ impl WorkerEventSystem {
                     }
                 });
 
-                info!("🎧 WORKER_EVENT_SYSTEM: Queue listener initialized for event-driven processing");
+                info!("🎧 Queue listener initialized for event-driven processing");
             }
             _ => {}
         }
@@ -300,7 +300,7 @@ impl WorkerEventSystem {
                 );
 
                 info!(
-                    "📊 WORKER_EVENT_SYSTEM: Fallback poller initialized for reliable processing"
+                    "Fallback poller initialized for reliable processing"
                 );
             }
             _ => {}
@@ -371,7 +371,7 @@ impl EventDrivenSystem for WorkerEventSystem {
         info!(
             system_id = %self.system_id,
             deployment_mode = ?self.deployment_mode,
-            "🚀 WORKER_EVENT_SYSTEM: Starting unified worker event system"
+            "Starting unified worker event system"
         );
 
         // Initialize components based on deployment mode
@@ -385,7 +385,7 @@ impl EventDrivenSystem for WorkerEventSystem {
                 .map_err(|e| DeploymentModeError::ConfigurationError {
                     message: format!("Failed to start queue listener: {}", e),
                 })?;
-            info!("🎧 WORKER_EVENT_SYSTEM: Queue listener started");
+            info!("🎧 Queue listener started");
         }
 
         // Start fallback poller if configured
@@ -396,14 +396,14 @@ impl EventDrivenSystem for WorkerEventSystem {
                 .map_err(|e| DeploymentModeError::ConfigurationError {
                     message: format!("Failed to start fallback poller: {}", e),
                 })?;
-            info!("📊 WORKER_EVENT_SYSTEM: Fallback poller started");
+            info!("Fallback poller started");
         }
 
         self.is_running.store(true, Ordering::Release);
 
         info!(
             system_id = %self.system_id,
-            "✅ WORKER_EVENT_SYSTEM: Started successfully with unified configuration"
+            "Started successfully with unified configuration"
         );
 
         Ok(())
@@ -417,25 +417,25 @@ impl EventDrivenSystem for WorkerEventSystem {
 
         info!(
             system_id = %self.system_id,
-            "🛑 WORKER_EVENT_SYSTEM: Stopping unified worker event system"
+            "Stopping unified worker event system"
         );
 
         // Stop fallback poller (has explicit stop method)
         if let Some(ref mut poller) = self.fallback_poller {
             poller.stop().await;
-            info!("📊 WORKER_EVENT_SYSTEM: Fallback poller stopped");
+            info!("Fallback poller stopped");
         }
 
         // Queue listener stops automatically when dropped - no explicit stop method needed
         if self.queue_listener.is_some() {
-            info!("🎧 WORKER_EVENT_SYSTEM: Queue listener will stop when dropped");
+            info!("🎧 Queue listener will stop when dropped");
         }
 
         self.is_running.store(false, Ordering::Release);
 
         info!(
             system_id = %self.system_id,
-            "✅ WORKER_EVENT_SYSTEM: Stopped successfully"
+            "Stopped successfully"
         );
 
         Ok(())

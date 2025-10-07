@@ -75,7 +75,7 @@ pub async fn create_task(
     // Set requested_at to current time
     task_request.requested_at = chrono::Utc::now().naive_utc();
 
-    // Initialize task with immediate step enqueuing (TAS-41)
+    // Initialize task with immediate step enqueuing
     // NOTE: We do NOT wrap this in circuit breaker - we handle errors manually
     // to distinguish between client errors (template not found) and server errors
     let result = state

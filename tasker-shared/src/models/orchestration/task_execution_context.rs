@@ -8,7 +8,7 @@
 //! for workflow tasks. Unlike other models, this data is **never stored** - it's calculated
 //! on-demand using sophisticated SQL functions that analyze step states and dependencies.
 //!
-//! ## Unified Structure (TAS-41)
+//! ## Unified Structure
 //!
 //! This version unifies the 3 different TaskExecutionContext definitions that existed across:
 //! - task_finalizer.rs (canonical enums)

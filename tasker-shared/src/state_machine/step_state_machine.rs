@@ -98,21 +98,17 @@ impl StepStateMachine {
         event: &StepEvent,
     ) -> StateMachineResult<WorkflowStepState> {
         let target = match (current_state, event) {
-            // TAS-32: Enqueue transitions (pending → enqueued)
             (WorkflowStepState::Pending, StepEvent::Enqueue) => WorkflowStepState::Enqueued,
 
-            // TAS-32: Start transitions (enqueued → in_progress)
             (WorkflowStepState::Enqueued, StepEvent::Start) => WorkflowStepState::InProgress,
             // Legacy: Support pending → in_progress for backward compatibility during transition
             (WorkflowStepState::Pending, StepEvent::Start) => WorkflowStepState::InProgress,
 
-            // TAS-41: EnqueuedForOrchestration transitions
             // Worker completes step and enqueues for orchestration
             (WorkflowStepState::InProgress, StepEvent::EnqueueForOrchestration(_)) => {
                 WorkflowStepState::EnqueuedForOrchestration
             }
 
-            // TAS-41: EnqueuedAsErrorForOrchestration transitions
             // Worker fails step and enqueues for orchestration error processing
             (WorkflowStepState::InProgress, StepEvent::EnqueueAsErrorForOrchestration(_)) => {
                 WorkflowStepState::EnqueuedAsErrorForOrchestration
@@ -205,7 +201,6 @@ impl StepStateMachine {
         event: &StepEvent,
     ) -> StateMachineResult<()> {
         match (current_state, target_state, event) {
-            // TAS-32: Check dependencies satisfied before step enqueue
             (WorkflowStepState::Pending, WorkflowStepState::Enqueued, StepEvent::Enqueue) => {
                 let guard = StepDependenciesMetGuard;
                 guard.check(&self.step, &self.pool).await?;
@@ -214,7 +209,6 @@ impl StepStateMachine {
                 guard.check(&self.step, &self.pool).await?;
             }
 
-            // TAS-32: Check step is enqueued before starting (workers should claim enqueued steps)
             (WorkflowStepState::Enqueued, WorkflowStepState::InProgress, StepEvent::Start) => {
                 let guard = StepNotInProgressGuard;
                 guard.check(&self.step, &self.pool).await?;

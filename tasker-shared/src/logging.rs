@@ -47,7 +47,7 @@ pub fn init_tracing() {
         tracing::info!(
             environment = %environment,
             ansi_colors = use_ansi,
-            "🔧 TRACING: Console logging initialized"
+            "Console logging initialized"
         );
     });
 }
@@ -104,7 +104,7 @@ macro_rules! log_task {
             task_uuid = format!("{:?}", $task_uuid),
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📋 TASK_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
     // Simple form - just operation
@@ -112,7 +112,7 @@ macro_rules! log_task {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📋 TASK_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -121,7 +121,7 @@ macro_rules! log_task {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📋 TASK_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -136,7 +136,7 @@ macro_rules! log_queue_worker {
             namespace = %$namespace,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔄 QUEUE_WORKER: {} (namespace: {})", $operation, $namespace
+            "QUEUE_{} (namespace: {})", $operation, $namespace
         );
     };
     // Simple form - just operation
@@ -144,7 +144,7 @@ macro_rules! log_queue_worker {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔄 QUEUE_WORKER: {}", $operation
+            "QUEUE_{}", $operation
         );
     };
     // Generic form with additional fields
@@ -153,7 +153,7 @@ macro_rules! log_queue_worker {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔄 QUEUE_WORKER: {}", $operation
+            "QUEUE_{}", $operation
         );
     };
 }
@@ -166,7 +166,7 @@ macro_rules! log_orchestrator {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🚀 ORCHESTRATOR: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -175,7 +175,7 @@ macro_rules! log_orchestrator {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🚀 ORCHESTRATOR: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -191,7 +191,7 @@ macro_rules! log_step {
             task_uuid = format!("{:?}", $task_uuid),
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔧 STEP_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
     // Simple form - just operation
@@ -199,7 +199,7 @@ macro_rules! log_step {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔧 STEP_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -208,7 +208,7 @@ macro_rules! log_step {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔧 STEP_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -221,7 +221,7 @@ macro_rules! log_database {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "💾 DATABASE: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -230,7 +230,7 @@ macro_rules! log_database {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "💾 DATABASE: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -245,7 +245,7 @@ macro_rules! log_ffi {
             component = %$component,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🌉 FFI: {} ({})", $operation, $component
+            "{} ({})", $operation, $component
         );
     };
     // Simple form - just operation
@@ -253,7 +253,7 @@ macro_rules! log_ffi {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🌉 FFI: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -262,7 +262,7 @@ macro_rules! log_ffi {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🌉 FFI: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -275,7 +275,7 @@ macro_rules! log_config {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "⚙️ CONFIG: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -284,7 +284,7 @@ macro_rules! log_config {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "⚙️ CONFIG: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -300,7 +300,7 @@ macro_rules! log_registry {
             name = %$name,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📚 REGISTRY: {} ({}/{})", $operation, $namespace, $name
+            "{} ({}/{})", $operation, $namespace, $name
         );
     };
     // Simple form - just operation
@@ -308,7 +308,7 @@ macro_rules! log_registry {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📚 REGISTRY: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -317,7 +317,7 @@ macro_rules! log_registry {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📚 REGISTRY: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -434,7 +434,7 @@ pub fn log_error(component: &str, operation: &str, error: &str, context: Option<
         error = %error,
         context = context,
         timestamp = %Utc::now().to_rfc3339(),
-        "❌ ERROR: {} failed in {}: {}", operation, component, error
+        "ERROR: {} failed in {}: {}", operation, component, error
     );
 }
 
@@ -445,16 +445,16 @@ pub fn log_error(component: &str, operation: &str, error: &str, context: Option<
 /// ```rust
 /// use tasker_shared::{log_task, log_queue_worker, log_orchestrator, log_config};
 ///
-/// // Task operations - matches Ruby: "📋 TASK_OPERATION: Creating task"
+/// // Task operations
 /// log_task!(info, "Creating task", task_uuid: Some(123), namespace: "fulfillment");
 ///
-/// // Queue worker operations - matches Ruby: "🔄 QUEUE_WORKER: Processing batch"
+/// // Queue worker operations
 /// log_queue_worker!(debug, "Processing batch", namespace: "fulfillment", batch_size: 5);
 ///
-/// // Orchestrator operations - matches Ruby: "🚀 ORCHESTRATOR: Starting system"
+/// // Orchestrator operations
 /// log_orchestrator!(info, "Starting system", namespaces: vec!["default", "fulfillment"]);
 ///
-/// // Configuration operations - matches Ruby format with ⚙️ emoji
+/// // Configuration operations
 /// log_config!(warn, "Using fallback configuration", reason: "File not found");
 /// ```
 #[cfg(test)]
