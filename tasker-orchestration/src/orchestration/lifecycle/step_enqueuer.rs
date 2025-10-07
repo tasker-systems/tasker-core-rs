@@ -123,15 +123,42 @@ impl StepEnqueuer {
     ///
     /// This discovers viable steps using the existing SQL-based logic, then enqueues each
     /// step individually to its namespace-specific queue for autonomous worker processing.
-    #[instrument(skip(self), fields(task_uuid = task_info.task_uuid.to_string(), namespace = %task_info.namespace_name))]
+    #[instrument(skip(self), fields(
+        task_uuid = %task_info.task_uuid,
+        namespace = %task_info.namespace_name
+    ))]
     pub async fn enqueue_ready_steps(
         &self,
         task_info: &ReadyTaskInfo,
     ) -> TaskerResult<StepEnqueueResult> {
         let start_time = Instant::now();
 
+        // Fetch correlation_id from task for distributed tracing
+        let correlation_id = {
+            use tasker_shared::models::Task;
+            match Task::find_by_id(self.context.database_pool(), task_info.task_uuid).await {
+                Ok(Some(task)) => task.correlation_id,
+                Ok(None) => {
+                    error!(
+                        task_uuid = %task_info.task_uuid,
+                        "Task not found when fetching correlation_id"
+                    );
+                    Uuid::nil() // Fallback to nil UUID if task not found
+                }
+                Err(e) => {
+                    error!(
+                        task_uuid = %task_info.task_uuid,
+                        error = %e,
+                        "Failed to fetch task for correlation_id"
+                    );
+                    Uuid::nil() // Fallback to nil UUID on error
+                }
+            }
+        };
+
         info!(
-            task_uuid = task_info.task_uuid.to_string(),
+            correlation_id = %correlation_id,
+            task_uuid = %task_info.task_uuid,
             namespace = %task_info.namespace_name,
             "Starting step enqueueing for claimed task"
         );
@@ -143,7 +170,8 @@ impl StepEnqueuer {
             .await
             .map_err(|e| {
                 error!(
-                    task_uuid = task_info.task_uuid.to_string(),
+                    correlation_id = %correlation_id,
+                    task_uuid = %task_info.task_uuid,
                     error = %e,
                     "Failed to discover viable steps"
                 );
@@ -152,14 +180,16 @@ impl StepEnqueuer {
 
         let steps_discovered = viable_steps.len();
         debug!(
-            task_uuid = task_info.task_uuid.to_string(),
+            correlation_id = %correlation_id,
+            task_uuid = %task_info.task_uuid,
             steps_discovered = steps_discovered,
             "Discovered viable steps for enqueueing"
         );
 
         if steps_discovered == 0 {
             warn!(
-                task_uuid = task_info.task_uuid.to_string(),
+                correlation_id = %correlation_id,
+                task_uuid = %task_info.task_uuid,
                 "No viable steps found for claimed task - task may have been processed already"
             );
 
@@ -183,7 +213,8 @@ impl StepEnqueuer {
 
         let enqueuable_count = enqueuable_steps.len();
         debug!(
-            task_uuid = task_info.task_uuid.to_string(),
+            correlation_id = %correlation_id,
+            task_uuid = %task_info.task_uuid,
             steps_discovered = steps_discovered,
             enqueuable_steps = enqueuable_count,
             "Filtered steps ready for enqueueing"
@@ -191,7 +222,8 @@ impl StepEnqueuer {
 
         if enqueuable_count == 0 {
             warn!(
-                task_uuid = task_info.task_uuid.to_string(),
+                correlation_id = %correlation_id,
+                task_uuid = %task_info.task_uuid,
                 "No enqueuable steps after state filtering - steps may be in error/waiting states"
             );
 

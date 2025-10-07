@@ -185,6 +185,7 @@ impl TaskInitializer {
                     Some(&format!("Registry lookup failed: {e}")),
                 );
                 error!(
+                  correlation_id = %correlation_id,
                   task_uuid = %task_uuid,
                   task_name = %task_name,
                   error = %e,
@@ -272,17 +273,24 @@ impl TaskInitializer {
     ///
     /// This method combines task creation with immediate step enqueuing
     /// to reduce latency between task creation and step execution.
-    #[instrument(skip(self), fields(task_name = %task_request.name))]
+    #[instrument(skip(self), fields(
+        correlation_id = %task_request.correlation_id,
+        task_name = %task_request.name
+    ))]
     pub async fn create_and_enqueue_task_from_request(
         &self,
         task_request: TaskRequest,
     ) -> Result<TaskInitializationResult, TaskInitializationError> {
+        // Extract correlation_id before moving task_request
+        let correlation_id = task_request.correlation_id;
+
         // First, create the task using existing method
         let initialization_result = self.create_task_from_request(task_request).await?;
 
         let task_uuid = initialization_result.task_uuid;
 
         info!(
+            correlation_id = %correlation_id,
             task_uuid = %task_uuid,
             step_count = initialization_result.step_count,
             "Task created, attempting immediate step enqueuing"
