@@ -50,13 +50,6 @@ jobs:
         env:
           RUST_LOG: info
 
-      - name: Upload doctest results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: doctest-results
-          path: target/doc/
-
   # Ruby framework tests run after comprehensive tests (workers are shut down)
   ruby-framework-tests:
     needs: [build-postgres, comprehensive-tests]

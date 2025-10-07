@@ -51,6 +51,15 @@ jobs:
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
 
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+
+      - name: Run database migrations
+        run: cargo sqlx migrate run
+        working-directory: .
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
       - name: Install Ruby dependencies
         run: bundle install
 
