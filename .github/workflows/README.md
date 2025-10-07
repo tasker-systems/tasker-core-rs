@@ -12,13 +12,13 @@ The main orchestrator that runs all CI checks in parallel where possible.
 
 **Job Flow**:
 ```
-docker-build
+build-postgres
     ├─→ code-quality (parallel)
     └─→ comprehensive-tests (parallel)
 
 comprehensive-tests
     ├─→ doctests
-    └─→ ruby-framework-tests
+    └─→ ruby-framework-tests (needs build-postgres)
 
 comprehensive-tests + ruby-framework-tests
     └─→ performance-analysis
@@ -28,10 +28,13 @@ code-quality + comprehensive-tests + doctests + ruby-framework-tests + performan
 ```
 
 **Key Improvements**:
+- PostgreSQL image built once and reused across all jobs
 - Code quality and comprehensive tests run in parallel for faster CI
 - Single comprehensive test suite covers unit + integration + E2E (all 482 tests)
-- Ruby framework tests run after comprehensive tests (workers already shut down)
+- Ruby framework tests use PostgreSQL service for FFI compilation
 - Doctests run separately with sqlx offline mode
+- Disk cleanup step frees ~30GB before Docker builds
+- Sequential Docker builds prevent parallel compilation issues
 
 ---
 
@@ -106,7 +109,7 @@ cargo test --doc --all-features \
 
 ### Ruby Framework Tests (`test-ruby-framework.yml`)
 
-**Purpose**: Ruby-specific framework testing (no Docker needed)
+**Purpose**: Ruby-specific framework testing with PostgreSQL service
 
 **Runs**:
 - FFI layer tests (`workers/ruby/spec/ffi/`)
@@ -116,31 +119,38 @@ cargo test --doc --all-features \
 **Requirements**:
 - Ruby 3.4
 - Rust toolchain (for FFI extension compilation)
+- PostgreSQL service (for sqlx query validation during compilation)
 - Bundle install + rake compile
 
 **Command**: `bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb`
 
 **Test Count**: 77 tests
 
-**Duration**: ~1-2 minutes
+**Duration**: ~2-3 minutes
 
 **Key Features**:
-- Fast feedback (no Docker overhead)
-- Validates Ruby FFI bindings
+- PostgreSQL service container for FFI compilation (sqlx query validation)
+- Fast feedback (lightweight service, no full Docker Compose)
+- Validates Ruby FFI bindings and Rust integration
 - Tests Ruby-specific framework logic
-- Runs after comprehensive tests (workers already shut down)
+- Runs after comprehensive tests (Docker workers already shut down)
+- Explicitly excludes integration tests (run in E2E suite)
 
 ---
 
 ## Support Workflows
 
-### Build Docker Images (`build-docker-images.yml`)
+### Build PostgreSQL Image (`build-postgres.yml`)
 
-**Purpose**: Build and cache Docker images for CI
+**Purpose**: Build and cache PostgreSQL with PGMQ extension
 
 **Outputs**:
-- `postgres-image`: PostgreSQL with PGMQ extension
-- Other service images as needed
+- `postgres-image`: PostgreSQL with PGMQ and pg_uuidv7 extensions
+
+**Usage**:
+- Shared across all CI jobs requiring database access
+- Used by code-quality, comprehensive-tests, and ruby-framework-tests
+- Built once per CI run, cached via GitHub Actions cache
 
 ---
 
@@ -252,13 +262,24 @@ SQLX_OFFLINE=true cargo test --doc --all-features \
 ### Ruby Framework Tests
 
 ```bash
-# Ensure Docker services are stopped first
-docker compose -f docker/docker-compose.test.yml down
+# Start PostgreSQL (needed for FFI compilation with sqlx)
+docker compose -f docker/docker-compose.test.yml up -d postgres
+
+# Wait for PostgreSQL to be ready
+until pg_isready -h localhost -p 5432 -U tasker; do sleep 1; done
 
 cd workers/ruby
 bundle install
-bundle exec rake compile
+
+# Compile with database connection for sqlx query validation
+DATABASE_URL=postgresql://tasker:tasker@localhost:5432/tasker_rust_test \
+  bundle exec rake compile
+
+# Run framework tests (excludes integration tests)
 bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb
+
+# Cleanup
+docker compose -f docker/docker-compose.test.yml down
 ```
 
 ---
@@ -378,18 +399,21 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 
 | Workflow | Target Duration | Actual | Test Count |
 |----------|----------------|--------|------------|
-| Docker Build | < 5 minutes | ~3-5 min | N/A |
+| Build PostgreSQL | < 5 minutes | ~3-5 min | N/A |
 | Code Quality | < 3 minutes | ~2-3 min | N/A |
-| Comprehensive Tests | < 15 minutes | ~10-15 min | 482 tests |
+| Comprehensive Tests | < 20 minutes | ~15-18 min | 482 tests |
 | Doctests | < 2 minutes | ~1 min | 3 examples |
-| Ruby Framework | < 2 minutes | ~1-2 min | 77 tests |
-| **Total CI** | **< 20 minutes** | **~15-18 min** | **562 tests** |
+| Ruby Framework | < 3 minutes | ~2-3 min | 77 tests |
+| **Total CI** | **< 25 minutes** | **~20-23 min** | **562 tests** |
 
 **Key Optimizations**:
+- PostgreSQL image built once and reused across all jobs
 - Code quality and comprehensive tests run in parallel (not sequential)
+- Disk cleanup step frees ~30GB before Docker builds
+- Sequential Docker builds prevent "No space left on device" errors
 - Single Docker startup for all integration and E2E tests
 - Doctests use sqlx offline mode (no database needed)
-- Ruby framework tests leverage already-shut-down workers
+- Ruby framework tests use lightweight PostgreSQL service (not full Docker Compose)
 
 ---
 
@@ -400,18 +424,25 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 **Now**: Unified `test-e2e.yml` (comprehensive) + `doctests` + `test-ruby-framework.yml`
 
 **Changes**:
+- ✅ Renamed `build-docker-images.yml` → `build-postgres.yml` (more accurate naming)
 - ✅ Consolidated all Rust tests into single comprehensive suite (482 tests)
 - ✅ Added separate doctest job with sqlx offline mode
+- ✅ Added disk cleanup step to prevent "No space left on device" errors
+- ✅ Sequential Docker builds instead of parallel (manages disk space)
+- ✅ PostgreSQL image built once and reused across all jobs
 - ✅ Code quality and comprehensive tests run in parallel for faster CI
-- ✅ Ruby framework tests run after comprehensive tests (workers already shut down)
+- ✅ Ruby framework tests use PostgreSQL service for FFI compilation
+- ✅ Ruby framework tests explicitly exclude integration tests
 - ✅ Removed duplicate test infrastructure
 - ✅ Removed `workers/ruby/spec/integration/` (migrated to `tests/e2e/ruby/`)
 - ✅ Removed redundant `test-unit.yml` and `test-ruby-unit.yml` workflows
+- ✅ Fixed workspace root `.sqlx/` copy issues in Dockerfiles
 
 **Performance Impact**:
-- Total CI time reduced from ~20 minutes to ~15-18 minutes
+- Total CI time: ~20-23 minutes (reliable, no space issues)
 - 562 total tests (482 Rust + 77 Ruby + 3 doctests)
 - Single Docker startup for all integration and E2E tests
+- ~30GB disk space freed before builds
 
 ---
 

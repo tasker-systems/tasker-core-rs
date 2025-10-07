@@ -7,20 +7,20 @@ on:
     branches: [main]
 
 jobs:
-  docker-build:
-    uses: ./.github/workflows/build-docker-images.yml
+  build-postgres:
+    uses: ./.github/workflows/build-postgres.yml
 
   # Code quality checks run in parallel with comprehensive tests
   code-quality:
-    needs: docker-build
+    needs: build-postgres
     uses: ./.github/workflows/code-quality.yml
     with:
-      postgres-image: ${{ needs.docker-build.outputs.postgres-image }}
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
 
   # Comprehensive test suite: unit + integration + E2E (Rust + Ruby workers)
   # Covers all packages with nextest
   comprehensive-tests:
-    needs: docker-build
+    needs: build-postgres
     uses: ./.github/workflows/test-e2e.yml
 
   # Doctests run after comprehensive tests (requires sqlx offline mode)
@@ -59,8 +59,10 @@ jobs:
 
   # Ruby framework tests run after comprehensive tests (workers are shut down)
   ruby-framework-tests:
-    needs: comprehensive-tests
+    needs: [build-postgres, comprehensive-tests]
     uses: ./.github/workflows/test-ruby-framework.yml
+    with:
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
 
   performance-analysis:
     needs: [comprehensive-tests, ruby-framework-tests]
