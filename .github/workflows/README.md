@@ -69,7 +69,9 @@ cargo nextest run \
 
 **Test Count**: 482 tests
 
-**Duration**: ~10-15 minutes
+**Duration**: ~15-20 minutes
+
+**Note**: Originally tried sequential Docker builds to save disk space, but this exceeded the 20-minute timeout. Reverted to parallel builds with aggressive disk cleanup (~30GB freed) and increased timeout to 30 minutes. If this still fails, we have a fallback plan to split tests by crate with GHCR image caching.
 
 **Key Features**:
 - Single Docker startup for all tests
@@ -401,17 +403,18 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 |----------|----------------|--------|------------|
 | Build PostgreSQL | < 5 minutes | ~3-5 min | N/A |
 | Code Quality | < 3 minutes | ~2-3 min | N/A |
-| Comprehensive Tests | < 20 minutes | ~15-18 min | 482 tests |
+| Comprehensive Tests | < 30 minutes | ~15-25 min | 482 tests |
 | Doctests | < 2 minutes | ~1 min | 3 examples |
 | Ruby Framework | < 3 minutes | ~2-3 min | 77 tests |
-| **Total CI** | **< 25 minutes** | **~20-23 min** | **562 tests** |
+| **Total CI** | **< 35 minutes** | **~20-30 min** | **562 tests** |
 
 **Key Optimizations**:
 - PostgreSQL image built once and reused across all jobs
 - Code quality and comprehensive tests run in parallel (not sequential)
-- Disk cleanup step frees ~30GB before Docker builds
-- Sequential Docker builds prevent "No space left on device" errors
+- Disk cleanup step frees ~30GB before Docker builds (prevents disk space issues)
+- Parallel Docker builds for speed (disk cleanup provides sufficient space)
 - Single Docker startup for all integration and E2E tests
+- 30-minute timeout for comprehensive test suite (increased from 20m)
 - Doctests use sqlx offline mode (no database needed)
 - Ruby framework tests use lightweight PostgreSQL service (not full Docker Compose)
 
@@ -443,6 +446,57 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 - 562 total tests (482 Rust + 77 Ruby + 3 doctests)
 - Single Docker startup for all integration and E2E tests
 - ~30GB disk space freed before builds
+
+---
+
+## Fallback Plan: Split Testing with GHCR Caching
+
+**Status**: Documented but not implemented (use if current approach times out)
+
+If the current approach still exceeds 30 minutes or hits disk space issues, we have a more robust architecture ready:
+
+### Architecture
+1. **Per-Crate Test Jobs** - Run unit + integration tests per crate in parallel
+2. **Docker Image Jobs** - Build and push images to GHCR on success
+3. **E2E Job** - Pull cached images from GHCR for fast E2E testing
+
+### Workflow Structure
+```
+build-postgres → (parallel jobs below)
+
+├─→ test-tasker-shared (unit + integration)
+│   └─→ On success: no image needed
+│
+├─→ test-tasker-orchestration (unit + integration)
+│   └─→ On success: build + push orchestration:$SHA to GHCR
+│
+├─→ test-tasker-worker (unit + integration)
+│   └─→ On success: build + push worker:$SHA to GHCR
+│
+├─→ test-pgmq-notify (unit + integration)
+│   └─→ On success: no image needed
+│
+└─→ test-ruby-worker (Ruby specs)
+    └─→ On success: build + push ruby-worker:$SHA to GHCR
+
+All test jobs succeed →
+    e2e-tests (pulls cached images from GHCR, runs E2E only)
+```
+
+### Benefits
+- **Parallel Execution**: All test jobs run simultaneously (~5-10 min each)
+- **Image Caching**: Docker images built once, reused in E2E
+- **Fast E2E**: No builds needed, just pull cached images (~5 min)
+- **Disk Space**: Each job has independent disk space
+- **Total Time**: ~15-20 minutes (vs current 30 min timeout)
+
+### Implementation Files
+If needed, create:
+- `.github/workflows/test-by-crate.yml` - Per-crate test jobs
+- `.github/workflows/build-and-cache-images.yml` - Docker image building
+- Update `ci.yml` to orchestrate new structure
+
+**Note**: Only implement if current approach fails. Current approach is simpler and should work with disk cleanup + parallel builds.
 
 ---
 

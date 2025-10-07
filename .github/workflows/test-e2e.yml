@@ -7,7 +7,7 @@ jobs:
   e2e-tests:
     name: E2E Tests (Rust + Ruby FFI Workers)
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -40,21 +40,12 @@ jobs:
           echo "📊 Disk usage after cleanup:"
           df -h
 
-      - name: Build and start Docker services sequentially
+      - name: Build and start Docker services
         run: |
-          echo "🐳 Building Docker services sequentially to manage disk space..."
+          echo "🐳 Building and starting Docker services in parallel..."
+          echo "   Disk cleanup freed ~30GB - should be sufficient for parallel builds"
 
-          # Build and start postgres first
-          docker compose -f docker/docker-compose.test.yml build postgres
-          docker compose -f docker/docker-compose.test.yml up -d postgres
-
-          # Build remaining services one at a time
-          docker compose -f docker/docker-compose.test.yml build orchestration
-          docker compose -f docker/docker-compose.test.yml build worker
-          docker compose -f docker/docker-compose.test.yml build ruby-worker
-
-          # Start all services
-          docker compose -f docker/docker-compose.test.yml up -d
+          docker compose -f docker/docker-compose.test.yml up --build -d
 
           echo "✅ All services started"
 
