@@ -1,13 +1,18 @@
 # =============================================================================
-# Test Compose Configuration - Local Integration Testing
+# Development Compose Configuration - Local Development with Observability
 # =============================================================================
-# Optimized for local development and testing:
-# - Fast debug builds with Dockerfile.test
-# - Always builds from local source (no cached images)
-# - Minimal resource usage
-# - Quick startup times
+# Optimized for local development with full observability stack:
+# - PostgreSQL with PGMQ extension
+# - Grafana LGTM stack (Loki, Grafana, Tempo, Mimir) for OpenTelemetry
+# - All-in-one observability for distributed tracing (TAS-29 Phase 3)
 #
-# Usage: docker-compose -f docker/compose/docker-compose.test.yml up --build
+# Usage: docker-compose -f docker/docker-compose.dev.yml up
+#
+# Access:
+# - Grafana UI: http://localhost:3000 (admin/admin)
+# - PostgreSQL: localhost:5432 (tasker/tasker)
+# - OTLP gRPC: localhost:4317
+# - OTLP HTTP: localhost:4318
 
 services:
   # ==========================================================================
@@ -34,8 +39,50 @@ services:
     networks:
       - tasker-development
 
+  # ==========================================================================
+  # Grafana LGTM Stack - All-in-One Observability
+  # ==========================================================================
+  # Includes: Loki (logs), Grafana (UI), Tempo (traces), Mimir (metrics)
+  # TAS-29 Phase 3: OpenTelemetry integration for distributed tracing
+  observability:
+    image: grafana/otel-lgtm:latest
+    container_name: tasker-observability
+    ports:
+      # Grafana UI
+      - "3000:3000"
+      # OTLP receivers
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      # Prometheus metrics
+      - "9090:9090"
+      # Tempo query
+      - "3200:3200"
+    environment:
+      # Enable all features
+      ENABLE_LOGS: "true"
+      ENABLE_METRICS: "true"
+      ENABLE_TRACES: "true"
+    volumes:
+      # Persist Grafana dashboards and data sources
+      - grafana_data:/var/lib/grafana
+      # Persist Tempo traces
+      - tempo_data:/var/tempo
+      # Persist Loki logs
+      - loki_data:/loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - tasker-development
+
 volumes:
   postgres_data:
+  grafana_data:
+  tempo_data:
+  loki_data:
 
 networks:
   tasker-development:
