@@ -168,10 +168,37 @@ impl StepClaim {
                 match state_machine.transition(transition_event).await {
                     Ok(new_state) => {
                         if matches!(new_state, WorkflowStepState::InProgress) {
+                            // Increment attempts count and set last_attempted_at
+                            // This marks the start of an execution attempt, including the claim itself.
+                            // From a distributed systems perspective, claiming = attempt begins.
+                            // This ensures worker crashes/timeouts count against retry limits.
+                            let db_pool = self.context.database_pool();
+                            let now = chrono::Utc::now().naive_utc();
+
+                            sqlx::query!(
+                                r#"
+                                UPDATE tasker_workflow_steps
+                                SET attempts = COALESCE(attempts, 0) + 1,
+                                    last_attempted_at = $2,
+                                    updated_at = NOW()
+                                WHERE workflow_step_uuid = $1
+                                "#,
+                                step_uuid,
+                                now
+                            )
+                            .execute(db_pool)
+                            .await
+                            .map_err(|e| {
+                                TaskerError::DatabaseError(format!(
+                                    "Failed to increment attempts for step {}: {}",
+                                    step_uuid, e
+                                ))
+                            })?;
+
                             debug!(
                                 step_uuid = %step_uuid,
                                 new_state = %new_state,
-                                "Successfully claimed step by transitioning to InProgress"
+                                "Successfully claimed step by transitioning to InProgress and incremented attempts"
                             );
                             Ok(true)
                         } else {

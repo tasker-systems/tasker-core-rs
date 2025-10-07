@@ -630,4 +630,8 @@ impl TaskerConfig {
     pub fn pgmq_max_batch_size(&self) -> u32 {
         self.queues.max_batch_size
     }
+
+    pub fn environment(&self) -> &str {
+        &self.execution.environment
+    }
 }

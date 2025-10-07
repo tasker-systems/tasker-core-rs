@@ -44,7 +44,7 @@ fn create_test_step() -> WorkflowStep {
         task_uuid: Uuid::now_v7(),
         named_step_uuid: Uuid::now_v7(),
         retryable: true,
-        retry_limit: Some(3),
+        max_attempts: Some(3),
         in_process: false,
         processed: false,
         processed_at: None,
@@ -66,7 +66,7 @@ fn _unused_receive_event_helper() {
     // Event publishing functionality is tested in event_bridge_integration_test.rs
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_publish_task_transition_events(pool: PgPool) -> sqlx::Result<()> {
     let publisher = EventPublisher::new();
     // Note: subscribe method signature changed - events can be verified through external callbacks
@@ -110,7 +110,7 @@ async fn test_publish_task_transition_events(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_publish_step_transition_events(pool: PgPool) -> sqlx::Result<()> {
     let publisher = EventPublisher::new();
     // Note: subscribe method signature changed - events can be verified through external callbacks
@@ -149,7 +149,7 @@ async fn test_publish_step_transition_events(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_trigger_step_discovery_on_completion(pool: PgPool) -> sqlx::Result<()> {
     let publisher = EventPublisher::new();
     // Note: subscribe method signature changed - events can be verified through external callbacks
@@ -189,7 +189,7 @@ async fn test_trigger_step_discovery_on_completion(pool: PgPool) -> sqlx::Result
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_update_step_results_with_json_event(pool: PgPool) -> sqlx::Result<()> {
     let action = UpdateStepResultsAction;
     let step = create_test_step();
@@ -224,7 +224,7 @@ async fn test_update_step_results_with_json_event(pool: PgPool) -> sqlx::Result<
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_error_state_cleanup_actions(pool: PgPool) -> sqlx::Result<()> {
     let task_action = ErrorStateCleanupAction;
     let step_action = ErrorStateCleanupAction;
@@ -308,7 +308,7 @@ async fn test_action_descriptions() {
     );
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_no_event_for_unsupported_transitions(pool: PgPool) -> sqlx::Result<()> {
     let publisher = EventPublisher::new();
     // Note: subscribe method signature changed - events can be verified through external callbacks

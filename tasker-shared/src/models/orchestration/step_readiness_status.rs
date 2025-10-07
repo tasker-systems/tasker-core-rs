@@ -35,7 +35,7 @@
 //!   total_parents integer,
 //!   completed_parents integer,
 //!   attempts integer,
-//!   retry_limit integer,
+//!   max_attempts integer,
 //!   backoff_request_seconds integer,
 //!   last_attempted_at timestamp without time zone
 //! )
@@ -88,7 +88,7 @@ pub struct StepReadinessStatus {
     pub total_parents: i32,
     pub completed_parents: i32,
     pub attempts: i32,
-    pub retry_limit: i32,
+    pub max_attempts: i32,
     pub backoff_request_seconds: Option<i32>,
     pub last_attempted_at: Option<NaiveDateTime>,
 }
@@ -181,7 +181,7 @@ impl StepReadinessStatus {
                 total_parents as "total_parents!: i32",
                 completed_parents as "completed_parents!: i32",
                 attempts as "attempts!: i32",
-                retry_limit as "retry_limit!: i32",
+                max_attempts as "max_attempts!: i32",
                 backoff_request_seconds,
                 last_attempted_at
             FROM get_step_readiness_status($1::uuid, NULL)
@@ -219,7 +219,7 @@ impl StepReadinessStatus {
                 total_parents as "total_parents!: i32",
                 completed_parents as "completed_parents!: i32",
                 attempts as "attempts!: i32",
-                retry_limit as "retry_limit!: i32",
+                max_attempts as "max_attempts!: i32",
                 backoff_request_seconds,
                 last_attempted_at
             FROM get_step_readiness_status($1::uuid, $2::uuid[])

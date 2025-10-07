@@ -15,10 +15,10 @@ name = "tasker-server"
 path = "src/bin/server.rs"
 required-features = ["web-api"]
 
-[[bench]]
-harness = false
-name = "orchestration_benchmarks"
-required-features = ["benchmarks"]
+# [[bench]]
+# harness = false
+# name = "orchestration_benchmarks"
+# required-features = ["benchmarks"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -60,7 +60,7 @@ serde_yaml = { workspace = true }
 sqlx = { workspace = true }
 # System information
 sysinfo = { workspace = true }
-tasker-shared = { path = "../tasker-shared", package = "tasker-shared" }
+tasker-shared = { package = "tasker-shared", path = "../tasker-shared" }
 # Error handling
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -84,7 +84,7 @@ insta = { workspace = true }
 mockall = { workspace = true }
 proptest = { workspace = true }
 serial_test = { workspace = true }
-tasker-core = { path = "../", package = "tasker-core" }
+tasker-core = { package = "tasker-core", path = "../" }
 tempfile = { workspace = true }
 # Testing tools
 tokio-test = { workspace = true }
@@ -92,7 +92,7 @@ url = { workspace = true }
 
 [features]
 default = ["postgres", "test-utils", "web-api"]
-benchmarks = ["criterion"]
+# benchmarks = ["criterion"]
 postgres = ["sqlx/postgres"]
 test-utils = []
 web-api = [
@@ -105,4 +105,3 @@ web-api = [
   "utoipa",
   "utoipa-swagger-ui",
 ]
-

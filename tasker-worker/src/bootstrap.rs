@@ -16,6 +16,7 @@
 
 use std::sync::Arc;
 use tokio::sync::oneshot;
+use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 use crate::{
@@ -24,7 +25,7 @@ use crate::{
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
 use tasker_shared::{
-    config::ConfigManager,
+    config::{ConfigManager, TaskerConfig},
     errors::{TaskerError, TaskerResult},
     system_context::SystemContext,
 };
@@ -32,15 +33,13 @@ use tasker_shared::{
 /// Unified worker system handle for lifecycle management
 pub struct WorkerSystemHandle {
     /// Core worker system
-    pub worker_core: Arc<WorkerCore>,
+    pub worker_core: Arc<Mutex<WorkerCore>>,
     /// Web API state (optional)
     pub web_state: Option<Arc<WorkerWebState>>,
     /// Shutdown signal sender (Some when running, None when stopped)
     pub shutdown_sender: Option<oneshot::Sender<()>>,
     /// Runtime handle for async operations
     pub runtime_handle: tokio::runtime::Handle,
-    /// System configuration manager
-    pub config_manager: Arc<ConfigManager>,
     /// Worker configuration
     pub worker_config: WorkerBootstrapConfig,
 }
@@ -48,11 +47,10 @@ pub struct WorkerSystemHandle {
 impl WorkerSystemHandle {
     /// Create new worker system handle
     pub fn new(
-        worker_core: Arc<WorkerCore>,
+        worker_core: Arc<Mutex<WorkerCore>>,
         web_state: Option<Arc<WorkerWebState>>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
-        config_manager: Arc<ConfigManager>,
         worker_config: WorkerBootstrapConfig,
     ) -> Self {
         Self {
@@ -60,7 +58,6 @@ impl WorkerSystemHandle {
             web_state,
             shutdown_sender: Some(shutdown_sender),
             runtime_handle,
-            config_manager,
             worker_config,
         }
     }
@@ -85,28 +82,37 @@ impl WorkerSystemHandle {
     }
 
     /// Get system status information
-    pub async fn status(&self) -> WorkerSystemStatus {
-        WorkerSystemStatus {
+    pub async fn status(&self) -> TaskerResult<WorkerSystemStatus> {
+        let worker_core = self.worker_core.lock().await;
+        let status = WorkerSystemStatus {
             running: self.is_running(),
-            environment: self.config_manager.environment().to_string(),
-            worker_core_status: self.worker_core.status().clone(),
+            environment: worker_core.context.tasker_config.environment().to_string(),
+            worker_core_status: worker_core.status().clone(),
             web_api_enabled: self.worker_config.web_config.enabled,
-            supported_namespaces: self
-                .worker_core
+            supported_namespaces: worker_core
                 .task_template_manager
                 .supported_namespaces()
                 .await,
-            database_pool_size: self.worker_core.context.database_pool().size(),
-            database_pool_idle: self.worker_core.context.database_pool().num_idle(),
-            database_url_preview: self
-                .config_manager
-                .config()
+            database_pool_size: worker_core.context.database_pool().size(),
+            database_pool_idle: worker_core.context.database_pool().num_idle(),
+            database_url_preview: worker_core
+                .context
+                .tasker_config
                 .database_url()
                 .chars()
                 .take(30)
                 .collect::<String>()
                 + "...",
-        }
+        };
+        Ok(status)
+    }
+
+    pub async fn supported_namespaces(&self) -> Vec<String> {
+        let worker_core = self.worker_core.lock().await;
+        worker_core
+            .task_template_manager
+            .supported_namespaces()
+            .await
     }
 }
 
@@ -156,15 +162,10 @@ impl Default for WorkerBootstrapConfig {
     }
 }
 
-impl WorkerBootstrapConfig {
-    /// Create WorkerBootstrapConfig from ConfigManager for configuration-driven bootstrap
-    ///
-    /// TAS-43: This method replaces ::default() usage with proper configuration loading
-    pub fn from_config_manager(config_manager: &ConfigManager, worker_id: String) -> Self {
-        let config = config_manager.config();
-
-        Self {
-            worker_id,
+impl From<&TaskerConfig> for WorkerBootstrapConfig {
+    fn from(config: &TaskerConfig) -> WorkerBootstrapConfig {
+        WorkerBootstrapConfig {
+            worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
             enable_web_api: config
                 .worker
                 .as_ref()
@@ -172,9 +173,13 @@ impl WorkerBootstrapConfig {
                 .unwrap_or(true), // TAS-43: Load from worker web configuration or default to true
             web_config: WorkerWebConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
             orchestration_api_config: OrchestrationApiConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
-            environment_override: Some(config_manager.environment().to_string()),
-            event_driven_enabled: true, // TAS-43: Enable event-driven processing for config-managed workers
-            deployment_mode_hint: Some("Hybrid".to_string()), // TAS-43: Configuration-driven workers use hybrid mode
+            environment_override: Some(config.environment().to_string()),
+            event_driven_enabled: config
+                .event_systems
+                .worker
+                .deployment_mode
+                .has_event_driven(),
+            deployment_mode_hint: Some(config.event_systems.worker.deployment_mode.to_string()),
         }
     }
 }
@@ -193,8 +198,8 @@ impl WorkerBootstrap {
     ///
     /// # Returns
     /// Handle for managing the worker system lifecycle
-    pub async fn bootstrap(config: WorkerBootstrapConfig) -> TaskerResult<WorkerSystemHandle> {
-        Self::bootstrap_with_event_system(config, None).await
+    pub async fn bootstrap() -> TaskerResult<WorkerSystemHandle> {
+        Self::bootstrap_with_event_system(None).await
     }
 
     /// Bootstrap worker system with external event system
@@ -209,7 +214,6 @@ impl WorkerBootstrap {
     /// # Returns
     /// Handle for managing the worker system lifecycle
     pub async fn bootstrap_with_event_system(
-        config: WorkerBootstrapConfig,
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
     ) -> TaskerResult<WorkerSystemHandle> {
         info!("🚀 BOOTSTRAP: Starting unified worker system bootstrap");
@@ -224,33 +228,31 @@ impl WorkerBootstrap {
             config_manager.environment()
         );
 
+        let config: WorkerBootstrapConfig = config_manager.config().into();
+
         // Initialize system context
         let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
 
-        let worker_core = Arc::new(
-            WorkerCore::new_with_event_system(
-                system_context.clone(),
-                config.orchestration_api_config.clone(),
-                event_system, // Use provided event system for cross-component coordination
-            )
-            .await?,
-        );
+        // Create worker core (not wrapped in Arc yet - we need to start it first)
+        let mut worker_core = WorkerCore::new_with_event_system(
+            system_context.clone(),
+            config.orchestration_api_config.clone(),
+            event_system, // Use provided event system for cross-component coordination
+        )
+        .await?;
 
         info!("✅ BOOTSTRAP: WorkerCore initialized with WorkerEventSystem architecture",);
         info!("   - Event-driven processing enabled with deployment modes support",);
         info!("   - Fallback polling for reliability and hybrid deployment mode",);
 
-        // Unwrap the Arc to get ownership, start the core, then wrap in Arc again
-        let mut worker_core_owned = Arc::try_unwrap(worker_core).map_err(|_| {
-            TaskerError::WorkerError("Failed to unwrap Arc for worker core start".to_string())
-        })?;
-
-        worker_core_owned
+        // Start the worker core before wrapping in Arc<Mutex<>>
+        worker_core
             .start()
             .await
             .map_err(|e| TaskerError::WorkerError(format!("Failed to start worker core: {}", e)))?;
 
-        let worker_core = Arc::new(worker_core_owned);
+        // Now wrap in Arc<Mutex<>> for shared access across web API and handle
+        let worker_core = Arc::new(Mutex::new(worker_core));
 
         info!("✅ BOOTSTRAP: WorkerCore started successfully with background processing");
 
@@ -258,11 +260,20 @@ impl WorkerBootstrap {
         let web_state = if config.enable_web_api {
             info!("BOOTSTRAP: Creating worker web API state");
 
+            // Clone the Arc<Mutex<WorkerCore>> for web API
+            let web_worker_core = worker_core.clone();
+
+            // Get database pool (need to lock briefly to access context)
+            let database_pool = {
+                let core = worker_core.lock().await;
+                Arc::new(core.context.database_pool().clone())
+            };
+
             let web_state = Arc::new(
                 WorkerWebState::new(
                     config.web_config.clone(),
-                    worker_core.clone(),
-                    Arc::new(worker_core.context.database_pool().clone()),
+                    web_worker_core,
+                    database_pool,
                     config_manager.config().clone(),
                 )
                 .await?,
@@ -322,7 +333,6 @@ impl WorkerBootstrap {
             web_state,
             shutdown_sender,
             runtime_handle,
-            config_manager,
             config,
         );
 

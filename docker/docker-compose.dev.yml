@@ -1,0 +1,42 @@
+# =============================================================================
+# Test Compose Configuration - Local Integration Testing
+# =============================================================================
+# Optimized for local development and testing:
+# - Fast debug builds with Dockerfile.test
+# - Always builds from local source (no cached images)
+# - Minimal resource usage
+# - Quick startup times
+#
+# Usage: docker-compose -f docker/compose/docker-compose.test.yml up --build
+
+services:
+  # ==========================================================================
+  # PostgreSQL Database with PGMQ Extension
+  # ==========================================================================
+  postgres:
+    build:
+      context: ..
+      dockerfile: docker/db/Dockerfile
+    environment:
+      POSTGRES_DB: tasker_rust_development
+      POSTGRES_USER: tasker
+      POSTGRES_PASSWORD: tasker
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasker -d tasker_rust_development"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - tasker-development
+
+volumes:
+  postgres_data:
+
+networks:
+  tasker-development:
+    driver: bridge

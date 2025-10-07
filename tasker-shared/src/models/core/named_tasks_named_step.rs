@@ -14,9 +14,9 @@ pub struct NamedTasksNamedStep {
     pub ntns_uuid: Uuid,
     pub named_task_uuid: Uuid,
     pub named_step_uuid: Uuid,
-    pub skippable: bool,          // Whether this step can be skipped
-    pub default_retryable: bool,  // Default retry behavior for this step
-    pub default_retry_limit: i32, // Default retry limit for this step
+    pub skippable: bool,           // Whether this step can be skipped
+    pub default_retryable: bool,   // Default retry behavior for this step
+    pub default_max_attempts: i32, // Default retry limit for this step
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -26,9 +26,9 @@ pub struct NamedTasksNamedStep {
 pub struct NewNamedTasksNamedStep {
     pub named_task_uuid: Uuid,
     pub named_step_uuid: Uuid,
-    pub skippable: Option<bool>,          // Defaults to false
-    pub default_retryable: Option<bool>,  // Defaults to true
-    pub default_retry_limit: Option<i32>, // Defaults to 3
+    pub skippable: Option<bool>,           // Defaults to false
+    pub default_retryable: Option<bool>,   // Defaults to true
+    pub default_max_attempts: Option<i32>, // Defaults to 3
 }
 
 /// NamedTasksNamedStep with related step and task details
@@ -39,7 +39,7 @@ pub struct NamedTasksNamedStepWithDetails {
     pub named_step_uuid: Uuid,
     pub skippable: bool,
     pub default_retryable: bool,
-    pub default_retry_limit: i32,
+    pub default_max_attempts: i32,
     pub task_name: String,
     pub step_name: String,
     pub step_system_name: String, // Name of the dependent system instead
@@ -57,16 +57,16 @@ impl NamedTasksNamedStep {
             NamedTasksNamedStep,
             r#"
             INSERT INTO tasker_named_tasks_named_steps
-            (named_task_uuid, named_step_uuid, skippable, default_retryable, default_retry_limit, created_at, updated_at)
+            (named_task_uuid, named_step_uuid, skippable, default_retryable, default_max_attempts, created_at, updated_at)
             VALUES ($1::uuid, $2::uuid, $3, $4, $5, NOW(), NOW())
             RETURNING ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                      default_retry_limit, created_at, updated_at
+                      default_max_attempts, created_at, updated_at
             "#,
             new_association.named_task_uuid,
             new_association.named_step_uuid,
             new_association.skippable.unwrap_or(false),
             new_association.default_retryable.unwrap_or(true),
-            new_association.default_retry_limit.unwrap_or(3)
+            new_association.default_max_attempts.unwrap_or(3)
         )
         .fetch_one(pool)
         .await?;
@@ -84,7 +84,7 @@ impl NamedTasksNamedStep {
             NamedTasksNamedStep,
             r#"
             SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                   default_retry_limit, created_at, updated_at
+                   default_max_attempts, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE ntns_uuid = $1
             "#,
@@ -106,7 +106,7 @@ impl NamedTasksNamedStep {
             NamedTasksNamedStep,
             r#"
             SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                   default_retry_limit, created_at, updated_at
+                   default_max_attempts, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE named_task_uuid = $1::uuid AND named_step_uuid = $2::uuid
             "#,
@@ -128,7 +128,7 @@ impl NamedTasksNamedStep {
             NamedTasksNamedStep,
             r#"
             SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                   default_retry_limit, created_at, updated_at
+                   default_max_attempts, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE named_task_uuid = $1::uuid
             ORDER BY ntns_uuid
@@ -150,7 +150,7 @@ impl NamedTasksNamedStep {
             NamedTasksNamedStep,
             r#"
             SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                   default_retry_limit, created_at, updated_at
+                   default_max_attempts, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE named_step_uuid = $1::uuid
             ORDER BY ntns_uuid
@@ -179,7 +179,7 @@ impl NamedTasksNamedStep {
                 ntns.named_step_uuid,
                 ntns.skippable,
                 ntns.default_retryable,
-                ntns.default_retry_limit,
+                ntns.default_max_attempts,
                 nt.name as task_name,
                 ns.name as step_name,
                 ds.name as step_system_name,
@@ -215,18 +215,18 @@ impl NamedTasksNamedStep {
                 named_step_uuid = $3::uuid,
                 skippable = $4,
                 default_retryable = $5,
-                default_retry_limit = $6,
+                default_max_attempts = $6,
                 updated_at = NOW()
             WHERE ntns_uuid = $1
             RETURNING ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                      default_retry_limit, created_at, updated_at
+                      default_max_attempts, created_at, updated_at
             "#,
             ntns_uuid,
             new_association.named_task_uuid,
             new_association.named_step_uuid,
             new_association.skippable.unwrap_or(false),
             new_association.default_retryable.unwrap_or(true),
-            new_association.default_retry_limit.unwrap_or(3)
+            new_association.default_max_attempts.unwrap_or(3)
         )
         .fetch_optional(pool)
         .await?;
@@ -279,7 +279,7 @@ impl NamedTasksNamedStep {
             NamedTasksNamedStep,
             r#"
             SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                   default_retry_limit, created_at, updated_at
+                   default_max_attempts, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             ORDER BY ntns_uuid
             LIMIT $1 OFFSET $2
@@ -302,7 +302,7 @@ impl NamedTasksNamedStep {
             NamedTasksNamedStep,
             r#"
             SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                   default_retry_limit, created_at, updated_at
+                   default_max_attempts, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE named_task_uuid = $1::uuid AND skippable = true
             ORDER BY ntns_uuid
@@ -324,7 +324,7 @@ impl NamedTasksNamedStep {
             NamedTasksNamedStep,
             r#"
             SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                   default_retry_limit, created_at, updated_at
+                   default_max_attempts, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE named_task_uuid = $1::uuid AND default_retryable = false
             ORDER BY ntns_uuid

@@ -126,23 +126,7 @@ pub struct StepEnqueuerService {
 impl StepEnqueuerService {
     /// Create a new orchestration loop
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
-        let config =
-            TaskClaimStepEnqueuerConfig::from_tasker_config(context.config_manager.config());
-        Self::with_config(context, config).await
-    }
-
-    /// Create a new orchestration loop with context
-    pub async fn with_context(context: Arc<SystemContext>) -> TaskerResult<Self> {
-        let config =
-            TaskClaimStepEnqueuerConfig::from_tasker_config(context.config_manager.config());
-        Self::with_config(context, config).await
-    }
-
-    /// Create a new orchestration loop with custom configuration
-    pub async fn with_config(
-        context: Arc<SystemContext>,
-        config: TaskClaimStepEnqueuerConfig,
-    ) -> TaskerResult<Self> {
+        let config: TaskClaimStepEnqueuerConfig = context.tasker_config.clone().into();
         let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
 
         Ok(Self {
@@ -160,13 +144,13 @@ impl StepEnqueuerService {
 
         debug!(
             "🔄 ORCHESTRATION_LOOP: Starting cycle using state machine - system_id: {}, tasks_per_cycle: {}, namespace_filter: {:?}",
-            self.context.processor_uuid, self.config.max_batch_size, self.config.namespace_filter
+            self.context.processor_uuid, self.config.batch_size, self.config.namespace_filter
         );
 
         // Get ready tasks using SqlFunctionExecutor (query operation)
         let sql_executor = SqlFunctionExecutor::new(self.context.database_pool().clone());
         let ready_tasks = sql_executor
-            .get_next_ready_tasks(self.config.max_batch_size)
+            .get_next_ready_tasks(self.config.batch_size as i32)
             .await?;
 
         debug!(
@@ -767,15 +751,12 @@ impl Default for AggregatePerformanceMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     #[test]
     fn test_orchestration_loop_config_defaults() {
         let config = TaskClaimStepEnqueuerConfig::default();
-        assert_eq!(config.max_batch_size, 5);
-        assert_eq!(config.cycle_interval, Duration::from_secs(1));
+        assert_eq!(config.batch_size, 5);
         assert!(config.namespace_filter.is_none());
-        assert!(config.max_cycles.is_none());
         assert!(!config.enable_performance_logging);
         assert!(config.enable_heartbeat);
     }

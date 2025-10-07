@@ -43,7 +43,7 @@ use crate::types::HandlerMetadata;
 use chrono::Utc;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 /// Key for handler lookup in the registry
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -137,14 +137,7 @@ impl TaskHandlerRegistry {
         Self {
             db_pool: context.database_pool().clone(),
             event_publisher: Some(context.event_publisher.clone()),
-            search_paths: Some(
-                context
-                    .config_manager
-                    .config()
-                    .task_templates
-                    .search_paths
-                    .clone(),
-            ),
+            search_paths: Some(context.tasker_config.task_templates.search_paths.clone()),
         }
     }
 
@@ -199,6 +192,28 @@ impl TaskHandlerRegistry {
         let configuration = serde_json::to_value(template).map_err(|e| {
             TaskerError::ConfigurationError(format!("Failed to serialize template: {e}"))
         })?;
+
+        // Validate configuration is not empty
+        if configuration.is_null() || configuration == serde_json::json!({}) {
+            error!(
+                "❌ Template configuration is empty or invalid for {}/{}/{}",
+                template.namespace_name, template.name, template.version
+            );
+            return Err(TaskerError::ValidationError(format!(
+                "Template configuration cannot be empty for {}/{}/{}",
+                template.namespace_name, template.name, template.version
+            )));
+        }
+
+        // Log configuration size for debugging
+        let config_str = serde_json::to_string(&configuration).unwrap_or_default();
+        debug!(
+            "📊 Template configuration size: {} bytes for {}/{}/{}",
+            config_str.len(),
+            template.namespace_name,
+            template.name,
+            template.version
+        );
 
         use crate::models::core::{named_task::NamedTask, task_namespace::TaskNamespace};
 
@@ -345,6 +360,10 @@ impl TaskHandlerRegistry {
             }
         }
 
+        // Deduplicate discovered namespaces
+        result.discovered_namespaces.sort();
+        result.discovered_namespaces.dedup();
+
         info!(
             "📊 Template discovery complete: {} files, {} successful, {} failed",
             result.total_files, result.successful_registrations, result.failed_registrations
@@ -355,7 +374,10 @@ impl TaskHandlerRegistry {
 
     /// Load a TaskTemplate from a YAML file
     /// Similar to the Ruby TaskTemplateRegistry.load_task_template_from_file method
-    async fn load_template_from_file(&self, path: &std::path::Path) -> TaskerResult<TaskTemplate> {
+    pub async fn load_template_from_file(
+        &self,
+        path: &std::path::Path,
+    ) -> TaskerResult<TaskTemplate> {
         debug!("📖 Loading TaskTemplate from file: {}", path.display());
 
         let yaml_content = tokio::fs::read_to_string(path).await.map_err(|e| {
@@ -486,7 +508,7 @@ impl TaskHandlerRegistry {
         Ok(handler_metadata)
     }
 
-    async fn get_task_template_from_registry(
+    pub async fn get_task_template_from_registry(
         &self,
         namespace: &str,
         name: &str,
@@ -514,10 +536,11 @@ impl TaskHandlerRegistry {
             "✅ Found namespace in database"
         );
 
-        // 2. Find the named task in that namespace
-        let named_task = NamedTask::find_latest_by_name_namespace(
+        // 2. Find the named task in that namespace with specific version
+        let named_task = NamedTask::find_by_name_version_namespace(
             &self.db_pool,
             name,
+            version,
             task_namespace.task_namespace_uuid,
         )
         .await
@@ -538,14 +561,8 @@ impl TaskHandlerRegistry {
             version = named_task.version,
             task_uuid = %named_task.named_task_uuid,
             config_present = named_task.configuration.is_some(),
+            config_size = named_task.configuration.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default().len()).unwrap_or(0),
             "✅ Found named task in database"
-        );
-
-        info!(
-            namespace = &namespace,
-            name = &name,
-            version = &version,
-            "✅ DATABASE-FIRST: Handler resolved for task (pgmq architecture - no worker registration needed)"
         );
 
         let default_dependent_system = named_task.configuration.as_ref().and_then(|config| {
@@ -562,6 +579,41 @@ impl TaskHandlerRegistry {
                     .or(Some("TaskerCore::TaskHandler::Base".to_string()))
             })
         });
+        // Debug configuration before validation
+        debug!(
+            "🔬 About to validate configuration for {}/{}/{}: is_none={}, is_empty_object={}",
+            namespace,
+            name,
+            version,
+            named_task.configuration.is_none(),
+            named_task.configuration == Some(serde_json::json!({}))
+        );
+
+        // Validate configuration before creating HandlerMetadata
+        if named_task.configuration.is_none()
+            || named_task.configuration == Some(serde_json::json!({}))
+        {
+            error!(
+                "❌ Empty or invalid configuration detected for {}/{}/{}",
+                namespace, name, version
+            );
+            error!(
+                "❌ DEBUG: configuration.is_none()={}, configuration={:?}",
+                named_task.configuration.is_none(),
+                named_task.configuration
+            );
+            if let Some(ref config) = named_task.configuration {
+                error!(
+                    "❌ Configuration JSON: {}",
+                    serde_json::to_string_pretty(config).unwrap_or_default()
+                );
+            }
+            return Err(TaskerError::ValidationError(format!(
+                "Template configuration is empty or invalid for {}/{}/{}. This usually indicates a database corruption or failed template registration.",
+                namespace, name, version
+            )));
+        }
+
         let handler_metadata = HandlerMetadata {
             namespace: namespace.to_string(),
             name: name.to_string(),

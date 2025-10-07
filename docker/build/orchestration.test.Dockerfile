@@ -5,7 +5,7 @@
 # Context: tasker-orchestration/ directory
 # Usage: docker build -f Dockerfile.test -t tasker-orchestration:test .
 
-FROM rust:1.89-bullseye AS chef
+FROM rust:1.90-bullseye AS chef
 
 # Install cargo-chef and sqlx-cli for dependency layer caching and migrations
 RUN cargo install cargo-chef
@@ -32,15 +32,27 @@ COPY Cargo.toml Cargo.lock ./
 COPY .cargo/ ./.cargo/
 COPY src/ ./src/
 
-# Copy all workspace member crates
+# Copy workspace crates needed by orchestration
+# Note: Each package contains its own .sqlx/ directory with query metadata
 COPY tasker-orchestration/ ./tasker-orchestration/
 COPY tasker-shared/ ./tasker-shared/
 COPY tasker-client/ ./tasker-client/
 COPY pgmq-notify/ ./pgmq-notify/
-COPY tasker-worker/ ./tasker-worker/
-COPY workers/ ./workers/
 COPY migrations/ ./migrations/
-COPY .sqlx/ ./.sqlx/
+
+# Copy minimal workspace structure for crates we don't actually need
+# Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
+RUN mkdir -p tasker-worker/src && \
+    echo "pub fn stub() {}" > tasker-worker/src/lib.rs
+COPY tasker-worker/Cargo.toml ./tasker-worker/
+
+RUN mkdir -p workers/ruby/ext/tasker_core/src && \
+    echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
+COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
+
+RUN mkdir -p workers/rust/src && \
+    echo "pub fn stub() {}" > workers/rust/src/lib.rs
+COPY workers/rust/Cargo.toml ./workers/rust/
 
 # Generate dependency recipe
 RUN cargo chef prepare --recipe-path recipe.json
@@ -59,15 +71,26 @@ COPY Cargo.toml Cargo.lock ./
 COPY .cargo/ ./.cargo/
 COPY src/ ./src/
 
-# Copy all workspace member crates
+# Copy workspace crates needed by orchestration
+# Note: Each package contains its own .sqlx/ directory with query metadata
 COPY tasker-orchestration/ ./tasker-orchestration/
 COPY tasker-shared/ ./tasker-shared/
 COPY tasker-client/ ./tasker-client/
 COPY pgmq-notify/ ./pgmq-notify/
-COPY tasker-worker/ ./tasker-worker/
-COPY workers/ ./workers/
 COPY migrations/ ./migrations/
-COPY .sqlx/ ./.sqlx/
+
+# Copy minimal workspace structure for crates we don't actually need
+RUN mkdir -p tasker-worker/src && \
+    echo "pub fn stub() {}" > tasker-worker/src/lib.rs
+COPY tasker-worker/Cargo.toml ./tasker-worker/
+
+RUN mkdir -p workers/ruby/ext/tasker_core/src && \
+    echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
+COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
+
+RUN mkdir -p workers/rust/src && \
+    echo "pub fn stub() {}" > workers/rust/src/lib.rs
+COPY workers/rust/Cargo.toml ./workers/rust/
 
 # Set offline mode for SQLx
 ENV SQLX_OFFLINE=true

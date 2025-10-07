@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>
+  Class: TaskerCore::Types::TaskTemplate
+  
+    &mdash; Documentation by YARD 0.9.37
+  
+</title>
+
+  <link rel="stylesheet" href="../../css/style.css" type="text/css" />
+
+  <link rel="stylesheet" href="../../css/common.css" type="text/css" />
+
+<script type="text/javascript">
+  pathId = "TaskerCore::Types::TaskTemplate";
+  relpath = '../../';
+</script>
+
+
+  <script type="text/javascript" charset="utf-8" src="../../js/jquery.js"></script>
+
+  <script type="text/javascript" charset="utf-8" src="../../js/app.js"></script>
+
+
+  </head>
+  <body>
+    <div class="nav_wrap">
+      <iframe id="nav" src="../../class_list.html?1"></iframe>
+      <div id="resizer"></div>
+    </div>
+
+    <div id="main" tabindex="-1">
+      <div id="header">
+        <div id="menu">
+  
+    <a href="../../_index.html">Index (T)</a> &raquo;
+    <span class='title'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span> &raquo; <span class='title'><span class='object_link'><a href="../Types.html" title="TaskerCore::Types (module)">Types</a></span></span>
+     &raquo; 
+    <span class="title">TaskTemplate</span>
+  
+</div>
+
+        <div id="search">
+  
+    <a class="full_list_link" id="class_list_link"
+        href="../../class_list.html">
+
+        <svg width="24" height="24">
+          <rect x="0" y="4" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="12" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="20" width="24" height="4" rx="1" ry="1"></rect>
+        </svg>
+    </a>
+  
+</div>
+        <div class="clear"></div>
+      </div>
+
+      <div id="content"><h1>Class: TaskerCore::Types::TaskTemplate
+  
+  
+  
+</h1>
+<div class="box_info">
+  
+  <dl>
+    <dt>Inherits:</dt>
+    <dd>
+      <span class="inheritName">Dry::Struct</span>
+      
+        <ul class="fullTree">
+          <li>Object</li>
+          
+            <li class="next">Dry::Struct</li>
+          
+            <li class="next">TaskerCore::Types::TaskTemplate</li>
+          
+        </ul>
+        <a href="#" class="inheritanceTree">show all</a>
+      
+    </dd>
+  </dl>
+  
+
+  
+  
+  
+  
+  
+
+  
+
+  
+  <dl>
+    <dt>Defined in:</dt>
+    <dd>lib/tasker_core/types/task_template.rb</dd>
+  </dl>
+  
+</div>
+
+<h2>Overview</h2><div class="docstring">
+  <div class="discussion">
+    
+<p>Main TaskTemplate structure with self-describing configuration</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div>
+  
+    <h2>
+      Constant Summary
+      <small><a href="#" class="constants_summary_toggle">collapse</a></small>
+    </h2>
+
+    <dl class="constants">
+      
+        <dt id="VERSION_PATTERN-constant" class="">VERSION_PATTERN =
+          <div class="docstring">
+  <div class="discussion">
+    
+<p>Semantic version pattern validation</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div>
+        </dt>
+        <dd><pre class="code"><span class='tstring'><span class='regexp_beg'>/</span><span class='tstring_content'>\A\d+\.\d+\.\d+\z</span><span class='regexp_end'>/</span></span></pre></dd>
+      
+    </dl>
+  
+
+
+
+
+
+
+
+  
+    <h2>
+      Instance Method Summary
+      <small><a href="#" class="summary_toggle">collapse</a></small>
+    </h2>
+
+    <ul class="summary">
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#all_callables-instance_method" title="#all_callables (instance method)">#<strong>all_callables</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Extract all callable references.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#resolve_for_environment-instance_method" title="#resolve_for_environment (instance method)">#<strong>resolve_for_environment</strong>(environment_name)  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Resolve template for specific environment.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#template_key-instance_method" title="#template_key (instance method)">#<strong>template_key</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Generate a unique key for this template.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#valid_for_registration%3F-instance_method" title="#valid_for_registration? (instance method)">#<strong>valid_for_registration?</strong>  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Check if template is valid for registration.</p>
+</div></span>
+  
+</li>
+
+      
+    </ul>
+  
+
+
+  
+
+  <div id="instance_method_details" class="method_details_list">
+    <h2>Instance Method Details</h2>
+
+    
+      <div class="method_details first">
+  <h3 class="signature first" id="all_callables-instance_method">
+  
+    #<strong>all_callables</strong>  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Extract all callable references</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+125
+126
+127
+128
+129
+130</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/task_template.rb', line 125</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_all_callables'>all_callables</span>
+  <span class='id identifier rubyid_callables'>callables</span> <span class='op'>=</span> <span class='lbracket'>[</span><span class='rbracket'>]</span>
+  <span class='id identifier rubyid_callables'>callables</span> <span class='op'>&lt;&lt;</span> <span class='id identifier rubyid_task_handler'>task_handler</span><span class='period'>.</span><span class='id identifier rubyid_callable'>callable</span> <span class='kw'>if</span> <span class='id identifier rubyid_task_handler'>task_handler</span>
+  <span class='id identifier rubyid_steps'>steps</span><span class='period'>.</span><span class='id identifier rubyid_each'>each</span> <span class='lbrace'>{</span> <span class='op'>|</span><span class='id identifier rubyid_step'>step</span><span class='op'>|</span> <span class='id identifier rubyid_callables'>callables</span> <span class='op'>&lt;&lt;</span> <span class='id identifier rubyid_step'>step</span><span class='period'>.</span><span class='id identifier rubyid_handler'>handler</span><span class='period'>.</span><span class='id identifier rubyid_callable'>callable</span> <span class='rbrace'>}</span>
+  <span class='id identifier rubyid_callables'>callables</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="resolve_for_environment-instance_method">
+  
+    #<strong>resolve_for_environment</strong>(environment_name)  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Resolve template for specific environment</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+158
+159
+160
+161
+162
+163
+164
+165
+166
+167
+168
+169</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/task_template.rb', line 144</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_resolve_for_environment'>resolve_for_environment</span><span class='lparen'>(</span><span class='id identifier rubyid_environment_name'>environment_name</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_resolved_template'>resolved_template</span> <span class='op'>=</span> <span class='id identifier rubyid_deep_dup'>deep_dup</span>
+
+  <span class='kw'>if</span> <span class='id identifier rubyid_environments'>environments</span><span class='lbracket'>[</span><span class='id identifier rubyid_environment_name'>environment_name</span><span class='rbracket'>]</span>
+    <span class='id identifier rubyid_env_override'>env_override</span> <span class='op'>=</span> <span class='id identifier rubyid_environments'>environments</span><span class='lbracket'>[</span><span class='id identifier rubyid_environment_name'>environment_name</span><span class='rbracket'>]</span>
+
+    <span class='comment'># Apply task handler overrides
+</span>    <span class='kw'>if</span> <span class='id identifier rubyid_env_override'>env_override</span><span class='period'>.</span><span class='id identifier rubyid_task_handler'>task_handler</span> <span class='op'>&amp;&amp;</span> <span class='id identifier rubyid_resolved_template'>resolved_template</span><span class='period'>.</span><span class='id identifier rubyid_task_handler'>task_handler</span> <span class='op'>&amp;&amp;</span> <span class='id identifier rubyid_env_override'>env_override</span><span class='period'>.</span><span class='id identifier rubyid_task_handler'>task_handler</span><span class='period'>.</span><span class='id identifier rubyid_initialization'>initialization</span>
+      <span class='id identifier rubyid_resolved_template'>resolved_template</span><span class='period'>.</span><span class='id identifier rubyid_task_handler'>task_handler</span><span class='period'>.</span><span class='id identifier rubyid_initialization'>initialization</span><span class='period'>.</span><span class='id identifier rubyid_merge!'>merge!</span><span class='lparen'>(</span><span class='id identifier rubyid_env_override'>env_override</span><span class='period'>.</span><span class='id identifier rubyid_task_handler'>task_handler</span><span class='period'>.</span><span class='id identifier rubyid_initialization'>initialization</span><span class='rparen'>)</span>
+    <span class='kw'>end</span>
+
+    <span class='comment'># Apply step overrides
+</span>    <span class='id identifier rubyid_env_override'>env_override</span><span class='period'>.</span><span class='id identifier rubyid_steps'>steps</span><span class='period'>.</span><span class='id identifier rubyid_each'>each</span> <span class='kw'>do</span> <span class='op'>|</span><span class='id identifier rubyid_step_override'>step_override</span><span class='op'>|</span>
+      <span class='kw'>if</span> <span class='id identifier rubyid_step_override'>step_override</span><span class='period'>.</span><span class='id identifier rubyid_name'>name</span> <span class='op'>==</span> <span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>ALL</span><span class='tstring_end'>&#39;</span></span>
+        <span class='comment'># Apply to all steps
+</span>        <span class='id identifier rubyid_resolved_template'>resolved_template</span><span class='period'>.</span><span class='id identifier rubyid_steps'>steps</span><span class='period'>.</span><span class='id identifier rubyid_each'>each</span> <span class='lbrace'>{</span> <span class='op'>|</span><span class='id identifier rubyid_step'>step</span><span class='op'>|</span> <span class='id identifier rubyid_apply_step_override'>apply_step_override</span><span class='lparen'>(</span><span class='id identifier rubyid_step'>step</span><span class='comma'>,</span> <span class='id identifier rubyid_step_override'>step_override</span><span class='rparen'>)</span> <span class='rbrace'>}</span>
+      <span class='kw'>else</span>
+        <span class='comment'># Apply to specific step
+</span>        <span class='id identifier rubyid_step'>step</span> <span class='op'>=</span> <span class='id identifier rubyid_resolved_template'>resolved_template</span><span class='period'>.</span><span class='id identifier rubyid_steps'>steps</span><span class='period'>.</span><span class='id identifier rubyid_find'>find</span> <span class='lbrace'>{</span> <span class='op'>|</span><span class='id identifier rubyid_s'>s</span><span class='op'>|</span> <span class='id identifier rubyid_s'>s</span><span class='period'>.</span><span class='id identifier rubyid_name'>name</span> <span class='op'>==</span> <span class='id identifier rubyid_step_override'>step_override</span><span class='period'>.</span><span class='id identifier rubyid_name'>name</span> <span class='rbrace'>}</span>
+        <span class='id identifier rubyid_apply_step_override'>apply_step_override</span><span class='lparen'>(</span><span class='id identifier rubyid_step'>step</span><span class='comma'>,</span> <span class='id identifier rubyid_step_override'>step_override</span><span class='rparen'>)</span> <span class='kw'>if</span> <span class='id identifier rubyid_step'>step</span>
+      <span class='kw'>end</span>
+    <span class='kw'>end</span>
+  <span class='kw'>end</span>
+
+  <span class='id identifier rubyid_resolved_template'>resolved_template</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="template_key-instance_method">
+  
+    #<strong>template_key</strong>  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Generate a unique key for this template</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+120
+121
+122</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/task_template.rb', line 120</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_template_key'>template_key</span>
+  <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_namespace_name'>namespace_name</span><span class='embexpr_end'>}</span><span class='tstring_content'>/</span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_name'>name</span><span class='embexpr_end'>}</span><span class='tstring_content'>:</span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_version'>version</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="valid_for_registration?-instance_method">
+  
+    #<strong>valid_for_registration?</strong>  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Check if template is valid for registration</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+133
+134
+135
+136
+137
+138
+139
+140
+141</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/types/task_template.rb', line 133</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_valid_for_registration?'>valid_for_registration?</span>
+  <span class='kw'>return</span> <span class='kw'>false</span> <span class='kw'>if</span> <span class='id identifier rubyid_name'>name</span><span class='period'>.</span><span class='id identifier rubyid_empty?'>empty?</span> <span class='op'>||</span> <span class='id identifier rubyid_namespace_name'>namespace_name</span><span class='period'>.</span><span class='id identifier rubyid_empty?'>empty?</span>
+  <span class='kw'>return</span> <span class='kw'>false</span> <span class='kw'>unless</span> <span class='id identifier rubyid_version'>version</span><span class='period'>.</span><span class='id identifier rubyid_match?'>match?</span><span class='lparen'>(</span><span class='const'><span class='object_link'><a href="#VERSION_PATTERN-constant" title="TaskerCore::Types::TaskTemplate::VERSION_PATTERN (constant)">VERSION_PATTERN</a></span></span><span class='rparen'>)</span>
+
+  <span class='comment'># Ensure all steps have callables
+</span>  <span class='kw'>return</span> <span class='kw'>false</span> <span class='kw'>if</span> <span class='id identifier rubyid_steps'>steps</span><span class='period'>.</span><span class='id identifier rubyid_any?'>any?</span> <span class='lbrace'>{</span> <span class='op'>|</span><span class='id identifier rubyid_step'>step</span><span class='op'>|</span> <span class='id identifier rubyid_step'>step</span><span class='period'>.</span><span class='id identifier rubyid_handler'>handler</span><span class='period'>.</span><span class='id identifier rubyid_callable'>callable</span><span class='period'>.</span><span class='id identifier rubyid_empty?'>empty?</span> <span class='rbrace'>}</span>
+
+  <span class='kw'>true</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+</div>
+
+      <div id="footer">
+  Generated on Mon Oct  6 16:44:01 2025 by
+  <a href="https://yardoc.org" title="Yay! A Ruby Documentation Tool" target="_parent">yard</a>
+  0.9.37 (ruby-3.4.4).
+</div>
+
+    </div>
+  </body>
+</html>

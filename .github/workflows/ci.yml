@@ -7,25 +7,108 @@ on:
     branches: [main]
 
 jobs:
-  docker-build:
-    uses: ./.github/workflows/build-docker-images.yml
+  build-postgres:
+    uses: ./.github/workflows/build-postgres.yml
 
+  # Code quality checks run in parallel with comprehensive tests
   code-quality:
-    needs: docker-build
+    needs: build-postgres
     uses: ./.github/workflows/code-quality.yml
     with:
-      postgres-image: ${{ needs.docker-build.outputs.postgres-image }}
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
 
-  unit-tests:
-    needs: docker-build
-    uses: ./.github/workflows/test-unit.yml
+  # Comprehensive test suite: unit + integration + E2E (Rust + Ruby workers)
+  # Covers all packages with nextest
+  comprehensive-tests:
+    needs: build-postgres
+    uses: ./.github/workflows/test-e2e.yml
+
+  # Doctests run after comprehensive tests (requires sqlx offline mode)
+  doctests:
+    needs: comprehensive-tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Run doctests
+        run: |
+          SQLX_OFFLINE=true cargo test --doc --all-features \
+            --package tasker-shared \
+            --package tasker-orchestration \
+            --package tasker-worker \
+            --package pgmq-notify \
+            --package tasker-client \
+            --package tasker-core
+        env:
+          RUST_LOG: info
+
+  # Ruby framework tests run after comprehensive tests (workers are shut down)
+  ruby-framework-tests:
+    needs: [build-postgres, comprehensive-tests]
+    uses: ./.github/workflows/test-ruby-framework.yml
     with:
-      postgres-image: ${{ needs.docker-build.outputs.postgres-image }}
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
 
-  integration-tests:
-    needs: [code-quality, unit-tests]
-    uses: ./.github/workflows/test-integration.yml
+  performance-analysis:
+    needs: [comprehensive-tests, ruby-framework-tests]
+    runs-on: ubuntu-22.04
+    if: always()
+    steps:
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-test-results*"
+          merge-multiple: true
+          path: performance-data/
+        continue-on-error: true
+
+      - name: Aggregate performance metrics
+        run: |
+          echo "📊 Aggregating test performance metrics..."
+
+          # Create performance dashboard
+          cat > performance-summary.md << 'EOF'
+          # Test Performance Summary
+
+          ## Overview
+          This report summarizes performance metrics from comprehensive and Ruby framework tests.
+
+          EOF
+
+          # Process comprehensive test performance
+          if [ -f "performance-data/e2e-test-results/junit.xml" ]; then
+            echo "## Comprehensive Test Performance" >> performance-summary.md
+            echo "Comprehensive tests (unit + integration + E2E) completed successfully." >> performance-summary.md
+            echo "" >> performance-summary.md
+          fi
+
+          # Process Ruby framework test performance
+          if [ -f "performance-data/ruby-framework-perf-summary.txt" ]; then
+            echo "## Ruby Framework Test Performance" >> performance-summary.md
+            echo '```' >> performance-summary.md
+            cat performance-data/ruby-framework-perf-summary.txt >> performance-summary.md
+            echo '```' >> performance-summary.md
+            echo "" >> performance-summary.md
+          fi
+
+          echo "✅ Performance summary created"
+
+      - name: Upload performance analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-analysis
+          path: |
+            performance-summary.md
+            performance-data/
 
   ci-success:
-    needs: [integration-tests]
+    needs: [code-quality, comprehensive-tests, doctests, ruby-framework-tests, performance-analysis]
     uses: ./.github/workflows/ci-success.yml

@@ -38,16 +38,8 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // TAS-43 Event-Driven Worker with Configuration
-//!     let config = WorkerBootstrapConfig {
-//!         worker_id: "worker-001".to_string(),
-//!         enable_web_api: true,
-//!         event_driven_enabled: true,  // TAS-43 Event-Driven Processing
-//!         deployment_mode_hint: Some("Hybrid".to_string()), // Reliability mode
-//!         ..Default::default()
-//!     };
 //!
-//!     let mut worker_handle = WorkerBootstrap::bootstrap(config).await?;
+//!     let mut worker_handle = WorkerBootstrap::bootstrap().await?;
 //!
 //!     // Worker system is now running with:
 //!     // - Real-time PostgreSQL LISTEN/NOTIFY

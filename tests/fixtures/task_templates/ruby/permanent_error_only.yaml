@@ -1,0 +1,48 @@
+---
+name: permanent_error_only
+namespace_name: test_errors
+version: 1.0.0
+description: "Permanent error scenario for testing non-retryable failures"
+metadata:
+  author: "Test Infrastructure"
+  tags:
+    - namespace:test_errors
+    - pattern:permanent_error
+    - implementation:ruby_ffi
+    - language:ruby
+task_handler:
+  callable: ErrorScenarios::PermanentErrorOnlyHandler
+  initialization:
+    error_tracking_enabled: true
+system_dependencies:
+  primary: test_system
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  properties:
+    scenario_type:
+      type: string
+      description: "Type of test scenario"
+steps:
+  - name: permanent_error_step
+    description: "Permanent error that should not be retried"
+    handler:
+      callable: ErrorScenarios::PermanentErrorHandler
+      initialization:
+        error_type: permanent
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: false
+      max_attempts: 0
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 1000
+    timeout_seconds: 5
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: permanent_error_step
+        timeout_seconds: 5

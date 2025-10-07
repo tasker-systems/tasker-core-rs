@@ -14,7 +14,7 @@
 #
 ---
 name: mathematical_sequence
-namespace_name: linear_workflow
+namespace_name: rust_e2e_linear
 version: 1.0.0
 description: "Sequential mathematical operations using native Rust handlers: input → square → square → square → square (input^8)"
 metadata:

@@ -148,14 +148,8 @@ pub async fn get_bottlenecks(
         };
 
         let resource_utilization = ResourceUtilization {
-            database_connections_active: health.active_connections,
-            database_connections_max: health.max_connections,
             database_pool_utilization: pool_utilization,
-            pending_steps: health.pending_steps,
-            in_progress_steps: health.in_progress_steps,
-            error_steps: health.error_steps,
-            retryable_error_steps: health.retryable_error_steps,
-            exhausted_retry_steps: health.exhausted_retry_steps,
+            system_health: health
         };
 
         // Generate recommendations based on findings
@@ -181,14 +175,6 @@ pub async fn get_bottlenecks(
             recommendations.push(format!(
                 "Database pool utilization is high ({:.0}%). Consider increasing pool size or optimizing queries.",
                 pool_utilization * 100.0
-            ));
-        }
-
-        // Check for retry exhaustion
-        if health.exhausted_retry_steps > 0 {
-            recommendations.push(format!(
-                "{} steps have exhausted retries. Review failure patterns and consider manual intervention.",
-                health.exhausted_retry_steps
             ));
         }
 

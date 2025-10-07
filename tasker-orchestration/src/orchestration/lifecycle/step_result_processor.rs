@@ -93,7 +93,7 @@ pub struct StepResultProcessor {
 impl StepResultProcessor {
     /// Create a new step result processor with unified client
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
-        let config = StepResultProcessorConfig::from_tasker_config(context.config_manager.config());
+        let config: StepResultProcessorConfig = context.tasker_config.clone().into();
         // Create orchestration result processor with required dependencies
 
         let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;

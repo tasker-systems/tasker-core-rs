@@ -62,8 +62,7 @@ pub struct OrchestrationResultProcessor {
 impl OrchestrationResultProcessor {
     /// Create a new orchestration result processor
     pub fn new(task_finalizer: TaskFinalizer, context: Arc<SystemContext>) -> Self {
-        let backoff_config =
-            BackoffCalculatorConfig::from_config_manager(context.config_manager.clone());
+        let backoff_config: BackoffCalculatorConfig = context.tasker_config.clone().into();
         let backoff_calculator =
             BackoffCalculator::new(backoff_config, context.database_pool().clone());
 
@@ -629,28 +628,110 @@ impl OrchestrationResultProcessor {
                         }
                     }
                     WorkflowStepState::EnqueuedAsErrorForOrchestration => {
-                        // Error pathway - deserialize to get proper error message
-                        if let Some(results_json) = &step.results {
+                        // Error pathway - determine if step should retry or move to permanent error
+                        // Check retryability from step results metadata
+                        let should_retry = if let Some(results_json) = &step.results {
                             match serde_json::from_value::<StepExecutionResult>(
                                 results_json.clone(),
                             ) {
                                 Ok(step_execution_result) => {
-                                    let error_message = step_execution_result
-                                        .error
-                                        .map(|e| e.message)
-                                        .unwrap_or_else(|| "Step execution failed".to_string());
-                                    StepEvent::Fail(error_message)
+                                    // Check if error is marked as non-retryable in metadata
+                                    // metadata.retryable is set by the Ruby worker's error classifier
+                                    let retryable_from_metadata =
+                                        step_execution_result.metadata.retryable;
+
+                                    if !retryable_from_metadata {
+                                        info!(
+                                            step_uuid = %step_uuid,
+                                            "Error marked as non-retryable by worker"
+                                        );
+                                        false
+                                    } else {
+                                        // Check retry limits from template
+                                        let max_attempts = step.max_attempts.unwrap_or(0);
+                                        let current_attempts = step.attempts.unwrap_or(0);
+
+                                        if current_attempts >= max_attempts {
+                                            info!(
+                                                step_uuid = %step_uuid,
+                                                current_attempts = current_attempts,
+                                                max_attempts = max_attempts,
+                                                "Step has exceeded retry limit from template"
+                                            );
+                                            false
+                                        } else {
+                                            info!(
+                                                step_uuid = %step_uuid,
+                                                current_attempts = current_attempts,
+                                                max_attempts = max_attempts,
+                                                "Step is retryable with attempts remaining"
+                                            );
+                                            true
+                                        }
+                                    }
                                 }
                                 Err(_) => {
-                                    // Fallback
-                                    StepEvent::Fail(format!(
-                                        "Step failed with status: {}",
-                                        original_status
-                                    ))
+                                    // Can't deserialize results - default to checking retry limit only
+                                    let max_attempts = step.max_attempts.unwrap_or(0);
+                                    let current_attempts = step.attempts.unwrap_or(0);
+                                    current_attempts < max_attempts
                                 }
                             }
                         } else {
-                            StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                            // No results - check retry limit only
+                            let max_attempts = step.max_attempts.unwrap_or(0);
+                            let current_attempts = step.attempts.unwrap_or(0);
+                            current_attempts < max_attempts
+                        };
+
+                        // Determine which event to use based on retryability
+                        if should_retry {
+                            // Transition to WaitingForRetry (backoff already calculated)
+                            info!(
+                                step_uuid = %step_uuid,
+                                "Transitioning to WaitingForRetry state"
+                            );
+                            let error_message = if let Some(results_json) = &step.results {
+                                match serde_json::from_value::<StepExecutionResult>(
+                                    results_json.clone(),
+                                ) {
+                                    Ok(step_execution_result) => step_execution_result
+                                        .error
+                                        .map(|e| e.message)
+                                        .unwrap_or_else(|| {
+                                            "Step execution failed - retryable".to_string()
+                                        }),
+                                    Err(_) => format!(
+                                        "Step failed with status: {} - retryable",
+                                        original_status
+                                    ),
+                                }
+                            } else {
+                                format!("Step failed with status: {} - retryable", original_status)
+                            };
+                            StepEvent::WaitForRetry(error_message)
+                        } else {
+                            // Transition to Error (permanent failure or max retries)
+                            info!(
+                                step_uuid = %step_uuid,
+                                "Transitioning to Error state (permanent or max retries)"
+                            );
+                            let error_message = if let Some(results_json) = &step.results {
+                                match serde_json::from_value::<StepExecutionResult>(
+                                    results_json.clone(),
+                                ) {
+                                    Ok(step_execution_result) => step_execution_result
+                                        .error
+                                        .map(|e| e.message)
+                                        .unwrap_or_else(|| "Step execution failed".to_string()),
+                                    Err(_) => {
+                                        format!("Step failed with status: {}", original_status)
+                                    }
+                                }
+                            } else {
+                                format!("Step failed with status: {}", original_status)
+                            };
+                            StepEvent::Fail(error_message)
                         }
                     }
                     _ => unreachable!("Already matched above"),

@@ -70,6 +70,9 @@
 //! )
 //! ```
 
+use crate::database::sql_functions::{
+    SqlFunctionExecutor, SystemHealthCounts as SqlSystemHealthCounts,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
@@ -96,30 +99,34 @@ use sqlx::{FromRow, PgPool};
 /// Only read operations are available via the SQL function.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct SystemHealthCounts {
-    // Task counts by state - TAS-41: 12 granular states
+    // Task counts by state - simplified to match SQL function
     pub total_tasks: i64,
     pub pending_tasks: i64,
-    pub initializing_tasks: i64,
-    pub enqueuing_steps_tasks: i64,
-    pub steps_in_process_tasks: i64,
-    pub evaluating_results_tasks: i64,
-    pub waiting_for_dependencies_tasks: i64,
-    pub waiting_for_retry_tasks: i64,
-    pub blocked_by_failures_tasks: i64,
+    pub in_progress_tasks: i64,
     pub complete_tasks: i64,
     pub error_tasks: i64,
     pub cancelled_tasks: i64,
-    pub resolved_manually_tasks: i64,
 
-    // Step counts by state - updated for TAS-41
+    // Step counts by state - updated to match sql_functions.rs schema
     pub total_steps: i64,
     pub pending_steps: i64,
     pub enqueued_steps: i64,
-    pub running_steps: i64,
+    pub in_progress_steps: i64,
+    pub enqueued_for_orchestration_steps: i64,
+    pub enqueued_as_error_for_orchestration_steps: i64,
+    pub waiting_for_retry_steps: i64,
     pub complete_steps: i64,
+    pub error_steps: i64,
     pub cancelled_steps: i64,
-    pub failed_steps: i64,
     pub resolved_manually_steps: i64,
+
+    // Connection metrics
+    pub active_connections: i64,
+    pub max_connections: i64,
+
+    // Computed retry metrics (for backward compatibility)
+    pub retryable_error_steps: i64,
+    pub exhausted_retry_steps: i64,
 }
 
 /// System health summary with computed health indicators
@@ -135,10 +142,47 @@ pub struct SystemHealthSummary {
 }
 
 impl SystemHealthCounts {
-    /// Get current system health counts using SQL function.
+    /// Convert from sql_functions::SystemHealthCounts to insights::SystemHealthCounts
+    fn from_sql_function_result(sql_counts: SqlSystemHealthCounts) -> Self {
+        // Compute retry metrics from available data
+        let retryable_error_steps = sql_counts.waiting_for_retry_steps;
+        let exhausted_retry_steps = if sql_counts.error_steps >= sql_counts.waiting_for_retry_steps
+        {
+            sql_counts.error_steps - sql_counts.waiting_for_retry_steps
+        } else {
+            0
+        };
+
+        Self {
+            total_tasks: sql_counts.total_tasks,
+            pending_tasks: sql_counts.pending_tasks,
+            in_progress_tasks: sql_counts.in_progress_tasks,
+            complete_tasks: sql_counts.complete_tasks,
+            error_tasks: sql_counts.error_tasks,
+            cancelled_tasks: sql_counts.cancelled_tasks,
+            total_steps: sql_counts.total_steps,
+            pending_steps: sql_counts.pending_steps,
+            enqueued_steps: sql_counts.enqueued_steps,
+            in_progress_steps: sql_counts.in_progress_steps,
+            enqueued_for_orchestration_steps: sql_counts.enqueued_for_orchestration_steps,
+            enqueued_as_error_for_orchestration_steps: sql_counts
+                .enqueued_as_error_for_orchestration_steps,
+            waiting_for_retry_steps: sql_counts.waiting_for_retry_steps,
+            complete_steps: sql_counts.complete_steps,
+            error_steps: sql_counts.error_steps,
+            cancelled_steps: sql_counts.cancelled_steps,
+            resolved_manually_steps: sql_counts.resolved_manually_steps,
+            active_connections: sql_counts.active_connections,
+            max_connections: sql_counts.max_connections,
+            retryable_error_steps,
+            exhausted_retry_steps,
+        }
+    }
+    /// Get current system health counts using SQL function (delegates to sql_functions.rs).
     ///
-    /// This method calls the `get_system_health_counts()` PostgreSQL function
-    /// to compute real-time system health and capacity metrics.
+    /// This method uses the standardized `SqlFunctionExecutor` to call the
+    /// `get_system_health_counts()` PostgreSQL function, ensuring consistency
+    /// with the rest of the system.
     ///
     /// # Example Usage
     ///
@@ -154,7 +198,7 @@ impl SystemHealthCounts {
     ///     println!("Total tasks: {}", health.total_tasks);
     ///     println!("Error tasks: {}", health.error_tasks);
     ///     println!("Is healthy: {}", health.is_healthy());
-    ///     println!("Steps in process: {}", health.running_steps);
+    ///     println!("Steps in process: {}", health.in_progress_steps);
     /// }
     /// # Ok(())
     /// # }
@@ -162,38 +206,11 @@ impl SystemHealthCounts {
     ///
     /// For complete examples with test data, see `tests/models/system_health_counts.rs`.
     pub async fn get_current(pool: &PgPool) -> Result<Option<SystemHealthCounts>, sqlx::Error> {
-        let counts = sqlx::query_as!(
-            SystemHealthCounts,
-            r#"
-            SELECT
-                total_tasks as "total_tasks!: i64",
-                pending_tasks as "pending_tasks!: i64",
-                initializing_tasks as "initializing_tasks!: i64",
-                enqueuing_steps_tasks as "enqueuing_steps_tasks!: i64",
-                steps_in_process_tasks as "steps_in_process_tasks!: i64",
-                evaluating_results_tasks as "evaluating_results_tasks!: i64",
-                waiting_for_dependencies_tasks as "waiting_for_dependencies_tasks!: i64",
-                waiting_for_retry_tasks as "waiting_for_retry_tasks!: i64",
-                blocked_by_failures_tasks as "blocked_by_failures_tasks!: i64",
-                complete_tasks as "complete_tasks!: i64",
-                error_tasks as "error_tasks!: i64",
-                cancelled_tasks as "cancelled_tasks!: i64",
-                resolved_manually_tasks as "resolved_manually_tasks!: i64",
-                total_steps as "total_steps!: i64",
-                pending_steps as "pending_steps!: i64",
-                enqueued_steps as "enqueued_steps!: i64",
-                running_steps as "running_steps!: i64",
-                complete_steps as "complete_steps!: i64",
-                cancelled_steps as "cancelled_steps!: i64",
-                failed_steps as "failed_steps!: i64",
-                resolved_manually_steps as "resolved_manually_steps!: i64"
-            FROM get_system_health_counts()
-            "#
-        )
-        .fetch_optional(pool)
-        .await?;
-
-        Ok(counts)
+        // DELEGATION: Use standard sql_functions.rs approach for consistency
+        let executor = SqlFunctionExecutor::new(pool.clone());
+        let sql_counts = executor.get_system_health_counts().await?;
+        let insights_counts = Self::from_sql_function_result(sql_counts);
+        Ok(Some(insights_counts))
     }
 
     /// Get a comprehensive health summary with computed metrics.
@@ -248,7 +265,7 @@ impl SystemHealthCounts {
         if self.total_steps == 0 {
             0.0
         } else {
-            self.failed_steps as f64 / self.total_steps as f64
+            self.error_steps as f64 / self.total_steps as f64
         }
     }
 
@@ -269,25 +286,25 @@ impl SystemHealthCounts {
     /// let healthy_system = SystemHealthCounts {
     ///     total_tasks: 100,
     ///     pending_tasks: 5,
-    ///     initializing_tasks: 2,
-    ///     enqueuing_steps_tasks: 3,
-    ///     steps_in_process_tasks: 10,
-    ///     evaluating_results_tasks: 5,
-    ///     waiting_for_dependencies_tasks: 0,
-    ///     waiting_for_retry_tasks: 0,
-    ///     blocked_by_failures_tasks: 0,
+    ///     in_progress_tasks: 10,
     ///     complete_tasks: 85,
     ///     error_tasks: 0,
     ///     cancelled_tasks: 0,
-    ///     resolved_manually_tasks: 0,
     ///     total_steps: 300,
     ///     pending_steps: 10,
     ///     enqueued_steps: 15,
-    ///     running_steps: 20,
+    ///     in_progress_steps: 20,
+    ///     enqueued_for_orchestration_steps: 5,
+    ///     enqueued_as_error_for_orchestration_steps: 0,
+    ///     waiting_for_retry_steps: 0,
     ///     complete_steps: 250,
+    ///     error_steps: 0,
     ///     cancelled_steps: 0,
-    ///     failed_steps: 0,
     ///     resolved_manually_steps: 5,
+    ///     active_connections: 15,
+    ///     max_connections: 100,
+    ///     retryable_error_steps: 0,
+    ///     exhausted_retry_steps: 0,
     /// };
     ///
     /// let score = healthy_system.overall_health_score();
@@ -297,8 +314,22 @@ impl SystemHealthCounts {
     pub fn overall_health_score(&self) -> f64 {
         let completion_score = (self.task_completion_rate() + self.step_completion_rate()) * 50.0;
         let error_penalty = (self.task_error_rate() + self.step_error_rate()) * 25.0;
-        let connection_penalty = 0.0; // TODO: TAS-41 - Connection metrics not available
-        let retry_penalty = 0.0; // TODO: TAS-41 - Retry metrics not yet included in updated function
+
+        // Connection utilization penalty (higher utilization = higher penalty)
+        let connection_utilization = if self.max_connections > 0 {
+            self.active_connections as f64 / self.max_connections as f64
+        } else {
+            0.0
+        };
+        let connection_penalty = connection_utilization * 15.0;
+
+        // Retry penalty based on steps waiting for retry
+        let retry_ratio = if self.total_steps > 0 {
+            self.waiting_for_retry_steps as f64 / self.total_steps as f64
+        } else {
+            0.0
+        };
+        let retry_penalty = retry_ratio * 10.0;
 
         (completion_score - error_penalty - connection_penalty - retry_penalty).clamp(0.0, 100.0)
     }
@@ -330,13 +361,37 @@ impl SystemHealthCounts {
         self.task_error_rate() > 0.1 || self.step_error_rate() > 0.1 // More than 10%
     }
 
-    /// Get count of active work (steps in process tasks and running steps).
+    /// Get count of active work (in progress tasks and in progress steps).
     pub fn active_work_count(&self) -> i64 {
-        self.steps_in_process_tasks + self.running_steps
+        self.in_progress_tasks + self.in_progress_steps
     }
 
     /// Check if there are steps enqueued for processing.
     pub fn has_enqueued_steps(&self) -> bool {
         self.enqueued_steps > 0
+    }
+
+    /// Get count of steps waiting for retry (new TAS-41 field).
+    pub fn waiting_for_retry_count(&self) -> i64 {
+        self.waiting_for_retry_steps
+    }
+
+    /// Check if connection pool is under pressure (> 80% utilization).
+    pub fn has_connection_pressure(&self) -> bool {
+        if self.max_connections > 0 {
+            let utilization = self.active_connections as f64 / self.max_connections as f64;
+            utilization > 0.8
+        } else {
+            false
+        }
+    }
+
+    /// Get connection utilization percentage (0.0 to 1.0).
+    pub fn connection_utilization(&self) -> f64 {
+        if self.max_connections > 0 {
+            self.active_connections as f64 / self.max_connections as f64
+        } else {
+            0.0
+        }
     }
 }

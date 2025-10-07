@@ -1,0 +1,58 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# =============================================================================
+# Ruby Worker Console
+# =============================================================================
+# Interactive console for debugging and testing Ruby worker components
+
+require 'bundler/setup'
+begin
+  require 'pry'
+rescue StandardError
+  LoadError
+end
+require 'irb'
+require_relative '../lib/tasker_core'
+
+# Load environment variables
+require 'dotenv'
+Dotenv.load('.env.test', '.env')
+
+# Set up logging
+logger = TaskerCore::Logger.instance
+logger.logger.level = Logger::DEBUG
+
+puts '=' * 60
+puts 'Ruby Worker Interactive Console'
+puts '=' * 60
+puts "Environment: #{ENV['TASKER_ENV'] || 'development'}"
+puts "Ruby Version: #{RUBY_VERSION}"
+puts "TaskerCore Version: #{TaskerCore::VERSION}"
+puts ''
+puts 'Available modules:'
+puts '  - TaskerCore::Worker'
+puts '  - TaskerCore::FFI'
+puts '  - TaskerCore::Registry'
+puts '  - TaskerCore::StepHandler'
+puts ''
+puts 'Example usage:'
+puts '  # Check handler registry'
+puts '  registry = TaskerCore::Registry::HandlerRegistry.instance'
+puts '  registry.registered_handlers'
+puts ''
+puts '  # Test FFI connection'
+puts '  TaskerCore::FFI.worker_status rescue "FFI not initialized"'
+puts ''
+puts '  # Start bootstrap (careful - this starts the worker!)'
+puts '  # bootstrap = TaskerCore::Worker::Bootstrap.new'
+puts '  # bootstrap.bootstrap_rust_foundation!'
+puts '=' * 60
+puts ''
+
+# Use Pry if available, otherwise fall back to IRB
+if defined?(Pry)
+  Pry.start
+else
+  IRB.start
+end

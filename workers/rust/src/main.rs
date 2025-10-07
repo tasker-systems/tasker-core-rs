@@ -5,7 +5,7 @@
 //! while achieving significant performance improvements over Ruby equivalents.
 
 use anyhow::Result;
-use tasker_worker_rust::{bootstrap::bootstrap, WorkerBootstrapConfig};
+use tasker_worker_rust::bootstrap::bootstrap;
 use tracing::{info, warn};
 
 #[tokio::main]
@@ -13,26 +13,7 @@ async fn main() -> Result<()> {
     // Use tasker-shared's structured logging initialization
     tasker_shared::logging::init_tracing();
 
-    info!("🚀 Starting Native Rust Worker Demonstration");
-    info!("✅ TAS-41: Proving tasker-worker excellence for native Rust development");
-    // Configure worker with all supported workflow namespaces
-    let config = WorkerBootstrapConfig {
-        worker_id: "rust-worker-demo-001".to_string(),
-        enable_web_api: true,
-        event_driven_enabled: true, // TAS-43 real-time processing
-        deployment_mode_hint: Some("Hybrid".to_string()),
-        ..Default::default()
-    };
-
-    info!("🔧 Worker Configuration:");
-    info!("   Worker ID: {}", config.worker_id);
-    info!(
-        "   Event-Driven Processing: {:?}",
-        config.event_driven_enabled
-    );
-    info!("   Web API: {}", config.enable_web_api);
-
-    let (mut worker_handle, event_handler) = bootstrap(config).await?;
+    let (mut worker_handle, event_handler) = bootstrap().await?;
 
     // Start event handler in background
     tokio::spawn(async move {
@@ -40,15 +21,6 @@ async fn main() -> Result<()> {
             warn!("Event handler stopped with error: {}", e);
         }
     });
-
-    info!(
-        "   Supported namespaces: {:?}",
-        worker_handle
-            .worker_core
-            .task_template_manager
-            .supported_namespaces()
-            .await
-    );
 
     info!("🔄 Worker running... Press Ctrl+C to shutdown gracefully");
 

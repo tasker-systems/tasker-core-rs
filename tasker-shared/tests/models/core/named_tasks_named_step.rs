@@ -5,7 +5,7 @@
 use sqlx::PgPool;
 use tasker_shared::models::named_tasks_named_step::{NamedTasksNamedStep, NewNamedTasksNamedStep};
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_named_tasks_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies
     let namespace = tasker_shared::models::task_namespace::TaskNamespace::create(
@@ -54,14 +54,14 @@ async fn test_named_tasks_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
         named_step_uuid: named_step.named_step_uuid,
         skippable: Some(true),
         default_retryable: Some(false),
-        default_retry_limit: Some(5),
+        default_max_attempts: Some(5),
     };
 
     let association = NamedTasksNamedStep::create(&pool, new_association.clone()).await?;
     assert_eq!(association.named_task_uuid, named_task.named_task_uuid);
     assert!(association.skippable);
     assert!(!association.default_retryable);
-    assert_eq!(association.default_retry_limit, 5);
+    assert_eq!(association.default_max_attempts, 5);
 
     // Test find by ID
     let found = NamedTasksNamedStep::find_by_id(&pool, association.ntns_uuid).await?;
@@ -98,7 +98,7 @@ async fn test_named_tasks_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_default_values(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies with minimal data
     let namespace = tasker_shared::models::task_namespace::TaskNamespace::create(
@@ -147,13 +147,13 @@ async fn test_default_values(pool: PgPool) -> sqlx::Result<()> {
         named_step_uuid: named_step.named_step_uuid,
         skippable: None,           // Should default to false
         default_retryable: None,   // Should default to true
-        default_retry_limit: None, // Should default to 3
+        default_max_attempts: None, // Should default to 3
     };
 
     let association = NamedTasksNamedStep::create(&pool, new_association).await?;
     assert!(!association.skippable);
     assert!(association.default_retryable);
-    assert_eq!(association.default_retry_limit, 3);
+    assert_eq!(association.default_max_attempts, 3);
 
     // Cleanup
     NamedTasksNamedStep::delete(&pool, association.ntns_uuid).await?;

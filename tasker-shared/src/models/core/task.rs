@@ -83,7 +83,7 @@ use uuid::Uuid;
 /// ```json
 /// {
 ///   "input_data": { "order_id": 12345, "priority": "high" },
-///   "execution_options": { "timeout": 3600, "retry_limit": 3 },
+///   "execution_options": { "timeout": 3600, "max_attempts": 3 },
 ///   "metadata": { "source": "api", "version": "1.0" }
 /// }
 /// ```
@@ -1204,7 +1204,7 @@ impl Task {
 
         Ok(serde_json::json!({
             "default_timeout": 3600,
-            "retry_limit": 3,
+            "max_attempts": 3,
             "retryable": true,
             "skippable": false
         }))
@@ -1232,7 +1232,7 @@ impl Task {
             crate::models::WorkflowStep,
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
-                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws

@@ -382,7 +382,7 @@ CREATE TABLE IF NOT EXISTS public.tasker_workflow_steps (
     task_uuid uuid NOT NULL,
     named_step_uuid uuid NOT NULL,
     retryable boolean DEFAULT true NOT NULL,
-    retry_limit integer DEFAULT 3,
+    max_attempts integer DEFAULT 3,
     in_process boolean DEFAULT false NOT NULL,
     processed boolean DEFAULT false NOT NULL,
     processed_at timestamp without time zone,
@@ -496,7 +496,7 @@ CREATE TABLE IF NOT EXISTS public.tasker_named_tasks_named_steps (
     named_step_uuid uuid NOT NULL,  -- Foreign key to UUID table
     skippable boolean DEFAULT false NOT NULL,
     default_retryable boolean DEFAULT true NOT NULL,
-    default_retry_limit integer DEFAULT 3 NOT NULL,
+    default_max_attempts integer DEFAULT 3 NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL
 );
@@ -701,9 +701,9 @@ CREATE INDEX IF NOT EXISTS idx_workflow_steps_active_operations ON public.tasker
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_task_grouping_active ON public.tasker_workflow_steps USING btree (task_uuid, workflow_step_uuid) WHERE ((processed = false) OR (processed IS NULL));
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_task_readiness ON public.tasker_workflow_steps USING btree (task_uuid, processed, workflow_step_uuid) WHERE (processed = false);
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_processing_status ON public.tasker_workflow_steps USING btree (task_uuid, processed, in_process);
-CREATE INDEX IF NOT EXISTS idx_workflow_steps_retry_logic ON public.tasker_workflow_steps USING btree (attempts, retry_limit, retryable);
-CREATE INDEX IF NOT EXISTS idx_workflow_steps_retry_status ON public.tasker_workflow_steps USING btree (attempts, retry_limit);
-CREATE INDEX IF NOT EXISTS idx_workflow_steps_task_covering ON public.tasker_workflow_steps USING btree (task_uuid) INCLUDE (workflow_step_uuid, processed, in_process, attempts, retry_limit);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_retry_logic ON public.tasker_workflow_steps USING btree (attempts, max_attempts, retryable);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_retry_status ON public.tasker_workflow_steps USING btree (attempts, max_attempts);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_task_covering ON public.tasker_workflow_steps USING btree (task_uuid) INCLUDE (workflow_step_uuid, processed, in_process, attempts, max_attempts);
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_processed_at ON public.tasker_workflow_steps USING btree (processed_at);
 
 -- Transitive dependency optimization index
@@ -742,7 +742,7 @@ RETURNS TABLE(
     total_parents integer,
     completed_parents integer,
     attempts integer,
-    retry_limit integer,
+    max_attempts integer,
     backoff_request_seconds integer,
     last_attempted_at timestamp without time zone
 )
@@ -796,16 +796,16 @@ BEGIN
 
     -- Retry eligibility
     CASE
-      WHEN COALESCE(ws.attempts, 0) < COALESCE(ws.retry_limit, 3) THEN true
+      WHEN COALESCE(ws.attempts, 0) < COALESCE(ws.max_attempts, 3) THEN true
       ELSE false
     END as retry_eligible,
 
     -- Ready for execution
     CASE
-      WHEN COALESCE(ss.to_state, 'pending') IN ('pending', 'error')
+      WHEN COALESCE(ss.to_state, 'pending') = 'pending'
       AND (ws.processed = false OR ws.processed IS NULL)
       AND (dc.total_deps IS NULL OR dc.completed_deps = dc.total_deps)
-      AND (COALESCE(ws.attempts, 0) < COALESCE(ws.retry_limit, 3))
+      AND (COALESCE(ws.attempts, 0) < COALESCE(ws.max_attempts, 3))
       AND (COALESCE(ws.retryable, true) = true)
       AND (ws.in_process = false OR ws.in_process IS NULL)
       AND (
@@ -839,7 +839,7 @@ BEGIN
     COALESCE(dc.total_deps, 0)::INTEGER as total_parents,
     COALESCE(dc.completed_deps, 0)::INTEGER as completed_parents,
     COALESCE(ws.attempts, 0)::INTEGER as attempts,
-    COALESCE(ws.retry_limit, 3) as retry_limit,
+    COALESCE(ws.max_attempts, 3) as max_attempts,
     ws.backoff_request_seconds,
     ws.last_attempted_at
 
@@ -904,7 +904,7 @@ BEGIN
       COUNT(CASE WHEN sd.ready_for_execution = true THEN 1 END) as ready_steps,
       -- Count PERMANENTLY blocked failures (exhausted retries OR explicitly marked as not retryable)
       COUNT(CASE WHEN sd.current_state = 'error'
-                  AND (sd.attempts >= sd.retry_limit) THEN 1 END) as permanently_blocked_steps
+                  AND (sd.attempts >= sd.max_attempts) THEN 1 END) as permanently_blocked_steps
     FROM step_data sd
   )
   SELECT
@@ -991,7 +991,7 @@ RETURNS TABLE(
     total_parents integer,
     completed_parents integer,
     attempts integer,
-    retry_limit integer,
+    max_attempts integer,
     backoff_request_seconds integer,
     last_attempted_at timestamp without time zone
 )
@@ -1045,16 +1045,16 @@ BEGIN
 
     -- Retry eligibility
     CASE
-      WHEN COALESCE(ws.attempts, 0) < COALESCE(ws.retry_limit, 3) THEN true
+      WHEN COALESCE(ws.attempts, 0) < COALESCE(ws.max_attempts, 3) THEN true
       ELSE false
     END as retry_eligible,
 
     -- Ready for execution
     CASE
-      WHEN COALESCE(ss.to_state, 'pending') IN ('pending', 'error')
+      WHEN COALESCE(ss.to_state, 'pending') = 'pending'
       AND (ws.processed = false OR ws.processed IS NULL)
       AND (dc.total_deps IS NULL OR dc.completed_deps = dc.total_deps)
-      AND (COALESCE(ws.attempts, 0) < COALESCE(ws.retry_limit, 3))
+      AND (COALESCE(ws.attempts, 0) < COALESCE(ws.max_attempts, 3))
       AND (COALESCE(ws.retryable, true) = true)
       AND (ws.in_process = false OR ws.in_process IS NULL)
       AND (
@@ -1088,7 +1088,7 @@ BEGIN
     COALESCE(dc.total_deps, 0)::INTEGER as total_parents,
     COALESCE(dc.completed_deps, 0)::INTEGER as completed_parents,
     COALESCE(ws.attempts, 0)::INTEGER as attempts,
-    COALESCE(ws.retry_limit, 3) as retry_limit,
+    COALESCE(ws.max_attempts, 3) as max_attempts,
     ws.backoff_request_seconds,
     ws.last_attempted_at
 
@@ -1150,7 +1150,7 @@ BEGIN
       COUNT(CASE WHEN sd.current_state IN ('complete', 'resolved_manually') THEN 1 END) as completed_steps,
       COUNT(CASE WHEN sd.current_state = 'error' THEN 1 END) as failed_steps,
       COUNT(CASE WHEN sd.ready_for_execution = true THEN 1 END) as ready_steps,
-      COUNT(CASE WHEN sd.current_state = 'error' AND (sd.attempts >= sd.retry_limit) THEN 1 END) as permanently_blocked_steps
+      COUNT(CASE WHEN sd.current_state = 'error' AND (sd.attempts >= sd.max_attempts) THEN 1 END) as permanently_blocked_steps
     FROM step_data sd
     GROUP BY sd.task_uuid
   )
@@ -1423,12 +1423,12 @@ BEGIN
             COUNT(*) FILTER (WHERE step_state.to_state = 'error') as error_steps,
             COUNT(*) FILTER (
                 WHERE step_state.to_state = 'error'
-                AND ws.attempts < ws.retry_limit
+                AND ws.attempts < ws.max_attempts
                 AND COALESCE(ws.retryable, true) = true
             ) as retryable_error_steps,
             COUNT(*) FILTER (
                 WHERE step_state.to_state = 'error'
-                AND ws.attempts >= ws.retry_limit
+                AND ws.attempts >= ws.max_attempts
             ) as exhausted_retry_steps,
             COUNT(*) FILTER (
                 WHERE step_state.to_state = 'error'
@@ -1627,7 +1627,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_active_with_priority_covering
 -- Step processing covering indexes
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_ready_covering
     ON tasker_workflow_steps (task_uuid, processed, in_process)
-    INCLUDE (workflow_step_uuid, attempts, retry_limit, retryable)
+    INCLUDE (workflow_step_uuid, attempts, max_attempts, retryable)
     WHERE processed = false;
 
 -- Transition state lookup indexes

@@ -35,11 +35,6 @@
 //!
 //! ## Architecture
 //!
-//! The crate is organized into focused modules:
-//!
-//! - [`test_helpers`] - Core testing utilities and database setup
-//! - [`test_helpers::integration_test_manager`] - Docker-based integration testing
-//! - [`test_helpers::integration_test_utils`] - Task creation and workflow testing utilities
 //!
 //! ## Environment Variables
 //!
@@ -91,8 +86,5 @@
 //! # }
 //! ```
 
-pub mod test_helpers;
-
-pub use test_helpers::{
-    get_test_database_url, setup_test_database_url, setup_test_db, setup_test_environment, MIGRATOR,
-};
+// Test helpers moved to tests/support/ to avoid circular dependencies
+// and keep them out of the public library API

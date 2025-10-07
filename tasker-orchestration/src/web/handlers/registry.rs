@@ -119,7 +119,7 @@ pub async fn get_handler_info(
                 description: task.description,
                 step_templates: Vec::new(), // Would need additional query to fetch step templates
             })),
-            None => Err(ApiError::NotFound),
+            None => Err(ApiError::not_found("Resource not found")),
         }
     })
     .await

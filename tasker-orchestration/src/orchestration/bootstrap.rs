@@ -22,7 +22,7 @@ use crate::orchestration::{
 use crate::web;
 use crate::web::state::AppState;
 use std::sync::Arc;
-use tasker_shared::config::ConfigManager;
+use tasker_shared::config::{ConfigManager, TaskerConfig};
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 use tokio::sync::oneshot;
@@ -41,7 +41,7 @@ pub struct OrchestrationSystemHandle {
     /// Runtime handle for async operations
     pub runtime_handle: tokio::runtime::Handle,
     /// System configuration manager
-    pub config_manager: Arc<ConfigManager>,
+    pub tasker_config: Arc<TaskerConfig>,
     /// Bootstrap configuration
     pub bootstrap_config: BootstrapConfig,
 }
@@ -54,7 +54,7 @@ impl OrchestrationSystemHandle {
         web_state: Option<Arc<AppState>>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
-        config_manager: Arc<ConfigManager>,
+        tasker_config: Arc<TaskerConfig>,
         bootstrap_config: BootstrapConfig,
     ) -> Self {
         Self {
@@ -63,7 +63,7 @@ impl OrchestrationSystemHandle {
             web_state,
             shutdown_sender: Some(shutdown_sender),
             runtime_handle,
-            config_manager,
+            tasker_config,
             bootstrap_config,
         }
     }
@@ -106,13 +106,12 @@ impl OrchestrationSystemHandle {
     pub fn status(&self) -> SystemStatus {
         SystemStatus {
             running: self.is_running(),
-            environment: self.config_manager.environment().to_string(),
+            environment: self.tasker_config.environment().to_string(),
             circuit_breakers_enabled: self.orchestration_core.context.circuit_breakers_enabled(),
             database_pool_size: self.orchestration_core.context.database_pool().size(),
             database_pool_idle: self.orchestration_core.context.database_pool().num_idle(),
             database_url_preview: self
-                .config_manager
-                .config()
+                .tasker_config
                 .database_url()
                 .chars()
                 .take(30)
@@ -138,8 +137,6 @@ pub struct SystemStatus {
 pub struct BootstrapConfig {
     /// Namespaces to initialize queues for
     pub namespaces: Vec<String>,
-    /// Whether to start processors immediately (vs manual control)
-    pub auto_start_processors: bool,
     /// Environment override (None = auto-detect)
     pub environment_override: Option<String>,
     /// Whether to start web API server
@@ -150,24 +147,18 @@ impl Default for BootstrapConfig {
     fn default() -> Self {
         Self {
             namespaces: vec![],
-            auto_start_processors: true,
             environment_override: None,
             enable_web_api: true,
         }
     }
 }
 
-impl BootstrapConfig {
-    /// Create BootstrapConfig from ConfigManager for configuration-driven bootstrap
-    pub fn from_config_manager(
-        config_manager: &tasker_shared::config::ConfigManager,
-        namespaces: Vec<String>,
-    ) -> Self {
-        Self {
-            namespaces,
-            auto_start_processors: true, // Default for most use cases
-            environment_override: Some(config_manager.environment().to_string()),
-            enable_web_api: true,
+impl From<&TaskerConfig> for BootstrapConfig {
+    fn from(config: &TaskerConfig) -> BootstrapConfig {
+        BootstrapConfig {
+            namespaces: vec![config.queues.orchestration_namespace.clone()],
+            environment_override: Some(config.environment().to_string()),
+            enable_web_api: config.orchestration.web_enabled(),
         }
     }
 }
@@ -186,13 +177,16 @@ impl OrchestrationBootstrap {
     ///
     /// # Returns
     /// Handle for managing the orchestration system lifecycle
-    pub async fn bootstrap(config: BootstrapConfig) -> TaskerResult<OrchestrationSystemHandle> {
+    pub async fn bootstrap() -> TaskerResult<OrchestrationSystemHandle> {
         info!("🚀 BOOTSTRAP: Starting unified orchestration system bootstrap");
 
         let config_manager = ConfigManager::load().map_err(|e| {
             error!("Failed to load configuration: {e}");
             TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
         })?;
+
+        let tasker_config = config_manager.config();
+        let config: BootstrapConfig = tasker_config.into();
 
         info!(
             "✅ BOOTSTRAP: Configuration loaded for environment: {}",
@@ -225,8 +219,6 @@ impl OrchestrationBootstrap {
             );
         }
 
-        let tasker_config = config_manager.config();
-
         // Create web API state if enabled
         let web_state: Option<Arc<AppState>> = if config.enable_web_api {
             info!("BOOTSTRAP: Creating orchestration web API state");
@@ -235,15 +227,13 @@ impl OrchestrationBootstrap {
 
             if web_config.enabled {
                 let app_state = Arc::new(
-                    AppState::from_orchestration_core(
-                        web_config.clone(),
-                        orchestration_core.clone(),
-                        config_manager.clone(),
-                    )
-                    .await
-                    .map_err(|e| {
-                        TaskerError::ConfigurationError(format!("Failed to create AppState: {e}"))
-                    })?,
+                    AppState::from_orchestration_core(orchestration_core.clone())
+                        .await
+                        .map_err(|e| {
+                            TaskerError::ConfigurationError(format!(
+                                "Failed to create AppState: {e}"
+                            ))
+                        })?,
                 );
 
                 info!("✅ BOOTSTRAP: Orchestration web API state created successfully");
@@ -351,52 +341,20 @@ impl OrchestrationBootstrap {
             }
         });
 
+        let tasker_config = Arc::new(tasker_config.clone());
+
         let handle = OrchestrationSystemHandle::new(
             orchestration_core,
             unified_event_coordinator,
             web_state,
             shutdown_sender,
             runtime_handle,
-            config_manager,
+            tasker_config,
             config,
         );
 
         info!("🎉 BOOTSTRAP: Unified orchestration system bootstrap completed successfully");
         Ok(handle)
-    }
-
-    /// Bootstrap for standalone deployment
-    ///
-    /// Full-featured bootstrap method for standalone deployments with custom configuration.
-    pub async fn bootstrap_standalone(
-        environment: Option<String>,
-        namespaces: Vec<String>,
-        enable_web_api: bool,
-    ) -> TaskerResult<OrchestrationSystemHandle> {
-        let config = BootstrapConfig {
-            namespaces,
-            auto_start_processors: true,
-            environment_override: environment,
-            enable_web_api,
-        };
-
-        Self::bootstrap(config).await
-    }
-
-    /// Bootstrap for testing scenarios
-    ///
-    /// Testing-optimized bootstrap with automatic test environment detection.
-    pub async fn bootstrap_testing(
-        namespaces: Vec<String>,
-    ) -> TaskerResult<OrchestrationSystemHandle> {
-        let config = BootstrapConfig {
-            namespaces,
-            auto_start_processors: true,
-            environment_override: Some("test".to_string()),
-            enable_web_api: false, // Disable web API for testing by default
-        };
-
-        Self::bootstrap(config).await
     }
 }
 
@@ -408,7 +366,6 @@ mod tests {
     async fn test_bootstrap_config_default() {
         let config = BootstrapConfig::default();
         assert!(config.namespaces.is_empty());
-        assert!(config.auto_start_processors);
         assert!(config.environment_override.is_none());
         assert!(config.enable_web_api);
     }
@@ -437,13 +394,11 @@ mod tests {
         // Test that coordinator bootstrap config is properly structured
         let config = BootstrapConfig {
             namespaces: vec!["test_namespace".to_string()],
-            auto_start_processors: false, // Don't auto-start for testing
             environment_override: Some("test".to_string()),
             enable_web_api: true,
         };
 
         assert_eq!(config.namespaces.len(), 1);
-        assert!(!config.auto_start_processors);
         assert_eq!(config.environment_override, Some("test".to_string()));
     }
 }

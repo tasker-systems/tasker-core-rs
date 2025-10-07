@@ -1023,7 +1023,7 @@ mod tests {
             "total_parents": 0,
             "completed_parents": 0,
             "attempts": 0,
-            "retry_limit": 3,
+            "max_attempts": 3,
             "last_failure_at": null,
             "next_retry_at": null,
             "last_attempted_at": null

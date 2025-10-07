@@ -22,7 +22,7 @@ module TaskerCore
       attr_reader :logger, :task_config
 
       def initialize(task_config_path: nil, task_config: nil)
-        @logger = TaskerCore::Logging::Logger.instance
+        @logger = TaskerCore::Logger.instance
         @task_config = task_config || (task_config_path ? load_task_config_from_path(task_config_path) : {})
         @pgmq_client = nil # Lazy initialization to avoid database connection during setup
       end

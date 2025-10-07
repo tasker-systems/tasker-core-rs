@@ -1,6 +1,6 @@
-use crate::config::manager::ConfigManager;
 use crate::config::TaskerConfig;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Configuration for step result processing
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,12 +29,9 @@ impl Default for StepResultProcessorConfig {
     }
 }
 
-impl StepResultProcessorConfig {
-    /// Create StepResultProcessorConfig from ConfigManager using new queues.toml configuration
-    pub fn from_config_manager(config_manager: &ConfigManager) -> Self {
-        let config = config_manager.config();
-
-        Self {
+impl From<&TaskerConfig> for StepResultProcessorConfig {
+    fn from(config: &TaskerConfig) -> StepResultProcessorConfig {
+        StepResultProcessorConfig {
             // Use the new queues config for step results queue name
             step_results_queue_name: config.queues.step_results_queue_name(),
             // Use queues config for all queue-related settings
@@ -44,17 +41,18 @@ impl StepResultProcessorConfig {
             max_processing_attempts: config.queues.pgmq.max_retries as i32,
         }
     }
+}
 
-    pub fn from_tasker_config(tasker_config: &TaskerConfig) -> Self {
-        Self {
+impl From<Arc<TaskerConfig>> for StepResultProcessorConfig {
+    fn from(config: Arc<TaskerConfig>) -> StepResultProcessorConfig {
+        StepResultProcessorConfig {
             // Use the new queues config for step results queue name
-            step_results_queue_name: tasker_config.queues.step_results_queue_name(),
+            step_results_queue_name: config.queues.step_results_queue_name(),
             // Use queues config for all queue-related settings
-            batch_size: tasker_config.queues.default_batch_size as i32,
-            visibility_timeout_seconds: tasker_config.queues.default_visibility_timeout_seconds
-                as i32,
-            polling_interval_seconds: tasker_config.queues.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
-            max_processing_attempts: tasker_config.queues.pgmq.max_retries as i32,
+            batch_size: config.queues.default_batch_size as i32,
+            visibility_timeout_seconds: config.queues.default_visibility_timeout_seconds as i32,
+            polling_interval_seconds: config.queues.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
+            max_processing_attempts: config.queues.pgmq.max_retries as i32,
         }
     }
 }

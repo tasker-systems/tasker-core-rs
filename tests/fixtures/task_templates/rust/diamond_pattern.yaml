@@ -1,0 +1,194 @@
+# TaskTemplate Configuration - Native Rust Implementation
+#
+# Diamond Workflow Pattern with Native Rust Step Handlers
+# Demonstrates parallel execution followed by convergence using compiled Rust handlers
+#
+# Template: diamond_workflow/diamond_pattern:1.0.0
+# Implementation: Native Rust with tasker-worker-rust
+# Created: 2025-08-29 (TAS-41 Implementation)
+#
+# Diamond Pattern:
+# 1. Start: Square the initial even number (6 → 36)
+# 2. Branch B (Left): Square the start result (36 → 1,296)
+# 3. Branch C (Right): Square the start result (36 → 1,296)  
+# 4. End: Multiply both branch results and square (1,296 × 1,296 → 1,679,616 → 2,821,109,907,456)
+# Final result: input^16 (6^16 = 2,821,109,907,456)
+#
+---
+name: diamond_pattern
+namespace_name: rust_e2e_diamond
+version: 1.0.0
+description: "Diamond pattern workflow using native Rust handlers: parallel execution with convergence (input^16)"
+metadata:
+  author: TAS-41 Native Rust Implementation
+  tags:
+    - namespace:diamond_workflow
+    - pattern:diamond
+    - dependencies:parallel_convergence
+    - implementation:rust
+    - performance:native
+    - type_safety:compile_time
+    - parallelism:branch_execution
+  documentation_url: 
+  created_at: "2025-08-29T00:00:00Z"
+  updated_at: "2025-08-29T00:00:00Z"
+  notes: "Native Rust implementation with parallel branch processing and convergence logic"
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization:
+    input_validation:
+      required_fields:
+        - even_number
+      even_number_constraint: must_be_even
+      value_range:
+        min: 2
+        max: 100
+    expected_results:
+      diamond_start: "input²"
+      diamond_branch_b: "(input²)²"
+      diamond_branch_c: "(input²)²"
+      diamond_end: "((input²)² × (input²)²)²"
+      final_pattern: "input^16"
+    performance_notes:
+      - "Parallel branch execution with native Rust performance"
+      - "Zero-overhead abstractions for convergence operations"
+      - "Compile-time dependency resolution"
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - even_number
+  properties:
+    even_number:
+      type: integer
+      minimum: 2
+      maximum: 100
+      description: "Even number for diamond pattern calculation"
+steps:
+  - name: diamond_start
+    description: "Initial step: Square the input even number"
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_workflow::DiamondStartHandler
+      initialization:
+        operation: square
+        step_type: initial
+        description: "Square the even number (first diamond operation)"
+        branches:
+          - diamond_branch_b
+          - diamond_branch_c
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: diamond_branch_b
+    description: "Left parallel branch: Square the start result"
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_workflow::DiamondBranchBHandler
+      initialization:
+        operation: square
+        step_type: single_parent
+        branch: left
+        description: "Left branch: square the diamond_start result"
+    system_dependency:
+    dependencies:
+      - diamond_start
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: diamond_branch_c
+    description: "Right parallel branch: Square the start result"
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_workflow::DiamondBranchCHandler
+      initialization:
+        operation: square
+        step_type: single_parent
+        branch: right
+        description: "Right branch: square the diamond_start result"
+    system_dependency:
+    dependencies:
+      - diamond_start
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: diamond_end
+    description: "Convergence step: Multiply both branch results and square"
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_workflow::DiamondEndHandler
+      initialization:
+        operation: multiply_and_square
+        step_type: multiple_parent
+        description: "Converge both branch results: multiply then square"
+        convergence_pattern: "((branch_b × branch_c)²)"
+        final_result: "input^16"
+    system_dependency:
+    dependencies:
+      - diamond_branch_b
+      - diamond_branch_c
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: diamond_start
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2
+      - name: diamond_branch_b
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2
+      - name: diamond_branch_c
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2
+      - name: diamond_end
+        timeout_seconds: 15
+        retry:
+          max_attempts: 2
+  development:
+    steps:
+      - name: diamond_start
+        handler:
+          initialization:
+            debug_mode: true
+            verification_enabled: true
+      - name: diamond_branch_b
+        handler:
+          initialization:
+            debug_mode: true
+            branch_tracking: true
+      - name: diamond_branch_c
+        handler:
+          initialization:
+            debug_mode: true
+            branch_tracking: true
+      - name: diamond_end
+        handler:
+          initialization:
+            debug_mode: true
+            convergence_verification: true

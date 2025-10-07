@@ -13,7 +13,7 @@ use tasker_shared::models::{
 };
 use uuid::Uuid;
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies - WorkflowStep
     let namespace = TaskNamespace::create(
@@ -89,7 +89,7 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
             task_uuid: task.task_uuid,
             named_step_uuid: named_step.named_step_uuid,
             retryable: Some(true),
-            retry_limit: Some(3),
+            max_attempts: Some(3),
             inputs: None,
             skippable: Some(false),
         },

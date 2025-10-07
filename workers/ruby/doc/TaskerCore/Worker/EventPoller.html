@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>
+  Class: TaskerCore::Worker::EventPoller
+  
+    &mdash; Documentation by YARD 0.9.37
+  
+</title>
+
+  <link rel="stylesheet" href="../../css/style.css" type="text/css" />
+
+  <link rel="stylesheet" href="../../css/common.css" type="text/css" />
+
+<script type="text/javascript">
+  pathId = "TaskerCore::Worker::EventPoller";
+  relpath = '../../';
+</script>
+
+
+  <script type="text/javascript" charset="utf-8" src="../../js/jquery.js"></script>
+
+  <script type="text/javascript" charset="utf-8" src="../../js/app.js"></script>
+
+
+  </head>
+  <body>
+    <div class="nav_wrap">
+      <iframe id="nav" src="../../class_list.html?1"></iframe>
+      <div id="resizer"></div>
+    </div>
+
+    <div id="main" tabindex="-1">
+      <div id="header">
+        <div id="menu">
+  
+    <a href="../../_index.html">Index (E)</a> &raquo;
+    <span class='title'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span> &raquo; <span class='title'><span class='object_link'><a href="../Worker.html" title="TaskerCore::Worker (module)">Worker</a></span></span>
+     &raquo; 
+    <span class="title">EventPoller</span>
+  
+</div>
+
+        <div id="search">
+  
+    <a class="full_list_link" id="class_list_link"
+        href="../../class_list.html">
+
+        <svg width="24" height="24">
+          <rect x="0" y="4" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="12" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="20" width="24" height="4" rx="1" ry="1"></rect>
+        </svg>
+    </a>
+  
+</div>
+        <div class="clear"></div>
+      </div>
+
+      <div id="content"><h1>Class: TaskerCore::Worker::EventPoller
+  
+  
+  
+</h1>
+<div class="box_info">
+  
+  <dl>
+    <dt>Inherits:</dt>
+    <dd>
+      <span class="inheritName">Object</span>
+      
+        <ul class="fullTree">
+          <li>Object</li>
+          
+            <li class="next">TaskerCore::Worker::EventPoller</li>
+          
+        </ul>
+        <a href="#" class="inheritanceTree">show all</a>
+      
+    </dd>
+  </dl>
+  
+
+  
+  
+  
+  
+  <dl>
+      <dt>Includes:</dt>
+      <dd>Singleton</dd>
+  </dl>
+  
+  
+
+  
+
+  
+  <dl>
+    <dt>Defined in:</dt>
+    <dd>lib/tasker_core/worker/event_poller.rb</dd>
+  </dl>
+  
+</div>
+
+<h2>Overview</h2><div class="docstring">
+  <div class="discussion">
+    
+<p>EventPoller polls for step execution events from Rust via FFI</p>
+
+<p>Solves the cross-thread communication issue between Rust and Ruby by actively polling the Rust worker for pending events. Events are forwarded to EventBridge for normal processing.</p>
+
+<p>The poller runs in a dedicated background thread, continuously checking for new events from the Rust worker at a configurable interval (default 10ms). This approach allows Ruby to control the thread context and safely process events without running into Ruby’s Global Interpreter Lock (GIL) limitations.</p>
+
+<p>Threading Model:</p>
+<ul><li>
+<p>**Main Thread**: Ruby application, handler execution</p>
+</li><li>
+<p>**Polling Thread**: Dedicated background thread for event polling</p>
+</li><li>
+<p>**Rust Threads**: Rust worker runtime (separate from Ruby)</p>
+</li></ul>
+
+<p>The polling thread:</p>
+<ol><li>
+<p>Calls ‘TaskerCore::FFI.poll_step_events` to check for events</p>
+</li><li>
+<p>If event found, forwards to EventBridge for processing</p>
+</li><li>
+<p>If no event, sleeps for POLL_INTERVAL</p>
+</li><li>
+<p>On error, logs and sleeps for 10x POLL_INTERVAL</p>
+</li></ol>
+
+<p>Why Polling is Necessary:</p>
+
+<p>Ruby’s GIL prevents Rust from directly calling Ruby methods from Rust threads. Direct FFI callbacks from Rust to Ruby would either:</p>
+<ul><li>
+<p>Cause segfaults (unsafe thread access)</p>
+</li><li>
+<p>Block indefinitely (GIL contention)</p>
+</li><li>
+<p>Require complex unsafe code</p>
+</li></ul>
+
+<p>Polling allows:</p>
+<ul><li>
+<p>Ruby to control thread context</p>
+</li><li>
+<p>Safe event processing in Ruby thread</p>
+</li><li>
+<p>Simple, reliable cross-language communication</p>
+</li><li>
+<p>Predictable performance characteristics</p>
+</li></ul>
+
+<p>Performance Characteristics:</p>
+<ul><li>
+<p>**Poll Interval**: 10ms (0.01 seconds) - configurable via POLL_INTERVAL</p>
+</li><li>
+<p>**Max Latency**: ~10ms from event generation to processing start</p>
+</li><li>
+<p>**CPU Usage**: Minimal (yields during sleep)</p>
+</li><li>
+<p>**Error Recovery**: Automatic with exponential backoff (10x interval)</p>
+</li></ul>
+
+<p>Event Flow:</p>
+<ol><li>
+<p>Rust worker detects step ready for execution</p>
+</li><li>
+<p>Rust queues event in internal event queue</p>
+</li><li>
+<p>EventPoller calls poll_step_events via FFI</p>
+</li><li>
+<p>Rust returns next event (or nil if queue empty)</p>
+</li><li>
+<p>EventPoller forwards event to EventBridge</p>
+</li><li>
+<p>EventBridge publishes to Ruby subscribers</p>
+</li><li>
+<p>StepExecutionSubscriber executes handler</p>
+</li></ol>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+  <div class="examples">
+    <h4 class="tag_title">Examples:</h4>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Starting the poller</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_poller'>poller</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Worker.html" title="TaskerCore::Worker (module)">Worker</a></span></span><span class='op'>::</span><span class='const'>EventPoller</span><span class='period'>.</span><span class='id identifier rubyid_instance'>instance</span>
+<span class='id identifier rubyid_poller'>poller</span><span class='period'>.</span><span class='id identifier rubyid_start!'>start!</span>
+<span class='comment'># =&gt; Spawns polling thread with 10ms interval
+</span>
+<span class='comment'># Check if poller started successfully
+</span><span class='kw'>if</span> <span class='id identifier rubyid_poller'>poller</span><span class='period'>.</span><span class='id identifier rubyid_active?'>active?</span>
+  <span class='id identifier rubyid_puts'>puts</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Event poller is running</span><span class='tstring_end'>&quot;</span></span>
+<span class='kw'>end</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Checking poller status</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_poller'>poller</span><span class='period'>.</span><span class='id identifier rubyid_active?'>active?</span>
+<span class='comment'># =&gt; true/false
+</span>
+<span class='kw'>if</span> <span class='id identifier rubyid_poller'>poller</span><span class='period'>.</span><span class='id identifier rubyid_active?'>active?</span> <span class='op'>&amp;&amp;</span> <span class='id identifier rubyid_poller'>poller</span><span class='period'>.</span><span class='id identifier rubyid_polling_thread'>polling_thread</span><span class='op'>&amp;.</span><span class='id identifier rubyid_alive?'>alive?</span>
+  <span class='id identifier rubyid_puts'>puts</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Poller thread is healthy</span><span class='tstring_end'>&quot;</span></span>
+<span class='kw'>end</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Stopping the poller</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_poller'>poller</span><span class='period'>.</span><span class='id identifier rubyid_stop!'>stop!</span>
+<span class='comment'># =&gt; Gracefully stops polling thread (max 5 second wait)
+</span>
+<span class='comment'># Poller will wait for current poll to complete
+</span><span class='comment'># and then cleanly shutdown</span></code></pre>
+    
+  </div>
+
+
+  <p class="tag_title">See Also:</p>
+  <ul class="see">
+    
+      <li><span class='object_link'><a href="EventBridge.html" title="TaskerCore::Worker::EventBridge (class)">For event processing</a></span></li>
+    
+      <li>For Rust FFI operations</li>
+    
+      <li><span class='object_link'><a href="#POLL_INTERVAL-constant" title="TaskerCore::Worker::EventPoller::POLL_INTERVAL (constant)">For polling frequency configuration</a></span></li>
+    
+  </ul>
+
+</div>
+  
+    <h2>
+      Constant Summary
+      <small><a href="#" class="constants_summary_toggle">collapse</a></small>
+    </h2>
+
+    <dl class="constants">
+      
+        <dt id="POLL_INTERVAL-constant" class="">POLL_INTERVAL =
+          <div class="docstring">
+  <div class="discussion">
+    
+<p>Polling interval in seconds (10ms) Lower values reduce latency but increase CPU usage Higher values reduce CPU usage but increase latency</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div>
+        </dt>
+        <dd><pre class="code"><span class='float'>0.01</span></pre></dd>
+      
+    </dl>
+  
+
+
+
+
+  <h2>Instance Attribute Summary <small><a href="#" class="summary_toggle">collapse</a></small></h2>
+  <ul class="summary">
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#active-instance_method" title="#active (instance method)">#<strong>active</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Returns the value of attribute active.</p>
+</div></span>
+  
+</li>
+
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#logger-instance_method" title="#logger (instance method)">#<strong>logger</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Returns the value of attribute logger.</p>
+</div></span>
+  
+</li>
+
+    
+      <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#polling_thread-instance_method" title="#polling_thread (instance method)">#<strong>polling_thread</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+    
+      <span class="note title readonly">readonly</span>
+    
+    
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Returns the value of attribute polling_thread.</p>
+</div></span>
+  
+</li>
+
+    
+  </ul>
+
+
+
+
+  
+    <h2>
+      Instance Method Summary
+      <small><a href="#" class="summary_toggle">collapse</a></small>
+    </h2>
+
+    <ul class="summary">
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#active%3F-instance_method" title="#active? (instance method)">#<strong>active?</strong>  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Check if poller is active.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#initialize-instance_method" title="#initialize (instance method)">#<strong>initialize</strong>  &#x21d2; EventPoller </a>
+    
+
+    
+  </span>
+  
+  
+    <span class="note title constructor">constructor</span>
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>A new instance of EventPoller.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#start!-instance_method" title="#start! (instance method)">#<strong>start!</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Start polling for events from Rust.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#stop!-instance_method" title="#stop! (instance method)">#<strong>stop!</strong>  &#x21d2; Object </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'>
+<p>Stop polling.</p>
+</div></span>
+  
+</li>
+
+      
+    </ul>
+  
+
+
+  <div id="constructor_details" class="method_details_list">
+  <h2>Constructor Details</h2>
+  
+    <div class="method_details first">
+  <h3 class="signature first" id="initialize-instance_method">
+  
+    #<strong>initialize</strong>  &#x21d2; <tt><span class='object_link'><a href="" title="TaskerCore::Worker::EventPoller (class)">EventPoller</a></span></tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns a new instance of EventPoller.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+94
+95
+96
+97
+98</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/worker/event_poller.rb', line 94</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_initialize'>initialize</span>
+  <span class='ivar'>@logger</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="../Logger.html" title="TaskerCore::Logger (class)">Logger</a></span></span><span class='period'>.</span><span class='id identifier rubyid_instance'>instance</span>
+  <span class='ivar'>@active</span> <span class='op'>=</span> <span class='kw'>false</span>
+  <span class='ivar'>@polling_thread</span> <span class='op'>=</span> <span class='kw'>nil</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+  
+</div>
+
+  <div id="instance_attr_details" class="attr_details">
+    <h2>Instance Attribute Details</h2>
+    
+      
+      <span id=""></span>
+      <div class="method_details first">
+  <h3 class="signature first" id="active-instance_method">
+  
+    #<strong>active</strong>  &#x21d2; <tt>Object</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns the value of attribute active.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+87
+88
+89</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/worker/event_poller.rb', line 87</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_active'>active</span>
+  <span class='ivar'>@active</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      
+      <span id=""></span>
+      <div class="method_details ">
+  <h3 class="signature " id="logger-instance_method">
+  
+    #<strong>logger</strong>  &#x21d2; <tt>Object</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns the value of attribute logger.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+87
+88
+89</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/worker/event_poller.rb', line 87</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_logger'>logger</span>
+  <span class='ivar'>@logger</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      
+      <span id=""></span>
+      <div class="method_details ">
+  <h3 class="signature " id="polling_thread-instance_method">
+  
+    #<strong>polling_thread</strong>  &#x21d2; <tt>Object</tt>  <span class="extras">(readonly)</span>
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Returns the value of attribute polling_thread.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+87
+88
+89</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/worker/event_poller.rb', line 87</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_polling_thread'>polling_thread</span>
+  <span class='ivar'>@polling_thread</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+
+  <div id="instance_method_details" class="method_details_list">
+    <h2>Instance Method Details</h2>
+
+    
+      <div class="method_details first">
+  <h3 class="signature first" id="active?-instance_method">
+  
+    #<strong>active?</strong>  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Check if poller is active</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+131
+132
+133</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/worker/event_poller.rb', line 131</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_active?'>active?</span>
+  <span class='ivar'>@active</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="start!-instance_method">
+  
+    #<strong>start!</strong>  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Start polling for events from Rust</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/worker/event_poller.rb', line 101</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_start!'>start!</span>
+  <span class='kw'>return</span> <span class='kw'>if</span> <span class='ivar'>@active</span>
+
+  <span class='ivar'>@active</span> <span class='op'>=</span> <span class='kw'>true</span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_info'>info</span> <span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>Starting EventPoller - polling for step execution events from Rust</span><span class='tstring_end'>&#39;</span></span>
+
+  <span class='ivar'>@polling_thread</span> <span class='op'>=</span> <span class='const'>Thread</span><span class='period'>.</span><span class='id identifier rubyid_new'>new</span> <span class='kw'>do</span>
+    <span class='id identifier rubyid_poll_events_loop'>poll_events_loop</span>
+  <span class='kw'>end</span>
+
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_info'>info</span> <span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>✅ EventPoller started successfully</span><span class='tstring_end'>&#39;</span></span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="stop!-instance_method">
+  
+    #<strong>stop!</strong>  &#x21d2; <tt>Object</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    
+<p>Stop polling</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/tasker_core/worker/event_poller.rb', line 115</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_stop!'>stop!</span>
+  <span class='kw'>return</span> <span class='kw'>unless</span> <span class='ivar'>@active</span>
+
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_info'>info</span> <span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>Stopping EventPoller...</span><span class='tstring_end'>&#39;</span></span>
+  <span class='ivar'>@active</span> <span class='op'>=</span> <span class='kw'>false</span>
+
+  <span class='kw'>if</span> <span class='ivar'>@polling_thread</span><span class='op'>&amp;.</span><span class='id identifier rubyid_alive?'>alive?</span>
+    <span class='ivar'>@polling_thread</span><span class='period'>.</span><span class='id identifier rubyid_join'>join</span><span class='lparen'>(</span><span class='float'>5.0</span><span class='rparen'>)</span> <span class='comment'># Wait up to 5 seconds for thread to finish
+</span>    <span class='ivar'>@polling_thread</span><span class='period'>.</span><span class='id identifier rubyid_kill'>kill</span> <span class='kw'>if</span> <span class='ivar'>@polling_thread</span><span class='period'>.</span><span class='id identifier rubyid_alive?'>alive?</span> <span class='comment'># Force kill if still running
+</span>  <span class='kw'>end</span>
+
+  <span class='ivar'>@polling_thread</span> <span class='op'>=</span> <span class='kw'>nil</span>
+  <span class='id identifier rubyid_logger'>logger</span><span class='period'>.</span><span class='id identifier rubyid_info'>info</span> <span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>✅ EventPoller stopped</span><span class='tstring_end'>&#39;</span></span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+</div>
+
+      <div id="footer">
+  Generated on Mon Oct  6 16:44:01 2025 by
+  <a href="https://yardoc.org" title="Yay! A Ruby Documentation Tool" target="_parent">yard</a>
+  0.9.37 (ruby-3.4.4).
+</div>
+
+    </div>
+  </body>
+</html>

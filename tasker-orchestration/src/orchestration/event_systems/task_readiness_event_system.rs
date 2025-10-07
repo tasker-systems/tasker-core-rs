@@ -44,15 +44,17 @@ impl TaskReadinessEventSystem {
             if self.config.is_some() {
                 self.config.take().unwrap()
             } else {
-                let tasker_config = self.context.config_manager.config();
                 FallbackPollerConfig {
-                    enabled: tasker_config
+                    enabled: self
+                        .context
+                        .tasker_config
                         .event_systems
                         .task_readiness
                         .deployment_mode
                         .has_polling(),
                     polling_interval: Duration::from_secs(
-                        tasker_config
+                        self.context
+                            .tasker_config
                             .event_systems
                             .task_readiness
                             .timing
@@ -130,7 +132,7 @@ impl TaskReadinessEventSystem {
 mod tests {
     use super::*;
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_task_readiness_system_creation(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -141,7 +143,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_task_readiness_system_disabled(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

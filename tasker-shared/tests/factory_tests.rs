@@ -6,7 +6,7 @@ use tasker_shared::models::factories::base::SqlxFactory; // Trait providing crea
 use tasker_shared::models::factories::core::{TaskFactory, WorkflowStepFactory};
 use tasker_shared::models::factories::foundation::{DependentSystemFactory, TaskNamespaceFactory};
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_namespace_factory_basic(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let namespace = TaskNamespaceFactory::new()
         .with_name("test_namespace")
@@ -20,7 +20,7 @@ async fn test_namespace_factory_basic(pool: PgPool) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_system_factory_basic(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let system = DependentSystemFactory::new()
         .with_name("test_api")
@@ -34,7 +34,7 @@ async fn test_system_factory_basic(pool: PgPool) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_common_foundations_creation(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let namespaces = TaskNamespaceFactory::create_common_namespaces(&pool).await?;
     let systems = DependentSystemFactory::create_common_systems(&pool).await?;
@@ -57,7 +57,7 @@ async fn test_common_foundations_creation(pool: PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_factory_basic(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let task = TaskFactory::new()
         .with_initiator("test_user")
@@ -71,7 +71,7 @@ async fn test_task_factory_basic(pool: PgPool) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_factory(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let task = TaskFactory::new().create(&pool).await?;
 
@@ -87,7 +87,7 @@ async fn test_workflow_step_factory(pool: PgPool) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_workflow_creation(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let task = TaskFactory::new().complex_workflow().create(&pool).await?;
 

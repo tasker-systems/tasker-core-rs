@@ -183,6 +183,8 @@ pub enum StepEvent {
     ResolveManually,
     /// Retry the step (from error state)
     Retry,
+    /// Wait for retry delay with backoff (error → waiting_for_retry)
+    WaitForRetry(String),
 }
 
 impl StepEvent {
@@ -198,13 +200,14 @@ impl StepEvent {
             Self::Cancel => "cancel",
             Self::ResolveManually => "resolve_manually",
             Self::Retry => "retry",
+            Self::WaitForRetry(_) => "wait_for_retry",
         }
     }
 
     /// Extract error message if this is a failure event
     pub fn error_message(&self) -> Option<&str> {
         match self {
-            Self::Fail(msg) => Some(msg),
+            Self::Fail(msg) | Self::WaitForRetry(msg) => Some(msg),
             _ => None,
         }
     }
@@ -296,5 +299,10 @@ impl StepEvent {
     /// Create a simple enqueue for orchestration event without results
     pub fn enqueue_for_orchestration_simple() -> Self {
         Self::EnqueueForOrchestration(None)
+    }
+
+    /// Create a wait for retry event with error message
+    pub fn wait_for_retry(error_message: impl Into<String>) -> Self {
+        Self::WaitForRetry(error_message.into())
     }
 }

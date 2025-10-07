@@ -7,6 +7,10 @@
 # ORCHESTRATION EVENT SYSTEM - TEST OVERRIDES
 # ============================================================================
 
+[event_systems.orchestration]
+system_id = "orchestration-event-system"
+deployment_mode = "EventDrivenOnly"
+
 # Faster timing for tests
 [event_systems.orchestration.timing]
 health_check_interval_seconds = 10
@@ -24,13 +28,17 @@ batch_size = 5
 # TASK READINESS EVENT SYSTEM - TEST OVERRIDES
 # ============================================================================
 
+[event_systems.task_readiness]
+system_id = "task-readiness-event-system"
+deployment_mode = "Hybrid"  # Empty = all namespaces
+
 # Faster timing for tests
 [event_systems.task_readiness.timing]
 health_check_interval_seconds = 10
 fallback_polling_interval_seconds = 1
-visibility_timeout_seconds = 10
-processing_timeout_seconds = 10
-claim_timeout_seconds = 60
+visibility_timeout_seconds = 1
+processing_timeout_seconds = 5
+claim_timeout_seconds = 5
 
 # Lower concurrency for test environments
 [event_systems.task_readiness.processing]
@@ -40,6 +48,10 @@ batch_size = 10
 # ============================================================================
 # WORKER EVENT SYSTEM - TEST OVERRIDES
 # ============================================================================
+
+[event_systems.worker]
+system_id = "worker-event-system"
+deployment_mode = "EventDrivenOnly"
 
 # Faster timing for tests
 [event_systems.worker.timing]

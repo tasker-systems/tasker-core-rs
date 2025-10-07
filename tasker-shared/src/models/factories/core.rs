@@ -234,7 +234,7 @@ pub struct WorkflowStepFactory {
     inputs: Option<Value>,
     results: Option<Value>,
     retryable: bool,
-    retry_limit: Option<i32>,
+    max_attempts: Option<i32>,
     in_process: bool,
     processed: bool,
     skippable: bool,
@@ -250,7 +250,7 @@ impl Default for WorkflowStepFactory {
             inputs: Some(json!({"test_input": true})),
             results: None,
             retryable: true,
-            retry_limit: Some(3),
+            max_attempts: Some(3),
             in_process: false,
             processed: false,
             skippable: false,
@@ -337,7 +337,7 @@ impl SqlxFactory<WorkflowStep> for WorkflowStepFactory {
             task_uuid,
             named_step_uuid: named_step.named_step_uuid,
             retryable: Some(self.retryable),
-            retry_limit: self.retry_limit,
+            max_attempts: self.max_attempts,
             inputs,
             skippable: Some(self.skippable),
         };
@@ -444,7 +444,7 @@ mod tests {
     use super::*;
     use sqlx::PgPool;
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_task_factory_basic(pool: PgPool) -> FactoryResult<()> {
         let task = TaskFactory::new()
             .with_initiator("test_user")
@@ -458,7 +458,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_task_factory_with_transitions(pool: PgPool) -> FactoryResult<()> {
         let task = TaskFactory::new().in_progress().create(&pool).await?;
 
@@ -471,7 +471,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_workflow_step_factory(pool: PgPool) -> FactoryResult<()> {
         let task = TaskFactory::new().create(&pool).await?;
 
@@ -489,7 +489,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_complex_workflow_creation(pool: PgPool) -> FactoryResult<()> {
         let task = TaskFactory::new()
             .complex_workflow()
@@ -505,7 +505,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_workflow_step_factory_error_cases(pool: PgPool) -> FactoryResult<()> {
         // Test creating a step with invalid JSONB
         let result = WorkflowStepFactory::new()
@@ -538,7 +538,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_task_factory_edge_cases(pool: PgPool) -> FactoryResult<()> {
         // Test task with max length initiator name (varchar(128) limit)
         let max_length_name = "x".repeat(128);
@@ -594,7 +594,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_state_transition_error_scenarios(pool: PgPool) -> FactoryResult<()> {
         // Test multiple rapid state transitions
         let task = TaskFactory::new().pending().create(&pool).await?;
@@ -621,7 +621,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_factory_validation_edge_cases(pool: PgPool) -> FactoryResult<()> {
         // Test find_or_create behavior
         let task1 = TaskFactory::new()

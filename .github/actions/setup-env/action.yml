@@ -15,6 +15,9 @@ runs:
         # echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
         # echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
 
+        # Workspace path (needed for config resolution when running from subdirectories)
+        echo "WORKSPACE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+
         # Database and application settings
         echo "DATABASE_URL=postgres://tasker:tasker@localhost:5432/tasker_rust_test" >> $GITHUB_ENV
         echo "TASKER_ENV=test" >> $GITHUB_ENV
@@ -36,6 +39,7 @@ runs:
         echo "- RUST_BACKTRACE: $RUST_BACKTRACE"
         # echo "- RUSTC_WRAPPER: $RUSTC_WRAPPER"
         # echo "- SCCACHE_GHA_ENABLED: $SCCACHE_GHA_ENABLED"
+        echo "- WORKSPACE_PATH: $WORKSPACE_PATH"
         echo "- DATABASE_URL: $DATABASE_URL"
         echo "- TASKER_ENV: $TASKER_ENV"
         echo "- LOG_LEVEL: $LOG_LEVEL"

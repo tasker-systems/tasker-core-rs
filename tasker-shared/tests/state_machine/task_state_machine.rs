@@ -11,7 +11,7 @@ use tasker_shared::state_machine::states::TaskState;
 use tasker_shared::state_machine::task_state_machine::TaskStateMachine;
 use uuid::Uuid;
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_state_transitions(pool: PgPool) -> sqlx::Result<()> {
     // Test valid transitions
     let sm = create_test_state_machine(pool);
@@ -37,7 +37,7 @@ async fn test_state_transitions(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_state_machine(pool);
 
@@ -54,7 +54,7 @@ async fn test_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_state_machine_creation(pool: PgPool) -> sqlx::Result<()> {
     // Test that we can create a state machine instance
     let sm = create_test_state_machine(pool);
@@ -77,7 +77,7 @@ async fn test_state_machine_creation(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_properties(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_state_machine(pool);
 

@@ -34,7 +34,7 @@
 //!   named_step_uuid INTEGER NOT NULL,
 //!   in_process BOOLEAN DEFAULT false,
 //!   processed BOOLEAN DEFAULT false,
-//!   retry_limit INTEGER DEFAULT 3,
+//!   max_attempts INTEGER DEFAULT 3,
 //!   attempts INTEGER DEFAULT 0,
 //!   results JSONB,
 //!   -- ... other fields
@@ -49,7 +49,7 @@
 //! ## Performance Characteristics
 //!
 //! - **State Queries**: Indexed on (task_uuid, in_process, processed)
-//! - **Retry Queries**: Indexed on (retryable, attempts, retry_limit)
+//! - **Retry Queries**: Indexed on (retryable, attempts, max_attempts)
 //! - **JSONB Operations**: GIN indexes for result queries
 //! - **Atomic Updates**: Row-level locking for state transitions
 
@@ -75,7 +75,7 @@ use uuid::Uuid;
 /// # Retry Logic
 ///
 /// Steps implement sophisticated retry behavior:
-/// - `retry_limit`: Maximum number of attempts (default: 3)
+/// - `max_attempts`: Maximum number of attempts (default: 3)
 /// - `attempts`: Current attempt count
 /// - `backoff_request_seconds`: Exponential backoff delay
 ///
@@ -89,7 +89,7 @@ pub struct WorkflowStep {
     pub task_uuid: Uuid,
     pub named_step_uuid: Uuid,
     pub retryable: bool,
-    pub retry_limit: Option<i32>,
+    pub max_attempts: Option<i32>,
     pub in_process: bool,
     pub processed: bool,
     pub processed_at: Option<NaiveDateTime>,
@@ -108,8 +108,8 @@ pub struct WorkflowStep {
 pub struct NewWorkflowStep {
     pub task_uuid: Uuid,
     pub named_step_uuid: Uuid,
-    pub retryable: Option<bool>,  // Defaults to true
-    pub retry_limit: Option<i32>, // Defaults to 3
+    pub retryable: Option<bool>,   // Defaults to true
+    pub max_attempts: Option<i32>, // Defaults to 3
     pub inputs: Option<serde_json::Value>,
     pub skippable: Option<bool>, // Defaults to false
 }
@@ -136,17 +136,17 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             INSERT INTO tasker_workflow_steps (
-                task_uuid, named_step_uuid, retryable, retry_limit, inputs, skippable, created_at, updated_at
+                task_uuid, named_step_uuid, retryable, max_attempts, inputs, skippable, created_at, updated_at
             )
             VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW(), NOW())
-            RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
+            RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                       in_process, processed, processed_at, attempts, last_attempted_at,
                       backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             "#,
             new_step.task_uuid,
             new_step.named_step_uuid,
             new_step.retryable.unwrap_or(true),
-            new_step.retry_limit.unwrap_or(3),
+            new_step.max_attempts.unwrap_or(3),
             new_step.inputs,
             new_step.skippable.unwrap_or(false)
         )
@@ -165,17 +165,17 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             INSERT INTO tasker_workflow_steps (
-                task_uuid, named_step_uuid, retryable, retry_limit, inputs, skippable, created_at, updated_at
+                task_uuid, named_step_uuid, retryable, max_attempts, inputs, skippable, created_at, updated_at
             )
             VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW(), NOW())
-            RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
+            RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                       in_process, processed, processed_at, attempts, last_attempted_at,
                       backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             "#,
             new_step.task_uuid,
             new_step.named_step_uuid,
             new_step.retryable.unwrap_or(true),
-            new_step.retry_limit.unwrap_or(3),
+            new_step.max_attempts.unwrap_or(3),
             new_step.inputs,
             new_step.skippable.unwrap_or(false)
         )
@@ -190,7 +190,7 @@ impl WorkflowStep {
         let step = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -212,7 +212,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -243,7 +243,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -263,7 +263,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -282,7 +282,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -334,26 +334,21 @@ impl WorkflowStep {
     /// - **Index Usage**: Primary key lookup (O(1))
     /// - **Memory**: Updates in-memory struct to match database
     pub async fn mark_in_process(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().naive_utc();
-
+        // Only update the in_process flag - a denormalized query optimization field
+        // attempts and last_attempted_at are managed by the step claim logic
         sqlx::query!(
             r#"
             UPDATE tasker_workflow_steps
             SET in_process = true,
-                last_attempted_at = $2,
-                attempts = COALESCE(attempts, 0) + 1,
                 updated_at = NOW()
             WHERE workflow_step_uuid = $1::uuid
             "#,
-            self.workflow_step_uuid,
-            now
+            self.workflow_step_uuid
         )
         .execute(pool)
         .await?;
 
         self.in_process = true;
-        self.last_attempted_at = Some(now);
-        self.attempts = Some(self.attempts.unwrap_or(0) + 1);
 
         Ok(())
     }
@@ -478,8 +473,8 @@ impl WorkflowStep {
     }
 
     /// Check if step has exceeded retry limit
-    pub fn has_exceeded_retry_limit(&self) -> bool {
-        if let (Some(attempts), Some(limit)) = (self.attempts, self.retry_limit) {
+    pub fn has_exceeded_max_attempts(&self) -> bool {
+        if let (Some(attempts), Some(limit)) = (self.attempts, self.max_attempts) {
             attempts >= limit
         } else {
             false
@@ -533,7 +528,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -556,7 +551,7 @@ impl WorkflowStep {
     ) -> Result<Vec<(WorkflowStep, String)>, sqlx::Error> {
         let deps = sqlx::query!(
             r#"
-            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at,
                    ns.name as step_name
@@ -579,7 +574,7 @@ impl WorkflowStep {
                     task_uuid: row.task_uuid,
                     named_step_uuid: row.named_step_uuid,
                     retryable: row.retryable,
-                    retry_limit: row.retry_limit,
+                    max_attempts: row.max_attempts,
                     in_process: row.in_process,
                     processed: row.processed,
                     processed_at: row.processed_at,
@@ -604,7 +599,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -630,7 +625,7 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
-                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -653,7 +648,7 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
-                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -676,7 +671,7 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
-                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -704,7 +699,7 @@ impl WorkflowStep {
                     WorkflowStep,
                     r#"
                     SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
-                           ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                           ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                            ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                            ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
                     FROM tasker_workflow_steps ws
@@ -727,7 +722,7 @@ impl WorkflowStep {
                     WorkflowStep,
                     r#"
                     SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable,
-                           retry_limit, in_process, processed, processed_at,
+                           max_attempts, in_process, processed, processed_at,
                            attempts, last_attempted_at, backoff_request_seconds,
                            inputs, results, skippable, created_at, updated_at
                     FROM tasker_workflow_steps
@@ -751,7 +746,7 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
-                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -779,7 +774,7 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
-                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -807,7 +802,7 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
-                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -882,7 +877,7 @@ impl WorkflowStep {
         let step = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -934,7 +929,7 @@ impl WorkflowStep {
             task_uuid,
             named_step_uuid,
             retryable: Some(true), // Would extract from template.default_retryable
-            retry_limit: Some(3),  // Would extract from template.default_retry_limit
+            max_attempts: Some(3), // Would extract from template.default_max_attempts
             inputs: template.get("inputs").cloned(),
             skippable: Some(false), // Would extract from template.skippable
         };
@@ -972,7 +967,7 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable,
-                   retry_limit, in_process, processed, processed_at,
+                   max_attempts, in_process, processed, processed_at,
                    attempts, last_attempted_at, backoff_request_seconds,
                    inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -1139,7 +1134,7 @@ impl WorkflowStep {
         }
 
         // Must not have exceeded retry limit
-        if self.has_exceeded_retry_limit() {
+        if self.has_exceeded_max_attempts() {
             return Ok(false);
         }
 
@@ -1158,7 +1153,7 @@ impl WorkflowStep {
 
     /// Check if retry limit is exhausted (Rails: retry_exhausted?)
     pub fn retry_exhausted(&self) -> bool {
-        self.has_exceeded_retry_limit()
+        self.has_exceeded_max_attempts()
     }
 
     /// Check if waiting for backoff period (Rails: waiting_for_backoff?)
@@ -1420,7 +1415,7 @@ pub struct WorkflowStepWithName {
     pub named_step_uuid: Uuid,
     pub name: String,
     pub retryable: bool,
-    pub retry_limit: Option<i32>,
+    pub max_attempts: Option<i32>,
     pub in_process: bool,
     pub processed: bool,
     pub processed_at: Option<NaiveDateTime>,
@@ -1456,7 +1451,7 @@ impl WorkflowStepWithName {
         let steps = sqlx::query_as!(
             WorkflowStepWithName,
             r#"
-            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name, ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -1478,7 +1473,7 @@ impl WorkflowStepWithName {
         let step = sqlx::query_as!(
             WorkflowStepWithName,
             r#"
-            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name, ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -1501,7 +1496,7 @@ impl From<WorkflowStepWithName> for WorkflowStep {
             task_uuid: step.task_uuid,
             named_step_uuid: step.named_step_uuid,
             retryable: step.retryable,
-            retry_limit: step.retry_limit,
+            max_attempts: step.max_attempts,
             in_process: step.in_process,
             processed: step.processed,
             processed_at: step.processed_at,

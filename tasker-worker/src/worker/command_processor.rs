@@ -189,11 +189,10 @@ impl WorkerProcessor {
             "Creating WorkerProcessor with simple command pattern and database operations"
         );
 
+        let queue_config = context.tasker_config.queues.clone();
         // Create OrchestrationResultSender with centralized queues configuration
-        let orchestration_result_sender = OrchestrationResultSender::new(
-            context.message_client(),
-            &context.config_manager.config().queues,
-        );
+        let orchestration_result_sender =
+            OrchestrationResultSender::new(context.message_client(), &queue_config);
 
         let processor = Self {
             worker_id: worker_id.clone(),
@@ -931,7 +930,7 @@ mod tests {
     use super::*;
     use dotenvy::dotenv;
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_worker_processor_creation(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -954,7 +953,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_execute_step_with_simple_message(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -998,7 +997,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_get_worker_status(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         dotenv().ok();
         let context = Arc::new(

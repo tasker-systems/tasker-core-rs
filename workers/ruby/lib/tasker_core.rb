@@ -10,20 +10,111 @@ require 'dry-validation'
 require 'concurrent-ruby'
 require 'timeout'
 require 'dotenv'
-require 'statesman'
+require 'active_support'
+require 'active_support/core_ext'
 
-# Pre-define TaskerCore module for Magnus
+# TaskerCore - High-performance workflow orchestration for Ruby
+#
+# This library provides a Ruby interface to the Rust-powered tasker-core orchestration
+# system, enabling developers to build complex, distributed workflows with automatic
+# retry logic, dependency management, and event-driven execution.
+#
+# The system consists of two main layers:
+# - **Rust Foundation**: High-performance orchestration, state management, and messaging
+# - **Ruby Business Logic**: Step handlers, task handlers, and custom workflow logic
+#
+# These layers communicate via FFI (Foreign Function Interface) and an event-driven
+# architecture, providing the performance of Rust with the expressiveness of Ruby.
+#
+# @example Getting started with TaskerCore
+#   # 1. Compile the Rust extension (first time only)
+#   bundle exec rake compile
+#
+#   # 2. Define a step handler for your business logic
+#   class ProcessPaymentHandler < TaskerCore::StepHandler::Base
+#     def call(task, sequence, step)
+#       # Access task context data
+#       amount = task.context['amount']
+#       currency = task.context['currency']
+#
+#       # Your business logic here
+#       payment_result = charge_payment(amount, currency)
+#
+#       # Return results to be stored in step.results
+#       { payment_id: payment_result.id, status: 'succeeded' }
+#     end
+#   end
+#
+#   # 3. Start the worker to process tasks
+#   TaskerCore::Worker::Bootstrap.start!(
+#     namespaces: ['payments']
+#   )
+#
+# @example Creating and submitting a task
+#   # Build a task request
+#   request = TaskerCore::Types::TaskRequest.build_test(
+#     namespace: "payments",
+#     name: "process_payment",
+#     context: { amount: 100.00, currency: "USD" }
+#   )
+#
+#   # Submit to orchestration system
+#   TaskerCore::FFI.submit_task(request)
+#
+# @example Using the API step handler for HTTP calls
+#   class FetchUserHandler < TaskerCore::StepHandler::Api
+#     def call(task, sequence, step)
+#       user_id = task.context['user_id']
+#
+#       # Automatic error classification and retry logic
+#       response = get("/users/#{user_id}")
+#
+#       response.body # Stored in step.results
+#     end
+#   end
+#
+# Architecture Overview:
+#
+# 1. **Task State Machine**: 12 states managing overall workflow orchestration
+#    - Initial: Pending, Initializing
+#    - Active: EnqueuingSteps, StepsInProcess, EvaluatingResults
+#    - Waiting: WaitingForDependencies, WaitingForRetry, BlockedByFailures
+#    - Terminal: Complete, Error, Cancelled, ResolvedManually
+#
+# 2. **Step State Machine**: 9 states managing individual step execution
+#    - Pipeline: Pending, Enqueued, InProgress, EnqueuedForOrchestration
+#    - Terminal: Complete, Error, Cancelled, ResolvedManually, WaitingForRetry
+#
+# 3. **Event-Driven Communication**:
+#    - Rust → Ruby: Step execution events via EventPoller
+#    - Ruby → Rust: Step completion events via EventBridge
+#    - PostgreSQL LISTEN/NOTIFY for real-time coordination
+#
+# Load Order (Important):
+# 1. Rust native extension (tasker_worker_rb) - provides FFI and base classes
+# 2. Ruby error classes - error hierarchy for classification
+# 3. Ruby models - data wrappers for FFI types
+# 4. Ruby handlers - step and task handler base classes
+# 5. Event system - EventBridge, EventPoller, Subscriber
+# 6. Bootstrap - worker initialization and lifecycle
+#
+# @see TaskerCore::StepHandler::Base For creating custom step handlers
+# @see TaskerCore::StepHandler::Api For HTTP-based step handlers
+# @see TaskerCore::Worker::Bootstrap For worker initialization
+# @see TaskerCore::Handlers For the public API namespace
+# @see TaskerCore::Errors For error classification and retry logic
+# @see https://github.com/tasker-systems/tasker-core Documentation and examples
 module TaskerCore
 end
 
 begin
   Dotenv.load
   # Load the compiled Rust extension first (provides base classes)
-  require_relative 'tasker_core/tasker_core_rb'
+  require_relative 'tasker_core/tasker_worker_rb'
 rescue LoadError => e
   raise LoadError, <<~MSG
 
-    ❌ Failed to load tasker-core-rb native extension!
+    ❌ Failed to load tasker-worker-rb native extension!
 
     This usually means the Rust extension hasn't been compiled yet.
 
@@ -40,269 +131,24 @@ rescue LoadError => e
 end
 
 # Load Ruby modules after Rust extension (they depend on Rust base classes)
-require_relative 'tasker_core/logging/logger'            # Logging system
-require_relative 'tasker_core/config'                    # Configuration management system
-# 🎯 NEW: Utility infrastructure
-require_relative 'tasker_core/utils/path_resolver' # Centralized path resolution
-require_relative 'tasker_core/utils/template_loader' # Centralized template loading
-require_relative 'tasker_core/utils/task_template_migrator' # TaskTemplate migration utility
-
-# 🎯 NEW: Internal infrastructure (hidden from public API)
-require_relative 'tasker_core/internal/orchestration_manager' # Singleton orchestration manager
-
-require_relative 'tasker_core/types'             # TaskerCore::Types - dry-struct types for validation
-require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain
-require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
-require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain
-require_relative 'tasker_core/execution'         # TaskerCore::Execution - step sequence and processing
-
-# 🎯 NEW: pgmq-based messaging and database access (replaces FFI performance and embedded server)
-require_relative 'tasker_core/messaging'         # TaskerCore::Messaging - pgmq client and queue workers
-require_relative 'tasker_core/database'          # TaskerCore::Database - SQL function access
-require_relative 'tasker_core/state_machine'     # TaskerCore::StateMachine - state machine for task execution
-require_relative 'tasker_core/registry'          # TaskerCore::Registry - database-backed step handler registry
-
-# Boot sequence manager (loads after all dependencies)
-require_relative 'tasker_core/boot' # Boot sequence manager
-
-# Core systems - required for domain APIs to function
-require_relative 'tasker_core/step_handler/base' # StepHandler::Base (used by Handlers domain)
-require_relative 'tasker_core/step_handler/api'  # StepHandler::API (used by Handlers domain)
-require_relative 'tasker_core/task_handler/base' # TaskHandler::Base (used by Handlers domain)
-require_relative 'tasker_core/errors' # Errors for TaskerCore
-require_relative 'tasker_core/embedded_orchestrator' # Embedded orchestration for testing
+require_relative 'tasker_core/errors'
+require_relative 'tasker_core/logger'
+require_relative 'tasker_core/internal'
+require_relative 'tasker_core/template_discovery'
+require_relative 'tasker_core/test_environment'
+require_relative 'tasker_core/types'
+require_relative 'tasker_core/models'
+require_relative 'tasker_core/handlers'
+require_relative 'tasker_core/registry'
+require_relative 'tasker_core/subscriber'
+require_relative 'tasker_core/event_bridge'
+require_relative 'tasker_core/worker/event_poller'
+require_relative 'tasker_core/bootstrap'
 
 module TaskerCore
-  # Main access point for system health and status
-  class << self
-    # Create a new orchestration handle for task processing
-    # @return [TaskerCore::OrchestrationHandle] Handle for orchestration operations
-    def create_orchestration_handle
-      Internal::OrchestrationManager.instance.orchestration_handle
-    end
-
-    # Get the project root directory (Gemfile location)
-    # @return [String] Absolute path to project root (where Gemfile is located)
-    def project_root
-      Utils::PathResolver.project_root
-    end
-
-    # Get the gem root directory (same as project root for Gemfile-based apps)
-    # @return [String] Absolute path to gem root
-    def gem_root
-      Utils::PathResolver.gem_root
-    end
-
-    # Get the gem library root directory (where this gem is installed)
-    # @return [String] Absolute path to gem library root
-    def gem_lib_root
-      Utils::PathResolver.gem_lib_root
-    end
-
-    # Validate configuration and raise if invalid
-    # @raise [ConfigValidation::Validator::ValidationError] If configuration is invalid
-    def validate_config!
-      validator = ConfigValidation::Validator.new
-      validator.validate!
-    end
-
-    # Run configuration diagnostics
-    # @return [Hash] Diagnostic results
-    def diagnose
-      require_relative 'tasker_core/cli/diagnostics'
-      CLI::Diagnostics.run_config_check
-    end
-
-    # Check if TaskerCore is ready for use
-    # @return [Hash] System status and readiness info
-    def status
-      {
-        rust_extension: rust_extension_status,
-        domains: domain_status,
-        internal_systems: internal_status,
-        version: VERSION,
-        checked_at: Time.now.utc.iso8601
-      }
-    end
-
-    # Get comprehensive system health
-    # @return [Hash] Detailed health information across all domains
-    def health
-      {
-        overall: overall_health_status,
-        domains: {
-          factory: Factory.health,
-          registry: Registry.handle_info,
-          performance: Performance.handle_info,
-          events: Events.health,
-          testing: Testing.validate_environment,
-          orchestration: Orchestration.health,
-          environment: Environment.handle_info,
-          execution: Execution.version_info
-        },
-        internal: internal_health_status,
-        timestamp: Time.now.utc.iso8601
-      }
-    end
-
-    # Get handle information across all domains
-    # @return [Hash] Handle status for all domain APIs
-    def handle_status
-      {
-        factory: Factory.handle_info,
-        registry: Registry.handle_info,
-        performance: Performance.handle_info,
-        events: Events.handle_info,
-        testing: Testing.handle_info,
-        orchestration: Orchestration.handle_info,
-        environment: Environment.handle_info,
-        checked_at: Time.now.utc.iso8601
-      }
-    end
-
-    # Generate Gemfile-root based configuration for Ruby applications
-    # @param app_type [String] Application type ('rails', 'sinatra', 'standalone')
-    # @param force [Boolean] Overwrite existing configuration files
-    # @return [Hash] Generation results summary
-    def generate_config!(app_type: 'rails', force: false)
-      generator = Generators::ConfigGenerator.new(app_type: app_type)
-      generator.generate!(force: force)
-    end
-
-    # Shutdown all systems gracefully
-    def shutdown
-      puts 'Shutting down TaskerCore...'
-
-      # Shutdown internal managers
-      begin
-        Internal::OrchestrationManager.instance.shutdown
-      rescue StandardError
-        nil
-      end
-      begin
-        Internal::TestingManager.shutdown
-      rescue StandardError
-        nil
-      end
-      begin
-        Internal::TestingFactoryManager.shutdown
-      rescue StandardError
-        nil
-      end
-
-      puts 'TaskerCore shutdown complete'
-    end
-
-    private
-
-    def rust_extension_status
-      {
-        loaded: defined?(TaskerCore::BaseStepHandler) && defined?(TaskerCore::BaseTaskHandler),
-        version: defined?(TaskerCore::RUST_VERSION) ? TaskerCore::RUST_VERSION : 'unknown',
-        features: defined?(TaskerCore::FEATURES) ? TaskerCore::FEATURES : 'unknown'
-      }
-    end
-
-    def domain_status
-      %w[Factory Registry Performance Events Testing Handlers Environment Orchestration Execution].to_h do |domain|
-        domain_class = const_get(domain)
-        [
-          domain.downcase.to_sym,
-          {
-            available: domain_class.respond_to?(:handle_info),
-            methods: if domain_class.respond_to?(:handle_info)
-                       domain_class.handle_info['available_methods'] || domain_class.handle_info[:available_methods] || []
-                     else
-                       []
-                     end
-          }
-        ]
-      end
-    end
-
-    def internal_status
-      {
-        orchestration_manager: defined?(Internal::OrchestrationManager),
-        testing_manager: defined?(Internal::TestingManager),
-        testing_factory_manager: defined?(Internal::TestingFactoryManager)
-      }
-    end
-
-    def overall_health_status
-      handle_status = self.handle_status
-      all_healthy = handle_status.values.all? { |status| status[:status] != 'unavailable' }
-      all_healthy ? 'healthy' : 'degraded'
-    rescue StandardError
-      'unhealthy'
-    end
-
-    def internal_health_status
-      {
-        orchestration_manager: begin
-          Internal::OrchestrationManager.instance.handle_info[:status]
-        rescue StandardError
-          'unavailable'
-        end,
-        testing_manager: begin
-          Internal::TestingManager.status
-        rescue StandardError
-          'unavailable'
-        end,
-        testing_factory_manager: begin
-          Internal::TestingFactoryManager.status
-        rescue StandardError
-          'unavailable'
-        end
-      }
-    end
-  end
-
-  # Direct access to internal components - maintained for transition period
-  # New development should use domain APIs instead (e.g., TaskerCore::Orchestration, TaskerCore::Testing)
-  module Internal
-    autoload :OrchestrationManager, 'tasker_core/internal/orchestration_manager'
-  end
-
-  # Legacy direct aliases - deprecated, use TaskerCore::Internal instead
-  # These use autoload to match the Internal module pattern
-  autoload :OrchestrationManager, 'tasker_core/internal/orchestration_manager'
-end
-
-# class Hash
-#   def deep_merge(other_hash)
-#     dup.deep_merge!(other_hash)
-#   end
-
-#   def deep_merge!(other_hash)
-#     other_hash.each_pair do |k, v|
-#       tv = self[k]
-#       self[k] = if tv.is_a?(Hash) && v.is_a?(Hash)
-#                   tv.deep_merge(v)
-#                 else
-#                   v
-#                 end
-#     end
-#     self
-#   end
-# end
-
-# Add Hash extension for deep_symbolize_keys used by configuration
-class Hash
-  def deep_symbolize_keys
-    transform_keys(&:to_sym).transform_values do |value|
-      case value
-      when Hash
-        value.deep_symbolize_keys
-      when Array
-        value.map { |v| v.is_a?(Hash) ? v.deep_symbolize_keys : v }
-      else
-        value
-      end
-    end
+  module Worker
   end
 end
 
-# Automatically boot the system when TaskerCore is loaded
-# This ensures proper initialization order for all components
-# Skip auto-boot in test mode (controlled by spec_helper) or when explicitly disabled
-TaskerCore::Boot.boot! unless defined?(Rails) || ENV['TASKER_SKIP_AUTO_BOOT'] || ENV['TASKER_ENV'] == 'test'
+# Load test environment components if appropriate (before auto-boot)
+TaskerCore::TestEnvironment.load_if_test!

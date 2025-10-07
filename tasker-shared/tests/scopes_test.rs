@@ -10,7 +10,7 @@ use tasker_shared::scopes::ScopeBuilder;
 use tasker_shared::state_machine::{TaskState, WorkflowStepState};
 use uuid::Uuid;
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_scopes_basic(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test basic scope chaining
     let tasks = Task::scope()
@@ -25,7 +25,7 @@ async fn test_task_scopes_basic(pool: PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_scope_by_current_state(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test state-based filtering
     let pending_tasks = Task::scope()
@@ -38,7 +38,7 @@ async fn test_task_scope_by_current_state(pool: PgPool) -> Result<(), sqlx::Erro
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_scope_active(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test active task filtering
     let active_tasks = Task::scope().active().all(&pool).await?;
@@ -48,7 +48,7 @@ async fn test_task_scope_active(pool: PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_scope_time_based(pool: PgPool) -> Result<(), sqlx::Error> {
     let yesterday = Utc::now() - Duration::hours(24);
 
@@ -68,7 +68,7 @@ async fn test_task_scope_time_based(pool: PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_scopes(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test workflow step scopes
     let failed_steps = WorkflowStep::scope()
@@ -84,7 +84,7 @@ async fn test_workflow_step_scopes(pool: PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_scope_by_current_state(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test state-based filtering for workflow steps
     let pending_steps = WorkflowStep::scope()
@@ -97,7 +97,7 @@ async fn test_workflow_step_scope_by_current_state(pool: PgPool) -> Result<(), s
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_scope_for_task(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test filtering steps by task ID (using a dummy ID)
     let steps_for_task = WorkflowStep::scope()
@@ -110,7 +110,7 @@ async fn test_workflow_step_scope_for_task(pool: PgPool) -> Result<(), sqlx::Err
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_scope_time_based(pool: PgPool) -> Result<(), sqlx::Error> {
     let yesterday = Utc::now() - Duration::hours(24);
 
@@ -139,7 +139,7 @@ async fn test_workflow_step_scope_time_based(pool: PgPool) -> Result<(), sqlx::E
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_transition_scopes(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test task transition scopes
     let recent_transitions = TaskTransition::scope()
@@ -164,7 +164,7 @@ async fn test_task_transition_scopes(pool: PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_scope_count_and_exists(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test count and exists methods
     let active_count = Task::scope().active().count(&pool).await?;
@@ -183,7 +183,7 @@ async fn test_scope_count_and_exists(pool: PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_scope_chaining(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test complex scope chaining
     let complex_query = Task::scope()
@@ -200,7 +200,7 @@ async fn test_scope_chaining(pool: PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_scope_first_method(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test first() method
     let first_task = Task::scope().order_by_created_at(true).first(&pool).await?;
@@ -214,7 +214,7 @@ async fn test_scope_first_method(pool: PgPool) -> Result<(), sqlx::Error> {
 }
 
 // WorkflowStepEdge scope tests
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_edge_scopes_basic(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test basic WorkflowStepEdge scopes with empty data
     let children = WorkflowStepEdge::scope()
@@ -240,7 +240,7 @@ async fn test_workflow_step_edge_scopes_basic(pool: PgPool) -> Result<(), sqlx::
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_edge_siblings_scope(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test the complex siblings_of CTE scope
     let siblings = WorkflowStepEdge::scope()
@@ -270,7 +270,7 @@ async fn test_workflow_step_edge_siblings_scope(pool: PgPool) -> Result<(), sqlx
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_edge_provides_to_children(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test the provides_to_children scope with subquery
     let provides_to_children = WorkflowStepEdge::scope()
@@ -298,7 +298,7 @@ async fn test_workflow_step_edge_provides_to_children(pool: PgPool) -> Result<()
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_edge_scope_chaining(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test that basic scopes can be chained (though not very useful with current scopes)
     let edges = WorkflowStepEdge::scope()
@@ -313,7 +313,7 @@ async fn test_workflow_step_edge_scope_chaining(pool: PgPool) -> Result<(), sqlx
 }
 
 // WorkflowStepTransition scope tests
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_transition_scopes_basic(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test basic WorkflowStepTransition scopes with empty data
     let recent_transitions = WorkflowStepTransition::scope().recent().all(&pool).await?;
@@ -342,7 +342,7 @@ async fn test_workflow_step_transition_scopes_basic(pool: PgPool) -> Result<(), 
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_transition_scope_chaining(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test chaining scopes together
     let chained_transitions = WorkflowStepTransition::scope()
@@ -364,7 +364,7 @@ async fn test_workflow_step_transition_scope_chaining(pool: PgPool) -> Result<()
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_transition_scope_count_and_exists(
     pool: PgPool,
 ) -> Result<(), sqlx::Error> {
@@ -398,7 +398,7 @@ async fn test_workflow_step_transition_scope_count_and_exists(
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_workflow_step_transition_for_task_scope(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test the for_task scope with JOIN
     let transitions_for_task = WorkflowStepTransition::scope()
@@ -427,7 +427,7 @@ async fn test_workflow_step_transition_for_task_scope(pool: PgPool) -> Result<()
 }
 
 // NamedTask scope tests
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_named_task_scopes_basic(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test basic NamedTask scopes with empty data
     let namespace_tasks = NamedTask::scope()
@@ -450,7 +450,7 @@ async fn test_named_task_scopes_basic(pool: PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_named_task_scope_chaining(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test chaining scopes together
     let chained_tasks = NamedTask::scope()
@@ -465,7 +465,7 @@ async fn test_named_task_scope_chaining(pool: PgPool) -> Result<(), sqlx::Error>
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_named_task_scope_count_and_exists(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test count and exists methods for NamedTask scopes
     let namespace_count = NamedTask::scope()
@@ -491,7 +491,7 @@ async fn test_named_task_scope_count_and_exists(pool: PgPool) -> Result<(), sqlx
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_named_task_latest_versions_scope(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test the complex latest_versions scope with DISTINCT ON
     let latest_tasks = NamedTask::scope().latest_versions().all(&pool).await?;
@@ -511,7 +511,7 @@ async fn test_named_task_latest_versions_scope(pool: PgPool) -> Result<(), sqlx:
 }
 
 // TaskNamespace scope tests
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_namespace_custom_scope(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test the custom scope - excludes 'default' namespace
     let custom_namespaces = TaskNamespace::scope().custom().all(&pool).await?;
@@ -527,7 +527,7 @@ async fn test_task_namespace_custom_scope(pool: PgPool) -> Result<(), sqlx::Erro
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_namespace_scope_count_and_exists(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test count and exists methods for TaskNamespace scopes
     let custom_count = TaskNamespace::scope().custom().count(&pool).await?;
@@ -541,7 +541,7 @@ async fn test_task_namespace_scope_count_and_exists(pool: PgPool) -> Result<(), 
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_namespace_scope_basic(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test basic TaskNamespace scope operations
     let all_namespaces = TaskNamespace::scope().all(&pool).await?;

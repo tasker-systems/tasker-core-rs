@@ -68,7 +68,7 @@ mod tests {
         create_task_with_initial_state(pool, ComplexWorkflowFactory::new().diamond()).await
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_initial_readiness_state(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
@@ -112,7 +112,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_readiness_after_root_completion(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
@@ -155,7 +155,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_readiness_with_partial_branch_completion(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
@@ -190,7 +190,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_readiness_with_error_and_retry(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
@@ -211,7 +211,7 @@ mod tests {
         // Update retry information
         sqlx::query!(
             "UPDATE tasker_workflow_steps
-             SET attempts = 1, retry_limit = 3, retryable = true,
+             SET attempts = 1, max_attempts = 3, retryable = true,
                  last_attempted_at = NOW() - INTERVAL '30 seconds'
              WHERE workflow_step_uuid = $1",
             step_uuids[1]
@@ -241,12 +241,12 @@ mod tests {
         assert!(error_step.retry_eligible);
         assert!(error_step.ready_for_execution); // Ready to retry
         assert_eq!(error_step.attempts, 1);
-        assert_eq!(error_step.retry_limit, 3);
+        assert_eq!(error_step.max_attempts, 3);
 
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_readiness_with_exhausted_retries(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
@@ -267,7 +267,7 @@ mod tests {
         // Update to exhaust retries
         sqlx::query!(
             "UPDATE tasker_workflow_steps
-             SET attempts = 3, retry_limit = 3, retryable = true
+             SET attempts = 3, max_attempts = 3, retryable = true
              WHERE workflow_step_uuid = $1",
             step_uuids[1]
         )
@@ -286,12 +286,12 @@ mod tests {
         assert!(!error_step.retry_eligible); // No more retries
         assert!(!error_step.ready_for_execution); // Cannot execute
         assert_eq!(error_step.attempts, 3);
-        assert_eq!(error_step.retry_limit, 3);
+        assert_eq!(error_step.max_attempts, 3);
 
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_readiness_summary(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, _step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
@@ -306,7 +306,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_get_ready_for_task(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
@@ -324,7 +324,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_get_blocked_by_dependencies(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, _step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
@@ -338,7 +338,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_all_steps_complete(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
@@ -358,7 +358,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_complex_workflow_readiness(pool: PgPool) -> sqlx::Result<()> {
         // Use Tree pattern for more complex dependency testing
         let (task_uuid, step_uuids) =

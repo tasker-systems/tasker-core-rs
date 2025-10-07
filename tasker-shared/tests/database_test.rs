@@ -1,6 +1,6 @@
 use sqlx::{PgPool, Row};
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_database_connection(pool: PgPool) -> sqlx::Result<()> {
     // Test basic database connectivity
     let row = sqlx::query("SELECT 1 as test").fetch_one(&pool).await?;
@@ -11,7 +11,7 @@ async fn test_database_connection(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_database_schema_exists(pool: PgPool) -> sqlx::Result<()> {
     // Test that our core tables exist
     let tables = vec![

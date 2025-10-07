@@ -143,7 +143,7 @@ impl WorkflowStepScope {
     /// Finds workflow steps that can be retried based on their retry settings.
     /// Combines retryable flag with attempt count validation.
     pub fn retryable(mut self) -> Self {
-        self.add_condition("tasker_workflow_steps.retryable = true AND (tasker_workflow_steps.attempts IS NULL OR tasker_workflow_steps.attempts < tasker_workflow_steps.retry_limit)");
+        self.add_condition("tasker_workflow_steps.retryable = true AND (tasker_workflow_steps.attempts IS NULL OR tasker_workflow_steps.attempts < tasker_workflow_steps.max_attempts)");
         self
     }
 

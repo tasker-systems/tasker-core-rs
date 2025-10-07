@@ -5,7 +5,7 @@
 # Context: workers/rust/ directory
 # Usage: docker build -f Dockerfile.prod -t tasker-worker-rust:prod .
 
-FROM rust:1.89-bullseye AS chef
+FROM rust:1.90-bullseye AS chef
 
 # Install cargo-chef for dependency layer caching
 RUN cargo install cargo-chef
@@ -33,15 +33,22 @@ COPY Cargo.toml Cargo.lock ./
 COPY .cargo/ ./.cargo/
 COPY src/ ./src/
 
-# Copy all workspace member crates
-COPY tasker-orchestration/ ./tasker-orchestration/
+# Copy workspace crates needed by rust worker
 COPY tasker-shared/ ./tasker-shared/
 COPY tasker-client/ ./tasker-client/
 COPY pgmq-notify/ ./pgmq-notify/
 COPY tasker-worker/ ./tasker-worker/
-COPY workers/ ./workers/
+COPY workers/rust/ ./workers/rust/
 COPY migrations/ ./migrations/
-COPY .sqlx/ ./.sqlx/
+
+# Copy minimal workspace structure for crates we don't actually need
+RUN mkdir -p tasker-orchestration/src && \
+    echo "pub fn stub() {}" > tasker-orchestration/src/lib.rs
+COPY tasker-orchestration/Cargo.toml ./tasker-orchestration/
+
+RUN mkdir -p workers/ruby/ext/tasker_core/src && \
+    echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
+COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
 
 # Generate dependency recipe
 RUN cargo chef prepare --recipe-path recipe.json
@@ -62,15 +69,22 @@ COPY Cargo.toml Cargo.lock ./
 COPY .cargo/ ./.cargo/
 COPY src/ ./src/
 
-# Copy all workspace member crates
-COPY tasker-orchestration/ ./tasker-orchestration/
+# Copy workspace crates needed by rust worker
 COPY tasker-shared/ ./tasker-shared/
 COPY tasker-client/ ./tasker-client/
 COPY pgmq-notify/ ./pgmq-notify/
 COPY tasker-worker/ ./tasker-worker/
-COPY workers/ ./workers/
+COPY workers/rust/ ./workers/rust/
 COPY migrations/ ./migrations/
-COPY .sqlx/ ./.sqlx/
+
+# Copy minimal workspace structure for crates we don't actually need
+RUN mkdir -p tasker-orchestration/src && \
+    echo "pub fn stub() {}" > tasker-orchestration/src/lib.rs
+COPY tasker-orchestration/Cargo.toml ./tasker-orchestration/
+
+RUN mkdir -p workers/ruby/ext/tasker_core/src && \
+    echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
+COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
 
 # Set offline mode for SQLx
 ENV SQLX_OFFLINE=true

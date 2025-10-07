@@ -9,15 +9,14 @@ license = "MIT"
 crate-type = ["rlib"]
 name = "tasker_shared"
 
-[[bench]]
-harness = false
-name = "shared_benchmarks"
-required-features = ["benchmarks"]
+# [[bench]]
+# harness = false
+# name = "shared_benchmarks"
+# required-features = ["benchmarks"]
 
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-is-terminal = { workspace = true }
 axum = { workspace = true, optional = true }
 axum-extra = { workspace = true, optional = true }
 bigdecimal = { workspace = true }
@@ -33,6 +32,7 @@ dotenvy = { workspace = true }  # For loading .env files
 # Random number generation
 fastrand = { workspace = true }
 futures = { workspace = true }
+is-terminal = { workspace = true }
 jsonwebtoken = { workspace = true, optional = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
@@ -77,7 +77,7 @@ insta = { workspace = true }
 mockall = { workspace = true }
 proptest = { workspace = true }
 serial_test = { workspace = true }
-tasker-core = { path = "../", package = "tasker-core" }
+tasker-core = { package = "tasker-core", path = "../" }
 tempfile = { workspace = true }
 # Testing tools
 tokio-test = { workspace = true }
@@ -85,7 +85,7 @@ url = { workspace = true }
 
 [features]
 default = ["postgres", "test-utils", "web-api"]
-benchmarks = ["criterion"]
+# benchmarks = ["criterion"]
 postgres = ["sqlx/postgres"]
 test-utils = []
 web-api = [
@@ -98,4 +98,3 @@ web-api = [
   "utoipa",
   "utoipa-swagger-ui",
 ]
-

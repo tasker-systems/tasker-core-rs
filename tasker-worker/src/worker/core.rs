@@ -149,8 +149,7 @@ impl WorkerCore {
             batch_size: 10,
             visibility_timeout: Duration::from_secs(30),
             deployment_mode: context
-                .config_manager
-                .config()
+                .tasker_config
                 .event_systems
                 .worker
                 .deployment_mode

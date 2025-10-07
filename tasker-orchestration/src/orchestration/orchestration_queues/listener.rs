@@ -320,10 +320,9 @@ impl OrchestrationEventHandler {
         listener_id: Uuid,
         stats: Arc<OrchestrationListenerStats>,
     ) -> Self {
-        // Create queue classifier from config to replace hardcoded string matching
-        let queue_classifier = tasker_shared::config::QueueClassifier::from_queues_config(
-            &context.config_manager.config().queues,
-        );
+        let queue_config = context.tasker_config.queues.clone();
+        let queue_classifier =
+            tasker_shared::config::QueueClassifier::from_queues_config(&queue_config);
 
         Self {
             config,

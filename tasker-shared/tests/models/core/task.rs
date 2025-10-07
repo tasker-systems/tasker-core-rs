@@ -9,7 +9,7 @@ use tasker_shared::models::task::{NewTask, Task};
 use tasker_shared::models::task_namespace::{NewTaskNamespace, TaskNamespace};
 use uuid::Uuid;
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies
     let namespace = TaskNamespace::create(

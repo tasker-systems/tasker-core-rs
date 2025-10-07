@@ -11,7 +11,7 @@ worker_type = "test"
 # Enable event-driven processing for comprehensive testing
 enabled = true
 # Use Hybrid mode for comprehensive testing coverage
-deployment_mode = "Hybrid"
+deployment_mode = "EventDrivenOnly"
 # More frequent health checks for faster test feedback
 health_check_interval_seconds = 10
 
@@ -71,3 +71,8 @@ max_queue_connections = 10
 visibility_timeout_seconds = 10
 batch_size = 5
 polling_interval_ms = 50
+
+# Web API Configuration - Test Environment Override
+[worker.web]
+enabled = true
+bind_address = "0.0.0.0:8081"  # Match docker-compose port mapping (8081:8081)

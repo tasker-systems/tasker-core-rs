@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use tasker_shared::models::insights::slowest_steps::{SlowestSteps, SlowestStepsFilter};
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_slowest_steps(pool: PgPool) -> sqlx::Result<()> {
     // For now, just test that the function exists and doesn't panic
     // TODO: Once we have proper factories in future branch, test with meaningful data
@@ -19,7 +19,7 @@ async fn test_get_slowest_steps(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_slowest_steps_with_filters(pool: PgPool) -> sqlx::Result<()> {
     // Test with custom filter
     let filter = SlowestStepsFilter {
@@ -39,7 +39,7 @@ async fn test_get_slowest_steps_with_filters(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_slowest_since(pool: PgPool) -> sqlx::Result<()> {
     // Test getting steps since 1 hour ago - using static timestamp instead of Utc::now()
     let since_str = "2024-01-15T10:00:00Z";

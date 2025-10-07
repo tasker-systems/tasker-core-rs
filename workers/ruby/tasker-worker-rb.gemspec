@@ -1,0 +1,96 @@
+# frozen_string_literal: true
+
+require_relative 'lib/tasker_core/version'
+
+Gem::Specification.new do |spec|
+  spec.name          = 'tasker-worker-rb'
+  spec.version       = TaskerCore::VERSION
+  spec.authors       = ['Pete Taylor']
+  spec.email         = ['pete.jc.taylor@hey.com']
+
+  spec.summary       = 'High-performance Ruby bindings for Tasker workflow orchestration'
+  spec.description   = <<~DESC
+    Ruby FFI bindings for tasker-core, providing 10-100x performance improvements
+    for workflow orchestration, dependency resolution, and state management.
+
+    This gem enables Rails applications using the Tasker engine to leverage
+    Rust's performance for computationally intensive orchestration operations
+    while maintaining Ruby's flexibility for business logic.
+  DESC
+
+  spec.homepage      = 'https://github.com/tasker-systems/tasker-core'
+  spec.license       = 'MIT'
+  spec.required_ruby_version = '>= 3.4.0'
+
+  spec.metadata['homepage_uri'] = spec.homepage
+  spec.metadata['source_code_uri'] = 'https://github.com/tasker-systems/tasker-core/tree/main/workers/ruby'
+  spec.metadata['changelog_uri'] = 'https://github.com/tasker-systems/tasker-core/blob/main/workers/ruby/CHANGELOG.md'
+  spec.metadata['documentation_uri'] = 'https://github.com/tasker-systems/tasker-core/blob/main/docs/RUBY.md'
+  spec.metadata['bug_tracker_uri'] = 'https://github.com/tasker-systems/tasker-core/issues'
+
+  # Include all necessary files for the gem, excluding test/spec files
+  spec.files = Dir[
+    'lib/**/*',
+    'src/**/*',
+    'ext/**/*',
+    'Cargo.toml',
+    'README.md',
+    'DEVELOPMENT.md',
+    'CHANGELOG.md',
+    'LICENSE'
+  ].select { |f| File.file?(f) }.reject do |f|
+    # Exclude test-specific files and directories from production gem
+    f.match?(%r{^spec/}) || # Exclude entire spec/ directory
+      f.match?(/test/) ||           # Exclude any test files
+      f.match?(/fixtures/) ||       # Exclude test fixtures
+      f.match?(/examples/) ||       # Exclude example code
+      f.match?(/\.rspec/) ||        # Exclude RSpec configuration
+      f.match?(/_spec\.rb$/) ||     # Exclude RSpec spec files
+      f.match?(/_test\.rb$/) ||     # Exclude test files
+      f.include?('spec_helper') ||    # Exclude spec helpers
+      f.include?('test_helper')       # Exclude test helpers
+  end
+
+  spec.require_paths = ['lib']
+  spec.extensions    = ['ext/tasker_core/extconf.rb']
+
+  # Magnus and Rust compilation dependencies
+  spec.add_dependency 'rb_sys', '~> 0.9.39'
+
+  spec.add_dependency 'activesupport', '~> 8.0'
+
+  spec.add_dependency 'json-schema', '~> 2.4', '>= 2.4.0'
+  spec.add_dependency 'logger', '~> 1.6'
+
+  spec.add_dependency 'dry-events', '~> 1.1'
+  spec.add_dependency 'dry-struct', '~> 1.8'
+  spec.add_dependency 'dry-types', '~> 1.8'
+  spec.add_dependency 'dry-validation', '~> 1.10'
+
+  spec.add_dependency 'dotenv', '~> 2.8'
+  spec.add_dependency 'faraday', '~> 2.12.2'
+  # Concurrent execution support for BatchStepExecutionOrchestrator
+  spec.add_dependency 'concurrent-ruby', '~> 1.3.5'
+  spec.add_dependency 'concurrent-ruby-ext', '~> 1.3.5'
+
+  spec.add_dependency 'opentelemetry-exporter-otlp', '~> 0.30.0'
+  spec.add_dependency 'opentelemetry-sdk', '~> 1.8.0'
+
+  # Ensure we have a Rust toolchain for compilation
+  spec.metadata['allowed_push_host'] = 'https://rubygems.org'
+  spec.metadata['rubygems_mfa_required'] = 'true'
+
+  # Post-install message
+  spec.post_install_message = <<~MSG
+
+    🦀 tasker-worker-rb successfully installed!
+
+    This gem provides high-performance Rust-powered workflow orchestration.
+
+    Documentation: https://github.com/tasker-systems/tasker-core/blob/main/docs/RUBY.md
+    Examples: https://github.com/tasker-systems/tasker-core/tree/main/examples
+
+    For Rails integration, see the tasker-engine gem documentation.
+
+  MSG
+end

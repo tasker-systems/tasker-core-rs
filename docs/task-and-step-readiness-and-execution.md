@@ -113,6 +113,53 @@ CREATE OR REPLACE FUNCTION transition_task_state_atomic(
 
 ## Step Readiness Analysis
 
+### Recent Enhancements
+
+#### TAS-42: WaitingForRetry State Support (Migration 20250927000000)
+
+The step readiness system was enhanced to support the new `WaitingForRetry` state, which distinguishes retryable failures from permanent errors:
+
+**Key Changes**:
+1. **Helper Functions**: Added `calculate_step_next_retry_time()` and `evaluate_step_state_readiness()` for consistent backoff logic
+2. **State Recognition**: Updated readiness evaluation to treat `waiting_for_retry` as a ready-eligible state alongside `pending`
+3. **Backoff Calculation**: Centralized exponential backoff logic with configurable backoff periods
+4. **Performance Optimization**: Introduced task-scoped CTEs to eliminate table scans for batch operations
+
+**Semantic Impact (TAS-42)**:
+- **Before**: `error` state included both retryable and permanent failures
+- **After**: `error` = permanent only, `waiting_for_retry` = awaiting backoff for retry
+
+**Helper Functions Introduced**:
+
+1. **`calculate_step_next_retry_time()`**: Centralizes retry time calculation logic
+   ```sql
+   CREATE OR REPLACE FUNCTION calculate_step_next_retry_time(
+       backoff_request_seconds INTEGER,
+       last_attempted_at TIMESTAMP,
+       failure_time TIMESTAMP,
+       attempts INTEGER
+   ) RETURNS TIMESTAMP
+   ```
+   - Respects custom backoff periods from step configuration
+   - Falls back to exponential backoff: `2^attempts` seconds (max 30)
+   - Used consistently across all readiness evaluation
+
+2. **`evaluate_step_state_readiness()`**: Determines if a step is ready for execution
+   ```sql
+   CREATE OR REPLACE FUNCTION evaluate_step_state_readiness(
+       current_state TEXT,
+       processed BOOLEAN,
+       in_process BOOLEAN,
+       dependencies_satisfied BOOLEAN,
+       retry_eligible BOOLEAN,
+       retryable BOOLEAN,
+       next_retry_time TIMESTAMP
+   ) RETURNS BOOLEAN
+   ```
+   - Recognizes both `pending` and `waiting_for_retry` as ready-eligible states
+   - Validates backoff period has expired before allowing retry
+   - Ensures dependencies are satisfied and retry limits not exceeded
+
 ### Step Readiness Status
 
 The `get_step_readiness_status` function provides comprehensive analysis of step
@@ -315,6 +362,29 @@ impl SqlFunctionExecutor {
     }
 }
 ```
+
+## Task Execution Context
+
+### Recent Enhancements
+
+#### Permanently Blocked Detection Fix (Migration 20251001000000)
+
+The `get_task_execution_context` function was enhanced to correctly identify tasks blocked by permanent errors:
+
+**Problem**: The function only checked `attempts >= retry_limit` to detect permanently blocked steps, missing cases where workers marked errors as non-retryable (e.g., missing handlers, configuration errors).
+
+**Solution**: Updated `permanently_blocked_steps` calculation to check both conditions:
+```sql
+COUNT(CASE WHEN sd.current_state = 'error'
+            AND (sd.attempts >= retry_limit OR sd.retry_eligible = false) THEN 1 END)
+```
+
+**Impact**:
+- **execution_status**: Now correctly returns `blocked_by_failures` instead of `waiting_for_dependencies` for tasks with non-retryable errors
+- **recommended_action**: Returns `handle_failures` instead of `wait_for_dependencies`
+- **health_status**: Returns `blocked` instead of `recovering` when appropriate
+
+This fix ensures the orchestration system properly identifies when manual intervention is needed versus when a task is simply waiting for retry backoff.
 
 ## Task Discovery and Orchestration
 

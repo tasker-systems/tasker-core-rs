@@ -41,7 +41,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
@@ -309,13 +309,14 @@ impl TaskFinalizer {
         // Use state machine for proper state transitions
         let mut state_machine = self.get_state_machine_for_task(&task).await?;
 
-        // Transition to error state using state machine
+        // Transition to BlockedByFailures state using PermanentFailure event
+        // This is the correct event from EvaluatingResults state
         let error_message = "Steps in error state".to_string();
         state_machine
-            .transition(TaskEvent::Fail(error_message.clone()))
+            .transition(TaskEvent::PermanentFailure(error_message.clone()))
             .await
             .map_err(|e| FinalizationError::StateMachine {
-                error: format!("Failed to transition to error: {e}"),
+                error: format!("Failed to transition to blocked state: {e}"),
                 task_uuid,
             })?;
 
@@ -468,16 +469,30 @@ impl TaskFinalizer {
                         reason: Some("Ready steps enqueued".to_string()),
                     })
                 } else {
+                    // No steps were enqueued - task may be blocked or have no ready steps
+                    let failed_steps = context.as_ref().map(|c| c.failed_steps).unwrap_or(0);
+                    let total_steps = context.as_ref().map(|c| c.total_steps).unwrap_or(0);
+
                     Err(FinalizationError::General(format!(
-                        "Failed to enqueue steps for task re-enqueuing task {}",
-                        task.task_uuid
+                        "No ready steps to enqueue for task {} (failed: {}/{} steps) - task may be blocked by errors or have no executable steps remaining",
+                        task.task_uuid,
+                        failed_steps,
+                        total_steps
                     )))
                 }
             }
-            None => Err(FinalizationError::General(format!(
-                "Failed to enqueue steps for task re-enqueuing task {}",
-                task.task_uuid
-            ))),
+            None => {
+                // Task info not found - may indicate task is in an invalid state
+                let failed_steps = context.as_ref().map(|c| c.failed_steps).unwrap_or(0);
+                let total_steps = context.as_ref().map(|c| c.total_steps).unwrap_or(0);
+
+                Err(FinalizationError::General(format!(
+                    "No task ready info found for task {} (failed: {}/{} steps) - task may have no steps or be in invalid state",
+                    task.task_uuid,
+                    failed_steps,
+                    total_steps
+                )))
+            }
         }
     }
 
@@ -487,6 +502,33 @@ impl TaskFinalizer {
         task: Task,
         context: Option<TaskExecutionContext>,
     ) -> Result<FinalizationResult, FinalizationError> {
+        // Defensive check: verify we're not blocked by errors before trying to re-enqueue
+        if let Some(ref ctx) = context {
+            if ctx.execution_status == ExecutionStatus::BlockedByFailures {
+                warn!(
+                    task_uuid = %task.task_uuid,
+                    "Task in waiting state is actually blocked by failures, transitioning to error"
+                );
+                return self.error_task(task, context).await;
+            }
+
+            // Additional verification: check if all failed steps are permanent errors
+            // This catches cases where SQL function might not have detected BlockedByFailures
+            if ctx.failed_steps > 0 && ctx.ready_steps == 0 {
+                // If we have failures but no ready steps, verify these aren't all permanent
+                let is_blocked = self.blocked_by_errors(task.task_uuid).await?;
+                if is_blocked {
+                    warn!(
+                        task_uuid = %task.task_uuid,
+                        failed_steps = ctx.failed_steps,
+                        ready_steps = ctx.ready_steps,
+                        "Independent verification detected task is blocked by permanent errors - SQL function may be out of sync"
+                    );
+                    return self.error_task(task, context).await;
+                }
+            }
+        }
+
         info!(
             "Handling waiting state for task {} by delegating to ready steps state",
             task.task_uuid

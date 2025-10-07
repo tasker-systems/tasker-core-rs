@@ -12,7 +12,7 @@ use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use uuid::Uuid;
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_step_state_transitions(pool: PgPool) -> sqlx::Result<()> {
     // Test valid transitions
     let sm = create_test_step_state_machine(pool);
@@ -47,7 +47,7 @@ async fn test_step_state_transitions(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_enqueued_for_orchestration_transitions(pool: PgPool) -> sqlx::Result<()> {
     // TAS-41: Test the new EnqueuedForOrchestration state transitions
     let sm = create_test_step_state_machine(pool);
@@ -85,7 +85,7 @@ async fn test_enqueued_for_orchestration_transitions(pool: PgPool) -> sqlx::Resu
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_step_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_step_state_machine(pool);
 
@@ -102,7 +102,7 @@ async fn test_step_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_step_completion_with_results(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_step_state_machine(pool);
     let results = json!({"processed": 42, "status": "success"});
@@ -131,7 +131,7 @@ fn create_test_step_state_machine(pool: PgPool) -> StepStateMachine {
         task_uuid: Uuid::now_v7(),
         named_step_uuid: Uuid::now_v7(),
         retryable: true,
-        retry_limit: Some(3),
+        max_attempts: Some(3),
         in_process: false,
         processed: false,
         processed_at: None,

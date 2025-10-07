@@ -127,11 +127,7 @@ pub async fn list_templates(
         None
     };
 
-    let template_count = state
-        .task_template_manager()
-        .cache_stats()
-        .await
-        .total_cached;
+    let template_count = state.task_template_manager.cache_stats().await.total_cached;
 
     // Worker capabilities (static for now)
     let worker_capabilities = vec![

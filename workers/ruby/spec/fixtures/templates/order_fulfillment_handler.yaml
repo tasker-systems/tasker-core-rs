@@ -1,0 +1,265 @@
+# TaskTemplate Configuration - Ruby Implementation
+#
+# Order Fulfillment Workflow Pattern with Ruby Step Handlers via FFI
+# Demonstrates sophisticated business workflow with external service integration
+#
+# Template: order_fulfillment/business_workflow:1.0.0
+# Implementation: Ruby FFI with tasker-worker-rb
+# Updated: 2025-09-24 (Fixed Template Format)
+#
+# Business Workflow Pattern (4 steps):
+# 1. Validate Order: Validate customer info, order items, calculate totals
+# 2. Reserve Inventory: Check and reserve inventory for order items
+# 3. Process Payment: Process payment using customer payment info
+# 4. Ship Order: Create shipment and schedule delivery
+#
+# This demonstrates real-world business logic with external service simulation
+#
+---
+name: business_workflow
+namespace_name: order_fulfillment
+version: 1.0.0
+description: "Complete order fulfillment business workflow: validate → reserve → payment → shipping"
+metadata:
+  author: Ruby FFI Implementation
+  tags:
+    - namespace:order_fulfillment
+    - pattern:business_workflow
+    - dependencies:linear_with_validation
+    - implementation:ruby_ffi
+    - language:ruby
+    - type_safety:runtime
+    - business_logic:order_processing
+    - external_services:simulated
+  documentation_url:
+  created_at: "2025-09-24T00:00:00Z"
+  updated_at: "2025-09-24T00:00:00Z"
+  notes: "Ruby FFI implementation with sophisticated business logic and external service integration"
+task_handler:
+  callable: OrderFulfillment::OrderFulfillmentHandler
+  initialization:
+    input_validation:
+      required_fields:
+        - customer
+        - items
+        - payment
+        - shipping
+      business_rules:
+        - customer_validation: required
+        - item_availability: check_inventory
+        - payment_processing: external_gateway
+        - shipping_validation: carrier_integration
+    expected_results:
+      validate_order: "validated customer and items with totals"
+      reserve_inventory: "inventory reservations with confirmation"
+      process_payment: "payment confirmation with transaction ID"
+      ship_order: "shipment created with tracking information"
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - customer
+    - items
+    - payment
+    - shipping
+  properties:
+    customer:
+      type: object
+      required:
+        - id
+        - name
+        - email
+      properties:
+        id:
+          type: integer
+          description: "Customer ID"
+        name:
+          type: string
+          description: "Customer full name"
+        email:
+          type: string
+          format: email
+          description: "Customer email address"
+    items:
+      type: array
+      items:
+        type: object
+        required:
+          - sku
+          - quantity
+          - price
+        properties:
+          sku:
+            type: string
+            description: "Product SKU"
+          quantity:
+            type: integer
+            minimum: 1
+            description: "Order quantity"
+          price:
+            type: number
+            minimum: 0
+            description: "Unit price"
+    payment:
+      type: object
+      required:
+        - method
+        - token
+      properties:
+        method:
+          type: string
+          enum: ["credit_card", "debit_card", "paypal"]
+          description: "Payment method"
+        token:
+          type: string
+          description: "Payment token or card token"
+    shipping:
+      type: object
+      required:
+        - method
+        - address
+      properties:
+        method:
+          type: string
+          enum: ["standard", "express", "overnight"]
+          description: "Shipping method"
+        address:
+          type: object
+          description: "Shipping address"
+steps:
+  - name: validate_order
+    description: "Validate customer information, order items, and calculate totals"
+    handler:
+      callable: OrderFulfillment::StepHandlers::ValidateOrderHandler
+      initialization:
+        validation_rules:
+          customer_validation: strict
+          item_validation: check_sku_exists
+          price_validation: positive_values
+          email_validation: format_check
+        business_logic:
+          tax_calculation: enabled
+          discount_calculation: enabled
+          total_calculation: comprehensive
+        error_handling:
+          customer_errors: fail_fast
+          item_errors: detailed_reporting
+          calculation_errors: retry_once
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 45
+    publishes_events: []
+  - name: reserve_inventory
+    description: "Check inventory availability and create reservations"
+    handler:
+      callable: OrderFulfillment::StepHandlers::ReserveInventoryHandler
+      initialization:
+        inventory_rules:
+          availability_check: real_time
+          reservation_duration: 15_minutes
+          allocation_strategy: fifo
+        external_services:
+          inventory_service: simulated
+          warehouse_integration: mock
+        error_handling:
+          insufficient_inventory: detailed_report
+          reservation_conflicts: retry_with_backoff
+          service_errors: fallback_strategies
+    system_dependency:
+    dependencies:
+      - validate_order
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+  - name: process_payment
+    description: "Process payment using customer payment information"
+    handler:
+      callable: OrderFulfillment::StepHandlers::ProcessPaymentHandler
+      initialization:
+        payment_processing:
+          gateway_integration: simulated
+          security_validation: comprehensive
+          fraud_detection: basic_checks
+        supported_methods:
+          - credit_card
+          - debit_card
+          - paypal
+        error_handling:
+          payment_failures: detailed_logging
+          security_failures: fail_immediately
+          gateway_errors: retry_strategies
+    system_dependency:
+    dependencies:
+      - validate_order
+      - reserve_inventory
+    retry:
+      retryable: true
+      limit: 2
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 30000
+    timeout_seconds: 90
+    publishes_events: []
+  - name: ship_order
+    description: "Create shipment and schedule delivery"
+    handler:
+      callable: OrderFulfillment::StepHandlers::ShipOrderHandler
+      initialization:
+        shipping_configuration:
+          carrier_integration: simulated
+          tracking_generation: enabled
+          delivery_scheduling: business_days_only
+        supported_methods:
+          - standard: 3-5 business days
+          - express: 1-2 business days
+          - overnight: next business day
+        business_rules:
+          weekend_delivery: disabled
+          holiday_handling: skip_holidays
+          address_validation: basic_checks
+    system_dependency:
+    dependencies:
+      - validate_order
+      - reserve_inventory
+      - process_payment
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: validate_order
+        timeout_seconds: 20
+        retry:
+          limit: 2
+      - name: reserve_inventory
+        timeout_seconds: 30
+        retry:
+          limit: 2
+      - name: process_payment
+        timeout_seconds: 45
+        retry:
+          limit: 1
+      - name: ship_order
+        timeout_seconds: 30
+        retry:
+          limit: 2

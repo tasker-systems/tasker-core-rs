@@ -1,0 +1,157 @@
+# TaskTemplate Configuration - Ruby Implementation
+#
+# Diamond Workflow Pattern with Ruby Step Handlers via FFI
+# Demonstrates parallel execution followed by convergence using Ruby handlers called from Rust
+#
+# Template: diamond_workflow/parallel_computation:1.0.0
+# Implementation: Ruby FFI with tasker-worker-rb
+# Updated: 2025-09-24 (Fixed Template Format)
+#
+# Diamond Pattern:
+# 1. Start: Square the initial even number (6 → 36)
+# 2. Branch B (Left): Add 25 to squared result (36 + 25 = 61)
+# 3. Branch C (Right): Multiply squared result by 2 (36 × 2 = 72)
+# 4. End: Average both branch results ((61 + 72) ÷ 2 = 66.5)
+#
+---
+name: parallel_computation
+namespace_name: diamond_workflow
+version: 1.0.0
+description: "Diamond pattern with parallel branches: square -> (add, multiply) -> average"
+metadata:
+  author: Ruby FFI Implementation
+  tags:
+    - namespace:diamond_workflow
+    - pattern:diamond
+    - dependencies:parallel_convergence
+    - implementation:ruby_ffi
+    - language:ruby
+    - type_safety:runtime
+    - parallelism:branch_execution
+  documentation_url:
+  created_at: "2025-09-24T00:00:00Z"
+  updated_at: "2025-09-24T00:00:00Z"
+  notes: "Ruby FFI implementation with parallel branch processing and convergence logic"
+task_handler:
+  callable: DiamondWorkflow::DiamondWorkflowHandler
+  initialization:
+    input_validation:
+      required_fields:
+        - even_number
+      even_number_constraint: must_be_even
+      value_range:
+        min: 2
+        max: 100
+    expected_results:
+      diamond_start: "input²"
+      diamond_branch_b: "input² + 25"
+      diamond_branch_c: "input² × 2"
+      diamond_end: "((input² + 25) + (input² × 2)) ÷ 2"
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - even_number
+  properties:
+    even_number:
+      type: integer
+      minimum: 2
+      maximum: 100
+      description: "Even number for diamond pattern calculation"
+steps:
+  - name: diamond_start
+    description: "Square the even number (initial step)"
+    handler:
+      callable: DiamondWorkflow::StepHandlers::DiamondStartHandler
+      initialization:
+        operation: square
+        description: "Square the input number (n²)"
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: diamond_branch_b
+    description: "Add constant (parallel branch B)"
+    handler:
+      callable: DiamondWorkflow::StepHandlers::DiamondBranchBHandler
+      initialization:
+        operation: add
+        constant: 25
+        description: "Add 25 to the squared result"
+    system_dependency:
+    dependencies:
+      - diamond_start
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: diamond_branch_c
+    description: "Multiply by factor (parallel branch C)"
+    handler:
+      callable: DiamondWorkflow::StepHandlers::DiamondBranchCHandler
+      initialization:
+        operation: multiply
+        factor: 2
+        description: "Multiply the squared result by 2"
+    system_dependency:
+    dependencies:
+      - diamond_start
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: diamond_end
+    description: "Average results from both branches (convergence)"
+    handler:
+      callable: DiamondWorkflow::StepHandlers::DiamondEndHandler
+      initialization:
+        operation: average
+        description: "Calculate average of both branch results"
+    system_dependency:
+    dependencies:
+      - diamond_branch_b
+      - diamond_branch_c
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: diamond_start
+        timeout_seconds: 10
+        retry:
+          limit: 2
+      - name: diamond_branch_b
+        timeout_seconds: 10
+        retry:
+          limit: 2
+      - name: diamond_branch_c
+        timeout_seconds: 10
+        retry:
+          limit: 2
+      - name: diamond_end
+        timeout_seconds: 10
+        retry:
+          limit: 2

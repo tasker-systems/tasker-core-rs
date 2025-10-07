@@ -42,7 +42,7 @@ pub struct StepExecutionRequest {
 #[derive(Serialize, Debug, Clone)]
 pub struct StepRequestMetadata {
     pub attempt: i32,
-    pub retry_limit: i32,
+    pub max_attempts: i32,
     pub timeout_ms: i64,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -308,7 +308,7 @@ impl StepExecutionRequest {
         handler_config: HashMap<String, serde_json::Value>,
         task_context: serde_json::Value,
         previous_results: HashMap<String, StepExecutionResult>,
-        retry_limit: i32,
+        max_attempts: i32,
         timeout_ms: i64,
     ) -> Self {
         Self {
@@ -321,7 +321,7 @@ impl StepExecutionRequest {
             previous_results,
             metadata: StepRequestMetadata {
                 attempt: 0,
-                retry_limit,
+                max_attempts,
                 timeout_ms,
                 created_at: chrono::Utc::now(),
             },
@@ -493,7 +493,7 @@ mod tests {
         assert_eq!(request.step_uuid, step_uuid);
         assert_eq!(request.task_uuid, task_uuid);
         assert_eq!(request.step_name, "validate_order");
-        assert_eq!(request.metadata.retry_limit, 3);
+        assert_eq!(request.metadata.max_attempts, 3);
         assert_eq!(request.metadata.timeout_ms, 30000);
     }
 

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>
+  Module: TaskerCore::Handlers
+  
+    &mdash; Documentation by YARD 0.9.37
+  
+</title>
+
+  <link rel="stylesheet" href="../css/style.css" type="text/css" />
+
+  <link rel="stylesheet" href="../css/common.css" type="text/css" />
+
+<script type="text/javascript">
+  pathId = "TaskerCore::Handlers";
+  relpath = '../';
+</script>
+
+
+  <script type="text/javascript" charset="utf-8" src="../js/jquery.js"></script>
+
+  <script type="text/javascript" charset="utf-8" src="../js/app.js"></script>
+
+
+  </head>
+  <body>
+    <div class="nav_wrap">
+      <iframe id="nav" src="../class_list.html?1"></iframe>
+      <div id="resizer"></div>
+    </div>
+
+    <div id="main" tabindex="-1">
+      <div id="header">
+        <div id="menu">
+  
+    <a href="../_index.html">Index (H)</a> &raquo;
+    <span class='title'><span class='object_link'><a href="../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span>
+     &raquo; 
+    <span class="title">Handlers</span>
+  
+</div>
+
+        <div id="search">
+  
+    <a class="full_list_link" id="class_list_link"
+        href="../class_list.html">
+
+        <svg width="24" height="24">
+          <rect x="0" y="4" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="12" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="20" width="24" height="4" rx="1" ry="1"></rect>
+        </svg>
+    </a>
+  
+</div>
+        <div class="clear"></div>
+      </div>
+
+      <div id="content"><h1>Module: TaskerCore::Handlers
+  
+  
+  
+</h1>
+<div class="box_info">
+  
+
+  
+  
+  
+  
+  
+
+  
+
+  
+  <dl>
+    <dt>Defined in:</dt>
+    <dd>lib/tasker_core/handlers.rb</dd>
+  </dl>
+  
+</div>
+
+<h2>Overview</h2><div class="docstring">
+  <div class="discussion">
+    
+<p>Clean Handlers Domain API</p>
+
+<p>This module provides the primary public interface for working with TaskerCore handlers. It’s organized into two main namespaces: Steps and Tasks, mirroring the Rails engine architecture while providing a clean Ruby interface with enhanced type safety.</p>
+
+<p>The Handlers namespace serves as the recommended entry point for handler operations, abstracting the underlying implementation details while preserving method signatures that developers familiar with the Rails engine will recognize.</p>
+
+<p>Architecture:</p>
+<ul><li>
+<p><strong>Steps</strong>: Individual business logic units (payment processing, API calls, etc.)</p>
+</li><li>
+<p><strong>Tasks</strong>: Workflow orchestration and step coordination</p>
+</li><li>
+<p><strong>API</strong>: Specialized step handlers for HTTP operations with automatic retry</p>
+</li></ul>
+
+<p>Method Signature Preservation: This namespace preserves Rails engine method signatures for compatibility:</p>
+<ul><li>
+<p>‘call(task, sequence, step)` - Primary handler execution</p>
+</li><li>
+<p>‘process(task, sequence, step)` - Alias for call (Rails compatibility)</p>
+</li><li>
+<p>‘process_results(task, sequence, step)` - Optional results processing hook</p>
+</li></ul>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+  <div class="examples">
+    <h4 class="tag_title">Examples:</h4>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Creating and using a step handler</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='comment'># Define a handler class
+</span><span class='kw'>class</span> <span class='const'>ProcessPaymentHandler</span> <span class='op'>&lt;</span> <span class='const'><span class='object_link'><a href="../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Handlers</span><span class='op'>::</span><span class='const'><span class='object_link'><a href="Handlers/Steps.html" title="TaskerCore::Handlers::Steps (module)">Steps</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="Handlers/Steps.html#Base-constant" title="TaskerCore::Handlers::Steps::Base (constant)">Base</a></span></span>
+  <span class='kw'>def</span> <span class='id identifier rubyid_call'>call</span><span class='lparen'>(</span><span class='id identifier rubyid_task'>task</span><span class='comma'>,</span> <span class='id identifier rubyid_sequence'>sequence</span><span class='comma'>,</span> <span class='id identifier rubyid_step'>step</span><span class='rparen'>)</span>
+    <span class='comment'># Access task context
+</span>    <span class='id identifier rubyid_amount'>amount</span> <span class='op'>=</span> <span class='id identifier rubyid_task'>task</span><span class='period'>.</span><span class='id identifier rubyid_context'>context</span><span class='lbracket'>[</span><span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>amount</span><span class='tstring_end'>&#39;</span></span><span class='rbracket'>]</span>
+    <span class='id identifier rubyid_currency'>currency</span> <span class='op'>=</span> <span class='id identifier rubyid_task'>task</span><span class='period'>.</span><span class='id identifier rubyid_context'>context</span><span class='lbracket'>[</span><span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>currency</span><span class='tstring_end'>&#39;</span></span><span class='rbracket'>]</span>
+
+    <span class='comment'># Process payment logic
+</span>    <span class='id identifier rubyid_result'>result</span> <span class='op'>=</span> <span class='id identifier rubyid_charge_payment'>charge_payment</span><span class='lparen'>(</span><span class='id identifier rubyid_amount'>amount</span><span class='comma'>,</span> <span class='id identifier rubyid_currency'>currency</span><span class='rparen'>)</span>
+
+    <span class='comment'># Return results to be stored in step.results
+</span>    <span class='lbrace'>{</span> <span class='label'>payment_id:</span> <span class='id identifier rubyid_result'>result</span><span class='period'>.</span><span class='id identifier rubyid_id'>id</span><span class='comma'>,</span> <span class='label'>status:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>succeeded</span><span class='tstring_end'>&quot;</span></span> <span class='rbrace'>}</span>
+  <span class='kw'>end</span>
+<span class='kw'>end</span>
+
+<span class='comment'># Create instance with configuration
+</span><span class='id identifier rubyid_handler'>handler</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Handlers</span><span class='op'>::</span><span class='const'><span class='object_link'><a href="Handlers/Steps.html" title="TaskerCore::Handlers::Steps (module)">Steps</a></span></span><span class='period'>.</span><span class='id identifier rubyid_create'><span class='object_link'><a href="Handlers/Steps.html#create-class_method" title="TaskerCore::Handlers::Steps.create (method)">create</a></span></span><span class='lparen'>(</span>
+  <span class='const'>ProcessPaymentHandler</span><span class='comma'>,</span>
+  <span class='label'>config:</span> <span class='lbrace'>{</span> <span class='label'>timeout:</span> <span class='int'>30</span><span class='comma'>,</span> <span class='label'>max_attempts:</span> <span class='int'>3</span> <span class='rbrace'>}</span>
+<span class='rparen'>)</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Validating handler implementation</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='id identifier rubyid_validation'>validation</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Handlers</span><span class='op'>::</span><span class='const'><span class='object_link'><a href="Handlers/Steps.html" title="TaskerCore::Handlers::Steps (module)">Steps</a></span></span><span class='period'>.</span><span class='id identifier rubyid_validate'><span class='object_link'><a href="Handlers/Steps.html#validate-class_method" title="TaskerCore::Handlers::Steps.validate (method)">validate</a></span></span><span class='lparen'>(</span><span class='const'>ProcessPaymentHandler</span><span class='rparen'>)</span>
+<span class='comment'># =&gt; {
+</span><span class='comment'>#   valid: true,
+</span><span class='comment'>#   missing_required: [],
+</span><span class='comment'>#   optional_implemented: [:process_results],
+</span><span class='comment'>#   handler_class: &quot;ProcessPaymentHandler&quot;
+</span><span class='comment'># }
+</span>
+<span class='kw'>if</span> <span class='id identifier rubyid_validation'>validation</span><span class='lbracket'>[</span><span class='symbol'>:valid</span><span class='rbracket'>]</span>
+  <span class='id identifier rubyid_puts'>puts</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Handler implements all required methods</span><span class='tstring_end'>&quot;</span></span>
+<span class='kw'>else</span>
+  <span class='id identifier rubyid_puts'>puts</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>Missing: </span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_validation'>validation</span><span class='lbracket'>[</span><span class='symbol'>:missing_required</span><span class='rbracket'>]</span><span class='period'>.</span><span class='id identifier rubyid_join'>join</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>, </span><span class='tstring_end'>&#39;</span></span><span class='rparen'>)</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span>
+<span class='kw'>end</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Using API handlers for HTTP operations</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='kw'>class</span> <span class='const'>FetchUserHandler</span> <span class='op'>&lt;</span> <span class='const'><span class='object_link'><a href="../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Handlers</span><span class='op'>::</span><span class='const'><span class='object_link'><a href="Handlers/Steps.html" title="TaskerCore::Handlers::Steps (module)">Steps</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="Handlers/Steps.html#API-constant" title="TaskerCore::Handlers::Steps::API (constant)">API</a></span></span>
+  <span class='kw'>def</span> <span class='id identifier rubyid_call'>call</span><span class='lparen'>(</span><span class='id identifier rubyid_task'>task</span><span class='comma'>,</span> <span class='id identifier rubyid_sequence'>sequence</span><span class='comma'>,</span> <span class='id identifier rubyid_step'>step</span><span class='rparen'>)</span>
+    <span class='id identifier rubyid_user_id'>user_id</span> <span class='op'>=</span> <span class='id identifier rubyid_task'>task</span><span class='period'>.</span><span class='id identifier rubyid_context'>context</span><span class='lbracket'>[</span><span class='tstring'><span class='tstring_beg'>&#39;</span><span class='tstring_content'>user_id</span><span class='tstring_end'>&#39;</span></span><span class='rbracket'>]</span>
+
+    <span class='comment'># Automatic error classification and retry logic
+</span>    <span class='id identifier rubyid_response'>response</span> <span class='op'>=</span> <span class='id identifier rubyid_get'>get</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>/users/</span><span class='embexpr_beg'>#{</span><span class='id identifier rubyid_user_id'>user_id</span><span class='embexpr_end'>}</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+
+    <span class='id identifier rubyid_response'>response</span><span class='period'>.</span><span class='id identifier rubyid_body'>body</span> <span class='comment'># Stored in step.results
+</span>  <span class='kw'>end</span>
+<span class='kw'>end</span></code></pre>
+    
+      
+        <h5 class="example_title"><div class='inline'>
+<p>Task-level handler for workflow coordination</p>
+</div></h5>
+      
+      <pre class="example code"><code><span class='comment'># Task handlers coordinate multiple steps
+</span><span class='id identifier rubyid_result'>result</span> <span class='op'>=</span> <span class='const'><span class='object_link'><a href="../TaskerCore.html" title="TaskerCore (module)">TaskerCore</a></span></span><span class='op'>::</span><span class='const'>Handlers</span><span class='op'>::</span><span class='const'><span class='object_link'><a href="Handlers/Tasks.html" title="TaskerCore::Handlers::Tasks (module)">Tasks</a></span></span><span class='period'>.</span><span class='id identifier rubyid_handle'><span class='object_link'><a href="Handlers/Tasks.html#handle-class_method" title="TaskerCore::Handlers::Tasks.handle (method)">handle</a></span></span><span class='lparen'>(</span><span class='label'>task_uuid:</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>123-456</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+<span class='comment'># =&gt; Orchestrates all steps for the task</span></code></pre>
+    
+  </div>
+
+
+  <p class="tag_title">See Also:</p>
+  <ul class="see">
+    
+      <li><span class='object_link'><a href="Handlers/Steps.html" title="TaskerCore::Handlers::Steps (module)">For step-level business logic</a></span></li>
+    
+      <li><span class='object_link'><a href="Handlers/Tasks.html" title="TaskerCore::Handlers::Tasks (module)">For task-level orchestration</a></span></li>
+    
+      <li><span class='object_link'><a href="StepHandler/Base.html" title="TaskerCore::StepHandler::Base (class)">For low-level step handler implementation</a></span></li>
+    
+      <li><span class='object_link'><a href="StepHandler/Api.html" title="TaskerCore::StepHandler::Api (class)">For HTTP-based handlers</a></span></li>
+    
+  </ul>
+
+</div><h2>Defined Under Namespace</h2>
+<p class="children">
+  
+    
+      <strong class="modules">Modules:</strong> <span class='object_link'><a href="Handlers/Steps.html" title="TaskerCore::Handlers::Steps (module)">Steps</a></span>, <span class='object_link'><a href="Handlers/Tasks.html" title="TaskerCore::Handlers::Tasks (module)">Tasks</a></span>
+    
+  
+    
+  
+</p>
+
+
+
+
+
+
+
+
+
+</div>
+
+      <div id="footer">
+  Generated on Mon Oct  6 16:44:00 2025 by
+  <a href="https://yardoc.org" title="Yay! A Ruby Documentation Tool" target="_parent">yard</a>
+  0.9.37 (ruby-3.4.4).
+</div>
+
+    </div>
+  </body>
+</html>

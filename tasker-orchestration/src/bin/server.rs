@@ -17,7 +17,7 @@ use std::env;
 use tokio::signal;
 use tracing::{error, info};
 
-use tasker_orchestration::orchestration::bootstrap::{BootstrapConfig, OrchestrationBootstrap};
+use tasker_orchestration::orchestration::bootstrap::OrchestrationBootstrap;
 use tasker_shared::logging;
 
 #[tokio::main]
@@ -36,25 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     );
 
-    // Get environment override from env var
-    let environment_override = env::var("TASKER_ENV").ok();
-
-    info!(
-        "   Environment: {}",
-        environment_override.as_deref().unwrap_or("auto-detect")
-    );
-
-    // Bootstrap orchestration system with web API enabled
-    info!("🔧 Bootstrapping orchestration system...");
-
-    let bootstrap_config = BootstrapConfig {
-        namespaces: vec![], // Let configuration determine namespaces
-        auto_start_processors: true,
-        environment_override,
-        enable_web_api: true, // Always enable web API for server mode
-    };
-
-    let mut orchestration_handle = OrchestrationBootstrap::bootstrap(bootstrap_config)
+    let mut orchestration_handle = OrchestrationBootstrap::bootstrap()
         .await
         .map_err(|e| format!("Failed to bootstrap orchestration: {e}"))?;
 
@@ -65,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     info!(
         "   Environment: {}",
-        orchestration_handle.config_manager.environment()
+        orchestration_handle.tasker_config.environment()
     );
     info!("   Press Ctrl+C to shutdown gracefully");
 

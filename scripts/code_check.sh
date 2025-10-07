@@ -98,8 +98,8 @@ ALL_WORKSPACE_PROJECTS=(
     "tasker-worker"          # Worker library
     "tasker-orchestration"   # Orchestration service
     "workers/rust"           # Rust worker implementation
+    "workers/ruby/ext/tasker_core"  # Ruby extension (if it exists)
     "."                      # Main workspace root
-    # "workers/ruby/ext/tasker_core"  # Ruby extension (if it exists)
 )
 
 # Projects that use SQLX and need cache preparation
@@ -110,6 +110,7 @@ SQLX_PROJECTS=(
     "tasker-worker"
     "tasker-orchestration"
     "workers/rust"
+    "workers/ruby/ext/tasker_core"
     "."                      # Main workspace root
 )
 

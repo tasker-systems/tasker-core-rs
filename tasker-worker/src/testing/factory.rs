@@ -226,7 +226,7 @@ impl WorkerTestFactory {
                 task_uuid,
                 named_step_uuid: named_step.named_step_uuid,
                 retryable: Some(config.retryable),
-                retry_limit: Some(config.retry_limit),
+                max_attempts: Some(config.max_attempts),
                 inputs: Some(config.inputs),
                 skippable: Some(config.skippable),
             };
@@ -268,7 +268,7 @@ pub struct TestStepConfig {
     pub name: String,
     pub inputs: serde_json::Value,
     pub retryable: bool,
-    pub retry_limit: i32,
+    pub max_attempts: i32,
     pub skippable: bool,
 }
 
@@ -278,7 +278,7 @@ impl Default for TestStepConfig {
             name: "test_step".to_string(),
             inputs: json!({}),
             retryable: true,
-            retry_limit: 3,
+            max_attempts: 3,
             skippable: false,
         }
     }
@@ -348,7 +348,7 @@ mod tests {
 
         assert_eq!(config.name, "test_step");
         assert!(config.retryable);
-        assert_eq!(config.retry_limit, 3);
+        assert_eq!(config.max_attempts, 3);
         assert!(!config.skippable);
     }
 }

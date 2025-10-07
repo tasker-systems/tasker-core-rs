@@ -179,8 +179,11 @@ async fn check_database_health(state: &WorkerWebState) -> HealthCheck {
 async fn check_command_processor_health(state: &WorkerWebState) -> HealthCheck {
     let start = std::time::Instant::now();
 
+    // Lock the worker core to access health methods
+    let worker_core = state.worker_core.lock().await;
+
     // Use WorkerCore's get_health method directly
-    match state.worker_core.get_health().await {
+    match worker_core.get_health().await {
         Ok(health_status) => {
             let is_healthy = health_status.status == "healthy"
                 && health_status.database_connected
@@ -276,8 +279,11 @@ async fn check_event_system_health(_state: &WorkerWebState) -> HealthCheck {
 async fn check_step_processing_health(state: &WorkerWebState) -> HealthCheck {
     let start = std::time::Instant::now();
 
+    // Lock the worker core to access processing stats
+    let worker_core = state.worker_core.lock().await;
+
     // Use WorkerCore's get_processing_stats method directly
-    match state.worker_core.get_processing_stats().await {
+    match worker_core.get_processing_stats().await {
         Ok(worker_status) => {
             // Calculate error rate and determine health
             let total_executions = worker_status.steps_executed;
@@ -319,6 +325,9 @@ async fn check_step_processing_health(state: &WorkerWebState) -> HealthCheck {
 
 /// Create system information summary
 async fn create_system_info(state: &WorkerWebState) -> WorkerSystemInfo {
+    // Lock the worker core to access status and namespace methods
+    let worker_core = state.worker_core.lock().await;
+
     WorkerSystemInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
         environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
@@ -326,9 +335,9 @@ async fn create_system_info(state: &WorkerWebState) -> WorkerSystemInfo {
         worker_type: state.worker_type(),
         database_pool_size: state.database_pool.size(),
         command_processor_active: matches!(
-            state.worker_core.status(),
+            worker_core.status(),
             crate::worker::core::WorkerCoreStatus::Running
         ),
-        supported_namespaces: state.worker_core.supported_namespaces().await,
+        supported_namespaces: worker_core.supported_namespaces().await,
     }
 }

@@ -392,23 +392,12 @@ impl TaskInitializer {
             return Ok(existing);
         }
 
-        // Create new named task if not found
-        let new_named_task = tasker_shared::models::core::named_task::NewNamedTask {
-            name: task_request.name.clone(),
-            version: Some(task_request.version.clone()),
-            description: Some(format!("Auto-created task for {}", task_request.name)),
-            task_namespace_uuid,
-            configuration: None,
-        };
-
-        let named_task =
-            tasker_shared::models::NamedTask::create(self.context.database_pool(), new_named_task)
-                .await
-                .map_err(|e| {
-                    TaskInitializationError::Database(format!("Failed to create named task: {e}"))
-                })?;
-
-        Ok(named_task)
+        // Template not found - this should never happen in production
+        // Templates must be registered by workers before orchestration can use them
+        Err(TaskInitializationError::ConfigurationNotFound(format!(
+            "Task template not found: {}/{}/{}. Templates must be registered by workers before orchestration can use them.",
+            task_request.namespace, task_request.name, task_request.version
+        )))
     }
 
     /// Create workflow steps and their dependencies from task template
@@ -488,7 +477,7 @@ impl TaskInitializer {
                 task_uuid,
                 named_step_uuid: named_step.named_step_uuid,
                 retryable: Some(step_definition.retry.retryable),
-                retry_limit: Some(step_definition.retry.limit as i32),
+                max_attempts: Some(step_definition.retry.max_attempts as i32),
                 inputs,
                 skippable: None, // Not available in new TaskTemplate - could be added if needed
             };
@@ -806,6 +795,28 @@ pub enum TaskInitializationError {
 
     #[error("Step enqueuing error: {0}")]
     StepEnqueuing(String),
+}
+
+impl TaskInitializationError {
+    /// Determine if this error is a client error (4xx) or server error (5xx)
+    ///
+    /// Client errors should NOT trip circuit breakers:
+    /// - ConfigurationNotFound: Template doesn't exist (404)
+    /// - InvalidConfiguration: Bad template data (400)
+    ///
+    /// Server errors SHOULD trip circuit breakers:
+    /// - Database: Connection/query failures (500)
+    /// - TransactionFailed: Database transaction errors (500)
+    /// - StateMachine: Internal state management errors (500)
+    /// - EventPublishing: Internal event system errors (500)
+    /// - StepEnqueuing: Internal queue errors (500)
+    pub fn is_client_error(&self) -> bool {
+        matches!(
+            self,
+            TaskInitializationError::ConfigurationNotFound(_)
+                | TaskInitializationError::InvalidConfiguration(_)
+        )
+    }
 }
 
 impl From<TaskInitializationError> for TaskerError {
