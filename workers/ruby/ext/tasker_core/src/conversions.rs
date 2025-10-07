@@ -20,6 +20,25 @@ pub fn convert_step_execution_event_to_ruby(event: StepExecutionEvent) -> Tasker
         .aset("step_uuid", event.payload.step_uuid.to_string())
         .map_err(|err| tasker_error_from_magnus_error(&err))?;
 
+    // TAS-29: Expose correlation_id at top level for easy Ruby access
+    let correlation_id = event.payload.task_sequence_step.task.task.correlation_id;
+    event_hash
+        .aset("correlation_id", correlation_id.to_string())
+        .map_err(|err| tasker_error_from_magnus_error(&err))?;
+
+    // TAS-29: Also expose parent_correlation_id if present
+    if let Some(parent_id) = event
+        .payload
+        .task_sequence_step
+        .task
+        .task
+        .parent_correlation_id
+    {
+        event_hash
+            .aset("parent_correlation_id", parent_id.to_string())
+            .map_err(|err| tasker_error_from_magnus_error(&err))?;
+    }
+
     // Convert TaskSequenceStep to Ruby hash
     let task_sequence_step_hash =
         convert_task_sequence_step_to_ruby(&event.payload.task_sequence_step)?;
