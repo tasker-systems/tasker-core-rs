@@ -36,6 +36,8 @@ is-terminal = { workspace = true }
 jsonwebtoken = { workspace = true, optional = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
 # Concurrency and state management
 parking_lot = { workspace = true }
 pgmq = { workspace = true }
@@ -63,6 +65,7 @@ tower-http = { workspace = true, optional = true }
 # Logging and telemetry
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 # OpenAPI documentation
 utoipa = { workspace = true, optional = true }
 utoipa-swagger-ui = { workspace = true, optional = true }
