@@ -4,6 +4,7 @@ use crate::models::orchestration::execution_status::ExecutionStatus;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 #[cfg(feature = "web-api")]
 use utoipa::ToSchema;
@@ -42,6 +43,8 @@ pub struct TaskResponse {
     pub reason: String,
     pub priority: Option<i32>,
     pub tags: Option<Vec<String>>,
+    pub correlation_id: Uuid,
+    pub parent_correlation_id: Option<Uuid>,
 
     // Execution context fields from TaskExecutionContext
     pub total_steps: i64,
@@ -278,6 +281,7 @@ impl TaskResponse {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use uuid::Uuid;
 
     #[test]
     fn test_task_response_execution_status_conversion() {
@@ -307,6 +311,8 @@ mod tests {
             completion_percentage: 100.0,
             health_status: "healthy".to_string(),
             steps: vec![],
+            correlation_id: Uuid::now_v7(),
+            parent_correlation_id: None,
         };
 
         // Test conversion to ExecutionStatus enum
@@ -348,6 +354,8 @@ mod tests {
             completion_percentage: 33.3,
             health_status: "healthy".to_string(),
             steps: vec![],
+            correlation_id: Uuid::now_v7(),
+            parent_correlation_id: None,
         };
 
         // Test processing status

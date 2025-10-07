@@ -206,16 +206,16 @@ impl TaskTemplateManager {
             namespace: namespace.to_string(),
             version: version.to_string(),
             context: serde_json::Value::Object(serde_json::Map::new()),
-            status: "PENDING".to_string(),
             initiator: "worker".to_string(),
             source_system: "task_template_manager".to_string(),
             reason: "Handler metadata lookup".to_string(),
-            complete: false,
             tags: Vec::new(),
             bypass_steps: Vec::new(),
             requested_at: chrono::Utc::now().naive_utc(),
             options: None,
             priority: Some(5),
+            correlation_id: uuid::Uuid::now_v7(), // TAS-29: Test correlation_id
+            parent_correlation_id: None,
         };
 
         self.registry.resolve_handler(&task_request).await
@@ -523,16 +523,16 @@ impl TaskTemplateManager {
                 namespace: key.namespace.clone(),
                 version: key.version.clone(),
                 context: serde_json::Value::Object(serde_json::Map::new()),
-                status: "PENDING".to_string(),
                 initiator: "worker".to_string(),
                 source_system: "task_template_manager".to_string(),
                 reason: "Template retrieval".to_string(),
-                complete: false,
                 tags: Vec::new(),
                 bypass_steps: Vec::new(),
                 requested_at: chrono::Utc::now().naive_utc(),
                 options: None,
                 priority: Some(5),
+                correlation_id: uuid::Uuid::now_v7(), // TAS-29: Test correlation_id
+                parent_correlation_id: None,
             })
             .await?;
 

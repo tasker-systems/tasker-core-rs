@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use super::named_task::NamedTask;
 use super::task::{NewTask, Task};
@@ -31,9 +32,6 @@ pub struct TaskRequest {
     /// Context data required for task execution (Rails: context)
     pub context: serde_json::Value,
 
-    /// Current status of the task (Rails: status, default: PENDING)
-    pub status: String,
-
     /// The entity or system that initiated this task request (Rails: initiator)
     pub initiator: String,
 
@@ -42,9 +40,6 @@ pub struct TaskRequest {
 
     /// The reason why this task was requested (Rails: reason)
     pub reason: String,
-
-    /// Indicates whether the task has been completed (Rails: complete)
-    pub complete: bool,
 
     /// Tags associated with this task for categorization or filtering (Rails: tags)
     pub tags: Vec<String>,
@@ -60,6 +55,14 @@ pub struct TaskRequest {
 
     /// Priority for task execution (higher values = higher priority). Default: 0
     pub priority: Option<i32>,
+
+    /// Correlation ID for distributed tracing (auto-generated if not provided)
+    /// TAS-29: Enables end-to-end request tracking across orchestration and workers
+    pub correlation_id: Uuid,
+
+    /// Optional parent correlation ID for nested/chained workflow relationships
+    /// TAS-29: Enables tracking of workflow hierarchies
+    pub parent_correlation_id: Option<Uuid>,
 }
 
 /// Represents the resolved NamedTask and extracted options from a TaskRequest
@@ -78,16 +81,16 @@ impl Default for TaskRequest {
             namespace: "default".to_string(),
             version: "1.0.0".to_string(),
             context: serde_json::json!({}),
-            status: "PENDING".to_string(),
             initiator: "UNKNOWN".to_string(),
             source_system: "UNKNOWN".to_string(),
             reason: "UNKNOWN".to_string(),
-            complete: false,
             tags: Vec::new(),
             bypass_steps: Vec::new(),
             requested_at: chrono::Utc::now().naive_utc(),
             options: None,
             priority: None,
+            correlation_id: Uuid::now_v7(),
+            parent_correlation_id: None,
         }
     }
 }
@@ -159,6 +162,20 @@ impl TaskRequest {
     /// Set task priority (higher values = higher priority)
     pub fn with_priority(mut self, priority: i32) -> Self {
         self.priority = Some(priority);
+        self
+    }
+
+    /// Set correlation ID for distributed tracing
+    /// TAS-29: Allows external systems to provide their own correlation ID
+    pub fn with_correlation_id(mut self, correlation_id: Uuid) -> Self {
+        self.correlation_id = correlation_id;
+        self
+    }
+
+    /// Set parent correlation ID for nested workflows
+    /// TAS-29: Enables tracking of workflow hierarchies and dependencies
+    pub fn with_parent_correlation_id(mut self, parent_correlation_id: Uuid) -> Self {
+        self.parent_correlation_id = Some(parent_correlation_id);
         self
     }
 
@@ -318,6 +335,8 @@ impl ResolvedTaskRequest {
                 &Some(self.resolved_context.clone()),
             ),
             priority: self.task_request.priority,
+            correlation_id: self.task_request.correlation_id,
+            parent_correlation_id: self.task_request.parent_correlation_id,
         }
     }
 

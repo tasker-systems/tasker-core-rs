@@ -90,10 +90,12 @@ impl OrchestrationResultProcessor {
         let step_uuid = &step_result.step_uuid;
         let status = &step_result.status;
         let execution_time_ms = &step_result.execution_time_ms;
+        let correlation_id = &step_result.correlation_id;
         let orchestration_metadata = &step_result.orchestration_metadata;
 
         info!(
             step_uuid = %step_uuid,
+            correlation_id = %correlation_id,
             status = %status,
             execution_time_ms = execution_time_ms,
             has_orchestration_metadata = orchestration_metadata.is_some(),

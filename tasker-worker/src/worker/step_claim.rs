@@ -40,6 +40,14 @@ impl StepClaim {
         &self,
         message: &SimpleStepMessage,
     ) -> TaskerResult<Option<TaskSequenceStep>> {
+        // TAS-29: Extract correlation_id for distributed tracing
+        debug!(
+            task_uuid = %message.task_uuid,
+            step_uuid = %message.step_uuid,
+            correlation_id = %message.correlation_id,
+            "Worker: Processing step message"
+        );
+
         let db_pool = self.context.database_pool();
         // 1. Fetch task data from database using task_uuid
         let task = match Task::find_by_id(db_pool, message.task_uuid).await {

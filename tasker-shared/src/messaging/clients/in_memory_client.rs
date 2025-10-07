@@ -213,6 +213,7 @@ impl MessageClient for InMemoryClient {
                         let step_message = StepMessage {
                             step_uuid: simple_message.step_uuid,
                             task_uuid: simple_message.task_uuid,
+                            correlation_id: simple_message.correlation_id, // TAS-29: Preserve correlation_id
                             namespace: namespace.to_string(),
                             task_name: "test_task".to_string(), // Default for testing
                             task_version: "1.0.0".to_string(),  // Default for testing
@@ -436,6 +437,7 @@ mod tests {
         let step_message = StepMessage {
             step_uuid: Uuid::new_v4(),
             task_uuid: Uuid::new_v4(),
+            correlation_id: Uuid::now_v7(), // TAS-29: Test correlation_id
             namespace: namespace.to_string(),
             task_name: "test_task".to_string(),
             task_version: "1.0.0".to_string(),
@@ -494,6 +496,7 @@ mod tests {
         let simple_message = SimpleStepMessage {
             step_uuid: Uuid::new_v4(),
             task_uuid: Uuid::new_v4(),
+            correlation_id: Uuid::now_v7(), // TAS-29: Test correlation_id
         };
 
         // Send simple step message
@@ -532,6 +535,7 @@ mod tests {
         let step_message = StepMessage {
             step_uuid: Uuid::new_v4(),
             task_uuid: Uuid::new_v4(),
+            correlation_id: Uuid::now_v7(), // TAS-29: Test correlation_id
             namespace: namespace.to_string(),
             task_name: "test_task".to_string(),
             task_version: "1.0.0".to_string(),

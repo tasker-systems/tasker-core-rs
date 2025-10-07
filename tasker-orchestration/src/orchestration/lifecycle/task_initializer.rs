@@ -94,15 +94,19 @@ impl TaskInitializer {
     }
 
     /// Create a complete task from TaskRequest with atomic transaction safety
-    #[instrument(skip(self), fields(task_name = %task_request.name))]
+    #[instrument(skip(self), fields(
+        task_name = %task_request.name,
+        correlation_id = %task_request.correlation_id
+    ))]
     pub async fn create_task_from_request(
         &self,
         task_request: TaskRequest,
     ) -> Result<TaskInitializationResult, TaskInitializationError> {
-        // Store values before moving task_request
+        // Store values before moving task_request (TAS-29: including correlation_id)
         let namespace = task_request.namespace.clone();
         let task_name = task_request.name.clone();
         let version = task_request.version.clone();
+        let correlation_id = task_request.correlation_id;
 
         // Clone the task_request for handler configuration lookup
         let task_request_for_handler = task_request.clone();
@@ -113,10 +117,16 @@ impl TaskInitializer {
             Some(&task_name),
             Some(&namespace),
             "STARTING",
-            Some(&format!("version={version}")),
+            Some(&format!(
+                "version={version}, correlation_id={correlation_id}"
+            )),
         );
 
-        info!(task_name = %task_request.name, "Starting task initialization");
+        info!(
+            task_name = %task_request.name,
+            correlation_id = %correlation_id,
+            "Starting task initialization"
+        );
 
         // Use SQLx transaction for atomicity
         let mut tx = self.context.database_pool().begin().await.map_err(|e| {

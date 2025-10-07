@@ -21,7 +21,7 @@ use pgmq::Message as PgmqMessage;
 use pgmq_notify::MessageReadyEvent;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{PgmqClientTrait, StepExecutionResult};
-use tasker_shared::models::WorkflowStep;
+use tasker_shared::models::{Task, WorkflowStep};
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::system_context::SystemContext;
@@ -666,14 +666,23 @@ impl WorkerProcessor {
             TaskerError::StateTransitionError(format!("Step transition failed: {e}"))
         })?;
 
+        // TAS-29: Fetch correlation_id from task for distributed tracing
+        let task_uuid = state_machine.task_uuid();
+        let task = Task::find_by_id(db_pool, task_uuid)
+            .await
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task: {e}")))?
+            .ok_or_else(|| TaskerError::WorkerError(format!("Task not found: {}", task_uuid)))?;
+        let correlation_id = task.correlation_id;
+
         // 5. Send SimpleStepMessage to orchestration queue using config-driven helper
         self.orchestration_result_sender
-            .send_completion(state_machine.task_uuid(), step_result.step_uuid)
+            .send_completion(task_uuid, step_result.step_uuid, correlation_id)
             .await?;
 
         info!(
             worker_id = %self.worker_id,
             step_uuid = %step_result.step_uuid,
+            correlation_id = %correlation_id,
             final_state = %final_state,
             "Step result processed and sent to orchestration successfully"
         );
@@ -974,6 +983,7 @@ mod tests {
         let step_message = SimpleStepMessage {
             task_uuid: Uuid::new_v4(),
             step_uuid: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
         };
 
         let queue_name = format!("{}_{}", "worker", "test_namespace");

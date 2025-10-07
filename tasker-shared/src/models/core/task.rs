@@ -103,6 +103,10 @@ pub struct Task {
     pub priority: i32,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    /// TAS-29: Correlation ID for distributed tracing
+    pub correlation_id: Uuid,
+    /// TAS-29: Optional parent correlation ID for workflow hierarchies
+    pub parent_correlation_id: Option<Uuid>,
 }
 
 /// New Task for creation (without generated fields)
@@ -118,6 +122,10 @@ pub struct NewTask {
     pub context: Option<serde_json::Value>,
     pub identity_hash: String,
     pub priority: Option<i32>,
+    /// TAS-29: Correlation ID for distributed tracing (auto-generated if not provided)
+    pub correlation_id: Uuid,
+    /// TAS-29: Optional parent correlation ID for workflow hierarchies
+    pub parent_correlation_id: Option<Uuid>,
 }
 
 /// Task with delegation metadata for orchestration
@@ -192,12 +200,12 @@ impl Task {
             INSERT INTO tasker_tasks (
                 named_task_uuid, complete, requested_at, initiator, source_system,
                 reason, bypass_steps, tags, context, identity_hash,
-                priority, created_at, updated_at
+                priority, correlation_id, parent_correlation_id, created_at, updated_at
             )
-            VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+            VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
             RETURNING task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                       reason, bypass_steps, tags, context, identity_hash,
-                    priority, created_at, updated_at
+                    priority, created_at, updated_at, correlation_id, parent_correlation_id
             "#,
             sanitized_task.named_task_uuid,
             sanitized_task.requested_at,
@@ -209,6 +217,8 @@ impl Task {
             sanitized_task.context,
             sanitized_task.identity_hash,
             sanitized_task.priority.unwrap_or(0),
+            sanitized_task.correlation_id,
+            sanitized_task.parent_correlation_id,
         )
         .fetch_one(pool)
         .await?;
@@ -227,12 +237,12 @@ impl Task {
         INSERT INTO tasker_tasks (
             named_task_uuid, complete, requested_at, initiator, source_system,
             reason, bypass_steps, tags, context, identity_hash,
-            priority, created_at, updated_at
+            priority, correlation_id, parent_correlation_id, created_at, updated_at
         )
-        VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+        VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
         RETURNING task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                   reason, bypass_steps, tags, context, identity_hash,
-                  priority, created_at, updated_at
+                  priority, created_at, updated_at, correlation_id, parent_correlation_id
         "#,
             sanitized_task.named_task_uuid,
             sanitized_task.requested_at,
@@ -243,7 +253,9 @@ impl Task {
             sanitized_task.tags,
             sanitized_task.context,
             sanitized_task.identity_hash,
-            sanitized_task.priority.unwrap_or(0)
+            sanitized_task.priority.unwrap_or(0),
+            sanitized_task.correlation_id,
+            sanitized_task.parent_correlation_id
         )
         .fetch_one(&mut **tx)
         .await?;
@@ -300,6 +312,8 @@ impl Task {
             context: sanitized_context,
             identity_hash,
             priority: new_task.priority,
+            correlation_id: new_task.correlation_id,
+            parent_correlation_id: new_task.parent_correlation_id,
         })
     }
 
@@ -310,7 +324,7 @@ impl Task {
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                    reason, bypass_steps, tags, context, identity_hash,
-                   priority, created_at, updated_at
+                   priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker_tasks
             WHERE task_uuid = $1::uuid
             "#,
@@ -332,7 +346,7 @@ impl Task {
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                    reason, bypass_steps, tags, context, identity_hash,
-                   priority, created_at, updated_at
+                   priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker_tasks
             WHERE identity_hash = $1
             "#,
@@ -354,7 +368,7 @@ impl Task {
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                    reason, bypass_steps, tags, context, identity_hash,
-                   priority, created_at, updated_at
+                   priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker_tasks
             WHERE named_task_uuid = $1::uuid
             ORDER BY created_at DESC
@@ -374,7 +388,7 @@ impl Task {
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                    reason, bypass_steps, tags, context, identity_hash,
-                   priority, created_at, updated_at
+                   priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker_tasks
             WHERE complete = false
             ORDER BY requested_at ASC
@@ -591,6 +605,8 @@ impl Task {
                     priority: row.get("priority"),
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
+                    correlation_id: row.get("correlation_id"),
+                    parent_correlation_id: row.get("parent_correlation_id"),
                 };
 
                 let status = if task.complete {
@@ -902,7 +918,7 @@ impl Task {
                     SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
                            t.initiator, t.source_system, t.reason, t.bypass_steps,
                            t.tags, t.context, t.identity_hash, t.priority,
-                           t.created_at, t.updated_at
+                           t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
                     FROM tasker_tasks t
                     INNER JOIN tasker_task_transitions tt
                         ON t.task_uuid = tt.task_uuid
@@ -925,7 +941,7 @@ impl Task {
                     SELECT task_uuid, named_task_uuid, complete, requested_at,
                            initiator, source_system, reason, bypass_steps,
                            tags, context, identity_hash, priority,
-                           created_at, updated_at
+                           created_at, updated_at, correlation_id, parent_correlation_id
                     FROM tasker_tasks
                     ORDER BY task_uuid
                     "#
@@ -954,7 +970,7 @@ impl Task {
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator,
                    source_system, reason, bypass_steps, tags, context,
-                   identity_hash, priority, created_at, updated_at
+                   identity_hash, priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker_tasks
             WHERE created_at >= $1
             ORDER BY created_at DESC
@@ -981,7 +997,7 @@ impl Task {
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
                    t.tags, t.context, t.identity_hash, t.priority,
-                   t.created_at, t.updated_at
+                   t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker_tasks t
             INNER JOIN tasker_task_transitions tt
                 ON t.task_uuid = tt.task_uuid
@@ -1012,7 +1028,7 @@ impl Task {
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
                    t.tags, t.context, t.identity_hash, t.priority,
-                   t.created_at, t.updated_at
+                   t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker_tasks t
             INNER JOIN tasker_task_transitions tt
                 ON t.task_uuid = tt.task_uuid
@@ -1040,7 +1056,7 @@ impl Task {
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
                    t.tags, t.context, t.identity_hash, t.priority,
-                   t.created_at, t.updated_at
+                   t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker_tasks t
             LEFT JOIN tasker_task_transitions tt
                 ON t.task_uuid = tt.task_uuid AND tt.most_recent = true
@@ -1065,7 +1081,7 @@ impl Task {
             r#"
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
-                   t.identity_hash, t.priority, t.created_at, t.updated_at
+                   t.identity_hash, t.priority, t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker_tasks t
             JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
             JOIN tasker_task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
@@ -1087,7 +1103,7 @@ impl Task {
             r#"
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
-                   t.identity_hash, t.priority, t.created_at, t.updated_at
+                   t.identity_hash, t.priority, t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker_tasks t
             JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
             WHERE nt.name = $1
@@ -1108,7 +1124,7 @@ impl Task {
             r#"
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
-                   t.identity_hash, t.priority, t.created_at, t.updated_at
+                   t.identity_hash, t.priority, t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker_tasks t
             JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
             WHERE nt.version = $1
@@ -1162,6 +1178,8 @@ impl Task {
             context: Some(task_request.context.clone()),
             identity_hash: Self::generate_identity_hash(Uuid::nil(), &Some(task_request.context)),
             priority: task_request.priority,
+            correlation_id: task_request.correlation_id,
+            parent_correlation_id: task_request.parent_correlation_id,
         }
     }
 

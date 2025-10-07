@@ -162,9 +162,24 @@ impl TaskFinalizer {
             return Err(FinalizationError::TaskNotFound { task_uuid });
         };
 
+        // TAS-29: Extract correlation_id for observability
+        let correlation_id = task.correlation_id;
+        debug!(
+            task_uuid = %task_uuid,
+            correlation_id = %correlation_id,
+            "TaskFinalizer: Starting task finalization"
+        );
+
         let context = self.get_task_execution_context(task_uuid).await?;
 
         let finalization_result = self.make_finalization_decision(task, context).await?;
+
+        debug!(
+            task_uuid = %task_uuid,
+            correlation_id = %correlation_id,
+            action = ?finalization_result.action,
+            "TaskFinalizer: Finalization completed"
+        );
 
         Ok(finalization_result)
     }

@@ -41,14 +41,21 @@ impl OrchestrationResultSender {
     /// # Arguments
     /// * `task_uuid` - UUID of the task containing the completed step
     /// * `step_uuid` - UUID of the completed workflow step
+    /// * `correlation_id` - TAS-29: Correlation ID for distributed tracing
     ///
     /// # Returns
     /// * `Ok(())` - Message sent successfully to orchestration queue
     /// * `Err(TaskerError)` - Queue communication or serialization error
-    pub async fn send_completion(&self, task_uuid: Uuid, step_uuid: Uuid) -> TaskerResult<()> {
+    pub async fn send_completion(
+        &self,
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+        correlation_id: Uuid,
+    ) -> TaskerResult<()> {
         let message = SimpleStepMessage {
             task_uuid,
             step_uuid,
+            correlation_id,
         };
 
         // Use config-driven queue name with namespace prefixing
@@ -67,6 +74,7 @@ impl OrchestrationResultSender {
         debug!(
             task_uuid = %task_uuid,
             step_uuid = %step_uuid,
+            correlation_id = %correlation_id,
             queue_name = %queue_name,
             "Step completion sent to orchestration queue using config-driven naming"
         );

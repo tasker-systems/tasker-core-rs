@@ -15,6 +15,8 @@ pub struct StepMessage {
     pub step_uuid: Uuid,
     /// Database task ID (big integer from database)
     pub task_uuid: Uuid,
+    /// TAS-29: Correlation ID for distributed tracing (propagated from task)
+    pub correlation_id: Uuid,
     /// Task namespace (e.g., "fulfillment", "inventory", "notifications")
     pub namespace: String,
     /// Task name (e.g., "process_order")
@@ -36,6 +38,7 @@ pub struct StepMessage {
 pub struct StepMessageParams {
     pub step_uuid: Uuid,
     pub task_uuid: Uuid,
+    pub correlation_id: Uuid,
     pub namespace: String,
     pub task_name: String,
     pub task_version: String,
@@ -51,17 +54,20 @@ pub struct StepMessageParams {
 /// the UUIDs to fetch ActiveRecord models directly from the shared database.
 ///
 /// Benefits:
-/// - 80%+ message size reduction (3 UUIDs vs complex nested JSON)
+/// - 80%+ message size reduction (4 UUIDs vs complex nested JSON)
 /// - Eliminates type conversion issues (Ruby gets real ActiveRecord models)
 /// - Prevents stale queue messages (UUIDs are globally unique)
 /// - Database as single source of truth (no data duplication)
 /// - Real ActiveRecord models for handlers (full ORM functionality)
+/// - TAS-29: Correlation ID available immediately without database query
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimpleStepMessage {
     /// Task UUID from tasker_tasks.task_uuid column
     pub task_uuid: Uuid,
     /// Step UUID from tasker_workflow_steps.step_uuid column
     pub step_uuid: Uuid,
+    /// TAS-29: Correlation ID for distributed tracing (from tasker_tasks.correlation_id)
+    pub correlation_id: Uuid,
     // Removed ready_dependency_step_uuids - workers will query dependencies as needed
 }
 
@@ -135,6 +141,7 @@ impl StepMessage {
     pub fn new(
         step_uuid: Uuid,
         task_uuid: Uuid,
+        correlation_id: Uuid,
         namespace: String,
         task_name: String,
         task_version: String,
@@ -145,6 +152,7 @@ impl StepMessage {
         Self {
             step_uuid,
             task_uuid,
+            correlation_id,
             namespace,
             task_name,
             task_version,
@@ -160,6 +168,7 @@ impl StepMessage {
         Self {
             step_uuid: params.step_uuid,
             task_uuid: params.task_uuid,
+            correlation_id: params.correlation_id,
             namespace: params.namespace,
             task_name: params.task_name,
             task_version: params.task_version,
@@ -178,6 +187,7 @@ impl StepMessage {
         Self {
             step_uuid: params.step_uuid,
             task_uuid: params.task_uuid,
+            correlation_id: params.correlation_id,
             namespace: params.namespace,
             task_name: params.task_name,
             task_version: params.task_version,
@@ -596,6 +606,7 @@ mod tests {
         let message = StepMessage::new(
             step_uuid,
             task_uuid,
+            Uuid::now_v7(), // correlation_id
             "fulfillment".to_string(),
             "process_order".to_string(),
             "1.0.0".to_string(),
@@ -626,6 +637,7 @@ mod tests {
         let message = StepMessage::new(
             step_uuid,
             task_uuid,
+            Uuid::now_v7(), // correlation_id
             "fulfillment".to_string(),
             "process_order".to_string(),
             "1.0.0".to_string(),
@@ -676,6 +688,7 @@ mod tests {
         let mut message = StepMessage::new(
             step_uuid,
             task_uuid,
+            Uuid::now_v7(), // correlation_id
             "fulfillment".to_string(),
             "process_order".to_string(),
             "1.0.0".to_string(),

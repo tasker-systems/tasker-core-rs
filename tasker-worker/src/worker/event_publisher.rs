@@ -278,6 +278,8 @@ mod tests {
                     priority: 5,
                     created_at: chrono::Utc::now().naive_utc(),
                     updated_at: chrono::Utc::now().naive_utc(),
+                    correlation_id: Uuid::now_v7(),
+                    parent_correlation_id: None,
                 },
                 task_name: "test_task".to_string(),
                 task_version: "1.0.0".to_string(),

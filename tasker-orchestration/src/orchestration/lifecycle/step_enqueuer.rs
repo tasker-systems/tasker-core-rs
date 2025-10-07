@@ -510,36 +510,38 @@ impl StepEnqueuer {
         task_info: &ReadyTaskInfo,
         viable_step: &ViableStep,
     ) -> TaskerResult<SimpleStepMessage> {
-        // Get task and step UUIDs from the database - minimal message creation
-        let task_uuid = self.get_task_uuid(task_info.task_uuid).await?;
+        // Get task UUID and correlation_id from database
+        let (task_uuid, correlation_id) = self.get_task_info(task_info.task_uuid).await?;
         let step_uuid = self.get_step_uuid(viable_step.step_uuid).await?;
 
         // Create minimal SimpleStepMessage - workers will query dependencies as needed
         let simple_message = SimpleStepMessage {
             task_uuid,
             step_uuid,
+            correlation_id,
         };
 
         debug!(
-            "✅ STEP_ENQUEUER: Created minimal message - task_uuid: {}, step_uuid: {} (dependencies queried by workers)",
+            "✅ STEP_ENQUEUER: Created minimal message - task_uuid: {}, step_uuid: {}, correlation_id: {} (dependencies queried by workers)",
             simple_message.task_uuid,
-            simple_message.step_uuid
+            simple_message.step_uuid,
+            simple_message.correlation_id
         );
 
         Ok(simple_message)
     }
 
-    /// Get task UUID from database by task_uuid
-    async fn get_task_uuid(&self, task_uuid: Uuid) -> TaskerResult<Uuid> {
+    /// Get task UUID and correlation_id from database by task_uuid
+    async fn get_task_info(&self, task_uuid: Uuid) -> TaskerResult<(Uuid, Uuid)> {
         let row = sqlx::query!(
-            "SELECT task_uuid FROM tasker_tasks WHERE task_uuid = $1",
+            "SELECT task_uuid, correlation_id FROM tasker_tasks WHERE task_uuid = $1",
             task_uuid
         )
         .fetch_one(self.context.database_pool())
         .await
-        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task UUID: {e}")))?;
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task info: {e}")))?;
 
-        Ok(row.task_uuid)
+        Ok((row.task_uuid, row.correlation_id))
     }
 
     /// Get step UUID from database by workflow_step_uuid

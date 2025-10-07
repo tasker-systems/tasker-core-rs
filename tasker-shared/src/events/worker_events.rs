@@ -454,6 +454,8 @@ mod tests {
                     priority: 5,
                     created_at: chrono::Utc::now().naive_utc(),
                     updated_at: chrono::Utc::now().naive_utc(),
+                    correlation_id: uuid::Uuid::now_v7(), // TAS-29: Test correlation_id
+                    parent_correlation_id: None,
                 },
                 task_name: "test_task".to_string(),
                 task_version: "1.0.0".to_string(),

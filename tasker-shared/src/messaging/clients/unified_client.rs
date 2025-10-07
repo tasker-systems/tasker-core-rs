@@ -403,6 +403,7 @@ impl MessageClient for PgmqClient {
                 retry_count: 0,
                 max_retries: 3,
                 timeout_seconds: Some((message.metadata.timeout_ms / 1000) as i64),
+                correlation_id: message.correlation_id, // TAS-29: Preserve correlation_id
             },
         };
 

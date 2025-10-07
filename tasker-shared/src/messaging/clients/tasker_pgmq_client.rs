@@ -40,6 +40,8 @@ pub struct PgmqStepMessageMetadata {
     pub max_retries: i32,
     /// Timeout in seconds (optional)
     pub timeout_seconds: Option<i64>,
+    /// TAS-29: Correlation ID for distributed tracing (propagated from task)
+    pub correlation_id: Uuid,
 }
 
 impl Default for PgmqStepMessageMetadata {
@@ -49,6 +51,7 @@ impl Default for PgmqStepMessageMetadata {
             retry_count: 0,
             max_retries: 3,
             timeout_seconds: Some(30),
+            correlation_id: Uuid::now_v7(),
         }
     }
 }
