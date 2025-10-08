@@ -17,10 +17,12 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use opentelemetry::KeyValue;
 use pgmq::Message as PgmqMessage;
 use pgmq_notify::MessageReadyEvent;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{PgmqClientTrait, StepExecutionResult};
+use tasker_shared::metrics::worker::*;
 use tasker_shared::models::{Task, WorkflowStep};
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
@@ -496,6 +498,17 @@ impl WorkerProcessor {
 
         self.stats.total_executed += 1;
 
+        // TAS-29 Phase 3.3: Record step execution start
+        if let Some(counter) = STEP_EXECUTIONS_TOTAL.get() {
+            counter.add(
+                1,
+                &[KeyValue::new(
+                    "correlation_id",
+                    step_message.correlation_id.to_string(),
+                )],
+            );
+        }
+
         info!(
             worker_id = %self.worker_id,
             processor_id = %self.processor_id,
@@ -524,6 +537,22 @@ impl WorkerProcessor {
                         step_uuid = %step_message.step_uuid,
                         "Failed to get task sequence step"
                     );
+
+                    // TAS-29 Phase 3.3: Record step failure (early error, no namespace available)
+                    if let Some(counter) = STEP_FAILURES_TOTAL.get() {
+                        counter.add(
+                            1,
+                            &[
+                                KeyValue::new(
+                                    "correlation_id",
+                                    step_message.correlation_id.to_string(),
+                                ),
+                                KeyValue::new("namespace", "unknown"),
+                                KeyValue::new("error_type", "step_not_found"),
+                            ],
+                        );
+                    }
+
                     return Err(TaskerError::DatabaseError(format!(
                         "Step not found for {}",
                         step_message.step_uuid
@@ -537,6 +566,22 @@ impl WorkerProcessor {
                     error = %err,
                     "Failed to get task sequence step"
                 );
+
+                // TAS-29 Phase 3.3: Record step failure (early error, no namespace available)
+                if let Some(counter) = STEP_FAILURES_TOTAL.get() {
+                    counter.add(
+                        1,
+                        &[
+                            KeyValue::new(
+                                "correlation_id",
+                                step_message.correlation_id.to_string(),
+                            ),
+                            KeyValue::new("namespace", "unknown"),
+                            KeyValue::new("error_type", "database_error"),
+                        ],
+                    );
+                }
+
                 return Err(err);
             }
         };
@@ -553,6 +598,25 @@ impl WorkerProcessor {
                     error = %err,
                     "Failed to claim step"
                 );
+
+                // TAS-29 Phase 3.3: Record step failure
+                if let Some(counter) = STEP_FAILURES_TOTAL.get() {
+                    counter.add(
+                        1,
+                        &[
+                            KeyValue::new(
+                                "correlation_id",
+                                step_message.correlation_id.to_string(),
+                            ),
+                            KeyValue::new(
+                                "namespace",
+                                task_sequence_step.task.namespace_name.clone(),
+                            ),
+                            KeyValue::new("error_type", "claim_failed"),
+                        ],
+                    );
+                }
+
                 return Err(err);
             }
         };
@@ -567,6 +631,25 @@ impl WorkerProcessor {
                 Ok(_) => (),
                 Err(err) => {
                     error!("Failed to delete message: {err}");
+
+                    // TAS-29 Phase 3.3: Record step failure
+                    if let Some(counter) = STEP_FAILURES_TOTAL.get() {
+                        counter.add(
+                            1,
+                            &[
+                                KeyValue::new(
+                                    "correlation_id",
+                                    step_message.correlation_id.to_string(),
+                                ),
+                                KeyValue::new(
+                                    "namespace",
+                                    task_sequence_step.task.namespace_name.clone(),
+                                ),
+                                KeyValue::new("error_type", "message_deletion_failed"),
+                            ],
+                        );
+                    }
+
                     return Err(TaskerError::MessagingError(format!(
                         "Failed to delete message: {err}"
                     )));
@@ -581,6 +664,30 @@ impl WorkerProcessor {
             * (self.stats.total_executed as f64 - 1.0)
             + execution_time as f64)
             / self.stats.total_executed as f64;
+
+        // TAS-29 Phase 3.3: Record step execution success
+        if let Some(counter) = STEP_SUCCESSES_TOTAL.get() {
+            counter.add(
+                1,
+                &[
+                    KeyValue::new("correlation_id", step_message.correlation_id.to_string()),
+                    KeyValue::new("namespace", task_sequence_step.task.namespace_name.clone()),
+                ],
+            );
+        }
+
+        // TAS-29 Phase 3.3: Record step execution duration
+        let duration_ms = execution_time as f64;
+        if let Some(histogram) = STEP_EXECUTION_DURATION.get() {
+            histogram.record(
+                duration_ms,
+                &[
+                    KeyValue::new("correlation_id", step_message.correlation_id.to_string()),
+                    KeyValue::new("namespace", task_sequence_step.task.namespace_name.clone()),
+                    KeyValue::new("result", "success"),
+                ],
+            );
+        }
 
         match &self.event_publisher {
             Some(publisher) => match publisher

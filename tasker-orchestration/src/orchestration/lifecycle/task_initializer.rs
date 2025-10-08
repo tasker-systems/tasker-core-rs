@@ -43,13 +43,16 @@
 
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::state_manager::StateManager;
+use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tasker_shared::database::SqlFunctionExecutor;
 use tasker_shared::logging;
+use tasker_shared::metrics::orchestration::*;
 use tasker_shared::models::core::task_template::TaskTemplate;
 use tasker_shared::models::{task_request::TaskRequest, NamedStep, Task, WorkflowStep};
 use tasker_shared::registry::TaskHandlerRegistry;
@@ -110,6 +113,21 @@ impl TaskInitializer {
 
         // Clone the task_request for handler configuration lookup
         let task_request_for_handler = task_request.clone();
+
+        // TAS-29 Phase 3.3: Record task request metric
+        if let Some(counter) = TASK_REQUESTS_TOTAL.get() {
+            counter.add(
+                1,
+                &[
+                    KeyValue::new("correlation_id", correlation_id.to_string()),
+                    KeyValue::new("task_type", task_name.clone()),
+                    KeyValue::new("namespace", namespace.clone()),
+                ],
+            );
+        }
+
+        // TAS-29 Phase 3.3: Start timing task initialization
+        let start_time = Instant::now();
 
         logging::log_task_operation(
             "TASK_INITIALIZATION_START",
@@ -265,6 +283,18 @@ impl TaskInitializer {
             step_count = step_count,
             "Task initialization completed successfully"
         );
+
+        // TAS-29 Phase 3.3: Record task initialization duration
+        let duration_ms = start_time.elapsed().as_millis() as f64;
+        if let Some(histogram) = TASK_INITIALIZATION_DURATION.get() {
+            histogram.record(
+                duration_ms,
+                &[
+                    KeyValue::new("correlation_id", correlation_id.to_string()),
+                    KeyValue::new("task_type", task_name.clone()),
+                ],
+            );
+        }
 
         Ok(result)
     }

@@ -1,6 +1,9 @@
 use super::task_template_manager::TaskTemplateManager;
+use opentelemetry::KeyValue;
 use std::sync::Arc;
+use std::time::Instant;
 use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::metrics::worker::*;
 use tasker_shared::models::{
     orchestration::StepTransitiveDependenciesQuery, task::Task, workflow_step::WorkflowStepWithName,
 };
@@ -143,6 +146,10 @@ impl StepClaim {
         correlation_id: Uuid,
     ) -> TaskerResult<bool> {
         let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
+
+        // TAS-29 Phase 3.3: Start timing step claim
+        let start_time = Instant::now();
+
         debug!(
             correlation_id = %correlation_id,
             step_uuid = %step_uuid,
@@ -211,6 +218,36 @@ impl StepClaim {
                                 new_state = %new_state,
                                 "Successfully claimed step by transitioning to InProgress and incremented attempts"
                             );
+
+                            // TAS-29 Phase 3.3: Record successful step claim
+                            if let Some(counter) = STEPS_CLAIMED_TOTAL.get() {
+                                counter.add(
+                                    1,
+                                    &[
+                                        KeyValue::new(
+                                            "namespace",
+                                            task_sequence_step.task.namespace_name.clone(),
+                                        ),
+                                        KeyValue::new("claim_method", "event"), // or "poll" depending on context
+                                    ],
+                                );
+                            }
+
+                            // TAS-29 Phase 3.3: Record claim duration
+                            let duration_ms = start_time.elapsed().as_millis() as f64;
+                            if let Some(histogram) = STEP_CLAIM_DURATION.get() {
+                                histogram.record(
+                                    duration_ms,
+                                    &[
+                                        KeyValue::new(
+                                            "namespace",
+                                            task_sequence_step.task.namespace_name.clone(),
+                                        ),
+                                        KeyValue::new("claim_method", "event"),
+                                    ],
+                                );
+                            }
+
                             Ok(true)
                         } else {
                             debug!(

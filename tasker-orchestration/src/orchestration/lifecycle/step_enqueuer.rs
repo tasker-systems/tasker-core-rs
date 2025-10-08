@@ -46,6 +46,7 @@
 use crate::orchestration::{
     state_manager::StateManager, viable_step_discovery::ViableStepDiscovery,
 };
+use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -55,6 +56,7 @@ use tasker_shared::config::orchestration::StepEnqueuerConfig;
 use tasker_shared::database::sql_functions::ReadyTaskInfo;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::PgmqClientTrait;
+use tasker_shared::metrics::orchestration::*;
 use tasker_shared::models::WorkflowStep;
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::states::WorkflowStepState;
@@ -254,6 +256,18 @@ impl StepEnqueuer {
                 Ok(queue_name) => {
                     steps_enqueued += 1;
                     step_uuids.push(viable_step.step_uuid);
+
+                    // TAS-29 Phase 3.3: Record step enqueued metric
+                    if let Some(counter) = STEPS_ENQUEUED_TOTAL.get() {
+                        counter.add(
+                            1,
+                            &[
+                                KeyValue::new("correlation_id", correlation_id.to_string()),
+                                KeyValue::new("namespace", task_info.namespace_name.clone()),
+                                KeyValue::new("step_name", viable_step.name.clone()),
+                            ],
+                        );
+                    }
 
                     // Update namespace stats
                     let stats = namespace_breakdown

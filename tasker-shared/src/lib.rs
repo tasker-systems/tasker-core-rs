@@ -38,6 +38,7 @@
 //! - [`events`] - Event system foundation
 //! - Workflow orchestration logic (in tasker-orchestration crate)
 //! - [`messaging`] - PostgreSQL message queue (pgmq) integration
+//! - [`metrics`] - OpenTelemetry metrics collection (TAS-29 Phase 3.3)
 //! - [`registry`] - Component registration and discovery
 //! - Multi-language FFI bindings (future feature)
 //! - [`resilience`] - Circuit breaker patterns and fault tolerance
@@ -88,6 +89,7 @@ pub mod event_system;
 pub mod events;
 pub mod logging;
 pub mod messaging;
+pub mod metrics;
 pub mod models;
 pub mod registry;
 pub mod resilience;

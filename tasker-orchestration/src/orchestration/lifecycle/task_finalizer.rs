@@ -39,16 +39,19 @@
 //! Migrated from `lib/tasker/orchestration/task_finalizer.rb` with enhanced
 //! type safety and performance optimizations.
 
+use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::Arc;
+use std::time::Instant;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
-use std::sync::Arc;
 
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::events::types::{Event, OrchestrationEvent, TaskResult};
+use tasker_shared::metrics::orchestration::*;
 use tasker_shared::models::orchestration::{ExecutionStatus, TaskExecutionContext};
 use tasker_shared::models::Task;
 use tasker_shared::state_machine::{TaskEvent, TaskState, TaskStateMachine};
@@ -170,6 +173,10 @@ impl TaskFinalizer {
         };
 
         let correlation_id = task.correlation_id;
+
+        // TAS-29 Phase 3.3: Start timing task finalization
+        let start_time = Instant::now();
+
         debug!(
             correlation_id = %correlation_id,
             task_uuid = %task_uuid,
@@ -190,6 +197,70 @@ impl TaskFinalizer {
             action = ?finalization_result.action,
             "TaskFinalizer: Finalization completed"
         );
+
+        // TAS-29 Phase 3.3: Record finalization metrics based on action
+        let duration_ms = start_time.elapsed().as_millis() as f64;
+
+        match &finalization_result.action {
+            FinalizationAction::Completed => {
+                // Record task completion counter
+                if let Some(counter) = TASK_COMPLETIONS_TOTAL.get() {
+                    counter.add(
+                        1,
+                        &[KeyValue::new("correlation_id", correlation_id.to_string())],
+                    );
+                }
+
+                // Record finalization duration for completed tasks
+                if let Some(histogram) = TASK_FINALIZATION_DURATION.get() {
+                    histogram.record(
+                        duration_ms,
+                        &[
+                            KeyValue::new("correlation_id", correlation_id.to_string()),
+                            KeyValue::new("final_state", "complete"),
+                        ],
+                    );
+                }
+            }
+            FinalizationAction::Failed => {
+                // Record task failure counter
+                if let Some(counter) = TASK_FAILURES_TOTAL.get() {
+                    counter.add(
+                        1,
+                        &[KeyValue::new("correlation_id", correlation_id.to_string())],
+                    );
+                }
+
+                // Record finalization duration for failed tasks
+                if let Some(histogram) = TASK_FINALIZATION_DURATION.get() {
+                    histogram.record(
+                        duration_ms,
+                        &[
+                            KeyValue::new("correlation_id", correlation_id.to_string()),
+                            KeyValue::new("final_state", "error"),
+                        ],
+                    );
+                }
+            }
+            _ => {
+                // For other actions (Pending, Reenqueued, NoAction), just record duration
+                if let Some(histogram) = TASK_FINALIZATION_DURATION.get() {
+                    let state = match finalization_result.action {
+                        FinalizationAction::Pending => "pending",
+                        FinalizationAction::Reenqueued => "reenqueued",
+                        FinalizationAction::NoAction => "no_action",
+                        _ => "unknown",
+                    };
+                    histogram.record(
+                        duration_ms,
+                        &[
+                            KeyValue::new("correlation_id", correlation_id.to_string()),
+                            KeyValue::new("final_state", state),
+                        ],
+                    );
+                }
+            }
+        }
 
         Ok(finalization_result)
     }

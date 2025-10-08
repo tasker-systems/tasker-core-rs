@@ -107,6 +107,8 @@ use std::sync::OnceLock;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 use uuid::Uuid;
 
+use crate::metrics;
+
 // OpenTelemetry imports (TAS-29 Phase 3)
 use opentelemetry::{
     trace::{TraceError, TracerProvider as _},
@@ -122,6 +124,9 @@ use opentelemetry_sdk::{
 use tracing_opentelemetry::OpenTelemetryLayer;
 
 static TRACING_INITIALIZED: OnceLock<()> = OnceLock::new();
+/// Store TracerProvider handle for proper shutdown
+/// TAS-29: Enables graceful shutdown with span flushing
+static TRACER_PROVIDER: OnceLock<TracerProvider> = OnceLock::new();
 
 /// Configuration for OpenTelemetry (loaded from environment or defaults)
 struct TelemetryConfig {
@@ -197,6 +202,9 @@ fn init_opentelemetry_tracer(config: &TelemetryConfig) -> Result<TracerProvider,
                 .with_resource(resource),
         )
         .install_batch(runtime::Tokio)?;
+
+    // Store provider handle for graceful shutdown (TAS-29 Phase 3.3)
+    let _ = TRACER_PROVIDER.set(tracer_provider.clone());
 
     Ok(tracer_provider)
 }
@@ -280,14 +288,44 @@ pub fn init_tracing() {
                 );
             }
         }
+
+        // Initialize OpenTelemetry metrics (TAS-29 Phase 3.3)
+        metrics::init_metrics();
+
+        // Initialize domain-specific metrics
+        metrics::orchestration::init();
+        metrics::worker::init();
+        metrics::database::init();
+        metrics::messaging::init();
     });
 }
 
 /// Shutdown OpenTelemetry gracefully
 ///
 /// This should be called before application exit to ensure all pending
-/// spans are exported.
+/// spans and metrics are exported.
+///
+/// # Shutdown Ordering (TAS-29 Phase 3.3)
+///
+/// Proper shutdown sequence prevents "channel closed" errors:
+/// 1. Flush TracerProvider to export pending spans
+/// 2. Shutdown metrics to flush pending metrics
+/// 3. Shutdown global tracer provider last
 pub fn shutdown_telemetry() {
+    // Flush any pending spans before shutdown
+    if let Some(provider) = TRACER_PROVIDER.get() {
+        // Force flush to ensure all spans are exported
+        for result in provider.force_flush() {
+            if let Err(e) = result {
+                tracing::warn!("Failed to flush tracer provider: {}", e);
+            }
+        }
+    }
+
+    // Shutdown metrics (will flush any pending metrics)
+    metrics::shutdown_metrics();
+
+    // Now safe to shutdown - all pending spans and metrics have been exported
     opentelemetry::global::shutdown_tracer_provider();
 }
 

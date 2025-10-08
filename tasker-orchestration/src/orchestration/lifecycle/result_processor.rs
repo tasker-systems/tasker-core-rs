@@ -16,9 +16,12 @@
 //!
 //! This enables autonomous Ruby workers with database-driven coordination.
 
+use opentelemetry::KeyValue;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 use tasker_shared::messaging::StepExecutionStatus;
+use tasker_shared::metrics::orchestration::*;
 use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{errors::OrchestrationResult, OrchestrationError};
@@ -93,6 +96,28 @@ impl OrchestrationResultProcessor {
         let correlation_id = &step_result.correlation_id;
         let orchestration_metadata = &step_result.orchestration_metadata;
 
+        // TAS-29 Phase 3.3: Record step result processed metric
+        let result_type = match status {
+            StepExecutionStatus::Success => "success",
+            StepExecutionStatus::Failed => "error",
+            StepExecutionStatus::Timeout => "timeout",
+            StepExecutionStatus::Cancelled => "cancelled",
+            StepExecutionStatus::Skipped => "skipped",
+        };
+
+        if let Some(counter) = STEP_RESULTS_PROCESSED_TOTAL.get() {
+            counter.add(
+                1,
+                &[
+                    KeyValue::new("correlation_id", correlation_id.to_string()),
+                    KeyValue::new("result_type", result_type),
+                ],
+            );
+        }
+
+        // TAS-29 Phase 3.3: Start timing result processing
+        let start_time = Instant::now();
+
         info!(
             correlation_id = %correlation_id,
             step_uuid = %step_uuid,
@@ -141,7 +166,7 @@ impl OrchestrationResultProcessor {
             "Delegating to handle_step_result for coordination-only processing"
         );
 
-        match self
+        let result = match self
             .handle_step_result(
                 &step_result.step_uuid,
                 &step_result.status.clone().into(),
@@ -169,7 +194,21 @@ impl OrchestrationResultProcessor {
                 );
                 Err(e)
             }
+        };
+
+        // TAS-29 Phase 3.3: Record step result processing duration
+        let duration_ms = start_time.elapsed().as_millis() as f64;
+        if let Some(histogram) = STEP_RESULT_PROCESSING_DURATION.get() {
+            histogram.record(
+                duration_ms,
+                &[
+                    KeyValue::new("correlation_id", correlation_id.to_string()),
+                    KeyValue::new("result_type", result_type),
+                ],
+            );
         }
+
+        result
     }
 
     pub async fn handle_step_execution_result(
