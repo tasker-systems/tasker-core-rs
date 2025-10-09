@@ -251,100 +251,31 @@ ready_steps: ObservableGauge<i64>
 
 ---
 
-## Phase 4: Ruby FFI Tracing Bridge (Week 4)
+## Phase 4: Multi-Language FFI Tracing Bridge (DEFERRED)
 
-### 4.1 Rust Tracing FFI Exports
-**New module**: `workers/ruby/ext/tasker_core/src/tracing.rs`
+**Status**: ⏸️ **DEFERRED** - Pending multi-language FFI strategy
 
-```rust
-#[magnus::wrap(class = "TaskerCore::Tracing")]
-struct RubyTracing;
+**Rationale**:
+With planned support for Ruby, Python, and WASM/JavaScript FFI targets, designing a Ruby-specific tracing bridge would require solving the same problem three times. Better to defer until all FFI targets are implemented and design a unified approach.
 
-impl RubyTracing {
-    fn trace_span(level: String, name: String, fields: HashMap<String, Value>) {
-        // Create Rust span from Ruby
-        let span = match level.as_str() {
-            "debug" => tracing::debug_span!(&name),
-            "info" => tracing::info_span!(&name),
-            "warn" => tracing::warn_span!(&name),
-            "error" => tracing::error_span!(&name),
-            _ => tracing::info_span!(&name),
-        };
+**Design Considerations for Future Implementation**:
+1. Each language has mature OpenTelemetry SDKs already:
+   - Ruby: `opentelemetry-sdk`
+   - Python: `opentelemetry-sdk-python`
+   - JavaScript/WASM: `@opentelemetry/sdk-trace-web`
 
-        // Add fields to span
-        for (key, value) in fields {
-            span.record(key, value);
-        }
+2. Key architectural decision: **Trace context propagation strategy**
+   - Option A: Propagate Rust trace context → FFI language (parent/child spans)
+   - Option B: Independent trace contexts per language, correlated via `correlation_id`
+   - Option C: Hybrid approach based on language capabilities
 
-        span.in_scope(|| {
-            // Ruby block will execute in this span
-        });
-    }
+3. Requirements to revisit:
+   - Span nesting across FFI boundaries
+   - Trace context serialization format
+   - Performance overhead of FFI tracing calls
+   - Error handling for telemetry failures
 
-    fn log_event(level: String, message: String, fields: HashMap<String, Value>) {
-        // Emit structured log event
-    }
-}
-```
-
-### 4.2 Ruby Logger Replacement
-**Deprecate**: `workers/ruby/lib/tasker_core/logger.rb`
-**Replace with**: `workers/ruby/lib/tasker_core/tracing.rb`
-
-```ruby
-module TaskerCore
-  module Tracing
-    class << self
-      def span(level, name, **fields)
-        # Delegate to Rust FFI tracing
-        Internal::Tracing.trace_span(level.to_s, name, fields) do
-          yield if block_given?
-        end
-      end
-
-      def event(level, message, **fields)
-        Internal::Tracing.log_event(level.to_s, message, fields.merge(
-          correlation_id: current_correlation_id,
-          component: "ruby_worker"
-        ))
-      end
-
-      # Convenience methods
-      def debug(message, **fields) = event(:debug, message, **fields)
-      def info(message, **fields) = event(:info, message, **fields)
-      def warn(message, **fields) = event(:warn, message, **fields)
-      def error(message, **fields) = event(:error, message, **fields)
-
-      private
-
-      def current_correlation_id
-        Thread.current[:correlation_id]
-      end
-    end
-  end
-end
-```
-
-### 4.3 Handler Context Enhancement
-**Add to handler execution context**:
-```ruby
-class BaseHandler
-  attr_reader :correlation_id, :task_uuid, :step_uuid
-
-  def execute(context)
-    Thread.current[:correlation_id] = context[:correlation_id]
-
-    Tracing.span(:info, "handler_execution",
-      handler: self.class.name,
-      correlation_id: correlation_id,
-      task_uuid: task_uuid,
-      step_uuid: step_uuid
-    ) do
-      perform(context)
-    end
-  end
-end
-```
+**Recommendation**: Revisit after TAS-43 (Python FFI) and TAS-44 (WASM target) are complete.
 
 ---
 
@@ -406,69 +337,87 @@ impl WorkflowDataGenerator {
 ```
 
 ### 5.2 SQL Query Benchmarking Suite
-**New module**: `benchmarks/sql_queries.rs`
 
-```rust
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+**Status**: ✅ **COMPLETE** (2025-10-08)
 
-pub struct SqlBenchmarkSuite {
-    pool: PgPool,
-    dataset: GeneratedDataset,
-}
+**Implementation**: `tasker-shared/benches/sql_functions.rs`
 
-impl SqlBenchmarkSuite {
-    // Benchmark 1: get_next_ready_tasks performance
-    pub fn bench_get_next_ready_tasks(&self, c: &mut Criterion) {
-        let mut group = c.benchmark_group("get_next_ready_tasks");
+**Approach**: Simplified benchmark suite that works with existing test data rather than generating custom datasets. This pragmatic approach allows immediate baseline measurement while deferring complex data generation to Phase 5.3.
 
-        for task_count in [100, 1000, 10000, 50000] {
-            group.bench_with_input(
-                BenchmarkId::from_parameter(task_count),
-                &task_count,
-                |b, &count| {
-                    b.to_async(&self.runtime).iter(|| async {
-                        sqlx::query!(...)
-                            .fetch_all(&self.pool)
-                            .await
-                    });
-                }
-            );
-        }
-        group.finish();
-    }
+**Benchmarks Implemented**:
 
-    // Benchmark 2: get_step_readiness_status
-    pub fn bench_step_readiness(&self, c: &mut Criterion) {
-        let mut group = c.benchmark_group("step_readiness");
+1. **`get_next_ready_tasks()`** - 4 batch sizes (1, 10, 50, 100)
+   - Measures task discovery hot path
+   - Tests scaling with batch size
+   - Establishes baseline function overhead
+   - **Result**: ~1.78-3.07ms with near-linear scaling
 
-        for complexity in [Linear, Diamond, Tree, MixedDAG] {
-            group.bench_with_input(
-                BenchmarkId::from_parameter(complexity),
-                &complexity,
-                |b, complexity| {
-                    let task_uuid = self.dataset.get_task_by_complexity(complexity);
-                    b.to_async(&self.runtime).iter(|| async {
-                        sqlx::query!(
-                            "SELECT * FROM get_step_readiness_status($1)",
-                            task_uuid
-                        )
-                        .fetch_all(&self.pool)
-                        .await
-                    });
-                }
-            );
-        }
-    }
+2. **`get_step_readiness_status()`** - Step readiness calculation
+   - Requires existing test data
+   - Gracefully skips if no data present
+   - Measures dependency resolution performance
+   - **Result**: ~379µs for complex dependency resolution
 
-    // Benchmark 3: State transition atomicity
-    pub fn bench_state_transitions(&self, c: &mut Criterion) {
-        // Measure contention under concurrent transitions
-    }
-}
+3. **`transition_task_state_atomic()`** - Atomic state transitions
+   - Tests compare-and-swap performance
+   - Measures both successful and failed transitions
+   - Identifies contention scenarios
+   - **Result**: ~382µs for atomic operations
+
+4. **`get_task_execution_context()`** - Task orchestration status
+   - Measures comprehensive task status retrieval
+   - Used heavily in orchestration hot paths
+   - Tests step aggregation query performance
+   - **Result**: Performance validation pending
+
+5. **`get_step_transitive_dependencies()`** - Transitive dependency resolution
+   - Measures recursive CTE dependency tree traversal
+   - Called once per step lifecycle on worker side
+   - Tests performance with various DAG complexities
+   - **Result**: Performance validation pending
+
+6. **`EXPLAIN ANALYZE`** - Automatic query plan analysis
+   - Runs once per function (no repeated iterations since plans don't change)
+   - Captures plans for `get_next_ready_tasks`, `get_task_execution_context`, and `get_step_transitive_dependencies`
+   - Automatic logging with key metrics extraction
+   - Identifies sequential scans, buffer hit ratios, costs
+   - Optionally saves full JSON plans via `SAVE_QUERY_PLANS=1`
+
+**Note**: Originally planned benchmark for `claim_task_for_finalization()` was removed as this function no longer exists in the codebase. Finalization is now handled through standard state transition mechanisms.
+
+**Usage**:
+```bash
+# Run all benchmarks
+cargo bench --package tasker-shared --features benchmarks
+
+# Run with baseline comparison
+cargo bench --package tasker-shared --features benchmarks -- --save-baseline main
+cargo bench --package tasker-shared --features benchmarks -- --baseline main
+
+# Run with full query plan export
+SAVE_QUERY_PLANS=1 cargo bench --package tasker-shared --features benchmarks
 ```
 
+**Documentation**: `docs/observability/benchmarking-guide.md`
+
+**Design Decisions**:
+- Used `sqlx::query()` instead of `sqlx::query!()` to avoid compile-time SQL checking issues
+- Benchmark functions gracefully skip if test data unavailable
+- Focused on measuring actual SQL function performance, not data setup overhead
+- Integrated EXPLAIN ANALYZE into benchmark suite for query plan analysis
+- **Intelligent sampling**: Benchmarks use 5-10 diverse samples per function to capture performance variance across different task/step complexities
+- Samples selected from different `named_task_uuid` types for representativeness
+- Deterministic ordering ensures consistent baseline comparisons
+
+**Key Learning**: Benchmarks work best with existing integration test data. Using diverse samples instead of single UUIDs provides much more representative performance measurements. Custom data generation (Phase 5.3) can be added later for scale testing.
+
 ### 5.3 EXPLAIN ANALYZE Integration
-**New module**: `benchmarks/query_analysis.rs`
+
+**Status**: ✅ **MERGED INTO 5.2** (2025-10-08)
+
+**Rationale**: EXPLAIN ANALYZE functionality integrated directly into `sql_functions.rs` benchmark suite rather than separate module. The `bench_explain_analyze()` function captures query plans during benchmark execution.
+
+**Implementation**: Included in `tasker-shared/benches/sql_functions.rs`
 
 ```rust
 pub struct QueryAnalyzer {

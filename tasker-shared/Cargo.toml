@@ -9,10 +9,15 @@ license = "MIT"
 crate-type = ["rlib"]
 name = "tasker_shared"
 
-# [[bench]]
-# harness = false
-# name = "shared_benchmarks"
-# required-features = ["benchmarks"]
+[[bench]]
+harness = false
+name = "sql_functions"
+required-features = ["benchmarks"]
+
+[[bench]]
+harness = false
+name = "event_propagation"
+required-features = ["benchmarks"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -88,7 +93,7 @@ url = { workspace = true }
 
 [features]
 default = ["postgres", "test-utils", "web-api"]
-# benchmarks = ["criterion"]
+benchmarks = ["criterion"]
 postgres = ["sqlx/postgres"]
 test-utils = []
 web-api = [

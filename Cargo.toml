@@ -122,6 +122,11 @@ crate-type = ["rlib"]
 name = "tasker_core"
 path = "src/lib.rs"
 
+[[bench]]
+harness = false
+name = "e2e_latency"
+path = "tests/benches/e2e_latency.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
@@ -135,6 +140,7 @@ anyhow = { workspace = true }
 chrono = { workspace = true }
 # Keep bin/config-validator dependencies
 clap = { workspace = true }
+criterion = { workspace = true }
 dotenvy = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }

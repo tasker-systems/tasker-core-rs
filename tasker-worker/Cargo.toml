@@ -15,10 +15,8 @@ name = "tasker-worker"
 path = "src/bin/server.rs"
 required-features = ["web-api"]
 
-# [[bench]]
-# harness = false
-# name = "worker_benchmarks"
-# required-features = ["benchmarks"]
+# Note: Benchmark placeholders removed - use E2E benchmarks and OpenTelemetry traces
+# for worker performance measurement (see TAS-29 Phase 5.4 decision)
 
 [dependencies]
 anyhow = { workspace = true }
@@ -94,7 +92,7 @@ url = { workspace = true }
 
 [features]
 default = ["postgres", "test-utils", "web-api"]
-# benchmarks = ["criterion"]
+benchmarks = ["criterion"]
 postgres = ["sqlx/postgres"]
 test-utils = []
 web-api = [

@@ -518,6 +518,34 @@ impl StepEnqueuer {
             "Created simple step message"
         );
 
+        // TAS-29 Phase 5.4 Fix: Mark step as enqueued BEFORE sending PGMQ notification
+        // This ensures the state transition is fully committed and visible before workers
+        // receive the notification. Previously, pgmq-notify was so fast that workers would
+        // receive notifications before the orchestration transaction committed, causing
+        // duplicate key constraint violations when both tried to create transition records.
+        self.state_manager
+            .mark_step_enqueued(viable_step.step_uuid)
+            .await
+            .map_err(|e| {
+                error!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %viable_step.step_uuid,
+                    error = %e,
+                    "Failed to transition step to enqueued state before enqueueing"
+                );
+                TaskerError::StateTransitionError(format!(
+                    "Failed to mark step {} as enqueued: {}",
+                    viable_step.step_uuid, e
+                ))
+            })?;
+
+        info!(
+            correlation_id = %correlation_id,
+            step_uuid = %viable_step.step_uuid,
+            "Successfully marked step as enqueued - now sending to PGMQ"
+        );
+
+        // Now send to PGMQ - notification fires AFTER state is committed
         let msg_id = self
             .context
             .message_client()
@@ -542,29 +570,8 @@ impl StepEnqueuer {
             step_uuid = %viable_step.step_uuid,
             queue_name = %queue_name,
             msg_id = msg_id,
-            "Successfully sent step to pgmq queue"
+            "Successfully sent step to pgmq queue (state transition completed first)"
         );
-
-        // This replaces the old behavior of marking steps as in_progress when enqueued
-        if let Err(e) = self
-            .state_manager
-            .mark_step_enqueued(viable_step.step_uuid)
-            .await
-        {
-            error!(
-                correlation_id = %correlation_id,
-                step_uuid = %viable_step.step_uuid,
-                error = %e,
-                "Failed to transition step to enqueued state after enqueueing"
-            );
-            // Continue execution - enqueueing succeeded, state transition failure shouldn't block workflow
-        } else {
-            info!(
-                correlation_id = %correlation_id,
-                step_uuid = %viable_step.step_uuid,
-                "Successfully marked step as enqueued"
-            );
-        }
 
         info!(
             correlation_id = %correlation_id,

@@ -25,6 +25,7 @@ use tasker_shared::messaging::{PgmqClientTrait, StepExecutionResult};
 use tasker_shared::metrics::worker::*;
 use tasker_shared::models::{Task, WorkflowStep};
 use tasker_shared::state_machine::events::StepEvent;
+use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
@@ -622,6 +623,88 @@ impl WorkerProcessor {
         };
 
         if claimed {
+            // RACE CONDITION FIX (TAS-29 Phase 5.4 Discovery):
+            // Under high load, PostgreSQL Read Committed isolation can delay transaction
+            // visibility. The state machine transition to "in_progress" might not be immediately
+            // visible to the handler's transaction, causing handler completion to fail with:
+            // "Invalid state transition from enqueued to EnqueueForOrchestration"
+            //
+            // Solution: Verify state visibility with exponential backoff before handler execution.
+            // This ensures the FFI handler sees the correct state when it completes.
+            debug!(
+                worker_id = %self.worker_id,
+                step_uuid = %step_message.step_uuid,
+                "Verifying state transition visibility before handler execution"
+            );
+
+            let state_machine_verify = StepStateMachine::new(
+                task_sequence_step.workflow_step.clone().into(),
+                self.context.clone(),
+            );
+
+            let mut verified = false;
+            for attempt in 0..5 {
+                match state_machine_verify.current_state().await {
+                    Ok(current_state) if matches!(current_state, WorkflowStepState::InProgress) => {
+                        debug!(
+                            worker_id = %self.worker_id,
+                            step_uuid = %step_message.step_uuid,
+                            attempt = attempt,
+                            "State transition verified as visible"
+                        );
+                        verified = true;
+                        break;
+                    }
+                    Ok(other_state) if attempt < 4 => {
+                        // State not visible yet, retry with exponential backoff
+                        let delay_ms = 2_u64.pow(attempt); // 1ms, 2ms, 4ms, 8ms
+                        warn!(
+                            worker_id = %self.worker_id,
+                            step_uuid = %step_message.step_uuid,
+                            attempt = attempt,
+                            current_state = %other_state,
+                            delay_ms = delay_ms,
+                            "State transition not yet visible, retrying"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    }
+                    Ok(other_state) => {
+                        error!(
+                            worker_id = %self.worker_id,
+                            step_uuid = %step_message.step_uuid,
+                            current_state = %other_state,
+                            "State stuck after claiming - possible race condition"
+                        );
+                        return Err(TaskerError::WorkerError(format!(
+                            "Step {} stuck in state {} after claiming (expected in_progress)",
+                            step_message.step_uuid, other_state
+                        )));
+                    }
+                    Err(e) => {
+                        error!(
+                            worker_id = %self.worker_id,
+                            step_uuid = %step_message.step_uuid,
+                            error = %e,
+                            "Failed to verify state transition"
+                        );
+                        return Err(e.into());
+                    }
+                }
+            }
+
+            if !verified {
+                error!(
+                    worker_id = %self.worker_id,
+                    step_uuid = %step_message.step_uuid,
+                    "State transition verification failed after 5 attempts"
+                );
+                return Err(TaskerError::WorkerError(format!(
+                    "State transition not visible after 5 verification attempts for step {}",
+                    step_message.step_uuid
+                )));
+            }
+
+            // State is now verified visible - safe to proceed with handler execution
             match self
                 .context
                 .message_client
@@ -655,57 +738,67 @@ impl WorkerProcessor {
                     )));
                 }
             }
-        }
 
-        // Update statistics and return result
-        let execution_time = start_time.elapsed().as_millis() as u64;
-        self.stats.total_succeeded += 1;
-        self.stats.average_execution_time_ms = (self.stats.average_execution_time_ms
-            * (self.stats.total_executed as f64 - 1.0)
-            + execution_time as f64)
-            / self.stats.total_executed as f64;
+            // Update statistics and return result
+            let execution_time = start_time.elapsed().as_millis() as u64;
+            self.stats.total_succeeded += 1;
+            self.stats.average_execution_time_ms = (self.stats.average_execution_time_ms
+                * (self.stats.total_executed as f64 - 1.0)
+                + execution_time as f64)
+                / self.stats.total_executed as f64;
 
-        // TAS-29 Phase 3.3: Record step execution success
-        if let Some(counter) = STEP_SUCCESSES_TOTAL.get() {
-            counter.add(
-                1,
-                &[
-                    KeyValue::new("correlation_id", step_message.correlation_id.to_string()),
-                    KeyValue::new("namespace", task_sequence_step.task.namespace_name.clone()),
-                ],
+            // TAS-29 Phase 3.3: Record step execution success
+            if let Some(counter) = STEP_SUCCESSES_TOTAL.get() {
+                counter.add(
+                    1,
+                    &[
+                        KeyValue::new("correlation_id", step_message.correlation_id.to_string()),
+                        KeyValue::new("namespace", task_sequence_step.task.namespace_name.clone()),
+                    ],
+                );
+            }
+
+            // TAS-29 Phase 3.3: Record step execution duration
+            let duration_ms = execution_time as f64;
+            if let Some(histogram) = STEP_EXECUTION_DURATION.get() {
+                histogram.record(
+                    duration_ms,
+                    &[
+                        KeyValue::new("correlation_id", step_message.correlation_id.to_string()),
+                        KeyValue::new("namespace", task_sequence_step.task.namespace_name.clone()),
+                        KeyValue::new("result", "success"),
+                    ],
+                );
+            }
+
+            // Fire step execution event ONLY after successful claim and state verification
+            match &self.event_publisher {
+                Some(publisher) => match publisher
+                    .fire_step_execution_event(&task_sequence_step)
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(err) => {
+                        error!("Failed to fire step execution event: {err}");
+                        return Err(TaskerError::EventError(format!(
+                            "Failed to fire step execution event: {err}"
+                        )));
+                    }
+                },
+                None => return Ok(()),
+            }
+
+            Ok(())
+        } else {
+            // Step was not claimed (already processing or not in claimable state)
+            // Do not fire event - simply acknowledge that we saw the message
+            debug!(
+                worker_id = %self.worker_id,
+                step_uuid = %step_message.step_uuid,
+                "Step not claimed - skipping execution (already claimed by another worker or in non-claimable state)"
             );
+            Ok(())
         }
-
-        // TAS-29 Phase 3.3: Record step execution duration
-        let duration_ms = execution_time as f64;
-        if let Some(histogram) = STEP_EXECUTION_DURATION.get() {
-            histogram.record(
-                duration_ms,
-                &[
-                    KeyValue::new("correlation_id", step_message.correlation_id.to_string()),
-                    KeyValue::new("namespace", task_sequence_step.task.namespace_name.clone()),
-                    KeyValue::new("result", "success"),
-                ],
-            );
-        }
-
-        match &self.event_publisher {
-            Some(publisher) => match publisher
-                .fire_step_execution_event(&task_sequence_step)
-                .await
-            {
-                Ok(_) => (),
-                Err(err) => {
-                    error!("Failed to fire step execution event: {err}");
-                    return Err(TaskerError::EventError(format!(
-                        "Failed to fire step execution event: {err}"
-                    )));
-                }
-            },
-            None => return Ok(()),
-        }
-
-        Ok(())
     }
 
     /// Get worker status - simple status without complex metrics
