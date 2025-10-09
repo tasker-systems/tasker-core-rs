@@ -1,19 +1,28 @@
 # frozen_string_literal: true
 
 require 'singleton'
-require 'logger'
 require 'json'
 
 module TaskerCore
-  # Structured logging system with Rust-compatible output format
+  # DEPRECATED: Legacy logger wrapper that delegates to TaskerCore::Tracing
   #
-  # Provides both traditional string-based logging and enhanced structured logging
-  # methods that match Rust patterns. The logger uses emojis and component prefixes
-  # for easy visual scanning while maintaining structured data for JSON processing.
+  # This class is maintained for backward compatibility but all new code should
+  # use TaskerCore::Tracing directly for unified structured logging via FFI.
+  #
+  # TAS-29 Phase 6: This logger now delegates to the Rust tracing infrastructure
+  # through the FFI bridge, providing unified structured logging across Ruby and Rust.
+  #
+  # Migration Guide:
+  #   # Old:
+  #   logger = TaskerCore::Logger.instance
+  #   logger.info("Message")
+  #
+  #   # New:
+  #   TaskerCore::Tracing.info("Message", { operation: "example" })
   #
   # The logger supports two logging approaches:
-  # 1. **Traditional Logging**: Simple string messages for backward compatibility
-  # 2. **Structured Logging**: Component-based logging with JSON metadata
+  # 1. **Traditional Logging**: Simple string messages (delegates to Tracing)
+  # 2. **Structured Logging**: Component-based logging (converts to Tracing fields)
   #
   # Structured logs include:
   # - Emoji prefix for visual identification
@@ -111,122 +120,115 @@ module TaskerCore
   class Logger
     include Singleton
 
-    attr_reader :logger
-
-    # Traditional string-based logging methods (backward compatibility)
+    # Traditional string-based logging methods (delegates to Tracing)
     def info(message, &)
-      @logger.info(message, &)
+      Tracing.info(message.to_s, extract_context_fields)
     end
 
     def warn(message, &)
-      @logger.warn(message, &)
+      Tracing.warn(message.to_s, extract_context_fields)
     end
 
     def error(message, &)
-      @logger.error(message, &)
+      Tracing.error(message.to_s, extract_context_fields)
     end
 
     def fatal(message, &)
-      @logger.fatal(message, &)
+      Tracing.error(message.to_s, extract_context_fields.merge(severity: 'fatal'))
     end
 
     def debug(message, &)
-      @logger.debug(message, &)
+      Tracing.debug(message.to_s, extract_context_fields)
     end
 
-    # Enhanced structured logging methods that match Rust patterns
-    # These provide structured data while maintaining emoji + component format consistency
+    # Enhanced structured logging methods (delegates to Tracing with appropriate fields)
 
-    def log_task(level, operation, **data, &)
-      message = build_unified_message('📋 TASK_OPERATION', operation, **data)
-      @logger.send(level, message, &)
+    def log_task(level, operation, **data)
+      fields = extract_context_fields.merge(
+        operation: operation,
+        component: 'task_operation'
+      ).merge(data)
+      Tracing.send(level, operation, fields)
     end
 
-    def log_queue_worker(level, operation, namespace: nil, **data, &)
-      message = if namespace
-                  build_unified_message('🔄 QUEUE_WORKER', "#{operation} (namespace: #{namespace})", **data)
-                else
-                  build_unified_message('🔄 QUEUE_WORKER', operation, **data)
-                end
-      @logger.send(level, message, &)
+    def log_queue_worker(level, operation, namespace: nil, **data)
+      fields = extract_context_fields.merge(
+        operation: operation,
+        component: 'queue_worker'
+      ).merge(data)
+      fields[:namespace] = namespace if namespace
+      Tracing.send(level, operation, fields)
     end
 
-    def log_orchestrator(level, operation, **data, &)
-      message = build_unified_message('🚀 ORCHESTRATOR', operation, **data)
-      @logger.send(level, message, &)
+    def log_orchestrator(level, operation, **data)
+      fields = extract_context_fields.merge(
+        operation: operation,
+        component: 'orchestrator'
+      ).merge(data)
+      Tracing.send(level, operation, fields)
     end
 
-    def log_step(level, operation, **data, &)
-      message = build_unified_message('🔧 STEP_OPERATION', operation, **data)
-      @logger.send(level, message, &)
+    def log_step(level, operation, **data)
+      fields = extract_context_fields.merge(
+        operation: operation,
+        component: 'step_operation'
+      ).merge(data)
+      Tracing.send(level, operation, fields)
     end
 
-    def log_database(level, operation, **data, &)
-      message = build_unified_message('💾 DATABASE', operation, **data)
-      @logger.send(level, message, &)
+    def log_database(level, operation, **data)
+      fields = extract_context_fields.merge(
+        operation: operation,
+        component: 'database'
+      ).merge(data)
+      Tracing.send(level, operation, fields)
     end
 
-    def log_ffi(level, operation, component: nil, **data, &)
-      message = if component
-                  build_unified_message('🌉 FFI', "#{operation} (#{component})", **data)
-                else
-                  build_unified_message('🌉 FFI', operation, **data)
-                end
-      @logger.send(level, message, &)
+    def log_ffi(level, operation, component: nil, **data)
+      fields = extract_context_fields.merge(
+        operation: operation,
+        component: component || 'ffi'
+      ).merge(data)
+      Tracing.send(level, operation, fields)
     end
 
-    def log_config(level, operation, **data, &)
-      message = build_unified_message('⚙️ CONFIG', operation, **data)
-      @logger.send(level, message, &)
+    def log_config(level, operation, **data)
+      fields = extract_context_fields.merge(
+        operation: operation,
+        component: 'config'
+      ).merge(data)
+      Tracing.send(level, operation, fields)
     end
 
-    def log_registry(level, operation, namespace: nil, name: nil, **data, &)
-      message = if namespace && name
-                  build_unified_message('📚 REGISTRY', "#{operation} (#{namespace}/#{name})", **data)
-                else
-                  build_unified_message('📚 REGISTRY', operation, **data)
-                end
-      @logger.send(level, message, &)
+    def log_registry(level, operation, namespace: nil, name: nil, **data)
+      fields = extract_context_fields.merge(
+        operation: operation,
+        component: 'registry'
+      ).merge(data)
+      fields[:namespace] = namespace if namespace
+      fields[:handler_name] = name if name
+      Tracing.send(level, operation, fields)
     end
 
     def initialize
-      @logger = ::Logger.new($stdout).tap do |log|
-        log.level = ::Logger::INFO
-        log.formatter = method(:unified_formatter)
-      end
+      # No-op - everything delegates to Tracing now
     end
 
     private
 
-    # Build unified message format that matches Rust structured logging output
-    def build_unified_message(component, operation, **data)
-      base_message = "#{component}: #{operation}"
+    # Extract context fields from thread-local or instance variables if available
+    def extract_context_fields
+      fields = {}
 
-      # Add structured data if provided (for JSON logs or debugging)
-      if data.any?
-        structured_data = data.merge(
-          timestamp: Time.now.utc.iso8601,
-          component: component.gsub(/[🎯📋🔄🚀🔧💾🌉⚙️📚❌⚠✅]/, '').strip, # Remove emoji for structured field
-          operation: operation
-        )
+      # Try to extract correlation_id from thread-local storage if available
+      fields[:correlation_id] = Thread.current[:correlation_id] if Thread.current[:correlation_id]
 
-        "#{base_message} | #{JSON.generate(structured_data)}"
-      else
-        base_message
-      end
-    end
+      # Try to extract task/step UUIDs if available
+      fields[:task_uuid] = Thread.current[:task_uuid] if Thread.current[:task_uuid]
 
-    # Custom formatter that maintains readability while supporting structured data
-    def unified_formatter(severity, datetime, progname, msg)
-      # Check if message contains structured data (has JSON part)
-      if msg.include?(' | {')
-        base_msg, json_data = msg.split(' | ', 2)
-        # In production, include structured data
-        "[#{datetime}] #{severity} TaskerCore: #{base_msg} #{json_data}\n"
-      else
-        # Traditional format for simple messages
-        "[#{datetime}] #{severity} TaskerCore #{progname}: #{msg}\n"
-      end
+      fields[:step_uuid] = Thread.current[:step_uuid] if Thread.current[:step_uuid]
+
+      fields
     end
   end
 end

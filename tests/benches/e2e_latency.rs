@@ -72,9 +72,8 @@ fn ensure_services_ready() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("{}", "═".repeat(80));
 
     let runtime = tokio::runtime::Runtime::new()?;
-    let response = runtime.block_on(async {
-        reqwest::get("http://localhost:8080/health").await
-    })?;
+    let response =
+        runtime.block_on(async { reqwest::get("http://localhost:8080/health").await })?;
 
     if !response.status().is_success() {
         eprintln!("❌ Orchestration service not healthy");
@@ -170,13 +169,32 @@ fn bench_complete_workflow(c: &mut Criterion) {
         // State transition race conditions FIXED:
         // 1. Worker command processor event firing (tasker-worker/src/worker/command_processor.rs)
         // 2. Orchestration PGMQ timing (tasker-orchestration/src/orchestration/lifecycle/step_enqueuer.rs)
-        ("linear_ruby", "linear_workflow", "mathematical_sequence", json!({"even_number": 6})),
-        ("diamond_ruby", "diamond_workflow", "parallel_computation", json!({"even_number": 6})),
-
+        (
+            "linear_ruby",
+            "linear_workflow",
+            "mathematical_sequence",
+            json!({"even_number": 6}),
+        ),
+        (
+            "diamond_ruby",
+            "diamond_workflow",
+            "parallel_computation",
+            json!({"even_number": 6}),
+        ),
         // Native Rust implementations - WORKING CORRECTLY
         // Both scenarios complete reliably under high concurrency load
-        ("linear_rust", "rust_e2e_linear", "mathematical_sequence", json!({"even_number": 6})),
-        ("diamond_rust", "rust_e2e_diamond", "diamond_pattern", json!({"even_number": 6})),
+        (
+            "linear_rust",
+            "rust_e2e_linear",
+            "mathematical_sequence",
+            json!({"even_number": 6}),
+        ),
+        (
+            "diamond_rust",
+            "rust_e2e_diamond",
+            "diamond_pattern",
+            json!({"even_number": 6}),
+        ),
     ];
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -189,12 +207,13 @@ fn bench_complete_workflow(c: &mut Criterion) {
                     let request = create_task_request(namespace, handler, context.clone());
 
                     // Create task
-                    let response = client.create_task(request)
+                    let response = client
+                        .create_task(request)
                         .await
                         .expect("Task creation failed");
 
-                    let task_uuid = Uuid::parse_str(&response.task_uuid)
-                        .expect("Invalid task UUID");
+                    let task_uuid =
+                        Uuid::parse_str(&response.task_uuid).expect("Invalid task UUID");
 
                     let start = std::time::Instant::now();
 
@@ -202,18 +221,21 @@ fn bench_complete_workflow(c: &mut Criterion) {
                     loop {
                         tokio::time::sleep(Duration::from_millis(50)).await;
 
-                        let task = client.get_task(task_uuid)
+                        let task = client
+                            .get_task(task_uuid)
                             .await
                             .expect("Failed to get task");
 
-                        // Debug: Print status every second
-                        if start.elapsed().as_secs() % 1 == 0 && start.elapsed().as_millis() < 1100 {
-                            eprintln!("  [{:.1}s] exec_status: {} | state: {} | steps: {}/{} complete",
+                        // Debug: Print status during first 1.1 seconds
+                        if start.elapsed().as_millis() < 1100 {
+                            eprintln!(
+                                "  [{:.1}s] exec_status: {} | state: {} | steps: {}/{} complete",
                                 start.elapsed().as_secs_f64(),
                                 task.execution_status,
                                 task.status,
                                 task.completed_steps,
-                                task.total_steps);
+                                task.total_steps
+                            );
                         }
 
                         // Check execution status (note: snake_case, not PascalCase)
@@ -228,9 +250,13 @@ fn bench_complete_workflow(c: &mut Criterion) {
 
                         // Timeout after 10s
                         if start.elapsed() > Duration::from_secs(10) {
-                            eprintln!("  Final exec_status: {} | state: {} | steps: {}/{}",
-                                task.execution_status, task.status,
-                                task.completed_steps, task.total_steps);
+                            eprintln!(
+                                "  Final exec_status: {} | state: {} | steps: {}/{}",
+                                task.execution_status,
+                                task.status,
+                                task.completed_steps,
+                                task.total_steps
+                            );
                             panic!("Task did not complete within 10s timeout");
                         }
                     }

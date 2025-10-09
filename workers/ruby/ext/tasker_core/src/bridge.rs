@@ -8,6 +8,7 @@ use crate::bootstrap::{
 };
 use crate::conversions::convert_step_execution_event_to_ruby;
 use crate::event_handler::{send_step_completion_event, RubyEventHandler};
+use crate::ffi_logging::{log_debug, log_error, log_info, log_trace, log_warn};
 use magnus::{function, prelude::*, Error, RModule, Value};
 use std::sync::{Arc, Mutex};
 use tasker_shared::{errors::TaskerResult, types::StepExecutionEvent};
@@ -140,6 +141,13 @@ pub fn init_bridge(module: &RModule) -> Result<(), Error> {
         function!(send_step_completion_event, 1),
     )?;
     module.define_singleton_method("poll_step_events", function!(poll_step_events, 0))?;
+
+    // TAS-29 Phase 6: Unified structured logging via FFI
+    module.define_singleton_method("log_error", function!(log_error, 2))?;
+    module.define_singleton_method("log_warn", function!(log_warn, 2))?;
+    module.define_singleton_method("log_info", function!(log_info, 2))?;
+    module.define_singleton_method("log_debug", function!(log_debug, 2))?;
+    module.define_singleton_method("log_trace", function!(log_trace, 2))?;
 
     info!("✅ Ruby FFI bridge initialized");
     Ok(())

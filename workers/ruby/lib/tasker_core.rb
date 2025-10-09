@@ -133,6 +133,7 @@ end
 # Load Ruby modules after Rust extension (they depend on Rust base classes)
 require_relative 'tasker_core/errors'
 require_relative 'tasker_core/logger'
+require_relative 'tasker_core/tracing' # TAS-29 Phase 6: Unified structured logging via FFI
 require_relative 'tasker_core/internal'
 require_relative 'tasker_core/template_discovery'
 require_relative 'tasker_core/test_environment'

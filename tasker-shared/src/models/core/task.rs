@@ -459,6 +459,7 @@ impl Task {
                 t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                 t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
                 t.identity_hash, t.priority, t.created_at, t.updated_at,
+                t.correlation_id, t.parent_correlation_id,
                 nt.name as task_name, nt.version as task_version, ns.name as namespace_name
             FROM tasker_tasks t
             INNER JOIN tasker_named_tasks nt ON t.named_task_uuid = nt.named_task_uuid

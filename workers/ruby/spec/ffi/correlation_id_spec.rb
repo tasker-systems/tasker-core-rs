@@ -11,11 +11,9 @@ RSpec.describe 'TaskerCore::FFI Correlation ID Support (TAS-29)' do
       end
 
       after do
-        begin
-          TaskerCore::FFI.stop_worker
-        rescue StandardError
-          nil
-        end
+        TaskerCore::FFI.stop_worker
+      rescue StandardError
+        nil
       end
 
       it 'exposes correlation_id at top level of event hash' do
@@ -23,7 +21,7 @@ RSpec.describe 'TaskerCore::FFI Correlation ID Support (TAS-29)' do
         event = TaskerCore::FFI.poll_step_events
 
         # If we get an event, verify correlation_id is present
-        if event && event.is_a?(Hash)
+        if event.is_a?(Hash)
           # TAS-29: correlation_id should be exposed at top level
           expect(event.keys).to include('correlation_id')
 
@@ -38,11 +36,9 @@ RSpec.describe 'TaskerCore::FFI Correlation ID Support (TAS-29)' do
       it 'includes parent_correlation_id when present' do
         event = TaskerCore::FFI.poll_step_events
 
-        if event && event.is_a?(Hash)
-          # parent_correlation_id is optional
-          if event.key?('parent_correlation_id')
-            expect(event['parent_correlation_id']).to match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
-          end
+        # parent_correlation_id is optional
+        if event.is_a?(Hash) && event.key?('parent_correlation_id')
+          expect(event['parent_correlation_id']).to match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
         end
 
         expect(event).to be_nil.or(be_a(Hash))

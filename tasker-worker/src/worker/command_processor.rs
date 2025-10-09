@@ -645,7 +645,7 @@ impl WorkerProcessor {
             let mut verified = false;
             for attempt in 0..5 {
                 match state_machine_verify.current_state().await {
-                    Ok(current_state) if matches!(current_state, WorkflowStepState::InProgress) => {
+                    Ok(WorkflowStepState::InProgress) => {
                         debug!(
                             worker_id = %self.worker_id,
                             step_uuid = %step_message.step_uuid,

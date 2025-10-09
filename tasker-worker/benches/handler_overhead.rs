@@ -1,15 +1,27 @@
 //! # Handler Overhead Benchmarks (TAS-29 Phase 5.4)
 //!
-//! Measures framework overhead vs pure handler execution time.
+//! **STATUS**: ⚠️ PLACEHOLDER - Not Yet Implemented
 //!
-//! ## What This Measures
+//! **Decision**: Benchmarking coverage is sufficient without this benchmark.
+//! See `docs/observability/benchmark-audit-and-profiling-plan.md` for details.
+//!
+//! ## Existing Coverage
+//!
+//! This benchmark was planned but not implemented because:
+//! - ✅ `tests/benches/e2e_latency.rs` compares Ruby FFI vs Rust native workflows
+//! - ✅ Profiling (flamegraph/samply) shows handler overhead breakdown
+//! - ✅ E2E benchmarks reveal FFI performance impact in realistic scenarios
+//!
+//! ## If Implemented (Future)
+//!
+//! Would measure framework overhead vs pure handler execution time:
 //!
 //! - **Pure Rust Handler**: Direct function call (baseline)
 //! - **Framework Overhead**: Rust handler via framework
 //! - **Ruby FFI Overhead**: Ruby handler via FFI bridge
 //! - **Overhead Comparison**: Framework vs FFI vs native
 //!
-//! ## Expected Performance
+//! ## Expected Performance (if implemented)
 //!
 //! | Handler Type | Target | Notes |
 //! |--------------|--------|-------|
@@ -17,68 +29,29 @@
 //! | Via Framework | < 1ms | Serialization + dispatch |
 //! | Ruby FFI | < 5ms | FFI boundary crossing |
 //!
-//! ## Running Benchmarks
+//! ## Implementation Guidance
 //!
-//! ```bash
-//! cargo bench --package tasker-worker --features benchmarks handler_overhead
-//! ```
+//! If this benchmark becomes needed:
+//! 1. Create noop handlers (Rust and Ruby)
+//! 2. Measure direct function call (baseline)
+//! 3. Measure framework dispatch overhead
+//! 4. Measure FFI bridge overhead
+//! 5. Compare percentages to identify optimization targets
+//!
+//! ## To Enable This Benchmark
+//!
+//! 1. Add `criterion = { workspace = true }` to `[dev-dependencies]` in Cargo.toml
+//! 2. Replace this main function with criterion benchmark implementation
+//! 3. See `tests/benches/e2e_latency.rs` for reference implementation
 
-use criterion::{criterion_group, criterion_main, Criterion};
-use std::time::Duration;
-
-// ===================================================================================
-// PLACEHOLDER BENCHMARKS
-// ===================================================================================
-
-/// Benchmark framework overhead for different handler types
-///
-/// **Implementation Note**: This is a placeholder benchmark.
-///
-/// Full implementation requires:
-/// - Noop handlers (Rust and Ruby)
-/// - Direct function call measurement
-/// - Framework dispatch measurement
-/// - FFI bridge measurement
-///
-/// **Approach**:
-/// 1. Benchmark pure Rust noop (baseline)
-/// 2. Benchmark Rust noop via framework
-/// 3. Benchmark Ruby noop via FFI
-/// 4. Calculate overhead percentages
-fn bench_ffi_overhead(c: &mut Criterion) {
+fn main() {
     eprintln!("\n{}", "═".repeat(80));
     eprintln!("⚠️  HANDLER OVERHEAD BENCHMARK - PLACEHOLDER");
     eprintln!("{}", "═".repeat(80));
-    eprintln!("\nThis benchmark is a placeholder for Phase 5.4.");
-    eprintln!("\nFull implementation requires:");
-    eprintln!("  • Noop handler implementations (Rust + Ruby)");
-    eprintln!("  • Direct function call benchmarks");
-    eprintln!("  • Framework dispatch overhead measurement");
-    eprintln!("  • FFI bridge overhead measurement");
-    eprintln!("\nSee docs/observability/phase-5.4-distributed-benchmarks-plan.md");
+    eprintln!("\nThis benchmark is a placeholder and not yet implemented.");
+    eprintln!("\nExisting coverage from:");
+    eprintln!("  • tests/benches/e2e_latency.rs (Ruby FFI vs Rust native)");
+    eprintln!("  • Profiling with flamegraph/samply");
+    eprintln!("\nSee docs/observability/benchmark-audit-and-profiling-plan.md for details.");
     eprintln!("{}\n", "═".repeat(80));
-
-    let mut group = c.benchmark_group("handler_overhead");
-
-    // Placeholder benchmarks
-    group.bench_function("rust_noop_placeholder", |b| {
-        b.iter(|| std::hint::black_box(42));
-    });
-
-    group.bench_function("rust_via_framework_placeholder", |b| {
-        b.iter(|| std::hint::black_box(42));
-    });
-
-    group.bench_function("ruby_via_ffi_placeholder", |b| {
-        b.iter(|| std::hint::black_box(42));
-    });
-
-    group.finish();
 }
-
-// ===================================================================================
-// CRITERION CONFIGURATION
-// ===================================================================================
-
-criterion_group!(benches, bench_ffi_overhead);
-criterion_main!(benches);

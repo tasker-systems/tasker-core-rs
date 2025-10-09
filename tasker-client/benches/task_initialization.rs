@@ -89,12 +89,14 @@ fn ensure_services_ready() -> Result<(), Box<dyn std::error::Error>> {
 
     // Use async reqwest with tokio runtime
     let runtime = tokio::runtime::Runtime::new()?;
-    let response = runtime.block_on(async {
-        reqwest::get("http://localhost:8080/health").await
-    })?;
+    let response =
+        runtime.block_on(async { reqwest::get("http://localhost:8080/health").await })?;
 
     if !response.status().is_success() {
-        eprintln!("❌ Orchestration service not healthy (status: {})", response.status());
+        eprintln!(
+            "❌ Orchestration service not healthy (status: {})",
+            response.status()
+        );
         eprintln!("\nPlease start Docker Compose services:");
         eprintln!("  docker-compose -f docker/docker-compose.test.yml up --build -d\n");
         return Err("Orchestration service not healthy".into());
@@ -164,8 +166,8 @@ fn bench_task_creation_api(c: &mut Criterion) {
         auth: None,
     };
 
-    let client = OrchestrationApiClient::new(config)
-        .expect("Failed to create orchestration client");
+    let client =
+        OrchestrationApiClient::new(config).expect("Failed to create orchestration client");
 
     let mut group = c.benchmark_group("task_creation_api");
 
@@ -176,8 +178,18 @@ fn bench_task_creation_api(c: &mut Criterion) {
     // Test scenarios with different workflow complexities
     // Format: (scenario_name, namespace, handler_name, context)
     let scenarios = vec![
-        ("linear_3_steps", "linear_workflow", "mathematical_sequence", json!({"value": 42})),
-        ("diamond_4_steps", "diamond_workflow", "diamond_pattern", json!({"value": 100})),
+        (
+            "linear_3_steps",
+            "linear_workflow",
+            "mathematical_sequence",
+            json!({"value": 42}),
+        ),
+        (
+            "diamond_4_steps",
+            "diamond_workflow",
+            "diamond_pattern",
+            json!({"value": 100}),
+        ),
     ];
 
     // Create runtime once for all benchmarks
@@ -187,14 +199,11 @@ fn bench_task_creation_api(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("create_task", scenario_name), |b| {
             b.iter(|| {
                 let client = client.clone();
-                let request = create_task_request(
-                    namespace,
-                    template_name,
-                    context.clone(),
-                );
+                let request = create_task_request(namespace, template_name, context.clone());
 
                 runtime.block_on(async {
-                    client.create_task(request)
+                    client
+                        .create_task(request)
                         .await
                         .expect("Task creation failed - check orchestration service logs")
                 })

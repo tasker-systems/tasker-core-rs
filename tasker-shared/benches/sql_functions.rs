@@ -61,9 +61,10 @@ use uuid::Uuid;
 fn setup_runtime() -> (tokio::runtime::Runtime, PgPool) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let pool = runtime.block_on(async {
-        let database_url = std::env::var("DATABASE_URL")
-            .expect("DATABASE_URL must be set for benchmarks");
-        PgPool::connect(&database_url).await
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for benchmarks");
+        PgPool::connect(&database_url)
+            .await
             .expect("Failed to connect to database")
     });
     (runtime, pool)
@@ -75,7 +76,11 @@ fn setup_runtime() -> (tokio::runtime::Runtime, PgPool) {
 /// 1. Finding distinct named_task_uuid types
 /// 2. Sampling tasks from each type
 /// 3. Returning a deterministic ordered list for consistent benchmarks
-fn sample_task_uuids(runtime: &tokio::runtime::Runtime, pool: &PgPool, target_count: usize) -> Vec<Uuid> {
+fn sample_task_uuids(
+    runtime: &tokio::runtime::Runtime,
+    pool: &PgPool,
+    target_count: usize,
+) -> Vec<Uuid> {
     runtime.block_on(async {
         // Strategy: Get tasks from different named_task types for diversity
         let result = sqlx::query_scalar::<_, Uuid>(
@@ -97,7 +102,7 @@ fn sample_task_uuids(runtime: &tokio::runtime::Runtime, pool: &PgPool, target_co
             FROM samples_per_type
             WHERE rn <= GREATEST(1, $1 / (SELECT COUNT(*) FROM task_types))
             ORDER BY named_task_uuid, task_uuid
-            LIMIT $1"
+            LIMIT $1",
         )
         .bind(target_count as i32)
         .fetch_all(pool)
@@ -120,7 +125,11 @@ fn sample_task_uuids(runtime: &tokio::runtime::Runtime, pool: &PgPool, target_co
 /// Sample diverse step UUIDs for benchmarking
 ///
 /// Similar to task sampling, but for workflow steps
-fn sample_step_uuids(runtime: &tokio::runtime::Runtime, pool: &PgPool, target_count: usize) -> Vec<Uuid> {
+fn sample_step_uuids(
+    runtime: &tokio::runtime::Runtime,
+    pool: &PgPool,
+    target_count: usize,
+) -> Vec<Uuid> {
     runtime.block_on(async {
         // Strategy: Get steps from different tasks for diversity
         let result = sqlx::query_scalar::<_, Uuid>(
@@ -177,7 +186,7 @@ fn bench_get_next_ready_tasks(c: &mut Criterion) {
                         sqlx::query(
                             "SELECT task_uuid, task_name, priority, namespace_name,
                                     ready_steps_count, computed_priority, current_state
-                             FROM get_next_ready_tasks($1)"
+                             FROM get_next_ready_tasks($1)",
                         )
                         .bind(size)
                         .fetch_all(&pool)
@@ -223,7 +232,7 @@ fn bench_step_readiness_status(c: &mut Criterion) {
                             "SELECT workflow_step_uuid, task_uuid, named_step_uuid, name,
                                     current_state, dependencies_satisfied, retry_eligible,
                                     ready_for_execution
-                             FROM get_step_readiness_status($1)"
+                             FROM get_step_readiness_status($1)",
                         )
                         .bind(uuid)
                         .fetch_all(&pool)
@@ -268,7 +277,7 @@ fn bench_state_transitions(c: &mut Criterion) {
                         let processor_uuid = Uuid::now_v7();
                         // Attempt a transition (will likely fail if task isn't in right state)
                         let _result: Result<bool, _> = sqlx::query_scalar(
-                            "SELECT transition_task_state_atomic($1, $2, $3, $4)"
+                            "SELECT transition_task_state_atomic($1, $2, $3, $4)",
                         )
                         .bind(uuid)
                         .bind("Pending")
@@ -322,7 +331,7 @@ fn bench_task_execution_context(c: &mut Criterion) {
                                     pending_steps, in_progress_steps, completed_steps,
                                     failed_steps, ready_steps, execution_status,
                                     recommended_action, completion_percentage, health_status
-                             FROM get_task_execution_context($1)"
+                             FROM get_task_execution_context($1)",
                         )
                         .bind(uuid)
                         .fetch_one(&pool)
@@ -368,7 +377,7 @@ fn bench_step_transitive_dependencies(c: &mut Criterion) {
                         sqlx::query(
                             "SELECT workflow_step_uuid, task_uuid, named_step_uuid, step_name,
                                     results, processed, distance
-                             FROM get_step_transitive_dependencies($1)"
+                             FROM get_step_transitive_dependencies($1)",
                         )
                         .bind(uuid)
                         .fetch_all(&pool)
@@ -400,7 +409,7 @@ fn bench_explain_analyze(c: &mut Criterion) {
             "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
              SELECT task_uuid, task_name, priority, namespace_name,
                     ready_steps_count, computed_priority, current_state
-             FROM get_next_ready_tasks($1)"
+             FROM get_next_ready_tasks($1)",
         )
         .bind(10)
         .fetch_one(&pool)
@@ -429,7 +438,7 @@ fn bench_explain_analyze(c: &mut Criterion) {
                  SELECT task_uuid, named_task_uuid, status, total_steps,
                         pending_steps, in_progress_steps, completed_steps,
                         failed_steps, ready_steps, execution_status
-                 FROM get_task_execution_context($1)"
+                 FROM get_task_execution_context($1)",
             )
             .bind(task_uuid)
             .fetch_one(&pool)
@@ -460,7 +469,7 @@ fn bench_explain_analyze(c: &mut Criterion) {
                 "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
                  SELECT workflow_step_uuid, task_uuid, named_step_uuid, step_name,
                         results, processed, distance
-                 FROM get_step_transitive_dependencies($1)"
+                 FROM get_step_transitive_dependencies($1)",
             )
             .bind(step_uuid)
             .fetch_one(&pool)
@@ -524,12 +533,21 @@ fn log_query_plan(function_name: &str, plan: &serde_json::Value) {
                 }
 
                 // Check buffer statistics
-                if let Some(shared_hit) = plan_detail.get("Shared Hit Blocks").and_then(|v| v.as_u64()) {
-                    if let Some(shared_read) = plan_detail.get("Shared Read Blocks").and_then(|v| v.as_u64()) {
+                if let Some(shared_hit) = plan_detail
+                    .get("Shared Hit Blocks")
+                    .and_then(|v| v.as_u64())
+                {
+                    if let Some(shared_read) = plan_detail
+                        .get("Shared Read Blocks")
+                        .and_then(|v| v.as_u64())
+                    {
                         let total = shared_hit + shared_read;
                         if total > 0 {
                             let hit_ratio = (shared_hit as f64 / total as f64) * 100.0;
-                            eprintln!("📊 Buffer Hit Ratio: {:.1}% ({}/{} blocks)", hit_ratio, shared_hit, total);
+                            eprintln!(
+                                "📊 Buffer Hit Ratio: {:.1}% ({}/{} blocks)",
+                                hit_ratio, shared_hit, total
+                            );
                         }
                     }
                 }
