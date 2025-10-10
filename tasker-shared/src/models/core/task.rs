@@ -1480,6 +1480,8 @@ impl Task {
     ///     context: Some(context),
     ///     identity_hash,
     ///     priority: Some(5), // Default priority
+    ///     correlation_id: uuid::Uuid::new_v4(), // TAS-29: Distributed tracing
+    ///     parent_correlation_id: None, // TAS-29: Top-level task has no parent
     /// };
     ///
     /// let task = Task::create(pool, new_task).await?;

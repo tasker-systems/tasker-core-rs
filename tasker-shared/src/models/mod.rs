@@ -91,6 +91,8 @@
 //!     context: Some(json!({"input": "data"})),
 //!     identity_hash: "example_hash".to_string(),
 //!     priority: Some(5),
+//!     correlation_id: Uuid::new_v4(), // TAS-29: Distributed tracing
+//!     parent_correlation_id: None,    // TAS-29: Top-level task
 //! }).await?;
 //! # Ok(())
 //! # }

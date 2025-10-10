@@ -15,13 +15,17 @@
 //!
 //! ```rust
 //! use tasker_shared::metrics;
+//! use opentelemetry::KeyValue;
 //!
 //! // Initialize metrics (usually called in init_tracing())
 //! metrics::init_metrics();
 //!
 //! // Use domain-specific metrics
-//! use tasker_shared::metrics::orchestration::TASK_REQUESTS_TOTAL;
-//! TASK_REQUESTS_TOTAL.add(1, &[]);
+//! let correlation_id = uuid::Uuid::new_v4();
+//! metrics::orchestration::task_requests_total().add(
+//!     1,
+//!     &[KeyValue::new("correlation_id", correlation_id.to_string())],
+//! );
 //! ```
 //!
 //! ## Configuration

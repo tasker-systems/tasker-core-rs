@@ -9,14 +9,18 @@
 //!
 //! ```rust
 //! use tasker_shared::metrics::worker::*;
+//! use opentelemetry::KeyValue;
 //!
 //! // Record step execution
-//! STEP_EXECUTIONS_TOTAL.add(
+//! let correlation_id = uuid::Uuid::new_v4();
+//! let namespace = "payments";
+//! let step_name = "process_payment";
+//! step_executions_total().add(
 //!     1,
 //!     &[
 //!         KeyValue::new("correlation_id", correlation_id.to_string()),
-//!         KeyValue::new("namespace", namespace.clone()),
-//!         KeyValue::new("step_name", step_name.clone()),
+//!         KeyValue::new("namespace", namespace.to_string()),
+//!         KeyValue::new("step_name", step_name.to_string()),
 //!     ],
 //! );
 //!
@@ -24,10 +28,10 @@
 //! let start = std::time::Instant::now();
 //! // ... execute step ...
 //! let duration_ms = start.elapsed().as_millis() as f64;
-//! STEP_EXECUTION_DURATION.record(
+//! step_execution_duration().record(
 //!     duration_ms,
 //!     &[
-//!         KeyValue::new("namespace", namespace.clone()),
+//!         KeyValue::new("namespace", namespace.to_string()),
 //!         KeyValue::new("result", "success"),
 //!     ],
 //! );

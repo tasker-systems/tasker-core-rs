@@ -10,13 +10,16 @@
 //!
 //! ```rust
 //! use tasker_shared::metrics::orchestration::*;
+//! use opentelemetry::KeyValue;
 //!
 //! // Record task request
-//! TASK_REQUESTS_TOTAL.add(
+//! let correlation_id = uuid::Uuid::new_v4();
+//! let task_type = "order_processing";
+//! task_requests_total().add(
 //!     1,
 //!     &[
 //!         KeyValue::new("correlation_id", correlation_id.to_string()),
-//!         KeyValue::new("task_type", task_type.clone()),
+//!         KeyValue::new("task_type", task_type.to_string()),
 //!     ],
 //! );
 //!
@@ -24,7 +27,7 @@
 //! let start = std::time::Instant::now();
 //! // ... initialization logic ...
 //! let duration_ms = start.elapsed().as_millis() as f64;
-//! TASK_INITIALIZATION_DURATION.record(duration_ms, &[]);
+//! task_initialization_duration().record(duration_ms, &[]);
 //! ```
 
 use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};

@@ -114,16 +114,13 @@ module TaskerCore
       end
 
       # Start the worker system with optional configuration
-      def self.start!(config = {})
-        instance.start!(config)
+      def self.start!
+        instance.start!
       end
 
-      # Main bootstrap method
-      def start!(config = {})
-        @config = default_config.merge(config)
-
+      # Main boots
+      def start!
         logger.info 'Starting Ruby worker bootstrap'
-        logger.info "Configuration: #{@config.inspect}"
 
         # Initialize Ruby components first
         initialize_ruby_components!
@@ -279,16 +276,6 @@ module TaskerCore
       end
 
       private
-
-      def default_config
-        {
-          worker_id: "ruby-worker-#{SecureRandom.uuid}",
-          enable_web_api: false,
-          event_driven_enabled: true,
-          deployment_mode: 'Hybrid',
-          namespaces: detect_namespaces
-        }
-      end
 
       def detect_namespaces
         # Auto-detect from registered handlers

@@ -9,13 +9,14 @@
 //!
 //! ```rust
 //! use tasker_shared::metrics::database::*;
+//! use opentelemetry::KeyValue;
 //!
 //! // Record SQL query execution
 //! let start = std::time::Instant::now();
 //! // ... execute query ...
 //! let duration_ms = start.elapsed().as_millis() as f64;
 //!
-//! SQL_QUERY_DURATION.record(
+//! sql_query_duration().record(
 //!     duration_ms,
 //!     &[
 //!         KeyValue::new("query_type", "get_next_ready_tasks"),

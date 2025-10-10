@@ -9,6 +9,7 @@
 //!
 //! ```rust
 //! use tasker_shared::metrics::messaging::*;
+//! use opentelemetry::KeyValue;
 //! use std::time::Instant;
 //!
 //! // Record message send
@@ -16,7 +17,7 @@
 //! // ... send message ...
 //! let duration_ms = start.elapsed().as_millis() as f64;
 //!
-//! MESSAGES_SENT_TOTAL.add(
+//! messages_sent_total().add(
 //!     1,
 //!     &[
 //!         KeyValue::new("queue", "orchestration_task_requests"),
@@ -24,7 +25,7 @@
 //!     ],
 //! );
 //!
-//! MESSAGE_SEND_DURATION.record(
+//! message_send_duration().record(
 //!     duration_ms,
 //!     &[KeyValue::new("queue", "orchestration_task_requests")],
 //! );
