@@ -77,7 +77,22 @@ RSpec.describe 'TaskerCore::FFI Correlation ID Support (TAS-29)' do
           dependency_results: {},
           step_definition: {
             name: 'test_step',
-            handler_name: 'TestHandler'
+            description: 'Test step for correlation ID',
+            handler: {
+              callable: 'TestHandler',
+              initialization: {}
+            },
+            system_dependency: nil,
+            dependencies: [],
+            retry: {
+              retryable: true,
+              max_attempts: 3,
+              backoff: 'exponential',
+              backoff_base_ms: 1000,
+              max_backoff_ms: 30000
+            },
+            timeout_seconds: 30,
+            publishes_events: []
           }
         }
       }
@@ -122,7 +137,8 @@ RSpec.describe 'TaskerCore::FFI Correlation ID Support (TAS-29)' do
       event_bridge.publish_step_execution(event_data_without_parent)
 
       expect(captured_event).not_to be_nil
-      expect(captured_event).not_to have_key(:parent_correlation_id)
+      # parent_correlation_id should not be included in the wrapped event when not present in source
+      expect { captured_event[:parent_correlation_id] }.to raise_error(KeyError)
     end
   end
 end

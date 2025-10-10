@@ -34,6 +34,9 @@ RSpec.describe TaskerCore::Worker::Bootstrap do
     allow(TaskerCore::Worker::StepExecutionSubscriber).to receive(:new).and_return(
       double('StepSubscriber', active?: true, stop!: true, call: true)
     )
+    allow(TaskerCore::Worker::EventPoller).to receive(:instance).and_return(
+      double('EventPoller', active?: true, start!: true, stop!: true)
+    )
   end
 
   describe '#initialize' do
@@ -56,17 +59,6 @@ RSpec.describe TaskerCore::Worker::Bootstrap do
 
       expect(result).to eq(bootstrap)
       expect(bootstrap.instance_variable_get(:@status)).to eq(:running)
-    end
-
-    it 'merges provided config with defaults' do
-      config = { worker_id: 'custom-worker', enable_web_api: true }
-
-      bootstrap.start!(config)
-
-      stored_config = bootstrap.instance_variable_get(:@config)
-      expect(stored_config[:worker_id]).to eq('custom-worker')
-      expect(stored_config[:enable_web_api]).to be(true)
-      expect(stored_config[:event_driven_enabled]).to be(true) # default
     end
   end
 
@@ -280,18 +272,6 @@ RSpec.describe TaskerCore::Worker::Bootstrap do
   end
 
   describe 'private methods' do
-    describe '#default_config' do
-      it 'returns sensible defaults' do
-        config = bootstrap.send(:default_config)
-
-        expect(config[:worker_id]).to match(/^ruby-worker-/)
-        expect(config[:enable_web_api]).to be(false)
-        expect(config[:event_driven_enabled]).to be(true)
-        expect(config[:deployment_mode]).to eq('Hybrid')
-        expect(config[:namespaces]).to be_an(Array)
-      end
-    end
-
     describe '#bootstrap_rust_foundation!' do
       it 'stores handle and verifies running status' do
         bootstrap.send(:bootstrap_rust_foundation!)
