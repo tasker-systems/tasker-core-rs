@@ -185,6 +185,7 @@ use tokio::task::JoinHandle;
 // TAS-40 Phase 2.2 - Sophisticated delegation imports
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
+use crate::actors::{ActorRegistry, FinalizeTaskMessage, Handler, ProcessBatchMessage, ProcessStepResultMessage, ProcessTaskRequestMessage};
 use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::system_context::SystemContext;
@@ -194,17 +195,25 @@ use tasker_shared::system_context::SystemContext;
 /// Replaces complex polling-based coordinator/executor system with simple command pattern.
 /// Delegates sophisticated orchestration logic to existing components while eliminating
 /// polling complexity.
+///
+/// TAS-46: Uses ActorRegistry for message-based actor coordination.
 pub struct OrchestrationProcessor {
     /// Shared system dependencies
     context: Arc<SystemContext>,
 
-    /// Sophisticated task request processor for delegation
+    /// Actor registry for message-based coordination (TAS-46)
+    actors: Arc<ActorRegistry>,
+
+    /// Sophisticated task request processor for delegation (deprecated - prefer actors)
+    #[allow(dead_code)]
     task_request_processor: Arc<TaskRequestProcessor>,
 
-    /// Sophisticated orchestration result processor for step results
+    /// Sophisticated orchestration result processor for step results (deprecated - prefer actors)
+    #[allow(dead_code)]
     result_processor: Arc<OrchestrationResultProcessor>,
 
-    /// TAS-43: Task claim step enqueuer for atomic task claiming and step enqueueing
+    /// TAS-43: Task claim step enqueuer for atomic task claiming and step enqueueing (deprecated - prefer actors)
+    #[allow(dead_code)]
     task_claim_step_enqueuer: Arc<StepEnqueuerService>,
 
     /// PGMQ client for message operations
@@ -221,9 +230,10 @@ pub struct OrchestrationProcessor {
 }
 
 impl OrchestrationProcessor {
-    /// Create new OrchestrationProcessor with sophisticated delegation components
+    /// Create new OrchestrationProcessor with actor-based coordination (TAS-46)
     pub fn new(
         context: Arc<SystemContext>,
+        actors: Arc<ActorRegistry>,
         task_request_processor: Arc<TaskRequestProcessor>,
         result_processor: Arc<OrchestrationResultProcessor>,
         task_claim_step_enqueuer: Arc<StepEnqueuerService>,
@@ -243,6 +253,7 @@ impl OrchestrationProcessor {
 
         let processor = Self {
             context,
+            actors,
             task_request_processor,
             result_processor,
             task_claim_step_enqueuer,
@@ -267,9 +278,11 @@ impl OrchestrationProcessor {
             TaskerError::OrchestrationError("Processor already started".to_string())
         })?;
 
+        let actors = self.actors.clone();
         let handle = tokio::spawn(async move {
             let handler = OrchestrationProcessorCommandHandler {
                 context,
+                actors,
                 stats,
                 task_request_processor,
                 result_processor,
@@ -288,9 +301,13 @@ impl OrchestrationProcessor {
 
 pub struct OrchestrationProcessorCommandHandler {
     context: Arc<SystemContext>,
+    actors: Arc<ActorRegistry>, // TAS-46: Actor registry for message-based coordination
     stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
+    #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
     task_request_processor: Arc<TaskRequestProcessor>,
+    #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
     result_processor: Arc<OrchestrationResultProcessor>,
+    #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
     task_claim_step_enqueuer: Arc<StepEnqueuerService>, // TAS-43: Added for atomic task claiming and step enqueueing
     pgmq_client: Arc<UnifiedPgmqClient>,
 }
@@ -298,6 +315,7 @@ pub struct OrchestrationProcessorCommandHandler {
 impl OrchestrationProcessorCommandHandler {
     pub fn new(
         context: Arc<SystemContext>,
+        actors: Arc<ActorRegistry>,
         stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
         task_request_processor: Arc<TaskRequestProcessor>,
         result_processor: Arc<OrchestrationResultProcessor>,
@@ -306,6 +324,7 @@ impl OrchestrationProcessorCommandHandler {
     ) -> Self {
         Self {
             context,
+            actors,
             stats,
             task_request_processor,
             result_processor,
@@ -505,40 +524,30 @@ impl OrchestrationProcessorCommandHandler {
         }
     }
 
-    /// Handle task initialization using sophisticated TaskRequestProcessor delegation
+    /// Handle task initialization using TaskRequestActor (TAS-46)
     async fn handle_initialize_task(
         &self,
         request: TaskRequestMessage,
     ) -> TaskerResult<TaskInitializeResult> {
-        // TAS-40 Phase 2.2 - Sophisticated TaskRequestProcessor delegation
-        // Uses existing sophisticated TaskRequestProcessor for:
+        // TAS-46: Actor-based task initialization
+        // Uses TaskRequestActor which wraps TaskRequestProcessor for:
         // - Request validation and conversion
         // - Task creation with proper database transactions
         // - Namespace queue initialization
         // - Handler registration verification
         // - Complete workflow setup with proper error handling
 
-        // Convert TaskRequestMessage to JSON payload for existing processor
-        let payload = serde_json::to_value(&request).map_err(|e| {
-            TaskerError::ValidationError(format!("Failed to serialize task request: {e}"))
-        })?;
-
-        // Delegate to sophisticated TaskRequestProcessor
-        let task_uuid = self
-            .task_request_processor
-            .process_task_request(&payload)
-            .await
-            .map_err(|e| {
-                TaskerError::OrchestrationError(format!("Task initialization failed: {e}"))
-            })?;
+        // Send message to actor
+        let msg = ProcessTaskRequestMessage { request };
+        let task_uuid = self.actors.task_request_actor.handle(msg).await?;
 
         Ok(TaskInitializeResult::Success {
             task_uuid,
-            message: "Task initialized successfully via TaskRequestProcessor delegation - ready for SQL-based discovery".to_string(),
+            message: "Task initialized successfully via TaskRequestActor - ready for SQL-based discovery".to_string(),
         })
     }
 
-    /// Handle step result processing using sophisticated OrchestrationResultProcessor delegation
+    /// Handle step result processing using ResultProcessorActor (TAS-46)
     async fn handle_process_step_result(
         &self,
         step_result: StepExecutionResult,
@@ -548,37 +557,30 @@ impl OrchestrationProcessorCommandHandler {
             status = %step_result.status,
             execution_time_ms = step_result.metadata.execution_time_ms,
             has_orchestration_metadata = step_result.orchestration_metadata.is_some(),
-            "STEP_PROCESSOR: Starting sophisticated OrchestrationResultProcessor delegation"
+            "STEP_PROCESSOR: Processing step result via ResultProcessorActor"
         );
 
-        // TAS-40 Phase 2.2 - Sophisticated OrchestrationResultProcessor delegation
-        // Uses existing sophisticated result processor for:
+        // TAS-46 Phase 2 - ResultProcessorActor message-based processing
+        // Actor wraps sophisticated OrchestrationResultProcessor for:
         // - Result validation and orchestration metadata processing
-        // - Task finalization coordination with atomic claiming
+        // - Task finalization coordination with atomic claiming (TAS-37)
         // - Error handling, retry logic, and failure state management
         // - Backoff calculations for intelligent retry coordination
 
-        debug!(
-            step_uuid = %step_result.step_uuid,
-            status = %step_result.status,
-            "STEP_PROCESSOR: Delegating to OrchestrationResultProcessor.handle_step_result_with_metadata"
-        );
+        let msg = ProcessStepResultMessage {
+            result: step_result.clone(),
+        };
 
-        // Delegate to sophisticated OrchestrationResultProcessor
-        match self
-            .result_processor
-            .handle_step_execution_result(&step_result)
-            .await
-        {
+        match self.actors.result_processor_actor.handle(msg).await {
             Ok(()) => {
                 info!(
                     step_uuid = %step_result.step_uuid,
                     status = %step_result.status,
-                    "STEP_PROCESSOR: OrchestrationResultProcessor delegation succeeded"
+                    "STEP_PROCESSOR: ResultProcessorActor processing succeeded"
                 );
                 Ok(StepProcessResult::Success {
                     message: format!(
-                        "Step {} result processed successfully via OrchestrationResultProcessor delegation - includes TAS-37 atomic finalization claiming",
+                        "Step {} result processed successfully via ResultProcessorActor - includes TAS-37 atomic finalization claiming",
                         step_result.step_uuid
                     ),
                 })
@@ -588,7 +590,7 @@ impl OrchestrationProcessorCommandHandler {
                     step_uuid = %step_result.step_uuid,
                     status = %step_result.status,
                     error = %e,
-                    "STEP_PROCESSOR: OrchestrationResultProcessor delegation failed"
+                    "STEP_PROCESSOR: ResultProcessorActor processing failed"
                 );
 
                 match step_result.status.as_str() {
@@ -628,13 +630,10 @@ impl OrchestrationProcessorCommandHandler {
     }
 
     async fn handle_finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
-        // Use TaskFinalizer directly with state machine approach
-        use crate::orchestration::lifecycle::task_finalizer::TaskFinalizer;
+        // TAS-46 Phase 3: Use TaskFinalizerActor for task finalization
+        let msg = FinalizeTaskMessage { task_uuid };
 
-        let task_finalizer =
-            TaskFinalizer::new(self.context.clone(), self.task_claim_step_enqueuer.clone());
-
-        match task_finalizer.finalize_task(task_uuid).await {
+        match self.actors.task_finalizer_actor.handle(msg).await {
             Ok(result) => Ok(TaskFinalizationResult::Success {
                 task_uuid,
                 final_status: format!("{:?}", result.action),
@@ -1098,16 +1097,17 @@ impl OrchestrationProcessorCommandHandler {
             "Processing task readiness event via command pattern"
         );
 
-        // Use TaskClaimStepEnqueuer for atomic task claiming and step enqueueing
-        // This uses the batch processing approach to ensure atomic claiming
-        let process_result = match self.task_claim_step_enqueuer.process_batch().await {
+        // TAS-46 Phase 3: Use StepEnqueuerActor for batch processing
+        // This uses the actor-based approach for atomic task claiming and step enqueueing
+        let msg = ProcessBatchMessage;
+        let process_result = match self.actors.step_enqueuer_actor.handle(msg).await {
             Ok(result) => result,
             Err(e) => {
                 tracing::error!(
                     task_uuid = %task_uuid,
                     namespace = %namespace,
                     error = %e,
-                    "Failed to process task readiness via TaskClaimStepEnqueuer"
+                    "Failed to process task readiness via StepEnqueuerActor"
                 );
                 return Err(e);
             }

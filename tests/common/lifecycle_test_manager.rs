@@ -61,7 +61,16 @@ use tasker_shared::state_machine::{
 use tasker_shared::system_context::SystemContext;
 use uuid::Uuid;
 
+// TAS-46: Import actor testing infrastructure
+use crate::common::actor_test_harness::ActorTestHarness;
+
 /// Manager for lifecycle integration testing
+///
+/// ## TAS-46 Actor Migration
+///
+/// This manager supports both legacy direct service access and new actor-based testing.
+/// Use the `_via_actor()` methods for new tests. Legacy methods are maintained for
+/// backward compatibility and will be deprecated in a future release.
 pub struct LifecycleTestManager {
     /// Database connection pool
     pub pool: PgPool,
@@ -70,8 +79,21 @@ pub struct LifecycleTestManager {
     /// Task handler registry with loaded templates
     #[allow(dead_code)]
     pub registry: TaskHandlerRegistry,
-    /// Task initializer for creating tasks
+
+    // ========== Legacy Fields (Backward Compatibility) ==========
+    /// Task initializer for creating tasks (legacy - prefer actor_harness)
+    ///
+    /// **Deprecated**: Use `actor_harness` for new tests. This field will be
+    /// removed in a future release after all tests are migrated.
     pub task_initializer: TaskInitializer,
+
+    // ========== Actor-Based Fields (TAS-46) ==========
+    /// Actor test harness for actor-based testing (TAS-46)
+    ///
+    /// Provides access to all orchestration actors for type-safe message-based testing.
+    /// This is the preferred approach for new tests.
+    pub actor_harness: ActorTestHarness,
+
     /// Path to task template fixtures
     #[allow(dead_code)]
     pub template_path: String,
@@ -112,18 +134,23 @@ impl LifecycleTestManager {
         let system_context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
         tracing::info!(processor_uuid = %system_context.processor_uuid, "✅ SystemContext created");
 
-        // Create StepEnqueuerService and TaskInitializer
+        // Create StepEnqueuerService and TaskInitializer (legacy support)
         let step_enqueuer_service =
             Arc::new(StepEnqueuerService::new(system_context.clone()).await?);
         let task_initializer = TaskInitializer::new(system_context.clone(), step_enqueuer_service);
 
-        tracing::info!("✅ LifecycleTestManager ready");
+        // TAS-46: Create ActorTestHarness for actor-based testing
+        let actor_harness = ActorTestHarness::new(pool.clone()).await?;
+        tracing::info!("✅ ActorTestHarness initialized");
+
+        tracing::info!("✅ LifecycleTestManager ready (hybrid: legacy + actor support)");
 
         Ok(Self {
             pool,
             system_context,
             registry,
             task_initializer,
+            actor_harness,
             template_path: template_path.to_string(),
         })
     }
@@ -167,7 +194,12 @@ impl LifecycleTestManager {
         request
     }
 
-    /// Initialize a task using TaskInitializer
+    // ========== Task Initialization Methods ==========
+
+    /// Initialize a task using TaskInitializer (legacy method)
+    ///
+    /// **Note**: This is the legacy direct service access method. For new tests,
+    /// consider using `initialize_task_via_actor()` once actors are implemented (Phase 2).
     pub async fn initialize_task(
         &self,
         task_request: TaskRequest,
@@ -175,7 +207,7 @@ impl LifecycleTestManager {
         tracing::info!(
             name = %task_request.name,
             namespace = %task_request.namespace,
-            "🚀 Initializing task"
+            "🚀 Initializing task (legacy method)"
         );
 
         let result = self
@@ -186,11 +218,34 @@ impl LifecycleTestManager {
         tracing::info!(
             task_uuid = %result.task_uuid,
             step_count = result.step_count,
-            "✅ Task initialized"
+            "✅ Task initialized (legacy method)"
         );
 
         Ok(result)
     }
+
+    /// Initialize a task using actor-based approach (TAS-46 Phase 2)
+    ///
+    /// **Coming in Phase 2**: This method will use the TaskInitializerActor
+    /// for message-based task initialization.
+    ///
+    /// # Example (Phase 2)
+    ///
+    /// ```ignore
+    /// let result = manager.initialize_task_via_actor(task_request).await?;
+    /// ```
+    #[allow(dead_code)]
+    pub async fn initialize_task_via_actor(
+        &self,
+        _task_request: TaskRequest,
+    ) -> Result<TaskInitializationResult> {
+        // Phase 2: Implement using TaskInitializerActor
+        // let msg = InitializeTaskMessage { request: task_request };
+        // self.actor_harness.task_initializer_actor.handle(msg).await
+        todo!("TAS-46 Phase 2: Implement with TaskInitializerActor")
+    }
+
+    // ========== SQL Validation Methods ==========
 
     /// Validate task execution context matches expected values
     pub async fn validate_task_execution_context(

@@ -563,4 +563,205 @@ The event architecture supports integration with external systems:
 3. **Monitoring Integration**: Prometheus, DataDog, etc. for metrics export
 4. **API Integration**: REST and GraphQL APIs for external coordination
 
-This comprehensive event and command architecture provides the foundation for scalable, reliable, and maintainable workflow orchestration in the tasker-core system while maintaining the flexibility to operate in diverse deployment environments.
+## Actor Integration (TAS-46)
+
+### Overview
+
+The tasker-core system has introduced a **lightweight Actor pattern** that formalizes the relationship between Commands and Lifecycle Components. This architecture provides a consistent, type-safe foundation for orchestration component management while maintaining full backward compatibility with the existing command pattern.
+
+For comprehensive actor documentation, see [Actor-Based Architecture](actors.md).
+
+### Actor Pattern Basics
+
+The actor pattern introduces three core traits:
+
+1. **OrchestrationActor**: Base trait for all actors with lifecycle hooks
+2. **Handler<M>**: Message handling trait for type-safe command processing
+3. **Message**: Marker trait for command messages
+
+```rust
+// Actor definition
+pub struct TaskInitializerActor {
+    context: Arc<SystemContext>,
+    service: TaskInitializer,
+}
+
+// Message definition
+pub struct InitializeTaskMessage {
+    pub request: TaskRequest,
+}
+
+impl Message for InitializeTaskMessage {
+    type Response = TaskInitializationResult;
+}
+
+// Message handler
+#[async_trait]
+impl Handler<InitializeTaskMessage> for TaskInitializerActor {
+    type Response = TaskInitializationResult;
+
+    async fn handle(&self, msg: InitializeTaskMessage) -> TaskerResult<Self::Response> {
+        self.service.create_task_from_request(msg.request).await
+    }
+}
+```
+
+### Integration with Command Processor
+
+The actor pattern integrates seamlessly with the existing command processor through a gradual migration strategy:
+
+**Current (Phase 1)**: Command processor calls lifecycle components directly
+
+```rust
+pub async fn process_command(&self, cmd: OrchestrationCommand) -> TaskerResult<CommandResponse> {
+    match cmd {
+        OrchestrationCommand::InitializeTask { request } => {
+            // Direct service call
+            let result = self.task_initializer.create_task_from_request(request).await?;
+            Ok(CommandResponse::TaskInitialized(result))
+        }
+        // ...
+    }
+}
+```
+
+**Future (Phase 2+)**: Command processor sends messages to actors
+
+```rust
+pub async fn process_command(&self, cmd: OrchestrationCommand) -> TaskerResult<CommandResponse> {
+    match cmd {
+        OrchestrationCommand::InitializeTask { request } => {
+            // Message-based actor call
+            let msg = InitializeTaskMessage { request };
+            let result = self.actors.task_initializer_actor.handle(msg).await?;
+            Ok(CommandResponse::TaskInitialized(result))
+        }
+        // ...
+    }
+}
+```
+
+### Event → Command → Actor Flow
+
+The complete event-to-actor flow:
+
+```
+┌──────────────┐
+│ PGMQ Message │ Message arrives in queue
+└──────┬───────┘
+       │
+       ▼
+┌──────────────────┐
+│  Event Listener  │ EventDrivenSystem processes notification
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ Command Channel  │ Send command to processor via tokio::mpsc
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ Command Processor│ Convert command to actor message
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│  Actor Registry  │ Route message to appropriate actor
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ Handler<M>::     │ Actor processes message
+│    handle()      │ Delegates to underlying service
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│  Response        │ Return result to command processor
+└──────────────────┘
+```
+
+### ActorRegistry and Lifecycle
+
+The `ActorRegistry` manages all orchestration actors and integrates with the system lifecycle:
+
+```rust
+// During system startup
+let context = Arc::new(SystemContext::with_pool(pool).await?);
+let actors = ActorRegistry::build(context).await?;  // Calls started() on all actors
+
+// During operation
+let msg = InitializeTaskMessage { request };
+let result = actors.task_initializer_actor.handle(msg).await?;
+
+// During shutdown
+actors.shutdown().await;  // Calls stopped() on all actors in reverse order
+```
+
+### Benefits for Event-Driven Architecture
+
+The actor pattern enhances the event-driven architecture by providing:
+
+1. **Type Safety**: Compile-time verification of message contracts
+2. **Consistency**: Uniform lifecycle management across all components
+3. **Testability**: Clear message boundaries for isolated testing
+4. **Observability**: Actor-level metrics and tracing
+5. **Evolvability**: Easy to add new message handlers and actors
+
+### Migration Strategy
+
+The actor integration follows a phased approach:
+
+1. **Phase 1** (Complete): Actor infrastructure and test harness
+   - OrchestrationActor, Handler<M>, Message traits
+   - ActorRegistry structure
+   - ActorTestHarness for testing
+
+2. **Phase 2** (Future): First actor implementation
+   - TaskRequestActor with dual support (legacy + actor)
+   - Integration tests using both patterns
+
+3. **Phase 3** (Future): Remaining actors
+   - ResultProcessorActor, StepEnqueuerActor
+   - TaskFinalizerActor, TaskInitializerActor
+
+4. **Phase 4** (Future): Complete migration
+   - Remove legacy direct access
+   - Pure message-based coordination
+
+Each phase maintains full backward compatibility through the LifecycleTestManager dual implementation pattern.
+
+### Testing Actor Integration
+
+The system provides dedicated test infrastructure for actor-based testing:
+
+```rust
+use common::actor_test_harness::ActorTestHarness;
+
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+async fn test_task_initialization_via_actor(pool: PgPool) -> Result<()> {
+    let harness = ActorTestHarness::new(pool).await?;
+
+    // Send message to actor
+    let msg = InitializeTaskMessage { request };
+    let result = harness.actors.task_initializer_actor.handle(msg).await?;
+
+    assert!(result.task_uuid.is_some());
+    Ok(())
+}
+```
+
+The LifecycleTestManager supports both legacy and actor-based testing, ensuring smooth migration:
+
+```rust
+// Legacy method
+let result = manager.initialize_task(request).await?;
+
+// Actor-based method (Phase 2+)
+let result = manager.initialize_task_via_actor(request).await?;
+```
+
+---
+
+This comprehensive event and command architecture, now enhanced with the actor pattern, provides the foundation for scalable, reliable, and maintainable workflow orchestration in the tasker-core system while maintaining the flexibility to operate in diverse deployment environments.

@@ -34,6 +34,7 @@
 //!
 //! ## Module Organization
 //!
+//! - [`actors`] - Actor-based architecture for lifecycle components (TAS-46)
 //! - [`orchestration`] - Core workflow orchestration logic and components
 //! - [`web`] - REST API server (optional, requires `web-api` feature)
 //!
@@ -81,6 +82,7 @@
 //! cargo test          # All tests (114+ tests)
 //! ```
 
+pub mod actors;
 pub mod orchestration;
 #[cfg(feature = "web-api")]
 pub mod web;

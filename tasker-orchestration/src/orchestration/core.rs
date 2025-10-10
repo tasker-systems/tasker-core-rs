@@ -63,18 +63,22 @@ pub enum OrchestrationCoreStatus {
 }
 
 impl OrchestrationCore {
-    /// Create new OrchestrationCore with command pattern integration
+    /// Create new OrchestrationCore with actor-based command pattern (TAS-46)
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
-        info!("Creating OrchestrationCore with TAS-40 command pattern integration");
+        info!("Creating OrchestrationCore with TAS-46 actor-based command pattern");
+
+        // Create ActorRegistry with all actors (TAS-46)
+        let actors = Arc::new(crate::actors::ActorRegistry::build(context.clone()).await?);
 
         // Create sophisticated delegation components using unified claim system
         let task_request_processor = Self::create_task_request_processor(&context).await?;
         let result_processor = Self::create_result_processor(&context).await?;
         let task_claim_step_enqueuer = Self::create_task_claim_step_enqueuer(&context).await?;
 
-        // Create OrchestrationProcessor with sophisticated delegation
+        // Create OrchestrationProcessor with actor registry (TAS-46)
         let (mut processor, command_sender) = OrchestrationProcessor::new(
             context.clone(),
+            actors,
             task_request_processor,
             result_processor,
             task_claim_step_enqueuer,
