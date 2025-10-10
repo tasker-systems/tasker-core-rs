@@ -185,6 +185,66 @@ pub fn ready_steps() -> Gauge<u64> {
         .init()
 }
 
+// ============================================================================
+// TAS-48: Stale Task Discovery Metrics
+// ============================================================================
+
+/// Total number of tasks excluded from discovery due to staleness
+///
+/// Tracks tasks filtered out by staleness exclusion logic (stuck >60min waiting).
+///
+/// Labels:
+/// - state: waiting_for_dependencies, waiting_for_retry
+/// - time_in_state_minutes: Duration bucket (60-120, 120-360, >360)
+pub fn tasks_excluded_staleness_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.tasks.excluded_staleness.total")
+        .with_description("Total number of tasks excluded from discovery due to staleness")
+        .init()
+}
+
+/// Distribution of computed priority values for discovered tasks
+///
+/// Tracks priority distribution to validate decay behavior.
+///
+/// Labels:
+/// - task_age_bucket: fresh (<1hr), aging (1-24hr), stale (>24hr)
+pub fn computed_priority_histogram() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.task.computed_priority")
+        .with_description("Distribution of computed priority values")
+        .init()
+}
+
+/// Task age at discovery time in seconds
+///
+/// Tracks how long tasks wait before being discovered.
+///
+/// Labels:
+/// - correlation_id: Request correlation ID
+/// - task_state: pending, waiting_for_dependencies, waiting_for_retry
+pub fn task_age_at_discovery_seconds() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.task.age_at_discovery")
+        .with_description("Task age at discovery time in seconds")
+        .with_unit("s")
+        .init()
+}
+
+/// Discovery pool saturation ratio
+///
+/// Ratio of pre-filter candidates to limit (e.g., 500 candidates / (50 * 10) = 1.0 = saturated).
+/// Values approaching 1.0 indicate discovery buffer is full.
+///
+/// Labels:
+/// - has_stale_tasks: true/false - whether stale tasks exist in system
+pub fn discovery_pool_saturation() -> Gauge<f64> {
+    meter()
+        .f64_gauge("tasker.discovery.pool_saturation")
+        .with_description("Discovery pool saturation ratio (candidates / limit)")
+        .init()
+}
+
 // Static instances for convenience
 
 /// Static counter: task_requests_total
@@ -217,6 +277,20 @@ pub static ACTIVE_TASKS: OnceLock<Gauge<u64>> = OnceLock::new();
 /// Static gauge: ready_steps
 pub static READY_STEPS: OnceLock<Gauge<u64>> = OnceLock::new();
 
+// TAS-48: Stale task discovery metrics statics
+
+/// Static counter: tasks_excluded_staleness_total
+pub static TASKS_EXCLUDED_STALENESS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static histogram: computed_priority_histogram
+pub static COMPUTED_PRIORITY_HISTOGRAM: OnceLock<Histogram<f64>> = OnceLock::new();
+
+/// Static histogram: task_age_at_discovery_seconds
+pub static TASK_AGE_AT_DISCOVERY_SECONDS: OnceLock<Histogram<f64>> = OnceLock::new();
+
+/// Static gauge: discovery_pool_saturation
+pub static DISCOVERY_POOL_SATURATION: OnceLock<Gauge<f64>> = OnceLock::new();
+
 /// Initialize all orchestration metrics
 ///
 /// This should be called during application startup after init_metrics().
@@ -231,4 +305,10 @@ pub fn init() {
     STEP_RESULT_PROCESSING_DURATION.get_or_init(step_result_processing_duration);
     ACTIVE_TASKS.get_or_init(active_tasks);
     READY_STEPS.get_or_init(ready_steps);
+
+    // TAS-48: Stale task discovery metrics
+    TASKS_EXCLUDED_STALENESS_TOTAL.get_or_init(tasks_excluded_staleness_total);
+    COMPUTED_PRIORITY_HISTOGRAM.get_or_init(computed_priority_histogram);
+    TASK_AGE_AT_DISCOVERY_SECONDS.get_or_init(task_age_at_discovery_seconds);
+    DISCOVERY_POOL_SATURATION.get_or_init(discovery_pool_saturation);
 }

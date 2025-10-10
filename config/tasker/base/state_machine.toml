@@ -43,3 +43,82 @@ store_processor_info = true
 store_event_details = true
 enable_history_cleanup = true
 history_retention_days = 30
+
+# ============================================================================
+# TAS-48: Task Staleness Immediate Relief
+# ============================================================================
+
+[state_machine.discovery]
+# Staleness Exclusion Thresholds
+#
+# Tasks stuck in waiting states beyond these thresholds are excluded from
+# the discovery pool to prevent them from drowning out fresh tasks.
+#
+# These are bug fixes for broken discovery logic, not optional features.
+# Thresholds are configurable for environment-specific tuning.
+
+# Maximum time a task can wait for dependencies before being excluded from discovery
+# Default: 60 minutes (conservative threshold)
+max_waiting_for_dependencies_discovery_minutes = 60
+
+# Maximum time a task can wait for retry before being excluded from discovery
+# Default: 30 minutes (based on maximum exponential backoff)
+max_waiting_for_retry_discovery_minutes = 30
+
+# Discovery pool multiplier for pre-filtering candidates
+# get_next_ready_tasks() pre-filters (limit * multiplier) tasks by priority
+# before applying execution status checks
+# Default: 10 (e.g., limit=50 → 500 pre-filtered candidates)
+discovery_pool_multiplier = 10
+
+[state_machine.priority_decay]
+# Exponential Priority Decay Parameters
+#
+# Replaces broken monotonically-increasing priority with exponential decay
+# to ensure fresh tasks naturally rise to the top while stale tasks sink.
+#
+# Priority behavior:
+# - Fresh tasks (<decay_start): Normal age escalation (priority + age_bonus)
+# - Aging tasks (decay_start to stale_threshold): Exponential decay with half-life
+# - Stale tasks (>stale_threshold): Minimum priority (DLQ candidates)
+
+# Time before decay starts (hours)
+# Fresh tasks get normal priority + age escalation bonus
+# Default: 1.0 hour (grace period for normal processing)
+decay_start_hours = 1.0
+
+# Half-life for exponential decay (hours)
+# Priority halves every decay_half_life_hours after decay starts
+# Default: 12.0 hours (prevents rapid de-prioritization)
+decay_half_life_hours = 12.0
+
+# Threshold for stale task classification (hours)
+# Tasks beyond this get minimum_priority and become DLQ candidates
+# Default: 24.0 hours (full day stuck indicates real problem)
+stale_threshold_hours = 24.0
+
+# Minimum priority for stale tasks
+# Floor value for tasks beyond stale_threshold_hours
+# Default: 0.1 (low enough to not interfere with fresh tasks)
+minimum_priority = 0.1
+
+# ============================================================================
+# Mathematical Behavior (Reference)
+# ============================================================================
+#
+# Time in State | Base Priority | Computed Priority | Notes
+# --------------|---------------|-------------------|------------------
+# 5 minutes     | 5.0           | 5.008            | Normal escalation
+# 30 minutes    | 5.0           | 5.05             | Continues escalating
+# 1 hour        | 5.0           | 5.1              | Peak (transition)
+# 6 hours       | 5.0           | 3.03             | Decay begins
+# 12 hours      | 5.0           | 1.84             | Half-life reached
+# 24 hours      | 5.0           | 0.68             | Approaching DLQ
+# 48 hours      | 5.0           | 0.1              | DLQ candidate
+#
+# Key Properties:
+# - Fresh tasks get priority boost
+# - After 1 hour, priority decays exponentially
+# - 12-hour half-life prevents permanent starvation
+# - After 24 hours, tasks become DLQ candidates
+# ============================================================================
