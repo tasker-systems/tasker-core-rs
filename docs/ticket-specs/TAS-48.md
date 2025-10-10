@@ -2,12 +2,14 @@
 
 ## Executive Summary
 
+> **Implementation Note**: This ticket has been simplified from the original spec. Since this is a greenfield project with no existing users, we're implementing both solutions (1A + 1B) as **bug fixes** in a **single migration** with **no feature flags**. The thresholds are configurable via TOML but the fixes are always applied. See `migrations/20251010000000_add_stale_task_discovery_fixes.sql`.
+
 Implement immediate relief for task discovery priority drowning caused by stale tasks accumulating in waiting states. During TAS-29 Phase 6 testing, we discovered 4,459 stale tasks were blocking discovery of legitimate ready tasks by filling the priority-based pre-filter buffer in `get_next_ready_tasks()`. This ticket implements two complementary solutions: (1A) staleness-aware filtering to exclude long-stuck tasks from discovery, and (1B) priority decay to reduce the computed priority of aging tasks, ensuring fresh tasks are always discoverable.
 
 **Dependencies**: None (can be implemented immediately after TAS-29 merge)
 **Impact**: High - Resolves production-critical discovery blocking
 **Effort**: Low - 1-2 days implementation
-**Type**: Quick Win / Bug Fix
+**Type**: Bug Fix (not optional feature)
 
 ---
 
