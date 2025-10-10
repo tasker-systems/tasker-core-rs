@@ -100,7 +100,7 @@ tokio-test = "0.4"
 tokio-util = { version = "0.7", features = ["codec"] }
 toml = "0.8"
 tower = { version = "0.4" }
-tower-http = { version = "0.5", features = ["cors", "timeout", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "timeout", "trace"] }
 # Logging and telemetry
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
