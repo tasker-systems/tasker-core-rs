@@ -73,7 +73,7 @@ impl WorkerSystemHandle {
             sender.send(()).map_err(|_| {
                 TaskerError::WorkerError("Failed to send shutdown signal".to_string())
             })?;
-            info!("🛑 Worker system shutdown requested");
+            info!("Worker system shutdown requested");
             Ok(())
         } else {
             warn!("Worker system already stopped");
@@ -216,7 +216,7 @@ impl WorkerBootstrap {
     pub async fn bootstrap_with_event_system(
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
     ) -> TaskerResult<WorkerSystemHandle> {
-        info!("🚀 BOOTSTRAP: Starting unified worker system bootstrap");
+        info!("Starting unified worker system bootstrap");
 
         let config_manager = ConfigManager::load().map_err(|e| {
             error!("Failed to load configuration: {e}");
@@ -224,7 +224,7 @@ impl WorkerBootstrap {
         })?;
 
         info!(
-            "✅ BOOTSTRAP: Configuration loaded for environment: {}",
+            "Configuration loaded for environment: {}",
             config_manager.environment()
         );
 
@@ -241,7 +241,7 @@ impl WorkerBootstrap {
         )
         .await?;
 
-        info!("✅ BOOTSTRAP: WorkerCore initialized with WorkerEventSystem architecture",);
+        info!("WorkerCore initialized with WorkerEventSystem architecture",);
         info!("   - Event-driven processing enabled with deployment modes support",);
         info!("   - Fallback polling for reliability and hybrid deployment mode",);
 
@@ -254,11 +254,11 @@ impl WorkerBootstrap {
         // Now wrap in Arc<Mutex<>> for shared access across web API and handle
         let worker_core = Arc::new(Mutex::new(worker_core));
 
-        info!("✅ BOOTSTRAP: WorkerCore started successfully with background processing");
+        info!("WorkerCore started successfully with background processing");
 
         // Create web API state if enabled (after starting worker core)
         let web_state = if config.enable_web_api {
-            info!("BOOTSTRAP: Creating worker web API state");
+            info!("Creating worker web API state");
 
             // Clone the Arc<Mutex<WorkerCore>> for web API
             let web_worker_core = worker_core.clone();
@@ -279,10 +279,10 @@ impl WorkerBootstrap {
                 .await?,
             );
 
-            info!("✅ BOOTSTRAP: Worker web API state created successfully");
+            info!("Worker web API state created successfully");
             Some(web_state)
         } else {
-            info!("BOOTSTRAP: Web API disabled in configuration");
+            info!("Web API disabled in configuration");
             None
         };
 
@@ -291,7 +291,7 @@ impl WorkerBootstrap {
 
         // Start web server if enabled
         if let Some(ref web_state) = web_state {
-            info!("BOOTSTRAP: Starting worker web server");
+            info!("Starting worker web server");
 
             let app = crate::web::create_app(web_state.clone());
             let bind_address = web_state.config.bind_address.clone();
@@ -312,10 +312,7 @@ impl WorkerBootstrap {
                 }
             });
 
-            info!(
-                "✅ BOOTSTRAP: Worker web server started on {}",
-                bind_address
-            );
+            info!("Worker web server started on {}", bind_address);
         }
 
         // Create shutdown channel
@@ -324,7 +321,7 @@ impl WorkerBootstrap {
         // Spawn background task to handle shutdown
         tokio::spawn(async move {
             if let Ok(()) = shutdown_receiver.await {
-                info!("🛑 BOOTSTRAP: Worker shutdown signal received");
+                info!("Worker shutdown signal received");
             }
         });
 
@@ -336,7 +333,7 @@ impl WorkerBootstrap {
             config,
         );
 
-        info!("🎉 BOOTSTRAP: Unified worker system bootstrap completed successfully");
+        info!("Unified worker system bootstrap completed successfully");
         Ok(handle)
     }
 }

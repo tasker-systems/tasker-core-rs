@@ -43,13 +43,16 @@
 
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::state_manager::StateManager;
+use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tasker_shared::database::SqlFunctionExecutor;
 use tasker_shared::logging;
+use tasker_shared::metrics::orchestration::*;
 use tasker_shared::models::core::task_template::TaskTemplate;
 use tasker_shared::models::{task_request::TaskRequest, NamedStep, Task, WorkflowStep};
 use tasker_shared::registry::TaskHandlerRegistry;
@@ -94,18 +97,37 @@ impl TaskInitializer {
     }
 
     /// Create a complete task from TaskRequest with atomic transaction safety
-    #[instrument(skip(self), fields(task_name = %task_request.name))]
+    #[instrument(skip(self), fields(
+        task_name = %task_request.name,
+        correlation_id = %task_request.correlation_id
+    ))]
     pub async fn create_task_from_request(
         &self,
         task_request: TaskRequest,
     ) -> Result<TaskInitializationResult, TaskInitializationError> {
-        // Store values before moving task_request
+        // Store values before moving task_request (TAS-29: including correlation_id)
         let namespace = task_request.namespace.clone();
         let task_name = task_request.name.clone();
         let version = task_request.version.clone();
+        let correlation_id = task_request.correlation_id;
 
         // Clone the task_request for handler configuration lookup
         let task_request_for_handler = task_request.clone();
+
+        // TAS-29 Phase 3.3: Record task request metric
+        if let Some(counter) = TASK_REQUESTS_TOTAL.get() {
+            counter.add(
+                1,
+                &[
+                    KeyValue::new("correlation_id", correlation_id.to_string()),
+                    KeyValue::new("task_type", task_name.clone()),
+                    KeyValue::new("namespace", namespace.clone()),
+                ],
+            );
+        }
+
+        // TAS-29 Phase 3.3: Start timing task initialization
+        let start_time = Instant::now();
 
         logging::log_task_operation(
             "TASK_INITIALIZATION_START",
@@ -113,10 +135,16 @@ impl TaskInitializer {
             Some(&task_name),
             Some(&namespace),
             "STARTING",
-            Some(&format!("version={version}")),
+            Some(&format!(
+                "version={version}, correlation_id={correlation_id}"
+            )),
         );
 
-        info!(task_name = %task_request.name, "Starting task initialization");
+        info!(
+            task_name = %task_request.name,
+            correlation_id = %correlation_id,
+            "Starting task initialization"
+        );
 
         // Use SQLx transaction for atomicity
         let mut tx = self.context.database_pool().begin().await.map_err(|e| {
@@ -175,7 +203,8 @@ impl TaskInitializer {
                     Some(&format!("Registry lookup failed: {e}")),
                 );
                 error!(
-                  task_uuid = task_uuid.to_string(),
+                  correlation_id = %correlation_id,
+                  task_uuid = %task_uuid,
                   task_name = %task_name,
                   error = %e,
                   "Failed to load task template"
@@ -248,31 +277,51 @@ impl TaskInitializer {
         );
 
         info!(
-            task_uuid = task_uuid.to_string(),
-            step_count = step_count,
+            correlation_id = %correlation_id,
+            task_uuid = %task_uuid,
             task_name = %task_name,
+            step_count = step_count,
             "Task initialization completed successfully"
         );
+
+        // TAS-29 Phase 3.3: Record task initialization duration
+        let duration_ms = start_time.elapsed().as_millis() as f64;
+        if let Some(histogram) = TASK_INITIALIZATION_DURATION.get() {
+            histogram.record(
+                duration_ms,
+                &[
+                    KeyValue::new("correlation_id", correlation_id.to_string()),
+                    KeyValue::new("task_type", task_name.clone()),
+                ],
+            );
+        }
 
         Ok(result)
     }
 
     /// Create a task and immediately enqueue its ready steps
     ///
-    /// This method combines task creation with immediate step enqueuing (TAS-41)
+    /// This method combines task creation with immediate step enqueuing
     /// to reduce latency between task creation and step execution.
-    #[instrument(skip(self), fields(task_name = %task_request.name))]
+    #[instrument(skip(self), fields(
+        correlation_id = %task_request.correlation_id,
+        task_name = %task_request.name
+    ))]
     pub async fn create_and_enqueue_task_from_request(
         &self,
         task_request: TaskRequest,
     ) -> Result<TaskInitializationResult, TaskInitializationError> {
+        // Extract correlation_id before moving task_request
+        let correlation_id = task_request.correlation_id;
+
         // First, create the task using existing method
         let initialization_result = self.create_task_from_request(task_request).await?;
 
         let task_uuid = initialization_result.task_uuid;
 
         info!(
-            task_uuid = task_uuid.to_string(),
+            correlation_id = %correlation_id,
+            task_uuid = %task_uuid,
             step_count = initialization_result.step_count,
             "Task created, attempting immediate step enqueuing"
         );
@@ -613,7 +662,7 @@ impl TaskInitializer {
         })?;
 
         info!(
-            task_uuid = task_uuid.to_string(),
+            task_uuid = %task_uuid,
             current_state = %current_state,
             "Task state machine created, transitioning from Pending to Initializing"
         );
@@ -624,19 +673,19 @@ impl TaskInitializer {
                 Ok(success) => {
                     if success {
                         info!(
-                            task_uuid = task_uuid.to_string(),
+                            task_uuid = %task_uuid,
                             "Successfully transitioned task from Pending to Initializing"
                         );
                     } else {
                         warn!(
-                            task_uuid = task_uuid.to_string(),
+                            task_uuid = %task_uuid,
                             "Task state transition returned false - task may already be in correct state"
                         );
                     }
                 }
                 Err(e) => {
                     error!(
-                        task_uuid = task_uuid.to_string(),
+                        task_uuid = %task_uuid,
                         error = %e,
                         "Failed to transition task from Pending to Initializing"
                     );
@@ -647,7 +696,7 @@ impl TaskInitializer {
             }
         } else {
             info!(
-                task_uuid = task_uuid.to_string(),
+                task_uuid = %task_uuid,
                 current_state = %current_state,
                 "Task already in non-Pending state, no transition needed"
             );
@@ -667,7 +716,7 @@ impl TaskInitializer {
                     Ok(_current_state) => {}
                     Err(e) => {
                         warn!(
-                            step_uuid = workflow_step_uuid.to_string(),
+                            step_uuid = %workflow_step_uuid,
                             error = %e,
                             "Failed to get current state from step state machine"
                         );
@@ -675,7 +724,7 @@ impl TaskInitializer {
                 },
                 Err(e) => {
                     warn!(
-                        step_uuid = workflow_step_uuid.to_string(),
+                        step_uuid = %workflow_step_uuid,
                         error = %e,
                         "Failed to initialize step state machine, basic initialization completed"
                     );

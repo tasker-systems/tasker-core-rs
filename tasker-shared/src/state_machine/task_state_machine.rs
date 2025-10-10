@@ -77,6 +77,8 @@ impl TaskStateMachine {
             priority: 0,
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
+            correlation_id: Uuid::now_v7(), // TAS-29: Generate placeholder correlation_id
+            parent_correlation_id: None,
         };
 
         let event_publisher = Arc::new(EventPublisher::new());

@@ -40,6 +40,8 @@ pub struct PgmqStepMessageMetadata {
     pub max_retries: i32,
     /// Timeout in seconds (optional)
     pub timeout_seconds: Option<i64>,
+    /// TAS-29: Correlation ID for distributed tracing (propagated from task)
+    pub correlation_id: Uuid,
 }
 
 impl Default for PgmqStepMessageMetadata {
@@ -49,6 +51,7 @@ impl Default for PgmqStepMessageMetadata {
             retry_count: 0,
             max_retries: 3,
             timeout_seconds: Some(30),
+            correlation_id: Uuid::now_v7(),
         }
     }
 }
@@ -132,7 +135,7 @@ impl TaskerPgmqClientExt for PgmqClient {
         })?;
 
         info!(
-            "✅ Step message sent to queue: {} with ID: {}",
+            "Step message sent to queue: {} with ID: {}",
             queue_name, message_id
         );
         Ok(message_id)
@@ -197,7 +200,7 @@ impl TaskerPgmqClientExt for PgmqClient {
             .map_err(crate::messaging::MessagingError::from)?;
 
         debug!(
-            "✅ Step message processing completed: namespace={}, message_id={}",
+            "Step message processing completed: namespace={}, message_id={}",
             namespace, message_id
         );
 

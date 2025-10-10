@@ -89,7 +89,7 @@ pub struct TaskerConfig {
     /// Task execution settings
     pub execution: ExecutionConfig,
 
-    /// Queue system configuration with backend abstraction (TAS-43)
+    /// Queue system configuration with backend abstraction
     /// Note: PGMQ configuration is now handled within queues.pgmq
     pub queues: QueuesConfig,
 
@@ -99,14 +99,14 @@ pub struct TaskerConfig {
     /// Circuit breaker configuration for resilience patterns
     pub circuit_breakers: CircuitBreakerConfig,
 
-    /// Task readiness event-driven system configuration (TAS-43)
+    /// Task readiness event-driven system configuration
     pub task_readiness: TaskReadinessConfig,
 
     // REMOVED: task_claimer for TAS-41 state machine approach
     /// Unified event systems configuration
     pub event_systems: EventSystemsConfig,
 
-    /// Worker configuration (TAS-40)
+    /// Worker configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worker: Option<WorkerConfig>,
 }
@@ -332,7 +332,6 @@ impl Default for BackoffConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReenqueueDelays {
-    // TAS-41: New state machine states
     pub initializing: u64,
     pub enqueuing_steps: u64,
     pub steps_in_process: u64,

@@ -3,6 +3,10 @@ enabled = true
 service_name = "tasker-core-dev"
 sample_rate = 1.0
 
+# TAS-29 Phase 3: Enable OpenTelemetry for metrics and tracing
+[telemetry.opentelemetry]
+enabled = true
+
 [health]
 enabled = true
 check_interval_seconds = 30

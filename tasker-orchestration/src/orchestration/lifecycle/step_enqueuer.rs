@@ -46,6 +46,7 @@
 use crate::orchestration::{
     state_manager::StateManager, viable_step_discovery::ViableStepDiscovery,
 };
+use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -55,6 +56,7 @@ use tasker_shared::config::orchestration::StepEnqueuerConfig;
 use tasker_shared::database::sql_functions::ReadyTaskInfo;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::PgmqClientTrait;
+use tasker_shared::metrics::orchestration::*;
 use tasker_shared::models::WorkflowStep;
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::states::WorkflowStepState;
@@ -123,15 +125,42 @@ impl StepEnqueuer {
     ///
     /// This discovers viable steps using the existing SQL-based logic, then enqueues each
     /// step individually to its namespace-specific queue for autonomous worker processing.
-    #[instrument(skip(self), fields(task_uuid = task_info.task_uuid.to_string(), namespace = %task_info.namespace_name))]
+    #[instrument(skip(self), fields(
+        task_uuid = %task_info.task_uuid,
+        namespace = %task_info.namespace_name
+    ))]
     pub async fn enqueue_ready_steps(
         &self,
         task_info: &ReadyTaskInfo,
     ) -> TaskerResult<StepEnqueueResult> {
         let start_time = Instant::now();
 
+        // Fetch correlation_id from task for distributed tracing
+        let correlation_id = {
+            use tasker_shared::models::Task;
+            match Task::find_by_id(self.context.database_pool(), task_info.task_uuid).await {
+                Ok(Some(task)) => task.correlation_id,
+                Ok(None) => {
+                    error!(
+                        task_uuid = %task_info.task_uuid,
+                        "Task not found when fetching correlation_id"
+                    );
+                    Uuid::nil() // Fallback to nil UUID if task not found
+                }
+                Err(e) => {
+                    error!(
+                        task_uuid = %task_info.task_uuid,
+                        error = %e,
+                        "Failed to fetch task for correlation_id"
+                    );
+                    Uuid::nil() // Fallback to nil UUID on error
+                }
+            }
+        };
+
         info!(
-            task_uuid = task_info.task_uuid.to_string(),
+            correlation_id = %correlation_id,
+            task_uuid = %task_info.task_uuid,
             namespace = %task_info.namespace_name,
             "Starting step enqueueing for claimed task"
         );
@@ -143,7 +172,8 @@ impl StepEnqueuer {
             .await
             .map_err(|e| {
                 error!(
-                    task_uuid = task_info.task_uuid.to_string(),
+                    correlation_id = %correlation_id,
+                    task_uuid = %task_info.task_uuid,
                     error = %e,
                     "Failed to discover viable steps"
                 );
@@ -152,14 +182,16 @@ impl StepEnqueuer {
 
         let steps_discovered = viable_steps.len();
         debug!(
-            task_uuid = task_info.task_uuid.to_string(),
+            correlation_id = %correlation_id,
+            task_uuid = %task_info.task_uuid,
             steps_discovered = steps_discovered,
             "Discovered viable steps for enqueueing"
         );
 
         if steps_discovered == 0 {
             warn!(
-                task_uuid = task_info.task_uuid.to_string(),
+                correlation_id = %correlation_id,
+                task_uuid = %task_info.task_uuid,
                 "No viable steps found for claimed task - task may have been processed already"
             );
 
@@ -178,12 +210,13 @@ impl StepEnqueuer {
         // 2. Filter and prepare steps for enqueueing based on current state
         // Only enqueue steps that are in valid states for enqueueing
         let enqueuable_steps = self
-            .filter_and_prepare_enqueuable_steps(viable_steps)
+            .filter_and_prepare_enqueuable_steps(correlation_id, viable_steps)
             .await?;
 
         let enqueuable_count = enqueuable_steps.len();
         debug!(
-            task_uuid = task_info.task_uuid.to_string(),
+            correlation_id = %correlation_id,
+            task_uuid = %task_info.task_uuid,
             steps_discovered = steps_discovered,
             enqueuable_steps = enqueuable_count,
             "Filtered steps ready for enqueueing"
@@ -191,7 +224,8 @@ impl StepEnqueuer {
 
         if enqueuable_count == 0 {
             warn!(
-                task_uuid = task_info.task_uuid.to_string(),
+                correlation_id = %correlation_id,
+                task_uuid = %task_info.task_uuid,
                 "No enqueuable steps after state filtering - steps may be in error/waiting states"
             );
 
@@ -215,10 +249,25 @@ impl StepEnqueuer {
         let mut step_uuids = Vec::new();
 
         for viable_step in enqueuable_steps {
-            match self.enqueue_individual_step(task_info, &viable_step).await {
+            match self
+                .enqueue_individual_step(correlation_id, task_info, &viable_step)
+                .await
+            {
                 Ok(queue_name) => {
                     steps_enqueued += 1;
                     step_uuids.push(viable_step.step_uuid);
+
+                    // TAS-29 Phase 3.3: Record step enqueued metric
+                    if let Some(counter) = STEPS_ENQUEUED_TOTAL.get() {
+                        counter.add(
+                            1,
+                            &[
+                                KeyValue::new("correlation_id", correlation_id.to_string()),
+                                KeyValue::new("namespace", task_info.namespace_name.clone()),
+                                KeyValue::new("step_name", viable_step.name.clone()),
+                            ],
+                        );
+                    }
 
                     // Update namespace stats
                     let stats = namespace_breakdown
@@ -232,8 +281,9 @@ impl StepEnqueuer {
 
                     if self.config.enable_detailed_logging {
                         debug!(
-                            task_uuid = task_info.task_uuid.to_string(),
-                            step_uuid = viable_step.step_uuid.to_string(),
+                            correlation_id = %correlation_id,
+                            task_uuid = %task_info.task_uuid,
+                            step_uuid = %viable_step.step_uuid,
                             step_name = %viable_step.name,
                             queue_name = %queue_name,
                             "Successfully enqueued step"
@@ -261,8 +311,9 @@ impl StepEnqueuer {
                     warnings.push(warning.clone());
 
                     warn!(
-                        task_uuid = task_info.task_uuid.to_string(),
-                        step_uuid = viable_step.step_uuid.to_string(),
+                        correlation_id = %correlation_id,
+                        task_uuid = %task_info.task_uuid,
+                        step_uuid = %viable_step.step_uuid,
                         step_name = %viable_step.name,
                         error = %e,
                         "Failed to enqueue individual step"
@@ -282,7 +333,8 @@ impl StepEnqueuer {
                 .await
             {
                 error!(
-                    task_uuid = task_info.task_uuid.to_string(),
+                    correlation_id = %correlation_id,
+                    task_uuid = %task_info.task_uuid,
                     error = %e,
                     "Failed to transition task to in_progress state after enqueueing steps"
                 );
@@ -293,7 +345,8 @@ impl StepEnqueuer {
                 ));
             } else {
                 info!(
-                    task_uuid = task_info.task_uuid.to_string(),
+                    correlation_id = %correlation_id,
+                    task_uuid = %task_info.task_uuid,
                     steps_enqueued = steps_enqueued,
                     "Successfully transitioned task to in_progress state after enqueueing steps"
                 );
@@ -312,7 +365,8 @@ impl StepEnqueuer {
         };
 
         info!(
-            task_uuid = task_info.task_uuid.to_string(),
+            correlation_id = %correlation_id,
+            task_uuid = %task_info.task_uuid,
             steps_discovered = steps_discovered,
             steps_enqueued = steps_enqueued,
             steps_failed = steps_failed,
@@ -329,6 +383,7 @@ impl StepEnqueuer {
     /// before they can be enqueued. Only returns steps that are in valid states for enqueueing.
     async fn filter_and_prepare_enqueuable_steps(
         &self,
+        correlation_id: Uuid,
         viable_steps: Vec<ViableStep>,
     ) -> TaskerResult<Vec<ViableStep>> {
         let mut enqueuable_steps = Vec::new();
@@ -347,6 +402,7 @@ impl StepEnqueuer {
 
             let Some(workflow_step) = workflow_step else {
                 warn!(
+                    correlation_id = %correlation_id,
                     step_uuid = %viable_step.step_uuid,
                     "Step not found in database, skipping"
                 );
@@ -366,6 +422,7 @@ impl StepEnqueuer {
                 WorkflowStepState::Pending => {
                     // Ready to enqueue directly
                     debug!(
+                        correlation_id = %correlation_id,
                         step_uuid = %viable_step.step_uuid,
                         step_name = %viable_step.name,
                         "Step in Pending state, ready to enqueue"
@@ -378,6 +435,7 @@ impl StepEnqueuer {
                     // If it's in the viable steps list and in WaitingForRetry state, backoff has expired
                     // Transition WaitingForRetry → Pending via Retry event
                     info!(
+                        correlation_id = %correlation_id,
                         step_uuid = %viable_step.step_uuid,
                         step_name = %viable_step.name,
                         "Step in WaitingForRetry with expired backoff, transitioning to Pending"
@@ -386,6 +444,7 @@ impl StepEnqueuer {
                     match state_machine.transition(StepEvent::Retry).await {
                         Ok(_) => {
                             debug!(
+                                correlation_id = %correlation_id,
                                 step_uuid = %viable_step.step_uuid,
                                 "Successfully transitioned to Pending, ready to enqueue"
                             );
@@ -393,6 +452,7 @@ impl StepEnqueuer {
                         }
                         Err(e) => {
                             warn!(
+                                correlation_id = %correlation_id,
                                 step_uuid = %viable_step.step_uuid,
                                 error = %e,
                                 "Failed to transition from WaitingForRetry to Pending, skipping"
@@ -404,6 +464,7 @@ impl StepEnqueuer {
                 WorkflowStepState::Error => {
                     // Defensive: Should not happen if SQL function is correct
                     warn!(
+                        correlation_id = %correlation_id,
                         step_uuid = %viable_step.step_uuid,
                         step_name = %viable_step.name,
                         "Step in Error state returned as viable - should be in WaitingForRetry. Skipping."
@@ -413,6 +474,7 @@ impl StepEnqueuer {
                 _ => {
                     // Skip steps in other states (Enqueued, InProgress, Complete, etc.)
                     debug!(
+                        correlation_id = %correlation_id,
                         step_uuid = %viable_step.step_uuid,
                         step_name = %viable_step.name,
                         current_state = ?current_state,
@@ -428,12 +490,17 @@ impl StepEnqueuer {
     /// Enqueue a single viable step to its namespace queue
     async fn enqueue_individual_step(
         &self,
+        correlation_id: Uuid,
         task_info: &ReadyTaskInfo,
         viable_step: &ViableStep,
     ) -> TaskerResult<String> {
         info!(
-            "🚀 STEP_ENQUEUER: Preparing to enqueue step {} (name: '{}') from task {} (namespace: '{}')",
-            viable_step.step_uuid, viable_step.name, task_info.task_uuid, task_info.namespace_name
+            correlation_id = %correlation_id,
+            task_uuid = %task_info.task_uuid,
+            step_uuid = %viable_step.step_uuid,
+            step_name = %viable_step.name,
+            namespace = %task_info.namespace_name,
+            "Preparing to enqueue step"
         );
 
         // Create simple UUID-based message (simplified architecture)
@@ -445,10 +512,40 @@ impl StepEnqueuer {
         let queue_name = format!("worker_{}_queue", task_info.namespace_name);
 
         info!(
-            "📝 STEP_ENQUEUER: Created simple step message - targeting queue '{}' for step UUID '{}'",
-            queue_name, simple_message.step_uuid
+            correlation_id = %correlation_id,
+            step_uuid = %simple_message.step_uuid,
+            queue_name = %queue_name,
+            "Created simple step message"
         );
 
+        // TAS-29 Phase 5.4 Fix: Mark step as enqueued BEFORE sending PGMQ notification
+        // This ensures the state transition is fully committed and visible before workers
+        // receive the notification. Previously, pgmq-notify was so fast that workers would
+        // receive notifications before the orchestration transaction committed, causing
+        // duplicate key constraint violations when both tried to create transition records.
+        self.state_manager
+            .mark_step_enqueued(viable_step.step_uuid)
+            .await
+            .map_err(|e| {
+                error!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %viable_step.step_uuid,
+                    error = %e,
+                    "Failed to transition step to enqueued state before enqueueing"
+                );
+                TaskerError::StateTransitionError(format!(
+                    "Failed to mark step {} as enqueued: {}",
+                    viable_step.step_uuid, e
+                ))
+            })?;
+
+        info!(
+            correlation_id = %correlation_id,
+            step_uuid = %viable_step.step_uuid,
+            "Successfully marked step as enqueued - now sending to PGMQ"
+        );
+
+        // Now send to PGMQ - notification fires AFTER state is committed
         let msg_id = self
             .context
             .message_client()
@@ -456,8 +553,11 @@ impl StepEnqueuer {
             .await
             .map_err(|e| {
                 error!(
-                    "❌ STEP_ENQUEUER: Failed to enqueue step {} to queue '{}': {}",
-                    viable_step.step_uuid, queue_name, e
+                    correlation_id = %correlation_id,
+                    step_uuid = %viable_step.step_uuid,
+                    queue_name = %queue_name,
+                    error = %e,
+                    "Failed to enqueue step to queue"
                 );
                 TaskerError::OrchestrationError(format!(
                     "Failed to enqueue step {} to {}: {}",
@@ -466,36 +566,21 @@ impl StepEnqueuer {
             })?;
 
         info!(
-            "✅ STEP_ENQUEUER: Successfully sent step {} to pgmq queue '{}' with message ID {}",
-            viable_step.step_uuid, queue_name, msg_id
+            correlation_id = %correlation_id,
+            step_uuid = %viable_step.step_uuid,
+            queue_name = %queue_name,
+            msg_id = msg_id,
+            "Successfully sent step to pgmq queue (state transition completed first)"
         );
 
-        // TAS-32: Transition the step to "enqueued" state since it's now enqueued for processing
-        // This replaces the old behavior of marking steps as in_progress when enqueued
-        if let Err(e) = self
-            .state_manager
-            .mark_step_enqueued(viable_step.step_uuid)
-            .await
-        {
-            error!(
-                "❌ STEP_ENQUEUER: Failed to transition step {} to enqueued state after enqueueing: {}",
-                viable_step.step_uuid, e
-            );
-            // Continue execution - enqueueing succeeded, state transition failure shouldn't block workflow
-        } else {
-            info!(
-                "✅ STEP_ENQUEUER: Successfully marked step {} as enqueued (TAS-32)",
-                viable_step.step_uuid
-            );
-        }
-
         info!(
-            "🎯 STEP_ENQUEUER: Step enqueueing complete - step_uuid: {}, task_uuid: {}, namespace: '{}', queue: '{}', msg_id: {}",
-            viable_step.step_uuid,
-            task_info.task_uuid,
-            task_info.namespace_name,
-            queue_name,
-            msg_id
+            correlation_id = %correlation_id,
+            step_uuid = %viable_step.step_uuid,
+            task_uuid = %task_info.task_uuid,
+            namespace = %task_info.namespace_name,
+            queue_name = %queue_name,
+            msg_id = msg_id,
+            "Step enqueueing complete"
         );
 
         Ok(queue_name)
@@ -510,36 +595,38 @@ impl StepEnqueuer {
         task_info: &ReadyTaskInfo,
         viable_step: &ViableStep,
     ) -> TaskerResult<SimpleStepMessage> {
-        // Get task and step UUIDs from the database - minimal message creation
-        let task_uuid = self.get_task_uuid(task_info.task_uuid).await?;
+        // Get task UUID and correlation_id from database
+        let (task_uuid, correlation_id) = self.get_task_info(task_info.task_uuid).await?;
         let step_uuid = self.get_step_uuid(viable_step.step_uuid).await?;
 
         // Create minimal SimpleStepMessage - workers will query dependencies as needed
         let simple_message = SimpleStepMessage {
             task_uuid,
             step_uuid,
+            correlation_id,
         };
 
         debug!(
-            "✅ STEP_ENQUEUER: Created minimal message - task_uuid: {}, step_uuid: {} (dependencies queried by workers)",
-            simple_message.task_uuid,
-            simple_message.step_uuid
+            correlation_id = %simple_message.correlation_id,
+            task_uuid = %simple_message.task_uuid,
+            step_uuid = %simple_message.step_uuid,
+            "Created minimal message (dependencies queried by workers)"
         );
 
         Ok(simple_message)
     }
 
-    /// Get task UUID from database by task_uuid
-    async fn get_task_uuid(&self, task_uuid: Uuid) -> TaskerResult<Uuid> {
+    /// Get task UUID and correlation_id from database by task_uuid
+    async fn get_task_info(&self, task_uuid: Uuid) -> TaskerResult<(Uuid, Uuid)> {
         let row = sqlx::query!(
-            "SELECT task_uuid FROM tasker_tasks WHERE task_uuid = $1",
+            "SELECT task_uuid, correlation_id FROM tasker_tasks WHERE task_uuid = $1",
             task_uuid
         )
         .fetch_one(self.context.database_pool())
         .await
-        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task UUID: {e}")))?;
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task info: {e}")))?;
 
-        Ok(row.task_uuid)
+        Ok((row.task_uuid, row.correlation_id))
     }
 
     /// Get step UUID from database by workflow_step_uuid

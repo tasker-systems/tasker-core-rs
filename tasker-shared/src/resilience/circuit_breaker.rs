@@ -78,7 +78,7 @@ impl CircuitBreaker {
             failure_threshold = config.failure_threshold,
             timeout_seconds = config.timeout.as_secs(),
             success_threshold = config.success_threshold,
-            "🛡️ Circuit breaker initialized"
+            "Circuit breaker initialized"
         );
 
         Self {

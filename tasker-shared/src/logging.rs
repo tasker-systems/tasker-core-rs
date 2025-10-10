@@ -8,6 +8,98 @@
 //! - Environment-based log level configuration
 //! - Domain-specific structured logging macros
 //! - TTY-aware ANSI color output
+//! - OpenTelemetry integration for distributed tracing (TAS-29 Phase 3)
+//!
+//! ## Distributed Tracing with correlation_id (TAS-29 Phase 2 + 3)
+//!
+//! The Tasker system uses `correlation_id` (a UUID) as the primary distributed tracing
+//! identifier across all components. This enables end-to-end request tracking from
+//! task creation through orchestration and worker execution.
+//!
+//! ### Correlation ID Flow
+//!
+//! ```text
+//! 1. Task Creation
+//!    - Client creates TaskRequest with correlation_id
+//!    - correlation_id stored in tasker_tasks table
+//!    - correlation_id propagated to all workflow steps
+//!
+//! 2. Orchestration Layer
+//!    - task_initializer: Fetches correlation_id at entry, logs with correlation_id first
+//!    - step_enqueuer: Propagates correlation_id through all step discovery
+//!    - result_processor: Extracts correlation_id when processing step results
+//!    - task_finalizer: Uses correlation_id throughout finalization decision tree
+//!
+//! 3. Worker Layer
+//!    - step_claim: Receives correlation_id in message, uses for claiming
+//!    - command_processor: Propagates correlation_id through execution pipeline
+//!    - Ruby/Rust handlers: correlation_id available in execution context
+//!
+//! 4. Message Queue
+//!    - All PGMQ messages include correlation_id field
+//!    - SimpleStepMessage, StepExecutionResult include correlation_id
+//!    - Enables tracing across async message boundaries
+//! ```
+//!
+//! ### OpenTelemetry Integration
+//!
+//! When OpenTelemetry is enabled (TELEMETRY_ENABLED=true):
+//!
+//! 1. **Automatic Span Creation**: The `#[instrument]` macros on hot path functions
+//!    automatically create OpenTelemetry spans
+//!
+//! 2. **correlation_id in Spans**: Since correlation_id is always the first field in
+//!    structured logs, it's automatically captured in span attributes
+//!
+//! 3. **Trace Context Propagation**: The TraceContextPropagator ensures trace context
+//!    flows across service boundaries following W3C Trace Context specification
+//!
+//! 4. **Service Mesh Integration**: correlation_id enables correlation between:
+//!    - Orchestration service spans
+//!    - Worker service spans
+//!    - Database query traces
+//!    - Message queue operations
+//!
+//! ### Configuration
+//!
+//! OpenTelemetry is configured via environment variables:
+//!
+//! ```bash
+//! # Enable OpenTelemetry
+//! export TELEMETRY_ENABLED=true
+//!
+//! # OTLP endpoint (default: http://localhost:4317)
+//! export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+//!
+//! # Service identification
+//! export OTEL_SERVICE_NAME=tasker-orchestration
+//! export OTEL_SERVICE_VERSION=0.1.0
+//!
+//! # Sampling rate (0.0 to 1.0, default: 1.0 = 100%)
+//! export OTEL_TRACES_SAMPLER_ARG=1.0
+//! ```
+//!
+//! ### Backend-Specific Configuration
+//!
+//! See `config/tasker/base/telemetry.toml` for commented examples of:
+//! - Honeycomb (professional observability platform)
+//! - Jaeger (open source tracing)
+//! - Grafana Tempo (open source tracing)
+//!
+//! Example Honeycomb configuration:
+//! ```bash
+//! export TELEMETRY_ENABLED=true
+//! export OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io:443
+//! export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=YOUR_API_KEY,x-honeycomb-dataset=tasker-core"
+//! ```
+//!
+//! ### Querying Traces
+//!
+//! With OpenTelemetry enabled, you can query traces by correlation_id:
+//!
+//! - **Honeycomb**: `correlation_id = "550e8400-e29b-41d4-a716-446655440000"`
+//! - **Jaeger**: Search by tag `correlation_id`
+//! - **Grafana Tempo**: TraceQL: `{correlation_id="550e8400-e29b-41d4-a716-446655440000"}`
 
 use chrono::Utc;
 use std::io::IsTerminal;
@@ -15,41 +107,226 @@ use std::sync::OnceLock;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 use uuid::Uuid;
 
-static TRACING_INITIALIZED: OnceLock<()> = OnceLock::new();
+use crate::metrics;
 
-/// Initialize tracing with console output only
+// OpenTelemetry imports (TAS-29 Phase 3)
+use opentelemetry::{
+    trace::{TraceError, TracerProvider as _},
+    KeyValue,
+};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::{
+    propagation::TraceContextPropagator,
+    runtime,
+    trace::{Sampler, TracerProvider},
+    Resource,
+};
+use tracing_opentelemetry::OpenTelemetryLayer;
+
+static TRACING_INITIALIZED: OnceLock<()> = OnceLock::new();
+/// Store TracerProvider handle for proper shutdown
+/// TAS-29: Enables graceful shutdown with span flushing
+static TRACER_PROVIDER: OnceLock<TracerProvider> = OnceLock::new();
+
+/// Configuration for OpenTelemetry (loaded from environment or defaults)
+struct TelemetryConfig {
+    enabled: bool,
+    service_name: String,
+    service_version: String,
+    deployment_environment: String,
+    otlp_endpoint: String,
+    sample_rate: f64,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: std::env::var("TELEMETRY_ENABLED")
+                .map(|v| v.to_lowercase() == "true")
+                .unwrap_or(false),
+            service_name: std::env::var("OTEL_SERVICE_NAME")
+                .unwrap_or_else(|_| "tasker-core".to_string()),
+            service_version: std::env::var("OTEL_SERVICE_VERSION")
+                .unwrap_or_else(|_| "0.1.0".to_string()),
+            deployment_environment: std::env::var("DEPLOYMENT_ENVIRONMENT")
+                .or_else(|_| std::env::var("TASKER_ENV"))
+                .unwrap_or_else(|_| "development".to_string()),
+            otlp_endpoint: std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+                .unwrap_or_else(|_| "http://localhost:4317".to_string()),
+            sample_rate: std::env::var("OTEL_TRACES_SAMPLER_ARG")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1.0),
+        }
+    }
+}
+
+/// Initialize OpenTelemetry tracer provider
+///
+/// Creates a TracerProvider configured with OTLP exporter and appropriate
+/// resource attributes for distributed tracing.
+fn init_opentelemetry_tracer(config: &TelemetryConfig) -> Result<TracerProvider, TraceError> {
+    // Set global propagator for context propagation
+    opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+
+    // Build resource attributes
+    let resource = Resource::new(vec![
+        KeyValue::new("service.name", config.service_name.clone()),
+        KeyValue::new("service.version", config.service_version.clone()),
+        KeyValue::new(
+            "deployment.environment",
+            config.deployment_environment.clone(),
+        ),
+    ]);
+
+    // Configure tracer with sampling
+    let sampler = if config.sample_rate >= 1.0 {
+        Sampler::AlwaysOn
+    } else if config.sample_rate <= 0.0 {
+        Sampler::AlwaysOff
+    } else {
+        Sampler::TraceIdRatioBased(config.sample_rate)
+    };
+
+    // Use the OTLP pipeline to build the tracer provider
+    let tracer_provider = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(&config.otlp_endpoint),
+        )
+        .with_trace_config(
+            opentelemetry_sdk::trace::Config::default()
+                .with_sampler(sampler)
+                .with_resource(resource),
+        )
+        .install_batch(runtime::Tokio)?;
+
+    // Store provider handle for graceful shutdown (TAS-29 Phase 3.3)
+    let _ = TRACER_PROVIDER.set(tracer_provider.clone());
+
+    Ok(tracer_provider)
+}
+
+/// Initialize tracing with console output and optional OpenTelemetry
 ///
 /// This function sets up structured logging that outputs to stdout/stderr,
 /// which is appropriate for containerized applications and follows modern
 /// observability practices.
+///
+/// When OpenTelemetry is enabled (via TELEMETRY_ENABLED=true), it also
+/// configures distributed tracing with OTLP exporter.
 pub fn init_tracing() {
     TRACING_INITIALIZED.get_or_init(|| {
         let environment = get_environment();
         let log_level = get_log_level(&environment);
+        let telemetry_config = TelemetryConfig::default();
+
         // Determine if we're in a TTY for ANSI color support
         let use_ansi = IsTerminal::is_terminal(&std::io::stdout());
-        let subscriber = tracing_subscriber::registry()
-            .with(
-                fmt::layer()
-                    .with_target(true)
-                    .with_thread_ids(true)
-                    .with_level(true)
-                    .with_ansi(use_ansi)
-                    .with_filter(EnvFilter::new(log_level))
-            );
 
-        // Use try_init to avoid panic if global subscriber already set
-        if subscriber.try_init().is_err() {
-            // A global subscriber is already set (likely from tests or FFI)
-            tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+        // Create base console layer
+        let console_layer = fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true)
+            .with_ansi(use_ansi)
+            .with_filter(EnvFilter::new(&log_level));
+
+        // Build subscriber with optional OpenTelemetry layer
+        let subscriber = tracing_subscriber::registry().with(console_layer);
+
+        if telemetry_config.enabled {
+            // Initialize OpenTelemetry and add layer
+            match init_opentelemetry_tracer(&telemetry_config) {
+                Ok(tracer_provider) => {
+                    let tracer = tracer_provider.tracer("tasker-core");
+                    let telemetry_layer = OpenTelemetryLayer::new(tracer);
+
+                    let subscriber = subscriber.with(telemetry_layer);
+
+                    // Use try_init to avoid panic if global subscriber already set
+                    if subscriber.try_init().is_err() {
+                        tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                    } else {
+                        tracing::info!(
+                            environment = %environment,
+                            ansi_colors = use_ansi,
+                            opentelemetry_enabled = true,
+                            otlp_endpoint = %telemetry_config.otlp_endpoint,
+                            service_name = %telemetry_config.service_name,
+                            "Console logging with OpenTelemetry initialized"
+                        );
+                    }
+                }
+                Err(e) => {
+                    // Fall back to console-only logging
+                    let subscriber = subscriber;
+                    if subscriber.try_init().is_err() {
+                        tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                    } else {
+                        tracing::warn!(
+                            environment = %environment,
+                            ansi_colors = use_ansi,
+                            error = %e,
+                            "Failed to initialize OpenTelemetry - falling back to console-only logging"
+                        );
+                    }
+                }
+            }
+        } else {
+            // Console-only logging
+            if subscriber.try_init().is_err() {
+                tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+            } else {
+                tracing::info!(
+                    environment = %environment,
+                    ansi_colors = use_ansi,
+                    opentelemetry_enabled = false,
+                    "Console logging initialized"
+                );
+            }
         }
 
-        tracing::info!(
-            environment = %environment,
-            ansi_colors = use_ansi,
-            "🔧 TRACING: Console logging initialized"
-        );
+        // Initialize OpenTelemetry metrics (TAS-29 Phase 3.3)
+        metrics::init_metrics();
+
+        // Initialize domain-specific metrics
+        metrics::orchestration::init();
+        metrics::worker::init();
+        metrics::database::init();
+        metrics::messaging::init();
     });
+}
+
+/// Shutdown OpenTelemetry gracefully
+///
+/// This should be called before application exit to ensure all pending
+/// spans and metrics are exported.
+///
+/// # Shutdown Ordering (TAS-29 Phase 3.3)
+///
+/// Proper shutdown sequence prevents "channel closed" errors:
+/// 1. Flush TracerProvider to export pending spans
+/// 2. Shutdown metrics to flush pending metrics
+/// 3. Shutdown global tracer provider last
+pub fn shutdown_telemetry() {
+    // Flush any pending spans before shutdown
+    if let Some(provider) = TRACER_PROVIDER.get() {
+        // Force flush to ensure all spans are exported
+        for result in provider.force_flush() {
+            if let Err(e) = result {
+                tracing::warn!("Failed to flush tracer provider: {}", e);
+            }
+        }
+    }
+
+    // Shutdown metrics (will flush any pending metrics)
+    metrics::shutdown_metrics();
+
+    // Now safe to shutdown - all pending spans and metrics have been exported
+    opentelemetry::global::shutdown_tracer_provider();
 }
 
 /// Legacy alias for backward compatibility
@@ -104,7 +381,7 @@ macro_rules! log_task {
             task_uuid = format!("{:?}", $task_uuid),
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📋 TASK_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
     // Simple form - just operation
@@ -112,7 +389,7 @@ macro_rules! log_task {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📋 TASK_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -121,7 +398,7 @@ macro_rules! log_task {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📋 TASK_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -136,7 +413,7 @@ macro_rules! log_queue_worker {
             namespace = %$namespace,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔄 QUEUE_WORKER: {} (namespace: {})", $operation, $namespace
+            "QUEUE_{} (namespace: {})", $operation, $namespace
         );
     };
     // Simple form - just operation
@@ -144,7 +421,7 @@ macro_rules! log_queue_worker {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔄 QUEUE_WORKER: {}", $operation
+            "QUEUE_{}", $operation
         );
     };
     // Generic form with additional fields
@@ -153,7 +430,7 @@ macro_rules! log_queue_worker {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔄 QUEUE_WORKER: {}", $operation
+            "QUEUE_{}", $operation
         );
     };
 }
@@ -166,7 +443,7 @@ macro_rules! log_orchestrator {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🚀 ORCHESTRATOR: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -175,7 +452,7 @@ macro_rules! log_orchestrator {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🚀 ORCHESTRATOR: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -191,7 +468,7 @@ macro_rules! log_step {
             task_uuid = format!("{:?}", $task_uuid),
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔧 STEP_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
     // Simple form - just operation
@@ -199,7 +476,7 @@ macro_rules! log_step {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔧 STEP_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -208,7 +485,7 @@ macro_rules! log_step {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🔧 STEP_OPERATION: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -221,7 +498,7 @@ macro_rules! log_database {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "💾 DATABASE: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -230,7 +507,7 @@ macro_rules! log_database {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "💾 DATABASE: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -245,7 +522,7 @@ macro_rules! log_ffi {
             component = %$component,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🌉 FFI: {} ({})", $operation, $component
+            "{} ({})", $operation, $component
         );
     };
     // Simple form - just operation
@@ -253,7 +530,7 @@ macro_rules! log_ffi {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🌉 FFI: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -262,7 +539,7 @@ macro_rules! log_ffi {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "🌉 FFI: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -275,7 +552,7 @@ macro_rules! log_config {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "⚙️ CONFIG: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -284,7 +561,7 @@ macro_rules! log_config {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "⚙️ CONFIG: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -300,7 +577,7 @@ macro_rules! log_registry {
             name = %$name,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📚 REGISTRY: {} ({}/{})", $operation, $namespace, $name
+            "{} ({}/{})", $operation, $namespace, $name
         );
     };
     // Simple form - just operation
@@ -308,7 +585,7 @@ macro_rules! log_registry {
         tracing::$level!(
             operation = %$operation,
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📚 REGISTRY: {}", $operation
+            "{}", $operation
         );
     };
     // Generic form with additional fields
@@ -317,7 +594,7 @@ macro_rules! log_registry {
             operation = %$operation,
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
-            "📚 REGISTRY: {}", $operation
+            "{}", $operation
         );
     };
 }
@@ -434,7 +711,7 @@ pub fn log_error(component: &str, operation: &str, error: &str, context: Option<
         error = %error,
         context = context,
         timestamp = %Utc::now().to_rfc3339(),
-        "❌ ERROR: {} failed in {}: {}", operation, component, error
+        "ERROR: {} failed in {}: {}", operation, component, error
     );
 }
 
@@ -445,16 +722,16 @@ pub fn log_error(component: &str, operation: &str, error: &str, context: Option<
 /// ```rust
 /// use tasker_shared::{log_task, log_queue_worker, log_orchestrator, log_config};
 ///
-/// // Task operations - matches Ruby: "📋 TASK_OPERATION: Creating task"
+/// // Task operations
 /// log_task!(info, "Creating task", task_uuid: Some(123), namespace: "fulfillment");
 ///
-/// // Queue worker operations - matches Ruby: "🔄 QUEUE_WORKER: Processing batch"
+/// // Queue worker operations
 /// log_queue_worker!(debug, "Processing batch", namespace: "fulfillment", batch_size: 5);
 ///
-/// // Orchestrator operations - matches Ruby: "🚀 ORCHESTRATOR: Starting system"
+/// // Orchestrator operations
 /// log_orchestrator!(info, "Starting system", namespaces: vec!["default", "fulfillment"]);
 ///
-/// // Configuration operations - matches Ruby format with ⚙️ emoji
+/// // Configuration operations
 /// log_config!(warn, "Using fallback configuration", reason: "File not found");
 /// ```
 #[cfg(test)]

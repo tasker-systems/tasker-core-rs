@@ -23,7 +23,7 @@ pub struct CircuitBreakerManager {
 impl CircuitBreakerManager {
     /// Create new circuit breaker manager from configuration
     pub fn from_config(config: &CircuitBreakerConfig) -> Self {
-        info!("🛡️ Initializing circuit breaker manager from configuration");
+        info!("Initializing circuit breaker manager from configuration");
 
         Self {
             circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
@@ -76,7 +76,7 @@ impl CircuitBreakerManager {
         info!(
             component = component_name,
             total_circuit_breakers = breakers.len(),
-            "🛡️ Created new circuit breaker"
+            "Created new circuit breaker"
         );
 
         breaker
@@ -143,7 +143,7 @@ impl CircuitBreakerManager {
             info!(
                 component = component_name,
                 remaining_count = breakers.len(),
-                "🗑️ Removed circuit breaker"
+                "🗑Removed circuit breaker"
             );
             true
         } else {
@@ -177,7 +177,7 @@ impl CircuitBreakerManager {
         // For now, just log that config was updated (will apply to new instances)
         info!(
             component = component_name,
-            "⚙️ Updated circuit breaker configuration (applies to new instances)"
+            "⚙Updated circuit breaker configuration (applies to new instances)"
         );
     }
 }

@@ -55,8 +55,13 @@ magnus = "0.7"
 mockall = "0.13"
 # Utility dependencies
 once_cell = "1.19"
-opentelemetry = "0.27"
-opentelemetry-otlp = "0.27"
+opentelemetry = "0.26"
+opentelemetry-otlp = { version = "0.26", features = ["grpc-tonic"] }
+# rt-tokio: Telemetry tasks run on shared tokio runtime (lower overhead, sufficient for I/O-bound workloads)
+# Alternative: rt-tokio-current-thread creates separate runtime (higher isolation, higher resource cost)
+# Our choice: rt-tokio works well for async I/O-bound orchestration without CPU-intensive workloads
+opentelemetry_sdk = { version = "0.26", features = ["rt-tokio", "trace", "metrics"] }
+opentelemetry-semantic-conventions = "0.26"
 # Concurrency and state management
 parking_lot = "0.12"
 pgmq = "0.30.1"
@@ -99,6 +104,7 @@ tower-http = { version = "0.5", features = ["cors", "timeout", "trace"] }
 # Logging and telemetry
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.27"
 url = "2.0"
 # OpenAPI documentation
 utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"] }
@@ -116,6 +122,11 @@ crate-type = ["rlib"]
 name = "tasker_core"
 path = "src/lib.rs"
 
+[[bench]]
+harness = false
+name = "e2e_latency"
+path = "tests/benches/e2e_latency.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
@@ -129,6 +140,7 @@ anyhow = { workspace = true }
 chrono = { workspace = true }
 # Keep bin/config-validator dependencies
 clap = { workspace = true }
+criterion = { workspace = true }
 dotenvy = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }

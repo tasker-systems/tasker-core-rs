@@ -49,7 +49,7 @@ impl UnifiedConfigLoader {
         let root = if let Ok(config_root) = std::env::var("TASKER_CONFIG_ROOT") {
             let config_root_path = std::path::PathBuf::from(config_root);
             debug!(
-                "🔧 UNIFIED_CONFIG: Using TASKER_CONFIG_ROOT: {}",
+                "UNIFIED_Using TASKER_CONFIG_ROOT: {}",
                 config_root_path.display()
             );
             config_root_path.join("tasker")
@@ -65,13 +65,13 @@ impl UnifiedConfigLoader {
             let env_file = ws.join(".env");
             if let Err(e) = dotenvy::from_path(&env_file) {
                 debug!(
-                    "🔧 DOTENV: Could not load .env file from {}: {}",
+                    "DOTENV: Could not load .env file from {}: {}",
                     env_file.display(),
                     e
                 );
             } else {
                 debug!(
-                    "🔧 DOTENV: Successfully loaded .env file from {}",
+                    "DOTENV: Successfully loaded .env file from {}",
                     env_file.display()
                 );
             }
@@ -79,7 +79,7 @@ impl UnifiedConfigLoader {
             ws.join("config").join("tasker")
         };
 
-        debug!("🔧 UNIFIED_CONFIG: Using config root: {}", root.display());
+        debug!("UNIFIED_Using config root: {}", root.display());
 
         Self::with_root(root, environment)
     }
@@ -111,7 +111,7 @@ impl UnifiedConfigLoader {
         }
 
         debug!(
-            "🔧 UNIFIED_CONFIG: Initialized for environment '{}' with root: {}",
+            "UNIFIED_Initialized for environment '{}' with root: {}",
             environment,
             root.display()
         );
@@ -138,14 +138,14 @@ impl UnifiedConfigLoader {
     /// 4. Return the validated config
     pub fn load_component(&mut self, component: &str) -> ConfigResult<toml::Value> {
         debug!(
-            "🔧 LOAD_COMPONENT: Loading component '{}' for environment '{}'",
+            "LOAD_COMPONENT: Loading component '{}' for environment '{}'",
             component, self.environment
         );
 
         // Check cache first
         if let Some(cached_config) = self.component_cache.get(component) {
             debug!(
-                "🔧 LOAD_COMPONENT: Using cached configuration for component: {}",
+                "LOAD_COMPONENT: Using cached configuration for component: {}",
                 component
             );
             return Ok(cached_config.clone());
@@ -154,13 +154,13 @@ impl UnifiedConfigLoader {
         // 1. Load base component - this is REQUIRED, never optional
         let base_path = self.root.join("base").join(format!("{component}.toml"));
         debug!(
-            "🔧 LOAD_COMPONENT: Loading base config from: {}",
+            "LOAD_COMPONENT: Loading base config from: {}",
             base_path.display()
         );
         let mut config = self.load_toml_with_env_substitution(&base_path)?;
 
         debug!(
-            "🔧 LOAD_COMPONENT: Loaded base configuration for {} from {}: {} bytes",
+            "LOAD_COMPONENT: Loaded base configuration for {} from {}: {} bytes",
             component,
             base_path.display(),
             config.to_string().len()
@@ -174,33 +174,33 @@ impl UnifiedConfigLoader {
             .join(format!("{component}.toml"));
 
         debug!(
-            "🔧 LOAD_COMPONENT: Checking for environment overrides at: {}",
+            "LOAD_COMPONENT: Checking for environment overrides at: {}",
             env_path.display()
         );
 
         if env_path.exists() {
             debug!(
-                "🔧 LOAD_COMPONENT: ✅ Found environment overrides at: {}",
+                "LOAD_COMPONENT: Found environment overrides at: {}",
                 env_path.display()
             );
             let overrides = self.load_toml_with_env_substitution(&env_path)?;
             debug!(
-                "🔧 LOAD_COMPONENT: Environment overrides content: {}",
+                "LOAD_COMPONENT: Environment overrides content: {}",
                 overrides.to_string()
             );
             self.merge_toml(&mut config, overrides)?;
 
             debug!(
-                "🔧 LOAD_COMPONENT: ✅ Applied environment overrides for {} in {} environment",
+                "LOAD_COMPONENT: Applied environment overrides for {} in {} environment",
                 component, self.environment
             );
             debug!(
-                "🔧 LOAD_COMPONENT: Final merged config: {}",
+                "LOAD_COMPONENT: Final merged config: {}",
                 config.to_string()
             );
         } else {
             debug!(
-                "🔧 LOAD_COMPONENT: ❌ No environment overrides found at: {}",
+                "LOAD_COMPONENT: No environment overrides found at: {}",
                 env_path.display()
             );
         }
@@ -212,10 +212,7 @@ impl UnifiedConfigLoader {
         self.component_cache
             .insert(component.to_string(), config.clone());
 
-        debug!(
-            "✅ Successfully loaded and validated component: {}",
-            component
-        );
+        debug!("Successfully loaded and validated component: {}", component);
         Ok(config)
     }
 
@@ -232,7 +229,7 @@ impl UnifiedConfigLoader {
             all_configs.insert(component, config);
         }
 
-        debug!("✅ Loaded {} component configurations", all_configs.len());
+        debug!("Loaded {} component configurations", all_configs.len());
         Ok(all_configs)
     }
 
@@ -539,38 +536,36 @@ impl UnifiedConfigLoader {
     ///
     /// Always loads .env file first to ensure environment variables are available.
     pub fn detect_environment() -> String {
-        debug!("🔧 ENVIRONMENT_DETECT: Starting environment detection");
+        debug!("ENVIRONMENT_DETECT: Starting environment detection");
 
         // Load .env file from workspace root - this ensures tests and development have proper config
         if let Ok(ws) = workspace() {
             let env_file = ws.join(".env");
             debug!(
-                "🔧 ENVIRONMENT_DETECT: Attempting to load .env from: {}",
+                "ENVIRONMENT_DETECT: Attempting to load .env from: {}",
                 env_file.display()
             );
             if let Err(e) = dotenvy::from_path(&env_file) {
                 debug!(
-                    "🔧 ENVIRONMENT_DETECT: ❌ Could not load .env file from {}: {}",
+                    "ENVIRONMENT_DETECT: Could not load .env file from {}: {}",
                     env_file.display(),
                     e
                 );
             } else {
                 debug!(
-                    "🔧 ENVIRONMENT_DETECT: ✅ Successfully loaded .env file from {}",
+                    "ENVIRONMENT_DETECT: Successfully loaded .env file from {}",
                     env_file.display()
                 );
             }
         } else {
-            debug!(
-                "🔧 ENVIRONMENT_DETECT: Could not find workspace root, trying current directory"
-            );
+            debug!("ENVIRONMENT_DETECT: Could not find workspace root, trying current directory");
             if let Err(e) = dotenv() {
                 debug!(
-                    "🔧 ENVIRONMENT_DETECT: ❌ Could not load .env file from current directory: {}",
+                    "ENVIRONMENT_DETECT: Could not load .env file from current directory: {}",
                     e
                 );
             } else {
-                debug!("🔧 ENVIRONMENT_DETECT: ✅ Successfully loaded .env file from current directory");
+                debug!("ENVIRONMENT_DETECT: Successfully loaded .env file from current directory");
             }
         }
 
@@ -578,10 +573,7 @@ impl UnifiedConfigLoader {
             .unwrap_or_else(|_| "development".to_string())
             .to_lowercase();
 
-        debug!(
-            "🔧 ENVIRONMENT_DETECT: Final detected environment: '{}'",
-            env
-        );
+        debug!("ENVIRONMENT_DETECT: Final detected environment: '{}'", env);
         env
     }
 

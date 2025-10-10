@@ -77,13 +77,13 @@ impl TaskScope {
     /// use chrono::{Utc, Duration};
     /// # async fn example(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     /// # let timestamp = Utc::now() - Duration::hours(1);
-    /// // ✅ Correct order - JOINs first, then WHERE conditions
+    /// // Correct order - JOINs first, then WHERE conditions
     /// Task::scope()
     ///     .with_task_name("process_order".to_string())  // Adds JOIN
     ///     .created_since(timestamp)               // Adds WHERE
     ///     .all(pool).await?;
     ///
-    /// // ❌ Incorrect order - WHERE first, then JOIN (will be ignored)
+    /// // Incorrect order - WHERE first, then JOIN (will be ignored)
     /// Task::scope()
     ///     .created_since(timestamp)               // Adds WHERE
     ///     .with_task_name("process_order".to_string())  // JOIN will be ignored!

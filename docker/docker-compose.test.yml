@@ -82,7 +82,7 @@ services:
     environment:
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
       TASKER_ENV: test
-      RUST_LOG: info
+      RUST_LOG: debug
       RUST_BACKTRACE: 1
       WORKER_ID: test-worker-001
       WORKSPACE_PATH: /app
@@ -149,8 +149,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 25s # Allow extra time for Ruby compilation
+      retries: 5  # More retries for CI environment
+      start_period: 60s # Ruby FFI bootstrap + Rust worker + web API binding can take time in CI
     networks:
       - tasker-test
 

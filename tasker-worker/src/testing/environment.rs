@@ -127,7 +127,7 @@ impl WorkerTestEnvironment {
             || self.is_ci;
 
         if !is_test_env {
-            warn!("⚠️ Environment does not indicate test mode");
+            warn!("Environment does not indicate test mode");
             warn!("  Set TASKER_ENV=test for safety");
 
             // In CI, this is an error
@@ -145,7 +145,7 @@ impl WorkerTestEnvironment {
             }
         }
 
-        info!("✅ Test environment safety validation passed");
+        info!("Test environment safety validation passed");
         info!("  Database: {}", self.database_url);
         info!("  CI: {}", self.is_ci);
         info!("  Test mode: {}", is_test_env);
@@ -259,7 +259,7 @@ impl TestEnvironmentSetup {
         env.validate_test_safety()?;
         env.apply_overrides();
 
-        info!("🧪 Test environment setup complete");
+        info!("Test environment setup complete");
 
         Ok(env)
     }

@@ -75,7 +75,7 @@ impl SystemContext {
     /// # Returns
     /// Fully configured SystemContext with all components initialized from configuration
     pub async fn new() -> TaskerResult<Self> {
-        info!("🔧 Initializing SystemContext with auto-detected environment configuration");
+        info!("Initializing SystemContext with auto-detected environment configuration");
 
         // Auto-detect environment and load configuration
         let config_manager = ConfigManager::load().map_err(|e| {
@@ -96,14 +96,14 @@ impl SystemContext {
     /// # Returns
     /// Initialized SystemContext with all configuration applied
     pub async fn from_config(config_manager: Arc<ConfigManager>) -> TaskerResult<Self> {
-        info!("🔧 Initializing SystemContext from configuration (environment-aware)");
+        info!("Initializing SystemContext from configuration (environment-aware)");
 
         let config = config_manager.config();
 
         // Extract database connection settings from configuration
         let database_url = config.database_url();
         info!(
-            "📊 CORE: Database URL derived from config: {} (pool options: {:?})",
+            "Database URL derived from config: {} (pool options: {:?})",
             database_url.chars().take(30).collect::<String>(),
             config.database.pool
         );
@@ -118,7 +118,7 @@ impl SystemContext {
                 ))
             })?;
 
-        info!("✅ CORE: Database connection established from configuration");
+        info!("Database connection established from configuration");
 
         // Pass config_manager (already Arc) for component initialization
         Self::from_pool_and_config(database_pool, config_manager).await
@@ -145,16 +145,16 @@ impl SystemContext {
     ) -> (Option<Arc<CircuitBreakerManager>>, Arc<UnifiedPgmqClient>) {
         // Circuit breaker configuration
         let circuit_breaker_config = if config.circuit_breakers.enabled {
-            info!("🛡️ CORE: Circuit breakers enabled in configuration");
+            info!("Circuit breakers enabled in configuration");
             Some(config.circuit_breakers.clone())
         } else {
-            info!("📤 CORE: Circuit breakers disabled in configuration");
+            info!("📤 Circuit breakers disabled in configuration");
             None
         };
 
         // Create circuit breaker manager if enabled (deprecated - circuit breakers are now redundant with sqlx)
         let circuit_breaker_manager = if let Some(cb_config) = circuit_breaker_config {
-            info!("🛡️ Circuit breaker configuration found but ignored - sqlx provides this functionality");
+            info!("Circuit breaker configuration found but ignored - sqlx provides this functionality");
             Some(Arc::new(CircuitBreakerManager::from_config(&cb_config)))
         } else {
             info!("📤 Using standard PgmqClient with sqlx connection pooling");
@@ -175,7 +175,7 @@ impl SystemContext {
         database_pool: PgPool,
         config_manager: Arc<ConfigManager>,
     ) -> TaskerResult<Self> {
-        info!("🏗️ Creating system components with unified configuration");
+        info!("Creating system components with unified configuration");
 
         let config = config_manager.config();
 
@@ -190,7 +190,7 @@ impl SystemContext {
 
         let event_publisher = Arc::new(EventPublisher::new());
 
-        info!("✅ SystemContext components created successfully");
+        info!("SystemContext components created successfully");
 
         let tasker_config = Arc::new(config.clone());
 
@@ -207,7 +207,7 @@ impl SystemContext {
 
     /// Initialize standard namespace queues
     pub async fn initialize_queues(&self, namespaces: &[&str]) -> TaskerResult<()> {
-        info!("🏗️ CORE: Initializing namespace queues via unified client");
+        info!("Initializing namespace queues via unified client");
 
         self.message_client
             .initialize_namespace_queues(namespaces)
@@ -216,13 +216,13 @@ impl SystemContext {
                 TaskerError::MessagingError(format!("Failed to initialize queues: {e}"))
             })?;
 
-        info!("✅ CORE: All namespace queues initialized");
+        info!("All namespace queues initialized");
         Ok(())
     }
 
     /// Initialize owned queues for the system context
     pub async fn initialize_orchestration_owned_queues(&self) -> TaskerResult<()> {
-        info!("🏗️ CORE: Initializing owned queues");
+        info!("Initializing owned queues");
 
         let queue_config = self.tasker_config.queues.clone();
 
@@ -244,7 +244,7 @@ impl SystemContext {
                 })?;
         }
 
-        info!("✅ CORE: All owned queues initialized");
+        info!("All owned queues initialized");
         Ok(())
     }
 

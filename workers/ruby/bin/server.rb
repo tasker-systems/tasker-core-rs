@@ -8,11 +8,9 @@
 # and manages Ruby handler execution for workflow orchestration
 
 require_relative '../lib/tasker_core'
-require 'logger'
 
-# Configure logger
+# Get logger instance (log level controlled via RUST_LOG environment variable)
 logger = TaskerCore::Logger.instance
-logger.logger.level = ENV['LOG_LEVEL'] == 'debug' ? Logger::DEBUG : Logger::INFO
 
 # Startup banner
 logger.info '=' * 60

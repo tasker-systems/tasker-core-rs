@@ -143,6 +143,8 @@ pub struct StepResultMessage {
     pub step_uuid: Uuid,
     /// Task ID for context
     pub task_uuid: Uuid,
+    /// TAS-29: Correlation ID for distributed tracing
+    pub correlation_id: Uuid,
     /// Namespace for routing
     pub namespace: String,
     /// Step execution status
@@ -163,9 +165,10 @@ impl fmt::Display for StepResultMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "StepResultMessage {{ step_uuid: {}, task_uuid: {}, namespace: {}, status: {}, results: {:?}, error: {:?}, execution_time_ms: {}, orchestration_metadata: {:?}, metadata: {:?} }}",
+            "StepResultMessage {{ step_uuid: {}, task_uuid: {}, correlation_id: {}, namespace: {}, status: {}, results: {:?}, error: {:?}, execution_time_ms: {}, orchestration_metadata: {:?}, metadata: {:?} }}",
             self.step_uuid,
             self.task_uuid,
+            self.correlation_id,
             self.namespace,
             self.status,
             self.results,

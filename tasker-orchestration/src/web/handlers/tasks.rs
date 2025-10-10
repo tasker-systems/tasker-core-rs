@@ -72,18 +72,10 @@ pub async fn create_task(
     // Set default values for any missing fields if needed
     let mut task_request = request.clone();
 
-    // Ensure default status is set for web API requests
-    if task_request.status.is_empty() {
-        task_request.status = "pending".to_string();
-    }
-
-    // Set complete to false for new tasks
-    task_request.complete = false;
-
     // Set requested_at to current time
     task_request.requested_at = chrono::Utc::now().naive_utc();
 
-    // Initialize task with immediate step enqueuing (TAS-41)
+    // Initialize task with immediate step enqueuing
     // NOTE: We do NOT wrap this in circuit breaker - we handle errors manually
     // to distinguish between client errors (template not found) and server errors
     let result = state
@@ -299,6 +291,8 @@ pub async fn get_task(
 
                 // Step readiness information
                 steps,
+                correlation_id: task.correlation_id,
+                parent_correlation_id: task.parent_correlation_id,
             };
 
             Ok(Json(response))
@@ -475,6 +469,8 @@ pub async fn list_tasks(
                     // Note: For list operations, we don't include detailed step information
                     // to avoid N+1 queries. Individual task details can be retrieved via get_task
                     steps: Vec::new(),
+                    correlation_id: task.correlation_id,
+                    parent_correlation_id: task.parent_correlation_id,
                 }
             })
             .collect();
@@ -644,6 +640,8 @@ pub async fn cancel_task(
 
             // Step readiness information
             steps,
+            correlation_id: task.correlation_id,
+            parent_correlation_id: task.parent_correlation_id,
         };
 
         Ok::<TaskResponse, ApiError>(task_response)

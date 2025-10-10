@@ -3,6 +3,8 @@
 //! Command-line interface for interacting with Tasker orchestration and worker APIs.
 //! Provides task management, worker monitoring, and system health checking capabilities.
 
+use std::str::FromStr;
+
 use clap::{Parser, Subcommand};
 use tasker_client::{
     ClientConfig, ClientResult, OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient,
@@ -75,6 +77,9 @@ pub enum TaskCommands {
         /// Priority (1-10, default: 5)
         #[arg(short, long, default_value = "5")]
         priority: u8,
+        /// Correlation ID for tracing
+        #[arg(short, long)]
+        correlation_id: Option<String>,
     },
     /// Get task details by UUID
     Get {
@@ -207,6 +212,7 @@ async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Client
             input,
             description: _,
             priority,
+            correlation_id,
         } => {
             println!("Creating task: {}/{} v{}", namespace, name, version);
 
@@ -215,21 +221,26 @@ async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Client
                 tasker_client::ClientError::InvalidInput(format!("Invalid JSON input: {}", e))
             })?;
 
+            let correlation_id = correlation_id.unwrap_or_else(|| Uuid::now_v7().to_string());
+            let correlation_id = Uuid::from_str(correlation_id.as_str()).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid correlation ID: {}", e))
+            })?;
+
             let task_request = TaskRequest {
                 namespace,
                 name,
                 version,
                 context,
-                status: "PENDING".to_string(),
                 initiator: "tasker-cli".to_string(),
                 source_system: "cli".to_string(),
                 reason: "CLI task creation".to_string(),
-                complete: false,
                 tags: Vec::new(),
                 bypass_steps: Vec::new(),
                 requested_at: chrono::Utc::now().naive_utc(),
                 options: None,
                 priority: Some(priority as i32),
+                correlation_id,
+                parent_correlation_id: None,
             };
 
             match client.create_task(task_request).await {
@@ -279,6 +290,7 @@ async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Client
                     println!("  Progress: {:.1}%", response.completion_percentage);
                     println!("  Health: {}", response.health_status);
                     println!("  Recommended action: {}", response.recommended_action);
+                    println!("  Correlation ID: {}", response.correlation_id);
                 }
                 Err(e) => {
                     eprintln!("✗ Failed to get task: {}", e);
@@ -574,7 +586,7 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
             workers,
         } => {
             if orchestration || !workers {
-                println!("🔍 Checking orchestration health...");
+                println!("Checking orchestration health...");
 
                 let orchestration_config = OrchestrationApiConfig {
                     base_url: config.orchestration.base_url.clone(),
@@ -635,13 +647,13 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
                         }
                     }
                     Err(e) => {
-                        println!("  ⚠ Could not get detailed health info: {}", e);
+                        println!("  Could not get detailed health info: {}", e);
                     }
                 }
             }
 
             if workers || !orchestration {
-                println!("\n🔍 Checking worker health...");
+                println!("\nChecking worker health...");
 
                 let worker_config = WorkerApiConfig {
                     base_url: config.worker.base_url.clone(),
@@ -699,11 +711,13 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
             }
 
             if !orchestration && !workers {
-                println!("\n🎯 Overall system health: Both orchestration and worker services checked above");
+                println!(
+                    "\nOverall system health: Both orchestration and worker services checked above"
+                );
             }
         }
         SystemCommands::Info => {
-            println!("📊 Tasker System Information");
+            println!("Tasker System Information");
             println!("================================");
             println!("CLI Version: {}", env!("CARGO_PKG_VERSION"));
             println!("Build Target: {}", std::env::consts::ARCH);

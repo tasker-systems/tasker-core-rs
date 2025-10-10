@@ -32,7 +32,7 @@ use tracing::{error, info, warn};
 pub struct OrchestrationSystemHandle {
     /// Core orchestration system
     pub orchestration_core: Arc<OrchestrationCore>,
-    /// Event-driven coordination system (TAS-43)
+    /// Event-driven coordination system
     pub unified_event_coordinator: Option<Arc<tokio::sync::Mutex<UnifiedEventCoordinator>>>,
     /// Web API state (optional)
     pub web_state: Option<Arc<AppState>>,
@@ -78,7 +78,7 @@ impl OrchestrationSystemHandle {
         if self.shutdown_sender.is_some() {
             // Stop unified event coordinator first
             if let Some(ref coordinator) = self.unified_event_coordinator {
-                info!("🛑 Stopping unified event coordinator");
+                info!("Stopping unified event coordinator");
                 coordinator.lock().await.stop().await.map_err(|e| {
                     TaskerError::OrchestrationError(format!(
                         "Failed to stop unified event coordinator: {}",
@@ -94,7 +94,7 @@ impl OrchestrationSystemHandle {
                 })?;
             }
 
-            info!("🛑 Orchestration system shutdown completed");
+            info!("Orchestration system shutdown completed");
             Ok(())
         } else {
             warn!("Orchestration system already stopped");
@@ -178,7 +178,7 @@ impl OrchestrationBootstrap {
     /// # Returns
     /// Handle for managing the orchestration system lifecycle
     pub async fn bootstrap() -> TaskerResult<OrchestrationSystemHandle> {
-        info!("🚀 BOOTSTRAP: Starting unified orchestration system bootstrap");
+        info!("Starting unified orchestration system bootstrap");
 
         let config_manager = ConfigManager::load().map_err(|e| {
             error!("Failed to load configuration: {e}");
@@ -189,7 +189,7 @@ impl OrchestrationBootstrap {
         let config: BootstrapConfig = tasker_config.into();
 
         info!(
-            "✅ BOOTSTRAP: Configuration loaded for environment: {}",
+            "Configuration loaded for environment: {}",
             config_manager.environment()
         );
 
@@ -204,7 +204,7 @@ impl OrchestrationBootstrap {
             .initialize_orchestration_owned_queues()
             .await?;
 
-        info!("✅ BOOTSTRAP: OrchestrationCore initialized with unified configuration");
+        info!("OrchestrationCore initialized with unified configuration");
 
         // Initialize namespace queues
         if !config.namespaces.is_empty() {
@@ -213,15 +213,12 @@ impl OrchestrationBootstrap {
                 .context
                 .initialize_queues(&namespace_refs)
                 .await?;
-            info!(
-                "✅ BOOTSTRAP: Initialized queues for namespaces: {:?}",
-                config.namespaces
-            );
+            info!("Initialized queues for namespaces: {:?}", config.namespaces);
         }
 
         // Create web API state if enabled
         let web_state: Option<Arc<AppState>> = if config.enable_web_api {
-            info!("BOOTSTRAP: Creating orchestration web API state");
+            info!("Creating orchestration web API state");
 
             let web_config = tasker_config.orchestration.web.clone();
 
@@ -236,14 +233,14 @@ impl OrchestrationBootstrap {
                         })?,
                 );
 
-                info!("✅ BOOTSTRAP: Orchestration web API state created successfully");
+                info!("Orchestration web API state created successfully");
                 Some(app_state)
             } else {
-                info!("BOOTSTRAP: Orchestration web API state disabled");
+                info!("Orchestration web API state disabled");
                 None
             }
         } else {
-            info!("BOOTSTRAP: Orchestration web API disabled in bootstrap config");
+            info!("Orchestration web API disabled in bootstrap config");
             None
         };
 
@@ -291,7 +288,7 @@ impl OrchestrationBootstrap {
             ))
         })?;
 
-        info!("✅ BOOTSTRAP: Unified event coordinator started successfully");
+        info!("Unified event coordinator started successfully");
         let unified_event_coordinator = Some(coordinator_arc);
 
         // Create runtime handle
@@ -299,7 +296,7 @@ impl OrchestrationBootstrap {
 
         // Start web server if enabled
         if let Some(ref web_state) = web_state {
-            info!("BOOTSTRAP: Starting orchestration web server");
+            info!("Starting orchestration web server");
 
             let app = web::create_app((**web_state).clone());
             let bind_address = web_state.config.bind_address.clone();
@@ -323,10 +320,7 @@ impl OrchestrationBootstrap {
                 }
             });
 
-            info!(
-                "✅ BOOTSTRAP: Orchestration web server started on {}",
-                bind_address
-            );
+            info!("Orchestration web server started on {}", bind_address);
             info!("📖 API Documentation: http://{}/api-docs/ui", bind_address);
             info!("🏥 Health Check: http://{}/health", bind_address);
         }
@@ -337,7 +331,7 @@ impl OrchestrationBootstrap {
         // Spawn background task to handle shutdown
         tokio::spawn(async move {
             if let Ok(()) = shutdown_receiver.await {
-                info!("🛑 BOOTSTRAP: Shutdown signal received");
+                info!("Shutdown signal received");
             }
         });
 
@@ -353,7 +347,7 @@ impl OrchestrationBootstrap {
             config,
         );
 
-        info!("🎉 BOOTSTRAP: Unified orchestration system bootstrap completed successfully");
+        info!("Unified orchestration system bootstrap completed successfully");
         Ok(handle)
     }
 }

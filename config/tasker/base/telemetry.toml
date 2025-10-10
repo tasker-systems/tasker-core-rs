@@ -3,6 +3,126 @@ enabled = false
 service_name = "tasker-core"
 sample_rate = 1.0
 
+# OpenTelemetry configuration (TAS-29 Phase 3)
+[telemetry.opentelemetry]
+# Enable/disable OpenTelemetry tracing
+enabled = false
+
+# OTLP exporter configuration (Generic)
+[telemetry.opentelemetry.otlp]
+# OTLP endpoint - generic collector endpoint
+# Examples:
+#   - Local collector: "http://localhost:4317"
+#   - Cloud collector: "https://otlp.example.com:4317"
+endpoint = "http://localhost:4317"
+
+# Protocol: "grpc" or "http"
+protocol = "grpc"
+
+# Timeout for exporting spans (seconds)
+timeout_seconds = 10
+
+# Additional headers for authentication (optional)
+# headers = { "x-api-key" = "your-api-key" }
+
+# ==========================================
+# Backend-Specific Configurations (commented out - uncomment and configure as needed)
+# ==========================================
+
+# --- Honeycomb Configuration ---
+# [telemetry.opentelemetry.otlp]
+# endpoint = "https://api.honeycomb.io:443"
+# protocol = "grpc"
+# timeout_seconds = 10
+# headers = { "x-honeycomb-team" = "YOUR_API_KEY", "x-honeycomb-dataset" = "tasker-core" }
+#
+# Additional Honeycomb-specific settings:
+# [telemetry.opentelemetry.honeycomb]
+# dataset = "tasker-core"
+# # Use correlation_id as trace_id for distributed tracing
+# use_correlation_as_trace_id = true
+# # Include high-cardinality fields for detailed analysis
+# include_high_cardinality_fields = true
+
+# --- Jaeger Configuration ---
+# [telemetry.opentelemetry.otlp]
+# endpoint = "http://localhost:4317"  # Jaeger collector gRPC endpoint
+# protocol = "grpc"
+# timeout_seconds = 10
+#
+# Alternative HTTP endpoint:
+# endpoint = "http://localhost:4318/v1/traces"
+# protocol = "http"
+#
+# Additional Jaeger-specific settings:
+# [telemetry.opentelemetry.jaeger]
+# # Agent endpoint (alternative to collector)
+# # agent_endpoint = "localhost:6831"
+# # Agent protocol (udp or http)
+# # agent_protocol = "udp"
+# # Max packet size for UDP agent
+# # max_packet_size = 65000
+
+# --- Grafana Tempo Configuration ---
+# [telemetry.opentelemetry.otlp]
+# endpoint = "http://localhost:4317"  # Tempo gRPC endpoint
+# protocol = "grpc"
+# timeout_seconds = 10
+#
+# Alternative HTTP endpoint:
+# endpoint = "http://localhost:4318/v1/traces"
+# protocol = "http"
+#
+# For Grafana Cloud Tempo:
+# endpoint = "https://tempo-REGION.grafana.net:443"
+# protocol = "grpc"
+# headers = { "Authorization" = "Basic BASE64_ENCODED_CREDENTIALS" }
+#
+# Additional Grafana-specific settings:
+# [telemetry.opentelemetry.grafana]
+# # Organization ID for Grafana Cloud
+# # org_id = "your-org-id"
+# # Instance ID for Grafana Cloud
+# # instance_id = "your-instance-id"
+
+# ==========================================
+# Span Configuration
+# ==========================================
+[telemetry.opentelemetry.spans]
+# Maximum number of attributes per span
+max_attributes_per_span = 128
+
+# Maximum number of events per span
+max_events_per_span = 128
+
+# Maximum number of links per span
+max_links_per_span = 128
+
+# Include correlation_id in all spans
+include_correlation_id = true
+
+# Include task metadata in spans
+include_task_metadata = true
+
+# Include step metadata in spans
+include_step_metadata = true
+
+# ==========================================
+# Resource Attributes
+# ==========================================
+[telemetry.opentelemetry.resource]
+# Service version (will be set from environment or default)
+service_version = "0.1.0"
+
+# Deployment environment
+deployment_environment = "development"
+
+# Additional custom attributes
+# [telemetry.opentelemetry.resource.attributes]
+# team = "orchestration"
+# region = "us-east-1"
+# cluster = "production"
+
 [health]
 enabled = true
 check_interval_seconds = 60

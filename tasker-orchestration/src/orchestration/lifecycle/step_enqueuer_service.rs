@@ -136,14 +136,14 @@ impl StepEnqueuerService {
         })
     }
 
-    /// Run a single orchestration cycle using state machine approach (TAS-41)
+    /// Run a single orchestration cycle using state machine approach
     #[instrument(skip(self), fields(system_id = %self.context.processor_uuid()))]
     pub async fn process_batch(&self) -> TaskerResult<StepEnqueuerServiceResult> {
         let cycle_start = Instant::now();
         let cycle_started_at = Utc::now();
 
         debug!(
-            "🔄 ORCHESTRATION_LOOP: Starting cycle using state machine - system_id: {}, tasks_per_cycle: {}, namespace_filter: {:?}",
+            "Starting cycle using state machine - system_id: {}, tasks_per_cycle: {}, namespace_filter: {:?}",
             self.context.processor_uuid, self.config.batch_size, self.config.namespace_filter
         );
 
@@ -154,12 +154,12 @@ impl StepEnqueuerService {
             .await?;
 
         debug!(
-            "📊 ORCHESTRATION_LOOP: Task discovery completed - found {} ready tasks",
+            "Task discovery completed - found {} ready tasks",
             ready_tasks.len()
         );
 
         if ready_tasks.is_empty() {
-            debug!("⏸️ ORCHESTRATION_LOOP: No ready tasks available in this cycle - orchestration cycle ending early");
+            debug!("⏸No ready tasks available in this cycle - orchestration cycle ending early");
             return Ok(self.create_empty_cycle_result(
                 cycle_started_at,
                 cycle_start.elapsed().as_millis() as u64,
@@ -169,8 +169,12 @@ impl StepEnqueuerService {
         // Log details about ready tasks
         for task in &ready_tasks {
             debug!(
-                "📋 ORCHESTRATION_LOOP: Ready task {} (namespace: '{}') with {} ready steps, priority: {}, state: {}",
-                task.task_uuid, task.namespace_name, task.ready_steps_count, task.priority, task.current_state
+                "📋 Ready task {} (namespace: '{}') with {} ready steps, priority: {}, state: {}",
+                task.task_uuid,
+                task.namespace_name,
+                task.ready_steps_count,
+                task.priority,
+                task.current_state
             );
         }
 

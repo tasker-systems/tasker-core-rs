@@ -992,6 +992,7 @@ mod tests {
             "completed_steps": 0,
             "failed_steps": 0,
             "ready_steps": 1,
+            "correlation_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
             "execution_status": "pending",
             "recommended_action": "wait",
             "completion_percentage": 0.0,

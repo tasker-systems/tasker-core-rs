@@ -94,7 +94,7 @@ pub enum OrchestrationCommand {
         message_event: MessageReadyEvent,
         resp: CommandResponder<TaskFinalizationResult>,
     },
-    /// Process task readiness event from PostgreSQL LISTEN/NOTIFY (TAS-43)
+    /// Process task readiness event from PostgreSQL LISTEN/NOTIFY
     /// Delegates to TaskClaimStepEnqueuer for atomic task claiming and step enqueueing
     ProcessTaskReadiness {
         task_uuid: Uuid,
@@ -134,7 +134,7 @@ pub enum StepProcessResult {
     Skipped { reason: String },
 }
 
-/// Result of processing a task readiness event (TAS-43)
+/// Result of processing a task readiness event
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskReadinessResult {
     pub task_uuid: Uuid,
@@ -394,7 +394,7 @@ impl OrchestrationProcessorCommandHandler {
                 debug!(
                     msg_id = message.msg_id,
                     queue = %queue_name,
-                    "🔍 COMMAND_PROCESSOR: Starting ProcessStepResultFromMessage"
+                    "Starting ProcessStepResultFromMessage"
                 );
 
                 let result = self
@@ -407,7 +407,7 @@ impl OrchestrationProcessorCommandHandler {
                             msg_id = message.msg_id,
                             queue = %queue_name,
                             result = ?step_result,
-                            "✅ COMMAND_PROCESSOR: ProcessStepResultFromMessage succeeded"
+                            "ProcessStepResultFromMessage succeeded"
                         );
                         self.stats.write().unwrap().step_results_processed += 1;
                     }
@@ -416,7 +416,7 @@ impl OrchestrationProcessorCommandHandler {
                             msg_id = message.msg_id,
                             queue = %queue_name,
                             error = %error,
-                            "❌ COMMAND_PROCESSOR: ProcessStepResultFromMessage failed"
+                            "ProcessStepResultFromMessage failed"
                         );
                         self.stats.write().unwrap().processing_errors += 1;
                     }
@@ -548,20 +548,20 @@ impl OrchestrationProcessorCommandHandler {
             status = %step_result.status,
             execution_time_ms = step_result.metadata.execution_time_ms,
             has_orchestration_metadata = step_result.orchestration_metadata.is_some(),
-            "🔍 STEP_PROCESSOR: Starting sophisticated OrchestrationResultProcessor delegation"
+            "STEP_PROCESSOR: Starting sophisticated OrchestrationResultProcessor delegation"
         );
 
         // TAS-40 Phase 2.2 - Sophisticated OrchestrationResultProcessor delegation
         // Uses existing sophisticated result processor for:
         // - Result validation and orchestration metadata processing
-        // - Task finalization coordination with atomic claiming (TAS-37)
+        // - Task finalization coordination with atomic claiming
         // - Error handling, retry logic, and failure state management
         // - Backoff calculations for intelligent retry coordination
 
         debug!(
             step_uuid = %step_result.step_uuid,
             status = %step_result.status,
-            "🔍 STEP_PROCESSOR: Delegating to OrchestrationResultProcessor.handle_step_result_with_metadata"
+            "STEP_PROCESSOR: Delegating to OrchestrationResultProcessor.handle_step_result_with_metadata"
         );
 
         // Delegate to sophisticated OrchestrationResultProcessor
@@ -574,7 +574,7 @@ impl OrchestrationProcessorCommandHandler {
                 info!(
                     step_uuid = %step_result.step_uuid,
                     status = %step_result.status,
-                    "✅ STEP_PROCESSOR: OrchestrationResultProcessor delegation succeeded"
+                    "STEP_PROCESSOR: OrchestrationResultProcessor delegation succeeded"
                 );
                 Ok(StepProcessResult::Success {
                     message: format!(
@@ -588,7 +588,7 @@ impl OrchestrationProcessorCommandHandler {
                     step_uuid = %step_result.step_uuid,
                     status = %step_result.status,
                     error = %e,
-                    "❌ STEP_PROCESSOR: OrchestrationResultProcessor delegation failed"
+                    "STEP_PROCESSOR: OrchestrationResultProcessor delegation failed"
                 );
 
                 match step_result.status.as_str() {
@@ -596,7 +596,7 @@ impl OrchestrationProcessorCommandHandler {
                         warn!(
                             step_uuid = %step_result.step_uuid,
                             status = %step_result.status,
-                            "⚠️ STEP_PROCESSOR: Returning StepProcessResult::Failed for 'failed' status"
+                            "STEP_PROCESSOR: Returning StepProcessResult::Failed for 'failed' status"
                         );
                         Ok(StepProcessResult::Failed {
                             error: format!("Step result processing failed: {e}"),
@@ -606,7 +606,7 @@ impl OrchestrationProcessorCommandHandler {
                         warn!(
                             step_uuid = %step_result.step_uuid,
                             status = %step_result.status,
-                            "⚠️ STEP_PROCESSOR: Returning StepProcessResult::Skipped for 'skipped' status"
+                            "STEP_PROCESSOR: Returning StepProcessResult::Skipped for 'skipped' status"
                         );
                         Ok(StepProcessResult::Skipped {
                             reason: format!("Step result processing skipped: {e}"),
@@ -616,7 +616,7 @@ impl OrchestrationProcessorCommandHandler {
                         error!(
                             step_uuid = %step_result.step_uuid,
                             status = %step_result.status,
-                            "❌ STEP_PROCESSOR: Returning TaskerError for status '{}'", step_result.status
+                            "STEP_PROCESSOR: Returning TaskerError for status '{}'", step_result.status
                         );
                         Err(TaskerError::OrchestrationError(format!(
                             "Step result processing error: {e}"
@@ -687,7 +687,7 @@ impl OrchestrationProcessorCommandHandler {
             msg_id = message.msg_id,
             queue = %queue_name,
             message_size = message.message.to_string().len(),
-            "🔍 STEP_RESULT_HANDLER: Starting step result message processing"
+            "STEP_RESULT_HANDLER: Starting step result message processing"
         );
 
         // Parse as SimpleStepMessage (only task_uuid and step_uuid)
@@ -698,7 +698,7 @@ impl OrchestrationProcessorCommandHandler {
                     queue = %queue_name,
                     raw_message = %message.message,
                     error = %e,
-                    "❌ STEP_RESULT_HANDLER: Failed to parse SimpleStepMessage"
+                    "STEP_RESULT_HANDLER: Failed to parse SimpleStepMessage"
                 );
                 TaskerError::ValidationError(format!("Invalid SimpleStepMessage format: {e}"))
             })?;
@@ -707,13 +707,13 @@ impl OrchestrationProcessorCommandHandler {
             msg_id = message.msg_id,
             step_uuid = %simple_message.step_uuid,
             task_uuid = %simple_message.task_uuid,
-            "✅ STEP_RESULT_HANDLER: Successfully parsed SimpleStepMessage"
+            "STEP_RESULT_HANDLER: Successfully parsed SimpleStepMessage"
         );
 
         // Database hydration using tasker-shared WorkflowStep model
         debug!(
             step_uuid = %simple_message.step_uuid,
-            "🔍 STEP_RESULT_HANDLER: Hydrating WorkflowStep from database"
+            "STEP_RESULT_HANDLER: Hydrating WorkflowStep from database"
         );
 
         let workflow_step =
@@ -723,14 +723,14 @@ impl OrchestrationProcessorCommandHandler {
                     error!(
                         step_uuid = %simple_message.step_uuid,
                         error = %e,
-                        "❌ STEP_RESULT_HANDLER: Database lookup failed for WorkflowStep"
+                        "STEP_RESULT_HANDLER: Database lookup failed for WorkflowStep"
                     );
                     TaskerError::DatabaseError(format!("Failed to lookup step: {e}"))
                 })?
                 .ok_or_else(|| {
                     error!(
                         step_uuid = %simple_message.step_uuid,
-                        "❌ STEP_RESULT_HANDLER: WorkflowStep not found in database"
+                        "STEP_RESULT_HANDLER: WorkflowStep not found in database"
                     );
                     TaskerError::ValidationError(format!(
                         "WorkflowStep not found for step_uuid: {}",
@@ -742,7 +742,7 @@ impl OrchestrationProcessorCommandHandler {
             step_uuid = %simple_message.step_uuid,
             task_uuid = %workflow_step.task_uuid,
             has_results = workflow_step.results.is_some(),
-            "✅ STEP_RESULT_HANDLER: Successfully hydrated WorkflowStep from database"
+            "STEP_RESULT_HANDLER: Successfully hydrated WorkflowStep from database"
         );
 
         // Check if results exist
@@ -750,7 +750,7 @@ impl OrchestrationProcessorCommandHandler {
             error!(
                 step_uuid = %simple_message.step_uuid,
                 task_uuid = %workflow_step.task_uuid,
-                "❌ STEP_RESULT_HANDLER: No results found in WorkflowStep.results JSONB column"
+                "STEP_RESULT_HANDLER: No results found in WorkflowStep.results JSONB column"
             );
             TaskerError::ValidationError(format!(
                 "No results found for step_uuid: {}",
@@ -761,31 +761,32 @@ impl OrchestrationProcessorCommandHandler {
         debug!(
             step_uuid = %simple_message.step_uuid,
             results_size = results_json.to_string().len(),
-            "🔍 STEP_RESULT_HANDLER: Deserializing StepExecutionResult from JSONB"
+            "STEP_RESULT_HANDLER: Deserializing StepExecutionResult from JSONB"
         );
 
         // Deserialize StepExecutionResult from results JSONB column
-        let step_execution_result: StepExecutionResult =
-            serde_json::from_value(results_json.clone())
-            .map_err(|e| {
-                error!(
-                    step_uuid = %simple_message.step_uuid,
-                    task_uuid = %workflow_step.task_uuid,
-                    results_json = %results_json,
-                    error = %e,
-                    "❌ STEP_RESULT_HANDLER: Failed to deserialize StepExecutionResult from results JSONB"
-                );
-                TaskerError::ValidationError(format!(
-                    "Failed to deserialize StepExecutionResult from results JSONB: {e}"
-                ))
-            })?;
+        let step_execution_result: StepExecutionResult = serde_json::from_value(
+            results_json.clone(),
+        )
+        .map_err(|e| {
+            error!(
+                step_uuid = %simple_message.step_uuid,
+                task_uuid = %workflow_step.task_uuid,
+                results_json = %results_json,
+                error = %e,
+                "STEP_RESULT_HANDLER: Failed to deserialize StepExecutionResult from results JSONB"
+            );
+            TaskerError::ValidationError(format!(
+                "Failed to deserialize StepExecutionResult from results JSONB: {e}"
+            ))
+        })?;
 
         info!(
             step_uuid = %simple_message.step_uuid,
             task_uuid = %workflow_step.task_uuid,
             status = %step_execution_result.status,
             execution_time_ms = step_execution_result.metadata.execution_time_ms,
-            "✅ STEP_RESULT_HANDLER: Successfully deserialized StepExecutionResult"
+            "STEP_RESULT_HANDLER: Successfully deserialized StepExecutionResult"
         );
 
         // Delegate to existing step result processing logic
@@ -793,7 +794,7 @@ impl OrchestrationProcessorCommandHandler {
             step_uuid = %simple_message.step_uuid,
             task_uuid = %workflow_step.task_uuid,
             status = %step_execution_result.status,
-            "🔍 STEP_RESULT_HANDLER: Delegating to result processor"
+            "STEP_RESULT_HANDLER: Delegating to result processor"
         );
 
         let result = self
@@ -807,14 +808,14 @@ impl OrchestrationProcessorCommandHandler {
                     step_uuid = %simple_message.step_uuid,
                     task_uuid = %workflow_step.task_uuid,
                     result = ?step_result,
-                    "✅ STEP_RESULT_HANDLER: Result processing succeeded"
+                    "STEP_RESULT_HANDLER: Result processing succeeded"
                 );
 
                 // Delete the message only if processing was successful
                 debug!(
                     msg_id = message.msg_id,
                     queue = %queue_name,
-                    "🔍 STEP_RESULT_HANDLER: Deleting successfully processed message"
+                    "STEP_RESULT_HANDLER: Deleting successfully processed message"
                 );
 
                 match self
@@ -826,7 +827,7 @@ impl OrchestrationProcessorCommandHandler {
                         info!(
                             msg_id = message.msg_id,
                             queue = %queue_name,
-                            "✅ STEP_RESULT_HANDLER: Successfully deleted processed message"
+                            "STEP_RESULT_HANDLER: Successfully deleted processed message"
                         );
                     }
                     Err(e) => {
@@ -834,7 +835,7 @@ impl OrchestrationProcessorCommandHandler {
                             msg_id = message.msg_id,
                             queue = %queue_name,
                             error = %e,
-                            "⚠️ STEP_RESULT_HANDLER: Failed to delete processed step result message (will be reprocessed)"
+                            "STEP_RESULT_HANDLER: Failed to delete processed step result message (will be reprocessed)"
                         );
                     }
                 }
@@ -845,7 +846,7 @@ impl OrchestrationProcessorCommandHandler {
                     step_uuid = %simple_message.step_uuid,
                     task_uuid = %workflow_step.task_uuid,
                     error = %error,
-                    "❌ STEP_RESULT_HANDLER: Result processing failed (message will remain for retry)"
+                    "STEP_RESULT_HANDLER: Result processing failed (message will remain for retry)"
                 );
             }
         }

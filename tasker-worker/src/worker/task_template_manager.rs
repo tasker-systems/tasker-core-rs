@@ -206,16 +206,16 @@ impl TaskTemplateManager {
             namespace: namespace.to_string(),
             version: version.to_string(),
             context: serde_json::Value::Object(serde_json::Map::new()),
-            status: "PENDING".to_string(),
             initiator: "worker".to_string(),
             source_system: "task_template_manager".to_string(),
             reason: "Handler metadata lookup".to_string(),
-            complete: false,
             tags: Vec::new(),
             bypass_steps: Vec::new(),
             requested_at: chrono::Utc::now().naive_utc(),
             options: None,
             priority: Some(5),
+            correlation_id: uuid::Uuid::now_v7(), // TAS-29: Test correlation_id
+            parent_correlation_id: None,
         };
 
         self.registry.resolve_handler(&task_request).await
@@ -272,7 +272,7 @@ impl TaskTemplateManager {
     ) -> TaskerResult<TaskTemplateDiscoveryResult> {
         info!(
             directory = config_directory,
-            "🔍 Worker discovering TaskTemplates",
+            "Worker discovering TaskTemplates",
         );
 
         // Use the registry to discover and register templates
@@ -282,7 +282,7 @@ impl TaskTemplateManager {
             .await?;
 
         info!(
-            "📊 Worker template discovery complete: {} total files, {} supported templates registered, {} failed, discovered namespaces: {:?}",
+            "Worker template discovery complete: {} total files, {} supported templates registered, {} failed, discovered namespaces: {:?}",
             discovery_result.total_files,
             discovery_result.successful_registrations,
             discovery_result.failed_registrations,
@@ -295,7 +295,7 @@ impl TaskTemplateManager {
     /// Load TaskTemplates to database during worker startup
     /// This ensures workers have their required templates available in the database
     pub async fn ensure_templates_in_database(&self) -> TaskerResult<TaskTemplateDiscoveryResult> {
-        info!("🚀 Ensuring TaskTemplates are loaded to database for worker startup");
+        info!("Ensuring TaskTemplates are loaded to database for worker startup");
 
         // Try to find template configuration directory
         let config_directory = self.find_template_config_directory()?;
@@ -309,14 +309,13 @@ impl TaskTemplateManager {
         {
             Ok(discovery_result) => {
                 info!(
-                    "✅ BOOTSTRAP: TaskTemplate discovery complete - {} templates registered from {} files",
-                    discovery_result.successful_registrations,
-                    discovery_result.total_files
+                    "TaskTemplate discovery complete - {} templates registered from {} files",
+                    discovery_result.successful_registrations, discovery_result.total_files
                 );
 
                 if !discovery_result.errors.is_empty() {
                     warn!(
-                        "⚠️ BOOTSTRAP: {} errors during TaskTemplate discovery: {:?}",
+                        "{} errors during TaskTemplate discovery: {:?}",
                         discovery_result.errors.len(),
                         discovery_result.errors
                     );
@@ -324,7 +323,7 @@ impl TaskTemplateManager {
 
                 if !discovery_result.discovered_templates.is_empty() {
                     info!(
-                        "📋 BOOTSTRAP: Registered templates: {:?}",
+                        "📋 Registered templates: {:?}",
                         discovery_result.discovered_templates
                     );
                 }
@@ -334,7 +333,7 @@ impl TaskTemplateManager {
                     let mut config = self.config.write().await;
                     config.supported_namespaces = discovery_result.discovered_namespaces.clone();
                     info!(
-                        "✅ BOOTSTRAP: Updated supported namespaces: {:?}",
+                        "Updated supported namespaces: {:?}",
                         config.supported_namespaces
                     );
                 }
@@ -342,9 +341,7 @@ impl TaskTemplateManager {
                 Ok(discovery_result)
             }
             Err(e) => {
-                error!(
-                    "⚠️ BOOTSTRAP: TaskTemplate discovery failed (worker will use registry-only): {e}"
-                );
+                error!("TaskTemplate discovery failed (worker will use registry-only): {e}");
                 Err(TaskerError::ConfigurationError(format!(
                     "TaskTemplate discovery failed (worker will use registry-only): {e}"
                 )))
@@ -523,16 +520,16 @@ impl TaskTemplateManager {
                 namespace: key.namespace.clone(),
                 version: key.version.clone(),
                 context: serde_json::Value::Object(serde_json::Map::new()),
-                status: "PENDING".to_string(),
                 initiator: "worker".to_string(),
                 source_system: "task_template_manager".to_string(),
                 reason: "Template retrieval".to_string(),
-                complete: false,
                 tags: Vec::new(),
                 bypass_steps: Vec::new(),
                 requested_at: chrono::Utc::now().naive_utc(),
                 options: None,
                 priority: Some(5),
+                correlation_id: uuid::Uuid::now_v7(), // TAS-29: Test correlation_id
+                parent_correlation_id: None,
             })
             .await?;
 

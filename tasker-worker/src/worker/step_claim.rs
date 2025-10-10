@@ -1,6 +1,9 @@
 use super::task_template_manager::TaskTemplateManager;
+use opentelemetry::KeyValue;
 use std::sync::Arc;
+use std::time::Instant;
 use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::metrics::worker::*;
 use tasker_shared::models::{
     orchestration::StepTransitiveDependenciesQuery, task::Task, workflow_step::WorkflowStepWithName,
 };
@@ -40,6 +43,13 @@ impl StepClaim {
         &self,
         message: &SimpleStepMessage,
     ) -> TaskerResult<Option<TaskSequenceStep>> {
+        debug!(
+            task_uuid = %message.task_uuid,
+            step_uuid = %message.step_uuid,
+            correlation_id = %message.correlation_id,
+            "Worker: Processing step message"
+        );
+
         let db_pool = self.context.database_pool();
         // 1. Fetch task data from database using task_uuid
         let task = match Task::find_by_id(db_pool, message.task_uuid).await {
@@ -133,9 +143,15 @@ impl StepClaim {
     pub async fn try_claim_step(
         &self,
         task_sequence_step: &TaskSequenceStep,
+        correlation_id: Uuid,
     ) -> TaskerResult<bool> {
         let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
+
+        // TAS-29 Phase 3.3: Start timing step claim
+        let start_time = Instant::now();
+
         debug!(
+            correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             "Attempting to claim step using state machine transition"
         );
@@ -157,6 +173,7 @@ impl StepClaim {
                     WorkflowStepState::Enqueued => StepEvent::Start, // TAS-32 compliant transition
                     _ => {
                         debug!(
+                            correlation_id = %correlation_id,
                             step_uuid = %step_uuid,
                             current_state = %current_state,
                             "Step is not in a claimable state"
@@ -196,13 +213,45 @@ impl StepClaim {
                             })?;
 
                             debug!(
+                                correlation_id = %correlation_id,
                                 step_uuid = %step_uuid,
                                 new_state = %new_state,
                                 "Successfully claimed step by transitioning to InProgress and incremented attempts"
                             );
+
+                            // TAS-29 Phase 3.3: Record successful step claim
+                            if let Some(counter) = STEPS_CLAIMED_TOTAL.get() {
+                                counter.add(
+                                    1,
+                                    &[
+                                        KeyValue::new(
+                                            "namespace",
+                                            task_sequence_step.task.namespace_name.clone(),
+                                        ),
+                                        KeyValue::new("claim_method", "event"), // or "poll" depending on context
+                                    ],
+                                );
+                            }
+
+                            // TAS-29 Phase 3.3: Record claim duration
+                            let duration_ms = start_time.elapsed().as_millis() as f64;
+                            if let Some(histogram) = STEP_CLAIM_DURATION.get() {
+                                histogram.record(
+                                    duration_ms,
+                                    &[
+                                        KeyValue::new(
+                                            "namespace",
+                                            task_sequence_step.task.namespace_name.clone(),
+                                        ),
+                                        KeyValue::new("claim_method", "event"),
+                                    ],
+                                );
+                            }
+
                             Ok(true)
                         } else {
                             debug!(
+                                correlation_id = %correlation_id,
                                 step_uuid = %step_uuid,
                                 new_state = %new_state,
                                 "Unexpected state after transition"
@@ -212,6 +261,7 @@ impl StepClaim {
                     }
                     Err(e) => {
                         debug!(
+                            correlation_id = %correlation_id,
                             step_uuid = %step_uuid,
                             error = %e,
                             "Failed to claim step - likely already claimed by another worker"
@@ -223,6 +273,7 @@ impl StepClaim {
             }
             Err(e) => {
                 error!(
+                    correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     error = %e,
                     "Failed to get current state for step claiming"

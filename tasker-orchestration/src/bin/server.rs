@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging first
     logging::init_tracing();
 
-    info!("🚀 Starting Tasker Orchestration Server...");
+    info!("Starting Tasker Orchestration Server...");
     info!("   Version: {}", env!("CARGO_PKG_VERSION"));
     info!(
         "   Build Mode: {}",
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|e| format!("Failed to bootstrap orchestration: {e}"))?;
 
-    info!("🎉 Orchestration Server started successfully!");
+    info!("Orchestration Server started successfully!");
 
     if orchestration_handle.web_state.is_some() {
         info!("   Web API: Running");
@@ -54,14 +54,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wait for shutdown signal
     shutdown_signal().await;
 
-    info!("🛑 Shutdown signal received, initiating graceful shutdown...");
+    info!("Shutdown signal received, initiating graceful shutdown...");
 
     // Stop orchestration system using handle (includes web server)
-    info!("🔧 Stopping orchestration system...");
+    info!("Stopping orchestration system...");
     if let Err(e) = orchestration_handle.stop().await {
         error!("Failed to stop orchestration cleanly: {}", e);
     } else {
-        info!("✅ Orchestration system stopped");
+        info!("Orchestration system stopped");
     }
 
     info!("👋 Orchestration Server shutdown complete");

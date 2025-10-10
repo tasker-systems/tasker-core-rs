@@ -155,7 +155,9 @@ impl SqlxFactory<Task> for TaskFactory {
             tags: Some(tags),
             context: Some(context),
             identity_hash,
-            priority: Some(2), // Default to normal priority
+            priority: Some(2),                    // Default to normal priority
+            correlation_id: uuid::Uuid::now_v7(), // TAS-29: Generate correlation_id for test tasks
+            parent_correlation_id: None,
         };
 
         let task = Task::create(pool, new_task).await?;

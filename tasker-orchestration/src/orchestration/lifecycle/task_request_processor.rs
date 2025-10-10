@@ -189,10 +189,10 @@ impl TaskRequestProcessor {
         }
     }
 
-    /// Handle a validated task request by creating task with immediate step enqueuing (TAS-41)
+    /// Handle a validated task request by creating task with immediate step enqueuing
     async fn handle_valid_task_request(&self, request: &TaskRequestMessage) -> TaskerResult<()> {
         // Use the embedded TaskRequest directly - no conversion needed
-        // Now using create_and_enqueue_task_from_request for immediate step enqueuing (TAS-41)
+        // Now using create_and_enqueue_task_from_request for immediate step enqueuing
         let initialization_result = self
             .task_initializer
             .create_and_enqueue_task_from_request(request.task_request.clone())
@@ -207,7 +207,7 @@ impl TaskRequestProcessor {
             namespace = %request.task_request.namespace,
             task_name = %request.task_request.name,
             step_count = initialization_result.step_count,
-            "Task validated, created, and steps immediately enqueued (TAS-41)"
+            "Task validated, created, and steps immediately enqueued"
         );
 
         Ok(())
@@ -270,7 +270,7 @@ impl TaskRequestProcessor {
         self.validate_task_request(&request).await?;
 
         // Use the embedded TaskRequest directly - no conversion needed
-        // Now using create_and_enqueue_task_from_request for immediate step enqueuing (TAS-41)
+        // Now using create_and_enqueue_task_from_request for immediate step enqueuing
         let initialization_result = self
             .task_initializer
             .create_and_enqueue_task_from_request(request.task_request.clone())

@@ -228,12 +228,18 @@ module TaskerCore
       end
 
       def wrap_step_execution_event(event_data)
-        {
+        wrapped = {
           event_id: event_data[:event_id],
           task_uuid: event_data[:task_uuid],
           step_uuid: event_data[:step_uuid],
           task_sequence_step: TaskerCore::Models::TaskSequenceStepWrapper.new(event_data[:task_sequence_step])
         }
+
+        # TAS-29: Expose correlation_id at top level for easy access
+        wrapped[:correlation_id] = event_data[:correlation_id] if event_data[:correlation_id]
+        wrapped[:parent_correlation_id] = event_data[:parent_correlation_id] if event_data[:parent_correlation_id]
+
+        wrapped
       end
 
       def validate_completion!(completion_data)
