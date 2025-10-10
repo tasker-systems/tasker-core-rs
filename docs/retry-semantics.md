@@ -1,7 +1,13 @@
 # Retry Semantics: max_attempts and retryable
 
-**Last Updated**: 2025-10-06
-**Related**: [Bug Report: Retry Eligibility Logic](bug-reports/2025-10-05-retry-eligibility-bug.md)
+**Last Updated**: 2025-10-10
+**Audience**: Developers
+**Status**: Active
+**Related Docs**: [Documentation Hub](README.md) | [Bug Report: Retry Eligibility Logic](bug-reports/2025-10-05-retry-eligibility-bug.md) | [States and Lifecycles](states-and-lifecycles.md)
+
+← Back to [Documentation Hub](README.md)
+
+---
 
 ## Overview
 

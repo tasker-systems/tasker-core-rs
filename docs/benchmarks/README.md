@@ -1,9 +1,15 @@
 # Tasker Core Benchmarks
 
-This directory contains documentation for all performance benchmarks in the tasker-core workspace.
+**Last Updated**: 2025-10-10
+**Audience**: Architects, Developers
+**Status**: Active - Phase 5.4 Complete
+**Related Docs**: [Documentation Hub](../README.md) | [Observability](../observability/README.md) | [Deployment Patterns](../deployment-patterns.md)
 
-**Last Updated**: 2025-10-08
-**Implementation Status**: Phase 5.4 Complete
+← Back to [Documentation Hub](../README.md)
+
+---
+
+This directory contains documentation for all performance benchmarks in the tasker-core workspace.
 
 ---
 

@@ -1,5 +1,14 @@
 # States and Lifecycles
 
+**Last Updated**: 2025-10-10
+**Audience**: All
+**Status**: Active
+**Related Docs**: [Documentation Hub](README.md) | [Events and Commands](events-and-commands.md) | [Task Readiness & Execution](task-and-step-readiness-and-execution.md)
+
+← Back to [Documentation Hub](README.md)
+
+---
+
 This document provides comprehensive documentation of the state machine architecture in tasker-core, covering both task and workflow step lifecycles, their state transitions, and the underlying persistence mechanisms.
 
 ## Overview

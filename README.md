@@ -1,470 +1,409 @@
-# Tasker Core Rust
+# Tasker Core
 
-High-performance Rust implementation of workflow orchestration designed to complement the existing Ruby on Rails **Tasker** engine. Built for production-scale deployments with comprehensive orchestration capabilities, fault tolerance, and 10-100x performance improvements over Rails equivalents.
+[![CI](https://github.com/tasker-systems/tasker-core/actions/workflows/ci.yml/badge.svg)](https://github.com/tasker-systems/tasker-core/actions/workflows/ci.yml)
+![GitHub](https://img.shields.io/github/license/tasker-systems/tasker-core)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tasker-systems/tasker-core?color=blue&sort=semver)
+![Tests](https://img.shields.io/badge/tests-645%2B%20passing-brightgreen)
 
-## 🎯 **Current Status: Production Ready**
+High-performance Rust implementation of workflow orchestration designed for production-scale deployments. Built on PostgreSQL with PGMQ message queues, Tasker Core provides DAG-based task execution, event-driven coordination, and comprehensive state management for complex workflows.
 
-✅ **TAS-37 COMPREHENSIVE ORCHESTRATION ENHANCEMENT COMPLETE** (August 17, 2025)
-✅ **645+ tests passing** with comprehensive orchestration system
-🚀 **Production deployment ready** with race condition elimination and dynamic scaling
+**Status**: Production Ready | **Version**: 0.1.0
 
-### Major Achievements
+---
 
-- **🏗️ Complete Orchestration System**: Dynamic executor pools, health monitoring, auto-scaling
-- **🛡️ Race Condition Elimination**: Atomic SQL-based finalization claiming prevents duplicate processing
-- **⚡ Circuit Breaker Integration**: Production-ready fault tolerance with configurable thresholds
-- **📊 Component-Based Configuration**: 10 focused TOML files with environment-specific overrides
-- **🔄 UUID v7 Architecture**: Complete migration to time-ordered UUIDs for distributed safety
+## What is Tasker Core?
 
-## 🚀 Architecture Overview
+Tasker Core is a workflow orchestration system that solves the challenge of coordinating complex, multi-step processes across distributed systems. It provides:
 
-**PostgreSQL Message Queue (PGMQ) Based System** where Rust handles orchestration coordination and Ruby workers process steps autonomously through queue polling.
+- **DAG-Based Workflow Execution** - Define complex workflows as directed acyclic graphs with dependencies
+- **PostgreSQL-Native Architecture** - Leverage PostgreSQL for durability, PGMQ for reliable messaging
+- **Event-Driven Coordination** - Real-time step discovery using PostgreSQL LISTEN/NOTIFY with polling fallback
+- **Dual State Machines** - Comprehensive task and step lifecycle management with atomic transitions
+- **Multi-Language Workers** - Rust native workers, Ruby via FFI, Python/WASM planned
+- **Production-Ready** - Circuit breakers, health monitoring, comprehensive metrics, zero race conditions
+
+### When to Use Tasker Core
+
+**Ideal Use Cases**:
+- **Order Fulfillment Workflows** - Multi-step processes with inventory checks, payment processing, shipping coordination
+- **Payment Processing Pipelines** - Retry logic, idempotency, distributed transaction coordination
+- **Data Transformation DAGs** - ETL pipelines with complex dependencies and parallel execution
+- **Microservices Orchestration** - Coordinate distributed operations across multiple services
+- **Event-Driven Systems** - React to database changes and external events with reliable execution
+
+**Not Ideal For**:
+- Simple cron jobs (use native cron or systemd timers)
+- Single-step operations (overhead not justified)
+- Real-time sub-millisecond requirements (architectural overhead ~10-20ms)
+
+---
+
+## Architecture Overview
 
 ### Core Components
 
-- **OrchestrationCore**: Unified bootstrap system with consistent component initialization
-- **OrchestrationLoopCoordinator**: Dynamic executor pool management with auto-scaling and health monitoring
-- **Finalization System**: Race-condition-free task finalization with atomic SQL claiming
-- **Circuit Breaker Integration**: Resilient messaging with configurable protection
-- **Operational State Management**: Context-aware system state with shutdown coordination
-
-### Queue Design Pattern
-
 ```
-fulfillment_queue           - All fulfillment namespace steps
-inventory_queue            - All inventory namespace steps
-notifications_queue        - All notification namespace steps
-orchestration_step_results - Step completion results processing
+┌─────────────────────────────────────────────────────────────┐
+│                     Client Applications                     │
+│                   (REST API / CLI / SDK)                    │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Tasker Orchestration Server                    │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │  Task Initialization → Step Discovery →           │    │
+│  │  Step Enqueueing → Result Processing →            │    │
+│  │  Task Finalization                                 │    │
+│  └────────────────────────────────────────────────────┘    │
+└──────────┬──────────────────────────────────┬───────────────┘
+           │                                  │
+           ▼                                  ▼
+┌──────────────────────┐          ┌──────────────────────────┐
+│   PostgreSQL + PGMQ  │          │  Namespace-Specific      │
+│  ┌────────────────┐  │          │  Worker Pools            │
+│  │ Task Database  │  │◄────────►│  ┌──────────────────┐   │
+│  │ State Machines │  │          │  │ payments_queue   │   │
+│  │ SQL Functions  │  │          │  │ inventory_queue  │   │
+│  │ Message Queues │  │          │  │ fulfillment_queue│   │
+│  └────────────────┘  │          │  └──────────────────┘   │
+└──────────────────────┘          └──────────────────────────┘
 ```
 
-### Key Technical Patterns
+### Key Architectural Patterns
 
-- **PostgreSQL-Centric Architecture**: Shared database as API layer with PGMQ for reliable messaging
-- **Component-Based Configuration**: TOML configuration with environment overrides and validation
-- **Atomic Operations**: SQL-based claiming prevents race conditions and ensures consistency
-- **Operational State Awareness**: Health monitoring adapts behavior based on system state
-- **Circuit Breaker Protection**: Configurable resilience for database and messaging operations
+**1. PostgreSQL-Centric Design**
+- Database as coordination layer and source of truth
+- PGMQ for reliable, durable message queuing
+- SQL functions for complex orchestration logic
+- PostgreSQL LISTEN/NOTIFY for real-time events
 
-## 📚 Quick Start
+**2. Dual State Machine Architecture**
+- **Task State Machine** (12 states): Overall workflow lifecycle
+- **Step State Machine** (9 states): Individual step execution
+- Atomic transitions with processor ownership tracking
+- Complete audit trail for compliance and debugging
+
+**3. Event-Driven with Fallback**
+- **Hybrid Mode**: Event-driven primary, polling fallback (recommended for production)
+- **EventDrivenOnly Mode**: Real-time coordination via LISTEN/NOTIFY
+- **PollingOnly Mode**: Traditional polling for restricted environments
+
+**4. Autonomous Worker Pattern**
+- Workers claim steps from namespace-specific queues
+- Independent step execution without central coordination
+- Language-agnostic via FFI (Rust native, Ruby, Python planned)
+- Horizontal scaling per namespace
+
+---
+
+## Workspace Architecture
+
+Tasker Core is organized as a Cargo workspace with 7 specialized crates:
+
+| Crate | Purpose | Key Responsibility |
+|-------|---------|-------------------|
+| **pgmq-notify** | PGMQ wrapper | Message queuing with atomic notify support |
+| **tasker-shared** | Foundation | Core types, SQL functions, state machines |
+| **tasker-orchestration** | Orchestration | Task coordination, REST API, lifecycle management |
+| **tasker-worker** | Workers | Step execution, handler integration, FFI layer |
+| **tasker-client** | Client Library | REST client and CLI tools |
+| **workers/ruby/ext** | Ruby Workers | Ruby FFI bindings for Ruby handlers |
+| **workers/rust** | Rust Workers | Native Rust worker implementation |
+
+**Architecture Deep Dive**: See **[docs/crate-architecture.md](docs/crate-architecture.md)** for detailed explanations and dependency graphs.
+
+---
+
+## Quick Start
 
 ### Prerequisites
 
 - **Rust**: 1.75+ with Cargo
-- **PostgreSQL**: 14+ with PGMQ extension enabled
-- **Ruby**: 3.1+ (for Ruby bindings)
+- **PostgreSQL**: 14+ with PGMQ extension
+- **Docker**: For local development (optional but recommended)
 
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/tasker-systems/tasker-core
-cd tasker-core
-
-# Set up database (PostgreSQL with PGMQ extension)
-createdb tasker_rust_development
-psql tasker_rust_development -c "CREATE EXTENSION IF NOT EXISTS pgmq;"
-
-# Run database migrations
-DATABASE_URL=postgresql://user:pass@localhost/tasker_rust_development cargo sqlx migrate run
-
-# Build with all features
-cargo build --all-features
-
-# Run tests
-cargo test --all-features
-```
-
-### Basic Usage
-
-```rust
-use tasker_core::orchestration::OrchestrationCore;
-use tasker_core::config::ConfigManager;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize with environment-aware configuration
-    let orchestration_core = OrchestrationCore::new().await?;
-
-    // Or specify configuration explicitly
-    let config_manager = ConfigManager::load()?;
-    let orchestration_core = OrchestrationCore::from_config(config_manager).await?;
-
-    println!("✅ Orchestration core initialized successfully");
-    Ok(())
-}
-```
-
-## 🛠️ Configuration
-
-### Component-Based Configuration Structure
-
-The system uses 10 focused TOML configuration files with environment-specific overrides:
-
-```
-config/tasker/base/
-├── auth.toml              # Authentication settings
-├── circuit_breakers.toml  # Circuit breaker configuration
-├── database.toml          # Database connection settings
-├── engine.toml            # Core engine configuration
-├── executor_pools.toml    # Executor pool settings
-├── orchestration.toml     # Orchestration parameters
-├── pgmq.toml             # Message queue configuration
-├── query_cache.toml      # Query caching settings
-├── system.toml           # System-level settings
-└── telemetry.toml        # Monitoring and metrics
-
-config/tasker/environments/
-├── development/          # Development overrides
-├── production/          # Production settings
-└── test/               # Test environment
-```
-
-### Example Configuration
-
-```toml
-# config/tasker/base/orchestration.toml
-[orchestration]
-auto_scaling_enabled = true
-target_utilization = 0.75
-scaling_interval_seconds = 30
-health_check_interval_seconds = 10
-
-[executor_pools.task_claimer]
-min_executors = 2
-max_executors = 10
-polling_interval_ms = 50
-batch_size = 20
-circuit_breaker_enabled = true
-```
-
-## 🏗️ Core Development Commands
-
-### Rust Core
+### Get Running in 5 Minutes
 
 ```bash
-# Core development (ALWAYS use --all-features for consistency)
-cargo build --all-features                         # Build project
-cargo test --all-features                          # Run tests
-cargo clippy --all-targets --all-features          # Lint code
-cargo fmt                                          # Format code
+# 1. Start PostgreSQL with PGMQ using Docker Compose
+docker-compose up -d postgres
 
-# Coverage and benchmarking
-cargo llvm-cov --all-features                      # Generate coverage
-cargo bench --all-features                         # Performance benchmarks
+# 2. Run database migrations
+export DATABASE_URL="postgresql://tasker:tasker@localhost/tasker_rust_test"
+cargo sqlx migrate run
 
-# Database operations
-cargo sqlx migrate run                             # Run migrations
-cargo check --all-features                        # Fast compilation check
+# 3. Start orchestration server
+docker-compose --profile server up -d
+
+# 4. Create your first task
+curl -X POST http://localhost:8080/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "template_name": "linear_workflow",
+    "namespace": "example",
+    "configuration": {}
+  }'
+
+# 5. Monitor execution
+curl http://localhost:8080/v1/tasks/{task_uuid}
 ```
 
-### Ruby Integration
+**Full Quick Start Guide**: **[docs/quick-start.md](docs/quick-start.md)**
+
+---
+
+## Core Concepts
+
+### Tasks and Steps
+
+```yaml
+# Example: Order fulfillment workflow
+Task: order_fulfillment_#{order_id}
+  │
+  ├─ Step: validate_order (pending)
+  │   │
+  │   └─ Step: check_inventory (waiting_for_dependencies)
+  │       │
+  │       ├─ Step: reserve_stock (parallel)
+  │       └─ Step: process_payment (parallel)
+  │           │
+  │           └─ Step: ship_order (waiting_for_dependencies)
+  │               │
+  │               └─ Step: send_confirmation (waiting_for_dependencies)
+```
+
+**Tasks**: Overall workflow instances with metadata, priority, and lifecycle
+**Steps**: Individual work units with handlers, dependencies, retry logic
+
+### State Machines
+
+**Task States** (12 comprehensive states):
+```
+Pending → Initializing → EnqueuingSteps → StepsInProcess →
+EvaluatingResults → [Complete | WaitingForDependencies | WaitingForRetry]
+```
+
+**Step States** (9 states with orchestration queuing):
+```
+Pending → Enqueued → InProgress → EnqueuedForOrchestration →
+[Complete | WaitingForRetry | Error]
+```
+
+**Deep Dive**: **[docs/states-and-lifecycles.md](docs/states-and-lifecycles.md)**
+
+### Event-Driven Coordination
+
+```
+Worker completes step
+  ↓ [pgmq_send_with_notify]
+PGMQ: orchestration_step_results queue
+  ↓ [pg_notify: 'pgmq_message_ready.orchestration']
+Orchestration Event System
+  ↓ [Process result, discover next steps]
+Step readiness analyzed via SQL functions
+  ↓ [pgmq_send_with_notify]
+PGMQ: {namespace}_queue
+  ↓ [pg_notify: 'pgmq_message_ready.{namespace}']
+Worker Event System
+  ↓ [Claim and execute step]
+```
+
+**Deep Dive**: **[docs/events-and-commands.md](docs/events-and-commands.md)**
+
+---
+
+## Deployment
+
+### Deployment Modes
+
+**Hybrid Mode** (Recommended for Production):
+- Event-driven primary with polling fallback
+- Real-time when possible, reliable always
+- Automatic degradation during issues
+
+**EventDrivenOnly Mode**:
+- Pure event-driven via PostgreSQL LISTEN/NOTIFY
+- Lowest latency for step discovery
+- Requires stable PostgreSQL connections
+
+**PollingOnly Mode**:
+- Traditional polling-based coordination
+- Higher latency but guaranteed operation
+- Useful for restricted network environments
+
+**Configuration Guide**: **[docs/deployment-patterns.md](docs/deployment-patterns.md)**
+
+### Docker Deployment
 
 ```bash
-cd workers/ruby
-bundle install                                     # Install dependencies
-bundle exec rake compile                           # Compile Ruby extension
+# Start database + orchestration + workers
+docker-compose --profile server up -d
 
-# Integration testing
-DATABASE_URL=postgresql://user:pass@localhost/tasker_rust_test \
-TASKER_ENV=test bundle exec rspec spec/integration/ --format documentation
-```
+# Verify health
+curl http://localhost:8080/health
 
-## 🧪 Testing
-
-The project maintains comprehensive test coverage across multiple dimensions:
-
-### Test Categories
-
-- **Unit Tests**: 645+ tests covering all components
-- **Integration Tests**: End-to-end workflow validation with real database operations
-- **Race Condition Tests**: Concurrent processor simulation for finalization claiming
-- **Configuration Tests**: All configuration scenarios with environment overrides
-- **Ruby Integration**: Full Ruby FFI binding validation
-
-### Running Tests
-
-```bash
-# Core orchestration tests
-cargo test --all-features orchestration
-
-# Configuration system tests
-cargo test --all-features config
-
-# Circuit breaker integration tests
-cargo test --all-features circuit_breaker
-
-# Ruby integration tests
-TASKER_ENV=test bundle exec rspec spec/integration/ --format documentation
-
-# Specific workflow validation
-TASKER_ENV=test bundle exec rspec spec/integration/linear_workflow_integration_spec.rb
-TASKER_ENV=test bundle exec rspec spec/integration/order_fulfillment_spec.rb
-```
-
-## 📊 Performance & Monitoring
-
-### Performance Targets Achieved
-
-- **10-100x faster** dependency resolution vs PostgreSQL functions ✅
-- **<1ms overhead** per step coordination handoff ✅
-- **>10k events/sec** cross-language event processing ✅
-- **Zero race conditions** through atomic finalization claiming ✅
-
-### Key Metrics
-
-The system provides comprehensive observability:
-
-#### Finalization Claiming Metrics
-- `finalization_claim_duration_seconds` - Time taken to attempt claiming
-- `finalization_claim_success_total` - Successfully acquired claims
-- `finalization_claim_contention_total` - Failed attempts due to contention
-- `finalization_claim_contention_by_reason_total` - Contention breakdown by reason
-
-#### Circuit Breaker Metrics
-- Circuit breaker state transitions and failure rates
-- Protected operation success/failure ratios
-- Recovery time measurements
-
-#### Executor Pool Metrics
-- Pool utilization and scaling events
-- Health state transitions
-- Throughput measurements per executor type
-
-### Health Check Endpoint
-
-```bash
-curl http://localhost:3000/health/orchestration
-```
-
-```json
-{
-  "status": "healthy",
-  "coordinator": {
-    "running": true,
-    "uptime_seconds": 3600
-  },
-  "executor_pools": {
-    "task_request_processor": {
-      "healthy": 3,
-      "unhealthy": 0,
-      "throughput": 150.5
-    }
-  }
-}
-```
-
-## 🔧 Architecture Deep Dive
-
-### Orchestration Loop Coordinator
-
-The `OrchestrationLoopCoordinator` manages pools of orchestration executors with dynamic scaling:
-
-```rust
-pub struct OrchestrationLoopCoordinator {
-    executor_pools: Arc<DashMap<ExecutorType, ExecutorPool>>,
-    config: CoordinatorConfig,
-    db_pool: PgPool,
-    circuit_breakers: Arc<DashMap<ExecutorType, Arc<CircuitBreaker>>>,
-    scaling_state: Arc<RwLock<ScalingState>>,
-}
-```
-
-**Key Responsibilities:**
-- Pool Management: Maintains min/max executors per type
-- Health Monitoring: Regular health checks and heartbeats
-- Auto-scaling: Scales based on load and performance metrics
-- Backpressure: Responds to database pool saturation
-- Circuit Breaking: Integrates with existing circuit breaker
-
-### Race Condition Elimination
-
-TAS-37 implemented atomic finalization claiming using dedicated SQL functions:
-
-```sql
--- Atomic claim function prevents multiple processors from finalizing same task
-SELECT * FROM claim_task_for_finalization($1, $2, $3)
-```
-
-**Benefits:**
-- Zero "unclear state" logs in production
-- Transactional safety with automatic claim release on rollback
-- Complete audit trail for debugging
-- Database-visible claims for operational monitoring
-
-### Circuit Breaker Integration
-
-Production-ready circuit breaker system protects all critical paths:
-
-```rust
-impl PgmqClient {
-    pub async fn read_messages_with_circuit_breaker(&self, queue: &str) -> Result<Vec<Message>> {
-        self.circuit_breaker
-            .call(|| self.read_messages_internal(queue))
-            .await
-    }
-}
-```
-
-## 🚦 Deployment
-
-### Environment Configuration
-
-Set the environment and the system will automatically load the appropriate configuration:
-
-```bash
-export TASKER_ENV=production
-cargo run --all-features
-```
-
-### Configuration Validation
-
-The system validates configuration on startup:
-
-```bash
-# Test configuration loading
-TASKER_ENV=production cargo run --example config_demo --all-features
+# Scale workers per namespace
+docker-compose up -d --scale worker=3
 ```
 
 ### Production Considerations
 
-- **Database Pool**: Configure appropriate pool size for your load
-- **Circuit Breakers**: Tune thresholds based on your failure patterns
-- **Executor Pools**: Set min/max executors based on expected throughput
-- **Health Monitoring**: Set up monitoring for circuit breaker states
-- **Resource Limits**: Ensure sufficient database connections for executor pools
+- **Database Pool**: Configure pool size for expected load (default: 20 connections)
+- **Circuit Breakers**: Tune thresholds based on failure patterns (default: 5 errors in 60s)
+- **Executor Pools**: Set min/max executors per type (default: 2-10 per pool)
+- **Health Monitoring**: K8s readiness/liveness probes at `/health`
+- **Metrics**: OpenTelemetry-compatible metrics for Prometheus/DataDog
 
-## 🔗 Related Projects
+---
 
-- **[tasker-engine](https://github.com/tasker-systems/tasker-engine)**: Production-ready Rails engine for workflow orchestration
-- **[tasker-blog](https://github.com/tasker-systems/tasker-blog)**: GitBook documentation with real-world engineering stories
+## Performance
 
-## 📖 Documentation
+### Benchmarks (5K tasks, 21K+ steps)
 
-### Key Documentation
+| Category | Metric | Target | Actual | Status |
+|----------|--------|--------|--------|--------|
+| **API** | Task initialization (p99) | < 100ms | 17.7ms | ✅ 5.6x better |
+| **SQL** | get_next_ready_tasks (mean) | < 3ms | 1.75-2.93ms | ✅ Pass |
+| **SQL** | get_step_readiness_status (mean) | < 1ms | 440-603µs | ✅ Pass |
+| **Events** | NOTIFY round-trip (p95) | < 10ms | 14.1ms | ⚠️ Slightly above |
+| **E2E** | 4-step workflow (p99) | < 500ms | 133.5ms | ✅ 3.7x better |
 
-- **[CLAUDE.md](CLAUDE.md)**: Complete project context and architecture overview
-- **[docs/ticket-specs/](docs/ticket-specs/)**: Detailed implementation specifications for major features
-- **[Cargo.toml](Cargo.toml)**: Dependencies and feature configuration
+**Full Benchmark Suite**: **[docs/benchmarks/README.md](docs/benchmarks/README.md)**
 
-### Implementation Tickets
+### Scaling Characteristics
 
-**Completed Major Features:**
-- **TAS-31**: Production resilience & performance optimization ✅
-- **TAS-32**: Unified configuration manager ✅
-- **TAS-33**: UUID v7 primary key migration ✅
-- **TAS-34**: Component-based configuration architecture ✅
-- **TAS-37**: Task finalization race condition elimination ✅
+- **Horizontal**: Scale orchestration and worker processes independently
+- **Database**: SQL functions maintain sub-3ms performance at 100K+ tasks
+- **Throughput**: >100 tasks/second per orchestrator instance
+- **Worker Pools**: Linear scaling per namespace, no contention
 
-**Available for Implementation:**
-- **TAS-35**: Executor pool lifecycle management
-- **TAS-36**: Auto-scaling algorithm enhancement
-- **TAS-39**: Health check integration
+---
 
-## 🏆 Success Metrics Achieved
+## Development
 
-### TAS-37: Orchestration Enhancement ✅
-- **Zero Race Conditions**: Atomic finalization claiming eliminates "unclear state" logs
-- **Production Ready**: Comprehensive error handling, logging, and metrics collection
-- **Operational Excellence**: Context-aware health monitoring prevents false alerts during shutdowns
-- **Auto-Scaling**: Dynamic executor pools with threshold and rate-based algorithms
-- **Thread Safety**: Proper concurrent programming patterns with Arc/RwLock
-- **Comprehensive Observability**: 12+ metrics for finalization operations
-
-### Overall System Quality ✅
-- **Production Ready**: All major components implemented with comprehensive testing
-- **Comprehensive Testing**: 645+ tests covering all scenarios and edge cases
-- **Code Quality**: Excellent assessment from comprehensive code review
-- **Documentation**: Thorough inline documentation and architectural guides
-- **Observability**: Detailed metrics and logging for production monitoring
-
-## 🐳 Docker Deployment
-
-### Standalone Server Mode
-
-The project includes a standalone server binary (`tasker-server`) that combines orchestration and web API for containerized deployment:
+### Common Commands
 
 ```bash
-# Build and run with Docker Compose
-docker-compose --profile server up -d
+# Build everything
+cargo build --all-features
 
-# Or build the Docker image directly
-docker build -t tasker-server .
-docker run -p 3000:8080 \
-  -e DATABASE_URL=postgresql://user:pass@host/db \
-  -e TASKER_ENV=production \
-  tasker-server
-```
+# Run tests (requires DATABASE_URL)
+DATABASE_URL="postgresql://..." cargo test --all-features
 
-### Available Services
+# Run benchmarks
+cargo bench --all-features
 
-- **postgres**: PostgreSQL database with PGMQ extension (always started)
-- **tasker-server**: Orchestration + Web API server (profile: `server`)
+# Format and lint
+cargo fmt
+cargo clippy --all-targets --all-features
 
-### Usage Examples
-
-```bash
-# Start just the database
-docker-compose up -d postgres
-
-# Start database + server
-docker-compose --profile server up -d
-
-# View server logs
-docker-compose logs -f tasker-server
-
-# Stop everything
-docker-compose down
+# Run orchestration server locally
+cargo run --bin tasker-server
 ```
 
 ### Configuration
 
-The server uses the component-based TOML configuration system. Key settings:
+Component-based TOML configuration with environment overrides:
 
-- **Environment**: Set via `TASKER_ENV` (development, test, production)
-- **Namespaces**: Configured in `config/tasker/base/orchestration.toml`
-- **Web API**: Configured in `config/tasker/base/web.toml`
-- **Database**: Override via `DATABASE_URL` environment variable
+```
+config/tasker/
+├── base/                      # Base configuration
+│   ├── database.toml
+│   ├── orchestration.toml
+│   ├── circuit_breakers.toml
+│   └── ...
+└── environments/              # Environment overrides
+    ├── development/
+    ├── test/
+    └── production/
+```
 
-### Health Checks
+---
 
-- **Server Health**: `http://localhost:3000/health`
-- **API Documentation**: `http://localhost:3000/api-docs/ui`
+## Documentation
 
-### Production Deployment
+### Essential Reading
 
-The Docker image is optimized for production with:
-- Multi-stage build for minimal image size
-- Non-root user for security
-- Health checks for container orchestration
-- Proper signal handling for graceful shutdown
+- **[Documentation Hub](docs/README.md)** - Central navigation for all docs
+- **[Crate Architecture](docs/crate-architecture.md)** - Workspace structure explained
+- **[Quick Start Guide](docs/quick-start.md)** - Get running in 5 minutes
+- **[Use Cases & Patterns](docs/use-cases-and-patterns.md)** - When and how to use Tasker
 
-## 🤝 Contributing
+### Architecture Documentation
 
-### Development Setup
+- **[Events and Commands](docs/events-and-commands.md)** - Event-driven coordination patterns
+- **[States and Lifecycles](docs/states-and-lifecycles.md)** - State machine architecture
+- **[Task Readiness & SQL Functions](docs/task-and-step-readiness-and-execution.md)** - Database-level logic
 
-1. Clone the repository
-2. Install Rust 1.75+
-3. Set up PostgreSQL with PGMQ extension
-4. Run database migrations
-5. Install Ruby dependencies for integration tests
-6. Run the test suite to verify setup
+### Operations
+
+- **[Deployment Patterns](docs/deployment-patterns.md)** - Configuration and deployment
+- **[Observability](docs/observability/README.md)** - Metrics, logging, monitoring
+- **[Benchmarks](docs/benchmarks/README.md)** - Performance validation
+
+### Advanced
+
+- **[CLAUDE.md](CLAUDE.md)** - Complete project context for AI assistants
+- **[Ticket Specs](docs/ticket-specs/)** - Feature implementations (TAS-29 through TAS-49)
+- **[Archive](docs/archive/)** - Historical insights and lessons learned
+
+---
+
+## Key Features
+
+### Production-Ready Orchestration
+
+- **Zero Race Conditions**: Atomic finalization claiming via SQL functions
+- **Circuit Breaker Protection**: Automatic failure detection and recovery
+- **Dynamic Executor Pools**: Auto-scaling based on load
+- **Comprehensive Observability**: 50+ metrics for monitoring
+- **Health Monitoring**: K8s-compatible health checks
+
+### Developer Experience
+
+- **Type-Safe**: Full Rust type safety with SQLx compile-time query verification
+- **Testable**: 645+ tests with comprehensive factory system
+- **Documented**: Inline documentation and comprehensive guides
+- **Extensible**: Plugin system for custom handlers and workers
+- **Observable**: Structured logging with correlation IDs
+
+### Enterprise Features
+
+- **Audit Trail**: Complete state transition history
+- **Retry Semantics**: Configurable retry with exponential backoff
+- **Priority Scheduling**: Dynamic priority with age-based escalation
+- **Namespace Isolation**: Logical separation of workflow types
+- **Multi-Tenancy**: Support for multiple deployments
+
+---
+
+## Related Projects
+
+- **[tasker-engine](https://github.com/tasker-systems/tasker-engine)**: Production Rails engine for workflow orchestration
+- **[tasker-blog](https://github.com/tasker-systems/tasker-blog)**: GitBook documentation with engineering stories
+
+---
+
+## Contributing
+
+We welcome contributions! Please see:
+
+- **[CLAUDE.md](CLAUDE.md)** for complete project context
+- **[docs/README.md](docs/README.md)** for documentation structure
+- GitHub Issues for bug reports and feature requests
 
 ### Development Workflow
 
-- **Branch Naming**: Use `feature/description` or `fix/description`
-- **Testing**: All changes must include tests
-- **Linting**: Run `cargo clippy` before committing
-- **Integration**: Ensure Ruby integration tests pass
+1. Clone and set up environment
+2. Run tests: `cargo test --all-features`
+3. Make changes with tests
+4. Run linters: `cargo fmt && cargo clippy`
+5. Submit PR with clear description
 
-### Code Style
+---
 
-- Use `cargo fmt` for formatting
-- Follow Rust API guidelines
-- Include comprehensive error handling
-- Add tracing for production debugging
-- Update documentation for public APIs
-
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
@@ -472,4 +411,8 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 **Built with ❤️ by the Tasker Systems team**
 
-Ready for production deployment with comprehensive orchestration capabilities, fault tolerance, and performance optimization.
+Production-ready workflow orchestration at scale.
+
+→ **Get Started**: [Quick Start Guide](docs/quick-start.md)
+→ **Learn More**: [Documentation Hub](docs/README.md)
+→ **See Examples**: [Use Cases & Patterns](docs/use-cases-and-patterns.md)
