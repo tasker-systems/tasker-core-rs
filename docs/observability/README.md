@@ -1,9 +1,15 @@
 # Observability Documentation
 
-This directory contains documentation for monitoring, metrics, logging, and performance measurement in tasker-core.
+**Last Updated**: 2025-10-10
+**Audience**: Operators, Developers
+**Status**: Active
+**Related Docs**: [Documentation Hub](../README.md) | [Benchmarks](../benchmarks/README.md) | [Deployment Patterns](../deployment-patterns.md)
 
-**Last Updated**: 2025-10-08
-**Status**: Active - Updated after TAS-29 Phase 5.4
+← Back to [Documentation Hub](../README.md)
+
+---
+
+This directory contains documentation for monitoring, metrics, logging, and performance measurement in tasker-core.
 
 ---
 

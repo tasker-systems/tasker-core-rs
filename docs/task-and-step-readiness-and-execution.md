@@ -1,8 +1,15 @@
 # Task and Step Readiness and Execution
 
-This document provides comprehensive documentation of the SQL functions and database
-logic that drives task and step readiness analysis, dependency resolution, and
-execution coordination in the tasker-core system.
+**Last Updated**: 2025-10-10
+**Audience**: Developers, Architects
+**Status**: Active
+**Related Docs**: [Documentation Hub](README.md) | [States and Lifecycles](states-and-lifecycles.md) | [Events and Commands](events-and-commands.md)
+
+← Back to [Documentation Hub](README.md)
+
+---
+
+This document provides comprehensive documentation of the SQL functions and database logic that drives task and step readiness analysis, dependency resolution, and execution coordination in the tasker-core system.
 
 ## Overview
 

@@ -1,5 +1,14 @@
 # Events and Commands Architecture
 
+**Last Updated**: 2025-10-10
+**Audience**: Architects, Developers
+**Status**: Active
+**Related Docs**: [Documentation Hub](README.md) | [States and Lifecycles](states-and-lifecycles.md) | [Deployment Patterns](deployment-patterns.md)
+
+← Back to [Documentation Hub](README.md)
+
+---
+
 This document provides comprehensive documentation of the event-driven and command pattern architecture in tasker-core, covering the unified event system foundation, orchestration and worker implementations, and the flow of tasks and steps through the system.
 
 ## Overview
