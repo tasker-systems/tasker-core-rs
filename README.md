@@ -1,8 +1,8 @@
 # Tasker Core
 
-[![CI](https://github.com/tasker-systems/tasker-core/actions/workflows/ci.yml/badge.svg)](https://github.com/tasker-systems/tasker-core/actions/workflows/ci.yml)
-![GitHub](https://img.shields.io/github/license/tasker-systems/tasker-core)
-![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tasker-systems/tasker-core?color=blue&sort=semver)
+[![CI](https://github.com/tasker-systems/tasker-core-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/tasker-systems/tasker-core-rs/actions/workflows/ci.yml)
+![GitHub](https://img.shields.io/github/license/tasker-systems/tasker-core-rs)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tasker-systems/tasker-core-rs?color=blue&sort=semver)
 ![Tests](https://img.shields.io/badge/tests-700%2B%20passing-brightgreen)
 
 High-performance Rust implementation of workflow orchestration designed for production-scale deployments. Built on PostgreSQL with PGMQ message queues, Tasker Core provides DAG-based task execution, event-driven coordination, and comprehensive state management for complex workflows.
