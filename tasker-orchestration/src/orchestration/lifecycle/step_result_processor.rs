@@ -52,8 +52,8 @@
 //! ```
 
 use crate::orchestration::lifecycle::{
-    result_processor::OrchestrationResultProcessor, step_enqueuer_service::StepEnqueuerService,
-    task_finalizer::TaskFinalizer,
+    result_processing::OrchestrationResultProcessor, step_enqueuer_services::StepEnqueuerService,
+    task_finalization::TaskFinalizer,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

@@ -4,7 +4,7 @@
 //! batch processing of ready tasks and step enqueueing.
 
 use crate::actors::{Handler, Message, OrchestrationActor};
-use crate::orchestration::lifecycle::step_enqueuer_service::{
+use crate::orchestration::lifecycle::step_enqueuer_services::{
     StepEnqueuerService, StepEnqueuerServiceResult,
 };
 use async_trait::async_trait;

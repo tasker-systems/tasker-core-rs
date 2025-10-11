@@ -49,7 +49,7 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_orchestration::orchestration::lifecycle::{
-    step_enqueuer_service::StepEnqueuerService,
+    step_enqueuer_services::StepEnqueuerService,
     task_initialization::{TaskInitializationResult, TaskInitializer},
 };
 use tasker_shared::models::core::task_request::TaskRequest;

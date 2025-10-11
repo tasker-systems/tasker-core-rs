@@ -184,9 +184,9 @@ use crate::actors::{ActorRegistry, Handler, ProcessBatchMessage};
 use crate::orchestration::hydration::{
     FinalizationHydrator, StepResultHydrator, TaskRequestHydrator,
 }; // TAS-46 Phase 4
-use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
-use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
-use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
+   // use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
+   // use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
+   // use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
 use crate::orchestration::lifecycle_services::{
     StepResultProcessingService, TaskFinalizationService, TaskInitializationService,
 }; // TAS-46 Phase 5
@@ -208,16 +208,16 @@ pub struct OrchestrationProcessor {
     actors: Arc<ActorRegistry>,
 
     /// Sophisticated task request processor for delegation (deprecated - prefer actors)
-    #[allow(dead_code)]
-    task_request_processor: Arc<TaskRequestProcessor>,
+    // #[allow(dead_code)]
+    // task_request_processor: Arc<TaskRequestProcessor>,
 
-    /// Sophisticated orchestration result processor for step results (deprecated - prefer actors)
-    #[allow(dead_code)]
-    result_processor: Arc<OrchestrationResultProcessor>,
+    // /// Sophisticated orchestration result processor for step results (deprecated - prefer actors)
+    // #[allow(dead_code)]
+    // result_processor: Arc<OrchestrationResultProcessor>,
 
-    /// TAS-43: Task claim step enqueuer for atomic task claiming and step enqueueing (deprecated - prefer actors)
-    #[allow(dead_code)]
-    task_claim_step_enqueuer: Arc<StepEnqueuerService>,
+    // /// TAS-43: Task claim step enqueuer for atomic task claiming and step enqueueing (deprecated - prefer actors)
+    // #[allow(dead_code)]
+    // task_claim_step_enqueuer: Arc<StepEnqueuerService>,
 
     /// PGMQ client for message operations
     pgmq_client: Arc<UnifiedPgmqClient>,
@@ -237,9 +237,9 @@ impl OrchestrationProcessor {
     pub fn new(
         context: Arc<SystemContext>,
         actors: Arc<ActorRegistry>,
-        task_request_processor: Arc<TaskRequestProcessor>,
-        result_processor: Arc<OrchestrationResultProcessor>,
-        task_claim_step_enqueuer: Arc<StepEnqueuerService>,
+        // task_request_processor: Arc<TaskRequestProcessor>,
+        // result_processor: Arc<OrchestrationResultProcessor>,
+        // task_claim_step_enqueuer: Arc<StepEnqueuerService>,
         pgmq_client: Arc<UnifiedPgmqClient>,
         buffer_size: usize,
     ) -> (Self, mpsc::Sender<OrchestrationCommand>) {
@@ -257,9 +257,9 @@ impl OrchestrationProcessor {
         let processor = Self {
             context,
             actors,
-            task_request_processor,
-            result_processor,
-            task_claim_step_enqueuer,
+            // task_request_processor,
+            // result_processor,
+            // task_claim_step_enqueuer,
             pgmq_client,
             command_rx: Some(command_rx),
             task_handle: None,
@@ -273,9 +273,9 @@ impl OrchestrationProcessor {
     pub async fn start(&mut self) -> TaskerResult<()> {
         let context = self.context.clone();
         let stats = self.stats.clone();
-        let task_request_processor = self.task_request_processor.clone();
-        let result_processor = self.result_processor.clone();
-        let task_claim_step_enqueuer = self.task_claim_step_enqueuer.clone();
+        // let task_request_processor = self.task_request_processor.clone();
+        // let result_processor = self.result_processor.clone();
+        // let task_claim_step_enqueuer = self.task_claim_step_enqueuer.clone();
         let pgmq_client = self.pgmq_client.clone();
         let mut command_rx = self.command_rx.take().ok_or_else(|| {
             TaskerError::OrchestrationError("Processor already started".to_string())
@@ -287,9 +287,9 @@ impl OrchestrationProcessor {
                 context,
                 actors,
                 stats,
-                task_request_processor,
-                result_processor,
-                task_claim_step_enqueuer,
+                // task_request_processor,
+                // result_processor,
+                // task_claim_step_enqueuer,
                 pgmq_client,
             );
             while let Some(command) = command_rx.recv().await {
@@ -306,12 +306,12 @@ pub struct OrchestrationProcessorCommandHandler {
     context: Arc<SystemContext>,
     actors: Arc<ActorRegistry>, // TAS-46: Actor registry for message-based coordination
     stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
-    #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
-    task_request_processor: Arc<TaskRequestProcessor>,
-    #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
-    result_processor: Arc<OrchestrationResultProcessor>,
-    #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
-    task_claim_step_enqueuer: Arc<StepEnqueuerService>, // TAS-43: Added for atomic task claiming and step enqueueing
+    // #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
+    // task_request_processor: Arc<TaskRequestProcessor>,
+    // #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
+    // result_processor: Arc<OrchestrationResultProcessor>,
+    // #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
+    // task_claim_step_enqueuer: Arc<StepEnqueuerService>, // TAS-43: Added for atomic task claiming and step enqueueing
     pgmq_client: Arc<UnifiedPgmqClient>,
     step_result_hydrator: StepResultHydrator, // TAS-46 Phase 4: Hydrates step results from messages
     task_request_hydrator: TaskRequestHydrator, // TAS-46 Phase 4: Hydrates task requests from messages
@@ -326,9 +326,9 @@ impl OrchestrationProcessorCommandHandler {
         context: Arc<SystemContext>,
         actors: Arc<ActorRegistry>,
         stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
-        task_request_processor: Arc<TaskRequestProcessor>,
-        result_processor: Arc<OrchestrationResultProcessor>,
-        task_claim_step_enqueuer: Arc<StepEnqueuerService>,
+        // task_request_processor: Arc<TaskRequestProcessor>,
+        // result_processor: Arc<OrchestrationResultProcessor>,
+        // task_claim_step_enqueuer: Arc<StepEnqueuerService>,
         pgmq_client: Arc<UnifiedPgmqClient>,
     ) -> Self {
         // TAS-46 Phase 4: Initialize hydrators for message transformation
@@ -345,9 +345,9 @@ impl OrchestrationProcessorCommandHandler {
             context,
             actors,
             stats,
-            task_request_processor,
-            result_processor,
-            task_claim_step_enqueuer,
+            // task_request_processor,
+            // result_processor,
+            // task_claim_step_enqueuer,
             pgmq_client,
             step_result_hydrator,
             task_request_hydrator,

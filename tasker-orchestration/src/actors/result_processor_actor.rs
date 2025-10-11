@@ -4,7 +4,7 @@
 //! step result processing and task finalization coordination.
 
 use crate::actors::{Handler, Message, OrchestrationActor};
-use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
+use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tasker_shared::system_context::SystemContext;

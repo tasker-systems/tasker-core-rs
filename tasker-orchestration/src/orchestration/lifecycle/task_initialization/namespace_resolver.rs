@@ -102,3 +102,103 @@ impl NamespaceResolver {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_task_request(namespace: &str, name: &str, version: &str) -> TaskRequest {
+        TaskRequest::new(name.to_string(), namespace.to_string())
+            .with_version(version.to_string())
+            .with_context(serde_json::json!({"test": true}))
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_find_or_create_namespace_creates_new(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let resolver = NamespaceResolver::new(context.clone());
+
+        let namespace_name = "test_namespace_new";
+        let namespace = resolver.find_or_create_namespace(namespace_name).await?;
+
+        assert_eq!(namespace.name, namespace_name);
+        assert!(namespace.description.is_some());
+        assert!(namespace.description.unwrap().contains(namespace_name));
+
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_find_or_create_namespace_finds_existing(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let resolver = NamespaceResolver::new(context.clone());
+
+        let namespace_name = "test_namespace_existing";
+
+        // Create first namespace
+        let first_namespace = resolver.find_or_create_namespace(namespace_name).await?;
+        let first_uuid = first_namespace.task_namespace_uuid;
+
+        // Try to create again - should find existing
+        let second_namespace = resolver.find_or_create_namespace(namespace_name).await?;
+        let second_uuid = second_namespace.task_namespace_uuid;
+
+        assert_eq!(first_uuid, second_uuid);
+        assert_eq!(first_namespace.name, second_namespace.name);
+
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_find_or_create_named_task_returns_error_when_not_found(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let resolver = NamespaceResolver::new(context.clone());
+
+        // Create a namespace first
+        let namespace = resolver.find_or_create_namespace("test_ns").await?;
+
+        // Try to find named task that doesn't exist
+        let task_request = create_test_task_request("test_ns", "nonexistent_task", "1.0.0");
+        let result = resolver
+            .find_or_create_named_task(&task_request, namespace.task_namespace_uuid)
+            .await;
+
+        assert!(result.is_err());
+        match result {
+            Err(TaskInitializationError::ConfigurationNotFound(msg)) => {
+                assert!(msg.contains("Task template not found"));
+                assert!(msg.contains("nonexistent_task"));
+            }
+            _ => panic!("Expected ConfigurationNotFound error"),
+        }
+
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_resolve_named_task_uuid_error_when_task_not_registered(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let resolver = NamespaceResolver::new(context);
+
+        let task_request = create_test_task_request("some_namespace", "unregistered_task", "1.0.0");
+        let result = resolver.resolve_named_task_uuid(&task_request).await;
+
+        assert!(result.is_err());
+        match result {
+            Err(TaskInitializationError::ConfigurationNotFound(msg)) => {
+                assert!(msg.contains("Task template not found"));
+            }
+            _ => panic!("Expected ConfigurationNotFound error"),
+        }
+
+        Ok(())
+    }
+}

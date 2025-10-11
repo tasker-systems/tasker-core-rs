@@ -4,7 +4,7 @@
 //! configuration, and circuit breaker health monitoring.
 
 use crate::orchestration::core::{OrchestrationCore, OrchestrationCoreStatus};
-use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
+use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 use parking_lot::RwLock;

@@ -4,7 +4,7 @@
 //! task finalization with atomic claiming (TAS-37).
 
 use crate::actors::{Handler, Message, OrchestrationActor};
-use crate::orchestration::lifecycle::task_finalizer::{FinalizationResult, TaskFinalizer};
+use crate::orchestration::lifecycle::task_finalization::{FinalizationResult, TaskFinalizer};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tasker_shared::system_context::SystemContext;

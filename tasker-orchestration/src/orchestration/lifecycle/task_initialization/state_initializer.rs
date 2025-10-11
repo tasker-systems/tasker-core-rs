@@ -180,3 +180,180 @@ impl StateInitializer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tasker_shared::models::Task;
+
+
+    #[test]
+    fn test_step_mapping_structure_for_transitions() {
+        // Test that step mapping can be used for transition creation
+        let mut step_mapping = HashMap::new();
+        let step1_uuid = Uuid::new_v4();
+        let step2_uuid = Uuid::new_v4();
+
+        step_mapping.insert("step1".to_string(), step1_uuid);
+        step_mapping.insert("step2".to_string(), step2_uuid);
+
+        // Verify we can iterate over values (as needed for transition creation)
+        let uuids: Vec<Uuid> = step_mapping.values().copied().collect();
+        assert_eq!(uuids.len(), 2);
+        assert!(uuids.contains(&step1_uuid));
+        assert!(uuids.contains(&step2_uuid));
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_create_initial_state_transitions_creates_task_transition(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
+        let initializer = StateInitializer::new(context.clone());
+
+        // Create namespace and named task first (required for foreign key)
+        let namespace = tasker_shared::models::TaskNamespace::create(
+            &pool,
+            tasker_shared::models::core::task_namespace::NewTaskNamespace {
+                name: "test_ns".to_string(),
+                description: Some("Test namespace".to_string()),
+            },
+        )
+        .await?;
+
+        let named_task = tasker_shared::models::NamedTask::find_or_create_by_name_version_namespace(
+            &pool,
+            "test_task",
+            "1.0.0",
+            namespace.task_namespace_uuid,
+        )
+        .await?;
+
+        // Create a test task
+        let task_request = tasker_shared::models::task_request::TaskRequest::new(
+            "test_task".to_string(),
+            "test_ns".to_string(),
+        );
+        let mut task = Task::from_task_request(task_request);
+        task.named_task_uuid = named_task.named_task_uuid;
+        let task = Task::create(&pool, task).await?;
+        let task_uuid = task.task_uuid;
+
+        // Create step mapping
+        let step_mapping = HashMap::new();
+
+        // Begin transaction
+        let mut tx = pool.begin().await?;
+
+        // Create initial transitions
+        initializer
+            .create_initial_state_transitions_in_tx(&mut tx, task_uuid, &step_mapping)
+            .await?;
+
+        // Commit transaction
+        tx.commit().await?;
+
+        // Verify task transition was created
+        let transitions = sqlx::query!(
+            "SELECT to_state, from_state FROM tasker_task_transitions WHERE task_uuid = $1",
+            task_uuid
+        )
+        .fetch_all(&pool)
+        .await?;
+
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to_state, "pending");
+        assert!(transitions[0].from_state.is_none());
+
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_create_initial_state_transitions_creates_step_transitions(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
+        let initializer = StateInitializer::new(context.clone());
+
+        // Create namespace and named task first (required for foreign key)
+        let namespace = tasker_shared::models::TaskNamespace::create(
+            &pool,
+            tasker_shared::models::core::task_namespace::NewTaskNamespace {
+                name: "test_ns".to_string(),
+                description: Some("Test namespace".to_string()),
+            },
+        )
+        .await?;
+
+        let named_task = tasker_shared::models::NamedTask::find_or_create_by_name_version_namespace(
+            &pool,
+            "test_task",
+            "1.0.0",
+            namespace.task_namespace_uuid,
+        )
+        .await?;
+
+        // Create a test task with steps
+        let task_request = tasker_shared::models::task_request::TaskRequest::new(
+            "test_task".to_string(),
+            "test_ns".to_string(),
+        );
+        let mut task = Task::from_task_request(task_request);
+        task.named_task_uuid = named_task.named_task_uuid;
+        let task = Task::create(&pool, task).await?;
+        let task_uuid = task.task_uuid;
+
+        // Create named steps and workflow steps
+        let mut step_mapping = HashMap::new();
+
+        // Create named step
+        let named_step = tasker_shared::models::NamedStep::find_or_create_by_name(
+            &pool,
+            "test_step",
+            "test_system",
+        )
+        .await?;
+
+        // Begin transaction
+        let mut tx = pool.begin().await?;
+
+        // Create workflow step
+        let new_workflow_step = tasker_shared::models::core::workflow_step::NewWorkflowStep {
+            task_uuid,
+            named_step_uuid: named_step.named_step_uuid,
+            retryable: Some(true),
+            max_attempts: Some(3),
+            inputs: None,
+            skippable: None,
+        };
+
+        let workflow_step =
+            tasker_shared::models::WorkflowStep::create_with_transaction(&mut tx, new_workflow_step)
+                .await?;
+
+        step_mapping.insert("test_step".to_string(), workflow_step.workflow_step_uuid);
+
+        // Create initial transitions
+        initializer
+            .create_initial_state_transitions_in_tx(&mut tx, task_uuid, &step_mapping)
+            .await?;
+
+        // Commit transaction
+        tx.commit().await?;
+
+        // Verify step transition was created
+        let transitions = sqlx::query!(
+            "SELECT to_state, from_state FROM tasker_workflow_step_transitions WHERE workflow_step_uuid = $1",
+            workflow_step.workflow_step_uuid
+        )
+        .fetch_all(&pool)
+        .await?;
+
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to_state, "pending");
+        assert!(transitions[0].from_state.is_none());
+
+        Ok(())
+    }
+}

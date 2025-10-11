@@ -93,3 +93,56 @@ impl TemplateLoader {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_task_request(namespace: &str, name: &str, version: &str) -> TaskRequest {
+        TaskRequest::new(name.to_string(), namespace.to_string())
+            .with_version(version.to_string())
+            .with_context(serde_json::json!({"test": true}))
+    }
+
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_load_task_template_returns_error_when_handler_not_in_registry(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let loader = TemplateLoader::new(context);
+
+        let task_request = create_test_task_request("unknown_ns", "unknown_task", "1.0.0");
+        let result = loader.load_task_template(&task_request).await;
+
+        assert!(result.is_err());
+        match result {
+            Err(TaskInitializationError::ConfigurationNotFound(msg)) => {
+                assert!(msg.contains("Unable to load task template"));
+                assert!(msg.contains("unknown_task"));
+                assert!(msg.contains("unknown_ns"));
+            }
+            _ => panic!("Expected ConfigurationNotFound error"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_error_messages_include_request_details() {
+        // Test that error formatting includes all relevant details
+        let namespace = "test_namespace";
+        let name = "test_task";
+        let version = "1.0.0";
+
+        let error = TaskInitializationError::ConfigurationNotFound(format!(
+            "Unable to load task template: Handler not found, request parameters: name {}, namespace {}, version {}",
+            name, namespace, version
+        ));
+
+        let error_msg = error.to_string();
+        assert!(error_msg.contains(namespace));
+        assert!(error_msg.contains(name));
+        assert!(error_msg.contains(version));
+    }
+}

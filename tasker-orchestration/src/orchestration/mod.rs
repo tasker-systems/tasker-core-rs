@@ -147,9 +147,9 @@ pub use tasker_shared::{
 // ============================================================================
 
 // Lifecycle Components
-pub use lifecycle::result_processor::{OrchestrationResultProcessor, StepError};
+pub use lifecycle::result_processing::{OrchestrationResultProcessor, StepError};
 pub use lifecycle::step_enqueuer::{NamespaceEnqueueStats, StepEnqueueResult, StepEnqueuer};
-pub use lifecycle::task_finalizer::{
+pub use lifecycle::task_finalization::{
     FinalizationAction, FinalizationError, FinalizationResult, TaskFinalizer,
 };
 pub use lifecycle::task_initialization::{

@@ -2,7 +2,7 @@
 //!
 //! Main orchestration service that coordinates task creation using focused components.
 
-use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
+use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
 use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;

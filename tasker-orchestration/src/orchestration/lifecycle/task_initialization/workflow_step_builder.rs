@@ -159,3 +159,51 @@ impl WorkflowStepBuilder {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_step_mapping_structure() {
+        // This test verifies the step mapping logic without database
+        let mut step_mapping = HashMap::new();
+        step_mapping.insert("step1".to_string(), Uuid::new_v4());
+        step_mapping.insert("step2".to_string(), Uuid::new_v4());
+
+        assert_eq!(step_mapping.len(), 2);
+        assert!(step_mapping.contains_key("step1"));
+        assert!(step_mapping.contains_key("step2"));
+    }
+
+    #[test]
+    fn test_handler_initialization_serialization() {
+        let empty_init = serde_json::json!({});
+        let with_data = serde_json::json!({"key": "value"});
+
+        // Verify we can serialize handler initialization
+        assert!(serde_json::to_value(&empty_init).is_ok());
+        assert!(serde_json::to_value(&with_data).is_ok());
+    }
+
+    #[test]
+    fn test_new_workflow_step_structure() {
+        let task_uuid = Uuid::new_v4();
+        let named_step_uuid = Uuid::new_v4();
+
+        let new_step = NewWorkflowStep {
+            task_uuid,
+            named_step_uuid,
+            retryable: Some(true),
+            max_attempts: Some(3),
+            inputs: Some(serde_json::json!({"test": "value"})),
+            skippable: None,
+        };
+
+        assert_eq!(new_step.task_uuid, task_uuid);
+        assert_eq!(new_step.named_step_uuid, named_step_uuid);
+        assert_eq!(new_step.retryable, Some(true));
+        assert_eq!(new_step.max_attempts, Some(3));
+        assert!(new_step.inputs.is_some());
+    }
+}

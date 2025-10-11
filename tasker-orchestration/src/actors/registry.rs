@@ -8,9 +8,9 @@ use crate::actors::step_enqueuer_actor::StepEnqueuerActor;
 use crate::actors::task_finalizer_actor::TaskFinalizerActor;
 use crate::actors::task_request_actor::TaskRequestActor;
 use crate::actors::traits::OrchestrationActor;
-use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
-use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
-use crate::orchestration::lifecycle::task_finalizer::TaskFinalizer;
+use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
+use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
+use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
 use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
 use crate::orchestration::lifecycle::task_request_processor::{
     TaskRequestProcessor, TaskRequestProcessorConfig,

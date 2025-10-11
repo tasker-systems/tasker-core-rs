@@ -86,3 +86,67 @@ impl From<sqlx::Error> for TaskInitializationError {
         TaskInitializationError::Database(error.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_client_error_returns_true_for_configuration_errors() {
+        let error = TaskInitializationError::ConfigurationNotFound("test".to_string());
+        assert!(error.is_client_error());
+
+        let error = TaskInitializationError::InvalidConfiguration("test".to_string());
+        assert!(error.is_client_error());
+    }
+
+    #[test]
+    fn test_is_client_error_returns_false_for_server_errors() {
+        let error = TaskInitializationError::Database("test".to_string());
+        assert!(!error.is_client_error());
+
+        let error = TaskInitializationError::StateMachine("test".to_string());
+        assert!(!error.is_client_error());
+
+        let error = TaskInitializationError::TransactionFailed("test".to_string());
+        assert!(!error.is_client_error());
+
+        let error = TaskInitializationError::EventPublishing("test".to_string());
+        assert!(!error.is_client_error());
+
+        let error = TaskInitializationError::StepEnqueuing("test".to_string());
+        assert!(!error.is_client_error());
+    }
+
+    #[test]
+    fn test_from_tasker_error() {
+        let init_error: TaskerError = TaskInitializationError::Database("test".to_string()).into();
+
+        assert!(init_error.to_string().contains("Task initialization failed"));
+    }
+
+    #[test]
+    fn test_from_sqlx_error() {
+        let sqlx_error = sqlx::Error::RowNotFound;
+        let init_error: TaskInitializationError = sqlx_error.into();
+
+        match init_error {
+            TaskInitializationError::Database(msg) => {
+                assert!(msg.contains("no rows returned"));
+            }
+            _ => panic!("Expected Database error"),
+        }
+    }
+
+    #[test]
+    fn test_error_display() {
+        let error = TaskInitializationError::ConfigurationNotFound("missing template".to_string());
+        assert_eq!(
+            error.to_string(),
+            "Configuration not found for task: missing template"
+        );
+
+        let error = TaskInitializationError::Database("connection failed".to_string());
+        assert_eq!(error.to_string(), "Database error: connection failed");
+    }
+}
