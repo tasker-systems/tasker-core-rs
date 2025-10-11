@@ -94,3 +94,103 @@ impl From<TaskerError> for FinalizationError {
         FinalizationError::General(error.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_finalization_action_serialization() {
+        let completed = FinalizationAction::Completed;
+        assert_eq!(serde_json::to_string(&completed).unwrap(), "\"Completed\"");
+
+        let failed = FinalizationAction::Failed;
+        assert_eq!(serde_json::to_string(&failed).unwrap(), "\"Failed\"");
+
+        let reenqueued = FinalizationAction::Reenqueued;
+        assert_eq!(serde_json::to_string(&reenqueued).unwrap(), "\"Reenqueued\"");
+    }
+
+    #[test]
+    fn test_finalization_result_creation() {
+        let task_uuid = Uuid::new_v4();
+        let result = FinalizationResult {
+            task_uuid,
+            action: FinalizationAction::Completed,
+            completion_percentage: Some(100.0),
+            total_steps: Some(5),
+            enqueued_steps: None,
+            health_status: Some("healthy".to_string()),
+            reason: None,
+        };
+
+        assert_eq!(result.task_uuid, task_uuid);
+        assert!(matches!(result.action, FinalizationAction::Completed));
+        assert_eq!(result.completion_percentage, Some(100.0));
+        assert_eq!(result.total_steps, Some(5));
+        assert_eq!(result.health_status, Some("healthy".to_string()));
+    }
+
+    #[test]
+    fn test_finalization_error_display() {
+        let task_uuid = Uuid::new_v4();
+
+        let error = FinalizationError::TaskNotFound { task_uuid };
+        assert!(error.to_string().contains("Task not found"));
+        assert!(error.to_string().contains(&task_uuid.to_string()));
+
+        let error = FinalizationError::StateMachine {
+            error: "invalid transition".to_string(),
+            task_uuid,
+        };
+        assert!(error.to_string().contains("State machine error"));
+        assert!(error.to_string().contains("invalid transition"));
+
+        let error = FinalizationError::EventPublishing("failed to publish".to_string());
+        assert_eq!(error.to_string(), "Event publishing error: failed to publish");
+    }
+
+    #[test]
+    fn test_finalization_error_from_sqlx() {
+        let sqlx_error = sqlx::Error::RowNotFound;
+        let fin_error: FinalizationError = sqlx_error.into();
+
+        match fin_error {
+            FinalizationError::Database(err) => {
+                // Verify it's the RowNotFound error
+                assert!(err.to_string().contains("no rows returned"));
+            }
+            _ => panic!("Expected Database error"),
+        }
+    }
+
+    #[test]
+    fn test_finalization_error_from_tasker_error() {
+        let tasker_error = TaskerError::OrchestrationError("test error".to_string());
+        let fin_error: FinalizationError = tasker_error.into();
+
+        match fin_error {
+            FinalizationError::General(msg) => {
+                assert!(msg.contains("test error"));
+            }
+            _ => panic!("Expected General error"),
+        }
+    }
+
+    #[test]
+    fn test_finalization_result_with_reason() {
+        let task_uuid = Uuid::new_v4();
+        let result = FinalizationResult {
+            task_uuid,
+            action: FinalizationAction::Failed,
+            completion_percentage: Some(75.0),
+            total_steps: Some(10),
+            enqueued_steps: Some(2),
+            health_status: Some("degraded".to_string()),
+            reason: Some("Steps in error state".to_string()),
+        };
+
+        assert_eq!(result.reason, Some("Steps in error state".to_string()));
+        assert!(matches!(result.action, FinalizationAction::Failed));
+    }
+}

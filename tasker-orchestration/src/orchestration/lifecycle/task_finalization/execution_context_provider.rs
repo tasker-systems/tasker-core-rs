@@ -66,3 +66,116 @@ impl ExecutionContextProvider {
         Ok(context.execution_status == ExecutionStatus::BlockedByFailures)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_execution_context_provider_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Test that we can create ExecutionContextProvider
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let provider = ExecutionContextProvider::new(context);
+
+        // Verify it's created (basic smoke test)
+        assert!(Arc::strong_count(&provider.context) >= 1);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_execution_context_provider_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Test that ExecutionContextProvider implements Clone
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let provider = ExecutionContextProvider::new(context.clone());
+
+        let cloned = provider.clone();
+
+        // Verify both share the same Arc
+        assert_eq!(
+            Arc::as_ptr(&provider.context),
+            Arc::as_ptr(&cloned.context)
+        );
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_get_task_execution_context_returns_none_for_nonexistent_task(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let provider = ExecutionContextProvider::new(context);
+
+        let nonexistent_uuid = Uuid::new_v4();
+        let correlation_id = Uuid::new_v4();
+
+        // Should return Ok(None) for non-existent task
+        let result = provider
+            .get_task_execution_context(nonexistent_uuid, correlation_id)
+            .await?;
+
+        assert!(result.is_none());
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_blocked_by_errors_returns_false_for_nonexistent_task(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let provider = ExecutionContextProvider::new(context);
+
+        let nonexistent_uuid = Uuid::new_v4();
+
+        // Should return Ok(false) for non-existent task
+        let result = provider.blocked_by_errors(nonexistent_uuid).await?;
+
+        assert!(!result);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_blocked_by_errors_returns_false_when_context_unavailable(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
+        let provider = ExecutionContextProvider::new(context);
+
+        // Create namespace and named task (required for foreign keys)
+        let namespace = tasker_shared::models::TaskNamespace::create(
+            &pool,
+            tasker_shared::models::core::task_namespace::NewTaskNamespace {
+                name: "test_ns".to_string(),
+                description: Some("Test namespace".to_string()),
+            },
+        )
+        .await?;
+
+        let named_task = tasker_shared::models::NamedTask::find_or_create_by_name_version_namespace(
+            &pool,
+            "test_task",
+            "1.0.0",
+            namespace.task_namespace_uuid,
+        )
+        .await?;
+
+        // Create a task without execution context
+        let task_request = tasker_shared::models::task_request::TaskRequest::new(
+            "test_task".to_string(),
+            "test_ns".to_string(),
+        );
+        let mut task = Task::from_task_request(task_request);
+        task.named_task_uuid = named_task.named_task_uuid;
+        let task = Task::create(&pool, task).await?;
+
+        // Should return Ok(false) when context is unavailable
+        let result = provider.blocked_by_errors(task.task_uuid).await?;
+
+        assert!(!result);
+        Ok(())
+    }
+}
+

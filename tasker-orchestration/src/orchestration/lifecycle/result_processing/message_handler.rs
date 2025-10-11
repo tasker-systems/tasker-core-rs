@@ -339,3 +339,123 @@ impl MessageHandler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_message_handler_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(
+            crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(
+                context.clone(),
+            )
+            .await?,
+        );
+        let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
+
+        let backoff_config: crate::orchestration::BackoffCalculatorConfig =
+            context.tasker_config.clone().into();
+        let backoff_calculator = crate::orchestration::BackoffCalculator::new(
+            backoff_config,
+            context.database_pool().clone(),
+        );
+        let metadata_processor = MetadataProcessor::new(backoff_calculator);
+        let state_transition_handler = StateTransitionHandler::new(context.clone());
+        let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
+
+        let handler = MessageHandler::new(
+            context,
+            metadata_processor,
+            state_transition_handler,
+            task_coordinator,
+        );
+
+        // Verify it's created (basic smoke test)
+        assert!(Arc::strong_count(&handler.context) >= 1);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_message_handler_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(
+            crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(
+                context.clone(),
+            )
+            .await?,
+        );
+        let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
+
+        let backoff_config: crate::orchestration::BackoffCalculatorConfig =
+            context.tasker_config.clone().into();
+        let backoff_calculator = crate::orchestration::BackoffCalculator::new(
+            backoff_config,
+            context.database_pool().clone(),
+        );
+        let metadata_processor = MetadataProcessor::new(backoff_calculator);
+        let state_transition_handler = StateTransitionHandler::new(context.clone());
+        let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
+
+        let handler = MessageHandler::new(
+            context.clone(),
+            metadata_processor,
+            state_transition_handler,
+            task_coordinator,
+        );
+
+        let cloned = handler.clone();
+
+        // Verify both share the same Arc
+        assert_eq!(
+            Arc::as_ptr(&handler.context),
+            Arc::as_ptr(&cloned.context)
+        );
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_get_correlation_id_for_nonexistent_step(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(
+            crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(
+                context.clone(),
+            )
+            .await?,
+        );
+        let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
+
+        let backoff_config: crate::orchestration::BackoffCalculatorConfig =
+            context.tasker_config.clone().into();
+        let backoff_calculator = crate::orchestration::BackoffCalculator::new(
+            backoff_config,
+            context.database_pool().clone(),
+        );
+        let metadata_processor = MetadataProcessor::new(backoff_calculator);
+        let state_transition_handler = StateTransitionHandler::new(context.clone());
+        let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
+
+        let handler = MessageHandler::new(
+            context,
+            metadata_processor,
+            state_transition_handler,
+            task_coordinator,
+        );
+
+        let nonexistent_step = Uuid::new_v4();
+        let correlation_id = handler.get_correlation_id_for_step(nonexistent_step).await;
+
+        // Should return nil UUID for non-existent step
+        assert_eq!(correlation_id, Uuid::nil());
+        Ok(())
+    }
+}
+

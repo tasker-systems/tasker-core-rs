@@ -272,4 +272,135 @@ mod tests {
         assert!(matches!(result.action, FinalizationAction::Completed));
         assert_eq!(result.completion_percentage, Some(100.0));
     }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_task_finalizer_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Test that TaskFinalizer implements Clone
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuerService::new(context.clone()).await?);
+        let finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
+
+        let cloned = finalizer.clone();
+
+        // Verify both share the same Arc
+        assert_eq!(
+            Arc::as_ptr(&finalizer.context),
+            Arc::as_ptr(&cloned.context)
+        );
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_finalize_task_returns_error_for_nonexistent_task(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuerService::new(context.clone()).await?);
+        let finalizer = TaskFinalizer::new(context, step_enqueuer);
+
+        let nonexistent_uuid = Uuid::new_v4();
+
+        // Should return TaskNotFound error
+        let result = finalizer.finalize_task(nonexistent_uuid).await;
+
+        assert!(result.is_err());
+        match result {
+            Err(FinalizationError::TaskNotFound { task_uuid }) => {
+                assert_eq!(task_uuid, nonexistent_uuid);
+            }
+            _ => panic!("Expected TaskNotFound error"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_finalization_result_structure_for_all_complete() {
+        // Test result structure for AllComplete status (Completed action)
+        let task_uuid = Uuid::new_v4();
+        let result = FinalizationResult {
+            task_uuid,
+            action: FinalizationAction::Completed,
+            completion_percentage: Some(100.0),
+            total_steps: Some(8),
+            enqueued_steps: None,
+            health_status: Some("healthy".to_string()),
+            reason: None,
+        };
+
+        assert_eq!(result.task_uuid, task_uuid);
+        assert!(matches!(result.action, FinalizationAction::Completed));
+        assert_eq!(result.completion_percentage, Some(100.0));
+        assert_eq!(result.total_steps, Some(8));
+        assert!(result.reason.is_none());
+    }
+
+    #[test]
+    fn test_finalization_result_structure_for_blocked_by_failures() {
+        // Test result structure for BlockedByFailures status (Failed action)
+        let task_uuid = Uuid::new_v4();
+        let result = FinalizationResult {
+            task_uuid,
+            action: FinalizationAction::Failed,
+            completion_percentage: Some(60.0),
+            total_steps: Some(10),
+            enqueued_steps: None,
+            health_status: Some("degraded".to_string()),
+            reason: Some("Steps in error state".to_string()),
+        };
+
+        assert_eq!(result.task_uuid, task_uuid);
+        assert!(matches!(result.action, FinalizationAction::Failed));
+        assert_eq!(result.completion_percentage, Some(60.0));
+        assert_eq!(result.total_steps, Some(10));
+        assert_eq!(result.reason, Some("Steps in error state".to_string()));
+    }
+
+    #[test]
+    fn test_finalization_result_structure_for_processing() {
+        // Test result structure for Processing status (NoAction action)
+        let task_uuid = Uuid::new_v4();
+        let result = FinalizationResult {
+            task_uuid,
+            action: FinalizationAction::NoAction,
+            completion_percentage: Some(50.0),
+            total_steps: Some(10),
+            enqueued_steps: None,
+            health_status: Some("processing".to_string()),
+            reason: Some("Steps in progress".to_string()),
+        };
+
+        assert_eq!(result.task_uuid, task_uuid);
+        assert!(matches!(result.action, FinalizationAction::NoAction));
+        assert_eq!(result.reason, Some("Steps in progress".to_string()));
+    }
+
+    #[test]
+    fn test_all_finalization_actions_are_distinct() {
+        // Verify all FinalizationAction variants are distinct
+        let actions = vec![
+            FinalizationAction::Completed,
+            FinalizationAction::Failed,
+            FinalizationAction::Pending,
+            FinalizationAction::Reenqueued,
+            FinalizationAction::NoAction,
+        ];
+
+        // Verify count
+        assert_eq!(actions.len(), 5);
+
+        // Verify they serialize differently
+        let serialized: Vec<String> = actions
+            .iter()
+            .map(|a| serde_json::to_string(a).unwrap())
+            .collect();
+
+        assert_eq!(serialized[0], "\"Completed\"");
+        assert_eq!(serialized[1], "\"Failed\"");
+        assert_eq!(serialized[2], "\"Pending\"");
+        assert_eq!(serialized[3], "\"Reenqueued\"");
+        assert_eq!(serialized[4], "\"NoAction\"");
+    }
 }

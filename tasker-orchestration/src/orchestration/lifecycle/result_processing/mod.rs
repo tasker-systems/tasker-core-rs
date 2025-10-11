@@ -86,3 +86,141 @@ pub struct StepError {
     pub error_type: Option<String>,
     pub retryable: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_result_processing_error_display() {
+        let step_uuid = Uuid::new_v4();
+        let task_uuid = Uuid::new_v4();
+
+        let error = ResultProcessingError::MessageProcessing {
+            step_uuid,
+            reason: "Invalid format".to_string(),
+        };
+        assert!(error.to_string().contains("Message processing failed"));
+        assert!(error.to_string().contains(&step_uuid.to_string()));
+
+        let error = ResultProcessingError::MetadataProcessing {
+            step_uuid,
+            reason: "Missing metadata".to_string(),
+        };
+        assert!(error.to_string().contains("Metadata processing failed"));
+        assert!(error.to_string().contains(&step_uuid.to_string()));
+
+        let error = ResultProcessingError::StateTransition {
+            step_uuid,
+            reason: "Invalid state".to_string(),
+        };
+        assert!(error.to_string().contains("State transition failed"));
+        assert!(error.to_string().contains(&step_uuid.to_string()));
+
+        let error = ResultProcessingError::TaskCoordination {
+            task_uuid,
+            reason: "Task not found".to_string(),
+        };
+        assert!(error.to_string().contains("Task coordination failed"));
+        assert!(error.to_string().contains(&task_uuid.to_string()));
+
+        let error = ResultProcessingError::EntityNotFound {
+            entity_type: "Task".to_string(),
+            entity_uuid: task_uuid,
+        };
+        assert!(error.to_string().contains("Task not found"));
+        assert!(error.to_string().contains(&task_uuid.to_string()));
+    }
+
+    #[test]
+    fn test_result_processing_error_clone() {
+        // Test that ResultProcessingError implements Clone
+        let step_uuid = Uuid::new_v4();
+        let error = ResultProcessingError::MessageProcessing {
+            step_uuid,
+            reason: "Test error".to_string(),
+        };
+
+        let cloned = error.clone();
+        match cloned {
+            ResultProcessingError::MessageProcessing {
+                step_uuid: cloned_uuid,
+                reason,
+            } => {
+                assert_eq!(step_uuid, cloned_uuid);
+                assert_eq!(reason, "Test error");
+            }
+            _ => panic!("Expected MessageProcessing error"),
+        }
+    }
+
+    #[test]
+    fn test_step_error_structure() {
+        // Test StepError structure
+        let error = StepError {
+            message: "Execution failed".to_string(),
+            error_type: Some("RuntimeError".to_string()),
+            retryable: true,
+        };
+
+        assert_eq!(error.message, "Execution failed");
+        assert_eq!(error.error_type, Some("RuntimeError".to_string()));
+        assert!(error.retryable);
+    }
+
+    #[test]
+    fn test_step_error_clone() {
+        // Test that StepError implements Clone
+        let error = StepError {
+            message: "Test error".to_string(),
+            error_type: Some("TestError".to_string()),
+            retryable: false,
+        };
+
+        let cloned = error.clone();
+        assert_eq!(cloned.message, "Test error");
+        assert_eq!(cloned.error_type, Some("TestError".to_string()));
+        assert!(!cloned.retryable);
+    }
+
+    #[test]
+    fn test_result_processing_error_is_error() {
+        // Test that ResultProcessingError implements std::error::Error
+        let error = ResultProcessingError::MessageProcessing {
+            step_uuid: Uuid::new_v4(),
+            reason: "Test".to_string(),
+        };
+
+        let _error_trait: &dyn std::error::Error = &error;
+    }
+
+    #[test]
+    fn test_all_result_processing_error_variants() {
+        // Verify all variants can be created
+        let step_uuid = Uuid::new_v4();
+        let task_uuid = Uuid::new_v4();
+
+        let _msg = ResultProcessingError::MessageProcessing {
+            step_uuid,
+            reason: "test".to_string(),
+        };
+        let _meta = ResultProcessingError::MetadataProcessing {
+            step_uuid,
+            reason: "test".to_string(),
+        };
+        let _state = ResultProcessingError::StateTransition {
+            step_uuid,
+            reason: "test".to_string(),
+        };
+        let _task = ResultProcessingError::TaskCoordination {
+            task_uuid,
+            reason: "test".to_string(),
+        };
+        let _entity = ResultProcessingError::EntityNotFound {
+            entity_type: "Test".to_string(),
+            entity_uuid: task_uuid,
+        };
+
+        // All variants created successfully
+    }
+}

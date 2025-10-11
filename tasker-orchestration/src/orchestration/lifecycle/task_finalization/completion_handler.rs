@@ -205,3 +205,108 @@ impl CompletionHandler {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_completion_handler_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Test that we can create CompletionHandler
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let handler = CompletionHandler::new(context);
+
+        // Verify it's created (basic smoke test)
+        assert!(Arc::strong_count(&handler.context) >= 1);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_completion_handler_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Test that CompletionHandler implements Clone
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let handler = CompletionHandler::new(context.clone());
+
+        let cloned = handler.clone();
+
+        // Verify both share the same Arc
+        assert_eq!(
+            Arc::as_ptr(&handler.context),
+            Arc::as_ptr(&cloned.context)
+        );
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_get_state_machine_for_task_initialization(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
+        let _handler = CompletionHandler::new(context);
+
+        // Test that we can create state machines for tasks
+        // State machines can be created even for tasks without transitions
+        // They will default to Pending state
+        let nonexistent_uuid = Uuid::new_v4();
+
+        let result = tasker_shared::state_machine::TaskStateMachine::for_task(
+            nonexistent_uuid,
+            pool.clone(),
+            Uuid::new_v4(),
+        )
+        .await;
+
+        // State machine creation succeeds even without existing transitions
+        // This is expected behavior - state machine starts in Pending
+        assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_finalization_result_structure_for_completion() {
+        // Test that FinalizationResult has correct structure for successful completion
+        let task_uuid = Uuid::new_v4();
+        let result = FinalizationResult {
+            task_uuid,
+            action: FinalizationAction::Completed,
+            completion_percentage: Some(100.0),
+            total_steps: Some(5),
+            enqueued_steps: None,
+            health_status: Some("healthy".to_string()),
+            reason: None,
+        };
+
+        assert_eq!(result.task_uuid, task_uuid);
+        assert!(matches!(result.action, FinalizationAction::Completed));
+        assert_eq!(result.completion_percentage, Some(100.0));
+        assert_eq!(result.total_steps, Some(5));
+        assert!(result.reason.is_none());
+    }
+
+    #[test]
+    fn test_finalization_result_structure_for_error() {
+        // Test that FinalizationResult has correct structure for error state
+        let task_uuid = Uuid::new_v4();
+        let result = FinalizationResult {
+            task_uuid,
+            action: FinalizationAction::Failed,
+            completion_percentage: Some(75.0),
+            total_steps: Some(10),
+            enqueued_steps: None,
+            health_status: Some("degraded".to_string()),
+            reason: Some("Steps in error state".to_string()),
+        };
+
+        assert_eq!(result.task_uuid, task_uuid);
+        assert!(matches!(result.action, FinalizationAction::Failed));
+        assert_eq!(result.completion_percentage, Some(75.0));
+        assert_eq!(result.total_steps, Some(10));
+        assert_eq!(result.reason, Some("Steps in error state".to_string()));
+    }
+}
+

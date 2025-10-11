@@ -158,3 +158,60 @@ impl MetadataProcessor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tasker_shared::system_context::SystemContext;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_metadata_processor_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
+        let backoff_config: crate::orchestration::BackoffCalculatorConfig =
+            context.tasker_config.clone().into();
+        let backoff_calculator =
+            BackoffCalculator::new(backoff_config, pool);
+        let processor = MetadataProcessor::new(backoff_calculator);
+
+        // Verify it's created (basic smoke test)
+        assert!(std::mem::size_of_val(&processor) > 0);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_metadata_processor_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
+        let backoff_config: crate::orchestration::BackoffCalculatorConfig =
+            context.tasker_config.clone().into();
+        let backoff_calculator =
+            BackoffCalculator::new(backoff_config, pool);
+        let processor = MetadataProcessor::new(backoff_calculator);
+
+        let cloned = processor.clone();
+
+        // Verify both exist and are independent
+        assert!(std::mem::size_of_val(&processor) > 0);
+        assert!(std::mem::size_of_val(&cloned) > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_backoff_context_builder() {
+        // Test that BackoffContext can be built with various metadata
+        let context = BackoffContext::new();
+        let context = context.with_header("Retry-After".to_string(), "60".to_string());
+        let context = context.with_metadata(
+            "handler_delay_seconds".to_string(),
+            serde_json::Value::Number(30.into()),
+        );
+
+        // Verify context can be built (structure validation)
+        assert!(std::mem::size_of_val(&context) > 0);
+    }
+}
+

@@ -289,3 +289,64 @@ impl StateTransitionHandler {
         lower.contains("success") || lower == "complete" || lower == "completed"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_state_transition_handler_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let handler = StateTransitionHandler::new(context);
+
+        // Verify it's created (basic smoke test)
+        assert!(Arc::strong_count(&handler.context) >= 1);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_state_transition_handler_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let handler = StateTransitionHandler::new(context.clone());
+
+        let cloned = handler.clone();
+
+        // Verify both share the same Arc
+        assert_eq!(
+            Arc::as_ptr(&handler.context),
+            Arc::as_ptr(&cloned.context)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_is_success_status() {
+        // Test success status detection
+        assert!(StateTransitionHandler::is_success_status("success"));
+        assert!(StateTransitionHandler::is_success_status("SUCCESS"));
+        assert!(StateTransitionHandler::is_success_status("complete"));
+        assert!(StateTransitionHandler::is_success_status("completed"));
+        assert!(StateTransitionHandler::is_success_status("Success"));
+
+        // Test non-success statuses
+        assert!(!StateTransitionHandler::is_success_status("error"));
+        assert!(!StateTransitionHandler::is_success_status("failed"));
+        assert!(!StateTransitionHandler::is_success_status("timeout"));
+    }
+
+    #[test]
+    fn test_is_success_status_partial_match() {
+        // Test that "success" is matched even in longer strings
+        assert!(StateTransitionHandler::is_success_status(
+            "successful_execution"
+        ));
+        assert!(StateTransitionHandler::is_success_status(
+            "operation_success"
+        ));
+    }
+}
+

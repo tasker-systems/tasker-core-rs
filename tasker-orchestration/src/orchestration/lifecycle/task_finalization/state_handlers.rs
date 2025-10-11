@@ -253,3 +253,91 @@ impl StateHandlers {
             .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_state_handlers_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Test that StateHandlers implements Clone
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuerService::new(context.clone()).await?);
+        let handlers = StateHandlers::new(context.clone(), step_enqueuer.clone());
+
+        let cloned = handlers.clone();
+
+        // Verify both share the same Arc
+        assert_eq!(
+            Arc::as_ptr(&handlers.context),
+            Arc::as_ptr(&cloned.context)
+        );
+        assert_eq!(
+            Arc::as_ptr(&handlers.step_enqueuer_service),
+            Arc::as_ptr(&cloned.step_enqueuer_service)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_processing_state_result_structure() {
+        // Test the result structure for processing state (NoAction)
+        let task_uuid = Uuid::new_v4();
+        let result = FinalizationResult {
+            task_uuid,
+            action: FinalizationAction::NoAction,
+            completion_percentage: Some(50.0),
+            total_steps: Some(10),
+            enqueued_steps: None,
+            health_status: Some("processing".to_string()),
+            reason: Some("Steps in progress".to_string()),
+        };
+
+        assert_eq!(result.task_uuid, task_uuid);
+        assert!(matches!(result.action, FinalizationAction::NoAction));
+        assert_eq!(result.reason, Some("Steps in progress".to_string()));
+    }
+
+    #[test]
+    fn test_finalization_result_for_reenqueued_state() {
+        // Test the result structure for reenqueued state
+        let task_uuid = Uuid::new_v4();
+        let result = FinalizationResult {
+            task_uuid,
+            action: FinalizationAction::Reenqueued,
+            completion_percentage: Some(40.0),
+            total_steps: Some(10),
+            enqueued_steps: Some(3),
+            health_status: Some("healthy".to_string()),
+            reason: Some("Ready steps enqueued".to_string()),
+        };
+
+        assert_eq!(result.task_uuid, task_uuid);
+        assert!(matches!(result.action, FinalizationAction::Reenqueued));
+        assert_eq!(result.enqueued_steps, Some(3));
+        assert_eq!(result.reason, Some("Ready steps enqueued".to_string()));
+    }
+
+    #[test]
+    fn test_finalization_action_variants() {
+        // Test that all FinalizationAction variants can be created
+        let _completed = FinalizationAction::Completed;
+        let _failed = FinalizationAction::Failed;
+        let _pending = FinalizationAction::Pending;
+        let _reenqueued = FinalizationAction::Reenqueued;
+        let _no_action = FinalizationAction::NoAction;
+
+        // Verify they're all different
+        assert!(!matches!(
+            FinalizationAction::Completed,
+            FinalizationAction::Failed
+        ));
+        assert!(!matches!(
+            FinalizationAction::NoAction,
+            FinalizationAction::Reenqueued
+        ));
+    }
+}
+

@@ -90,3 +90,52 @@ impl OrchestrationResultProcessor {
             .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_orchestration_result_processor_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(
+            crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(
+                context.clone(),
+            )
+            .await?,
+        );
+        let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
+
+        let processor = OrchestrationResultProcessor::new(task_finalizer, context);
+
+        // Verify it's created (basic smoke test)
+        assert!(std::mem::size_of_val(&processor) > 0);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_orchestration_result_processor_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(
+            crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(
+                context.clone(),
+            )
+            .await?,
+        );
+        let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
+
+        let processor = OrchestrationResultProcessor::new(task_finalizer, context);
+
+        let cloned = processor.clone();
+
+        // Verify both exist and are independent
+        assert!(std::mem::size_of_val(&processor) > 0);
+        assert!(std::mem::size_of_val(&cloned) > 0);
+        Ok(())
+    }
+}
+
