@@ -1,9 +1,9 @@
 # Events and Commands Architecture
 
-**Last Updated**: 2025-10-10
+**Last Updated**: 2025-10-11
 **Audience**: Architects, Developers
-**Status**: Active
-**Related Docs**: [Documentation Hub](README.md) | [States and Lifecycles](states-and-lifecycles.md) | [Deployment Patterns](deployment-patterns.md)
+**Status**: Active (TAS-46 Actor Integration Complete)
+**Related Docs**: [Documentation Hub](README.md) | [Actor-Based Architecture](actors.md) | [States and Lifecycles](states-and-lifecycles.md) | [Deployment Patterns](deployment-patterns.md)
 
 ← Back to [Documentation Hub](README.md)
 
@@ -567,7 +567,9 @@ The event architecture supports integration with external systems:
 
 ### Overview
 
-The tasker-core system has introduced a **lightweight Actor pattern** that formalizes the relationship between Commands and Lifecycle Components. This architecture provides a consistent, type-safe foundation for orchestration component management while maintaining full backward compatibility with the existing command pattern.
+The tasker-core system implements a **lightweight Actor pattern** that formalizes the relationship between Commands and Lifecycle Components. This architecture provides a consistent, type-safe foundation for orchestration component management with all lifecycle operations coordinated through actors.
+
+**Status**: TAS-46 Complete (Phases 1-7) - Production ready
 
 For comprehensive actor documentation, see [Actor-Based Architecture](actors.md).
 
@@ -581,62 +583,70 @@ The actor pattern introduces three core traits:
 
 ```rust
 // Actor definition
-pub struct TaskInitializerActor {
+pub struct TaskFinalizerActor {
     context: Arc<SystemContext>,
-    service: TaskInitializer,
+    service: TaskFinalizer,
 }
 
 // Message definition
-pub struct InitializeTaskMessage {
-    pub request: TaskRequest,
+pub struct FinalizeTaskMessage {
+    pub task_uuid: Uuid,
 }
 
-impl Message for InitializeTaskMessage {
-    type Response = TaskInitializationResult;
+impl Message for FinalizeTaskMessage {
+    type Response = FinalizationResult;
 }
 
 // Message handler
 #[async_trait]
-impl Handler<InitializeTaskMessage> for TaskInitializerActor {
-    type Response = TaskInitializationResult;
+impl Handler<FinalizeTaskMessage> for TaskFinalizerActor {
+    type Response = FinalizationResult;
 
-    async fn handle(&self, msg: InitializeTaskMessage) -> TaskerResult<Self::Response> {
-        self.service.create_task_from_request(msg.request).await
+    async fn handle(&self, msg: FinalizeTaskMessage) -> TaskerResult<Self::Response> {
+        self.service.finalize_task(msg.task_uuid).await
+            .map_err(|e| e.into())
     }
 }
 ```
 
 ### Integration with Command Processor
 
-The actor pattern integrates seamlessly with the existing command processor through a gradual migration strategy:
-
-**Current (Phase 1)**: Command processor calls lifecycle components directly
+The actor pattern integrates seamlessly with the command processor through direct actor calls:
 
 ```rust
-pub async fn process_command(&self, cmd: OrchestrationCommand) -> TaskerResult<CommandResponse> {
-    match cmd {
-        OrchestrationCommand::InitializeTask { request } => {
-            // Direct service call
-            let result = self.task_initializer.create_task_from_request(request).await?;
-            Ok(CommandResponse::TaskInitialized(result))
-        }
-        // ...
-    }
+// From: tasker-orchestration/src/orchestration/command_processor.rs
+
+async fn handle_finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
+    // TAS-46: Direct actor-based task finalization
+    let msg = FinalizeTaskMessage { task_uuid };
+    let result = self.actors.task_finalizer_actor.handle(msg).await?;
+
+    Ok(TaskFinalizationResult::Success {
+        task_uuid: result.task_uuid,
+        final_status: format!("{:?}", result.action),
+        completion_time: Some(chrono::Utc::now()),
+    })
 }
-```
 
-**Future (Phase 2+)**: Command processor sends messages to actors
+async fn handle_process_step_result(
+    &self,
+    step_result: StepExecutionResult,
+) -> TaskerResult<StepProcessResult> {
+    // TAS-46: Direct actor-based step result processing
+    let msg = ProcessStepResultMessage {
+        result: step_result.clone(),
+    };
 
-```rust
-pub async fn process_command(&self, cmd: OrchestrationCommand) -> TaskerResult<CommandResponse> {
-    match cmd {
-        OrchestrationCommand::InitializeTask { request } => {
-            // Message-based actor call
-            let msg = InitializeTaskMessage { request };
-            let result = self.actors.task_initializer_actor.handle(msg).await?;
-            Ok(CommandResponse::TaskInitialized(result))
-        }
-        // ...
+    match self.actors.result_processor_actor.handle(msg).await {
+        Ok(()) => Ok(StepProcessResult::Success {
+            message: format!(
+                "Step {} result processed successfully",
+                step_result.step_uuid
+            ),
+        }),
+        Err(e) => Ok(StepProcessResult::Error {
+            message: format!("Failed to process step result: {e}"),
+        }),
     }
 }
 ```
@@ -684,7 +694,7 @@ The complete event-to-actor flow:
 
 ### ActorRegistry and Lifecycle
 
-The `ActorRegistry` manages all orchestration actors and integrates with the system lifecycle:
+The `ActorRegistry` manages all 4 orchestration actors and integrates with the system lifecycle:
 
 ```rust
 // During system startup
@@ -692,12 +702,18 @@ let context = Arc::new(SystemContext::with_pool(pool).await?);
 let actors = ActorRegistry::build(context).await?;  // Calls started() on all actors
 
 // During operation
-let msg = InitializeTaskMessage { request };
-let result = actors.task_initializer_actor.handle(msg).await?;
+let msg = FinalizeTaskMessage { task_uuid };
+let result = actors.task_finalizer_actor.handle(msg).await?;
 
 // During shutdown
 actors.shutdown().await;  // Calls stopped() on all actors in reverse order
 ```
+
+**Current Actors** (TAS-46 Phase 2-3):
+- **TaskRequestActor**: Handles task initialization requests
+- **ResultProcessorActor**: Processes step execution results
+- **StepEnqueuerActor**: Manages batch processing of ready tasks
+- **TaskFinalizerActor**: Handles task finalization with atomic claiming
 
 ### Benefits for Event-Driven Architecture
 
@@ -709,58 +725,52 @@ The actor pattern enhances the event-driven architecture by providing:
 4. **Observability**: Actor-level metrics and tracing
 5. **Evolvability**: Easy to add new message handlers and actors
 
-### Migration Strategy
+### Implementation Status
 
-The actor integration follows a phased approach:
+The actor integration is complete (TAS-46 Phases 1-7):
 
-1. **Phase 1** (Complete): Actor infrastructure and test harness
+1. **Phase 1** ✅: Actor infrastructure and test harness
    - OrchestrationActor, Handler<M>, Message traits
    - ActorRegistry structure
-   - ActorTestHarness for testing
 
-2. **Phase 2** (Future): First actor implementation
-   - TaskRequestActor with dual support (legacy + actor)
-   - Integration tests using both patterns
+2. **Phase 2-3** ✅: All 4 primary actors implemented
+   - TaskRequestActor, ResultProcessorActor
+   - StepEnqueuerActor, TaskFinalizerActor
 
-3. **Phase 3** (Future): Remaining actors
-   - ResultProcessorActor, StepEnqueuerActor
-   - TaskFinalizerActor, TaskInitializerActor
+3. **Phase 4-6** ✅: Message hydration and module reorganization
+   - Hydration layer for PGMQ messages
+   - Clean module organization
 
-4. **Phase 4** (Future): Complete migration
-   - Remove legacy direct access
-   - Pure message-based coordination
+4. **Phase 7** ✅: Service decomposition
+   - Large services decomposed into focused components
+   - All files <300 lines following single responsibility principle
 
-Each phase maintains full backward compatibility through the LifecycleTestManager dual implementation pattern.
+5. **Cleanup** ✅: Direct actor integration
+   - Command processor calls actors directly
+   - Removed intermediate wrapper layers
+   - Production-ready implementation
 
-### Testing Actor Integration
+### Service Decomposition
 
-The system provides dedicated test infrastructure for actor-based testing:
+Large services (800-900 lines) were decomposed into focused components:
 
-```rust
-use common::actor_test_harness::ActorTestHarness;
+**TaskFinalizer** (848 → 6 files):
+- `service.rs`: Main TaskFinalizer (~200 lines)
+- `completion_handler.rs`: Task completion logic
+- `event_publisher.rs`: Lifecycle event publishing
+- `execution_context_provider.rs`: Context fetching
+- `state_handlers.rs`: State-specific handling
 
-#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_task_initialization_via_actor(pool: PgPool) -> Result<()> {
-    let harness = ActorTestHarness::new(pool).await?;
+**StepEnqueuerService** (781 → 3 files):
+- `service.rs`: Main service (~250 lines)
+- `batch_processor.rs`: Batch processing logic
+- `state_handlers.rs`: State-specific processing
 
-    // Send message to actor
-    let msg = InitializeTaskMessage { request };
-    let result = harness.actors.task_initializer_actor.handle(msg).await?;
-
-    assert!(result.task_uuid.is_some());
-    Ok(())
-}
-```
-
-The LifecycleTestManager supports both legacy and actor-based testing, ensuring smooth migration:
-
-```rust
-// Legacy method
-let result = manager.initialize_task(request).await?;
-
-// Actor-based method (Phase 2+)
-let result = manager.initialize_task_via_actor(request).await?;
-```
+**ResultProcessor** (889 → 4 files):
+- `service.rs`: Main processor
+- `metadata_processor.rs`: Metadata handling
+- `error_handler.rs`: Error processing
+- `result_validator.rs`: Result validation
 
 ---
 

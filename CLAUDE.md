@@ -2,11 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Last Updated**: 2025-10-11
+
 ## Project Overview
 
 **tasker-core** is a high-performance Rust implementation of workflow orchestration. This is a workspace containing multiple crates that together form a comprehensive orchestration system.
 
-**Architecture**: PostgreSQL message queue (pgmq) based system where Rust handles orchestration coordination and workers process steps autonomously through queue polling.
+**Architecture**: PostgreSQL message queue (pgmq) based system with actor-based coordination. Rust handles orchestration through a lightweight actor pattern, while workers process steps autonomously through queue polling with event-driven coordination.
 
 ## Workspace Structure
 
@@ -156,10 +158,50 @@ The system implements two coordinated state machines:
 - **Pipeline**: `Pending`, `Enqueued`, `InProgress`, `EnqueuedForOrchestration`
 - **Terminal**: `Complete`, `Error`, `Cancelled`, `ResolvedManually`
 
+### Actor Pattern Architecture (TAS-46 Complete)
+
+The system implements a lightweight actor pattern for orchestration coordination:
+
+**ActorRegistry** (`tasker-orchestration/src/actors/registry.rs`)
+- Central registry managing 4 production-ready actors
+- Lifecycle management with `started()` and `stopped()` hooks
+- Shared system context with database pools and circuit breakers
+- Type-safe message passing via `Handler<M>` trait
+
+**Four Core Actors** (All Production Ready):
+1. **TaskRequestActor**: Handles task initialization and namespace validation
+2. **ResultProcessorActor**: Processes step execution results and orchestrates next steps
+3. **StepEnqueuerActor**: Manages batch enqueueing of ready steps to worker queues
+4. **TaskFinalizerActor**: Handles task finalization with atomic claiming and completion logic
+
+**Actor Traits** (`tasker-orchestration/src/actors/traits.rs`):
+```rust
+pub trait OrchestrationActor: Send + Sync {
+    fn started(&self) -> impl Future<Output = TaskerResult<()>> + Send;
+    fn stopped(&self) -> impl Future<Output = TaskerResult<()>> + Send;
+}
+
+pub trait Handler<M: Message>: OrchestrationActor {
+    type Response: Send;
+    fn handle(&self, msg: M) -> impl Future<Output = Self::Response> + Send;
+}
+```
+
+**Service Decomposition** (TAS-46 Phase 7):
+- Large services (800-900 lines) decomposed into focused components
+- Each service file now <300 lines with single responsibility
+- Example: `task_finalization/` split into 6 focused files:
+  - `service.rs`: Main TaskFinalizer (~200 lines)
+  - `completion_handler.rs`: Task completion logic
+  - `event_publisher.rs`: Lifecycle event publishing
+  - `execution_context_provider.rs`: Context fetching
+  - `state_handlers.rs`: State-specific handling
+
 ### Core Components
 
 **OrchestrationCore** (`tasker-orchestration/src/core.rs`)
 - Unified bootstrap system that initializes all orchestration components
+- Builds ActorRegistry with all 4 actors
 - Manages database pools, circuit breakers, and executor pools
 - Single entry point preventing configuration mismatches
 
@@ -173,10 +215,11 @@ The system implements two coordinated state machines:
 - Handles step claiming, execution, and result submission
 - Integrates with Ruby/Rust handlers via FFI
 
-**Command Processors** (TAS-40)
-- Replace complex polling coordinators with simple command processing
+**Command Processors** (TAS-40, TAS-46)
+- Pure routing to actors without complex logic
+- Direct actor calls via message passing
 - ~100 lines vs 1000+ lines of complex systems
-- Atomic operations through proper delegation
+- Atomic operations through actor delegation
 
 **Finalization System** (`tasker-orchestration/src/finalization_claimer.rs`)
 - Atomic SQL-based claiming via `claim_task_for_finalization` function
@@ -190,13 +233,22 @@ The system implements two coordinated state machines:
 
 ### Event Flow and Communication
 
-#### Complete Task Execution Flow
+#### Complete Task Execution Flow (Actor-Based)
 1. **Task Initialization**: Client sends TaskRequestMessage via pgmq_send_with_notify
+   - Command processor routes to **TaskRequestActor**
+   - Actor delegates to TaskInitializer service for initialization
 2. **Step Discovery**: Orchestration discovers ready steps using SQL functions
+   - **StepEnqueuerActor** coordinates batch processing
 3. **Step Enqueueing**: Ready steps enqueued to namespace queues with notifications
+   - Actor delegates to StepEnqueuerService for batch operations
 4. **Worker Processing**: Workers claim steps, execute handlers, submit results
+   - Results sent back via orchestration_step_results queue
 5. **Result Processing**: Orchestration processes results, discovers next steps
+   - **ResultProcessorActor** handles step result processing
+   - Actor delegates to OrchestrationResultProcessor service
 6. **Task Completion**: All steps complete, task finalized atomically
+   - **TaskFinalizerActor** handles finalization with atomic claiming
+   - Actor delegates to TaskFinalizer service components
 
 #### PGMQ Notification Channels
 - `pgmq_message_ready.orchestration`: Orchestration queue messages
@@ -254,6 +306,48 @@ config/tasker/environments/{test,development,production}/
 Environment detection order:
 1. `TASKER_ENV` environment variable
 2. Default to "development"
+
+### Actor-Based Module Organization
+
+The orchestration crate is organized around the actor pattern (TAS-46):
+
+```
+tasker-orchestration/src/orchestration/
+├── actors/                          # Actor pattern implementation
+│   ├── traits.rs                    # OrchestrationActor, Handler<M>, Message traits
+│   ├── registry.rs                  # ActorRegistry with lifecycle management
+│   ├── task_request_actor.rs        # Task initialization actor
+│   ├── result_processor_actor.rs    # Result processing actor
+│   ├── step_enqueuer_actor.rs       # Step enqueueing actor
+│   └── task_finalizer_actor.rs      # Task finalization actor
+│
+├── hydration/                       # Message hydration layer (Phase 4)
+│   ├── step_result_hydrator.rs      # PGMQ message → StepExecutionResult
+│   ├── task_request_hydrator.rs     # PGMQ message → TaskRequestMessage
+│   └── finalization_hydrator.rs     # PGMQ message → task_uuid
+│
+├── lifecycle/                       # Decomposed services (Phase 7)
+│   ├── task_initialization/         # Task init service components
+│   ├── result_processing/           # Result processing components
+│   ├── step_enqueuer_services/      # Step enqueuer components
+│   └── task_finalization/           # Task finalization components
+│       ├── service.rs                # Main TaskFinalizer (~200 lines)
+│       ├── completion_handler.rs
+│       ├── event_publisher.rs
+│       ├── execution_context_provider.rs
+│       └── state_handlers.rs
+│
+├── event_systems/                   # Event-driven coordination
+├── command_processor.rs             # Pure routing to actors
+└── core.rs                          # Bootstrap with ActorRegistry
+```
+
+**Key Architectural Principles**:
+- **Actors**: Message-based coordination with type-safe interfaces
+- **Hydration**: PGMQ message transformation layer
+- **Services**: Focused components with single responsibility (<300 lines)
+- **Command Processor**: Pure routing without business logic
+- **No Wrapper Layers**: Direct actor calls from command processor
 
 ### Message Queue Architecture
 
@@ -432,13 +526,42 @@ let task_response = manager.orchestration_client.create_task(request).await?;
 - Atomic ownership claiming prevents concurrent processing
 - Ownership validated on each transition attempt
 
-### Command Types
+### Command Types and Actor Mapping
 
-**Orchestration Commands**
-- Task lifecycle: `InitializeTask`, `ProcessStepResult`, `FinalizeTask`
-- Message processing: `ProcessStepResultFromMessage`, `InitializeTaskFromMessage`
-- Event processing: `ProcessStepResultFromMessageEvent`, `ProcessTaskReadiness`
-- System operations: `GetProcessingStats`, `HealthCheck`, `Shutdown`
+**Orchestration Commands** (Routed to Actors):
+
+Task lifecycle commands → Actor message handlers:
+- `InitializeTask` → **TaskRequestActor** via `ProcessTaskRequestMessage`
+- `ProcessStepResult` → **ResultProcessorActor** via `ProcessStepResultMessage`
+- `FinalizeTask` → **TaskFinalizerActor** via `FinalizeTaskMessage`
+
+Message processing commands:
+- `ProcessStepResultFromMessage` → Hydration layer + ResultProcessorActor
+- `InitializeTaskFromMessage` → Hydration layer + TaskRequestActor
+
+Event processing commands:
+- `ProcessStepResultFromMessageEvent` → Event system integration
+- `ProcessTaskReadiness` → StepEnqueuerActor coordination
+
+System operations (direct handling):
+- `GetProcessingStats`, `HealthCheck`, `Shutdown`
+
+**Example Actor Integration**:
+```rust
+// Command processor routes to actors
+async fn handle_finalize_task(&self, task_uuid: Uuid)
+    -> TaskerResult<TaskFinalizationResult> {
+    // Direct actor call with typed message
+    let msg = FinalizeTaskMessage { task_uuid };
+    let result = self.actors.task_finalizer_actor.handle(msg).await?;
+
+    Ok(TaskFinalizationResult::Success {
+        task_uuid: result.task_uuid,
+        final_status: format!("{:?}", result.action),
+        completion_time: Some(chrono::Utc::now()),
+    })
+}
+```
 
 **Worker Commands**
 - Step execution: `ExecuteStep`, `ExecuteStepWithCorrelation`
@@ -471,6 +594,14 @@ let task_response = manager.orchestration_client.create_task(request).await?;
 
 ### Completed Features (Production Ready)
 
+**TAS-46**: Actor pattern implementation (Phases 1-7)
+- Lightweight actor pattern with 4 production-ready actors
+- Message-based type-safe communication via `Handler<M>` trait
+- Service decomposition: 800-900 line files → focused <300 line components
+- Direct actor integration in command processor (no wrapper layers)
+- Zero breaking changes: all refactoring internal, full test coverage
+- Clean architecture: pure routing, hydration layer, single responsibility
+
 **TAS-41**: Enhanced state machines with processor ownership
 - 12 task states for fine-grained control
 - Atomic state transitions preventing race conditions
@@ -480,6 +611,7 @@ let task_response = manager.orchestration_client.create_task(request).await?;
 - Simplified architecture replacing complex coordinators
 - Async command processing via tokio mpsc channels
 - Preserved observability through delegated components
+- Enhanced by TAS-46 actor pattern for cleaner delegation
 
 **TAS-37**: Race condition elimination with dynamic orchestration
 - Atomic finalization claiming prevents duplicate processing
@@ -528,6 +660,8 @@ docker run -p 3000:8080 -e DATABASE_URL=$DATABASE_URL tasker-server
 ## Architecture Documentation
 
 For deep dives into specific architectural aspects:
+- **Actor Pattern**: `docs/actors.md` - Actor-based architecture, TAS-46 implementation details
 - **Event Systems**: `docs/events-and-commands.md` - Event-driven architecture and command patterns
+- **Crate Structure**: `docs/crate-architecture.md` - Workspace organization and public APIs
 - **State Machines**: `docs/states-and-lifecycles.md` - Task and step state transitions
 - **SQL Functions**: `docs/task-and-step-readiness-and-execution.md` - Database-level orchestration logic

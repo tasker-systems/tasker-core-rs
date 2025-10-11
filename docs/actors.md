@@ -1,15 +1,15 @@
 # Actor-Based Architecture
 
-**Last Updated**: 2025-10-10
+**Last Updated**: 2025-10-11
 **Audience**: Architects, Developers
-**Status**: Active (TAS-46 Phase 1 Complete)
+**Status**: Active (TAS-46 Complete - Phases 1-7)
 **Related Docs**: [Documentation Hub](README.md) | [Events and Commands](events-and-commands.md) | [States and Lifecycles](states-and-lifecycles.md)
 
 ← Back to [Documentation Hub](README.md)
 
 ---
 
-This document provides comprehensive documentation of the actor-based architecture in tasker-core, covering the lightweight Actor pattern that formalizes the relationship between Commands and Lifecycle Components. This architecture replaces imperative delegation with message-based actor coordination while maintaining full backward compatibility.
+This document provides comprehensive documentation of the actor-based architecture in tasker-core, covering the lightweight Actor pattern that formalizes the relationship between Commands and Lifecycle Components. This architecture replaces imperative delegation with message-based actor coordination.
 
 ## Overview
 
@@ -18,10 +18,22 @@ The tasker-core system implements a **lightweight Actor pattern** inspired by fr
 1. **Actor Abstraction**: Lifecycle components encapsulated as actors with clear lifecycle hooks
 2. **Message-Based Communication**: Type-safe message handling via Handler<M> trait
 3. **Central Registry**: ActorRegistry for managing all orchestration actors
-4. **Test Infrastructure**: Dedicated test harnesses for actor-based testing
-5. **Backward Compatibility**: Gradual migration path from imperative to actor-based patterns
+4. **Service Decomposition**: Focused components following single responsibility principle
+5. **Direct Integration**: Command processor calls actors directly without wrapper layers
 
 This architecture eliminates inconsistencies in lifecycle component initialization, provides type-safe message handling, and creates a clear separation between command processing and business logic execution.
+
+## Implementation Status
+
+**TAS-46 Complete**: All phases implemented and production-ready
+
+- ✅ **Phase 1**: Core abstractions (traits, registry, lifecycle management)
+- ✅ **Phase 2-3**: All 4 primary actors implemented
+- ✅ **Phase 4-6**: Message hydration, module reorganization
+- ✅ **Phase 7**: Service decomposition into focused components
+- ✅ **Cleanup**: Direct actor integration, removed intermediate wrappers
+
+**Current State**: Production-ready actor-based orchestration with 4 actors managing all lifecycle operations.
 
 ## Core Concepts
 
@@ -32,7 +44,7 @@ In the tasker-core context, an **Actor** is an encapsulated lifecycle component 
 - **Manages its own state**: Each actor owns its dependencies and configuration
 - **Processes messages**: Responds to typed command messages via the Handler<M> trait
 - **Has lifecycle hooks**: Initialization (started) and cleanup (stopped) methods
-- **Is isolated**: Actors communicate only through message passing, never direct method calls
+- **Is isolated**: Actors communicate through message passing
 - **Is thread-safe**: All actors are Send + Sync + 'static
 
 ### Why Actors?
@@ -58,8 +70,8 @@ The actor pattern provides consistency:
 
 ```rust
 // NEW: Consistent actor pattern
-impl OrchestrationActor for TaskInitializerActor {
-    fn name(&self) -> &'static str { "TaskInitializerActor" }
+impl OrchestrationActor for TaskRequestActor {
+    fn name(&self) -> &'static str { "TaskRequestActor" }
     fn context(&self) -> &Arc<SystemContext> { &self.context }
     fn started(&mut self) -> TaskerResult<()> { /* initialization */ }
     fn stopped(&mut self) -> TaskerResult<()> { /* cleanup */ }
@@ -68,32 +80,32 @@ impl OrchestrationActor for TaskInitializerActor {
 
 ### Actor vs Service
 
-**Services** (existing lifecycle components):
+**Services** (underlying business logic):
 - Encapsulate business logic
 - Stateless operations on domain models
 - Direct method invocation
-- Examples: TaskInitializer, StepEnqueuer
+- Examples: TaskFinalizer, StepEnqueuerService, OrchestrationResultProcessor
 
-**Actors** (new wrapper pattern):
+**Actors** (message-based coordination):
 - Wrap services with message-based interface
 - Manage service lifecycle
 - Asynchronous message handling
-- Examples: TaskInitializerActor, StepEnqueuerActor
+- Examples: TaskRequestActor, ResultProcessorActor, StepEnqueuerActor, TaskFinalizerActor
 
 The relationship:
 
 ```rust
-pub struct TaskInitializerActor {
+pub struct TaskFinalizerActor {
     context: Arc<SystemContext>,
-    service: TaskInitializer,  // Wraps existing service
+    service: TaskFinalizer,  // Wraps underlying service
 }
 
-impl Handler<InitializeTaskMessage> for TaskInitializerActor {
-    type Response = TaskInitializationResult;
+impl Handler<FinalizeTaskMessage> for TaskFinalizerActor {
+    type Response = FinalizationResult;
 
-    async fn handle(&self, msg: InitializeTaskMessage) -> TaskerResult<Self::Response> {
+    async fn handle(&self, msg: FinalizeTaskMessage) -> TaskerResult<Self::Response> {
         // Delegates to service
-        self.service.create_task_from_request(msg.request).await
+        self.service.finalize_task(msg.task_uuid).await
     }
 }
 ```
@@ -181,30 +193,6 @@ The message handling trait, enabling type-safe message processing:
 /// Actors implement Handler<M> for each message type they can process.
 /// This provides type-safe, asynchronous message handling with clear
 /// input/output contracts.
-///
-/// # Type Parameters
-///
-/// * `M` - The message type this handler processes (must implement Message trait)
-///
-/// # Example
-///
-/// ```rust
-/// struct InitializeTaskMessage {
-///     request: TaskRequest,
-/// }
-///
-/// impl Message for InitializeTaskMessage {
-///     type Response = TaskInitializationResult;
-/// }
-///
-/// impl Handler<InitializeTaskMessage> for TaskInitializerActor {
-///     type Response = TaskInitializationResult;
-///
-///     async fn handle(&self, msg: InitializeTaskMessage) -> TaskerResult<Self::Response> {
-///         self.service.create_task_from_request(msg.request).await
-///     }
-/// }
-/// ```
 #[async_trait]
 pub trait Handler<M: Message>: OrchestrationActor {
     /// The response type returned by this handler
@@ -214,19 +202,6 @@ pub trait Handler<M: Message>: OrchestrationActor {
     ///
     /// Process the message and return a response. This method should be
     /// idempotent where possible and handle errors gracefully.
-    ///
-    /// # Arguments
-    ///
-    /// * `msg` - The message to process
-    ///
-    /// # Returns
-    ///
-    /// A `TaskerResult` containing the response or an error
-    ///
-    /// # Errors
-    ///
-    /// Return an error if message processing fails. The error will be
-    /// propagated to the caller (typically the command processor).
     async fn handle(&self, msg: M) -> TaskerResult<Self::Response>;
 }
 ```
@@ -247,18 +222,6 @@ The marker trait for command messages:
 ///
 /// All messages sent to actors must implement this trait. The associated
 /// `Response` type defines what the handler will return.
-///
-/// # Example
-///
-/// ```rust
-/// struct EnqueueStepsMessage {
-///     task_info: ReadyTaskInfo,
-/// }
-///
-/// impl Message for EnqueueStepsMessage {
-///     type Response = StepEnqueueResult;
-/// }
-/// ```
 pub trait Message: Send + 'static {
     /// The response type for this message
     type Response: Send;
@@ -296,12 +259,17 @@ pub struct ActorRegistry {
     /// System context shared by all actors
     context: Arc<SystemContext>,
 
-    // Phase 2-3: Actor fields will be added here
-    // pub task_request_actor: Arc<TaskRequestActor>,
-    // pub result_processor_actor: Arc<ResultProcessorActor>,
-    // pub step_enqueuer_actor: Arc<StepEnqueuerActor>,
-    // pub task_finalizer_actor: Arc<TaskFinalizerActor>,
-    // pub task_initializer_actor: Arc<TaskInitializerActor>,
+    /// Task request actor for processing task initialization requests (TAS-46 Phase 2)
+    pub task_request_actor: Arc<TaskRequestActor>,
+
+    /// Result processor actor for processing step execution results (TAS-46 Phase 2)
+    pub result_processor_actor: Arc<ResultProcessorActor>,
+
+    /// Step enqueuer actor for batch processing ready tasks (TAS-46 Phase 3)
+    pub step_enqueuer_actor: Arc<StepEnqueuerActor>,
+
+    /// Task finalizer actor for task finalization with atomic claiming (TAS-46 Phase 3)
+    pub task_finalizer_actor: Arc<TaskFinalizerActor>,
 }
 ```
 
@@ -311,26 +279,63 @@ The `build()` method creates and initializes all actors:
 
 ```rust
 impl ActorRegistry {
-    /// Build a new ActorRegistry with all actors initialized
-    ///
-    /// This performs the following steps:
-    /// 1. Creates all actor instances
-    /// 2. Calls started() lifecycle hook on each actor
-    /// 3. Returns the registry if all actors initialize successfully
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any actor fails to construct or initialize.
     pub async fn build(context: Arc<SystemContext>) -> TaskerResult<Self> {
-        // Phase 1: Just create the basic structure
-        let registry = Self { context };
+        tracing::info!("Building ActorRegistry with actors");
 
-        // Phase 2-3: Call started() on all actors
-        // registry.task_request_actor.started()?;
-        // registry.result_processor_actor.started()?;
-        // etc.
+        // Create shared StepEnqueuerService (used by multiple actors)
+        let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
+        let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
 
-        Ok(registry)
+        // Create TaskRequestActor and its dependencies
+        let task_initializer = Arc::new(TaskInitializer::new(
+            context.clone(),
+            task_claim_step_enqueuer.clone(),
+        ));
+
+        let task_request_processor = Arc::new(TaskRequestProcessor::new(
+            context.message_client.clone(),
+            context.task_handler_registry.clone(),
+            task_initializer,
+            TaskRequestProcessorConfig::default(),
+        ));
+
+        let mut task_request_actor = TaskRequestActor::new(context.clone(), task_request_processor);
+        task_request_actor.started()?;
+        let task_request_actor = Arc::new(task_request_actor);
+
+        // Create ResultProcessorActor and its dependencies
+        let task_finalizer = TaskFinalizer::new(context.clone(), task_claim_step_enqueuer.clone());
+        let result_processor = Arc::new(OrchestrationResultProcessor::new(
+            task_finalizer,
+            context.clone(),
+        ));
+
+        let mut result_processor_actor =
+            ResultProcessorActor::new(context.clone(), result_processor);
+        result_processor_actor.started()?;
+        let result_processor_actor = Arc::new(result_processor_actor);
+
+        // Create StepEnqueuerActor using shared StepEnqueuerService
+        let mut step_enqueuer_actor =
+            StepEnqueuerActor::new(context.clone(), task_claim_step_enqueuer.clone());
+        step_enqueuer_actor.started()?;
+        let step_enqueuer_actor = Arc::new(step_enqueuer_actor);
+
+        // Create TaskFinalizerActor using shared StepEnqueuerService
+        let task_finalizer = TaskFinalizer::new(context.clone(), task_claim_step_enqueuer.clone());
+        let mut task_finalizer_actor = TaskFinalizerActor::new(context.clone(), task_finalizer);
+        task_finalizer_actor.started()?;
+        let task_finalizer_actor = Arc::new(task_finalizer_actor);
+
+        tracing::info!("✅ ActorRegistry built successfully with 4 actors");
+
+        Ok(Self {
+            context,
+            task_request_actor,
+            result_processor_actor,
+            step_enqueuer_actor,
+            task_finalizer_actor,
+        })
     }
 }
 ```
@@ -341,21 +346,196 @@ The `shutdown()` method gracefully stops all actors:
 
 ```rust
 impl ActorRegistry {
-    /// Shutdown all actors gracefully
-    ///
-    /// Calls the stopped() lifecycle hook on each actor in reverse
-    /// initialization order. Errors are logged but don't prevent
-    /// other actors from shutting down.
     pub async fn shutdown(&mut self) {
-        // Phase 2-3: Call stopped() on all actors in reverse order
-        // if let Err(e) = self.task_finalizer_actor.stopped() {
-        //     tracing::error!(error = %e, "Failed to stop TaskFinalizerActor");
-        // }
-        // etc.
+        tracing::info!("Shutting down ActorRegistry");
 
-        tracing::info!("ActorRegistry shutdown complete");
+        // Call stopped() on all actors in reverse initialization order
+        if let Some(actor) = Arc::get_mut(&mut self.task_finalizer_actor) {
+            if let Err(e) = actor.stopped() {
+                tracing::error!(error = %e, "Failed to stop TaskFinalizerActor");
+            }
+        }
+
+        if let Some(actor) = Arc::get_mut(&mut self.step_enqueuer_actor) {
+            if let Err(e) = actor.stopped() {
+                tracing::error!(error = %e, "Failed to stop StepEnqueuerActor");
+            }
+        }
+
+        if let Some(actor) = Arc::get_mut(&mut self.result_processor_actor) {
+            if let Err(e) = actor.stopped() {
+                tracing::error!(error = %e, "Failed to stop ResultProcessorActor");
+            }
+        }
+
+        if let Some(actor) = Arc::get_mut(&mut self.task_request_actor) {
+            if let Err(e) = actor.stopped() {
+                tracing::error!(error = %e, "Failed to stop TaskRequestActor");
+            }
+        }
+
+        tracing::info!("✅ ActorRegistry shutdown complete");
     }
 }
+```
+
+## Implemented Actors
+
+### TaskRequestActor
+
+Handles task initialization requests from external clients.
+
+**Location**: `tasker-orchestration/src/actors/task_request_actor.rs`
+
+**Message**: `ProcessTaskRequestMessage`
+- Input: `TaskRequestMessage` with task details
+- Response: `Uuid` of created task
+
+**Delegation**: Wraps `TaskRequestProcessor` service
+
+**Purpose**: Entry point for new workflow instances, coordinates task creation and initial step discovery.
+
+### ResultProcessorActor
+
+Processes step execution results from workers.
+
+**Location**: `tasker-orchestration/src/actors/result_processor_actor.rs`
+
+**Message**: `ProcessStepResultMessage`
+- Input: `StepExecutionResult` with execution outcome
+- Response: `()` (unit type)
+
+**Delegation**: Wraps `OrchestrationResultProcessor` service
+
+**Purpose**: Handles step completion, coordinates task finalization when appropriate.
+
+### StepEnqueuerActor
+
+Manages batch processing of ready tasks.
+
+**Location**: `tasker-orchestration/src/actors/step_enqueuer_actor.rs`
+
+**Message**: `ProcessBatchMessage`
+- Input: Empty (uses system state)
+- Response: `StepEnqueuerServiceResult` with batch stats
+
+**Delegation**: Wraps `StepEnqueuerService`
+
+**Purpose**: Discovers ready tasks and enqueues their executable steps.
+
+### TaskFinalizerActor
+
+Handles task finalization with atomic claiming.
+
+**Location**: `tasker-orchestration/src/actors/task_finalizer_actor.rs`
+
+**Message**: `FinalizeTaskMessage`
+- Input: `task_uuid` to finalize
+- Response: `FinalizationResult` with action taken
+
+**Delegation**: Wraps `TaskFinalizer` service (Phase 7 decomposed)
+
+**Purpose**: Completes or fails tasks based on step execution results, prevents race conditions through atomic claiming.
+
+## Integration with Commands
+
+### Command Processor Integration
+
+The command processor calls actors directly without intermediate wrapper layers:
+
+```rust
+// From: tasker-orchestration/src/orchestration/command_processor.rs
+
+/// Handle task initialization using TaskRequestActor directly (TAS-46)
+async fn handle_initialize_task(
+    &self,
+    request: TaskRequestMessage,
+) -> TaskerResult<TaskInitializeResult> {
+    // TAS-46: Direct actor-based task initialization
+    let msg = ProcessTaskRequestMessage { request };
+    let task_uuid = self.actors.task_request_actor.handle(msg).await?;
+
+    Ok(TaskInitializeResult::Success {
+        task_uuid,
+        message: "Task initialized successfully".to_string(),
+    })
+}
+
+/// Handle step result processing using ResultProcessorActor directly (TAS-46)
+async fn handle_process_step_result(
+    &self,
+    step_result: StepExecutionResult,
+) -> TaskerResult<StepProcessResult> {
+    // TAS-46: Direct actor-based step result processing
+    let msg = ProcessStepResultMessage {
+        result: step_result.clone(),
+    };
+
+    match self.actors.result_processor_actor.handle(msg).await {
+        Ok(()) => Ok(StepProcessResult::Success {
+            message: format!(
+                "Step {} result processed successfully",
+                step_result.step_uuid
+            ),
+        }),
+        Err(e) => Ok(StepProcessResult::Error {
+            message: format!("Failed to process step result: {e}"),
+        }),
+    }
+}
+
+/// Handle task finalization using TaskFinalizerActor directly (TAS-46)
+async fn handle_finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
+    // TAS-46: Direct actor-based task finalization
+    let msg = FinalizeTaskMessage { task_uuid };
+
+    let result = self.actors.task_finalizer_actor.handle(msg).await?;
+
+    Ok(TaskFinalizationResult::Success {
+        task_uuid: result.task_uuid,
+        final_status: format!("{:?}", result.action),
+        completion_time: Some(chrono::Utc::now()),
+    })
+}
+```
+
+**Design Evolution**: Initially planned to use `lifecycle_services/` as a wrapper layer between command processor and actors. After implementing Phase 7 service decomposition, we found direct actor calls were simpler and cleaner, so we removed the intermediate layer.
+
+## Service Decomposition (Phase 7)
+
+Large services (800-900 lines) were decomposed into focused components following single responsibility principle:
+
+### TaskFinalizer Decomposition
+
+```
+task_finalization/ (848 lines → 6 files)
+├── mod.rs                          # Public API and types
+├── service.rs                      # Main TaskFinalizer service (~200 lines)
+├── completion_handler.rs           # Task completion logic
+├── event_publisher.rs              # Lifecycle event publishing
+├── execution_context_provider.rs   # Context fetching
+└── state_handlers.rs               # State-specific handling
+```
+
+### StepEnqueuerService Decomposition
+
+```
+step_enqueuer_services/ (781 lines → 3 files)
+├── mod.rs                          # Public API
+├── service.rs                      # Main service (~250 lines)
+├── batch_processor.rs              # Batch processing logic
+└── state_handlers.rs               # State-specific processing
+```
+
+### ResultProcessor Decomposition
+
+```
+result_processing/ (889 lines → 4 files)
+├── mod.rs                          # Public API
+├── service.rs                      # Main processor
+├── metadata_processor.rs           # Metadata handling
+├── error_handler.rs                # Error processing
+└── result_validator.rs             # Result validation
 ```
 
 ## Actor Lifecycle
@@ -389,15 +569,15 @@ impl ActorRegistry {
 use tasker_orchestration::actors::{OrchestrationActor, Handler, Message};
 
 // Define the actor
-pub struct TaskInitializerActor {
+pub struct TaskFinalizerActor {
     context: Arc<SystemContext>,
-    service: TaskInitializer,
+    service: TaskFinalizer,
 }
 
 // Implement base actor trait
-impl OrchestrationActor for TaskInitializerActor {
+impl OrchestrationActor for TaskFinalizerActor {
     fn name(&self) -> &'static str {
-        "TaskInitializerActor"
+        "TaskFinalizerActor"
     }
 
     fn context(&self) -> &Arc<SystemContext> {
@@ -405,201 +585,41 @@ impl OrchestrationActor for TaskInitializerActor {
     }
 
     fn started(&mut self) -> TaskerResult<()> {
-        tracing::info!("TaskInitializerActor starting");
-        // Initialize any resources
+        tracing::info!("TaskFinalizerActor starting");
         Ok(())
     }
 
     fn stopped(&mut self) -> TaskerResult<()> {
-        tracing::info!("TaskInitializerActor stopping");
-        // Clean up resources
+        tracing::info!("TaskFinalizerActor stopping");
         Ok(())
     }
 }
 
 // Define message type
-pub struct InitializeTaskMessage {
-    pub request: TaskRequest,
+pub struct FinalizeTaskMessage {
+    pub task_uuid: Uuid,
 }
 
-impl Message for InitializeTaskMessage {
-    type Response = TaskInitializationResult;
+impl Message for FinalizeTaskMessage {
+    type Response = FinalizationResult;
 }
 
 // Implement message handler
 #[async_trait]
-impl Handler<InitializeTaskMessage> for TaskInitializerActor {
-    type Response = TaskInitializationResult;
+impl Handler<FinalizeTaskMessage> for TaskFinalizerActor {
+    type Response = FinalizationResult;
 
-    async fn handle(&self, msg: InitializeTaskMessage) -> TaskerResult<Self::Response> {
+    async fn handle(&self, msg: FinalizeTaskMessage) -> TaskerResult<Self::Response> {
         tracing::debug!(
             actor = %self.name(),
-            task = %msg.request.name,
-            "Processing InitializeTaskMessage"
+            task_uuid = %msg.task_uuid,
+            "Processing FinalizeTaskMessage"
         );
 
         // Delegate to service
-        self.service.create_task_from_request(msg.request).await
+        self.service.finalize_task(msg.task_uuid).await
+            .map_err(|e| e.into())
     }
-}
-```
-
-## Integration with Commands
-
-### Command Processor Evolution
-
-The actor pattern integrates seamlessly with the existing command processor:
-
-**Phase 1 (Current)**: Command processor calls lifecycle components directly
-
-```rust
-// OLD: Imperative delegation
-pub async fn process_command(&self, cmd: OrchestrationCommand) -> TaskerResult<CommandResponse> {
-    match cmd {
-        OrchestrationCommand::InitializeTask { request } => {
-            let result = self.task_initializer.create_task_from_request(request).await?;
-            Ok(CommandResponse::TaskInitialized(result))
-        }
-        // ...
-    }
-}
-```
-
-**Phase 2 (Future)**: Command processor sends messages to actors
-
-```rust
-// NEW: Message-based delegation
-pub async fn process_command(&self, cmd: OrchestrationCommand) -> TaskerResult<CommandResponse> {
-    match cmd {
-        OrchestrationCommand::InitializeTask { request } => {
-            let msg = InitializeTaskMessage { request };
-            let result = self.actors.task_initializer_actor.handle(msg).await?;
-            Ok(CommandResponse::TaskInitialized(result))
-        }
-        // ...
-    }
-}
-```
-
-### Migration Strategy
-
-1. **Phase 1** (Complete): Actor infrastructure and test harness
-2. **Phase 2**: Implement first actor (TaskRequestActor) with dual support
-3. **Phase 3**: Migrate remaining actors one by one
-4. **Phase 4**: Remove legacy direct access, complete migration
-
-Each phase maintains full backward compatibility through the LifecycleTestManager dual implementation pattern.
-
-## Test Infrastructure
-
-### ActorTestHarness
-
-Dedicated test infrastructure for actor-based testing, defined in `tests/common/actor_test_harness.rs`:
-
-```rust
-/// Test harness for actor-based testing
-///
-/// Provides:
-/// - Initialized ActorRegistry with all actors
-/// - Helper methods for sending messages to actors
-/// - Lifecycle management for test setup/teardown
-pub struct ActorTestHarness {
-    /// Database connection pool
-    pub pool: PgPool,
-
-    /// System context for framework operations
-    pub context: Arc<SystemContext>,
-
-    /// Actor registry with all orchestration actors
-    pub actors: ActorRegistry,
-}
-
-impl ActorTestHarness {
-    /// Create a new ActorTestHarness with all actors initialized
-    pub async fn new(pool: PgPool) -> Result<Self> {
-        tracing::info!("🔧 Initializing ActorTestHarness");
-
-        // Create SystemContext from pool
-        let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
-
-        // Build ActorRegistry with all actors
-        let actors = ActorRegistry::build(context.clone()).await?;
-
-        tracing::info!("✅ ActorTestHarness initialized successfully");
-
-        Ok(Self {
-            pool,
-            context,
-            actors,
-        })
-    }
-
-    /// Shutdown all actors gracefully
-    pub async fn shutdown(&mut self) {
-        tracing::info!("🛑 Shutting down ActorTestHarness");
-        self.actors.shutdown().await;
-        tracing::info!("✅ ActorTestHarness shutdown complete");
-    }
-}
-```
-
-### LifecycleTestManager Integration
-
-The LifecycleTestManager now supports both legacy and actor-based testing:
-
-```rust
-pub struct LifecycleTestManager {
-    // ========== Legacy Fields ==========
-    /// Task initializer (legacy - prefer actor_harness)
-    pub task_initializer: TaskInitializer,
-
-    // ========== Actor-Based Fields (TAS-46) ==========
-    /// Actor test harness for actor-based testing
-    pub actor_harness: ActorTestHarness,
-
-    // ... other fields
-}
-
-impl LifecycleTestManager {
-    /// Initialize a task using TaskInitializer (legacy method)
-    pub async fn initialize_task(&self, task_request: TaskRequest) -> Result<TaskInitializationResult> {
-        self.task_initializer.create_task_from_request(task_request).await
-    }
-
-    /// Initialize a task using actor-based approach (Phase 2)
-    pub async fn initialize_task_via_actor(&self, task_request: TaskRequest) -> Result<TaskInitializationResult> {
-        let msg = InitializeTaskMessage { request: task_request };
-        self.actor_harness.actors.task_initializer_actor.handle(msg).await
-    }
-}
-```
-
-### Writing Actor Tests
-
-Example test using the actor harness:
-
-```rust
-use common::actor_test_harness::ActorTestHarness;
-
-#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_task_initialization_via_actor(pool: PgPool) -> Result<()> {
-    let harness = ActorTestHarness::new(pool).await?;
-
-    // Create request
-    let request = TaskRequest {
-        name: "test_task".to_string(),
-        namespace: "test_namespace".to_string(),
-        // ... other fields
-    };
-
-    // Send message to actor
-    let msg = InitializeTaskMessage { request };
-    let result = harness.actors.task_initializer_actor.handle(msg).await?;
-
-    // Assert result
-    assert!(result.task_uuid.is_some());
-
-    Ok(())
 }
 ```
 
@@ -617,7 +637,7 @@ All lifecycle components follow the same pattern:
 Messages and responses are type-checked at compile time:
 ```rust
 // Compile error if message/response types don't match
-impl Handler<WrongMessage> for TaskInitializerActor {
+impl Handler<WrongMessage> for TaskFinalizerActor {
     type Response = WrongResponse;  // ❌ Won't compile
     // ...
 }
@@ -625,69 +645,35 @@ impl Handler<WrongMessage> for TaskInitializerActor {
 
 ### 3. Testability
 
-- Dedicated test harness for actor testing
 - Clear message boundaries for mocking
 - Isolated actor lifecycle for unit tests
+- Type-safe message construction
 
 ### 4. Maintainability
 
 - Clear separation of concerns
 - Explicit message contracts
 - Centralized lifecycle management
+- Decomposed services (<300 lines per file)
 
-### 5. Evolvability
+### 5. Simplicity
 
-- Easy to add new actors
-- Easy to add new message handlers
-- Gradual migration path
-
-## Future Enhancements
-
-### Phase 2: TaskRequestActor Implementation
-
-The first actor to be fully implemented:
-
-```rust
-pub struct TaskRequestActor {
-    context: Arc<SystemContext>,
-    processor: TaskRequestProcessor,
-}
-
-// Handle task request messages
-impl Handler<ProcessTaskRequestMessage> for TaskRequestActor {
-    type Response = TaskRequestResult;
-
-    async fn handle(&self, msg: ProcessTaskRequestMessage) -> TaskerResult<Self::Response> {
-        self.processor.process_request(msg.request).await
-    }
-}
-```
-
-### Phase 3: Remaining Actors
-
-- ResultProcessorActor
-- StepEnqueuerActor
-- TaskFinalizerActor
-- TaskInitializerActor
-
-### Phase 4: Advanced Features
-
-- **Actor Supervision**: Restart failed actors automatically
-- **Actor Metrics**: Per-actor performance monitoring
-- **Actor Routing**: Dynamic message routing based on load
-- **Actor Persistence**: Save/restore actor state
+- Direct actor calls (no wrapper layers)
+- Pure routing in command processor
+- Easy to trace message flow
 
 ## Summary
 
 The actor-based architecture provides a consistent, type-safe foundation for lifecycle component management in tasker-core. Key takeaways:
 
-1. **Lightweight Pattern**: Actors wrap services, providing message-based interface
+1. **Lightweight Pattern**: Actors wrap decomposed services, providing message-based interface
 2. **Lifecycle Management**: Consistent initialization and shutdown via traits
 3. **Type Safety**: Compile-time verification of message contracts
-4. **Test Infrastructure**: Dedicated harnesses for actor and integration testing
-5. **Backward Compatible**: Gradual migration without breaking changes
+4. **Service Decomposition**: Focused components following single responsibility principle
+5. **Direct Integration**: Command processor calls actors directly without intermediate wrappers
+6. **Production Ready**: All phases complete, zero breaking changes, full test coverage
 
-The architecture sets the foundation for future scalability and maintainability while maintaining the proven reliability of existing lifecycle components.
+The architecture provides a solid foundation for future scalability and maintainability while maintaining the proven reliability of existing orchestration logic.
 
 ---
 

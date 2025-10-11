@@ -1,9 +1,9 @@
 # Crate Architecture
 
-**Last Updated**: 2025-10-10
+**Last Updated**: 2025-10-11
 **Audience**: Developers, Architects
-**Status**: Active
-**Related Docs**: [Documentation Hub](README.md) | [Events and Commands](events-and-commands.md) | [Quick Start](quick-start.md)
+**Status**: Active (TAS-46 Actor Architecture Complete)
+**Related Docs**: [Documentation Hub](README.md) | [Actor-Based Architecture](actors.md) | [Events and Commands](events-and-commands.md) | [Quick Start](quick-start.md)
 
 ← Back to [Documentation Hub](README.md)
 
@@ -212,6 +212,7 @@ pub mod messaging {
 **Location**: `tasker-orchestration/`
 
 **Key Responsibilities**:
+- Actor-based lifecycle coordination (TAS-46)
 - Task initialization and finalization
 - Step discovery and enqueueing
 - Result processing from workers
@@ -229,12 +230,32 @@ pub struct OrchestrationCore {
     pub async fn from_config(config: ConfigManager) -> Result<Self>;
 }
 
-// Lifecycle management
+// Actor-based coordination (TAS-46)
+pub mod actors {
+    pub struct ActorRegistry { /* ... */ }
+    pub struct TaskRequestActor { /* ... */ }
+    pub struct ResultProcessorActor { /* ... */ }
+    pub struct StepEnqueuerActor { /* ... */ }
+    pub struct TaskFinalizerActor { /* ... */ }
+
+    pub trait OrchestrationActor { /* ... */ }
+    pub trait Handler<M: Message> { /* ... */ }
+    pub trait Message { /* ... */ }
+}
+
+// Lifecycle services (wrapped by actors)
 pub mod lifecycle {
     pub struct TaskInitializer { /* ... */ }
-    pub struct StepEnqueuer { /* ... */ }
-    pub struct ResultProcessor { /* ... */ }
+    pub struct StepEnqueuerService { /* ... */ }
+    pub struct OrchestrationResultProcessor { /* ... */ }
     pub struct TaskFinalizer { /* ... */ }
+}
+
+// Message hydration (Phase 4)
+pub mod hydration {
+    pub struct StepResultHydrator { /* ... */ }
+    pub struct TaskRequestHydrator { /* ... */ }
+    pub struct FinalizationHydrator { /* ... */ }
 }
 
 // REST API (Axum)
@@ -255,6 +276,17 @@ pub mod event_systems {
     pub struct TaskReadinessEventSystem { /* ... */ }
 }
 ```
+
+**Actor Architecture** (TAS-46):
+
+The orchestration crate implements a lightweight actor pattern for lifecycle component coordination:
+
+- **ActorRegistry**: Manages all 4 orchestration actors with lifecycle hooks
+- **Message-Based Communication**: Type-safe message handling via `Handler<M>` trait
+- **Service Decomposition**: Large services decomposed into focused components (<300 lines per file)
+- **Direct Integration**: Command processor calls actors directly without wrapper layers
+
+See [Actor-Based Architecture](actors.md) for comprehensive documentation.
 
 **When to Use**:
 - When you need to run the orchestration server
@@ -655,6 +687,7 @@ Don't create a new crate when:
 
 ## Related Documentation
 
+- **[Actor-Based Architecture](actors.md)** - Actor pattern implementation in tasker-orchestration
 - **[Quick Start](quick-start.md)** - Get running with the crates
 - **[Events and Commands](events-and-commands.md)** - How crates coordinate
 - **[States and Lifecycles](states-and-lifecycles.md)** - State machines in tasker-shared
