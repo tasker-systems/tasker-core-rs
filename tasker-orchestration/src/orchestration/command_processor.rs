@@ -22,7 +22,6 @@
 //!
 //! This preserves the sophisticated orchestration logic while eliminating polling complexity.
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -30,9 +29,7 @@ use uuid::Uuid;
 
 use pgmq::Message as PgmqMessage;
 use pgmq_notify::MessageReadyEvent;
-use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
-use tasker_shared::models::WorkflowStep;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use tracing::{debug, error, info, warn};
@@ -185,8 +182,14 @@ use tokio::task::JoinHandle;
 // TAS-40 Phase 2.2 - Sophisticated delegation imports
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
-use crate::actors::{ActorRegistry, FinalizeTaskMessage, Handler, ProcessBatchMessage, ProcessStepResultMessage, ProcessTaskRequestMessage};
+use crate::actors::{ActorRegistry, Handler, ProcessBatchMessage};
 use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
+use crate::orchestration::hydration::{
+    FinalizationHydrator, StepResultHydrator, TaskRequestHydrator,
+}; // TAS-46 Phase 4
+use crate::orchestration::lifecycle_services::{
+    StepResultProcessingService, TaskFinalizationService, TaskInitializationService,
+}; // TAS-46 Phase 5
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::system_context::SystemContext;
 
@@ -280,7 +283,7 @@ impl OrchestrationProcessor {
 
         let actors = self.actors.clone();
         let handle = tokio::spawn(async move {
-            let handler = OrchestrationProcessorCommandHandler {
+            let handler = OrchestrationProcessorCommandHandler::new(
                 context,
                 actors,
                 stats,
@@ -288,7 +291,7 @@ impl OrchestrationProcessor {
                 result_processor,
                 task_claim_step_enqueuer,
                 pgmq_client,
-            };
+            );
             while let Some(command) = command_rx.recv().await {
                 handler.process_command(command).await;
             }
@@ -310,6 +313,12 @@ pub struct OrchestrationProcessorCommandHandler {
     #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
     task_claim_step_enqueuer: Arc<StepEnqueuerService>, // TAS-43: Added for atomic task claiming and step enqueueing
     pgmq_client: Arc<UnifiedPgmqClient>,
+    step_result_hydrator: StepResultHydrator,              // TAS-46 Phase 4: Hydrates step results from messages
+    task_request_hydrator: TaskRequestHydrator,            // TAS-46 Phase 4: Hydrates task requests from messages
+    finalization_hydrator: FinalizationHydrator,           // TAS-46 Phase 4: Hydrates finalization requests from messages
+    task_init_service: TaskInitializationService,          // TAS-46 Phase 5: Task initialization lifecycle service
+    step_processing_service: StepResultProcessingService,  // TAS-46 Phase 5: Step result processing lifecycle service
+    task_finalization_service: TaskFinalizationService,    // TAS-46 Phase 5: Task finalization lifecycle service
 }
 
 impl OrchestrationProcessorCommandHandler {
@@ -322,6 +331,16 @@ impl OrchestrationProcessorCommandHandler {
         task_claim_step_enqueuer: Arc<StepEnqueuerService>,
         pgmq_client: Arc<UnifiedPgmqClient>,
     ) -> Self {
+        // TAS-46 Phase 4: Initialize hydrators for message transformation
+        let step_result_hydrator = StepResultHydrator::new(context.clone());
+        let task_request_hydrator = TaskRequestHydrator::new();
+        let finalization_hydrator = FinalizationHydrator::new();
+
+        // TAS-46 Phase 5: Initialize lifecycle management services
+        let task_init_service = TaskInitializationService::new(actors.clone());
+        let step_processing_service = StepResultProcessingService::new(actors.clone());
+        let task_finalization_service = TaskFinalizationService::new(actors.clone());
+
         Self {
             context,
             actors,
@@ -330,6 +349,12 @@ impl OrchestrationProcessorCommandHandler {
             result_processor,
             task_claim_step_enqueuer,
             pgmq_client,
+            step_result_hydrator,
+            task_request_hydrator,
+            finalization_hydrator,
+            task_init_service,
+            step_processing_service,
+            task_finalization_service,
         }
     }
 
@@ -524,124 +549,54 @@ impl OrchestrationProcessorCommandHandler {
         }
     }
 
-    /// Handle task initialization using TaskRequestActor (TAS-46)
+    /// Handle task initialization using TaskInitializationService (TAS-46 Phase 5)
     async fn handle_initialize_task(
         &self,
         request: TaskRequestMessage,
     ) -> TaskerResult<TaskInitializeResult> {
-        // TAS-46: Actor-based task initialization
-        // Uses TaskRequestActor which wraps TaskRequestProcessor for:
-        // - Request validation and conversion
-        // - Task creation with proper database transactions
-        // - Namespace queue initialization
-        // - Handler registration verification
-        // - Complete workflow setup with proper error handling
-
-        // Send message to actor
-        let msg = ProcessTaskRequestMessage { request };
-        let task_uuid = self.actors.task_request_actor.handle(msg).await?;
+        // TAS-46 Phase 5: Service-based task initialization
+        let result = self.task_init_service.initialize_task(request).await?;
 
         Ok(TaskInitializeResult::Success {
-            task_uuid,
-            message: "Task initialized successfully via TaskRequestActor - ready for SQL-based discovery".to_string(),
+            task_uuid: result.task_uuid,
+            message: result.message,
         })
     }
 
-    /// Handle step result processing using ResultProcessorActor (TAS-46)
+    /// Handle step result processing using StepResultProcessingService (TAS-46 Phase 5)
     async fn handle_process_step_result(
         &self,
         step_result: StepExecutionResult,
     ) -> TaskerResult<StepProcessResult> {
-        info!(
-            step_uuid = %step_result.step_uuid,
-            status = %step_result.status,
-            execution_time_ms = step_result.metadata.execution_time_ms,
-            has_orchestration_metadata = step_result.orchestration_metadata.is_some(),
-            "STEP_PROCESSOR: Processing step result via ResultProcessorActor"
-        );
+        // TAS-46 Phase 5: Service-based step result processing
+        use crate::orchestration::lifecycle_services::StepProcessingResult;
 
-        // TAS-46 Phase 2 - ResultProcessorActor message-based processing
-        // Actor wraps sophisticated OrchestrationResultProcessor for:
-        // - Result validation and orchestration metadata processing
-        // - Task finalization coordination with atomic claiming (TAS-37)
-        // - Error handling, retry logic, and failure state management
-        // - Backoff calculations for intelligent retry coordination
-
-        let msg = ProcessStepResultMessage {
-            result: step_result.clone(),
-        };
-
-        match self.actors.result_processor_actor.handle(msg).await {
-            Ok(()) => {
-                info!(
-                    step_uuid = %step_result.step_uuid,
-                    status = %step_result.status,
-                    "STEP_PROCESSOR: ResultProcessorActor processing succeeded"
-                );
-                Ok(StepProcessResult::Success {
-                    message: format!(
-                        "Step {} result processed successfully via ResultProcessorActor - includes TAS-37 atomic finalization claiming",
-                        step_result.step_uuid
-                    ),
-                })
-            }
-            Err(e) => {
-                error!(
-                    step_uuid = %step_result.step_uuid,
-                    status = %step_result.status,
-                    error = %e,
-                    "STEP_PROCESSOR: ResultProcessorActor processing failed"
-                );
-
-                match step_result.status.as_str() {
-                    "failed" => {
-                        warn!(
-                            step_uuid = %step_result.step_uuid,
-                            status = %step_result.status,
-                            "STEP_PROCESSOR: Returning StepProcessResult::Failed for 'failed' status"
-                        );
-                        Ok(StepProcessResult::Failed {
-                            error: format!("Step result processing failed: {e}"),
-                        })
-                    }
-                    "skipped" => {
-                        warn!(
-                            step_uuid = %step_result.step_uuid,
-                            status = %step_result.status,
-                            "STEP_PROCESSOR: Returning StepProcessResult::Skipped for 'skipped' status"
-                        );
-                        Ok(StepProcessResult::Skipped {
-                            reason: format!("Step result processing skipped: {e}"),
-                        })
-                    }
-                    _ => {
-                        error!(
-                            step_uuid = %step_result.step_uuid,
-                            status = %step_result.status,
-                            "STEP_PROCESSOR: Returning TaskerError for status '{}'", step_result.status
-                        );
-                        Err(TaskerError::OrchestrationError(format!(
-                            "Step result processing error: {e}"
-                        )))
-                    }
-                }
-            }
+        match self
+            .step_processing_service
+            .process_step_result(step_result)
+            .await?
+        {
+            StepProcessingResult::Success { message } => Ok(StepProcessResult::Success { message }),
+            StepProcessingResult::Failed { error } => Ok(StepProcessResult::Failed { error }),
+            StepProcessingResult::Skipped { reason } => Ok(StepProcessResult::Skipped { reason }),
         }
     }
 
     async fn handle_finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
-        // TAS-46 Phase 3: Use TaskFinalizerActor for task finalization
-        let msg = FinalizeTaskMessage { task_uuid };
+        // TAS-46 Phase 5: Service-based task finalization
+        use crate::orchestration::lifecycle_services::FinalizationResult as ServiceFinalization;
 
-        match self.actors.task_finalizer_actor.handle(msg).await {
-            Ok(result) => Ok(TaskFinalizationResult::Success {
+        match self.task_finalization_service.finalize_task(task_uuid).await? {
+            ServiceFinalization::Success {
                 task_uuid,
-                final_status: format!("{:?}", result.action),
-                completion_time: Some(Utc::now()),
+                final_status,
+                completion_time,
+            } => Ok(TaskFinalizationResult::Success {
+                task_uuid,
+                final_status,
+                completion_time,
             }),
-            Err(e) => Ok(TaskFinalizationResult::Failed {
-                error: format!("Task finalization failed: {e}"),
-            }),
+            ServiceFinalization::Failed { error } => Ok(TaskFinalizationResult::Failed { error }),
         }
     }
 
@@ -685,115 +640,19 @@ impl OrchestrationProcessorCommandHandler {
         debug!(
             msg_id = message.msg_id,
             queue = %queue_name,
-            message_size = message.message.to_string().len(),
-            "STEP_RESULT_HANDLER: Starting step result message processing"
+            "STEP_RESULT_HANDLER: Processing step result message via hydrator"
         );
 
-        // Parse as SimpleStepMessage (only task_uuid and step_uuid)
-        let simple_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
-            .map_err(|e| {
-                error!(
-                    msg_id = message.msg_id,
-                    queue = %queue_name,
-                    raw_message = %message.message,
-                    error = %e,
-                    "STEP_RESULT_HANDLER: Failed to parse SimpleStepMessage"
-                );
-                TaskerError::ValidationError(format!("Invalid SimpleStepMessage format: {e}"))
-            })?;
-
-        info!(
-            msg_id = message.msg_id,
-            step_uuid = %simple_message.step_uuid,
-            task_uuid = %simple_message.task_uuid,
-            "STEP_RESULT_HANDLER: Successfully parsed SimpleStepMessage"
-        );
-
-        // Database hydration using tasker-shared WorkflowStep model
-        debug!(
-            step_uuid = %simple_message.step_uuid,
-            "STEP_RESULT_HANDLER: Hydrating WorkflowStep from database"
-        );
-
-        let workflow_step =
-            WorkflowStep::find_by_id(self.context.database_pool(), simple_message.step_uuid)
-                .await
-                .map_err(|e| {
-                    error!(
-                        step_uuid = %simple_message.step_uuid,
-                        error = %e,
-                        "STEP_RESULT_HANDLER: Database lookup failed for WorkflowStep"
-                    );
-                    TaskerError::DatabaseError(format!("Failed to lookup step: {e}"))
-                })?
-                .ok_or_else(|| {
-                    error!(
-                        step_uuid = %simple_message.step_uuid,
-                        "STEP_RESULT_HANDLER: WorkflowStep not found in database"
-                    );
-                    TaskerError::ValidationError(format!(
-                        "WorkflowStep not found for step_uuid: {}",
-                        simple_message.step_uuid
-                    ))
-                })?;
+        // TAS-46 Phase 4: Hydrate full StepExecutionResult from lightweight message
+        let step_execution_result = self
+            .step_result_hydrator
+            .hydrate_from_message(&message)
+            .await?;
 
         debug!(
-            step_uuid = %simple_message.step_uuid,
-            task_uuid = %workflow_step.task_uuid,
-            has_results = workflow_step.results.is_some(),
-            "STEP_RESULT_HANDLER: Successfully hydrated WorkflowStep from database"
-        );
-
-        // Check if results exist
-        let results_json = workflow_step.results.ok_or_else(|| {
-            error!(
-                step_uuid = %simple_message.step_uuid,
-                task_uuid = %workflow_step.task_uuid,
-                "STEP_RESULT_HANDLER: No results found in WorkflowStep.results JSONB column"
-            );
-            TaskerError::ValidationError(format!(
-                "No results found for step_uuid: {}",
-                simple_message.step_uuid
-            ))
-        })?;
-
-        debug!(
-            step_uuid = %simple_message.step_uuid,
-            results_size = results_json.to_string().len(),
-            "STEP_RESULT_HANDLER: Deserializing StepExecutionResult from JSONB"
-        );
-
-        // Deserialize StepExecutionResult from results JSONB column
-        let step_execution_result: StepExecutionResult = serde_json::from_value(
-            results_json.clone(),
-        )
-        .map_err(|e| {
-            error!(
-                step_uuid = %simple_message.step_uuid,
-                task_uuid = %workflow_step.task_uuid,
-                results_json = %results_json,
-                error = %e,
-                "STEP_RESULT_HANDLER: Failed to deserialize StepExecutionResult from results JSONB"
-            );
-            TaskerError::ValidationError(format!(
-                "Failed to deserialize StepExecutionResult from results JSONB: {e}"
-            ))
-        })?;
-
-        info!(
-            step_uuid = %simple_message.step_uuid,
-            task_uuid = %workflow_step.task_uuid,
+            step_uuid = %step_execution_result.step_uuid,
             status = %step_execution_result.status,
-            execution_time_ms = step_execution_result.metadata.execution_time_ms,
-            "STEP_RESULT_HANDLER: Successfully deserialized StepExecutionResult"
-        );
-
-        // Delegate to existing step result processing logic
-        debug!(
-            step_uuid = %simple_message.step_uuid,
-            task_uuid = %workflow_step.task_uuid,
-            status = %step_execution_result.status,
-            "STEP_RESULT_HANDLER: Delegating to result processor"
+            "STEP_RESULT_HANDLER: Hydration complete, delegating to result processor"
         );
 
         let result = self
@@ -804,8 +663,7 @@ impl OrchestrationProcessorCommandHandler {
             Ok(step_result) => {
                 info!(
                     msg_id = message.msg_id,
-                    step_uuid = %simple_message.step_uuid,
-                    task_uuid = %workflow_step.task_uuid,
+                    step_uuid = %step_execution_result.step_uuid,
                     result = ?step_result,
                     "STEP_RESULT_HANDLER: Result processing succeeded"
                 );
@@ -842,8 +700,7 @@ impl OrchestrationProcessorCommandHandler {
             Err(error) => {
                 error!(
                     msg_id = message.msg_id,
-                    step_uuid = %simple_message.step_uuid,
-                    task_uuid = %workflow_step.task_uuid,
+                    step_uuid = %step_execution_result.step_uuid,
                     error = %error,
                     "STEP_RESULT_HANDLER: Result processing failed (message will remain for retry)"
                 );
@@ -913,24 +770,24 @@ impl OrchestrationProcessorCommandHandler {
         queue_name: &str,
         message: PgmqMessage,
     ) -> TaskerResult<TaskInitializeResult> {
-        tracing::debug!(
+        debug!(
             msg_id = message.msg_id,
             queue = %queue_name,
-            "Processing task initialization from message event"
+            "TASK_INIT_HANDLER: Processing task initialization via hydrator"
         );
 
-        // Parse the task request message
-        let task_request: TaskRequestMessage = serde_json::from_value(message.message.clone())
-            .map_err(|e| {
-                tracing::error!(
-                    msg_id = message.msg_id,
-                    queue = %queue_name,
-                    error = %e,
-                    message_content = %message.message,
-                    "Failed to parse task request message"
-                );
-                TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
-            })?;
+        // TAS-46 Phase 4: Hydrate TaskRequestMessage from PGMQ message
+        let task_request = self
+            .task_request_hydrator
+            .hydrate_from_message(&message)
+            .await?;
+
+        debug!(
+            msg_id = message.msg_id,
+            namespace = %task_request.task_request.namespace,
+            handler = %task_request.task_request.name,
+            "TASK_INIT_HANDLER: Hydration complete, delegating to task initialization"
+        );
 
         // Delegate to existing task initialization logic
         let result = self.handle_initialize_task(task_request).await;
@@ -1015,18 +872,23 @@ impl OrchestrationProcessorCommandHandler {
         queue_name: &str,
         message: PgmqMessage,
     ) -> TaskerResult<TaskFinalizationResult> {
-        // Parse the message to extract task_uuid
-        // For now, assume the message contains a task_uuid field directly
-        let task_uuid = message
-            .message
-            .get("task_uuid")
-            .and_then(|v| v.as_str())
-            .and_then(|s| Uuid::parse_str(s).ok())
-            .ok_or_else(|| {
-                TaskerError::ValidationError(
-                    "Invalid or missing task_uuid in finalization message".to_string(),
-                )
-            })?;
+        debug!(
+            msg_id = message.msg_id,
+            queue = %queue_name,
+            "FINALIZATION_HANDLER: Processing finalization via hydrator"
+        );
+
+        // TAS-46 Phase 4: Hydrate task_uuid from PGMQ message
+        let task_uuid = self
+            .finalization_hydrator
+            .hydrate_from_message(&message)
+            .await?;
+
+        debug!(
+            msg_id = message.msg_id,
+            task_uuid = %task_uuid,
+            "FINALIZATION_HANDLER: Hydration complete, delegating to task finalization"
+        );
 
         // Delegate to existing task finalization logic
         let result = self.handle_finalize_task(task_uuid).await;
