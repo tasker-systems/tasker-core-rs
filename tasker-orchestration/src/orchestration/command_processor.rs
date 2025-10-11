@@ -180,13 +180,13 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 
 // TAS-40 Phase 2.2 - Sophisticated delegation imports
-use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
-use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::actors::{ActorRegistry, Handler, ProcessBatchMessage};
-use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
 use crate::orchestration::hydration::{
     FinalizationHydrator, StepResultHydrator, TaskRequestHydrator,
 }; // TAS-46 Phase 4
+use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
+use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
+use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
 use crate::orchestration::lifecycle_services::{
     StepResultProcessingService, TaskFinalizationService, TaskInitializationService,
 }; // TAS-46 Phase 5
@@ -313,12 +313,12 @@ pub struct OrchestrationProcessorCommandHandler {
     #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
     task_claim_step_enqueuer: Arc<StepEnqueuerService>, // TAS-43: Added for atomic task claiming and step enqueueing
     pgmq_client: Arc<UnifiedPgmqClient>,
-    step_result_hydrator: StepResultHydrator,              // TAS-46 Phase 4: Hydrates step results from messages
-    task_request_hydrator: TaskRequestHydrator,            // TAS-46 Phase 4: Hydrates task requests from messages
-    finalization_hydrator: FinalizationHydrator,           // TAS-46 Phase 4: Hydrates finalization requests from messages
-    task_init_service: TaskInitializationService,          // TAS-46 Phase 5: Task initialization lifecycle service
-    step_processing_service: StepResultProcessingService,  // TAS-46 Phase 5: Step result processing lifecycle service
-    task_finalization_service: TaskFinalizationService,    // TAS-46 Phase 5: Task finalization lifecycle service
+    step_result_hydrator: StepResultHydrator, // TAS-46 Phase 4: Hydrates step results from messages
+    task_request_hydrator: TaskRequestHydrator, // TAS-46 Phase 4: Hydrates task requests from messages
+    finalization_hydrator: FinalizationHydrator, // TAS-46 Phase 4: Hydrates finalization requests from messages
+    task_init_service: TaskInitializationService, // TAS-46 Phase 5: Task initialization lifecycle service
+    step_processing_service: StepResultProcessingService, // TAS-46 Phase 5: Step result processing lifecycle service
+    task_finalization_service: TaskFinalizationService, // TAS-46 Phase 5: Task finalization lifecycle service
 }
 
 impl OrchestrationProcessorCommandHandler {
@@ -586,7 +586,11 @@ impl OrchestrationProcessorCommandHandler {
         // TAS-46 Phase 5: Service-based task finalization
         use crate::orchestration::lifecycle_services::FinalizationResult as ServiceFinalization;
 
-        match self.task_finalization_service.finalize_task(task_uuid).await? {
+        match self
+            .task_finalization_service
+            .finalize_task(task_uuid)
+            .await?
+        {
             ServiceFinalization::Success {
                 task_uuid,
                 final_status,

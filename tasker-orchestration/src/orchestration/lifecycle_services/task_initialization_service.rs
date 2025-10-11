@@ -110,7 +110,9 @@ impl TaskInitializationService {
 
         Ok(TaskInitializationSuccess {
             task_uuid,
-            message: "Task initialized successfully via TaskRequestActor - ready for SQL-based discovery".to_string(),
+            message:
+                "Task initialized successfully via TaskRequestActor - ready for SQL-based discovery"
+                    .to_string(),
         })
     }
 }

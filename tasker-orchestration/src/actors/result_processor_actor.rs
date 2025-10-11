@@ -7,8 +7,8 @@ use crate::actors::{Handler, Message, OrchestrationActor};
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
 use async_trait::async_trait;
 use std::sync::Arc;
-use tasker_shared::StepExecutionResult;
 use tasker_shared::system_context::SystemContext;
+use tasker_shared::StepExecutionResult;
 use tasker_shared::TaskerResult;
 use tracing::{debug, info};
 

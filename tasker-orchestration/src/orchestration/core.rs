@@ -26,7 +26,7 @@ use crate::orchestration::command_processor::{
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_finalizer::TaskFinalizer;
-use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
+use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
 use crate::orchestration::lifecycle::task_request_processor::{
     TaskRequestProcessor, TaskRequestProcessorConfig,
 };

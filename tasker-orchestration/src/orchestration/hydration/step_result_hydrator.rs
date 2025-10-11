@@ -89,8 +89,8 @@ impl StepResultHydrator {
         );
 
         // Step 1: Parse SimpleStepMessage (only task_uuid and step_uuid)
-        let simple_message: SimpleStepMessage =
-            serde_json::from_value(message.message.clone()).map_err(|e| {
+        let simple_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
+            .map_err(|e| {
                 error!(
                     msg_id = message.msg_id,
                     raw_message = %message.message,

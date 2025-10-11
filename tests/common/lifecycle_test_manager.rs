@@ -50,7 +50,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_orchestration::orchestration::lifecycle::{
     step_enqueuer_service::StepEnqueuerService,
-    task_initializer::{TaskInitializationResult, TaskInitializer},
+    task_initialization::{TaskInitializationResult, TaskInitializer},
 };
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::models::WorkflowStep;

@@ -55,21 +55,21 @@ pub mod core;
 pub mod state_manager;
 
 // Service Layer (TAS-46 Refactoring)
-pub mod hydration;          // Phase 4: Message hydration services
+pub mod hydration; // Phase 4: Message hydration services
 pub mod lifecycle_services; // Phase 5: Lifecycle management services
 
 // Infrastructure
 pub mod event_systems;
 pub mod orchestration_queues;
-pub mod task_readiness;
 pub mod system_events;
+pub mod task_readiness;
 
 // Business Logic
-pub mod lifecycle;
 pub mod backoff_calculator;
-pub mod viable_step_discovery;
 pub mod error_classifier;
 pub mod error_handling_service;
+pub mod lifecycle;
+pub mod viable_step_discovery;
 
 // Configuration and Errors
 pub mod config;
@@ -152,7 +152,7 @@ pub use lifecycle::step_enqueuer::{NamespaceEnqueueStats, StepEnqueueResult, Ste
 pub use lifecycle::task_finalizer::{
     FinalizationAction, FinalizationError, FinalizationResult, TaskFinalizer,
 };
-pub use lifecycle::task_initializer::{
+pub use lifecycle::task_initialization::{
     TaskInitializationError, TaskInitializationResult, TaskInitializer,
 };
 

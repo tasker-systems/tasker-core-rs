@@ -11,7 +11,7 @@ use crate::actors::traits::OrchestrationActor;
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_finalizer::TaskFinalizer;
-use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
+use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
 use crate::orchestration::lifecycle::task_request_processor::{
     TaskRequestProcessor, TaskRequestProcessorConfig,
 };
@@ -63,7 +63,6 @@ pub struct ActorRegistry {
 
     /// Task finalizer actor for task finalization with atomic claiming (TAS-46 Phase 3)
     pub task_finalizer_actor: Arc<TaskFinalizerActor>,
-
     // Future actors (TAS-46 Phase 3):
     // pub task_initializer_actor: Arc<TaskInitializerActor>,
 }
@@ -134,12 +133,14 @@ impl ActorRegistry {
             context.clone(),
         ));
 
-        let mut result_processor_actor = ResultProcessorActor::new(context.clone(), result_processor);
+        let mut result_processor_actor =
+            ResultProcessorActor::new(context.clone(), result_processor);
         result_processor_actor.started()?;
         let result_processor_actor = Arc::new(result_processor_actor);
 
         // Create StepEnqueuerActor using shared StepEnqueuerService
-        let mut step_enqueuer_actor = StepEnqueuerActor::new(context.clone(), task_claim_step_enqueuer.clone());
+        let mut step_enqueuer_actor =
+            StepEnqueuerActor::new(context.clone(), task_claim_step_enqueuer.clone());
         step_enqueuer_actor.started()?;
         let step_enqueuer_actor = Arc::new(step_enqueuer_actor);
 

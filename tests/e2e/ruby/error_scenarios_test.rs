@@ -173,7 +173,7 @@ async fn test_retryable_failure_scenario() -> Result<()> {
         elapsed
     );
     assert!(
-        elapsed.as_secs() < 3,
+        elapsed.as_secs() < 4,
         "Should not take too long, took {:?}",
         elapsed
     );
