@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn test_all_finalization_actions_are_distinct() {
         // Verify all FinalizationAction variants are distinct
-        let actions = vec![
+        let actions = [
             FinalizationAction::Completed,
             FinalizationAction::Failed,
             FinalizationAction::Pending,

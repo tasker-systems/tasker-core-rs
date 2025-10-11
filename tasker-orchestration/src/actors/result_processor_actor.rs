@@ -43,6 +43,7 @@ impl Message for ProcessStepResultMessage {
 ///
 /// ```rust,no_run
 /// use tasker_orchestration::actors::{Handler, result_processor_actor::*};
+/// use tasker_shared::StepExecutionResult;
 ///
 /// # async fn example(actor: ResultProcessorActor, result: StepExecutionResult) -> Result<(), Box<dyn std::error::Error>> {
 /// let msg = ProcessStepResultMessage { result };

@@ -14,15 +14,10 @@
 //!
 //! ### Service Layer (TAS-46 Refactoring)
 //!
-//! **Message Hydration Services** (Phase 4)
+//! **Message Hydration Services**
 //! - Transform lightweight queue messages into rich domain objects
 //! - Database-driven hydration for complete data reconstruction
 //! - Clean separation of parsing from business logic
-//!
-//! **Lifecycle Management Services** (Phase 5)
-//! - Encapsulate actor delegation patterns
-//! - Task initialization, step processing, and finalization
-//! - Single-purpose interfaces for command processors
 //!
 //! ### Infrastructure
 //!
@@ -56,7 +51,6 @@ pub mod state_manager;
 
 // Service Layer (TAS-46 Refactoring)
 pub mod hydration; // Phase 4: Message hydration services
-pub mod lifecycle_services; // Phase 5: Lifecycle management services
 
 // Infrastructure
 pub mod event_systems;
@@ -98,14 +92,6 @@ pub use state_manager::StateManager;
 
 // Phase 4: Message Hydration Services
 pub use hydration::{FinalizationHydrator, StepResultHydrator, TaskRequestHydrator};
-
-// Phase 5: Lifecycle Management Services
-pub use lifecycle_services::{
-    StepProcessingResult, StepResultProcessingService, TaskFinalizationService,
-    TaskInitializationService, TaskInitializationSuccess,
-};
-// Renamed to avoid conflict with lifecycle::task_finalizer::FinalizationResult
-pub use lifecycle_services::FinalizationResult as ServiceFinalizationResult;
 
 // ============================================================================
 // Re-exports: Infrastructure

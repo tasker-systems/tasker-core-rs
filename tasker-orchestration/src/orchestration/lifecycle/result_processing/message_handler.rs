@@ -11,10 +11,10 @@ use uuid::Uuid;
 use super::metadata_processor::MetadataProcessor;
 use super::state_transition_handler::StateTransitionHandler;
 use super::task_coordinator::TaskCoordinator;
+use tasker_shared::errors::OrchestrationResult;
 use tasker_shared::messaging::StepExecutionStatus;
 use tasker_shared::metrics::orchestration::*;
 use tasker_shared::system_context::SystemContext;
-use tasker_shared::errors::OrchestrationResult;
 
 use tasker_shared::messaging::{StepExecutionResult, StepResultMessage};
 use tasker_shared::models::{Task, WorkflowStep};
@@ -413,10 +413,7 @@ mod tests {
         let cloned = handler.clone();
 
         // Verify both share the same Arc
-        assert_eq!(
-            Arc::as_ptr(&handler.context),
-            Arc::as_ptr(&cloned.context)
-        );
+        assert_eq!(Arc::as_ptr(&handler.context), Arc::as_ptr(&cloned.context));
         Ok(())
     }
 
@@ -458,4 +455,3 @@ mod tests {
         Ok(())
     }
 }
-

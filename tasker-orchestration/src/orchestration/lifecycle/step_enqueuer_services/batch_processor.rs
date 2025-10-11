@@ -2,10 +2,10 @@
 //!
 //! Handles batch processing of ready tasks.
 
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use chrono::Utc;
 use tracing::{debug, info};
 
 use super::task_processor::TaskProcessor;
@@ -172,5 +172,79 @@ impl BatchProcessor {
             },
             warnings: vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_batch_processor_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
+        let config: TaskClaimStepEnqueuerConfig = context.tasker_config.clone().into();
+        let processor = BatchProcessor::new(context, step_enqueuer, config);
+
+        // Verify it's created (basic smoke test)
+        assert!(Arc::strong_count(&processor.context) >= 1);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_batch_processor_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
+        let config: TaskClaimStepEnqueuerConfig = context.tasker_config.clone().into();
+        let processor = BatchProcessor::new(context, step_enqueuer, config);
+
+        let cloned = processor.clone();
+
+        // Verify both share the same Arc
+        assert_eq!(
+            Arc::as_ptr(&processor.context),
+            Arc::as_ptr(&cloned.context)
+        );
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_empty_cycle_result(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
+        let config: TaskClaimStepEnqueuerConfig = context.tasker_config.clone().into();
+        let processor = BatchProcessor::new(context, step_enqueuer, config);
+
+        let cycle_started_at = Utc::now();
+        let cycle_duration_ms = 100;
+
+        let result = processor.create_empty_cycle_result(cycle_started_at, cycle_duration_ms);
+
+        // Verify empty cycle result structure
+        assert_eq!(result.tasks_processed, 0);
+        assert_eq!(result.tasks_failed, 0);
+        assert_eq!(result.cycle_duration_ms, cycle_duration_ms);
+        assert_eq!(result.performance_metrics.steps_per_second, 0.0);
+        assert_eq!(result.warnings.len(), 0);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_batch_processor_config_storage(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
+        let config: TaskClaimStepEnqueuerConfig = context.tasker_config.clone().into();
+        let expected_batch_size = config.batch_size;
+        let processor = BatchProcessor::new(context, step_enqueuer, config);
+
+        // Verify config is stored correctly
+        assert_eq!(processor.config.batch_size, expected_batch_size);
+        Ok(())
     }
 }

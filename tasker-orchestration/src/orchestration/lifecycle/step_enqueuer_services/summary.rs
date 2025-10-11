@@ -167,3 +167,182 @@ impl ContinuousOrchestrationSummary {
         end_time - self.started_at
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_new_summary_creation() {
+        let summary = ContinuousOrchestrationSummary::new();
+
+        // Verify initial state
+        assert_eq!(summary.total_cycles, 0);
+        assert_eq!(summary.failed_cycles, 0);
+        assert_eq!(summary.total_tasks_processed, 0);
+        assert_eq!(summary.total_tasks_failed, 0);
+        assert!(summary.ended_at.is_none());
+    }
+
+    #[test]
+    fn test_default_creation() {
+        let summary = ContinuousOrchestrationSummary::default();
+
+        // Verify Default trait works the same as new()
+        assert_eq!(summary.total_cycles, 0);
+        assert_eq!(summary.failed_cycles, 0);
+    }
+
+    #[test]
+    fn test_accumulate_cycle_result() {
+        let mut summary = ContinuousOrchestrationSummary::new();
+
+        let result = StepEnqueuerServiceResult {
+            cycle_started_at: Utc::now(),
+            cycle_duration_ms: 100,
+            tasks_processed: 5,
+            tasks_failed: 1,
+            priority_distribution: PriorityDistribution {
+                urgent_tasks: 2,
+                high_tasks: 1,
+                normal_tasks: 2,
+                low_tasks: 0,
+                invalid_tasks: 0,
+                escalated_tasks: 0,
+                avg_computed_priority: 0.0,
+                avg_task_age_hours: 0.0,
+            },
+            namespace_stats: HashMap::new(),
+            performance_metrics: PerformanceMetrics {
+                claim_duration_ms: 10,
+                discovery_duration_ms: 20,
+                enqueueing_duration_ms: 30,
+                release_duration_ms: 5,
+                avg_task_processing_ms: 20,
+                steps_per_second: 50.0,
+                tasks_per_second: 10.0,
+            },
+            warnings: vec!["test warning".to_string()],
+        };
+
+        summary.accumulate_cycle_result(&result);
+
+        // Verify accumulation
+        assert_eq!(summary.total_cycles, 1);
+        assert_eq!(summary.total_tasks_processed, 5);
+        assert_eq!(summary.total_tasks_failed, 1);
+        assert_eq!(summary.aggregate_priority_distribution.urgent_tasks, 2);
+        assert_eq!(summary.aggregate_priority_distribution.high_tasks, 1);
+        assert_eq!(
+            summary
+                .aggregate_performance_metrics
+                .total_cycle_duration_ms,
+            100
+        );
+        assert_eq!(summary.total_warnings, 1);
+        assert_eq!(summary.recent_warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_increment_error_count() {
+        let mut summary = ContinuousOrchestrationSummary::new();
+
+        summary.increment_error_count();
+        assert_eq!(summary.failed_cycles, 1);
+
+        summary.increment_error_count();
+        assert_eq!(summary.failed_cycles, 2);
+    }
+
+    #[test]
+    fn test_finalize_sets_end_time() {
+        let mut summary = ContinuousOrchestrationSummary::new();
+
+        assert!(summary.ended_at.is_none());
+
+        summary.finalize();
+
+        assert!(summary.ended_at.is_some());
+    }
+
+    #[test]
+    fn test_avg_cycle_duration_ms() {
+        let mut summary = ContinuousOrchestrationSummary::new();
+
+        // Empty summary should return 0.0
+        assert_eq!(summary.avg_cycle_duration_ms(), 0.0);
+
+        // Add cycle results
+        let result = StepEnqueuerServiceResult {
+            cycle_started_at: Utc::now(),
+            cycle_duration_ms: 100,
+            tasks_processed: 1,
+            tasks_failed: 0,
+            priority_distribution: PriorityDistribution::default(),
+            namespace_stats: HashMap::new(),
+            performance_metrics: PerformanceMetrics {
+                claim_duration_ms: 10,
+                discovery_duration_ms: 20,
+                enqueueing_duration_ms: 30,
+                release_duration_ms: 5,
+                avg_task_processing_ms: 20,
+                steps_per_second: 10.0,
+                tasks_per_second: 2.0,
+            },
+            warnings: vec![],
+        };
+
+        summary.accumulate_cycle_result(&result);
+        summary.accumulate_cycle_result(&result);
+
+        // Should be 200ms total / 2 cycles = 100ms average
+        assert_eq!(summary.avg_cycle_duration_ms(), 100.0);
+    }
+
+    #[test]
+    fn test_success_rate_percentage() {
+        let mut summary = ContinuousOrchestrationSummary::new();
+
+        // Empty summary should return 0.0
+        assert_eq!(summary.success_rate_percentage(), 0.0);
+
+        // Add successful cycles
+        let result = StepEnqueuerServiceResult {
+            cycle_started_at: Utc::now(),
+            cycle_duration_ms: 100,
+            tasks_processed: 1,
+            tasks_failed: 0,
+            priority_distribution: PriorityDistribution::default(),
+            namespace_stats: HashMap::new(),
+            performance_metrics: PerformanceMetrics {
+                claim_duration_ms: 10,
+                discovery_duration_ms: 20,
+                enqueueing_duration_ms: 30,
+                release_duration_ms: 5,
+                avg_task_processing_ms: 20,
+                steps_per_second: 10.0,
+                tasks_per_second: 2.0,
+            },
+            warnings: vec![],
+        };
+
+        summary.accumulate_cycle_result(&result);
+        summary.accumulate_cycle_result(&result);
+        summary.accumulate_cycle_result(&result);
+        summary.increment_error_count(); // 1 failed out of 3 total
+
+        // Should be 2 successful / 3 total = 66.67%
+        let success_rate = summary.success_rate_percentage();
+        assert!((success_rate - 66.666666).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_runtime_duration() {
+        let summary = ContinuousOrchestrationSummary::new();
+
+        // Runtime should be > 0 even for new summary
+        let duration = summary.runtime_duration();
+        assert!(duration.num_milliseconds() >= 0);
+    }
+}

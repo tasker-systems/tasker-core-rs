@@ -35,14 +35,14 @@ use tasker_shared::{system_context::SystemContext, TaskerResult};
 ///
 /// ```rust,no_run
 /// use tasker_orchestration::actors::ActorRegistry;
+/// use tasker_shared::system_context::SystemContext;
 /// use std::sync::Arc;
 ///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let context = Arc::new(SystemContext::from_config(config).await?);
+/// # async fn example(context: Arc<SystemContext>) -> Result<(), Box<dyn std::error::Error>> {
 /// let registry = ActorRegistry::build(context).await?;
 ///
 /// // Access specific actors
-/// let task_initializer = &registry.task_initializer_actor;
+/// let task_request = &registry.task_request_actor;
 /// let task_finalizer = &registry.task_finalizer_actor;
 /// # Ok(())
 /// # }
@@ -94,10 +94,10 @@ impl ActorRegistry {
     ///
     /// ```rust,no_run
     /// use tasker_orchestration::actors::ActorRegistry;
+    /// use tasker_shared::system_context::SystemContext;
     /// use std::sync::Arc;
     ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let context = Arc::new(SystemContext::from_config(config).await?);
+    /// # async fn example(context: Arc<SystemContext>) -> Result<(), Box<dyn std::error::Error>> {
     /// let registry = ActorRegistry::build(context).await?;
     /// # Ok(())
     /// # }
@@ -178,7 +178,9 @@ impl ActorRegistry {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # async fn example(registry: ActorRegistry) {
+    /// use tasker_orchestration::actors::ActorRegistry;
+    ///
+    /// # async fn example(mut registry: ActorRegistry) {
     /// registry.shutdown().await;
     /// # }
     /// ```

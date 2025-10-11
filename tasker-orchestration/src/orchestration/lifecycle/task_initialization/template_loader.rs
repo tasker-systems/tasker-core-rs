@@ -104,7 +104,6 @@ mod tests {
             .with_context(serde_json::json!({"test": true}))
     }
 
-
     #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_load_task_template_returns_error_when_handler_not_in_registry(
         pool: sqlx::PgPool,

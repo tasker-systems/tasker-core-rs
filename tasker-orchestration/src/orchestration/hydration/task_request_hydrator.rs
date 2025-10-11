@@ -111,6 +111,6 @@ mod tests {
     fn test_task_request_hydrator_construction() {
         // Verify the hydrator can be constructed
         let _hydrator = TaskRequestHydrator::new();
-        let _hydrator = TaskRequestHydrator::default();
+        let _hydrator = TaskRequestHydrator;
     }
 }

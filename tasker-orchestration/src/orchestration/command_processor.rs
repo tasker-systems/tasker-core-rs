@@ -180,6 +180,9 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 
 // TAS-40 Phase 2.2 - Sophisticated delegation imports
+use crate::actors::result_processor_actor::ProcessStepResultMessage;
+use crate::actors::task_finalizer_actor::FinalizeTaskMessage;
+use crate::actors::task_request_actor::ProcessTaskRequestMessage;
 use crate::actors::{ActorRegistry, Handler, ProcessBatchMessage};
 use crate::orchestration::hydration::{
     FinalizationHydrator, StepResultHydrator, TaskRequestHydrator,
@@ -187,9 +190,6 @@ use crate::orchestration::hydration::{
    // use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
    // use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
    // use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
-use crate::orchestration::lifecycle_services::{
-    StepResultProcessingService, TaskFinalizationService, TaskInitializationService,
-}; // TAS-46 Phase 5
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::system_context::SystemContext;
 
@@ -206,18 +206,6 @@ pub struct OrchestrationProcessor {
 
     /// Actor registry for message-based coordination (TAS-46)
     actors: Arc<ActorRegistry>,
-
-    /// Sophisticated task request processor for delegation (deprecated - prefer actors)
-    // #[allow(dead_code)]
-    // task_request_processor: Arc<TaskRequestProcessor>,
-
-    // /// Sophisticated orchestration result processor for step results (deprecated - prefer actors)
-    // #[allow(dead_code)]
-    // result_processor: Arc<OrchestrationResultProcessor>,
-
-    // /// TAS-43: Task claim step enqueuer for atomic task claiming and step enqueueing (deprecated - prefer actors)
-    // #[allow(dead_code)]
-    // task_claim_step_enqueuer: Arc<StepEnqueuerService>,
 
     /// PGMQ client for message operations
     pgmq_client: Arc<UnifiedPgmqClient>,
@@ -237,9 +225,6 @@ impl OrchestrationProcessor {
     pub fn new(
         context: Arc<SystemContext>,
         actors: Arc<ActorRegistry>,
-        // task_request_processor: Arc<TaskRequestProcessor>,
-        // result_processor: Arc<OrchestrationResultProcessor>,
-        // task_claim_step_enqueuer: Arc<StepEnqueuerService>,
         pgmq_client: Arc<UnifiedPgmqClient>,
         buffer_size: usize,
     ) -> (Self, mpsc::Sender<OrchestrationCommand>) {
@@ -257,9 +242,6 @@ impl OrchestrationProcessor {
         let processor = Self {
             context,
             actors,
-            // task_request_processor,
-            // result_processor,
-            // task_claim_step_enqueuer,
             pgmq_client,
             command_rx: Some(command_rx),
             task_handle: None,
@@ -273,9 +255,6 @@ impl OrchestrationProcessor {
     pub async fn start(&mut self) -> TaskerResult<()> {
         let context = self.context.clone();
         let stats = self.stats.clone();
-        // let task_request_processor = self.task_request_processor.clone();
-        // let result_processor = self.result_processor.clone();
-        // let task_claim_step_enqueuer = self.task_claim_step_enqueuer.clone();
         let pgmq_client = self.pgmq_client.clone();
         let mut command_rx = self.command_rx.take().ok_or_else(|| {
             TaskerError::OrchestrationError("Processor already started".to_string())
@@ -283,15 +262,8 @@ impl OrchestrationProcessor {
 
         let actors = self.actors.clone();
         let handle = tokio::spawn(async move {
-            let handler = OrchestrationProcessorCommandHandler::new(
-                context,
-                actors,
-                stats,
-                // task_request_processor,
-                // result_processor,
-                // task_claim_step_enqueuer,
-                pgmq_client,
-            );
+            let handler =
+                OrchestrationProcessorCommandHandler::new(context, actors, stats, pgmq_client);
             while let Some(command) = command_rx.recv().await {
                 handler.process_command(command).await;
             }
@@ -306,19 +278,10 @@ pub struct OrchestrationProcessorCommandHandler {
     context: Arc<SystemContext>,
     actors: Arc<ActorRegistry>, // TAS-46: Actor registry for message-based coordination
     stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
-    // #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
-    // task_request_processor: Arc<TaskRequestProcessor>,
-    // #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
-    // result_processor: Arc<OrchestrationResultProcessor>,
-    // #[allow(dead_code)] // TAS-46: Keeping for reference during migration, use actors instead
-    // task_claim_step_enqueuer: Arc<StepEnqueuerService>, // TAS-43: Added for atomic task claiming and step enqueueing
     pgmq_client: Arc<UnifiedPgmqClient>,
     step_result_hydrator: StepResultHydrator, // TAS-46 Phase 4: Hydrates step results from messages
     task_request_hydrator: TaskRequestHydrator, // TAS-46 Phase 4: Hydrates task requests from messages
     finalization_hydrator: FinalizationHydrator, // TAS-46 Phase 4: Hydrates finalization requests from messages
-    task_init_service: TaskInitializationService, // TAS-46 Phase 5: Task initialization lifecycle service
-    step_processing_service: StepResultProcessingService, // TAS-46 Phase 5: Step result processing lifecycle service
-    task_finalization_service: TaskFinalizationService, // TAS-46 Phase 5: Task finalization lifecycle service
 }
 
 impl OrchestrationProcessorCommandHandler {
@@ -326,9 +289,6 @@ impl OrchestrationProcessorCommandHandler {
         context: Arc<SystemContext>,
         actors: Arc<ActorRegistry>,
         stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
-        // task_request_processor: Arc<TaskRequestProcessor>,
-        // result_processor: Arc<OrchestrationResultProcessor>,
-        // task_claim_step_enqueuer: Arc<StepEnqueuerService>,
         pgmq_client: Arc<UnifiedPgmqClient>,
     ) -> Self {
         // TAS-46 Phase 4: Initialize hydrators for message transformation
@@ -336,25 +296,14 @@ impl OrchestrationProcessorCommandHandler {
         let task_request_hydrator = TaskRequestHydrator::new();
         let finalization_hydrator = FinalizationHydrator::new();
 
-        // TAS-46 Phase 5: Initialize lifecycle management services
-        let task_init_service = TaskInitializationService::new(actors.clone());
-        let step_processing_service = StepResultProcessingService::new(actors.clone());
-        let task_finalization_service = TaskFinalizationService::new(actors.clone());
-
         Self {
             context,
             actors,
             stats,
-            // task_request_processor,
-            // result_processor,
-            // task_claim_step_enqueuer,
             pgmq_client,
             step_result_hydrator,
             task_request_hydrator,
             finalization_hydrator,
-            task_init_service,
-            step_processing_service,
-            task_finalization_service,
         }
     }
 
@@ -549,59 +498,64 @@ impl OrchestrationProcessorCommandHandler {
         }
     }
 
-    /// Handle task initialization using TaskInitializationService (TAS-46 Phase 5)
+    /// Handle task initialization using TaskRequestActor directly (TAS-46)
     async fn handle_initialize_task(
         &self,
         request: TaskRequestMessage,
     ) -> TaskerResult<TaskInitializeResult> {
-        // TAS-46 Phase 5: Service-based task initialization
-        let result = self.task_init_service.initialize_task(request).await?;
+        // TAS-46: Direct actor-based task initialization
+        let msg = ProcessTaskRequestMessage { request };
+        let task_uuid = self.actors.task_request_actor.handle(msg).await?;
 
         Ok(TaskInitializeResult::Success {
-            task_uuid: result.task_uuid,
-            message: result.message,
+            task_uuid,
+            message: "Task initialized successfully".to_string(),
         })
     }
 
-    /// Handle step result processing using StepResultProcessingService (TAS-46 Phase 5)
+    /// Handle step result processing using ResultProcessorActor directly (TAS-46)
     async fn handle_process_step_result(
         &self,
         step_result: StepExecutionResult,
     ) -> TaskerResult<StepProcessResult> {
-        // TAS-46 Phase 5: Service-based step result processing
-        use crate::orchestration::lifecycle_services::StepProcessingResult;
+        // TAS-46: Direct actor-based step result processing
+        let msg = ProcessStepResultMessage {
+            result: step_result.clone(),
+        };
 
-        match self
-            .step_processing_service
-            .process_step_result(step_result)
-            .await?
-        {
-            StepProcessingResult::Success { message } => Ok(StepProcessResult::Success { message }),
-            StepProcessingResult::Failed { error } => Ok(StepProcessResult::Failed { error }),
-            StepProcessingResult::Skipped { reason } => Ok(StepProcessResult::Skipped { reason }),
+        match self.actors.result_processor_actor.handle(msg).await {
+            Ok(()) => Ok(StepProcessResult::Success {
+                message: format!(
+                    "Step {} result processed successfully",
+                    step_result.step_uuid
+                ),
+            }),
+            Err(e) => {
+                // Handle different status cases based on original result status
+                match step_result.status.as_str() {
+                    "failed" => Ok(StepProcessResult::Failed {
+                        error: format!("{e}"),
+                    }),
+                    "skipped" => Ok(StepProcessResult::Skipped {
+                        reason: format!("{e}"),
+                    }),
+                    _ => Err(TaskerError::OrchestrationError(format!("{e}"))),
+                }
+            }
         }
     }
 
     async fn handle_finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
-        // TAS-46 Phase 5: Service-based task finalization
-        use crate::orchestration::lifecycle_services::FinalizationResult as ServiceFinalization;
+        // TAS-46: Direct actor-based task finalization
+        let msg = FinalizeTaskMessage { task_uuid };
 
-        match self
-            .task_finalization_service
-            .finalize_task(task_uuid)
-            .await?
-        {
-            ServiceFinalization::Success {
-                task_uuid,
-                final_status,
-                completion_time,
-            } => Ok(TaskFinalizationResult::Success {
-                task_uuid,
-                final_status,
-                completion_time,
-            }),
-            ServiceFinalization::Failed { error } => Ok(TaskFinalizationResult::Failed { error }),
-        }
+        let result = self.actors.task_finalizer_actor.handle(msg).await?;
+
+        Ok(TaskFinalizationResult::Success {
+            task_uuid: result.task_uuid,
+            final_status: format!("{:?}", result.action),
+            completion_time: Some(chrono::Utc::now()),
+        })
     }
 
     /// Handle step result processing from message event - SimpleStepMessage approach with database hydration

@@ -95,10 +95,7 @@ mod tests {
         let cloned = provider.clone();
 
         // Verify both share the same Arc
-        assert_eq!(
-            Arc::as_ptr(&provider.context),
-            Arc::as_ptr(&cloned.context)
-        );
+        assert_eq!(Arc::as_ptr(&provider.context), Arc::as_ptr(&cloned.context));
         Ok(())
     }
 
@@ -154,13 +151,14 @@ mod tests {
         )
         .await?;
 
-        let named_task = tasker_shared::models::NamedTask::find_or_create_by_name_version_namespace(
-            &pool,
-            "test_task",
-            "1.0.0",
-            namespace.task_namespace_uuid,
-        )
-        .await?;
+        let named_task =
+            tasker_shared::models::NamedTask::find_or_create_by_name_version_namespace(
+                &pool,
+                "test_task",
+                "1.0.0",
+                namespace.task_namespace_uuid,
+            )
+            .await?;
 
         // Create a task without execution context
         let task_request = tasker_shared::models::task_request::TaskRequest::new(
@@ -178,4 +176,3 @@ mod tests {
         Ok(())
     }
 }
-

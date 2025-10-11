@@ -108,7 +108,10 @@ mod tests {
         assert_eq!(serde_json::to_string(&failed).unwrap(), "\"Failed\"");
 
         let reenqueued = FinalizationAction::Reenqueued;
-        assert_eq!(serde_json::to_string(&reenqueued).unwrap(), "\"Reenqueued\"");
+        assert_eq!(
+            serde_json::to_string(&reenqueued).unwrap(),
+            "\"Reenqueued\""
+        );
     }
 
     #[test]
@@ -147,7 +150,10 @@ mod tests {
         assert!(error.to_string().contains("invalid transition"));
 
         let error = FinalizationError::EventPublishing("failed to publish".to_string());
-        assert_eq!(error.to_string(), "Event publishing error: failed to publish");
+        assert_eq!(
+            error.to_string(),
+            "Event publishing error: failed to publish"
+        );
     }
 
     #[test]

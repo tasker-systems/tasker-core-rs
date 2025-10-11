@@ -110,6 +110,6 @@ mod tests {
     fn test_finalization_hydrator_construction() {
         // Verify the hydrator can be constructed
         let _hydrator = FinalizationHydrator::new();
-        let _hydrator = FinalizationHydrator::default();
+        let _hydrator = FinalizationHydrator;
     }
 }

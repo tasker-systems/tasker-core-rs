@@ -187,7 +187,6 @@ mod tests {
     use std::collections::HashMap;
     use tasker_shared::models::Task;
 
-
     #[test]
     fn test_step_mapping_structure_for_transitions() {
         // Test that step mapping can be used for transition creation
@@ -222,13 +221,14 @@ mod tests {
         )
         .await?;
 
-        let named_task = tasker_shared::models::NamedTask::find_or_create_by_name_version_namespace(
-            &pool,
-            "test_task",
-            "1.0.0",
-            namespace.task_namespace_uuid,
-        )
-        .await?;
+        let named_task =
+            tasker_shared::models::NamedTask::find_or_create_by_name_version_namespace(
+                &pool,
+                "test_task",
+                "1.0.0",
+                namespace.task_namespace_uuid,
+            )
+            .await?;
 
         // Create a test task
         let task_request = tasker_shared::models::task_request::TaskRequest::new(
@@ -286,13 +286,14 @@ mod tests {
         )
         .await?;
 
-        let named_task = tasker_shared::models::NamedTask::find_or_create_by_name_version_namespace(
-            &pool,
-            "test_task",
-            "1.0.0",
-            namespace.task_namespace_uuid,
-        )
-        .await?;
+        let named_task =
+            tasker_shared::models::NamedTask::find_or_create_by_name_version_namespace(
+                &pool,
+                "test_task",
+                "1.0.0",
+                namespace.task_namespace_uuid,
+            )
+            .await?;
 
         // Create a test task with steps
         let task_request = tasker_shared::models::task_request::TaskRequest::new(
@@ -328,9 +329,11 @@ mod tests {
             skippable: None,
         };
 
-        let workflow_step =
-            tasker_shared::models::WorkflowStep::create_with_transaction(&mut tx, new_workflow_step)
-                .await?;
+        let workflow_step = tasker_shared::models::WorkflowStep::create_with_transaction(
+            &mut tx,
+            new_workflow_step,
+        )
+        .await?;
 
         step_mapping.insert("test_step".to_string(), workflow_step.workflow_step_uuid);
 

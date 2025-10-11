@@ -6,8 +6,8 @@ use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::orchestration::{backoff_calculator::BackoffContext, BackoffCalculator};
-use tasker_shared::messaging::message::OrchestrationMetadata;
 use tasker_shared::errors::OrchestrationResult;
+use tasker_shared::messaging::message::OrchestrationMetadata;
 
 /// Processes orchestration metadata for intelligent retry decisions
 #[derive(Clone)]
@@ -172,8 +172,7 @@ mod tests {
         let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
         let backoff_config: crate::orchestration::BackoffCalculatorConfig =
             context.tasker_config.clone().into();
-        let backoff_calculator =
-            BackoffCalculator::new(backoff_config, pool);
+        let backoff_calculator = BackoffCalculator::new(backoff_config, pool);
         let processor = MetadataProcessor::new(backoff_calculator);
 
         // Verify it's created (basic smoke test)
@@ -188,8 +187,7 @@ mod tests {
         let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
         let backoff_config: crate::orchestration::BackoffCalculatorConfig =
             context.tasker_config.clone().into();
-        let backoff_calculator =
-            BackoffCalculator::new(backoff_config, pool);
+        let backoff_calculator = BackoffCalculator::new(backoff_config, pool);
         let processor = MetadataProcessor::new(backoff_calculator);
 
         let cloned = processor.clone();
@@ -214,4 +212,3 @@ mod tests {
         assert!(std::mem::size_of_val(&context) > 0);
     }
 }
-

@@ -21,7 +21,6 @@ use super::{FinalizationAction, FinalizationError, FinalizationResult};
 /// Handles different task execution states
 #[derive(Clone)]
 pub struct StateHandlers {
-    context: Arc<SystemContext>,
     sql_executor: SqlFunctionExecutor,
     step_enqueuer_service: Arc<StepEnqueuerService>,
     context_provider: ExecutionContextProvider,
@@ -38,7 +37,6 @@ impl StateHandlers {
         let completion_handler = CompletionHandler::new(context.clone());
 
         Self {
-            context,
             sql_executor,
             step_enqueuer_service,
             context_provider,
@@ -271,10 +269,6 @@ mod tests {
 
         // Verify both share the same Arc
         assert_eq!(
-            Arc::as_ptr(&handlers.context),
-            Arc::as_ptr(&cloned.context)
-        );
-        assert_eq!(
             Arc::as_ptr(&handlers.step_enqueuer_service),
             Arc::as_ptr(&cloned.step_enqueuer_service)
         );
@@ -340,4 +334,3 @@ mod tests {
         ));
     }
 }
-

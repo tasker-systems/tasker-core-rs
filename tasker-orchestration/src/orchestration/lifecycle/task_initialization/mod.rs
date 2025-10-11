@@ -122,7 +122,9 @@ mod tests {
     fn test_from_tasker_error() {
         let init_error: TaskerError = TaskInitializationError::Database("test".to_string()).into();
 
-        assert!(init_error.to_string().contains("Task initialization failed"));
+        assert!(init_error
+            .to_string()
+            .contains("Task initialization failed"));
     }
 
     #[test]

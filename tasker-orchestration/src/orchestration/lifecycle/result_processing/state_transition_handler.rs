@@ -7,11 +7,11 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use tasker_shared::errors::OrchestrationResult;
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::models::core::workflow_step::WorkflowStep;
 use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::system_context::SystemContext;
-use tasker_shared::errors::OrchestrationResult;
 
 /// Handles orchestration state transitions for steps
 #[derive(Clone)]
@@ -316,10 +316,7 @@ mod tests {
         let cloned = handler.clone();
 
         // Verify both share the same Arc
-        assert_eq!(
-            Arc::as_ptr(&handler.context),
-            Arc::as_ptr(&cloned.context)
-        );
+        assert_eq!(Arc::as_ptr(&handler.context), Arc::as_ptr(&cloned.context));
         Ok(())
     }
 
@@ -349,4 +346,3 @@ mod tests {
         ));
     }
 }
-

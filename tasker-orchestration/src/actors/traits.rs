@@ -96,28 +96,41 @@ pub trait OrchestrationActor: Send + Sync + 'static {
 /// ## Example
 ///
 /// ```rust,no_run
-/// use tasker_orchestration::actors::{Handler, Message};
+/// use tasker_orchestration::actors::{Handler, Message, OrchestrationActor};
 /// use async_trait::async_trait;
 /// use tasker_shared::TaskerResult;
+/// use tasker_shared::system_context::SystemContext;
+/// use std::sync::Arc;
+/// use uuid::Uuid;
 ///
 /// // Define a message
 /// pub struct InitializeTaskMessage {
-///     pub request: TaskRequest,
+///     pub task_name: String,
 /// }
 ///
 /// impl Message for InitializeTaskMessage {
-///     type Response = TaskInitializationResult;
+///     type Response = Uuid;
+/// }
+///
+/// // Define an actor
+/// pub struct MyActor {
+///     context: Arc<SystemContext>,
+/// }
+///
+/// impl OrchestrationActor for MyActor {
+///     fn name(&self) -> &'static str { "MyActor" }
+///     fn context(&self) -> &Arc<SystemContext> { &self.context }
 /// }
 ///
 /// // Implement handler
 /// #[async_trait]
 /// impl Handler<InitializeTaskMessage> for MyActor {
-///     type Response = TaskInitializationResult;
+///     type Response = Uuid;
 ///
 ///     async fn handle(&self, msg: InitializeTaskMessage)
-///         -> TaskerResult<TaskInitializationResult> {
+///         -> TaskerResult<Uuid> {
 ///         // Process message and return result
-///         Ok(result)
+///         Ok(Uuid::new_v4())
 ///     }
 /// }
 /// ```
@@ -162,13 +175,14 @@ pub trait Handler<M: Message>: OrchestrationActor {
 ///
 /// ```rust,no_run
 /// use tasker_orchestration::actors::Message;
+/// use uuid::Uuid;
 ///
 /// pub struct InitializeTaskMessage {
-///     pub request: TaskRequest,
+///     pub task_name: String,
 /// }
 ///
 /// impl Message for InitializeTaskMessage {
-///     type Response = TaskInitializationResult;
+///     type Response = Uuid;
 /// }
 /// ```
 pub trait Message: Send + 'static {
@@ -193,6 +207,7 @@ mod tests {
     }
 
     // Test actor
+    #[derive(Clone)]
     struct TestActor {
         context: Arc<SystemContext>,
     }
@@ -207,6 +222,16 @@ mod tests {
         }
     }
 
+    impl TestActor {
+        async fn start(&self) -> TaskerResult<Arc<TestActor>> {
+            Ok(Arc::new(self.clone()))
+        }
+
+        async fn stop(&self) -> TaskerResult<()> {
+            Ok(())
+        }
+    }
+
     #[async_trait]
     impl Handler<TestMessage> for TestActor {
         type Response = String;
@@ -218,8 +243,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_actor_trait_compilation() {
-        // This test just verifies that the traits compile correctly
-        // and can be used together as intended
+        let context = SystemContext::new().await.unwrap();
+        let actor = TestActor {
+            context: Arc::new(context),
+        };
+        let actor_ref = actor.start().await.unwrap();
+        let response = actor_ref.handle(TestMessage { value: 42 }).await.unwrap();
+        assert_eq!(response, "Received: 42");
+        actor.stop().await.unwrap();
     }
 
     #[test]

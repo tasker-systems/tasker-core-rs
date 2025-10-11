@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
 use crate::orchestration::{BackoffCalculator, BackoffCalculatorConfig};
+use tasker_shared::errors::OrchestrationResult;
 use tasker_shared::messaging::{StepExecutionResult, StepResultMessage};
 use tasker_shared::system_context::SystemContext;
-use tasker_shared::errors::OrchestrationResult;
 
 use super::message_handler::MessageHandler;
 use super::metadata_processor::MetadataProcessor;
@@ -138,4 +138,3 @@ mod tests {
         Ok(())
     }
 }
-

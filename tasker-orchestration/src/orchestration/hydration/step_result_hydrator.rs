@@ -187,14 +187,3 @@ impl StepResultHydrator {
         Ok(step_execution_result)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_step_result_hydrator_construction() {
-        // Verify the hydrator can be constructed
-        // Full integration tests require database access
-    }
-}

@@ -106,3 +106,137 @@ pub struct AggregatePerformanceMetrics {
     pub avg_steps_per_second: f64,
     pub avg_tasks_per_second: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_priority_distribution_default() {
+        let dist = PriorityDistribution::default();
+        assert_eq!(dist.urgent_tasks, 0);
+        assert_eq!(dist.high_tasks, 0);
+        assert_eq!(dist.normal_tasks, 0);
+        assert_eq!(dist.low_tasks, 0);
+        assert_eq!(dist.invalid_tasks, 0);
+        assert_eq!(dist.escalated_tasks, 0);
+        assert_eq!(dist.avg_computed_priority, 0.0);
+        assert_eq!(dist.avg_task_age_hours, 0.0);
+    }
+
+    #[test]
+    fn test_priority_distribution_serialization() {
+        let dist = PriorityDistribution {
+            urgent_tasks: 5,
+            high_tasks: 3,
+            normal_tasks: 10,
+            low_tasks: 2,
+            invalid_tasks: 1,
+            escalated_tasks: 2,
+            avg_computed_priority: 7.5,
+            avg_task_age_hours: 2.3,
+        };
+
+        let json = serde_json::to_string(&dist).unwrap();
+        let deserialized: PriorityDistribution = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.urgent_tasks, 5);
+        assert_eq!(deserialized.escalated_tasks, 2);
+        assert_eq!(deserialized.avg_computed_priority, 7.5);
+    }
+
+    #[test]
+    fn test_namespace_stats_structure() {
+        let stats = NamespaceStats {
+            tasks_processed: 10,
+            steps_enqueued: 50,
+            steps_failed: 2,
+            queue_name: "test_queue".to_string(),
+            avg_processing_time_ms: 150,
+        };
+
+        assert_eq!(stats.tasks_processed, 10);
+        assert_eq!(stats.steps_enqueued, 50);
+        assert_eq!(stats.queue_name, "test_queue");
+    }
+
+    #[test]
+    fn test_performance_metrics_structure() {
+        let metrics = PerformanceMetrics {
+            claim_duration_ms: 100,
+            discovery_duration_ms: 200,
+            enqueueing_duration_ms: 300,
+            release_duration_ms: 50,
+            avg_task_processing_ms: 150,
+            steps_per_second: 10.5,
+            tasks_per_second: 2.5,
+        };
+
+        assert_eq!(metrics.claim_duration_ms, 100);
+        assert_eq!(metrics.steps_per_second, 10.5);
+        assert_eq!(metrics.tasks_per_second, 2.5);
+    }
+
+    #[test]
+    fn test_step_enqueuer_service_result_structure() {
+        let now = Utc::now();
+        let result = StepEnqueuerServiceResult {
+            cycle_started_at: now,
+            cycle_duration_ms: 1000,
+            tasks_processed: 10,
+            tasks_failed: 1,
+            priority_distribution: PriorityDistribution::default(),
+            namespace_stats: HashMap::new(),
+            performance_metrics: PerformanceMetrics {
+                claim_duration_ms: 100,
+                discovery_duration_ms: 200,
+                enqueueing_duration_ms: 300,
+                release_duration_ms: 50,
+                avg_task_processing_ms: 150,
+                steps_per_second: 10.0,
+                tasks_per_second: 2.0,
+            },
+            warnings: vec!["test warning".to_string()],
+        };
+
+        assert_eq!(result.tasks_processed, 10);
+        assert_eq!(result.tasks_failed, 1);
+        assert_eq!(result.warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_continuous_orchestration_summary_structure() {
+        let now = Utc::now();
+        let summary = ContinuousOrchestrationSummary {
+            started_at: now,
+            ended_at: None,
+            total_cycles: 100,
+            failed_cycles: 5,
+            total_tasks_processed: 1000,
+            total_tasks_failed: 50,
+            total_steps_enqueued: 5000,
+            total_steps_failed: 100,
+            aggregate_priority_distribution: PriorityDistribution::default(),
+            aggregate_performance_metrics: AggregatePerformanceMetrics::default(),
+            top_namespaces: vec![
+                ("namespace1".to_string(), 1000),
+                ("namespace2".to_string(), 500),
+            ],
+            total_warnings: 10,
+            recent_warnings: vec!["warning1".to_string(), "warning2".to_string()],
+        };
+
+        assert_eq!(summary.total_cycles, 100);
+        assert_eq!(summary.failed_cycles, 5);
+        assert_eq!(summary.top_namespaces.len(), 2);
+        assert!(summary.ended_at.is_none());
+    }
+
+    #[test]
+    fn test_aggregate_performance_metrics_default() {
+        let metrics = AggregatePerformanceMetrics::default();
+        assert_eq!(metrics.total_cycle_duration_ms, 0);
+        assert_eq!(metrics.peak_steps_per_second, 0.0);
+        assert_eq!(metrics.avg_tasks_per_second, 0.0);
+    }
+}

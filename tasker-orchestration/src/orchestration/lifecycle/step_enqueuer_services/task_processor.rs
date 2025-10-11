@@ -20,10 +20,7 @@ pub struct TaskProcessor {
 }
 
 impl TaskProcessor {
-    pub fn new(
-        context: Arc<SystemContext>,
-        step_enqueuer: Arc<StepEnqueuer>,
-    ) -> Self {
+    pub fn new(context: Arc<SystemContext>, step_enqueuer: Arc<StepEnqueuer>) -> Self {
         let state_handlers = StateHandlers::new(context.clone());
         Self {
             state_handlers,
@@ -58,5 +55,64 @@ impl TaskProcessor {
                 task_uuid
             )))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_task_processor_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
+        let processor = TaskProcessor::new(context, step_enqueuer);
+
+        // Verify it's created (basic smoke test)
+        assert!(Arc::strong_count(&processor.context) >= 1);
+        assert!(Arc::strong_count(&processor.step_enqueuer) >= 1);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_task_processor_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
+        let processor = TaskProcessor::new(context, step_enqueuer);
+
+        let cloned = processor.clone();
+
+        // Verify both share the same Arcs
+        assert_eq!(
+            Arc::as_ptr(&processor.context),
+            Arc::as_ptr(&cloned.context)
+        );
+        assert_eq!(
+            Arc::as_ptr(&processor.step_enqueuer),
+            Arc::as_ptr(&cloned.step_enqueuer)
+        );
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_process_from_uuid_with_nonexistent_task(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
+        let processor = TaskProcessor::new(context, step_enqueuer);
+
+        let nonexistent_uuid = Uuid::new_v4();
+        let result = processor.process_from_uuid(nonexistent_uuid).await;
+
+        // Should return error for non-existent task
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Task not found"));
+        Ok(())
     }
 }

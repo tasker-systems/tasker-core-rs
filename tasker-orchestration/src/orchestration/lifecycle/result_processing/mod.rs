@@ -23,25 +23,13 @@ mod task_coordinator;
 #[derive(Debug, Clone)]
 pub enum ResultProcessingError {
     /// Failed to process message
-    MessageProcessing {
-        step_uuid: Uuid,
-        reason: String,
-    },
+    MessageProcessing { step_uuid: Uuid, reason: String },
     /// Failed to process metadata
-    MetadataProcessing {
-        step_uuid: Uuid,
-        reason: String,
-    },
+    MetadataProcessing { step_uuid: Uuid, reason: String },
     /// Failed to handle state transition
-    StateTransition {
-        step_uuid: Uuid,
-        reason: String,
-    },
+    StateTransition { step_uuid: Uuid, reason: String },
     /// Failed to coordinate task
-    TaskCoordination {
-        task_uuid: Uuid,
-        reason: String,
-    },
+    TaskCoordination { task_uuid: Uuid, reason: String },
     /// Failed to find required entity
     EntityNotFound {
         entity_type: String,
@@ -53,7 +41,10 @@ impl fmt::Display for ResultProcessingError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MessageProcessing { step_uuid, reason } => {
-                write!(f, "Message processing failed for step {step_uuid}: {reason}")
+                write!(
+                    f,
+                    "Message processing failed for step {step_uuid}: {reason}"
+                )
             }
             Self::MetadataProcessing { step_uuid, reason } => {
                 write!(

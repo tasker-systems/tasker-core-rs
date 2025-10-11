@@ -179,8 +179,12 @@ mod tests {
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let context = Arc::new(SystemContext::with_pool(pool).await?);
-        let step_enqueuer =
-            Arc::new(crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(context.clone()).await?);
+        let step_enqueuer = Arc::new(
+            crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(
+                context.clone(),
+            )
+            .await?,
+        );
         let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
         let coordinator = TaskCoordinator::new(context, task_finalizer);
 
@@ -194,8 +198,12 @@ mod tests {
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let context = Arc::new(SystemContext::with_pool(pool).await?);
-        let step_enqueuer =
-            Arc::new(crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(context.clone()).await?);
+        let step_enqueuer = Arc::new(
+            crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(
+                context.clone(),
+            )
+            .await?,
+        );
         let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
         let coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
 
@@ -214,8 +222,12 @@ mod tests {
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let context = Arc::new(SystemContext::with_pool(pool).await?);
-        let step_enqueuer =
-            Arc::new(crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(context.clone()).await?);
+        let step_enqueuer = Arc::new(
+            crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService::new(
+                context.clone(),
+            )
+            .await?,
+        );
         let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
         let coordinator = TaskCoordinator::new(context, task_finalizer);
 
@@ -232,4 +244,3 @@ mod tests {
         Ok(())
     }
 }
-

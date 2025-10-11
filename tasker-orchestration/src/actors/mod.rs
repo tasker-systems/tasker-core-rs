@@ -33,22 +33,24 @@
 //!
 //! ```rust,no_run
 //! use tasker_orchestration::actors::{OrchestrationActor, Handler, Message};
+//! use tasker_shared::system_context::SystemContext;
+//! use tasker_shared::TaskerResult;
 //! use std::sync::Arc;
 //! use async_trait::async_trait;
+//! use uuid::Uuid;
 //!
 //! // Define a message
 //! pub struct InitializeTaskMessage {
-//!     pub request: TaskRequest,
+//!     pub task_name: String,
 //! }
 //!
 //! impl Message for InitializeTaskMessage {
-//!     type Response = TaskInitializationResult;
+//!     type Response = Uuid;
 //! }
 //!
 //! // Define an actor
 //! pub struct TaskRequestActor {
 //!     context: Arc<SystemContext>,
-//!     processor: TaskRequestProcessor,
 //! }
 //!
 //! impl OrchestrationActor for TaskRequestActor {
@@ -58,12 +60,12 @@
 //!
 //! #[async_trait]
 //! impl Handler<InitializeTaskMessage> for TaskRequestActor {
-//!     type Response = TaskInitializationResult;
+//!     type Response = Uuid;
 //!
 //!     async fn handle(&self, msg: InitializeTaskMessage)
-//!         -> TaskerResult<TaskInitializationResult> {
-//!         // Delegate to existing processor
-//!         self.processor.process_task_request(&msg.request).await
+//!         -> TaskerResult<Uuid> {
+//!         // Process task request and return UUID
+//!         Ok(Uuid::new_v4())
 //!     }
 //! }
 //! ```

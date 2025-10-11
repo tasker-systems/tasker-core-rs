@@ -29,7 +29,8 @@ impl StepEnqueuerService {
         let config: TaskClaimStepEnqueuerConfig = context.tasker_config.clone().into();
         let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
 
-        let batch_processor = BatchProcessor::new(context.clone(), step_enqueuer.clone(), config.clone());
+        let batch_processor =
+            BatchProcessor::new(context.clone(), step_enqueuer.clone(), config.clone());
         let task_processor = TaskProcessor::new(context.clone(), step_enqueuer);
 
         Ok(Self {
@@ -70,5 +71,66 @@ impl StepEnqueuerService {
     /// Get processor ID (compatibility method)
     pub fn processor_uuid(&self) -> String {
         self.context.processor_uuid.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_step_enqueuer_service_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let service = StepEnqueuerService::new(context).await?;
+
+        // Verify it's created (basic smoke test)
+        assert!(service.config.batch_size > 0);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_config_getter(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let service = StepEnqueuerService::new(context).await?;
+
+        let config = service.config();
+
+        // Verify config is accessible
+        assert!(config.batch_size > 0);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_processor_uuid(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let expected_uuid = context.processor_uuid.to_string();
+        let service = StepEnqueuerService::new(context).await?;
+
+        let processor_uuid = service.processor_uuid();
+
+        // Verify processor UUID matches context
+        assert_eq!(processor_uuid, expected_uuid);
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_process_single_task_from_uuid_with_nonexistent_task(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let service = StepEnqueuerService::new(context).await?;
+
+        let nonexistent_uuid = Uuid::new_v4();
+        let result = service
+            .process_single_task_from_uuid(nonexistent_uuid)
+            .await;
+
+        // Should return error for non-existent task
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Task not found"));
+        Ok(())
     }
 }

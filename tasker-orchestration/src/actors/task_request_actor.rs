@@ -36,13 +36,14 @@ impl Message for ProcessTaskRequestMessage {
 ///
 /// 1. Encapsulating the service (TaskRequestProcessor)
 /// 2. Providing lifecycle hooks (started/stopped)
-/// 3. Handling messages via Handler<M> trait
+/// 3. Handling messages via `Handler<M>` trait
 /// 4. Managing its own state and dependencies
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use tasker_orchestration::actors::{Handler, task_request_actor::*};
+/// use tasker_shared::messaging::TaskRequestMessage;
 ///
 /// # async fn example(actor: TaskRequestActor, request: TaskRequestMessage) -> Result<(), Box<dyn std::error::Error>> {
 /// let msg = ProcessTaskRequestMessage { request };

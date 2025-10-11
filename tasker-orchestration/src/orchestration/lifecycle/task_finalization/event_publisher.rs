@@ -237,4 +237,3 @@ mod tests {
         assert!(event_data["timestamp"].is_string());
     }
 }
-
