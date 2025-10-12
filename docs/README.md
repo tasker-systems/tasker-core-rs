@@ -27,6 +27,7 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 **Making design decisions?** These documents explain architectural patterns and trade-offs:
 
 - **[Crate Architecture](crate-architecture.md)** - Workspace structure and crate responsibilities
+- **[Actor-Based Architecture](actors.md)** - Lightweight actor pattern for lifecycle components (TAS-46)
 - **[Events and Commands Architecture](events-and-commands.md)** - Event-driven coordination patterns
 - **[States and Lifecycles](states-and-lifecycles.md)** - Dual state machine architecture
 - **[Deployment Patterns](deployment-patterns.md)** - Hybrid, EventDriven, and PollingOnly modes
@@ -76,6 +77,7 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 | Document | Description | Audience |
 |----------|-------------|----------|
 | **[Crate Architecture](crate-architecture.md)** | Workspace structure and crate roles | All |
+| **[Actor-Based Architecture](actors.md)** | Lightweight actor pattern for lifecycle components (TAS-46) | Architects, Developers |
 | **[Events and Commands](events-and-commands.md)** | Event-driven coordination and command patterns | Architects, Developers |
 | **[States and Lifecycles](states-and-lifecycles.md)** | Task and step state machines | All |
 | **[Task Readiness & Execution](task-and-step-readiness-and-execution.md)** | SQL functions and orchestration logic | Developers, Architects |

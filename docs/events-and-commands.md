@@ -1,9 +1,9 @@
 # Events and Commands Architecture
 
-**Last Updated**: 2025-10-10
+**Last Updated**: 2025-10-11
 **Audience**: Architects, Developers
-**Status**: Active
-**Related Docs**: [Documentation Hub](README.md) | [States and Lifecycles](states-and-lifecycles.md) | [Deployment Patterns](deployment-patterns.md)
+**Status**: Active (TAS-46 Actor Integration Complete)
+**Related Docs**: [Documentation Hub](README.md) | [Actor-Based Architecture](actors.md) | [States and Lifecycles](states-and-lifecycles.md) | [Deployment Patterns](deployment-patterns.md)
 
 ← Back to [Documentation Hub](README.md)
 
@@ -563,4 +563,215 @@ The event architecture supports integration with external systems:
 3. **Monitoring Integration**: Prometheus, DataDog, etc. for metrics export
 4. **API Integration**: REST and GraphQL APIs for external coordination
 
-This comprehensive event and command architecture provides the foundation for scalable, reliable, and maintainable workflow orchestration in the tasker-core system while maintaining the flexibility to operate in diverse deployment environments.
+## Actor Integration (TAS-46)
+
+### Overview
+
+The tasker-core system implements a **lightweight Actor pattern** that formalizes the relationship between Commands and Lifecycle Components. This architecture provides a consistent, type-safe foundation for orchestration component management with all lifecycle operations coordinated through actors.
+
+**Status**: TAS-46 Complete (Phases 1-7) - Production ready
+
+For comprehensive actor documentation, see [Actor-Based Architecture](actors.md).
+
+### Actor Pattern Basics
+
+The actor pattern introduces three core traits:
+
+1. **OrchestrationActor**: Base trait for all actors with lifecycle hooks
+2. **Handler<M>**: Message handling trait for type-safe command processing
+3. **Message**: Marker trait for command messages
+
+```rust
+// Actor definition
+pub struct TaskFinalizerActor {
+    context: Arc<SystemContext>,
+    service: TaskFinalizer,
+}
+
+// Message definition
+pub struct FinalizeTaskMessage {
+    pub task_uuid: Uuid,
+}
+
+impl Message for FinalizeTaskMessage {
+    type Response = FinalizationResult;
+}
+
+// Message handler
+#[async_trait]
+impl Handler<FinalizeTaskMessage> for TaskFinalizerActor {
+    type Response = FinalizationResult;
+
+    async fn handle(&self, msg: FinalizeTaskMessage) -> TaskerResult<Self::Response> {
+        self.service.finalize_task(msg.task_uuid).await
+            .map_err(|e| e.into())
+    }
+}
+```
+
+### Integration with Command Processor
+
+The actor pattern integrates seamlessly with the command processor through direct actor calls:
+
+```rust
+// From: tasker-orchestration/src/orchestration/command_processor.rs
+
+async fn handle_finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
+    // TAS-46: Direct actor-based task finalization
+    let msg = FinalizeTaskMessage { task_uuid };
+    let result = self.actors.task_finalizer_actor.handle(msg).await?;
+
+    Ok(TaskFinalizationResult::Success {
+        task_uuid: result.task_uuid,
+        final_status: format!("{:?}", result.action),
+        completion_time: Some(chrono::Utc::now()),
+    })
+}
+
+async fn handle_process_step_result(
+    &self,
+    step_result: StepExecutionResult,
+) -> TaskerResult<StepProcessResult> {
+    // TAS-46: Direct actor-based step result processing
+    let msg = ProcessStepResultMessage {
+        result: step_result.clone(),
+    };
+
+    match self.actors.result_processor_actor.handle(msg).await {
+        Ok(()) => Ok(StepProcessResult::Success {
+            message: format!(
+                "Step {} result processed successfully",
+                step_result.step_uuid
+            ),
+        }),
+        Err(e) => Ok(StepProcessResult::Error {
+            message: format!("Failed to process step result: {e}"),
+        }),
+    }
+}
+```
+
+### Event → Command → Actor Flow
+
+The complete event-to-actor flow:
+
+```
+┌──────────────┐
+│ PGMQ Message │ Message arrives in queue
+└──────┬───────┘
+       │
+       ▼
+┌──────────────────┐
+│  Event Listener  │ EventDrivenSystem processes notification
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ Command Channel  │ Send command to processor via tokio::mpsc
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ Command Processor│ Convert command to actor message
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│  Actor Registry  │ Route message to appropriate actor
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ Handler<M>::     │ Actor processes message
+│    handle()      │ Delegates to underlying service
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│  Response        │ Return result to command processor
+└──────────────────┘
+```
+
+### ActorRegistry and Lifecycle
+
+The `ActorRegistry` manages all 4 orchestration actors and integrates with the system lifecycle:
+
+```rust
+// During system startup
+let context = Arc::new(SystemContext::with_pool(pool).await?);
+let actors = ActorRegistry::build(context).await?;  // Calls started() on all actors
+
+// During operation
+let msg = FinalizeTaskMessage { task_uuid };
+let result = actors.task_finalizer_actor.handle(msg).await?;
+
+// During shutdown
+actors.shutdown().await;  // Calls stopped() on all actors in reverse order
+```
+
+**Current Actors** (TAS-46 Phase 2-3):
+- **TaskRequestActor**: Handles task initialization requests
+- **ResultProcessorActor**: Processes step execution results
+- **StepEnqueuerActor**: Manages batch processing of ready tasks
+- **TaskFinalizerActor**: Handles task finalization with atomic claiming
+
+### Benefits for Event-Driven Architecture
+
+The actor pattern enhances the event-driven architecture by providing:
+
+1. **Type Safety**: Compile-time verification of message contracts
+2. **Consistency**: Uniform lifecycle management across all components
+3. **Testability**: Clear message boundaries for isolated testing
+4. **Observability**: Actor-level metrics and tracing
+5. **Evolvability**: Easy to add new message handlers and actors
+
+### Implementation Status
+
+The actor integration is complete (TAS-46 Phases 1-7):
+
+1. **Phase 1** ✅: Actor infrastructure and test harness
+   - OrchestrationActor, Handler<M>, Message traits
+   - ActorRegistry structure
+
+2. **Phase 2-3** ✅: All 4 primary actors implemented
+   - TaskRequestActor, ResultProcessorActor
+   - StepEnqueuerActor, TaskFinalizerActor
+
+3. **Phase 4-6** ✅: Message hydration and module reorganization
+   - Hydration layer for PGMQ messages
+   - Clean module organization
+
+4. **Phase 7** ✅: Service decomposition
+   - Large services decomposed into focused components
+   - All files <300 lines following single responsibility principle
+
+5. **Cleanup** ✅: Direct actor integration
+   - Command processor calls actors directly
+   - Removed intermediate wrapper layers
+   - Production-ready implementation
+
+### Service Decomposition
+
+Large services (800-900 lines) were decomposed into focused components:
+
+**TaskFinalizer** (848 → 6 files):
+- `service.rs`: Main TaskFinalizer (~200 lines)
+- `completion_handler.rs`: Task completion logic
+- `event_publisher.rs`: Lifecycle event publishing
+- `execution_context_provider.rs`: Context fetching
+- `state_handlers.rs`: State-specific handling
+
+**StepEnqueuerService** (781 → 3 files):
+- `service.rs`: Main service (~250 lines)
+- `batch_processor.rs`: Batch processing logic
+- `state_handlers.rs`: State-specific processing
+
+**ResultProcessor** (889 → 4 files):
+- `service.rs`: Main processor
+- `metadata_processor.rs`: Metadata handling
+- `error_handler.rs`: Error processing
+- `result_validator.rs`: Result validation
+
+---
+
+This comprehensive event and command architecture, now enhanced with the actor pattern, provides the foundation for scalable, reliable, and maintainable workflow orchestration in the tasker-core system while maintaining the flexibility to operate in diverse deployment environments.

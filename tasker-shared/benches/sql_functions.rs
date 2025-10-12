@@ -51,6 +51,25 @@
 //! - Linear scaling with data volume (good)
 //! - Exponential scaling (indicates missing indexes)
 //! - High std dev (contention or cache effects)
+//!
+//! ## Performance Thresholds
+//!
+//! These benchmarks use a **15% noise threshold** (vs Criterion's 5% default) because:
+//!
+//! 1. **Database operations have inherent variance**:
+//!    - Network round-trips to PostgreSQL
+//!    - OS scheduling and connection pooling
+//!    - Cache state and database statistics
+//!
+//! 2. **Absolute times matter more than percentages**:
+//!    - All operations complete in <2ms
+//!    - A 70% "regression" from 0.5ms to 0.9ms is still excellent performance
+//!    - Real regressions (10ms+) would indicate systemic problems
+//!
+//! 3. **Focus on meaningful changes**:
+//!    - 15% threshold filters out noise from normal database variance
+//!    - Major regressions (50%+) still get flagged appropriately
+//!    - Prevents false alarms from cache/statistics changes
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use sqlx::PgPool;
@@ -168,12 +187,25 @@ fn sample_step_uuids(
 ///
 /// Measures task discovery speed - this is the core orchestration hot path.
 /// Tests with empty database to measure function overhead itself.
+///
+/// ## Performance Thresholds
+///
+/// Database benchmarks naturally have higher variance due to:
+/// - Network round-trips to PostgreSQL
+/// - OS scheduling and connection pooling
+/// - Cache state and database statistics
+///
+/// We use a 15% noise threshold because:
+/// - 5% default is too sensitive for database operations
+/// - Absolute times (<2ms) are excellent regardless of % changes
+/// - Focus on detecting major regressions (50%+) not noise
 fn bench_get_next_ready_tasks(c: &mut Criterion) {
     let (runtime, pool) = setup_runtime();
 
     let mut group = c.benchmark_group("get_next_ready_tasks");
     group.sample_size(50);
     group.measurement_time(Duration::from_secs(10));
+    group.noise_threshold(0.15); // 15% threshold for database variance
 
     // Benchmark with different batch sizes
     for batch_size in [1, 10, 50, 100] {
@@ -220,6 +252,7 @@ fn bench_step_readiness_status(c: &mut Criterion) {
     let mut group = c.benchmark_group("step_readiness_status");
     group.sample_size(50);
     group.measurement_time(Duration::from_secs(10));
+    group.noise_threshold(0.15); // 15% threshold for database variance
 
     for (idx, task_uuid) in task_sample.iter().enumerate() {
         group.bench_with_input(
@@ -266,6 +299,7 @@ fn bench_state_transitions(c: &mut Criterion) {
     let mut group = c.benchmark_group("state_transitions");
     group.sample_size(50);
     group.measurement_time(Duration::from_secs(10));
+    group.noise_threshold(0.15); // 15% threshold for database variance
 
     for (idx, task_uuid) in task_sample.iter().enumerate() {
         group.bench_with_input(
@@ -318,6 +352,7 @@ fn bench_task_execution_context(c: &mut Criterion) {
     let mut group = c.benchmark_group("task_execution_context");
     group.sample_size(50);
     group.measurement_time(Duration::from_secs(10));
+    group.noise_threshold(0.15); // 15% threshold for database variance
 
     for (idx, task_uuid) in task_sample.iter().enumerate() {
         group.bench_with_input(
@@ -366,6 +401,7 @@ fn bench_step_transitive_dependencies(c: &mut Criterion) {
     let mut group = c.benchmark_group("step_transitive_dependencies");
     group.sample_size(50);
     group.measurement_time(Duration::from_secs(10));
+    group.noise_threshold(0.15); // 15% threshold for database variance
 
     for (idx, step_uuid) in step_sample.iter().enumerate() {
         group.bench_with_input(

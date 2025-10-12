@@ -129,10 +129,10 @@ pub async fn create_task(
 
                 // Map to appropriate HTTP status code
                 let api_error = match init_error {
-                    crate::orchestration::lifecycle::task_initializer::TaskInitializationError::ConfigurationNotFound(msg) => {
+                    crate::orchestration::lifecycle::task_initialization::TaskInitializationError::ConfigurationNotFound(msg) => {
                         ApiError::not_found(format!("Task template not found: {}", msg))
                     }
-                    crate::orchestration::lifecycle::task_initializer::TaskInitializationError::InvalidConfiguration(msg) => {
+                    crate::orchestration::lifecycle::task_initialization::TaskInitializationError::InvalidConfiguration(msg) => {
                         ApiError::bad_request(format!("Invalid task configuration: {}", msg))
                     }
                     _ => ApiError::internal_server_error(format!("Task initialization failed: {}", init_error))

@@ -4,7 +4,7 @@
 //! Validates requests, creates tasks using existing models, and enqueues
 //! validated tasks for orchestration processing.
 
-use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
+use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
 use std::sync::Arc;
 use tasker_shared::messaging::{PgmqClientTrait, TaskRequestMessage, UnifiedPgmqClient};
 use tasker_shared::registry::TaskHandlerRegistry;

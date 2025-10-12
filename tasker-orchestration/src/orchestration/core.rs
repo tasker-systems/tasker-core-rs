@@ -23,13 +23,13 @@ use tasker_shared::{TaskerError, TaskerResult};
 use crate::orchestration::command_processor::{
     OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, SystemHealth,
 };
-use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
-use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
-use crate::orchestration::lifecycle::task_finalizer::TaskFinalizer;
-use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
-use crate::orchestration::lifecycle::task_request_processor::{
-    TaskRequestProcessor, TaskRequestProcessorConfig,
-};
+// use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
+// use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
+// use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
+// use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
+// use crate::orchestration::lifecycle::task_request_processor::{
+//     TaskRequestProcessor, TaskRequestProcessorConfig,
+// };
 
 /// TAS-40 Command Pattern OrchestrationCore
 ///
@@ -63,21 +63,25 @@ pub enum OrchestrationCoreStatus {
 }
 
 impl OrchestrationCore {
-    /// Create new OrchestrationCore with command pattern integration
+    /// Create new OrchestrationCore with actor-based command pattern (TAS-46)
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
-        info!("Creating OrchestrationCore with TAS-40 command pattern integration");
+        info!("Creating OrchestrationCore with TAS-46 actor-based command pattern");
 
-        // Create sophisticated delegation components using unified claim system
-        let task_request_processor = Self::create_task_request_processor(&context).await?;
-        let result_processor = Self::create_result_processor(&context).await?;
-        let task_claim_step_enqueuer = Self::create_task_claim_step_enqueuer(&context).await?;
+        // Create ActorRegistry with all actors (TAS-46)
+        let actors = Arc::new(crate::actors::ActorRegistry::build(context.clone()).await?);
 
-        // Create OrchestrationProcessor with sophisticated delegation
+        // // Create sophisticated delegation components using unified claim system
+        // let task_request_processor = Self::create_task_request_processor(&context).await?;
+        // let result_processor = Self::create_result_processor(&context).await?;
+        // let task_claim_step_enqueuer = Self::create_task_claim_step_enqueuer(&context).await?;
+
+        // Create OrchestrationProcessor with actor registry (TAS-46)
         let (mut processor, command_sender) = OrchestrationProcessor::new(
             context.clone(),
-            task_request_processor,
-            result_processor,
-            task_claim_step_enqueuer,
+            actors,
+            // task_request_processor,
+            // result_processor,
+            // task_claim_step_enqueuer,
             context.message_client(),
             1000, // Command buffer size,
         );
@@ -188,60 +192,60 @@ impl OrchestrationCore {
         self.context.processor_uuid()
     }
 
-    /// Create sophisticated TaskRequestProcessor for delegation
-    async fn create_task_request_processor(
-        context: &Arc<SystemContext>,
-    ) -> TaskerResult<Arc<TaskRequestProcessor>> {
-        info!("Creating sophisticated TaskRequestProcessor for command pattern delegation");
+    ///// Create sophisticated TaskRequestProcessor for delegation
+    // async fn create_task_request_processor(
+    //     context: &Arc<SystemContext>,
+    // ) -> TaskerResult<Arc<TaskRequestProcessor>> {
+    //     info!("Creating sophisticated TaskRequestProcessor for command pattern delegation");
 
-        let config = TaskRequestProcessorConfig::default();
-        let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
-        let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
+    //     let config = TaskRequestProcessorConfig::default();
+    //     let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
+    //     let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
 
-        // Create TaskInitializer with step enqueuer for immediate step enqueuing
-        let task_initializer = Arc::new(TaskInitializer::new(
-            context.clone(),
-            task_claim_step_enqueuer,
-        ));
+    //     // Create TaskInitializer with step enqueuer for immediate step enqueuing
+    //     let task_initializer = Arc::new(TaskInitializer::new(
+    //         context.clone(),
+    //         task_claim_step_enqueuer,
+    //     ));
 
-        Ok(Arc::new(TaskRequestProcessor::new(
-            context.message_client.clone(),
-            context.task_handler_registry.clone(),
-            task_initializer,
-            config,
-        )))
-    }
+    //     Ok(Arc::new(TaskRequestProcessor::new(
+    //         context.message_client.clone(),
+    //         context.task_handler_registry.clone(),
+    //         task_initializer,
+    //         config,
+    //     )))
+    // }
 
-    /// Create sophisticated OrchestrationResultProcessor for delegation
-    async fn create_result_processor(
-        context: &Arc<SystemContext>,
-    ) -> TaskerResult<Arc<OrchestrationResultProcessor>> {
-        info!("Creating sophisticated OrchestrationResultProcessor with unified claim system");
+    // /// Create sophisticated OrchestrationResultProcessor for delegation
+    // async fn create_result_processor(
+    //     context: &Arc<SystemContext>,
+    // ) -> TaskerResult<Arc<OrchestrationResultProcessor>> {
+    //     info!("Creating sophisticated OrchestrationResultProcessor with unified claim system");
 
-        // Create TaskClaimStepEnqueuer with the shared processor UUID
-        let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
-        let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
+    //     // Create TaskClaimStepEnqueuer with the shared processor UUID
+    //     let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
+    //     let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
 
-        let task_finalizer = TaskFinalizer::new(context.clone(), task_claim_step_enqueuer);
+    //     let task_finalizer = TaskFinalizer::new(context.clone(), task_claim_step_enqueuer);
 
-        Ok(Arc::new(OrchestrationResultProcessor::new(
-            task_finalizer,
-            context.clone(),
-        )))
-    }
+    //     Ok(Arc::new(OrchestrationResultProcessor::new(
+    //         task_finalizer,
+    //         context.clone(),
+    //     )))
+    // }
 
-    /// Create sophisticated TaskClaimStepEnqueuer for delegation
-    async fn create_task_claim_step_enqueuer(
-        context: &Arc<SystemContext>,
-    ) -> TaskerResult<Arc<StepEnqueuerService>> {
-        info!(
-            "Creating sophisticated TaskClaimStepEnqueuer for TAS-43 command pattern integration"
-        );
+    // /// Create sophisticated TaskClaimStepEnqueuer for delegation
+    // async fn create_task_claim_step_enqueuer(
+    //     context: &Arc<SystemContext>,
+    // ) -> TaskerResult<Arc<StepEnqueuerService>> {
+    //     info!(
+    //         "Creating sophisticated TaskClaimStepEnqueuer for TAS-43 command pattern integration"
+    //     );
 
-        let enqueuer = StepEnqueuerService::new(context.clone()).await?;
+    //     let enqueuer = StepEnqueuerService::new(context.clone()).await?;
 
-        Ok(Arc::new(enqueuer))
-    }
+    //     Ok(Arc::new(enqueuer))
+    // }
 }
 
 impl std::fmt::Display for OrchestrationCoreStatus {

@@ -10,7 +10,7 @@ use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
+use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
 use tasker_shared::{SystemContext, TaskerResult};
 
 /// Configuration for the fallback poller
