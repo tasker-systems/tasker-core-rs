@@ -28,7 +28,7 @@ chrono = { workspace = true }
 clap = { version = "4.4", features = ["color", "derive", "env"] }
 # Configuration
 config = { workspace = true }
-dirs = "5.0"
+dirs = "6.0"
 futures = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
