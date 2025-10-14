@@ -188,7 +188,13 @@ impl SystemContext {
         // Create system instance ID
         let system_id = Uuid::now_v7();
 
-        let event_publisher = Arc::new(EventPublisher::new());
+        // Create event publisher with bounded channel (TAS-51)
+        let event_publisher_buffer_size = config
+            .mpsc_channels
+            .shared
+            .event_publisher
+            .event_queue_buffer_size;
+        let event_publisher = Arc::new(EventPublisher::with_capacity(event_publisher_buffer_size));
 
         info!("SystemContext components created successfully");
 
@@ -298,7 +304,13 @@ impl SystemContext {
         // Create task handler registry
         let task_handler_registry = Arc::new(TaskHandlerRegistry::new(database_pool.clone()));
 
-        let event_publisher = Arc::new(EventPublisher::new());
+        // Create event publisher with bounded channel (TAS-51)
+        let event_publisher_buffer_size = tasker_config
+            .mpsc_channels
+            .shared
+            .event_publisher
+            .event_queue_buffer_size;
+        let event_publisher = Arc::new(EventPublisher::with_capacity(event_publisher_buffer_size));
 
         Ok(Self {
             processor_uuid: system_id,

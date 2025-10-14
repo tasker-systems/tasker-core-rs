@@ -30,10 +30,11 @@ max_age_seconds = 7200  # 2 hours max for production
 batch_size = 100
 max_concurrent_pollers = 4
 
+# Event channel configuration
+# NOTE: buffer_size and send_timeout_ms MOVED to mpsc_channels.toml (TAS-51)
 [task_readiness.event_channel]
-# Large buffer for production throughput
-buffer_size = 5000
-send_timeout_ms = 2000
+# More retries for production reliability
+max_retries = 5
 
 [task_readiness.event_channel.backoff]
 # Production-appropriate backoff
@@ -52,9 +53,4 @@ stats_interval_seconds = 300  # 5 minutes
 # Production error thresholds
 max_consecutive_errors = 20
 error_rate_threshold_per_minute = 10
-
-[task_readiness.error_handling.circuit_breaker]
-# Production circuit breaker settings
-failure_threshold = 10
-recovery_timeout_seconds = 120
-half_open_max_calls = 5
+# NOTE: Circuit breaker configuration moved to circuit_breakers.toml

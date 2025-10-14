@@ -24,6 +24,7 @@ use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{PgmqClientTrait, StepExecutionResult};
 use tasker_shared::metrics::worker::*;
 use tasker_shared::models::{Task, WorkflowStep};
+use tasker_shared::monitoring::ChannelMonitor; // TAS-51: Channel monitoring
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
@@ -173,6 +174,9 @@ pub struct WorkerProcessor {
 
     /// Orchestration result sender for step completion notifications
     orchestration_result_sender: OrchestrationResultSender,
+
+    /// Channel monitor for command channel observability (TAS-51)
+    command_channel_monitor: ChannelMonitor,
 }
 
 impl WorkerProcessor {
@@ -181,6 +185,7 @@ impl WorkerProcessor {
         context: Arc<SystemContext>,
         task_template_manager: Arc<TaskTemplateManager>,
         command_buffer_size: usize,
+        command_channel_monitor: ChannelMonitor,
     ) -> (Self, mpsc::Sender<WorkerCommand>) {
         let (command_sender, command_receiver) = mpsc::channel(command_buffer_size);
         let worker_id = format!("worker_{}", Uuid::new_v4());
@@ -189,7 +194,8 @@ impl WorkerProcessor {
         info!(
             worker_id = %worker_id,
             processor_id = %processor_id,
-            "Creating WorkerProcessor with simple command pattern and database operations"
+            channel = %command_channel_monitor.channel_name(),
+            "Creating WorkerProcessor with command channel monitoring"
         );
 
         let queue_config = context.tasker_config.queues.clone();
@@ -214,6 +220,7 @@ impl WorkerProcessor {
             event_publisher: None,
             event_subscriber: None,
             orchestration_result_sender,
+            command_channel_monitor,
         };
 
         (processor, command_sender)
@@ -223,10 +230,15 @@ impl WorkerProcessor {
         context: Arc<SystemContext>,
         task_template_manager: Arc<TaskTemplateManager>,
         command_buffer_size: usize,
+        command_channel_monitor: ChannelMonitor,
         event_system: Arc<tasker_shared::events::WorkerEventSystem>,
     ) -> (Self, mpsc::Sender<WorkerCommand>) {
-        let (mut worker_processor, command_sender) =
-            Self::new(context, task_template_manager, command_buffer_size);
+        let (mut worker_processor, command_sender) = Self::new(
+            context,
+            task_template_manager,
+            command_buffer_size,
+            command_channel_monitor,
+        );
         worker_processor.enable_event_integration_with_system(Some(event_system));
         (worker_processor, command_sender)
     }
@@ -297,6 +309,9 @@ impl WorkerProcessor {
                 command = command_receiver.recv() => {
                     match command {
                         Some(cmd) => {
+                            // TAS-51: Record message receive for channel monitoring
+                            self.command_channel_monitor.record_receive();
+
                             if !self.handle_command(cmd).await {
                                 break; // Shutdown requested
                             }
@@ -464,6 +479,9 @@ impl WorkerProcessor {
 
         // Simple command processing loop - no polling, no complex state
         while let Some(command) = command_receiver.recv().await {
+            // TAS-51: Record message receive for channel monitoring
+            self.command_channel_monitor.record_receive();
+
             debug!(
                 worker_id = %self.worker_id,
                 command = ?command,
@@ -1169,7 +1187,11 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let (processor, _sender) = WorkerProcessor::new(context, task_template_manager, 100);
+        // TAS-51: Create channel monitor for testing
+        let channel_monitor = ChannelMonitor::new("test_worker_command_channel", 100);
+
+        let (processor, _sender) =
+            WorkerProcessor::new(context, task_template_manager, 100, channel_monitor);
 
         assert_eq!(processor.stats.total_executed, 0);
         assert_eq!(processor.handlers.len(), 0);
@@ -1192,7 +1214,11 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let (mut processor, _sender) = WorkerProcessor::new(context, task_template_manager, 100);
+        // TAS-51: Create channel monitor for testing
+        let channel_monitor = ChannelMonitor::new("test_worker_command_channel", 100);
+
+        let (mut processor, _sender) =
+            WorkerProcessor::new(context, task_template_manager, 100, channel_monitor);
 
         // Create a SimpleStepMessage for testing
         let step_message = SimpleStepMessage {
@@ -1235,7 +1261,11 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let (processor, _sender) = WorkerProcessor::new(context, task_template_manager, 100);
+        // TAS-51: Create channel monitor for testing
+        let channel_monitor = ChannelMonitor::new("test_worker_command_channel", 100);
+
+        let (processor, _sender) =
+            WorkerProcessor::new(context, task_template_manager, 100, channel_monitor);
 
         let status = processor.handle_get_worker_status().unwrap();
 

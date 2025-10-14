@@ -191,6 +191,7 @@ use crate::orchestration::hydration::{
    // use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
    // use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
+use tasker_shared::monitoring::ChannelMonitor; // TAS-51: Channel monitoring
 use tasker_shared::system_context::SystemContext;
 
 /// TAS-40 Command Pattern Orchestration Processor
@@ -218,6 +219,9 @@ pub struct OrchestrationProcessor {
 
     /// Statistics tracking
     stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
+
+    /// Channel monitor for observability (TAS-51)
+    channel_monitor: ChannelMonitor,
 }
 
 impl OrchestrationProcessor {
@@ -227,6 +231,7 @@ impl OrchestrationProcessor {
         actors: Arc<ActorRegistry>,
         pgmq_client: Arc<UnifiedPgmqClient>,
         buffer_size: usize,
+        channel_monitor: ChannelMonitor,
     ) -> (Self, mpsc::Sender<OrchestrationCommand>) {
         let (command_tx, command_rx) = mpsc::channel(buffer_size);
 
@@ -239,6 +244,12 @@ impl OrchestrationProcessor {
             current_queue_sizes: HashMap::new(),
         }));
 
+        info!(
+            channel = %channel_monitor.channel_name(),
+            buffer_size = buffer_size,
+            "Creating OrchestrationProcessor with channel monitoring"
+        );
+
         let processor = Self {
             context,
             actors,
@@ -246,6 +257,7 @@ impl OrchestrationProcessor {
             command_rx: Some(command_rx),
             task_handle: None,
             stats,
+            channel_monitor,
         };
 
         (processor, command_tx)
@@ -256,6 +268,7 @@ impl OrchestrationProcessor {
         let context = self.context.clone();
         let stats = self.stats.clone();
         let pgmq_client = self.pgmq_client.clone();
+        let channel_monitor = self.channel_monitor.clone(); // TAS-51: Clone monitor for spawned task
         let mut command_rx = self.command_rx.take().ok_or_else(|| {
             TaskerError::OrchestrationError("Processor already started".to_string())
         })?;
@@ -265,6 +278,8 @@ impl OrchestrationProcessor {
             let handler =
                 OrchestrationProcessorCommandHandler::new(context, actors, stats, pgmq_client);
             while let Some(command) = command_rx.recv().await {
+                // TAS-51: Record message receive for channel monitoring
+                channel_monitor.record_receive();
                 handler.process_command(command).await;
             }
         });

@@ -27,16 +27,21 @@ polling_interval_ms = 1000
 age_threshold_seconds = 2
 batch_size = 20
 
+# Event channel configuration
+# NOTE: buffer_size and send_timeout_ms MOVED to mpsc_channels.toml (TAS-51)
 [task_readiness.event_channel]
-# Smaller buffer for development
-buffer_size = 500
+# Default retries (using base config default of 3)
+max_retries = 3
+
+[task_readiness.event_channel.backoff]
+# Standard backoff for development (using base config defaults)
+initial_delay_ms = 100
+max_delay_ms = 5000
+multiplier = 2.0
+jitter_percent = 0.1
 
 [task_readiness.error_handling]
 # Lower error thresholds for development testing
 max_consecutive_errors = 5
 error_rate_threshold_per_minute = 2
-
-[task_readiness.error_handling.circuit_breaker]
-# More sensitive circuit breaker for development
-failure_threshold = 3
-recovery_timeout_seconds = 15
+# NOTE: Circuit breaker configuration moved to circuit_breakers.toml

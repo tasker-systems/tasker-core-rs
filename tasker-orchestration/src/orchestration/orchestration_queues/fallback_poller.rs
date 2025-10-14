@@ -102,9 +102,9 @@ pub struct OrchestrationPollerStats {
     /// Polling errors encountered
     pub polling_errors: AtomicU64,
     /// Last polling cycle timestamp
-    pub last_poll_at: Arc<parking_lot::Mutex<Option<Instant>>>,
+    pub last_poll_at: Arc<tokio::sync::Mutex<Option<Instant>>>,
     /// Poller startup timestamp
-    pub started_at: Arc<parking_lot::Mutex<Option<Instant>>>,
+    pub started_at: Arc<tokio::sync::Mutex<Option<Instant>>>,
 }
 
 impl OrchestrationFallbackPoller {
@@ -152,7 +152,7 @@ impl OrchestrationFallbackPoller {
         );
 
         self.is_running.store(true, Ordering::Relaxed);
-        *self.stats.started_at.lock() = Some(Instant::now());
+        *self.stats.started_at.lock().await = Some(Instant::now());
 
         // Start polling loop in background task
         self.start_polling_loop().await?;
@@ -188,7 +188,7 @@ impl OrchestrationFallbackPoller {
     }
 
     /// Get poller statistics
-    pub fn stats(&self) -> OrchestrationPollerStats {
+    pub async fn stats(&self) -> OrchestrationPollerStats {
         OrchestrationPollerStats {
             polling_cycles: AtomicU64::new(self.stats.polling_cycles.load(Ordering::Relaxed)),
             messages_processed: AtomicU64::new(
@@ -202,8 +202,10 @@ impl OrchestrationFallbackPoller {
             ),
             messages_skipped: AtomicU64::new(self.stats.messages_skipped.load(Ordering::Relaxed)),
             polling_errors: AtomicU64::new(self.stats.polling_errors.load(Ordering::Relaxed)),
-            last_poll_at: Arc::new(parking_lot::Mutex::new(*self.stats.last_poll_at.lock())),
-            started_at: Arc::new(parking_lot::Mutex::new(*self.stats.started_at.lock())),
+            last_poll_at: Arc::new(tokio::sync::Mutex::new(
+                *self.stats.last_poll_at.lock().await,
+            )),
+            started_at: Arc::new(tokio::sync::Mutex::new(*self.stats.started_at.lock().await)),
         }
     }
 
@@ -251,7 +253,7 @@ impl OrchestrationFallbackPoller {
             loop {
                 interval.tick().await;
                 stats.polling_cycles.fetch_add(1, Ordering::Relaxed);
-                *stats.last_poll_at.lock() = Some(Instant::now());
+                *stats.last_poll_at.lock().await = Some(Instant::now());
 
                 // Poll all monitored queues
                 for queue_name in &monitored_queues {
@@ -419,5 +421,5 @@ struct OrchestrationPollerStatsRef {
     step_results_processed: Arc<AtomicU64>,
     task_requests_processed: Arc<AtomicU64>,
     polling_errors: Arc<AtomicU64>,
-    last_poll_at: Arc<parking_lot::Mutex<Option<Instant>>>,
+    last_poll_at: Arc<tokio::sync::Mutex<Option<Instant>>>,
 }

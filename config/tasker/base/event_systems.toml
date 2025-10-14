@@ -50,7 +50,7 @@ queues_populated_at_runtime = true
 
 [event_systems.task_readiness]
 system_id = "task-readiness-event-system"
-deployment_mode = "Hybrid"                # Empty = all namespaces
+deployment_mode = "Hybrid"  # Empty = all namespaces
 
 # Timing configuration
 [event_systems.task_readiness.timing]
@@ -102,9 +102,17 @@ connection_retry_delay_seconds = 2
 auto_reconnect = true
 
 # Event channel configuration
+# NOTE: buffer_size and send_timeout_ms MOVED to mpsc_channels.toml (TAS-51)
+# Access via: config.mpsc_channels.task_readiness.event_channel
+# This section contains event processing configuration (retries, backoff)
 [event_systems.task_readiness.metadata.event_channel]
-buffer_size = 1000
-send_timeout_ms = 1000
+max_retries = 3
+
+[event_systems.task_readiness.metadata.event_channel.backoff]
+initial_delay_ms = 100
+max_delay_ms = 5000
+multiplier = 2.0
+jitter_percent = 0.1
 
 # Task readiness coordinator configuration
 [event_systems.task_readiness.metadata.coordinator]
@@ -123,14 +131,14 @@ deployment_mode = "Hybrid"
 # Timing configuration
 [event_systems.worker.timing]
 health_check_interval_seconds = 30
-fallback_polling_interval_seconds = 1 # Workers need faster polling
+fallback_polling_interval_seconds = 1  # Workers need faster polling
 visibility_timeout_seconds = 30
 processing_timeout_seconds = 30
 claim_timeout_seconds = 300
 
 # Processing and concurrency configuration
 [event_systems.worker.processing]
-max_concurrent_operations = 100 # Workers handle more concurrent operations
+max_concurrent_operations = 100  # Workers handle more concurrent operations
 batch_size = 10
 max_retries = 3
 
@@ -150,7 +158,8 @@ error_rate_threshold_per_minute = 5
 # Worker-specific metadata
 # In-process event system (no TCP endpoints - uses broadcast channels for FFI)
 [event_systems.worker.metadata.in_process_events]
-broadcast_buffer_size = 1000
+# NOTE: broadcast_buffer_size MOVED to mpsc_channels.toml (TAS-51)
+# Access via: config.mpsc_channels.worker.in_process_events.broadcast_buffer_size
 ffi_integration_enabled = true
 deduplication_cache_size = 1000
 

@@ -43,8 +43,7 @@ opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true }
-# Concurrency and state management
-parking_lot = { workspace = true }
+# Message queue management
 pgmq = { workspace = true }
 pgmq-notify = { workspace = true }
 rand = { workspace = true }

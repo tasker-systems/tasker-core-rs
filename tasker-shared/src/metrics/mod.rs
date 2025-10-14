@@ -46,6 +46,7 @@ use opentelemetry_sdk::{
 use std::sync::OnceLock;
 use std::time::Duration;
 
+pub mod channels;
 pub mod database;
 pub mod messaging;
 pub mod orchestration;
@@ -137,11 +138,18 @@ pub fn init_metrics() {
             match init_opentelemetry_meter(&config) {
                 Ok(meter_provider) => {
                     opentelemetry::global::set_meter_provider(meter_provider);
+
+                    // Initialize domain-specific metrics
+                    channels::init();
+                    orchestration::init();
+                    worker::init();
+                    // database and messaging metrics are initialized on-demand
+
                     tracing::info!(
                         service_name = %config.service_name,
                         otlp_endpoint = %config.otlp_endpoint,
                         export_interval_seconds = config.export_interval_seconds,
-                        "OpenTelemetry metrics initialized"
+                        "OpenTelemetry metrics initialized (channels, orchestration, worker)"
                     );
                 }
                 Err(e) => {

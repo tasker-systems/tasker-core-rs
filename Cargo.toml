@@ -62,8 +62,7 @@ opentelemetry-otlp = { version = "0.26", features = ["grpc-tonic"] }
 # Our choice: rt-tokio works well for async I/O-bound orchestration without CPU-intensive workloads
 opentelemetry_sdk = { version = "0.26", features = ["rt-tokio", "trace", "metrics"] }
 opentelemetry-semantic-conventions = "0.26"
-# Concurrency and state management
-parking_lot = "0.12"
+# Message queue management
 pgmq = "0.30.1"
 pgmq-notify = { path = "pgmq-notify" }
 proptest = "1.0"

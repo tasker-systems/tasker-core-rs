@@ -1,0 +1,20 @@
+# Development Environment - MPSC Channel Configuration Overrides
+#
+# This file provides development-specific overrides for MPSC channel buffer sizes.
+# These values are optimized for local development with moderate load.
+
+# ============================================================================
+# TASK READINESS CHANNELS - DEVELOPMENT OVERRIDES
+# ============================================================================
+
+[mpsc_channels.task_readiness.event_channel]
+# Smaller buffer for development environment
+buffer_size = 500
+
+# ============================================================================
+# WORKER CHANNELS - DEVELOPMENT OVERRIDES
+# ============================================================================
+
+[mpsc_channels.worker.in_process_events]
+# Smaller broadcast buffer for development
+broadcast_buffer_size = 500

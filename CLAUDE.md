@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-10-11
+**Last Updated**: 2025-10-14
 
 ## Project Overview
 
@@ -307,6 +307,69 @@ Environment detection order:
 1. `TASKER_ENV` environment variable
 2. Default to "development"
 
+### MPSC Channel Strategy (TAS-51)
+
+The system uses bounded MPSC channels with configuration-driven capacity management for all async communication.
+
+**Golden Rules**:
+1. **All channels MUST be bounded** - `unbounded_channel()` is forbidden
+2. **All channels MUST be configured via TOML** - No hard-coded buffer sizes
+3. **All channels MUST have monitoring** - Use ChannelMonitor for observability
+4. **All channels MUST handle backpressure** - Document overflow behavior
+5. **All configurations MUST have environment overrides** - Test with small buffers
+
+**Configuration Structure**:
+```
+config/tasker/base/mpsc_channels.toml              # Base channel buffer sizes
+config/tasker/environments/test/mpsc_channels.toml # Small buffers (100-500)
+config/tasker/environments/development/mpsc_channels.toml # Medium buffers (500-1000)
+config/tasker/environments/production/mpsc_channels.toml  # Large buffers (2000-50000)
+```
+
+**Channel Categories**:
+- **Orchestration Channels**: Command processing (1000-5000), PGMQ notifications (10000-50000)
+- **Task Readiness Channels**: Event coordination (1000-5000)
+- **Worker Channels**: Command processing (1000-2000), FFI events (1000-2000)
+- **Shared Channels**: Event publishing (5000-10000), Ruby FFI (1000-2000)
+
+**Critical Implementation Detail**:
+Environment override files MUST use full `[mpsc_channels.*]` prefix:
+```toml
+# ✅ CORRECT
+[mpsc_channels.orchestration.command_processor]
+command_buffer_size = 5000
+
+# ❌ WRONG - creates conflicting top-level key
+[orchestration.command_processor]
+command_buffer_size = 5000
+```
+
+**Channel Monitoring**:
+- `ChannelMonitor` tracks real-time usage and saturation
+- Warns at 80% capacity by default
+- Exposes OpenTelemetry metrics for production monitoring
+- All channel creates must integrate monitoring
+
+**Backpressure Strategies**:
+- **Block**: Default for critical messages (task results, commands)
+- **Drop with metrics**: For non-critical events (internal notifications)
+- **Timeout**: Balance between blocking and dropping
+- **Retry with backoff**: Important messages with temporary saturation
+
+**Documentation**:
+- **ADR**: `docs/architecture-decisions/TAS-51-bounded-mpsc-channels.md` - Design decisions and rationale
+- **Operations**: `docs/operations/mpsc-channel-tuning.md` - Monitoring, alerting, and capacity planning
+- **Development**: `docs/development/mpsc-channel-guidelines.md` - Step-by-step creation guide and patterns
+
+**Quick Start for New Channels**:
+1. Add configuration to `config/tasker/base/mpsc_channels.toml`
+2. Add environment overrides with `[mpsc_channels.*]` prefix
+3. Add Rust type in `tasker-shared/src/config/mpsc_channels.rs`
+4. Create channel using configuration: `mpsc::channel(config.buffer_size)`
+5. Integrate ChannelMonitor for observability
+6. Implement backpressure strategy
+7. Add tests covering backpressure behavior
+
 ### Actor-Based Module Organization
 
 The orchestration crate is organized around the actor pattern (TAS-46):
@@ -594,6 +657,15 @@ async fn handle_finalize_task(&self, task_uuid: Uuid)
 
 ### Completed Features (Production Ready)
 
+**TAS-51**: Bounded MPSC channels with configuration-driven capacity (October 2025)
+- Migrated all unbounded channels to bounded with configurable capacities
+- Configuration-driven buffer sizing with environment-specific overrides
+- Separation of concerns: infrastructure (sizing) vs business logic (retry behavior)
+- ChannelMonitor integration for real-time observability
+- Explicit backpressure strategies for all channel overflow scenarios
+- Comprehensive documentation: ADR, operational runbook, developer guidelines
+- Zero memory growth risk from unbounded channels
+
 **TAS-46**: Actor pattern implementation (Phases 1-7)
 - Lightweight actor pattern with 4 production-ready actors
 - Message-based type-safe communication via `Handler<M>` trait
@@ -665,3 +737,7 @@ For deep dives into specific architectural aspects:
 - **Crate Structure**: `docs/crate-architecture.md` - Workspace organization and public APIs
 - **State Machines**: `docs/states-and-lifecycles.md` - Task and step state transitions
 - **SQL Functions**: `docs/task-and-step-readiness-and-execution.md` - Database-level orchestration logic
+- **MPSC Channels**:
+  - `docs/architecture-decisions/TAS-51-bounded-mpsc-channels.md` - ADR with design decisions and rationale
+  - `docs/operations/mpsc-channel-tuning.md` - Operational runbook for monitoring and capacity planning
+  - `docs/development/mpsc-channel-guidelines.md` - Developer guidelines for creating and using channels

@@ -25,8 +25,8 @@ pub struct RubyBridgeHandle {
     pub system_handle: WorkerSystemHandle,
     /// Ruby event handler for forwarding events
     pub event_handler: Arc<RubyEventHandler>,
-    /// Event receiver for polling step execution events
-    pub event_receiver: Arc<Mutex<mpsc::UnboundedReceiver<StepExecutionEvent>>>,
+    /// Event receiver for polling step execution events (TAS-51: bounded channel)
+    pub event_receiver: Arc<Mutex<mpsc::Receiver<StepExecutionEvent>>>,
     /// Keep runtime alive
     #[allow(dead_code)]
     pub runtime: tokio::runtime::Runtime,
@@ -36,7 +36,7 @@ impl RubyBridgeHandle {
     pub fn new(
         system_handle: WorkerSystemHandle,
         event_handler: Arc<RubyEventHandler>,
-        event_receiver: mpsc::UnboundedReceiver<StepExecutionEvent>,
+        event_receiver: mpsc::Receiver<StepExecutionEvent>,
         runtime: tokio::runtime::Runtime,
     ) -> Self {
         Self {

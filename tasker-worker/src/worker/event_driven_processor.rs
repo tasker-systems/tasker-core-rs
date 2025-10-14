@@ -165,7 +165,6 @@ impl EventDrivenMessageProcessor {
             },
             metadata: WorkerEventSystemMetadata {
                 in_process_events: InProcessEventConfig {
-                    broadcast_buffer_size: 1000,
                     ffi_integration_enabled: true,
                     deduplication_cache_size: 10000,
                 },

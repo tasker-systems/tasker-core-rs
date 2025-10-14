@@ -168,9 +168,12 @@ impl WorkerQueueListener {
             .with_queue_naming_pattern(&namespace_pattern)
             .with_default_namespace("default");
 
+        // TAS-51: bounded channel for event listener
+        let buffer_size = 1000; // From config.mpsc_channels.worker.event_listeners.pgmq_event_buffer_size
         let listener = PgmqNotifyListener::new(
             context.database_pool().clone(),
-            notify_config
+            notify_config,
+            buffer_size
         ).await?;
 
         // Implementation follows orchestration_queues/listener.rs patterns

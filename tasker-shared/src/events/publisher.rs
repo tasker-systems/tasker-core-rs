@@ -46,6 +46,7 @@
 //! ```
 
 use crate::events::types::{Event, OrchestrationEvent, StepResult, TaskResult, ViableStep};
+use crate::monitoring::ChannelMonitor;
 use chrono::Utc;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -95,12 +96,14 @@ pub struct EventPublisher {
     event_sender: broadcast::Sender<Event>,
     /// Subscribers for different event types
     subscribers: Arc<RwLock<HashMap<String, Vec<EventCallback>>>>,
-    /// Event queue for async processing
-    event_queue: Option<mpsc::UnboundedSender<Event>>,
+    /// Event queue for async processing (TAS-51: bounded channel)
+    event_queue: Option<mpsc::Sender<Event>>,
     /// Correlation ID for this publisher instance
     correlation_id: String,
     /// FFI bridge for cross-language publishing
     ffi_bridge: Option<FfiBridge>,
+    /// Channel monitor for observability (TAS-51)
+    channel_monitor: Option<ChannelMonitor>,
 }
 
 impl EventPublisher {
@@ -129,9 +132,12 @@ impl EventPublisher {
 
         let subscribers = Arc::new(RwLock::new(HashMap::new()));
 
-        // Set up async processing if enabled
-        let event_queue = if config.async_processing {
-            let (queue_sender, queue_receiver) = mpsc::unbounded_channel();
+        // Set up async processing if enabled (TAS-51: bounded channel)
+        let (event_queue, channel_monitor) = if config.async_processing {
+            let (queue_sender, queue_receiver) = mpsc::channel(config.buffer_size);
+
+            // TAS-51: Initialize channel monitor for observability
+            let monitor = ChannelMonitor::new("event_publisher_queue", config.buffer_size);
 
             // Start background processor
             Self::start_background_processor(
@@ -141,9 +147,9 @@ impl EventPublisher {
                 config.clone(),
             );
 
-            Some(queue_sender)
+            (Some(queue_sender), Some(monitor))
         } else {
-            None
+            (None, None)
         };
 
         // Set up FFI bridge if enabled
@@ -160,6 +166,7 @@ impl EventPublisher {
             event_queue,
             correlation_id: correlation_id.clone(),
             ffi_bridge,
+            channel_monitor,
         };
 
         info!(
@@ -167,6 +174,7 @@ impl EventPublisher {
             buffer_size = config.buffer_size,
             ffi_enabled = config.ffi_enabled,
             async_processing = config.async_processing,
+            channel_monitoring = publisher.channel_monitor.is_some(),
             "EventPublisher initialized"
         );
 
@@ -190,12 +198,23 @@ impl EventPublisher {
 
         // Send to async queue for processing if enabled
         if let Some(queue) = &self.event_queue {
-            queue
-                .send(event.clone())
-                .map_err(|e| PublishError::QueueError {
-                    event_name: event_name.clone(),
-                    reason: format!("Failed to queue event: {e}"),
-                })?;
+            // Send the event
+            match queue.send(event.clone()).await {
+                Ok(_) => {
+                    // TAS-51: Record send and periodically check saturation (optimized)
+                    if let Some(monitor) = &self.channel_monitor {
+                        if monitor.record_send_success() {
+                            monitor.check_and_warn_saturation(queue.capacity());
+                        }
+                    }
+                }
+                Err(e) => {
+                    return Err(PublishError::QueueError {
+                        event_name: event_name.clone(),
+                        reason: format!("Failed to queue event: {e}"),
+                    });
+                }
+            }
         }
 
         // Send to broadcast channel for immediate subscribers
@@ -356,9 +375,9 @@ impl EventPublisher {
         }
     }
 
-    /// Start background event processor
+    /// Start background event processor (TAS-51: bounded receiver)
     fn start_background_processor(
-        mut event_queue_rx: mpsc::UnboundedReceiver<Event>,
+        mut event_queue_rx: mpsc::Receiver<Event>,
         subscribers: Arc<RwLock<HashMap<String, Vec<EventCallback>>>>,
         correlation_id: String,
         config: EventPublisherConfig,
@@ -420,6 +439,7 @@ impl Clone for EventPublisher {
             event_queue: self.event_queue.clone(),
             correlation_id: self.correlation_id.clone(),
             ffi_bridge: self.ffi_bridge.clone(),
+            channel_monitor: self.channel_monitor.clone(),
         }
     }
 }

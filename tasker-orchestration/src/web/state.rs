@@ -7,13 +7,13 @@ use crate::orchestration::core::{OrchestrationCore, OrchestrationCoreStatus};
 use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
-use parking_lot::RwLock;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use std::time::Duration;
 use tasker_shared::config::web::WebConfig;
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType, SystemOperationalState};
 use tasker_shared::TaskerResult;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 /// Database pool usage statistics for monitoring (TAS-37 Web Integration)
@@ -210,14 +210,18 @@ impl AppState {
     }
 
     /// Update orchestration status (called periodically by health check)
-    pub fn update_orchestration_status(&self, new_status: OrchestrationStatus) {
-        let mut status = self.orchestration_status.write();
+    pub async fn update_orchestration_status(&self, new_status: OrchestrationStatus) {
+        let mut status = self.orchestration_status.write().await;
         *status = new_status;
     }
 
     /// Get current orchestration operational state
-    pub fn operational_state(&self) -> SystemOperationalState {
-        self.orchestration_status.read().operational_state.clone()
+    pub async fn operational_state(&self) -> SystemOperationalState {
+        self.orchestration_status
+            .read()
+            .await
+            .operational_state
+            .clone()
     }
 
     /// Report web API database pool usage to health monitoring system (TAS-40 Web Integration)

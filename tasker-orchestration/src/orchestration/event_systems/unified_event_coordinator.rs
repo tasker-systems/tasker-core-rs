@@ -117,6 +117,8 @@ impl UnifiedEventCoordinator {
         // TODO: Implement unified event notification system when needed
 
         // Create orchestration event system if enabled
+        // TAS-51: Get command channel monitor for send instrumentation
+        let command_channel_monitor = orchestration_core.command_channel_monitor();
 
         let orchestration_system = Some(
             OrchestrationEventSystem::new(
@@ -124,6 +126,7 @@ impl UnifiedEventCoordinator {
                 context.clone(),
                 orchestration_core.clone(),
                 orchestration_command_sender.clone(),
+                command_channel_monitor,
             )
             .await?,
         );

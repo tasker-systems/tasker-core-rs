@@ -11,6 +11,7 @@ use std::time::SystemTime;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
 
+use crate::channel_metrics::ChannelMonitor;
 use crate::config::PgmqNotifyConfig;
 use crate::error::{PgmqNotifyError, Result};
 use crate::events::PgmqNotifyEvent;
@@ -54,16 +55,34 @@ pub struct PgmqNotifyListener {
     listener: Option<PgListener>,
     listening_channels: Arc<RwLock<HashSet<String>>>,
     stats: Arc<RwLock<ListenerStats>>,
-    event_sender: Option<mpsc::UnboundedSender<PgmqNotifyEvent>>,
-    event_receiver: Option<mpsc::UnboundedReceiver<PgmqNotifyEvent>>,
+    event_sender: Option<mpsc::Sender<PgmqNotifyEvent>>,
+    event_receiver: Option<mpsc::Receiver<PgmqNotifyEvent>>,
+    channel_monitor: ChannelMonitor,
 }
 
 impl PgmqNotifyListener {
     /// Create a new PGMQ notification listener
-    pub async fn new(pool: PgPool, config: PgmqNotifyConfig) -> Result<Self> {
+    ///
+    /// # Arguments
+    /// * `pool` - PostgreSQL connection pool
+    /// * `config` - PGMQ notification configuration
+    /// * `buffer_size` - MPSC channel buffer size (TAS-51: bounded channels)
+    ///
+    /// # Returns
+    /// * `Result<Self>` - Configured listener or error
+    ///
+    /// # Note
+    /// TAS-51: Migrated from unbounded to bounded channel to prevent OOM during notification bursts.
+    /// Buffer size should come from:
+    /// - Orchestration: `config.mpsc_channels.orchestration.event_listeners.pgmq_event_buffer_size`
+    /// - Worker: `config.mpsc_channels.worker.event_listeners.pgmq_event_buffer_size`
+    pub async fn new(pool: PgPool, config: PgmqNotifyConfig, buffer_size: usize) -> Result<Self> {
         config.validate()?;
 
-        let (event_sender, event_receiver) = mpsc::unbounded_channel();
+        let (event_sender, event_receiver) = mpsc::channel(buffer_size);
+
+        // TAS-51: Initialize channel monitor for observability
+        let channel_monitor = ChannelMonitor::new("pgmq_notify_listener", buffer_size);
 
         Ok(Self {
             pool,
@@ -73,6 +92,7 @@ impl PgmqNotifyListener {
             stats: Arc::new(RwLock::new(ListenerStats::default())),
             event_sender: Some(event_sender),
             event_receiver: Some(event_receiver),
+            channel_monitor,
         })
     }
 
@@ -444,8 +464,14 @@ impl PgmqNotifyListener {
         let event_sender = self.event_sender.take();
         if let (Some(listener), Some(sender)) = (self.listener.take(), event_sender) {
             let stats = Arc::clone(&self.stats);
+            // TAS-51: Clone channel monitor for observability in spawned task
+            let monitor = self.channel_monitor.clone();
 
-            info!("Starting PGMQ notification listener with event queue");
+            info!(
+                channel_monitor = %monitor.channel_name(),
+                buffer_size = monitor.buffer_size(),
+                "Starting PGMQ notification listener with event queue and channel monitoring"
+            );
 
             tokio::spawn(async move {
                 let mut stream = listener.into_stream();
@@ -469,9 +495,19 @@ impl PgmqNotifyListener {
                             // Parse and queue the event
                             match serde_json::from_str::<PgmqNotifyEvent>(notification.payload()) {
                                 Ok(event) => {
-                                    if sender.send(event).is_err() {
-                                        warn!("Event receiver dropped, stopping listener");
-                                        break;
+                                    // Send the event
+                                    match sender.send(event).await {
+                                        Ok(_) => {
+                                            // TAS-51: Record send and periodically check saturation (optimized)
+                                            if monitor.record_send_success() {
+                                                monitor
+                                                    .check_and_warn_saturation(sender.capacity());
+                                            }
+                                        }
+                                        Err(_) => {
+                                            warn!("Event receiver dropped, stopping listener");
+                                            break;
+                                        }
                                     }
                                 }
                                 Err(e) => {

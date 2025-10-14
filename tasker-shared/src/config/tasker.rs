@@ -68,6 +68,9 @@ pub use super::task_readiness::{
     TaskReadinessNotificationConfig,
 };
 
+// TAS-51 MPSC Channels Configuration export
+pub use super::mpsc_channels::MpscChannelsConfig;
+
 /// Root configuration structure for component-based config system
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TaskerConfig {
@@ -105,6 +108,10 @@ pub struct TaskerConfig {
     // REMOVED: task_claimer for TAS-41 state machine approach
     /// Unified event systems configuration
     pub event_systems: EventSystemsConfig,
+
+    /// MPSC channels configuration (TAS-51)
+    /// Unified configuration for all Tokio MPSC channel buffer sizes
+    pub mpsc_channels: MpscChannelsConfig,
 
     /// Worker configuration
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -524,6 +531,7 @@ impl Default for TaskerConfig {
             task_readiness: TaskReadinessConfig::default(), // TAS-43 Task Readiness System
             // REMOVED: task_claimer for TAS-41 state machine approach
             event_systems: EventSystemsConfig::default(), // Unified Event Systems Configuration
+            mpsc_channels: MpscChannelsConfig::default(), // TAS-51 MPSC Channels Configuration
             worker: None, // Optional, only populated when TOML contains worker configuration
         }
     }

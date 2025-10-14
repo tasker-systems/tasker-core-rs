@@ -10,6 +10,7 @@ use tracing::debug;
 
 use crate::web::state::WorkerWebState;
 use tasker_shared::messaging::clients::MessageClient;
+use tasker_shared::metrics::channels::global_registry;
 use tasker_shared::types::web::*;
 
 /// Prometheus metrics endpoint: GET /metrics
@@ -67,6 +68,29 @@ pub async fn prometheus_metrics(State(state): State<Arc<WorkerWebState>>) -> Htm
     // - Steps processed total/success/failure counts from database
     // - Processing latency histograms from recent step executions
     // - Active commands count from WorkerProcessor
+
+    // TAS-51: Add channel metrics
+    let channel_health = global_registry()
+        .get_all_health(|_channel_name| {
+            // For Prometheus export, we don't need precise capacity
+            // Health checks will be done via dedicated health endpoint
+            Some(100) // Placeholder capacity for health reporting
+        })
+        .await;
+
+    for (channel_name, component, health_status) in channel_health {
+        let health_value = match health_status.as_str() {
+            s if s.starts_with("healthy") => 0,
+            s if s.starts_with("degraded") => 1,
+            s if s.starts_with("critical") => 2,
+            _ => 0,
+        };
+
+        metrics.push(format!(
+            "# HELP tasker_worker_channel_health Channel health status (0=healthy, 1=degraded, 2=critical)\n# TYPE tasker_worker_channel_health gauge\ntasker_worker_channel_health{{channel_name=\"{}\",component=\"{}\"}} {}",
+            channel_name, component, health_value
+        ));
+    }
 
     Html(metrics.join("\n\n"))
 }

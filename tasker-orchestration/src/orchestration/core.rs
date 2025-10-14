@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use tasker_shared::monitoring::ChannelMonitor; // TAS-51: Channel monitoring
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
@@ -50,6 +51,9 @@ pub struct OrchestrationCore {
 
     /// System status
     pub status: OrchestrationCoreStatus,
+
+    /// Channel monitor for command channel observability (TAS-51)
+    command_channel_monitor: ChannelMonitor,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +80,18 @@ impl OrchestrationCore {
         // let task_claim_step_enqueuer = Self::create_task_claim_step_enqueuer(&context).await?;
 
         // Create OrchestrationProcessor with actor registry (TAS-46)
+        // TAS-51: Use configured buffer size for command processor
+        let command_buffer_size = context
+            .tasker_config
+            .mpsc_channels
+            .orchestration
+            .command_processor
+            .command_buffer_size;
+
+        // TAS-51: Initialize channel monitor for observability
+        let channel_monitor =
+            ChannelMonitor::new("orchestration_command_channel", command_buffer_size);
+
         let (mut processor, command_sender) = OrchestrationProcessor::new(
             context.clone(),
             actors,
@@ -83,7 +99,8 @@ impl OrchestrationCore {
             // result_processor,
             // task_claim_step_enqueuer,
             context.message_client(),
-            1000, // Command buffer size,
+            command_buffer_size,
+            channel_monitor.clone(), // Pass clone to processor
         );
 
         // Start the processor
@@ -94,12 +111,18 @@ impl OrchestrationCore {
             command_sender,
             processor: Some(processor),
             status: OrchestrationCoreStatus::Created,
+            command_channel_monitor: channel_monitor, // Store monitor for sender instrumentation
         })
     }
 
     /// Get command sender for external components
     pub fn command_sender(&self) -> mpsc::Sender<OrchestrationCommand> {
         self.command_sender.clone()
+    }
+
+    /// Get command channel monitor for send instrumentation (TAS-51)
+    pub fn command_channel_monitor(&self) -> ChannelMonitor {
+        self.command_channel_monitor.clone()
     }
 
     /// Start the orchestration core
