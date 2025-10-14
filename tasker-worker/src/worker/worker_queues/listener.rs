@@ -17,6 +17,7 @@ use pgmq_notify::{
     error::PgmqNotifyError, listener::PgmqEventHandler, MessageReadyEvent, PgmqNotifyConfig,
     PgmqNotifyEvent, PgmqNotifyListener,
 };
+use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
 use super::events::{WorkerNotification, WorkerQueueEvent};
@@ -35,6 +36,8 @@ pub struct WorkerQueueListener {
     context: Arc<SystemContext>,
     /// Event sender channel
     event_sender: mpsc::Sender<WorkerNotification>,
+    /// Channel monitor for observability (TAS-51)
+    channel_monitor: ChannelMonitor,
     /// pgmq-notify listener (when connected)
     pgmq_listener: Option<PgmqNotifyListener>,
     /// Connection state
@@ -101,9 +104,9 @@ pub struct WorkerListenerStats {
     /// Connection errors encountered
     pub connection_errors: AtomicU64,
     /// Last event timestamp
-    pub last_event_at: Arc<parking_lot::Mutex<Option<Instant>>>,
+    pub last_event_at: Arc<tokio::sync::Mutex<Option<Instant>>>,
     /// Listener startup time
-    pub started_at: Arc<parking_lot::Mutex<Option<Instant>>>,
+    pub started_at: Arc<tokio::sync::Mutex<Option<Instant>>>,
 }
 
 impl WorkerQueueListener {
@@ -112,13 +115,15 @@ impl WorkerQueueListener {
         config: WorkerListenerConfig,
         context: Arc<SystemContext>,
         event_sender: mpsc::Sender<WorkerNotification>,
+        channel_monitor: ChannelMonitor,
     ) -> TaskerResult<Self> {
         let listener_id = Uuid::new_v4();
 
         info!(
             listener_id = %listener_id,
             supported_namespaces = ?config.supported_namespaces,
-            "Creating WorkerQueueListener"
+            channel_monitor = %channel_monitor.channel_name(),
+            "Creating WorkerQueueListener with channel monitoring"
         );
 
         Ok(Self {
@@ -126,6 +131,7 @@ impl WorkerQueueListener {
             config,
             context,
             event_sender,
+            channel_monitor,
             pgmq_listener: None,
             is_connected: false,
             stats: Arc::new(WorkerListenerStats::default()),
@@ -148,16 +154,23 @@ impl WorkerQueueListener {
             .with_queue_naming_pattern(r"^(?:worker_)?(?P<namespace>\w+)_queue$")
             .with_default_namespace("default");
 
-        // Create pgmq-notify listener
-        let mut listener =
-            PgmqNotifyListener::new(self.context.database_pool().clone(), pgmq_config)
-                .await
-                .map_err(|e| {
-                    TaskerError::WorkerError(format!(
-                        "Failed to create pgmq-notify listener: {}",
-                        e
-                    ))
-                })?;
+        // Create pgmq-notify listener with bounded channel (TAS-51)
+        let buffer_size = self
+            .context
+            .tasker_config
+            .mpsc_channels
+            .worker
+            .event_listeners
+            .pgmq_event_buffer_size;
+        let mut listener = PgmqNotifyListener::new(
+            self.context.database_pool().clone(),
+            pgmq_config,
+            buffer_size,
+        )
+        .await
+        .map_err(|e| {
+            TaskerError::WorkerError(format!("Failed to create pgmq-notify listener: {}", e))
+        })?;
 
         listener.connect().await.map_err(|e| {
             TaskerError::WorkerError(format!("Failed to connect to pgmq-notify listener: {}", e))
@@ -189,11 +202,12 @@ impl WorkerQueueListener {
                 })?;
         }
 
-        // Create event handler
+        // Create event handler with channel monitor
         let handler = WorkerEventHandler::new(
             self.config.clone(),
             self.context.clone(),
             self.event_sender.clone(),
+            self.channel_monitor.clone(),
             self.listener_id,
             self.stats.clone(),
         );
@@ -233,7 +247,7 @@ impl WorkerQueueListener {
         }
 
         self.is_connected = true;
-        *self.stats.started_at.lock() = Some(Instant::now());
+        *self.stats.started_at.lock().await = Some(Instant::now());
 
         info!(
             listener_id = %self.listener_id,
@@ -267,6 +281,7 @@ struct WorkerEventHandler {
     #[allow(dead_code)]
     context: Arc<SystemContext>,
     event_sender: mpsc::Sender<WorkerNotification>,
+    channel_monitor: ChannelMonitor,
     listener_id: Uuid,
     stats: Arc<WorkerListenerStats>,
 }
@@ -276,6 +291,7 @@ impl WorkerEventHandler {
         config: WorkerListenerConfig,
         context: Arc<SystemContext>,
         event_sender: mpsc::Sender<WorkerNotification>,
+        channel_monitor: ChannelMonitor,
         listener_id: Uuid,
         stats: Arc<WorkerListenerStats>,
     ) -> Self {
@@ -283,6 +299,7 @@ impl WorkerEventHandler {
             config,
             context,
             event_sender,
+            channel_monitor,
             listener_id,
             stats,
         }
@@ -322,7 +339,7 @@ impl PgmqEventHandler for WorkerEventHandler {
 
                 // Update statistics
                 self.stats.events_received.fetch_add(1, Ordering::Relaxed);
-                *self.stats.last_event_at.lock() = Some(Instant::now());
+                *self.stats.last_event_at.lock().await = Some(Instant::now());
 
                 // Classify the event
                 let queue_event = self.classify_event(msg_event);
@@ -349,18 +366,27 @@ impl PgmqEventHandler for WorkerEventHandler {
                     }
                 }
 
-                // Send the classified event
+                // Send the classified event with channel monitoring (TAS-51)
                 let notification = WorkerNotification::Event(queue_event);
-                if let Err(e) = self.event_sender.send(notification).await {
-                    error!(
-                        listener_id = %self.listener_id,
-                        error = %e,
-                        "Failed to send worker queue event"
-                    );
-                    return Err(PgmqNotifyError::Generic(anyhow::anyhow!(
-                        "Failed to send event: {}",
-                        e
-                    )));
+                match self.event_sender.send(notification).await {
+                    Ok(_) => {
+                        // TAS-51: Record send and periodically check saturation (optimized)
+                        if self.channel_monitor.record_send_success() {
+                            self.channel_monitor
+                                .check_and_warn_saturation(self.event_sender.capacity());
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            listener_id = %self.listener_id,
+                            error = %e,
+                            "Failed to send worker queue event"
+                        );
+                        return Err(PgmqNotifyError::Generic(anyhow::anyhow!(
+                            "Failed to send event: {}",
+                            e
+                        )));
+                    }
                 }
 
                 Ok(())

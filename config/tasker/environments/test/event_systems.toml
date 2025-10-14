@@ -68,7 +68,7 @@ batch_size = 5
 
 # Test-specific worker metadata
 [event_systems.worker.metadata.in_process_events]
-broadcast_buffer_size = 500
+# NOTE: broadcast_buffer_size MOVED to mpsc_channels.toml (TAS-51)
 ffi_integration_enabled = true
 deduplication_cache_size = 500
 

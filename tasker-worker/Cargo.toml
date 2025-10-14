@@ -40,8 +40,7 @@ futures = { workspace = true }
 jsonwebtoken = { workspace = true, optional = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
-# Concurrency and state management
-parking_lot = { workspace = true }
+# Message queue management
 pgmq = { workspace = true }
 pgmq-notify = { package = "pgmq-notify", path = "../pgmq-notify" }
 rand = { workspace = true }

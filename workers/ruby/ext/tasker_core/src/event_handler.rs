@@ -9,6 +9,7 @@ use crate::bridge;
 use crate::conversions::convert_ruby_completion_to_rust;
 use magnus::{Error as MagnusError, Value as RValue};
 use std::sync::Arc;
+use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::{
     events::{WorkerEventSubscriber, WorkerEventSystem},
     types::{StepExecutionCompletionEvent, StepExecutionEvent},
@@ -17,25 +18,41 @@ use tasker_shared::{TaskerError, TaskerResult};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, warn};
 
-/// Ruby Event Handler - forwards Rust events to Ruby via MPSC channel
+/// Ruby Event Handler - forwards Rust events to Ruby via MPSC channel (TAS-51: bounded)
 pub struct RubyEventHandler {
     event_subscriber: Arc<WorkerEventSubscriber>,
     worker_id: String,
-    event_sender: mpsc::UnboundedSender<StepExecutionEvent>,
+    event_sender: mpsc::Sender<StepExecutionEvent>,
+    channel_monitor: ChannelMonitor,
 }
 
 impl RubyEventHandler {
+    /// Create new Ruby event handler with bounded channel
+    ///
+    /// # Arguments
+    /// * `event_system` - Worker event system to subscribe to
+    /// * `worker_id` - Worker identifier
+    /// * `buffer_size` - MPSC channel buffer size (TAS-51: bounded channels)
+    ///
+    /// # Note
+    /// TAS-51: Migrated from unbounded to bounded channel to provide backpressure.
+    /// Buffer size should come from: `config.mpsc_channels.shared.ffi.ruby_event_buffer_size`
     pub fn new(
         event_system: Arc<WorkerEventSystem>,
         worker_id: String,
-    ) -> (Self, mpsc::UnboundedReceiver<StepExecutionEvent>) {
+        buffer_size: usize,
+    ) -> (Self, mpsc::Receiver<StepExecutionEvent>) {
         let event_subscriber = Arc::new(WorkerEventSubscriber::new((*event_system).clone()));
-        let (event_sender, event_receiver) = mpsc::unbounded_channel();
+        let (event_sender, event_receiver) = mpsc::channel(buffer_size);
+
+        // TAS-51: Initialize channel monitor for observability
+        let channel_monitor = ChannelMonitor::new("ruby_ffi_event_handler", buffer_size);
 
         let handler = Self {
             event_subscriber,
             worker_id,
             event_sender,
+            channel_monitor,
         };
 
         (handler, event_receiver)
@@ -44,11 +61,15 @@ impl RubyEventHandler {
     pub async fn start(&self) -> TaskerResult<()> {
         info!(
             worker_id = %self.worker_id,
-            "Starting Ruby event handler - subscribing to step execution events"
+            channel_monitor = %self.channel_monitor.channel_name(),
+            buffer_size = self.channel_monitor.buffer_size(),
+            "Starting Ruby event handler with channel monitoring"
         );
 
         let mut receiver = self.event_subscriber.subscribe_to_step_executions();
         let event_sender = self.event_sender.clone();
+        // TAS-51: Clone channel monitor for observability in spawned task
+        let monitor = self.channel_monitor.clone();
 
         tokio::spawn(async move {
             loop {
@@ -61,11 +82,19 @@ impl RubyEventHandler {
                         );
 
                         // Send to channel instead of directly calling Ruby
-                        if let Err(e) = event_sender.send(event) {
-                            error!(
-                                error = %e,
-                                "Failed to send event to Ruby channel"
-                            );
+                        match event_sender.send(event).await {
+                            Ok(_) => {
+                                // TAS-51: Record send and periodically check saturation (optimized)
+                                if monitor.record_send_success() {
+                                    monitor.check_and_warn_saturation(event_sender.capacity());
+                                }
+                            }
+                            Err(e) => {
+                                error!(
+                                    error = %e,
+                                    "Failed to send event to Ruby channel"
+                                );
+                            }
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(count)) => {

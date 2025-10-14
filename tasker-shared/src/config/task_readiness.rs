@@ -128,14 +128,14 @@ pub struct ReadinessFallbackConfig {
 }
 
 /// Event channel configuration
+///
+/// NOTE (TAS-51): buffer_size and send_timeout_ms have been MOVED to mpsc_channels.toml
+/// Access via: config.mpsc_channels.task_readiness.event_channel
+///
+/// This struct contains event processing configuration (retries, backoff)
+/// NOT MPSC channel sizing configuration (which is in mpsc_channels.toml)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EventChannelConfig {
-    /// Buffer size for task readiness event channels
-    pub buffer_size: usize,
-
-    /// Channel timeout in milliseconds when sending events
-    pub send_timeout_ms: u64,
-
     /// Maximum number of event processing retries
     pub max_retries: u32,
 
@@ -320,8 +320,6 @@ impl Default for ReadinessFallbackConfig {
 impl Default for EventChannelConfig {
     fn default() -> Self {
         Self {
-            buffer_size: 1000,
-            send_timeout_ms: 1000,
             max_retries: 3,
             backoff: BackoffConfig::default(),
         }
@@ -385,11 +383,6 @@ impl TaskReadinessConfig {
         Duration::from_secs(self.fallback_polling.max_age_seconds)
     }
 
-    /// Get event send timeout as Duration
-    pub fn event_send_timeout(&self) -> Duration {
-        Duration::from_millis(self.event_channel.send_timeout_ms)
-    }
-
     /// Get operation timeout as Duration
     pub fn operation_timeout(&self) -> Duration {
         Duration::from_millis(self.coordinator.operation_timeout_ms)
@@ -444,11 +437,7 @@ impl TaskReadinessConfig {
 
     /// Validate configuration for consistency
     pub fn validate(&self) -> Result<(), String> {
-        // Validate buffer sizes
-        if self.event_channel.buffer_size == 0 {
-            return Err("event_channel.buffer_size must be greater than 0".to_string());
-        }
-
+        // Validate batch sizes
         if self.fallback_polling.batch_size == 0 {
             return Err("fallback_polling.batch_size must be greater than 0".to_string());
         }
@@ -550,11 +539,6 @@ mod tests {
 
         // Valid configuration should pass
         assert!(config.validate().is_ok());
-
-        // Invalid buffer size
-        config.event_channel.buffer_size = 0;
-        assert!(config.validate().is_err());
-        config.event_channel.buffer_size = 1000;
 
         // Invalid rollback threshold
         config.enhanced_settings.rollback_threshold_percent = -1.0;

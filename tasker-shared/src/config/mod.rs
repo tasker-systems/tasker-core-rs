@@ -33,6 +33,7 @@ pub mod error;
 pub mod event_systems;
 pub mod executor;
 pub mod manager;
+pub mod mpsc_channels;
 pub mod orchestration;
 pub mod queues;
 pub mod state;
@@ -81,6 +82,17 @@ pub use task_readiness::{
     ErrorHandlingConfig, EventChannelConfig, EventClassificationConfig, NamespacePatterns,
     ReadinessFallbackConfig, TaskReadinessConfig, TaskReadinessCoordinatorConfig,
     TaskReadinessNotificationConfig,
+};
+
+// TAS-51 MPSC Channels Configuration exports
+pub use mpsc_channels::{
+    DropPolicy, MpscChannelsConfig, OrchestrationChannelsConfig,
+    OrchestrationCommandProcessorConfig, OrchestrationEventListenersConfig,
+    OrchestrationEventSystemsConfig, OverflowMetricsConfig, OverflowPolicyConfig,
+    SharedChannelsConfig, SharedEventPublisherConfig, SharedFfiConfig, TaskReadinessChannelsConfig,
+    TaskReadinessEventChannelConfig, WorkerChannelsConfig, WorkerCommandProcessorConfig,
+    WorkerEventListenersConfig, WorkerEventSubscribersConfig, WorkerEventSystemsConfig,
+    WorkerInProcessEventsConfig,
 };
 
 // Compatibility wrapper (thin wrapper around UnifiedConfigLoader)

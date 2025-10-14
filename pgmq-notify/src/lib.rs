@@ -39,8 +39,9 @@
 //!
 //! let mut client = PgmqNotifyClient::new(database_url, config).await?;
 //!
-//! // 3. Create listener for real-time event processing
-//! let mut listener = PgmqNotifyListener::new(pool, config).await?;
+//! // 3. Create listener for real-time event processing (TAS-51: bounded channel)
+//! let buffer_size = 1000; // From config.mpsc_channels.*.event_listeners.pgmq_event_buffer_size
+//! let mut listener = PgmqNotifyListener::new(pool, config, buffer_size).await?;
 //! listener.connect().await?;
 //! listener.listen_message_ready_for_namespace("orders").await?;
 //!
@@ -59,6 +60,7 @@
 //! }
 //! ```
 
+pub mod channel_metrics;
 pub mod client;
 pub mod config;
 pub mod emitter;

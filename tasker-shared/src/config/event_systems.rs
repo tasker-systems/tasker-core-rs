@@ -166,10 +166,20 @@ pub struct ConnectionConfig {
     pub auto_reconnect: bool,
 }
 
+/// Event channel configuration
+///
+/// NOTE (TAS-51): buffer_size and send_timeout_ms have been MOVED to mpsc_channels.toml
+/// Access via: config.mpsc_channels.task_readiness.event_channel
+///
+/// This struct contains event processing configuration (retries, backoff)
+/// NOT MPSC channel sizing configuration (which is in mpsc_channels.toml)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventChannelConfig {
-    pub buffer_size: usize,
-    pub send_timeout_ms: u64,
+    /// Maximum number of event processing retries
+    pub max_retries: u32,
+
+    /// Backoff configuration for event processing failures
+    pub backoff: BackoffConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,10 +190,11 @@ pub struct TaskReadinessCoordinatorConfig {
 }
 
 // Worker specific configurations
+/// In-process event configuration
+/// NOTE (TAS-51): broadcast_buffer_size has been MOVED to mpsc_channels.toml
+/// Access via: config.mpsc_channels.worker.in_process_events.broadcast_buffer_size
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InProcessEventConfig {
-    /// Broadcast channel buffer size for in-process events
-    pub broadcast_buffer_size: usize,
     /// Whether to enable FFI event integration
     pub ffi_integration_enabled: bool,
     /// Deduplication cache size to prevent duplicate processing
@@ -293,6 +304,15 @@ impl Default for BackoffConfig {
     }
 }
 
+impl Default for EventChannelConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            backoff: BackoffConfig::default(),
+        }
+    }
+}
+
 impl Default for OrchestrationEventSystemMetadata {
     fn default() -> Self {
         Self {
@@ -332,10 +352,7 @@ impl Default for TaskReadinessEventSystemMetadata {
                     auto_reconnect: true,
                 },
             },
-            event_channel: EventChannelConfig {
-                buffer_size: 1000,
-                send_timeout_ms: 1000,
-            },
+            event_channel: EventChannelConfig::default(),
             coordinator: TaskReadinessCoordinatorConfig {
                 instance_id_prefix: "task_readiness".to_string(),
                 operation_timeout_ms: 5000,
@@ -349,7 +366,6 @@ impl Default for WorkerEventSystemMetadata {
     fn default() -> Self {
         Self {
             in_process_events: InProcessEventConfig {
-                broadcast_buffer_size: 1000,
                 ffi_integration_enabled: true,
                 deduplication_cache_size: 1000,
             },
@@ -486,10 +502,8 @@ mod tests {
         assert_eq!(config.system_id, "worker-event-system");
         assert_eq!(config.deployment_mode, DeploymentMode::Hybrid);
         assert_eq!(config.metadata.resource_limits.max_memory_mb, 2048);
-        assert_eq!(
-            config.metadata.in_process_events.broadcast_buffer_size,
-            1000
-        );
+        // NOTE: broadcast_buffer_size migrated to mpsc_channels.toml (TAS-51)
+        assert!(config.metadata.in_process_events.ffi_integration_enabled);
     }
 
     #[test]

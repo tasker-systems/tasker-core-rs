@@ -16,6 +16,7 @@ use uuid::Uuid;
 use pgmq_notify::{
     listener::PgmqEventHandler, PgmqNotifyConfig, PgmqNotifyEvent, PgmqNotifyListener,
 };
+use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
 use super::events::OrchestrationQueueEvent;
@@ -34,6 +35,8 @@ pub struct OrchestrationQueueListener {
     context: Arc<SystemContext>,
     /// Event sender channel
     event_sender: mpsc::Sender<OrchestrationNotification>,
+    /// Channel monitor for observability (TAS-51)
+    channel_monitor: ChannelMonitor,
     /// pgmq-notify listener (when connected)
     pgmq_listener: Option<PgmqNotifyListener>,
     /// Connection state
@@ -105,9 +108,9 @@ pub struct OrchestrationListenerStats {
     /// Connection errors encountered
     pub connection_errors: AtomicU64,
     /// Last event timestamp
-    pub last_event_at: Arc<parking_lot::Mutex<Option<Instant>>>,
+    pub last_event_at: Arc<tokio::sync::Mutex<Option<Instant>>>,
     /// Listener startup time
-    pub started_at: Arc<parking_lot::Mutex<Option<Instant>>>,
+    pub started_at: Arc<tokio::sync::Mutex<Option<Instant>>>,
 }
 
 impl OrchestrationQueueListener {
@@ -116,6 +119,7 @@ impl OrchestrationQueueListener {
         config: OrchestrationListenerConfig,
         context: Arc<SystemContext>,
         event_sender: mpsc::Sender<OrchestrationNotification>,
+        channel_monitor: ChannelMonitor,
     ) -> TaskerResult<Self> {
         let listener_id = Uuid::new_v4();
 
@@ -123,7 +127,8 @@ impl OrchestrationQueueListener {
             listener_id = %listener_id,
             namespace = %config.namespace,
             monitored_queues = ?config.monitored_queues,
-            "Creating OrchestrationQueueListener"
+            channel_monitor = %channel_monitor.channel_name(),
+            "Creating OrchestrationQueueListener with channel monitoring"
         );
 
         Ok(Self {
@@ -131,6 +136,7 @@ impl OrchestrationQueueListener {
             config,
             context,
             event_sender,
+            channel_monitor,
             pgmq_listener: None,
             is_connected: false,
             stats: Arc::new(OrchestrationListenerStats::default()),
@@ -152,16 +158,23 @@ impl OrchestrationQueueListener {
             .with_queue_naming_pattern(r"(?P<namespace>\w+)_queue|orchestration.*")
             .with_default_namespace(&self.config.namespace);
 
-        // Create pgmq-notify listener
-        let mut listener =
-            PgmqNotifyListener::new(self.context.database_pool().clone(), pgmq_config)
-                .await
-                .map_err(|e| {
-                    TaskerError::OrchestrationError(format!(
-                        "Failed to create pgmq-notify listener: {}",
-                        e
-                    ))
-                })?;
+        // Create pgmq-notify listener with bounded channel (TAS-51)
+        let buffer_size = self
+            .context
+            .tasker_config
+            .mpsc_channels
+            .orchestration
+            .event_listeners
+            .pgmq_event_buffer_size;
+        let mut listener = PgmqNotifyListener::new(
+            self.context.database_pool().clone(),
+            pgmq_config,
+            buffer_size,
+        )
+        .await
+        .map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to create pgmq-notify listener: {}", e))
+        })?;
 
         listener.connect().await.map_err(|e| {
             TaskerError::OrchestrationError(format!(
@@ -191,11 +204,12 @@ impl OrchestrationQueueListener {
             TaskerError::OrchestrationError(format!("Failed to listen to global channel: {}", e))
         })?;
 
-        // Create event handler
+        // Create event handler with channel monitor
         let handler = OrchestrationEventHandler::new(
             self.config.clone(),
             self.context.clone(),
             self.event_sender.clone(),
+            self.channel_monitor.clone(),
             self.listener_id,
             self.stats.clone(),
         );
@@ -235,7 +249,7 @@ impl OrchestrationQueueListener {
         }
 
         self.is_connected = true;
-        *self.stats.started_at.lock() = Some(Instant::now());
+        *self.stats.started_at.lock().await = Some(Instant::now());
 
         info!(
             listener_id = %self.listener_id,
@@ -270,7 +284,7 @@ impl OrchestrationQueueListener {
     }
 
     /// Get listener statistics
-    pub fn stats(&self) -> OrchestrationListenerStats {
+    pub async fn stats(&self) -> OrchestrationListenerStats {
         OrchestrationListenerStats {
             events_received: AtomicU64::new(self.stats.events_received.load(Ordering::Relaxed)),
             step_results_processed: AtomicU64::new(
@@ -286,8 +300,10 @@ impl OrchestrationQueueListener {
             ),
             unknown_events: AtomicU64::new(self.stats.unknown_events.load(Ordering::Relaxed)),
             connection_errors: AtomicU64::new(self.stats.connection_errors.load(Ordering::Relaxed)),
-            last_event_at: Arc::new(parking_lot::Mutex::new(*self.stats.last_event_at.lock())),
-            started_at: Arc::new(parking_lot::Mutex::new(*self.stats.started_at.lock())),
+            last_event_at: Arc::new(tokio::sync::Mutex::new(
+                *self.stats.last_event_at.lock().await,
+            )),
+            started_at: Arc::new(tokio::sync::Mutex::new(*self.stats.started_at.lock().await)),
         }
     }
 }
@@ -304,6 +320,8 @@ struct OrchestrationEventHandler {
     context: Arc<SystemContext>,
     /// Event sender for orchestration notifications
     event_sender: mpsc::Sender<OrchestrationNotification>,
+    /// Channel monitor for observability (TAS-51)
+    channel_monitor: ChannelMonitor,
     /// Listener identifier
     listener_id: Uuid,
     /// Statistics counters (shared with listener)
@@ -317,6 +335,7 @@ impl OrchestrationEventHandler {
         config: OrchestrationListenerConfig,
         context: Arc<SystemContext>,
         event_sender: mpsc::Sender<OrchestrationNotification>,
+        channel_monitor: ChannelMonitor,
         listener_id: Uuid,
         stats: Arc<OrchestrationListenerStats>,
     ) -> Self {
@@ -328,6 +347,7 @@ impl OrchestrationEventHandler {
             config,
             context,
             event_sender,
+            channel_monitor,
             listener_id,
             stats,
             queue_classifier,
@@ -426,13 +446,22 @@ impl PgmqEventHandler for OrchestrationEventHandler {
                     }
                 };
 
-                // Send notification to event system
-                if let Err(e) = self.event_sender.send(notification).await {
-                    warn!(
-                        listener_id = %self.listener_id,
-                        error = %e,
-                        "Failed to send orchestration notification to event system"
-                    );
+                // Send notification to event system with channel monitoring (TAS-51)
+                match self.event_sender.send(notification).await {
+                    Ok(_) => {
+                        // TAS-51: Record send and periodically check saturation (optimized)
+                        if self.channel_monitor.record_send_success() {
+                            self.channel_monitor
+                                .check_and_warn_saturation(self.event_sender.capacity());
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            listener_id = %self.listener_id,
+                            error = %e,
+                            "Failed to send orchestration notification to event system"
+                        );
+                    }
                 }
             }
             PgmqNotifyEvent::QueueCreated(queue_event) => {
@@ -471,12 +500,21 @@ impl PgmqEventHandler for OrchestrationEventHandler {
             channel, error
         ));
 
-        if let Err(e) = self.event_sender.send(notification).await {
-            error!(
-                listener_id = %self.listener_id,
-                error = %e,
-                "Failed to send parse error notification to event system"
-            );
+        // TAS-51: Channel monitoring for error notifications
+        match self.event_sender.send(notification).await {
+            Ok(_) => {
+                if self.channel_monitor.record_send_success() {
+                    self.channel_monitor
+                        .check_and_warn_saturation(self.event_sender.capacity());
+                }
+            }
+            Err(e) => {
+                error!(
+                    listener_id = %self.listener_id,
+                    error = %e,
+                    "Failed to send parse error notification to event system"
+                );
+            }
         }
     }
 
@@ -492,12 +530,21 @@ impl PgmqEventHandler for OrchestrationEventHandler {
         let notification =
             OrchestrationNotification::ConnectionError(format!("Connection error: {}", error));
 
-        if let Err(e) = self.event_sender.send(notification).await {
-            error!(
-                listener_id = %self.listener_id,
-                error = %e,
-                "Failed to send connection error notification to event system"
-            );
+        // TAS-51: Channel monitoring for error notifications
+        match self.event_sender.send(notification).await {
+            Ok(_) => {
+                if self.channel_monitor.record_send_success() {
+                    self.channel_monitor
+                        .check_and_warn_saturation(self.event_sender.capacity());
+                }
+            }
+            Err(e) => {
+                error!(
+                    listener_id = %self.listener_id,
+                    error = %e,
+                    "Failed to send connection error notification to event system"
+                );
+            }
         }
     }
 }

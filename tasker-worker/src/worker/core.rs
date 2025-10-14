@@ -126,19 +126,35 @@ impl WorkerCore {
             })?,
         );
 
+        // TAS-51: Use configured buffer size for worker command processor
+        let command_buffer_size = context
+            .tasker_config
+            .mpsc_channels
+            .worker
+            .command_processor
+            .command_buffer_size;
+
+        // TAS-51: Initialize channel monitor for observability
+        let command_channel_monitor = tasker_shared::monitoring::ChannelMonitor::new(
+            "worker_command_channel",
+            command_buffer_size,
+        );
+
         let (processor, command_sender) = {
             if let Some(ref event_system) = event_system {
                 WorkerProcessor::new_with_event_system(
                     context.clone(),
                     task_template_manager.clone(),
-                    1000, // Command buffer size
+                    command_buffer_size,
+                    command_channel_monitor,
                     event_system.clone(),
                 )
             } else {
                 WorkerProcessor::new(
                     context.clone(),
                     task_template_manager.clone(),
-                    1000, // Command buffer size
+                    command_buffer_size,
+                    command_channel_monitor,
                 )
             }
         };

@@ -58,6 +58,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_shared::events::{WorkerEventSubscriber as SharedEventSubscriber, WorkerEventSystem};
 use tasker_shared::messaging::StepExecutionResult;
+use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::types::StepExecutionCompletionEvent;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, warn};
@@ -149,11 +150,28 @@ impl WorkerEventSubscriber {
     /// Returns a receiver that the WorkerProcessor can use in its command loop
     /// to receive StepExecutionResult messages converted from FFI completion events.
     pub fn start_completion_listener(&self) -> mpsc::Receiver<StepExecutionResult> {
-        let (completion_sender, completion_receiver) = mpsc::channel(1000);
+        // TAS-51: Use configured buffer size for completion channel
+        let buffer_size = tasker_shared::config::ConfigManager::load()
+            .ok()
+            .map(|cm| {
+                cm.config()
+                    .mpsc_channels
+                    .worker
+                    .event_subscribers
+                    .completion_buffer_size
+            })
+            .unwrap_or(1000); // Fallback to 1000 if config load fails
+        let (completion_sender, completion_receiver) = mpsc::channel(buffer_size);
+
+        // TAS-51: Initialize channel monitor for observability
+        let channel_monitor =
+            ChannelMonitor::new("worker_subscriber_completion_channel", buffer_size);
+
         let mut event_receiver = self.shared_subscriber.subscribe_to_step_completions();
 
         let worker_id = self.worker_id.clone();
         let stats = Arc::clone(&self.stats);
+        let monitor = channel_monitor;
 
         // Spawn background task to listen for completion events
         tokio::spawn(async move {
@@ -186,14 +204,22 @@ impl WorkerEventSubscriber {
                 // Convert completion event to StepExecutionResult
                 match Self::convert_completion_to_result(completion_event) {
                     Ok(step_result) => {
-                        // Send converted result to worker processor
-                        if let Err(e) = completion_sender.send(step_result).await {
-                            warn!(
-                                worker_id = %worker_id,
-                                error = %e,
-                                "Failed to send step completion to worker processor - channel closed"
-                            );
-                            break; // Channel closed, exit listener
+                        // Send converted result to worker processor with channel monitoring (TAS-51)
+                        match completion_sender.send(step_result).await {
+                            Ok(_) => {
+                                // TAS-51: Record send and periodically check saturation (optimized)
+                                if monitor.record_send_success() {
+                                    monitor.check_and_warn_saturation(completion_sender.capacity());
+                                }
+                            }
+                            Err(e) => {
+                                warn!(
+                                    worker_id = %worker_id,
+                                    error = %e,
+                                    "Failed to send step completion to worker processor - channel closed"
+                                );
+                                break; // Channel closed, exit listener
+                            }
                         }
                     }
                     Err(e) => {
@@ -379,9 +405,26 @@ impl CorrelatedCompletionListener {
         &self,
         timeout_seconds: u64,
     ) -> mpsc::Receiver<CorrelatedStepResult> {
-        let (result_sender, result_receiver) = mpsc::channel(1000);
+        // TAS-51: Use configured buffer size for result channel
+        let buffer_size = tasker_shared::config::ConfigManager::load()
+            .ok()
+            .map(|cm| {
+                cm.config()
+                    .mpsc_channels
+                    .worker
+                    .event_subscribers
+                    .result_buffer_size
+            })
+            .unwrap_or(1000); // Fallback to 1000 if config load fails
+        let (result_sender, result_receiver) = mpsc::channel(buffer_size);
+
+        // TAS-51: Initialize channel monitor for observability
+        let channel_monitor =
+            ChannelMonitor::new("worker_subscriber_correlated_result_channel", buffer_size);
+
         let mut completion_receiver = self.subscriber.subscribe_to_raw_completions();
         let correlation_tracker = Arc::clone(&self.correlation_tracker);
+        let monitor = channel_monitor;
 
         tokio::spawn(async move {
             while let Ok(completion_event) = completion_receiver.recv().await {
@@ -431,9 +474,18 @@ impl CorrelatedCompletionListener {
                     }
                 };
 
-                if let Err(e) = result_sender.send(correlated_result).await {
-                    warn!(error = %e, "Failed to send correlated result - channel closed");
-                    break;
+                // Send correlated result with channel monitoring (TAS-51)
+                match result_sender.send(correlated_result).await {
+                    Ok(_) => {
+                        // TAS-51: Record send and periodically check saturation (optimized)
+                        if monitor.record_send_success() {
+                            monitor.check_and_warn_saturation(result_sender.capacity());
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to send correlated result - channel closed");
+                        break;
+                    }
                 }
             }
         });

@@ -10,6 +10,7 @@ use crate::{
 };
 use magnus::{value::ReprValue, Error, Value};
 use std::sync::Arc;
+use tasker_shared::config::ConfigManager;
 use tasker_worker::WorkerBootstrap;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -57,12 +58,25 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
         )
     })?;
 
+    // Load configuration for bounded channel sizes (TAS-51)
+    let config = ConfigManager::load()
+        .map_err(|e| {
+            error!("Failed to load configuration: {}", e);
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Configuration load failed: {}", e),
+            )
+        })?
+        .config()
+        .clone();
+
     // Get global event system (shared singleton)
     let event_system = get_global_event_system();
 
-    // Create Ruby event handler that will forward events to Ruby via channel
+    // Create Ruby event handler with bounded channel (TAS-51)
+    let buffer_size = config.mpsc_channels.shared.ffi.ruby_event_buffer_size;
     let (ruby_event_handler, event_receiver) =
-        RubyEventHandler::new(event_system.clone(), worker_id_str.clone());
+        RubyEventHandler::new(event_system.clone(), worker_id_str.clone(), buffer_size);
     let ruby_event_handler = Arc::new(ruby_event_handler);
 
     // Bootstrap within runtime context

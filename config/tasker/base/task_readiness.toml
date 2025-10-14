@@ -73,13 +73,10 @@ batch_size = 20
 max_concurrent_pollers = 1
 
 # Event channel configuration
+# NOTE: buffer_size and send_timeout_ms MOVED to mpsc_channels.toml (TAS-51)
+# Access via: config.mpsc_channels.task_readiness.event_channel
+# This section contains event processing configuration (retries, backoff)
 [task_readiness.event_channel]
-# Buffer size for task readiness event channels
-buffer_size = 1000
-
-# Channel timeout in milliseconds when sending events
-send_timeout_ms = 1000
-
 # Maximum number of event processing retries
 max_retries = 3
 

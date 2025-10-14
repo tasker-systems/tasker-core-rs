@@ -29,10 +29,11 @@ age_threshold_seconds = 1
 max_age_seconds = 300  # 5 minutes max for tests
 batch_size = 10
 
+# Event channel configuration
+# NOTE: buffer_size and send_timeout_ms MOVED to mpsc_channels.toml (TAS-51)
 [task_readiness.event_channel]
-# Small buffer for tests
-buffer_size = 100
-send_timeout_ms = 500
+# Test with fewer retries for faster feedback
+max_retries = 2
 
 [task_readiness.event_channel.backoff]
 # Fast backoff for test speed
@@ -50,9 +51,4 @@ stats_interval_seconds = 10
 # Very low error thresholds for test validation
 max_consecutive_errors = 3
 error_rate_threshold_per_minute = 1
-
-[task_readiness.error_handling.circuit_breaker]
-# Fast circuit breaker for tests
-failure_threshold = 2
-recovery_timeout_seconds = 5
-half_open_max_calls = 1
+# NOTE: Circuit breaker configuration moved to circuit_breakers.toml

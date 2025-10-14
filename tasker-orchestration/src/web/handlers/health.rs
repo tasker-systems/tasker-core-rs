@@ -3,11 +3,13 @@
 //! Kubernetes-compatible health check endpoints for monitoring and load balancing.
 
 use axum::extract::State;
+use axum::response::Html;
 use axum::Json;
 use std::collections::HashMap;
 use tracing::{debug, error};
 
 use crate::web::state::AppState;
+use tasker_shared::metrics::channels::global_registry;
 use tasker_shared::types::api::orchestration::{
     DetailedHealthResponse, HealthCheck, HealthInfo, HealthResponse,
 };
@@ -89,7 +91,7 @@ pub async fn readiness_probe(
         .to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         checks,
-        info: create_health_info(&state),
+        info: create_health_info(&state).await,
     };
 
     if overall_healthy {
@@ -113,7 +115,7 @@ pub async fn readiness_probe(
 ))]
 pub async fn liveness_probe(State(state): State<AppState>) -> Json<HealthResponse> {
     // Check if we can access our state (basic process health)
-    let _operational_state = state.operational_state();
+    let _operational_state = state.operational_state().await;
 
     Json(HealthResponse {
         status: "alive".to_string(),
@@ -172,17 +174,71 @@ pub async fn detailed_health(State(state): State<AppState>) -> Json<DetailedHeal
         .to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         checks,
-        info: create_health_info(&state),
+        info: create_health_info(&state).await,
     })
 }
 
 /// Prometheus metrics endpoint: GET /metrics
 ///
 /// Returns metrics in Prometheus format for monitoring and alerting.
-/// This will be a placeholder implementation for now.
-pub async fn prometheus_metrics(State(_state): State<AppState>) -> Result<String, ApiError> {
-    // Note: Comprehensive metrics collection integration pending
-    Ok("# HELP tasker_web_api_info Web API information\n# TYPE tasker_web_api_info gauge\ntasker_web_api_info{version=\"0.1.0\"} 1\n".to_string())
+pub async fn prometheus_metrics(State(state): State<AppState>) -> Html<String> {
+    let mut metrics = Vec::new();
+
+    // Basic service information
+    metrics.push(format!(
+        "# HELP tasker_orchestration_info Orchestration service information\n# TYPE tasker_orchestration_info gauge\ntasker_orchestration_info{{version=\"{}\"}} 1",
+        env!("CARGO_PKG_VERSION")
+    ));
+
+    // Orchestration system status
+    let status = state.orchestration_status.read().await;
+    metrics.push(format!(
+        "# HELP tasker_orchestration_running Orchestration system running status\n# TYPE tasker_orchestration_running gauge\ntasker_orchestration_running {{}} {}",
+        if status.running { 1 } else { 0 }
+    ));
+
+    // Database pool metrics
+    metrics.push(format!(
+        "# HELP tasker_orchestration_db_pool_size Database connection pool size\n# TYPE tasker_orchestration_db_pool_size gauge\ntasker_orchestration_db_pool_size {{}} {}",
+        state.orchestration_db_pool.size()
+    ));
+
+    // Circuit breaker metrics
+    let cb_state = state.web_db_circuit_breaker.current_state();
+    let cb_state_value = match cb_state {
+        crate::web::circuit_breaker::CircuitState::Closed => 0,
+        crate::web::circuit_breaker::CircuitState::HalfOpen => 1,
+        crate::web::circuit_breaker::CircuitState::Open => 2,
+    };
+    metrics.push(format!(
+        "# HELP tasker_orchestration_circuit_breaker_state Circuit breaker state (0=closed, 1=half-open, 2=open)\n# TYPE tasker_orchestration_circuit_breaker_state gauge\ntasker_orchestration_circuit_breaker_state {{}} {}",
+        cb_state_value
+    ));
+
+    // TAS-51: Add channel metrics
+    let channel_health = global_registry()
+        .get_all_health(|_channel_name| {
+            // For Prometheus export, we don't need precise capacity
+            // Health checks will be done via dedicated health endpoint
+            Some(100) // Placeholder capacity for health reporting
+        })
+        .await;
+
+    for (channel_name, component, health_status) in channel_health {
+        let health_value = match health_status.as_str() {
+            s if s.starts_with("healthy") => 0,
+            s if s.starts_with("degraded") => 1,
+            s if s.starts_with("critical") => 2,
+            _ => 0,
+        };
+
+        metrics.push(format!(
+            "# HELP tasker_orchestration_channel_health Channel health status (0=healthy, 1=degraded, 2=critical)\n# TYPE tasker_orchestration_channel_health gauge\ntasker_orchestration_channel_health{{channel_name=\"{}\",component=\"{}\"}} {}",
+            channel_name, component, health_value
+        ));
+    }
+
+    Html(metrics.join("\n\n"))
 }
 
 // Helper functions for health checks
@@ -222,7 +278,7 @@ async fn check_circuit_breaker_health(state: &AppState) -> HealthCheck {
 
 async fn check_orchestration_health(state: &AppState) -> HealthCheck {
     let start = std::time::Instant::now();
-    let status = state.orchestration_status.read();
+    let status = state.orchestration_status.read().await;
 
     HealthCheck {
         status: if status.running {
@@ -275,8 +331,8 @@ async fn check_command_processor_health(state: &AppState) -> HealthCheck {
     }
 }
 
-fn create_health_info(state: &AppState) -> HealthInfo {
-    let status = state.orchestration_status.read();
+async fn create_health_info(state: &AppState) -> HealthInfo {
+    let status = state.orchestration_status.read().await;
 
     HealthInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),

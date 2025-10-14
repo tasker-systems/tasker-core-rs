@@ -27,6 +27,7 @@ use tasker_shared::{
         deployment::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus},
         event_driven::{EventDrivenSystem, EventSystemStatistics},
     },
+    monitoring::ChannelMonitor,
     system_context::SystemContext,
 };
 
@@ -204,8 +205,19 @@ impl WorkerEventSystem {
                 };
 
                 // Create a notification sender - we'll convert notifications to commands
+                // TAS-51: Use configured buffer size for notification channel
+                let buffer_size = self
+                    .context
+                    .tasker_config
+                    .mpsc_channels
+                    .worker
+                    .event_systems
+                    .event_channel_buffer_size;
                 let (notification_sender, mut notification_receiver) =
-                    mpsc::channel::<WorkerNotification>(1000);
+                    mpsc::channel::<WorkerNotification>(buffer_size);
+
+                // TAS-51: Initialize channel monitor for observability
+                let channel_monitor = ChannelMonitor::new("worker_event_channel", buffer_size);
 
                 // Initialize queue listener for event-driven processing
                 self.queue_listener = Some(
@@ -213,6 +225,7 @@ impl WorkerEventSystem {
                         listener_config,
                         self.context.clone(),
                         notification_sender,
+                        channel_monitor.clone(),
                     )
                     .await
                     .map_err(|e| DeploymentModeError::ConfigurationError {
@@ -222,8 +235,12 @@ impl WorkerEventSystem {
 
                 // Spawn a task to convert notifications to commands
                 let command_sender = self.command_sender.clone();
+                let monitor = channel_monitor;
                 tokio::spawn(async move {
                     while let Some(notification) = notification_receiver.recv().await {
+                        // TAS-51: Record message receive for channel monitoring
+                        monitor.record_receive();
+
                         // Convert WorkerNotification to WorkerCommand
                         // This is where the FFI event forwarding will happen
                         match notification {

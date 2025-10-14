@@ -26,7 +26,7 @@ pub async fn operational_state_middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let operational_state = state.operational_state();
+    let operational_state = state.operational_state().await;
     let path = request.uri().path();
 
     debug!(

@@ -2591,9 +2591,10 @@ async fn test_orchestration_notification_flow(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
     
-    // Create listener
+    // Create listener (TAS-51: bounded channel)
     let config = PgmqNotifyConfig::default();
-    let mut listener = PgmqNotifyListener::new(pool.clone(), config).await?;
+    let buffer_size = 1000; // From config.mpsc_channels.orchestration.event_listeners.pgmq_event_buffer_size
+    let mut listener = PgmqNotifyListener::new(pool.clone(), config, buffer_size).await?;
     listener.connect().await?;
     listener.listen_message_ready_for_namespace("orchestration").await?;
     

@@ -427,8 +427,17 @@ impl PgmqClient {
     }
 
     /// Create a notify listener for this client
-    pub async fn create_listener(&self) -> Result<PgmqNotifyListener> {
-        PgmqNotifyListener::new(self.pool.clone(), self.config.clone()).await
+    ///
+    /// # Arguments
+    /// * `buffer_size` - MPSC channel buffer size (TAS-51: bounded channels)
+    ///
+    /// # Note
+    /// TAS-51: Migrated from unbounded to bounded channel to prevent OOM during notification bursts.
+    /// Buffer size should come from configuration based on context:
+    /// - Orchestration: `config.mpsc_channels.orchestration.event_listeners.pgmq_event_buffer_size`
+    /// - Worker: `config.mpsc_channels.worker.event_listeners.pgmq_event_buffer_size`
+    pub async fn create_listener(&self, buffer_size: usize) -> Result<PgmqNotifyListener> {
+        PgmqNotifyListener::new(self.pool.clone(), self.config.clone(), buffer_size).await
     }
 }
 

@@ -91,6 +91,7 @@ pub mod logging;
 pub mod messaging;
 pub mod metrics;
 pub mod models;
+pub mod monitoring;
 pub mod registry;
 pub mod resilience;
 pub mod scopes;

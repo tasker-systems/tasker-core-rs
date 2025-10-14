@@ -25,6 +25,7 @@ use crate::orchestration::{
     },
     OrchestrationCore,
 };
+use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
 
 use crate::orchestration::command_processor::{
@@ -72,6 +73,9 @@ pub struct OrchestrationEventSystem {
 
     /// Startup timestamp
     started_at: Option<Instant>,
+
+    /// Channel monitor for command send observability (TAS-51)
+    command_channel_monitor: ChannelMonitor,
 }
 
 /// Runtime statistics for orchestration event system
@@ -162,7 +166,7 @@ impl EventSystemStatistics for OrchestrationStatistics {
 
 impl OrchestrationStatistics {
     /// Create statistics aggregated from component statistics
-    pub fn with_component_aggregation(
+    pub async fn with_component_aggregation(
         &self,
         fallback_poller: Option<&OrchestrationFallbackPoller>,
         queue_listener: Option<&OrchestrationQueueListener>,
@@ -171,7 +175,7 @@ impl OrchestrationStatistics {
 
         // Aggregate fallback poller statistics
         if let Some(poller) = fallback_poller {
-            let poller_stats = poller.stats();
+            let poller_stats = poller.stats().await;
             // Add poller-specific events to system total
             let poller_processed = poller_stats.messages_processed.load(Ordering::Relaxed);
             aggregated
@@ -187,7 +191,7 @@ impl OrchestrationStatistics {
 
         // Aggregate queue listener statistics
         if let Some(listener) = queue_listener {
-            let listener_stats = listener.stats();
+            let listener_stats = listener.stats().await;
             // Add listener-specific events to system total
             let listener_processed = listener_stats.events_received.load(Ordering::Relaxed);
             aggregated
@@ -225,11 +229,13 @@ impl OrchestrationEventSystem {
         context: Arc<SystemContext>,
         orchestration_core: Arc<OrchestrationCore>,
         command_sender: mpsc::Sender<OrchestrationCommand>,
+        command_channel_monitor: ChannelMonitor,
     ) -> TaskerResult<Self> {
         info!(
             system_id = %config.system_id,
             deployment_mode = ?config.deployment_mode,
-            "Creating OrchestrationEventSystem"
+            command_channel = %command_channel_monitor.channel_name(),
+            "Creating OrchestrationEventSystem with command channel monitoring"
         );
 
         Ok(Self {
@@ -244,6 +250,7 @@ impl OrchestrationEventSystem {
             statistics: Arc::new(OrchestrationStatistics::default()),
             is_running: AtomicBool::new(false),
             started_at: None,
+            command_channel_monitor,
         })
     }
 
@@ -291,10 +298,20 @@ impl OrchestrationEventSystem {
     }
 
     /// Get detailed component statistics for monitoring and debugging
-    pub fn component_statistics(&self) -> OrchestrationComponentStatistics {
+    pub async fn component_statistics(&self) -> OrchestrationComponentStatistics {
+        let fallback_poller_stats = match &self.fallback_poller {
+            Some(p) => Some(p.stats().await),
+            None => None,
+        };
+
+        let queue_listener_stats = match &self.queue_listener {
+            Some(l) => Some(l.stats().await),
+            None => None,
+        };
+
         OrchestrationComponentStatistics {
-            fallback_poller_stats: self.fallback_poller.as_ref().map(|p| p.stats()),
-            queue_listener_stats: self.queue_listener.as_ref().map(|l| l.stats()),
+            fallback_poller_stats,
+            queue_listener_stats,
             system_uptime: self.started_at.map(|start| start.elapsed()),
             deployment_mode: self.deployment_mode.clone(),
         }
@@ -358,12 +375,25 @@ impl EventDrivenSystem for OrchestrationEventSystem {
             DeploymentMode::Hybrid => {
                 // Create both queue listener (primary) and fallback poller (backup) for hybrid reliability
                 let listener_config = self.listener_config();
-                let (event_sender, mut event_receiver) = mpsc::channel(100);
+                // TAS-51: Use configured buffer size for event channel
+                let buffer_size = self
+                    .context
+                    .tasker_config
+                    .mpsc_channels
+                    .orchestration
+                    .event_systems
+                    .event_channel_buffer_size;
+                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size);
+
+                // TAS-51: Initialize channel monitor for observability
+                let channel_monitor =
+                    ChannelMonitor::new("orchestration_hybrid_event_channel", buffer_size);
 
                 let mut queue_listener = OrchestrationQueueListener::new(
                     listener_config,
                     self.context.clone(),
                     event_sender,
+                    channel_monitor.clone(),
                 )
                 .await?;
 
@@ -386,14 +416,20 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 // Start event processing loop for listener events
                 let context = self.context.clone();
                 let command_sender = self.command_sender.clone();
+                let command_channel_monitor = self.command_channel_monitor.clone();
                 let statistics = self.statistics.clone();
+                let monitor = channel_monitor;
 
                 tokio::spawn(async move {
                     while let Some(notification) = event_receiver.recv().await {
+                        // TAS-51: Record message receive for channel monitoring
+                        monitor.record_receive();
+
                         Self::process_orchestration_notification(
                             notification,
                             &context,
                             &command_sender,
+                            &command_channel_monitor,
                             &statistics,
                         )
                         .await;
@@ -404,12 +440,25 @@ impl EventDrivenSystem for OrchestrationEventSystem {
             DeploymentMode::EventDrivenOnly => {
                 // Pure event-driven mode - create queue listener for orchestration queue events
                 let listener_config = self.listener_config();
-                let (event_sender, mut event_receiver) = mpsc::channel(100);
+                // TAS-51: Use configured buffer size for event channel
+                let buffer_size = self
+                    .context
+                    .tasker_config
+                    .mpsc_channels
+                    .orchestration
+                    .event_systems
+                    .event_channel_buffer_size;
+                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size);
+
+                // TAS-51: Initialize channel monitor for observability
+                let channel_monitor =
+                    ChannelMonitor::new("orchestration_event_driven_event_channel", buffer_size);
 
                 let mut queue_listener = OrchestrationQueueListener::new(
                     listener_config,
                     self.context.clone(),
                     event_sender,
+                    channel_monitor.clone(),
                 )
                 .await?;
 
@@ -418,14 +467,20 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 // Start event processing loop
                 let context = self.context.clone();
                 let command_sender = self.command_sender.clone();
+                let command_channel_monitor = self.command_channel_monitor.clone();
                 let statistics = self.statistics.clone();
+                let monitor = channel_monitor;
 
                 tokio::spawn(async move {
                     while let Some(notification) = event_receiver.recv().await {
+                        // TAS-51: Record message receive for channel monitoring
+                        monitor.record_receive();
+
                         Self::process_orchestration_notification(
                             notification,
                             &context,
                             &command_sender,
+                            &command_channel_monitor,
                             &statistics,
                         )
                         .await;
@@ -483,10 +538,17 @@ impl EventDrivenSystem for OrchestrationEventSystem {
 
     fn statistics(&self) -> Self::Statistics {
         // Aggregate statistics from child components for comprehensive reporting
-        let aggregated_stats = self.statistics.with_component_aggregation(
-            self.fallback_poller.as_ref(),
-            self.queue_listener.as_ref(),
-        );
+        // Use block_in_place to call async method from sync context
+        let aggregated_stats = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.statistics
+                    .with_component_aggregation(
+                        self.fallback_poller.as_ref(),
+                        self.queue_listener.as_ref(),
+                    )
+                    .await
+            })
+        });
 
         SystemStatistics {
             events_processed: aggregated_stats.events_processed(),
@@ -516,20 +578,29 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     resp: command_tx,
                 };
 
-                // Send command to orchestration processor
-                if let Err(e) = self.command_sender.send(command).await {
-                    error!(
-                        system_id = %self.system_id,
-                        msg_id = %msg_id,
-                        error = %e,
-                        "Failed to send ProcessStepResult command"
-                    );
-                    self.statistics
-                        .events_failed
-                        .fetch_add(1, Ordering::Relaxed);
-                    return Err(DeploymentModeError::ConfigurationError {
-                        message: format!("Failed to send orchestration command: {}", e),
-                    });
+                // Send command to orchestration processor with monitoring (TAS-51)
+                match self.command_sender.send(command).await {
+                    Ok(_) => {
+                        // TAS-51: Record send success and check saturation
+                        if self.command_channel_monitor.record_send_success() {
+                            self.command_channel_monitor
+                                .check_and_warn_saturation(self.command_sender.capacity());
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            system_id = %self.system_id,
+                            msg_id = %msg_id,
+                            error = %e,
+                            "Failed to send ProcessStepResult command"
+                        );
+                        self.statistics
+                            .events_failed
+                            .fetch_add(1, Ordering::Relaxed);
+                        return Err(DeploymentModeError::ConfigurationError {
+                            message: format!("Failed to send orchestration command: {}", e),
+                        });
+                    }
                 }
 
                 // Wait for command processing result
@@ -617,20 +688,29 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     resp: command_tx,
                 };
 
-                // Send command to orchestration processor
-                if let Err(e) = self.command_sender.send(command).await {
-                    error!(
-                        system_id = %self.system_id,
-                        msg_id = %msg_id,
-                        error = %e,
-                        "Failed to send InitializeTaskFromMessageEvent command"
-                    );
-                    self.statistics
-                        .events_failed
-                        .fetch_add(1, Ordering::Relaxed);
-                    return Err(DeploymentModeError::ConfigurationError {
-                        message: format!("Failed to send orchestration command: {}", e),
-                    });
+                // Send command to orchestration processor with monitoring (TAS-51)
+                match self.command_sender.send(command).await {
+                    Ok(_) => {
+                        // TAS-51: Record send success and check saturation
+                        if self.command_channel_monitor.record_send_success() {
+                            self.command_channel_monitor
+                                .check_and_warn_saturation(self.command_sender.capacity());
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            system_id = %self.system_id,
+                            msg_id = %msg_id,
+                            error = %e,
+                            "Failed to send InitializeTaskFromMessageEvent command"
+                        );
+                        self.statistics
+                            .events_failed
+                            .fetch_add(1, Ordering::Relaxed);
+                        return Err(DeploymentModeError::ConfigurationError {
+                            message: format!("Failed to send orchestration command: {}", e),
+                        });
+                    }
                 }
 
                 // Wait for command processing result
@@ -720,21 +800,30 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     resp: command_tx,
                 };
 
-                // Send command to orchestration processor
-                if let Err(e) = self.command_sender.send(command).await {
-                    error!(
-                        system_id = %self.system_id,
-                        msg_id = %msg_id,
-                        namespace = %namespace,
-                        error = %e,
-                        "Failed to send FinalizeTaskFromMessageEvent command"
-                    );
-                    self.statistics
-                        .events_failed
-                        .fetch_add(1, Ordering::Relaxed);
-                    return Err(DeploymentModeError::ConfigurationError {
-                        message: format!("Failed to send orchestration command: {}", e),
-                    });
+                // Send command to orchestration processor with monitoring (TAS-51)
+                match self.command_sender.send(command).await {
+                    Ok(_) => {
+                        // TAS-51: Record send success and check saturation
+                        if self.command_channel_monitor.record_send_success() {
+                            self.command_channel_monitor
+                                .check_and_warn_saturation(self.command_sender.capacity());
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            system_id = %self.system_id,
+                            msg_id = %msg_id,
+                            namespace = %namespace,
+                            error = %e,
+                            "Failed to send FinalizeTaskFromMessageEvent command"
+                        );
+                        self.statistics
+                            .events_failed
+                            .fetch_add(1, Ordering::Relaxed);
+                        return Err(DeploymentModeError::ConfigurationError {
+                            message: format!("Failed to send orchestration command: {}", e),
+                        });
+                    }
                 }
 
                 // Wait for command processing result
@@ -924,7 +1013,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
         }
 
         // Get detailed component statistics for enhanced health monitoring
-        let component_stats = self.component_statistics();
+        let component_stats = self.component_statistics().await;
 
         // Check individual component health metrics
         if let Some(poller_stats) = &component_stats.fallback_poller_stats {
@@ -980,6 +1069,7 @@ impl OrchestrationEventSystem {
         notification: OrchestrationNotification,
         _context: &Arc<SystemContext>,
         command_sender: &mpsc::Sender<OrchestrationCommand>,
+        command_channel_monitor: &ChannelMonitor,
         statistics: &Arc<OrchestrationStatistics>,
     ) {
         match notification {
@@ -1004,6 +1094,11 @@ impl OrchestrationEventSystem {
                         .await
                     {
                         Ok(_) => {
+                            // TAS-51: Record send success and check saturation
+                            if command_channel_monitor.record_send_success() {
+                                command_channel_monitor
+                                    .check_and_warn_saturation(command_sender.capacity());
+                            }
                             statistics
                                 .operations_coordinated
                                 .fetch_add(1, Ordering::Relaxed);
@@ -1038,6 +1133,11 @@ impl OrchestrationEventSystem {
                         .await
                     {
                         Ok(_) => {
+                            // TAS-51: Record send success and check saturation
+                            if command_channel_monitor.record_send_success() {
+                                command_channel_monitor
+                                    .check_and_warn_saturation(command_sender.capacity());
+                            }
                             statistics
                                 .operations_coordinated
                                 .fetch_add(1, Ordering::Relaxed);
@@ -1073,6 +1173,11 @@ impl OrchestrationEventSystem {
                         .await
                     {
                         Ok(_) => {
+                            // TAS-51: Record send success and check saturation
+                            if command_channel_monitor.record_send_success() {
+                                command_channel_monitor
+                                    .check_and_warn_saturation(command_sender.capacity());
+                            }
                             statistics
                                 .operations_coordinated
                                 .fetch_add(1, Ordering::Relaxed);

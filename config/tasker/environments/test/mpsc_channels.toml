@@ -1,0 +1,29 @@
+# Test Environment - MPSC Channel Configuration Overrides
+#
+# This file provides test-specific overrides for MPSC channel buffer sizes.
+# These values are optimized for test environments with minimal buffer sizes
+# to catch overflow issues and backpressure handling bugs.
+
+# ============================================================================
+# ORCHESTRATION CHANNELS - TEST OVERRIDES
+# ============================================================================
+
+[mpsc_channels.orchestration.command_processor]
+# Small buffer for test environment to expose backpressure issues
+command_buffer_size = 100
+
+# ============================================================================
+# TASK READINESS CHANNELS - TEST OVERRIDES
+# ============================================================================
+
+[mpsc_channels.task_readiness.event_channel]
+# Minimal buffer for test environment
+buffer_size = 100
+
+# ============================================================================
+# WORKER CHANNELS - TEST OVERRIDES
+# ============================================================================
+
+[mpsc_channels.worker.in_process_events]
+# Moderate buffer for test FFI integration
+broadcast_buffer_size = 500

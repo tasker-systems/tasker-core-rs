@@ -105,7 +105,7 @@ fn test_worker_event_system_config() {
 
     // Validate worker-specific metadata
     assert!(worker.metadata.in_process_events.ffi_integration_enabled);
-    assert!(worker.metadata.in_process_events.broadcast_buffer_size > 0);
+    assert!(worker.metadata.in_process_events.deduplication_cache_size > 0);
     assert!(worker.metadata.resource_limits.max_memory_mb > 0);
 }
 

@@ -93,9 +93,9 @@ pub struct WorkerPollerStats {
     /// Polling errors encountered
     pub polling_errors: AtomicU64,
     /// Last polling cycle timestamp
-    pub last_poll_at: Arc<parking_lot::Mutex<Option<Instant>>>,
+    pub last_poll_at: Arc<tokio::sync::Mutex<Option<Instant>>>,
     /// Poller startup timestamp
-    pub started_at: Arc<parking_lot::Mutex<Option<Instant>>>,
+    pub started_at: Arc<tokio::sync::Mutex<Option<Instant>>>,
 }
 
 impl WorkerFallbackPoller {
@@ -140,7 +140,7 @@ impl WorkerFallbackPoller {
         );
 
         self.is_running.store(true, Ordering::SeqCst);
-        *self.stats.started_at.lock() = Some(Instant::now());
+        *self.stats.started_at.lock().await = Some(Instant::now());
 
         // Start polling loop in background task
         let poller_id = self.poller_id;
@@ -160,7 +160,7 @@ impl WorkerFallbackPoller {
 
                 let cycle_start = Instant::now();
                 stats.polling_cycles.fetch_add(1, Ordering::Relaxed);
-                *stats.last_poll_at.lock() = Some(cycle_start);
+                *stats.last_poll_at.lock().await = Some(cycle_start);
 
                 // Poll all supported namespace queues
                 for namespace in &config.supported_namespaces {
