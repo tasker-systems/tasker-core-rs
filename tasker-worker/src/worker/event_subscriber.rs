@@ -32,7 +32,9 @@
 //!     // Inside WorkerProcessor initialization
 //!     let worker_id = "worker-001".to_string();
 //!     let event_subscriber = WorkerEventSubscriber::new(worker_id.clone());
-//!     let mut completion_receiver = event_subscriber.start_completion_listener();
+//!     // Buffer size would normally come from config (e.g., config.mpsc_channels.worker.event_subscribers.completion_buffer_size)
+//!     let completion_buffer_size = 1000;
+//!     let mut completion_receiver = event_subscriber.start_completion_listener(completion_buffer_size);
 //!
 //!     // Create a dummy command receiver for the example
 //!     let (_command_tx, mut command_receiver) = mpsc::channel::<String>(10);
@@ -149,24 +151,21 @@ impl WorkerEventSubscriber {
     ///
     /// Returns a receiver that the WorkerProcessor can use in its command loop
     /// to receive StepExecutionResult messages converted from FFI completion events.
-    pub fn start_completion_listener(&self) -> mpsc::Receiver<StepExecutionResult> {
+    ///
+    /// # Parameters
+    /// * `completion_buffer_size` - Buffer size for completion channel (from config)
+    pub fn start_completion_listener(
+        &self,
+        completion_buffer_size: usize,
+    ) -> mpsc::Receiver<StepExecutionResult> {
         // TAS-51: Use configured buffer size for completion channel
-        #[allow(deprecated)] // Runtime config loading with fallback is acceptable here
-        let buffer_size = tasker_shared::config::ConfigManager::load()
-            .ok()
-            .map(|cm| {
-                cm.config()
-                    .mpsc_channels
-                    .worker
-                    .event_subscribers
-                    .completion_buffer_size
-            })
-            .unwrap_or(1000); // Fallback to 1000 if config load fails
-        let (completion_sender, completion_receiver) = mpsc::channel(buffer_size);
+        let (completion_sender, completion_receiver) = mpsc::channel(completion_buffer_size);
 
         // TAS-51: Initialize channel monitor for observability
-        let channel_monitor =
-            ChannelMonitor::new("worker_subscriber_completion_channel", buffer_size);
+        let channel_monitor = ChannelMonitor::new(
+            "worker_subscriber_completion_channel",
+            completion_buffer_size,
+        );
 
         let mut event_receiver = self.shared_subscriber.subscribe_to_step_completions();
 
@@ -402,27 +401,23 @@ impl CorrelatedCompletionListener {
     }
 
     /// Start correlated completion listener with timeout handling
+    ///
+    /// # Parameters
+    /// * `timeout_seconds` - Timeout for pending executions
+    /// * `result_buffer_size` - Buffer size for result channel (from config)
     pub fn start_correlated_listener(
         &self,
         timeout_seconds: u64,
+        result_buffer_size: usize,
     ) -> mpsc::Receiver<CorrelatedStepResult> {
         // TAS-51: Use configured buffer size for result channel
-        #[allow(deprecated)] // Runtime config loading with fallback is acceptable here
-        let buffer_size = tasker_shared::config::ConfigManager::load()
-            .ok()
-            .map(|cm| {
-                cm.config()
-                    .mpsc_channels
-                    .worker
-                    .event_subscribers
-                    .result_buffer_size
-            })
-            .unwrap_or(1000); // Fallback to 1000 if config load fails
-        let (result_sender, result_receiver) = mpsc::channel(buffer_size);
+        let (result_sender, result_receiver) = mpsc::channel(result_buffer_size);
 
         // TAS-51: Initialize channel monitor for observability
-        let channel_monitor =
-            ChannelMonitor::new("worker_subscriber_correlated_result_channel", buffer_size);
+        let channel_monitor = ChannelMonitor::new(
+            "worker_subscriber_correlated_result_channel",
+            result_buffer_size,
+        );
 
         let mut completion_receiver = self.subscriber.subscribe_to_raw_completions();
         let correlation_tracker = Arc::clone(&self.correlation_tracker);

@@ -2,9 +2,7 @@
 //!
 //! This module provides a configuration manager that combines:
 //! - Modern TOML-based configuration loading via UnifiedConfigLoader
-//! - Legacy YAML-based TaskTemplate loading for backward compatibility
-//! - Comprehensive TaskTemplate validation
-//! - Context-specific configuration loading (TAS-50 Phase 1)
+//! - Context-specific configuration loading (TAS-50 Phase 2)
 //!
 //! Follows fail-fast principle: any configuration error results in immediate failure.
 
@@ -38,31 +36,6 @@ impl ConfigManager {
             config: TaskerConfig::default(),
             environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
         }
-    }
-
-    /// Load configuration with automatic environment detection
-    ///
-    /// **⚠️ DEPRECATED (TAS-50 Phase 2)**: This method loads the full monolithic TaskerConfig
-    /// which is inefficient for specific deployment contexts.
-    ///
-    /// **Use instead**:
-    /// - For orchestration: `SystemContext::new_for_orchestration()`
-    /// - For worker: `SystemContext::new_for_worker()`
-    /// - For testing/integration: Continue using this method (backward compatibility maintained)
-    ///
-    /// **Why deprecated?**
-    /// - Orchestration loads 62.5% configuration (includes unused worker config)
-    /// - Worker loads 62.5% configuration (includes unused orchestration config)
-    /// - Context-specific loading achieves 100% efficiency
-    ///
-    /// Note: dotenv() should be called earlier in the chain (e.g., in embedded_bridge.rs)
-    /// to ensure environment variables are loaded before configuration loading.
-    #[deprecated(
-        since = "0.1.0",
-        note = "Use SystemContext::new_for_orchestration() or SystemContext::new_for_worker() for efficient context-specific loading. See docs for details."
-    )]
-    pub fn load() -> ConfigResult<Arc<ConfigManager>> {
-        Self::load_from_environment(None)
     }
 
     /// Load configuration from directory with specific environment
@@ -118,75 +91,6 @@ impl ConfigManager {
     }
 
     // Legacy TaskTemplate methods removed - TaskTemplate handling now done via TaskHandlerRegistry
-
-    // Private helper methods
-
-    fn load_from_environment(environment: Option<&str>) -> ConfigResult<Arc<ConfigManager>> {
-        let unified_env = UnifiedConfigLoader::detect_environment();
-        let env = environment.unwrap_or(unified_env.as_str());
-        Self::load_from_env(env)
-    }
-
-    // Legacy environment override methods removed
-
-    /// Load context-specific configuration (TAS-50 Phase 1)
-    ///
-    /// This enables loading only the configuration needed for a specific deployment context:
-    /// - `Orchestration`: Common + Orchestration configs
-    /// - `Worker`: Common + Worker configs
-    /// - `Combined`: All three configs
-    /// - `Legacy`: Full TaskerConfig (backward compatibility)
-    ///
-    /// **Note**: This method converts from TaskerConfig (Phase 1 approach).
-    /// For Phase 2, use `load_context_direct()` which loads from context TOML files.
-    ///
-    /// # Example
-    /// ```no_run
-    /// use tasker_shared::config::{ConfigManager, contexts::ConfigContext};
-    ///
-    /// // Load only orchestration configuration
-    /// let manager = ConfigManager::load_for_context(ConfigContext::Orchestration).unwrap();
-    /// let common = manager.common().unwrap();
-    /// let orch = manager.orchestration().unwrap();
-    /// ```
-    #[allow(deprecated)] // Intentional: Phase 1 method uses deprecated load() for backward compatibility
-    pub fn load_for_context(context: ConfigContext) -> ConfigResult<ContextConfigManager> {
-        // Load legacy configuration first
-        let legacy_manager = Self::load()?;
-        let legacy_config = &legacy_manager.config;
-
-        // Convert to context-specific configurations
-        let config: Box<dyn Any + Send + Sync> = match context {
-            ConfigContext::Orchestration => {
-                let common = CommonConfig::from(legacy_config);
-                let orchestration = OrchestrationConfig::from(legacy_config);
-                Box::new((common, orchestration))
-            }
-            ConfigContext::Worker => {
-                let common = CommonConfig::from(legacy_config);
-                let worker = WorkerConfig::from(legacy_config);
-                Box::new((common, worker))
-            }
-            ConfigContext::Combined => {
-                let common = CommonConfig::from(legacy_config);
-                let orchestration = OrchestrationConfig::from(legacy_config);
-                let worker = WorkerConfig::from(legacy_config);
-                Box::new((common, orchestration, worker))
-            }
-            ConfigContext::Legacy => Box::new(legacy_config.clone()),
-        };
-
-        info!(
-            "Context-specific configuration loaded successfully (Phase 1): {:?}, environment: {}",
-            context, legacy_manager.environment
-        );
-
-        Ok(ContextConfigManager {
-            context,
-            environment: legacy_manager.environment.clone(),
-            config,
-        })
-    }
 
     /// Load context-specific configuration directly from TOML files (TAS-50 Phase 2)
     ///

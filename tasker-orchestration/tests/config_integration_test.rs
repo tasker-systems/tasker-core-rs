@@ -1,13 +1,15 @@
 //! Configuration Manager Integration Tests
 //!
 //! Tests for the complete configuration system with real YAML files.
+//! TAS-50 Phase 2-3: Tests updated to use context-specific configuration loading.
 
 use std::env;
+use tasker_shared::config::contexts::ConfigContext;
 use tasker_shared::config::ConfigManager;
 
 #[tokio::test]
 async fn test_load_system_configuration_from_file() {
-    // Test loading the system configuration from YAML file
+    // TAS-50 Phase 2-3: Test context-specific orchestration configuration loading
     let config_dir = "config";
 
     // Check if config directory exists (skip test if not)
@@ -16,9 +18,11 @@ async fn test_load_system_configuration_from_file() {
         return;
     }
 
-    #[allow(deprecated)]
-    let config_manager = ConfigManager::load().unwrap();
-    let config = config_manager.config();
+    // Load orchestration-specific context (includes backoff, execution, etc.)
+    let config_manager = ConfigManager::load_context_direct(ConfigContext::Orchestration).unwrap();
+    let config = config_manager
+        .as_tasker_config()
+        .expect("Orchestration context should provide TaskerConfig");
 
     // Verify default values match Rails engine
     assert!(!config.database.enable_secondary_database);

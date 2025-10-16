@@ -66,37 +66,6 @@ impl std::fmt::Debug for SystemContext {
 }
 
 impl SystemContext {
-    /// Create SystemContext with environment-aware configuration loading
-    ///
-    /// **⚠️ DEPRECATED (TAS-50 Phase 2)**: This method loads the full monolithic TaskerConfig.
-    ///
-    /// **Use instead**:
-    /// - For orchestration: `SystemContext::new_for_orchestration()`
-    /// - For worker: `SystemContext::new_for_worker()`
-    /// - For testing: Use `SystemContext::with_pool()` or this method (backward compatibility maintained)
-    ///
-    /// This is the primary initialization method that auto-detects environment and loads
-    /// the appropriate configuration, then bootstraps all shared system components
-    /// with the parsed configuration settings.
-    ///
-    /// # Returns
-    /// Fully configured SystemContext with all components initialized from configuration
-    #[deprecated(
-        since = "0.1.0",
-        note = "Use SystemContext::new_for_orchestration() or SystemContext::new_for_worker() for efficient context-specific loading."
-    )]
-    pub async fn new() -> TaskerResult<Self> {
-        info!("Initializing SystemContext with auto-detected environment configuration");
-
-        // Auto-detect environment and load configuration
-        #[allow(deprecated)]
-        let config_manager = ConfigManager::load().map_err(|e| {
-            TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
-        })?;
-
-        Self::from_config(config_manager).await
-    }
-
     /// Create SystemContext for orchestration using context-specific configuration (TAS-50 Phase 2)
     ///
     /// This method loads only the configuration needed for orchestration:
