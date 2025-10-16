@@ -68,19 +68,120 @@ impl std::fmt::Debug for SystemContext {
 impl SystemContext {
     /// Create SystemContext with environment-aware configuration loading
     ///
+    /// **⚠️ DEPRECATED (TAS-50 Phase 2)**: This method loads the full monolithic TaskerConfig.
+    ///
+    /// **Use instead**:
+    /// - For orchestration: `SystemContext::new_for_orchestration()`
+    /// - For worker: `SystemContext::new_for_worker()`
+    /// - For testing: Use `SystemContext::with_pool()` or this method (backward compatibility maintained)
+    ///
     /// This is the primary initialization method that auto-detects environment and loads
     /// the appropriate configuration, then bootstraps all shared system components
     /// with the parsed configuration settings.
     ///
     /// # Returns
     /// Fully configured SystemContext with all components initialized from configuration
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use SystemContext::new_for_orchestration() or SystemContext::new_for_worker() for efficient context-specific loading."
+    )]
     pub async fn new() -> TaskerResult<Self> {
         info!("Initializing SystemContext with auto-detected environment configuration");
 
         // Auto-detect environment and load configuration
+        #[allow(deprecated)]
         let config_manager = ConfigManager::load().map_err(|e| {
             TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
         })?;
+
+        Self::from_config(config_manager).await
+    }
+
+    /// Create SystemContext for orchestration using context-specific configuration (TAS-50 Phase 2)
+    ///
+    /// This method loads only the configuration needed for orchestration:
+    /// - CommonConfig (database, queues, circuit breakers)
+    /// - OrchestrationConfig (backoff, orchestration system, task readiness)
+    ///
+    /// Benefits:
+    /// - More efficient: Only loads needed configuration
+    /// - Clearer separation: Orchestration doesn't load worker config
+    /// - Better for deployment: Can use separate ConfigMaps in K8s
+    ///
+    /// # Returns
+    /// Fully configured SystemContext for orchestration with context-specific config loaded
+    pub async fn new_for_orchestration() -> TaskerResult<Self> {
+        info!("Initializing SystemContext for orchestration with context-specific configuration (TAS-50)");
+
+        // Load orchestration context configuration
+        let context_manager = ConfigManager::load_context_direct(
+            crate::config::contexts::ConfigContext::Orchestration,
+        )
+        .map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to load orchestration context: {e}"))
+        })?;
+
+        // Build TaskerConfig from context configs for backward compatibility
+        let tasker_config = context_manager.as_tasker_config().ok_or_else(|| {
+            TaskerError::ConfigurationError(
+                "Failed to build TaskerConfig from orchestration context".to_string(),
+            )
+        })?;
+
+        // Wrap in Arc<ConfigManager> for compatibility with existing code
+        let config_manager = Arc::new(ConfigManager::from_tasker_config(
+            tasker_config,
+            context_manager.environment().to_string(),
+        ));
+
+        info!(
+            "Orchestration context configuration loaded successfully: environment={}",
+            config_manager.environment()
+        );
+
+        Self::from_config(config_manager).await
+    }
+
+    /// Create SystemContext for worker using context-specific configuration (TAS-50 Phase 2)
+    ///
+    /// This method loads only the configuration needed for worker:
+    /// - CommonConfig (database, queues, circuit breakers)
+    /// - WorkerConfig (worker system, step processing, web API)
+    ///
+    /// Benefits:
+    /// - More efficient: Only loads needed configuration
+    /// - Clearer separation: Worker doesn't load orchestration config
+    /// - Better for deployment: Can use separate ConfigMaps in K8s
+    ///
+    /// # Returns
+    /// Fully configured SystemContext for worker with context-specific config loaded
+    pub async fn new_for_worker() -> TaskerResult<Self> {
+        info!("Initializing SystemContext for worker with context-specific configuration (TAS-50)");
+
+        // Load worker context configuration
+        let context_manager =
+            ConfigManager::load_context_direct(crate::config::contexts::ConfigContext::Worker)
+                .map_err(|e| {
+                    TaskerError::ConfigurationError(format!("Failed to load worker context: {e}"))
+                })?;
+
+        // Build TaskerConfig from context configs for backward compatibility
+        let tasker_config = context_manager.as_tasker_config().ok_or_else(|| {
+            TaskerError::ConfigurationError(
+                "Failed to build TaskerConfig from worker context".to_string(),
+            )
+        })?;
+
+        // Wrap in Arc<ConfigManager> for compatibility with existing code
+        let config_manager = Arc::new(ConfigManager::from_tasker_config(
+            tasker_config,
+            context_manager.environment().to_string(),
+        ));
+
+        info!(
+            "Worker context configuration loaded successfully: environment={}",
+            config_manager.environment()
+        );
 
         Self::from_config(config_manager).await
     }
@@ -288,13 +389,24 @@ impl SystemContext {
 
         let system_id = Uuid::new_v4();
 
-        // Create minimal default configuration for testing
-        // Auto-detect environment and load configuration
-        let config_manager = ConfigManager::load().map_err(|e| {
-            TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
+        // Create minimal default configuration for testing using context-specific loading (TAS-50 Phase 2)
+        // Use Combined context for test compatibility (includes all configuration)
+        let context_manager =
+            ConfigManager::load_context_direct(crate::config::contexts::ConfigContext::Combined)
+                .map_err(|e| {
+                    TaskerError::ConfigurationError(format!(
+                        "Failed to load test configuration: {e}"
+                    ))
+                })?;
+
+        // Build TaskerConfig from context configs for backward compatibility with tests
+        let tasker_config_inner = context_manager.as_tasker_config().ok_or_else(|| {
+            TaskerError::ConfigurationError(
+                "Failed to build TaskerConfig from combined context for testing".to_string(),
+            )
         })?;
 
-        let tasker_config = Arc::new(config_manager.config().clone());
+        let tasker_config = Arc::new(tasker_config_inner);
 
         // Create standard PGMQ client (no circuit breaker for simplicity)
         let message_client = Arc::new(UnifiedPgmqClient::new_standard(

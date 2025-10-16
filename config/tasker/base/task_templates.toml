@@ -1,6 +1,0 @@
-[task_templates]
-search_paths = [
-    "config/task_templates/*.{yml,yaml}",
-    "config/task_templates/**/*.{yml,yaml}",
-    "config/tasker/tasks/*.{yml,yaml}",
-]

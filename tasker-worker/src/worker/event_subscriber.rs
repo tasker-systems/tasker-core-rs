@@ -151,6 +151,7 @@ impl WorkerEventSubscriber {
     /// to receive StepExecutionResult messages converted from FFI completion events.
     pub fn start_completion_listener(&self) -> mpsc::Receiver<StepExecutionResult> {
         // TAS-51: Use configured buffer size for completion channel
+        #[allow(deprecated)] // Runtime config loading with fallback is acceptable here
         let buffer_size = tasker_shared::config::ConfigManager::load()
             .ok()
             .map(|cm| {
@@ -406,6 +407,7 @@ impl CorrelatedCompletionListener {
         timeout_seconds: u64,
     ) -> mpsc::Receiver<CorrelatedStepResult> {
         // TAS-51: Use configured buffer size for result channel
+        #[allow(deprecated)] // Runtime config loading with fallback is acceptable here
         let buffer_size = tasker_shared::config::ConfigManager::load()
             .ok()
             .map(|cm| {

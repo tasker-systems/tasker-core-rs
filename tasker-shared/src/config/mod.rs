@@ -96,9 +96,21 @@ pub use mpsc_channels::{
 };
 
 // Compatibility wrapper (thin wrapper around UnifiedConfigLoader)
-pub use manager::ConfigManager;
+pub use manager::{ConfigManager, ContextConfigManager};
 pub use tasker::{
     BackoffConfig, DatabaseConfig, DatabasePoolConfig, EngineConfig, EventSystemsConfig,
     ExecutionConfig, ReenqueueDelays, SystemConfig, TaskTemplatesConfig, TaskerConfig,
     TelemetryConfig,
+};
+
+// TAS-50: Context-specific configuration system (Phase 1)
+// Non-breaking addition of context-specific configuration structs
+pub mod components;
+pub mod contexts;
+
+// Phase 1: New modules for context-specific configuration
+// These are additive and maintain 100% backward compatibility
+pub use contexts::{
+    CommonConfig, ConfigContext, ConfigurationContext,
+    OrchestrationConfig as ContextOrchestrationConfig, WorkerConfig as ContextWorkerConfig,
 };

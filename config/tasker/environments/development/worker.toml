@@ -1,85 +1,51 @@
-# TAS-43 Worker Configuration for Development Environment
-# Development-specific overrides for event-driven processing and deployment modes
+# TAS-50 Phase 2: Development Environment - Worker Configuration Overrides
+#
+# Reasonable middle-ground for local development with Docker.
+# Comfortable concurrency for local testing without overwhelming system.
 
-[worker]
-# Development environment worker identification
-worker_id = "dev-worker-001"
-worker_type = "development"
+environment = "development"
 
-# TAS-43 Event-Driven Processing - Development Configuration
-[worker.event_driven]
-# Enable event-driven processing for development
-enabled = true
-# Use Hybrid mode for full feature development and testing
-deployment_mode = "Hybrid"
-# Standard health check intervals for development
-health_check_interval_seconds = 20
+[worker_system]
+worker_id = "development-worker-001"
 
-# TAS-43 Event-Driven Listener - Development Configuration
-[worker.listener]
-# Reasonable retry intervals for development debugging
-retry_interval_seconds = 3
-max_retry_attempts = 3
-event_timeout_seconds = 20
-health_check_interval_seconds = 40
-batch_processing = true
-connection_timeout_seconds = 8
-
-# TAS-43 Fallback Poller - Development Configuration
-[worker.fallback_poller]
-enabled = true
-# Balanced polling for development
-polling_interval_ms = 300
-batch_size = 8
-age_threshold_seconds = 2
-max_age_hours = 6
-visibility_timeout_seconds = 20
-
-# Event system - Development Configuration
-[worker.event_system]
-# Moderate concurrency for development
-max_concurrent_processors = 8
-# Standard processing timeout for development
-processing_timeout_seconds = 20
-
-# In-process event system for FFI integration (no TCP endpoints)
-[worker.event_system.in_process]
-# Standard buffer for development environments
-broadcast_buffer_size = 750
-ffi_integration_enabled = true
-# Development-specific queue names can be added here if needed
-deduplication_cache_size = 750
-
-# Step processing - Development Configuration
-[worker.step_processing]
-# Development-friendly timeouts
-claim_timeout_seconds = 180
-max_retries = 3
-retry_backoff_multiplier = 1.8
-heartbeat_interval_seconds = 20
+[worker_system.step_processing]
+# Reasonable concurrency for local development
 max_concurrent_steps = 50
 
-# Health monitoring - Development Configuration
-[worker.health_monitoring]
-# Balanced health checks for development
-health_check_interval_seconds = 8
+[worker_system.health_monitoring]
 metrics_collection_enabled = true
-performance_monitoring_enabled = true
-step_processing_rate_threshold = 8.0
-error_rate_threshold = 0.08
-memory_usage_threshold_mb = 768
+performance_monitoring_enabled = false  # Can enable for debugging
 
-# Resource limits - Development Configuration
-[worker.resource_limits]
-# Moderate resource limits for development
-max_memory_mb = 1536
-max_cpu_percent = 70
-max_database_connections = 30
-max_queue_connections = 15
+[worker_system.resource_limits]
+# Reasonable limits for local Docker
+max_memory_mb = 2048
+max_cpu_percent = 75
+max_database_connections = 25
 
-# Queue configuration - Development Configuration
-[worker.queue_config]
-# Balanced processing for development
-visibility_timeout_seconds = 20
-batch_size = 8
-polling_interval_ms = 75
+[worker_system.web]
+enabled = true
+bind_address = "0.0.0.0:8081"  # Development worker on 8081
+request_timeout_ms = 30000
+
+[worker_system.web.database_pools]
+# Balanced pool for local development
+web_api_pool_size = 8
+web_api_max_connections = 12
+max_total_connections_hint = 30
+
+# Medium MPSC channel buffers for development (TAS-51)
+[mpsc_channels.command_processor]
+command_buffer_size = 500
+
+[mpsc_channels.event_systems]
+event_channel_buffer_size = 500
+
+[mpsc_channels.event_subscribers]
+completion_buffer_size = 500
+result_buffer_size = 500
+
+[mpsc_channels.in_process_events]
+broadcast_buffer_size = 500
+
+[mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 1000

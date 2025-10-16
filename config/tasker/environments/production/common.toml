@@ -1,0 +1,32 @@
+# TAS-50 Phase 2: Production Environment - Common Configuration Overrides
+
+environment = "production"
+
+[database.pool]
+# Larger pool for production
+max_connections = 50
+min_connections = 15
+acquire_timeout_seconds = 30
+idle_timeout_seconds = 600
+max_lifetime_seconds = 7200
+
+[queues]
+default_batch_size = 50
+max_batch_size = 200
+
+# Larger channel buffers for production (TAS-51)
+[shared_channels.event_publisher]
+event_queue_buffer_size = 10000
+
+[shared_channels.ffi]
+ruby_event_buffer_size = 2000
+
+# Production circuit breaker settings - higher capacity, more resilient
+[circuit_breakers.global_settings]
+max_circuit_breakers = 100
+metrics_collection_interval_seconds = 60
+
+[circuit_breakers.default_config]
+failure_threshold = 10      # More tolerant in production
+timeout_seconds = 60        # Longer recovery timeout
+success_threshold = 3       # Multiple successes before closing

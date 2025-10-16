@@ -6,6 +6,7 @@
 //! This replaces the previous YAML-based component loader with a clean TOML-based
 //! approach that follows fail-fast principles.
 
+use super::contexts::ConfigurationContext; // TAS-50 Phase 2: For context validation
 use super::error::{ConfigResult, ConfigurationError};
 use dotenvy::dotenv;
 use std::collections::HashMap;
@@ -606,6 +607,180 @@ impl UnifiedConfigLoader {
     pub fn load_tasker_config(&mut self) -> ConfigResult<super::TaskerConfig> {
         let validated_config = self.load_with_validation()?;
         validated_config.to_tasker_config()
+    }
+
+    // ============================================================================
+    // TAS-50 Phase 2: Context-Specific Configuration Loading
+    // ============================================================================
+
+    /// Load a context-specific configuration with environment overrides
+    ///
+    /// This method loads context-specific TOML files from the base/ directory
+    /// with environment-specific overrides from environments/{env}/ directory.
+    ///
+    /// # Arguments
+    /// * `context_name` - Context name (common, orchestration, worker)
+    ///
+    /// # Returns
+    /// * `Result<toml::Value, ConfigurationError>` - Merged configuration or error
+    ///
+    /// # Process
+    /// 1. Load base context configuration from base/{context}.toml
+    /// 2. Apply environment overrides from environments/{env}/{context}.toml if present
+    /// 3. Return the merged configuration (no validation, that's done by the struct)
+    pub fn load_context_toml(&mut self, context_name: &str) -> ConfigResult<toml::Value> {
+        debug!(
+            "LOAD_CONTEXT: Loading context '{}' for environment '{}'",
+            context_name, self.environment
+        );
+
+        // 1. Load base context configuration - this is REQUIRED
+        let base_path = self.root.join("base").join(format!("{context_name}.toml"));
+        debug!(
+            "LOAD_CONTEXT: Loading base context config from: {}",
+            base_path.display()
+        );
+        let mut config = self.load_toml_with_env_substitution(&base_path)?;
+
+        debug!(
+            "LOAD_CONTEXT: Loaded base context configuration for {} from {}: {} bytes",
+            context_name,
+            base_path.display(),
+            config.to_string().len()
+        );
+
+        // 2. Apply environment overrides if they exist
+        let env_path = self
+            .root
+            .join("environments")
+            .join(&self.environment)
+            .join(format!("{context_name}.toml"));
+
+        debug!(
+            "LOAD_CONTEXT: Checking for environment overrides at: {}",
+            env_path.display()
+        );
+
+        if env_path.exists() {
+            debug!(
+                "LOAD_CONTEXT: Found environment overrides at: {}",
+                env_path.display()
+            );
+            let overrides = self.load_toml_with_env_substitution(&env_path)?;
+            debug!(
+                "LOAD_CONTEXT: Environment overrides content: {}",
+                overrides.to_string()
+            );
+            self.merge_toml(&mut config, overrides)?;
+
+            debug!(
+                "LOAD_CONTEXT: Applied environment overrides for {} in {} environment",
+                context_name, self.environment
+            );
+            debug!("LOAD_CONTEXT: Final merged config: {}", config.to_string());
+        } else {
+            debug!(
+                "LOAD_CONTEXT: No environment overrides found at: {}",
+                env_path.display()
+            );
+        }
+
+        debug!(
+            "Successfully loaded context configuration: {}",
+            context_name
+        );
+        Ok(config)
+    }
+
+    /// Load CommonConfig from common.toml with environment overrides
+    ///
+    /// This loads shared infrastructure configuration used by all deployment contexts.
+    ///
+    /// # Returns
+    /// * `Result<CommonConfig, ConfigurationError>` - Loaded and validated config
+    pub fn load_common_config(&mut self) -> ConfigResult<super::contexts::CommonConfig> {
+        debug!("Loading CommonConfig from base/common.toml");
+        let toml_value = self.load_context_toml("common")?;
+
+        // Deserialize into CommonConfig
+        let common_config: super::contexts::CommonConfig = toml_value.try_into().map_err(|e| {
+            error!("Failed to deserialize CommonConfig. Error: {}", e);
+            ConfigurationError::json_serialization_error("TOML to CommonConfig deserialization", e)
+        })?;
+
+        // Validate the configuration
+        common_config.validate().map_err(|errors| {
+            ConfigurationError::validation_error(format!(
+                "CommonConfig validation failed: {:?}",
+                errors
+            ))
+        })?;
+
+        debug!("Successfully loaded and validated CommonConfig");
+        Ok(common_config)
+    }
+
+    /// Load OrchestrationConfig from orchestration.toml with environment overrides
+    ///
+    /// This loads orchestration-specific configuration including backoff, event systems,
+    /// and MPSC channels.
+    ///
+    /// # Returns
+    /// * `Result<OrchestrationConfig, ConfigurationError>` - Loaded and validated config
+    pub fn load_orchestration_config(
+        &mut self,
+    ) -> ConfigResult<super::contexts::OrchestrationConfig> {
+        debug!("Loading OrchestrationConfig from base/orchestration.toml");
+        let toml_value = self.load_context_toml("orchestration")?;
+
+        // Deserialize into OrchestrationConfig
+        let orch_config: super::contexts::OrchestrationConfig =
+            toml_value.try_into().map_err(|e| {
+                error!("Failed to deserialize OrchestrationConfig. Error: {}", e);
+                ConfigurationError::json_serialization_error(
+                    "TOML to OrchestrationConfig deserialization",
+                    e,
+                )
+            })?;
+
+        // Validate the configuration
+        orch_config.validate().map_err(|errors| {
+            ConfigurationError::validation_error(format!(
+                "OrchestrationConfig validation failed: {:?}",
+                errors
+            ))
+        })?;
+
+        debug!("Successfully loaded and validated OrchestrationConfig");
+        Ok(orch_config)
+    }
+
+    /// Load WorkerConfig from worker.toml with environment overrides
+    ///
+    /// This loads language-agnostic worker configuration used by all worker languages.
+    ///
+    /// # Returns
+    /// * `Result<WorkerConfig, ConfigurationError>` - Loaded and validated config
+    pub fn load_worker_config(&mut self) -> ConfigResult<super::contexts::WorkerConfig> {
+        debug!("Loading WorkerConfig from base/worker.toml");
+        let toml_value = self.load_context_toml("worker")?;
+
+        // Deserialize into WorkerConfig
+        let worker_config: super::contexts::WorkerConfig = toml_value.try_into().map_err(|e| {
+            error!("Failed to deserialize WorkerConfig. Error: {}", e);
+            ConfigurationError::json_serialization_error("TOML to WorkerConfig deserialization", e)
+        })?;
+
+        // Validate the configuration
+        worker_config.validate().map_err(|errors| {
+            ConfigurationError::validation_error(format!(
+                "WorkerConfig validation failed: {:?}",
+                errors
+            ))
+        })?;
+
+        debug!("Successfully loaded and validated WorkerConfig");
+        Ok(worker_config)
     }
 }
 

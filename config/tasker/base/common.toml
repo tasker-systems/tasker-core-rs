@@ -1,0 +1,133 @@
+# TAS-50 Phase 2: Common Configuration
+#
+# This file contains shared infrastructure configuration used by all deployment contexts:
+# - Database connection and pooling
+# - Queue system configuration (PGMQ)
+# - Environment detection
+# - Shared MPSC channel settings
+#
+# Used by: Orchestration, Worker, and Combined deployment contexts
+#
+# Environment Overrides: config/tasker/environments/{env}/common.toml
+
+# ============================================================================
+# ENVIRONMENT
+# ============================================================================
+
+# Current environment - can be overridden by TASKER_ENV environment variable
+environment = "development"
+
+# ============================================================================
+# DATABASE CONFIGURATION
+# ============================================================================
+
+[database]
+enable_secondary_database = false
+url = "${DATABASE_URL}"
+adapter = "postgresql"
+encoding = "unicode"
+host = "localhost"
+username = "tasker"
+password = "tasker"
+checkout_timeout = 10
+reaping_frequency = 10
+skip_migration_check = false
+
+[database.pool]
+max_connections = 30
+min_connections = 8
+acquire_timeout_seconds = 30
+idle_timeout_seconds = 300
+max_lifetime_seconds = 3600
+
+[database.variables]
+statement_timeout = 5000
+
+# ============================================================================
+# QUEUE CONFIGURATION
+# ============================================================================
+
+[queues]
+# Backend selection (aligns with UnifiedMessageClient)
+backend = "pgmq"                            # Future: "rabbitmq", "redis", etc.
+orchestration_namespace = "orchestration"
+worker_namespace = "worker"
+default_namespace = "default"
+naming_pattern = "{namespace}_{name}_queue"
+
+# Universal queue configuration (backend-agnostic)
+default_visibility_timeout_seconds = 30
+health_check_interval = 60
+default_batch_size = 10
+max_batch_size = 100
+
+# Queue type definitions for orchestration system
+[queues.orchestration_queues]
+task_requests = "orchestration_task_requests_queue"
+task_finalizations = "orchestration_task_finalizations_queue"
+step_results = "orchestration_step_results_queue"
+
+# Backend-specific configuration for PGMQ
+[queues.pgmq]
+poll_interval_ms = 250
+shutdown_timeout_seconds = 5
+max_retries = 3
+
+# Future RabbitMQ configuration (prepared for TAS-40+)
+[queues.rabbitmq]
+connection_timeout_seconds = 10
+heartbeat_interval_seconds = 60
+channel_pool_size = 10
+
+# ============================================================================
+# SHARED MPSC CHANNELS
+# ============================================================================
+
+[shared_channels.event_publisher]
+# Internal event publishing queue
+# Previously unbounded! Now bounded to prevent event storm OOM
+# Handles: System-wide event publishing (step completions, state transitions)
+event_queue_buffer_size = 5000
+
+[shared_channels.ffi]
+# Ruby FFI event communication channel
+# Previously unbounded! Now bounded to provide backpressure
+# Handles: Rust → Ruby event communication across FFI boundary
+ruby_event_buffer_size = 1000
+
+# ============================================================================
+# CIRCUIT BREAKERS
+# ============================================================================
+
+[circuit_breakers]
+# Global circuit breaker enablement
+# Used for database, queue, and API resilience patterns
+enabled = true
+
+[circuit_breakers.global_settings]
+# Maximum number of circuit breakers system can create
+max_circuit_breakers = 50
+# Metrics collection interval for monitoring
+metrics_collection_interval_seconds = 30
+# Enable automatic circuit breaker creation for components
+auto_create_enabled = true
+# Minimum time between state transitions to prevent oscillation
+min_state_transition_interval_seconds = 1
+
+[circuit_breakers.default_config]
+# Default configuration for new circuit breakers
+failure_threshold = 5
+timeout_seconds = 30
+success_threshold = 2
+
+[circuit_breakers.component_configs.pgmq]
+# PGMQ queue operations circuit breaker
+failure_threshold = 3
+timeout_seconds = 15
+success_threshold = 2
+
+[circuit_breakers.component_configs.task_readiness]
+# Task readiness event processing circuit breaker
+failure_threshold = 5
+timeout_seconds = 30
+success_threshold = 2

@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::{
     web::{state::WorkerWebConfig, WorkerWebState},
@@ -25,7 +25,7 @@ use crate::{
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
 use tasker_shared::{
-    config::{ConfigManager, TaskerConfig},
+    config::TaskerConfig,
     errors::{TaskerError, TaskerResult},
     system_context::SystemContext,
 };
@@ -216,22 +216,20 @@ impl WorkerBootstrap {
     pub async fn bootstrap_with_event_system(
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
     ) -> TaskerResult<WorkerSystemHandle> {
-        info!("Starting unified worker system bootstrap");
-
-        let config_manager = ConfigManager::load().map_err(|e| {
-            error!("Failed to load configuration: {e}");
-            TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
-        })?;
-
         info!(
-            "Configuration loaded for environment: {}",
-            config_manager.environment()
+            "Starting unified worker system bootstrap with context-specific configuration (TAS-50)"
         );
 
-        let config: WorkerBootstrapConfig = config_manager.config().into();
+        // TAS-50 Phase 2: Use worker-specific context loading
+        // This loads only CommonConfig + WorkerConfig from context TOML files
+        let system_context = Arc::new(SystemContext::new_for_worker().await?);
 
-        // Initialize system context
-        let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
+        info!(
+            "Worker context loaded successfully for environment: {}",
+            system_context.tasker_config.environment()
+        );
+
+        let config: WorkerBootstrapConfig = system_context.tasker_config.as_ref().into();
 
         // Create worker core (not wrapped in Arc yet - we need to start it first)
         let mut worker_core = WorkerCore::new_with_event_system(
@@ -274,7 +272,7 @@ impl WorkerBootstrap {
                     config.web_config.clone(),
                     web_worker_core,
                     database_pool,
-                    config_manager.config().clone(),
+                    (*system_context.tasker_config).clone(),
                 )
                 .await?,
             );

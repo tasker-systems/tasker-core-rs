@@ -58,16 +58,27 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
         )
     })?;
 
-    // Load configuration for bounded channel sizes (TAS-51)
-    let config = ConfigManager::load()
-        .map_err(|e| {
-            error!("Failed to load configuration: {}", e);
+    // TAS-50 Phase 2: Load worker-specific configuration for bounded channel sizes (TAS-51)
+    // Use context-specific loading to avoid loading unnecessary orchestration config
+    let config_manager =
+        ConfigManager::load_context_direct(tasker_shared::config::contexts::ConfigContext::Worker)
+            .map_err(|e| {
+                error!("Failed to load worker configuration: {}", e);
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Configuration load failed: {}", e),
+                )
+            })?;
+
+    let config = config_manager
+        .as_tasker_config()
+        .ok_or_else(|| {
+            error!("Worker context loaded but TaskerConfig not available");
             Error::new(
                 magnus::exception::runtime_error(),
-                format!("Configuration load failed: {}", e),
+                "Worker configuration missing required fields",
             )
         })?
-        .config()
         .clone();
 
     // Get global event system (shared singleton)
