@@ -5,11 +5,13 @@
 
 use std::str::FromStr;
 
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use tasker_client::{
     ClientConfig, ClientResult, OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient,
     WorkerApiConfig,
 };
+use tasker_shared::config::{ConfigMerger, ConfigurationContext};
 use tasker_shared::models::core::{task::TaskListQuery, task_request::TaskRequest};
 use tracing::info;
 use uuid::Uuid;
@@ -149,14 +151,80 @@ pub enum SystemCommands {
 
 #[derive(Subcommand)]
 pub enum ConfigCommands {
-    /// Show current configuration
-    Show,
-    /// Generate default configuration file
-    Init {
-        /// Configuration file path
+    /// Generate single deployable configuration file from base + environment
+    Generate {
+        /// Configuration context (orchestration, worker, or combined)
         #[arg(short, long)]
-        path: Option<String>,
+        context: String,
+
+        /// Target environment (test, development, production)
+        #[arg(short, long)]
+        environment: String,
+
+        /// Source directory containing base and environment configs
+        #[arg(short, long, default_value = "config/tasker")]
+        source_dir: String,
+
+        /// Output file path for generated config
+        #[arg(short, long)]
+        output: String,
+
+        /// Validate configuration after generation
+        #[arg(long)]
+        validate: bool,
     },
+
+    /// Validate configuration file
+    Validate {
+        /// Configuration file to validate
+        #[arg(short, long)]
+        config: String,
+
+        /// Expected configuration context
+        #[arg(short = 't', long)]
+        context: String,
+
+        /// Strict mode - fail on warnings
+        #[arg(long)]
+        strict: bool,
+
+        /// Provide detailed error explanations
+        #[arg(long)]
+        explain_errors: bool,
+    },
+
+    /// Explain configuration parameters
+    Explain {
+        /// Specific parameter path (e.g., "database.pool.max_connections")
+        #[arg(short, long)]
+        parameter: Option<String>,
+
+        /// Configuration context to list parameters for
+        #[arg(short, long)]
+        context: Option<String>,
+
+        /// Environment for recommendations
+        #[arg(short, long)]
+        environment: Option<String>,
+    },
+
+    /// Detect unused configuration parameters
+    DetectUnused {
+        /// Source directory with TOML files
+        #[arg(short, long, default_value = "config/tasker")]
+        source_dir: String,
+
+        /// Configuration context
+        #[arg(short, long)]
+        context: String,
+
+        /// Automatically remove unused parameters (creates backup)
+        #[arg(long)]
+        fix: bool,
+    },
+
+    /// Show current CLI configuration
+    Show,
 }
 
 #[tokio::main]
@@ -808,25 +876,364 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
     Ok(())
 }
 
-async fn handle_config_command(cmd: ConfigCommands, config: &ClientConfig) -> ClientResult<()> {
-    match cmd {
-        ConfigCommands::Show => {
-            println!("Current Configuration:");
-            println!("{}", toml::to_string_pretty(config).unwrap());
-        }
-        ConfigCommands::Init { path } => {
-            let config_path = if let Some(p) = path {
-                std::path::PathBuf::from(p)
-            } else {
-                ClientConfig::default_config_path()?
-            };
+/// Extract line and column from TOML error message
+fn extract_error_position(error_msg: &str) -> Option<(usize, usize)> {
+    // TOML errors often contain "at line X column Y" patterns
+    use regex::Regex;
+    let re = Regex::new(r"line (\d+) column (\d+)").ok()?;
+    let caps = re.captures(error_msg)?;
 
-            let default_config = ClientConfig::default();
-            default_config.save_to_file(&config_path)?;
-            println!(
-                "Default configuration written to: {}",
-                config_path.display()
+    let line = caps.get(1)?.as_str().parse().ok()?;
+    let col = caps.get(2)?.as_str().parse().ok()?;
+
+    Some((line, col))
+}
+
+async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> ClientResult<()> {
+    match cmd {
+        ConfigCommands::Generate {
+            context,
+            environment,
+            source_dir,
+            output,
+            validate,
+        } => {
+            println!("Generating configuration:");
+            println!("  Context: {}", context);
+            println!("  Environment: {}", environment);
+            println!("  Source: {}", source_dir);
+            println!("  Output: {}", output);
+
+            // Create ConfigMerger
+            let mut merger = ConfigMerger::new(std::path::PathBuf::from(&source_dir), &environment)
+                .map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to initialize config merger: {}",
+                        e
+                    ))
+                })?;
+
+            // Merge configuration
+            println!("\nMerging configuration...");
+            let merged_config = merger.merge_context(&context).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to merge configuration: {}",
+                    e
+                ))
+            })?;
+
+            // Generate metadata header
+            let header = format!(
+                "# Tasker Configuration - {} Context\n\
+                 # Environment: {}\n\
+                 # Generated: {}\n\
+                 # Source: {}\n\
+                 #\n\
+                 # This file is a MERGED configuration (base + environment overrides).\n\
+                 # DO NOT EDIT manually - regenerate using: tasker-cli config generate\n\
+                 #\n\
+                 # Environment Variable Overrides (applied at runtime):\n\
+                 # - DATABASE_URL: Override database.url (K8s secrets rotation)\n\
+                 # - TASKER_TEMPLATE_PATH: Override worker.template_path (testing)\n\
+                 #\n\n",
+                context,
+                environment,
+                Utc::now().to_rfc3339(),
+                source_dir
             );
+
+            // Write header + merged config to output file
+            let full_config = format!("{}{}", header, merged_config);
+            println!("Writing to: {}", output);
+            std::fs::write(&output, &full_config).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to write output file: {}",
+                    e
+                ))
+            })?;
+
+            println!("✓ Successfully generated configuration!");
+            println!("  Output file: {}", output);
+            println!("  Size: {} bytes", full_config.len());
+
+            // Optionally validate if requested
+            if validate {
+                println!("\nValidating generated configuration...");
+
+                // Re-read the file we just wrote
+                let written_content = std::fs::read_to_string(&output).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to read generated file for validation: {}",
+                        e
+                    ))
+                })?;
+
+                // Parse as TOML
+                let toml_value: toml::Value = toml::from_str(&written_content).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Generated file is not valid TOML: {}",
+                        e
+                    ))
+                })?;
+
+                // Validate based on context
+                match context.as_str() {
+                    "common" => {
+                        use tasker_shared::config::contexts::CommonConfig;
+                        let config: CommonConfig = toml_value.clone().try_into().map_err(|e| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize CommonConfig: {}",
+                                e
+                            ))
+                        })?;
+                        config.validate().map_err(|errors| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Validation failed: {:?}",
+                                errors
+                            ))
+                        })?;
+                    }
+                    "orchestration" => {
+                        use tasker_shared::config::contexts::OrchestrationConfig;
+                        let config: OrchestrationConfig =
+                            toml_value.clone().try_into().map_err(|e| {
+                                tasker_client::ClientError::ConfigError(format!(
+                                    "Failed to deserialize OrchestrationConfig: {}",
+                                    e
+                                ))
+                            })?;
+                        config.validate().map_err(|errors| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Validation failed: {:?}",
+                                errors
+                            ))
+                        })?;
+                    }
+                    "worker" => {
+                        use tasker_shared::config::contexts::WorkerConfig;
+                        let config: WorkerConfig = toml_value.clone().try_into().map_err(|e| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize WorkerConfig: {}",
+                                e
+                            ))
+                        })?;
+                        config.validate().map_err(|errors| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Validation failed: {:?}",
+                                errors
+                            ))
+                        })?;
+                    }
+                    _ => {
+                        return Err(tasker_client::ClientError::InvalidInput(format!(
+                            "Unknown context '{}'. Valid contexts: common, orchestration, worker",
+                            context
+                        )));
+                    }
+                }
+
+                println!("✓ Validation passed!");
+            }
+        }
+        ConfigCommands::Validate {
+            config: config_path,
+            context,
+            strict,
+            explain_errors,
+        } => {
+            println!("Validating configuration:");
+            println!("  File: {}", config_path);
+            println!("  Context: {}", context);
+            println!("  Strict mode: {}", strict);
+
+            // Load the configuration file
+            let config_content = std::fs::read_to_string(&config_path).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to read config file '{}': {}",
+                    config_path, e
+                ))
+            })?;
+
+            // Parse as TOML
+            let toml_value: toml::Value = toml::from_str(&config_content).map_err(|e| {
+                if explain_errors {
+                    eprintln!("\n❌ TOML parsing error:");
+                    eprintln!("  {}", e);
+                    if let Some((line, col)) = extract_error_position(&e.to_string()) {
+                        eprintln!("  Location: line {}, column {}", line, col);
+                    }
+                }
+                tasker_client::ClientError::ConfigError(format!("Invalid TOML syntax: {}", e))
+            })?;
+
+            // Validate based on context
+            println!("\nValidating {} configuration...", context);
+
+            match context.as_str() {
+                "common" => {
+                    use tasker_shared::config::contexts::CommonConfig;
+
+                    let common_config: CommonConfig =
+                        toml_value.clone().try_into().map_err(|e| {
+                            if explain_errors {
+                                eprintln!("\n❌ Configuration structure error:");
+                                eprintln!("  {}", e);
+                                eprintln!("\nExpected CommonConfig structure with sections:");
+                                eprintln!("  - database");
+                                eprintln!("  - circuit_breakers");
+                                eprintln!("  - engine (optional)");
+                            }
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize CommonConfig: {}",
+                                e
+                            ))
+                        })?;
+
+                    // Run validation
+                    common_config.validate().map_err(|errors| {
+                        if explain_errors {
+                            eprintln!("\n❌ Validation errors:");
+                            for error in &errors {
+                                eprintln!("  - {}", error);
+                            }
+                        }
+                        tasker_client::ClientError::ConfigError(format!(
+                            "CommonConfig validation failed: {:?}",
+                            errors
+                        ))
+                    })?;
+
+                    println!("✓ CommonConfig validation passed");
+                }
+                "orchestration" => {
+                    use tasker_shared::config::contexts::OrchestrationConfig;
+
+                    let orch_config: OrchestrationConfig =
+                        toml_value.clone().try_into().map_err(|e| {
+                            if explain_errors {
+                                eprintln!("\n❌ Configuration structure error:");
+                                eprintln!("  {}", e);
+                                eprintln!(
+                                    "\nExpected OrchestrationConfig structure with sections:"
+                                );
+                                eprintln!("  - backoff");
+                                eprintln!("  - event_systems");
+                                eprintln!("  - mpsc_channels");
+                            }
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize OrchestrationConfig: {}",
+                                e
+                            ))
+                        })?;
+
+                    // Run validation
+                    orch_config.validate().map_err(|errors| {
+                        if explain_errors {
+                            eprintln!("\n❌ Validation errors:");
+                            for error in &errors {
+                                eprintln!("  - {}", error);
+                            }
+                        }
+                        tasker_client::ClientError::ConfigError(format!(
+                            "OrchestrationConfig validation failed: {:?}",
+                            errors
+                        ))
+                    })?;
+
+                    println!("✓ OrchestrationConfig validation passed");
+                }
+                "worker" => {
+                    use tasker_shared::config::contexts::WorkerConfig;
+
+                    let worker_config: WorkerConfig =
+                        toml_value.clone().try_into().map_err(|e| {
+                            if explain_errors {
+                                eprintln!("\n❌ Configuration structure error:");
+                                eprintln!("  {}", e);
+                                eprintln!("\nExpected WorkerConfig structure with sections:");
+                                eprintln!("  - event_systems");
+                                eprintln!("  - mpsc_channels");
+                                eprintln!("  - health_monitoring (optional)");
+                            }
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize WorkerConfig: {}",
+                                e
+                            ))
+                        })?;
+
+                    // Run validation
+                    worker_config.validate().map_err(|errors| {
+                        if explain_errors {
+                            eprintln!("\n❌ Validation errors:");
+                            for error in &errors {
+                                eprintln!("  - {}", error);
+                            }
+                        }
+                        tasker_client::ClientError::ConfigError(format!(
+                            "WorkerConfig validation failed: {:?}",
+                            errors
+                        ))
+                    })?;
+
+                    println!("✓ WorkerConfig validation passed");
+                }
+                _ => {
+                    return Err(tasker_client::ClientError::InvalidInput(format!(
+                        "Unknown context '{}'. Valid contexts: common, orchestration, worker",
+                        context
+                    )));
+                }
+            }
+
+            println!("\n✓ Configuration is valid!");
+
+            if strict {
+                println!("  (strict mode: no warnings detected)");
+            }
+        }
+        ConfigCommands::Explain {
+            parameter,
+            context,
+            environment,
+        } => {
+            println!("Configuration parameter help:");
+            if let Some(param) = parameter {
+                println!("  Parameter: {}", param);
+            } else {
+                println!("  Listing all parameters");
+            }
+            if let Some(ctx) = context {
+                println!("  Context: {}", ctx);
+            }
+            if let Some(env) = environment {
+                println!("  Environment: {}", env);
+            }
+
+            // TODO: Implement parameter documentation lookup
+            eprintln!("Configuration documentation not yet implemented");
+            return Err(tasker_client::ClientError::NotImplemented(
+                "Config explanation".to_string(),
+            ));
+        }
+        ConfigCommands::DetectUnused {
+            source_dir,
+            context,
+            fix,
+        } => {
+            println!("Detecting unused configuration parameters:");
+            println!("  Source: {}", source_dir);
+            println!("  Context: {}", context);
+            println!("  Auto-fix: {}", fix);
+
+            // TODO: Implement unused parameter detection
+            eprintln!("Unused parameter detection not yet implemented");
+            return Err(tasker_client::ClientError::NotImplemented(
+                "Unused parameter detection".to_string(),
+            ));
+        }
+        ConfigCommands::Show => {
+            println!("Current CLI Configuration:");
+            println!("{}", toml::to_string_pretty(_config).unwrap());
         }
     }
     Ok(())

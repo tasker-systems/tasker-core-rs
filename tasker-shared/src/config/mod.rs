@@ -33,6 +33,7 @@ pub mod error;
 pub mod event_systems;
 pub mod executor;
 pub mod manager;
+pub mod merger;
 pub mod mpsc_channels;
 pub mod orchestration;
 pub mod queues;
@@ -45,6 +46,9 @@ pub mod worker;
 
 // Primary exports - TAS-34 Unified Configuration System
 pub use unified_loader::{UnifiedConfigLoader, ValidatedConfig};
+
+// TAS-50: CLI configuration merger
+pub use merger::ConfigMerger;
 
 // Re-export types and errors
 pub use circuit_breaker::{

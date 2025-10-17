@@ -64,9 +64,12 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 - **[Archive: Deployment](archive/deployment.md)** - Production deployment insights
 
 **Configuration Management**:
+- **[Configuration Management](configuration-management.md)** - Complete configuration guide
+- **[Environment Comparison](environment-configuration-comparison.md)** - Detailed environment settings
 - Component-based TOML configuration (see `config/tasker/base/`)
 - Environment-specific overrides (see `config/tasker/environments/`)
-- Configuration validation via `cargo run --bin config-validator`
+- Runtime observability via `/config` API endpoints
+- CLI tools for generation and validation
 
 ---
 
@@ -88,7 +91,9 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 |----------|-------------|----------|
 | **[Quick Start](quick-start.md)** | Get running in 5 minutes | Developers |
 | **[Use Cases & Patterns](use-cases-and-patterns.md)** | Practical workflow examples | All |
-| **[Deployment Patterns](deployment-patterns.md)** | Deployment modes and configuration | Architects, Operators |
+| **[Configuration Management](configuration-management.md)** | TOML architecture, CLI tools, runtime observability | Operators, Developers |
+| **[Environment Comparison](environment-configuration-comparison.md)** | Detailed environment settings | Operators |
+| **[Deployment Patterns](deployment-patterns.md)** | Deployment modes and strategies | Architects, Operators |
 | **[Retry Semantics](retry-semantics.md)** | Retry configuration explained | Developers |
 
 ### Reference Documentation
@@ -227,9 +232,11 @@ See **[Crate Architecture](crate-architecture.md)** for detailed explanations.
 
 - **"I want to build a workflow"** -> [Use Cases & Patterns](use-cases-and-patterns.md)
 - **"I need to understand the architecture"** -> [Crate Architecture](crate-architecture.md), [Events and Commands](events-and-commands.md)
+- **"I'm configuring a deployment"** -> [Configuration Management](configuration-management.md), [Environment Comparison](environment-configuration-comparison.md)
+- **"I'm debugging configuration issues"** -> [Configuration Management](configuration-management.md) (Part 9: Troubleshooting)
 - **"I'm debugging a state machine issue"** -> [States and Lifecycles](states-and-lifecycles.md)
 - **"I need to optimize performance"** -> [Benchmarks](benchmarks/README.md), [Archive: Performance Optimization](archive/performance-optimization.md)
-- **"I'm deploying to production"** -> [Deployment Patterns](deployment-patterns.md), [Observability](observability/README.md)
+- **"I'm deploying to production"** -> [Configuration Management](configuration-management.md), [Deployment Patterns](deployment-patterns.md), [Observability](observability/README.md)
 - **"I'm writing a custom handler"** -> [Use Cases & Patterns](use-cases-and-patterns.md), [Archive: Ruby Integration](archive/ruby-integration-lessons.md)
 - **"I need to understand SQL functions"** -> [Task Readiness & Execution](task-and-step-readiness-and-execution.md)
 
@@ -239,6 +246,8 @@ See **[Crate Architecture](crate-architecture.md)** for detailed explanations.
 - **Event Systems** -> [Events and Commands](events-and-commands.md)
 - **State Machines** -> [States and Lifecycles](states-and-lifecycles.md)
 - **PGMQ** -> [Events and Commands](events-and-commands.md), [Task Readiness & Execution](task-and-step-readiness-and-execution.md)
+- **Configuration (TOML)** -> [Configuration Management](configuration-management.md), [Environment Comparison](environment-configuration-comparison.md)
+- **REST API** -> [Configuration Management](configuration-management.md) (Part 2: Runtime Observability)
 - **Ruby FFI** -> [Archive: Ruby Integration Lessons](archive/ruby-integration-lessons.md)
 - **Testing** -> [Testing Guide](testing/comprehensive-lifecycle-testing-guide.md), [Archive: Testing Methodologies](archive/testing-methodologies.md)
 

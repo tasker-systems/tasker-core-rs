@@ -76,6 +76,14 @@ pub fn health_routes() -> Router<AppState> {
         .route("/metrics", get(handlers::health::prometheus_metrics))
 }
 
+/// Create configuration routes
+///
+/// Configuration observability routes at root level (system endpoints, not REST API):
+/// - `/config` - Complete system configuration (common + orchestration-specific, secrets redacted)
+pub fn config_routes() -> Router<AppState> {
+    Router::new().route("/config", get(handlers::config::get_config))
+}
+
 /// Create API documentation routes
 ///
 /// These routes serve the OpenAPI specification and Swagger UI:

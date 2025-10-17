@@ -51,6 +51,9 @@ pub enum ClientError {
     #[error("Internal error: {0}")]
     Internal(String),
 
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
+
     #[error("Tasker system error: {0}")]
     TaskerError(#[from] TaskerError),
 }

@@ -302,22 +302,44 @@ cargo clippy --all-targets --all-features
 cargo run --bin tasker-server
 ```
 
-### Configuration
+### Configuration Management
 
-Component-based TOML configuration with environment overrides:
+**Component-Based TOML Architecture** with environment overrides, runtime observability, and validation:
 
 ```
 config/tasker/
-├── base/                      # Base configuration
-│   ├── database.toml
-│   ├── orchestration.toml
-│   ├── circuit_breakers.toml
-│   └── ...
-└── environments/              # Environment overrides
-    ├── development/
-    ├── test/
-    └── production/
+├── base/                      # Base configuration (defaults)
+│   ├── common.toml            # Shared: database, circuit breakers, telemetry
+│   ├── orchestration.toml     # Orchestration-specific settings
+│   └── worker.toml            # Worker-specific settings
+│
+├── environments/              # Environment-specific overrides
+│   ├── test/                  # Small values for fast tests
+│   ├── development/           # Medium values for local Docker
+│   └── production/            # Large values for scale-out
+│
+└── generated/                 # Generated merged configs (deployment artifacts)
 ```
+
+**Key Features**:
+- **Environment Scaling**: 1:5:50 pattern (test → dev → production)
+- **Runtime Inspection**: `GET /config` endpoints with secret redaction
+- **CLI Tools**: Generate and validate single deployable configs
+- **Validation**: Context-specific validation rules catch errors before deployment
+
+**Quick Commands**:
+```bash
+# Inspect runtime configuration (secrets redacted)
+curl http://localhost:8080/config | jq
+
+# Generate production orchestration config
+tasker-cli config generate --context orchestration --environment production
+
+# Validate configuration before deployment
+tasker-cli config validate --context orchestration --environment production
+```
+
+**Full Configuration Guide**: **[docs/configuration-management.md](docs/configuration-management.md)**
 
 ---
 
@@ -338,7 +360,8 @@ config/tasker/
 
 ### Operations
 
-- **[Deployment Patterns](docs/deployment-patterns.md)** - Configuration and deployment
+- **[Configuration Management](docs/configuration-management.md)** - TOML architecture, CLI tools, runtime observability
+- **[Deployment Patterns](docs/deployment-patterns.md)** - Deployment modes and strategies
 - **[Observability](docs/observability/README.md)** - Metrics, logging, monitoring
 - **[Benchmarks](docs/benchmarks/README.md)** - Performance validation
 
