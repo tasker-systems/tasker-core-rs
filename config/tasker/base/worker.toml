@@ -226,18 +226,6 @@ max_concurrent_requests = 50   # Lower than main API for worker-specific load
 [worker_system.web.resource_monitoring]
 # Integration with worker health monitoring system
 
-# Worker-specific endpoint configuration
-
-[worker_system.web.endpoints]
-# Health endpoints (Kubernetes-compatible)
-
-# Metrics endpoints (Prometheus-compatible)
-metrics_enabled = true
-
-# Worker status endpoints
-
-# Template management endpoints
-
 # ============================================================================
 # WORKER EVENT SYSTEM
 # ============================================================================

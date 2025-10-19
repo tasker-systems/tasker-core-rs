@@ -272,23 +272,6 @@ web_api_idle_timeout_seconds = 300
 web_api_max_connections = 25
 web_api_pool_size = 15
 
-[worker_system.web.endpoints]
-basic_status_path = "/status"
-detailed_status_path = "/status/detailed"
-health_enabled = true
-health_path = "/health"
-liveness_path = "/health/live"
-metrics_enabled = true
-namespace_health_path = "/status/namespaces"
-prometheus_path = "/metrics"
-readiness_path = "/health/ready"
-registered_handlers_path = "/handlers"
-status_enabled = true
-template_cache_enabled = true
-templates_base_path = "/templates"
-templates_enabled = true
-worker_metrics_path = "/metrics/worker"
-
 [worker_system.web.rate_limiting]
 burst_size = 50
 enabled = false

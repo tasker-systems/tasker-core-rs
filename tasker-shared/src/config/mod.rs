@@ -38,7 +38,6 @@ pub mod merger;
 pub mod mpsc_channels;
 pub mod orchestration;
 pub mod queues;
-pub mod state;
 pub mod task_readiness;
 pub mod tasker;
 pub mod unified_loader;
@@ -74,7 +73,6 @@ pub use queues::{
 
 pub mod queue_classification;
 pub use queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};
-pub use state::OperationalStateConfig;
 pub use worker::{
     EventSystemConfig as WorkerLegacyEventSystemConfig, HealthMonitoringConfig,
     StepProcessingConfig, WorkerConfig,

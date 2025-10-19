@@ -53,9 +53,6 @@ development = { value = "standalone", rationale = "Local development typically r
 production = { value = "distributed", rationale = "Multiple orchestrators for high availability and horizontal scaling" }
 
 
-[orchestration_system.operational_state]
-
-
 [orchestration_system.web]
 enabled = true
 bind_address = "0.0.0.0:8080"

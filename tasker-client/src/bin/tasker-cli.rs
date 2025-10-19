@@ -1274,14 +1274,17 @@ async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> C
             let base_dir = std::path::PathBuf::from("config/tasker/base");
 
             if !base_dir.exists() {
-                eprintln!("❌ Configuration base directory not found: {}", base_dir.display());
+                eprintln!(
+                    "❌ Configuration base directory not found: {}",
+                    base_dir.display()
+                );
                 eprintln!("   Expected directory structure:");
                 eprintln!("   config/tasker/base/");
                 eprintln!("     ├── common.toml");
                 eprintln!("     ├── orchestration.toml");
                 eprintln!("     └── worker.toml");
                 return Err(tasker_client::ClientError::ConfigError(
-                    "Configuration base directory not found".to_string()
+                    "Configuration base directory not found".to_string(),
                 ));
             }
 
@@ -1396,14 +1399,16 @@ async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> C
                 let mut worker_params = Vec::new();
 
                 for param in all_params {
-                    if param.path.starts_with("database") ||
-                       param.path.starts_with("queues") ||
-                       param.path.starts_with("circuit_breakers") ||
-                       param.path.starts_with("shared_channels") {
+                    if param.path.starts_with("database")
+                        || param.path.starts_with("queues")
+                        || param.path.starts_with("circuit_breakers")
+                        || param.path.starts_with("shared_channels")
+                    {
                         common_params.push(param);
-                    } else if param.path.starts_with("orchestration") ||
-                              param.path.starts_with("backoff") ||
-                              param.path.starts_with("task_readiness") {
+                    } else if param.path.starts_with("orchestration")
+                        || param.path.starts_with("backoff")
+                        || param.path.starts_with("task_readiness")
+                    {
                         orch_params.push(param);
                     } else if param.path.starts_with("worker") {
                         worker_params.push(param);
@@ -1419,7 +1424,10 @@ async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> C
                 }
 
                 if !orch_params.is_empty() {
-                    println!("Orchestration Configuration ({} parameters):", orch_params.len());
+                    println!(
+                        "Orchestration Configuration ({} parameters):",
+                        orch_params.len()
+                    );
                     for param in orch_params {
                         println!("  • {} - {}", param.path, param.description);
                     }

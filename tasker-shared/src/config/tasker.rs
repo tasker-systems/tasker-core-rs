@@ -52,7 +52,6 @@ pub use super::queues::{
 };
 
 pub use super::queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};
-pub use super::state::OperationalStateConfig;
 pub use super::worker::{
     EventSystemConfig as WorkerLegacyEventSystemConfig, HealthMonitoringConfig,
     StepProcessingConfig, WorkerConfig,
@@ -491,7 +490,6 @@ impl Default for TaskerConfig {
                 // Event systems configuration now comes from unified TaskerConfig.event_systems
                 // Queue configuration now comes from centralized QueuesConfig
                 // Heartbeat configuration moved to task_claim_step_enqueuer for TAS-41
-                operational_state: OperationalStateConfig::default(), // TAS-37 Supplemental: Add missing field
                 web: WebConfig::default(),
             },
             circuit_breakers: CircuitBreakerConfig {

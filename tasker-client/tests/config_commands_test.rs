@@ -174,7 +174,10 @@ fn test_config_merger_missing_context() {
 
     assert!(result.is_err());
     // TAS-50 Phase 3: Error message changed to be more descriptive
-    assert!(result.unwrap_err().to_string().contains("Unknown context 'nonexistent'"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Unknown context 'nonexistent'"));
 }
 
 #[test]
@@ -703,8 +706,12 @@ fn test_documentation_loading() {
     // Verify specific parameters are documented
     assert!(docs.lookup("database.pool.max_connections").is_some());
     assert!(docs.lookup("database.pool.min_connections").is_some());
-    assert!(docs.lookup("circuit_breakers.global_settings.max_circuit_breakers").is_some());
-    assert!(docs.lookup("orchestration_system.max_concurrent_tasks").is_some());
+    assert!(docs
+        .lookup("circuit_breakers.global_settings.max_circuit_breakers")
+        .is_some());
+    assert!(docs
+        .lookup("orchestration_system.max_concurrent_tasks")
+        .is_some());
     assert!(docs.lookup("worker_system.max_concurrent_steps").is_some());
 }
 
@@ -753,9 +760,7 @@ fn test_documentation_context_filtering() {
     // Test common context filtering
     let common_params = docs.list_for_context("common");
     assert!(!common_params.is_empty());
-    assert!(common_params
-        .iter()
-        .any(|p| p.path.starts_with("database")));
+    assert!(common_params.iter().any(|p| p.path.starts_with("database")));
     assert!(common_params
         .iter()
         .any(|p| p.path.starts_with("circuit_breakers")));

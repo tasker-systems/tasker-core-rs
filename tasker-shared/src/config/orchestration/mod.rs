@@ -1,4 +1,3 @@
-use super::state::OperationalStateConfig;
 use serde::{Deserialize, Serialize};
 
 pub mod task_claim_step_enqueuer;
@@ -21,8 +20,6 @@ pub struct OrchestrationConfig {
     // Note: Queue configuration removed - use TaskerConfig.queues for centralized queue config
     // Note: Event systems configuration moved to unified TaskerConfig.event_systems
     // Note: Heartbeat configuration removed - moved to task_claim_step_enqueuer for TAS-41
-    /// TAS-37 Supplemental: Shutdown-aware monitoring configuration
-    pub operational_state: OperationalStateConfig,
     /// Web API configuration
     pub web: WebConfig,
 }
@@ -48,7 +45,6 @@ impl Default for OrchestrationConfig {
             // Queue configuration now comes from centralized QueuesConfig
             // Event systems configuration now comes from unified TaskerConfig.event_systems
             // Heartbeat configuration now comes from task_claim_step_enqueuer for TAS-41
-            operational_state: OperationalStateConfig::default(), // TAS-37 Supplemental: Add missing field
             web: WebConfig::default(),
         }
     }

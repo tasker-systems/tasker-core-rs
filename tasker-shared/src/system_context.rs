@@ -100,15 +100,14 @@ impl SystemContext {
             (PathBuf::from(&config_path), "TASKER_CONFIG_PATH")
         } else {
             // Fall back to convention-based path
-            let config_root = std::env::var("TASKER_CONFIG_ROOT")
-                .map_err(|_| {
-                    TaskerError::ConfigurationError(
-                        "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set. \
+            let config_root = std::env::var("TASKER_CONFIG_ROOT").map_err(|_| {
+                TaskerError::ConfigurationError(
+                    "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set. \
                         For Docker/production: set TASKER_CONFIG_PATH to the merged config file. \
                         For tests/development: set TASKER_CONFIG_ROOT to the config directory."
-                            .to_string(),
-                    )
-                })?;
+                        .to_string(),
+                )
+            })?;
 
             let environment = crate::config::UnifiedConfigLoader::detect_environment();
             let convention_path = PathBuf::from(&config_root)
@@ -201,15 +200,14 @@ impl SystemContext {
             (PathBuf::from(&config_path), "TASKER_CONFIG_PATH")
         } else {
             // Fall back to convention-based path
-            let config_root = std::env::var("TASKER_CONFIG_ROOT")
-                .map_err(|_| {
-                    TaskerError::ConfigurationError(
-                        "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set. \
+            let config_root = std::env::var("TASKER_CONFIG_ROOT").map_err(|_| {
+                TaskerError::ConfigurationError(
+                    "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set. \
                         For Docker/production: set TASKER_CONFIG_PATH to the merged config file. \
                         For tests/development: set TASKER_CONFIG_ROOT to the config directory."
-                            .to_string(),
-                    )
-                })?;
+                        .to_string(),
+                )
+            })?;
 
             let environment = crate::config::UnifiedConfigLoader::detect_environment();
             let convention_path = PathBuf::from(&config_root)

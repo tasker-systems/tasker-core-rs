@@ -10,9 +10,6 @@ max_backoff_seconds = 10
 [orchestration_system]
 
 
-[orchestration_system.operational_state]
-
-
 [orchestration_system.web]
 enabled = true
 bind_address = "0.0.0.0:8080"

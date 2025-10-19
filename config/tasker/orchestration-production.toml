@@ -130,16 +130,6 @@ max_concurrent_orchestrators = 10
 mode = "standalone"
 use_unified_state_machine = true
 
-[orchestration_system.operational_state]
-emergency_shutdown_timeout_seconds = 5
-enable_shutdown_aware_monitoring = true
-enable_transition_logging = true
-graceful_shutdown_timeout_seconds = 30
-shutdown_health_threshold_multiplier = 0.0
-startup_health_threshold_multiplier = 0.5
-suppress_alerts_during_shutdown = true
-transition_log_level = "INFO"
-
 [orchestration_system.web]
 bind_address = "0.0.0.0:8080"
 enabled = true

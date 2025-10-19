@@ -202,24 +202,22 @@ impl ConfigManager {
         })?;
 
         // Parse TOML first to enable environment variable substitution
-        let mut toml_value: toml::Value = toml::from_str(&contents).map_err(|e| {
-            ConfigurationError::ParseError {
+        let mut toml_value: toml::Value =
+            toml::from_str(&contents).map_err(|e| ConfigurationError::ParseError {
                 file_path: path.to_string_lossy().to_string(),
                 reason: format!("Failed to parse TOML: {}", e),
-            }
-        })?;
+            })?;
 
         // Perform environment variable substitution (TAS-50: fix for Docker deployments)
         // This uses the same logic as UnifiedConfigLoader::load_toml_with_env_substitution()
         Self::substitute_env_vars_in_value(&mut toml_value)?;
 
         // Convert back to string for deserialization
-        let substituted_contents = toml::to_string(&toml_value).map_err(|e| {
-            ConfigurationError::ParseError {
+        let substituted_contents =
+            toml::to_string(&toml_value).map_err(|e| ConfigurationError::ParseError {
                 file_path: path.to_string_lossy().to_string(),
                 reason: format!("Failed to serialize substituted TOML: {}", e),
-            }
-        })?;
+            })?;
 
         // Parse TOML and deserialize based on context
         let environment = crate::config::UnifiedConfigLoader::detect_environment();
@@ -233,12 +231,11 @@ impl ConfigManager {
                         reason: format!("Failed to parse CommonConfig: {}", e),
                     }
                 })?;
-                let orchestration: OrchestrationConfig = toml::from_str(&substituted_contents).map_err(|e| {
-                    ConfigurationError::ParseError {
+                let orchestration: OrchestrationConfig = toml::from_str(&substituted_contents)
+                    .map_err(|e| ConfigurationError::ParseError {
                         file_path: path.to_string_lossy().to_string(),
                         reason: format!("Failed to parse OrchestrationConfig: {}", e),
-                    }
-                })?;
+                    })?;
                 Box::new((common, orchestration))
             }
             ConfigContext::Worker => {
@@ -265,12 +262,11 @@ impl ConfigManager {
                         reason: format!("Failed to parse CommonConfig: {}", e),
                     }
                 })?;
-                let orchestration: OrchestrationConfig = toml::from_str(&substituted_contents).map_err(|e| {
-                    ConfigurationError::ParseError {
+                let orchestration: OrchestrationConfig = toml::from_str(&substituted_contents)
+                    .map_err(|e| ConfigurationError::ParseError {
                         file_path: path.to_string_lossy().to_string(),
                         reason: format!("Failed to parse OrchestrationConfig: {}", e),
-                    }
-                })?;
+                    })?;
                 let worker: WorkerConfig = toml::from_str(&substituted_contents).map_err(|e| {
                     ConfigurationError::ParseError {
                         file_path: path.to_string_lossy().to_string(),
@@ -281,12 +277,13 @@ impl ConfigManager {
             }
             ConfigContext::Legacy => {
                 // Deserialize as monolithic TaskerConfig
-                let tasker_config: TaskerConfig = toml::from_str(&substituted_contents).map_err(|e| {
-                    ConfigurationError::ParseError {
-                        file_path: path.to_string_lossy().to_string(),
-                        reason: format!("Failed to parse TaskerConfig: {}", e),
-                    }
-                })?;
+                let tasker_config: TaskerConfig =
+                    toml::from_str(&substituted_contents).map_err(|e| {
+                        ConfigurationError::ParseError {
+                            file_path: path.to_string_lossy().to_string(),
+                            reason: format!("Failed to parse TaskerConfig: {}", e),
+                        }
+                    })?;
                 Box::new(tasker_config)
             }
         };
@@ -757,7 +754,10 @@ mod tests {
     fn test_env_var_substitution_in_single_file_loading() {
         // Test that environment variable substitution works in load_from_single_file()
         // Set test env vars
-        std::env::set_var("TEST_DATABASE_URL", "postgresql://test:test@localhost/testdb");
+        std::env::set_var(
+            "TEST_DATABASE_URL",
+            "postgresql://test:test@localhost/testdb",
+        );
         std::env::set_var("TEST_VAR", "test_value");
 
         // Test simple substitution

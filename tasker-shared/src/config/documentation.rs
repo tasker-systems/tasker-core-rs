@@ -126,7 +126,10 @@ impl ConfigDocumentation {
     /// * If base directory doesn't exist
     /// * If TOML files cannot be parsed
     pub fn load(base_dir: PathBuf) -> ConfigResult<Self> {
-        info!("Loading configuration documentation from {}", base_dir.display());
+        info!(
+            "Loading configuration documentation from {}",
+            base_dir.display()
+        );
 
         if !base_dir.exists() {
             return Err(ConfigurationError::config_file_not_found(vec![base_dir]));
@@ -149,9 +152,8 @@ impl ConfigDocumentation {
                 ConfigurationError::file_read_error(config_file.to_string_lossy(), e)
             })?;
 
-            let toml_value: toml::Value = toml::from_str(&content).map_err(|e| {
-                ConfigurationError::invalid_toml(config_file.to_string_lossy(), e)
-            })?;
+            let toml_value: toml::Value = toml::from_str(&content)
+                .map_err(|e| ConfigurationError::invalid_toml(config_file.to_string_lossy(), e))?;
 
             // Extract all _docs sections
             Self::extract_docs_from_value(&toml_value, String::new(), &mut cache);
@@ -192,14 +194,19 @@ impl ConfigDocumentation {
                             };
 
                             // Try to deserialize the documentation
-                            match toml::from_str::<ParameterDocumentation>(&toml::to_string(param_docs).unwrap()) {
+                            match toml::from_str::<ParameterDocumentation>(
+                                &toml::to_string(param_docs).unwrap(),
+                            ) {
                                 Ok(mut docs) => {
                                     docs.path = param_path.clone();
                                     debug!("Loaded documentation for parameter: {}", param_path);
                                     cache.insert(param_path, docs);
                                 }
                                 Err(e) => {
-                                    debug!("Failed to parse documentation for {}: {}", param_path, e);
+                                    debug!(
+                                        "Failed to parse documentation for {}: {}",
+                                        param_path, e
+                                    );
                                 }
                             }
                         }
@@ -254,12 +261,7 @@ impl ConfigDocumentation {
                 "worker_events",
                 "mpsc_channels.event_subscribers",
             ],
-            "common" => vec![
-                "database",
-                "queues",
-                "circuit_breakers",
-                "shared_channels",
-            ],
+            "common" => vec!["database", "queues", "circuit_breakers", "shared_channels"],
             _ => vec![],
         };
 
@@ -349,7 +351,10 @@ system_impact = "Keeps connections warm to avoid cold start latency"
         let param_docs = docs.lookup("database.pool.max_connections").unwrap();
 
         assert_eq!(param_docs.path, "database.pool.max_connections");
-        assert_eq!(param_docs.description, "Maximum number of concurrent database connections in the pool");
+        assert_eq!(
+            param_docs.description,
+            "Maximum number of concurrent database connections in the pool"
+        );
         assert_eq!(param_docs.param_type, "u32");
         assert_eq!(param_docs.valid_range, "1-1000");
         assert_eq!(param_docs.default, "30");
