@@ -29,6 +29,7 @@
 //! ```
 
 pub mod circuit_breaker;
+pub mod documentation;
 pub mod error;
 pub mod event_systems;
 pub mod executor;
@@ -47,7 +48,8 @@ pub mod worker;
 // Primary exports - TAS-34 Unified Configuration System
 pub use unified_loader::{UnifiedConfigLoader, ValidatedConfig};
 
-// TAS-50: CLI configuration merger
+// TAS-50: CLI configuration merger and documentation
+pub use documentation::{ConfigDocumentation, EnvironmentRecommendation, ParameterDocumentation};
 pub use merger::ConfigMerger;
 
 // Re-export types and errors

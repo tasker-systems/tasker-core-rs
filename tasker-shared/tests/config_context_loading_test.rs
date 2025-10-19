@@ -21,7 +21,7 @@ fn test_load_common_config_from_toml() {
     // Verify basic structure
     assert_eq!(common_config.environment, "test");
     assert!(!common_config.database.host.is_empty());
-    assert!(!common_config.database.username.is_empty());
+    // username field removed from DatabaseConfig - not functional, handled by connection string
     assert!(common_config.queues.default_batch_size > 0);
 
     // Verify validation passes

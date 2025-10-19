@@ -25,7 +25,7 @@ async fn test_load_system_configuration_from_file() {
         .expect("Orchestration context should provide TaskerConfig");
 
     // Verify default values match Rails engine
-    assert!(!config.database.enable_secondary_database);
+    // enable_secondary_database field removed - not functional
     assert_eq!(config.backoff.default_backoff_seconds, vec![1]);
     assert_eq!(config.backoff.max_backoff_seconds, 1);
     assert!(!config.backoff.jitter_enabled);

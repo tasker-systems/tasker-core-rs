@@ -19,6 +19,7 @@ Tasker Core implements a sophisticated **component-based configuration system** 
 |---------|-------------|---------|
 | **Component-Based Architecture** | 3 focused TOML files organized by common, orchestration, and worker | Easy to understand and maintain |
 | **Environment Overrides** | Test, development, production-specific settings | Safe defaults with production scale-out |
+| **Single-File Runtime Loading** | Load from pre-merged configuration files at runtime (TAS-50 Phase 3) | Deployment certainty - exact config known at build time |
 | **Runtime Observability** | `/config` API endpoints with secret redaction | Live inspection of deployed configurations |
 | **CLI Tools** | Generate and validate single deployable configs | Build-time verification, deployment artifacts |
 | **Context-Specific Validation** | Orchestration and worker-specific validation rules | Catch errors before deployment |
@@ -43,12 +44,14 @@ curl http://localhost:8081/config | jq
 ### Generate Deployable Configuration
 
 ```bash
-# Generate production orchestration config
+# Generate production orchestration config for deployment
 tasker-cli config generate \
     --context orchestration \
-    --environment production
+    --environment production \
+    --output config/tasker/orchestration-production.toml
 
-# Output: config/tasker/generated/orchestration-production.toml
+# This merged file is then loaded at runtime via TASKER_CONFIG_PATH
+export TASKER_CONFIG_PATH=/app/config/tasker/orchestration-production.toml
 ```
 
 ### Validate Configuration
@@ -93,10 +96,10 @@ config/tasker/
 │       ├── orchestration.toml
 │       └── worker.toml
 │
-└── generated/                      # Generated merged configs (deployment artifacts)
-    ├── common-test.toml
-    ├── orchestration-production.toml
-    └── worker-production.toml
+├── orchestration-test.toml         # Generated merged configs (used at runtime via TASKER_CONFIG_PATH)
+├── orchestration-production.toml   # TAS-50 Phase 3: Single-file deployment artifacts
+├── worker-test.toml
+└── worker-production.toml
 ```
 
 ### 1.2 Configuration Contexts
@@ -128,7 +131,81 @@ export TASKER_ENV=production
 1. `TASKER_ENV` environment variable
 2. Default to "development" if not set
 
-### 1.4 Merging Strategy
+### 1.4 Runtime Configuration Loading (TAS-50 Phase 3)
+
+**Production/Docker Deployment**: Single-file loading via `TASKER_CONFIG_PATH`
+
+Runtime systems (orchestration and worker) load configuration from pre-merged single files:
+
+```bash
+# Set path to merged configuration file
+export TASKER_CONFIG_PATH=/app/config/tasker/orchestration-production.toml
+
+# System loads this single file at startup
+# No directory merging at runtime - configuration is fully determined at build time
+```
+
+**Key Benefits**:
+- **Deployment Certainty**: Exact configuration known before deployment
+- **Simplified Debugging**: Single file shows exactly what's running
+- **Configuration Auditing**: One file to version control and code review
+- **Fail Loudly**: Missing or invalid config halts startup with explicit errors
+
+**Configuration Path Precedence**:
+
+The system uses a two-tier configuration loading strategy with clear precedence:
+
+1. **Primary: TASKER_CONFIG_PATH** (Explicit single file - Docker/production)
+   - When set, system loads configuration from this exact file path
+   - Intended for production and Docker deployments
+   - Example: `TASKER_CONFIG_PATH=/app/config/tasker/orchestration-production.toml`
+   - **Source logging**: `"📋 Loading orchestration configuration from: /app/config/tasker/orchestration-production.toml (source: TASKER_CONFIG_PATH)"`
+
+2. **Fallback: TASKER_CONFIG_ROOT** (Convention-based - tests/development)
+   - When `TASKER_CONFIG_PATH` is not set, system looks for config using convention
+   - Convention: `{TASKER_CONFIG_ROOT}/tasker/{context}-{environment}.toml`
+   - Examples:
+     - Orchestration: `/config/tasker/orchestration-test.toml`
+     - Worker: `/config/tasker/worker-production.toml`
+   - **Source logging**: `"📋 Loading orchestration configuration from: /config/tasker/orchestration-test.toml (source: TASKER_CONFIG_ROOT (convention))"`
+
+**Logging and Transparency**:
+
+The system clearly logs which approach was taken at startup:
+
+```bash
+# Explicit path approach (TASKER_CONFIG_PATH set)
+INFO tasker_shared::system_context: 📋 Loading orchestration configuration from: /app/config/tasker/orchestration-production.toml (source: TASKER_CONFIG_PATH)
+
+# Convention-based approach (TASKER_CONFIG_ROOT set)
+INFO tasker_shared::system_context: Using convention-based config path: /config/tasker/orchestration-test.toml (environment=test)
+INFO tasker_shared::system_context: 📋 Loading orchestration configuration from: /config/tasker/orchestration-test.toml (source: TASKER_CONFIG_ROOT (convention))
+```
+
+**When to Use Each**:
+
+| Environment | Recommended Approach | Reason |
+|-------------|---------------------|--------|
+| **Production** | `TASKER_CONFIG_PATH` | Explicit, auditable, matches what's reviewed |
+| **Docker** | `TASKER_CONFIG_PATH` | Single source of truth, no ambiguity |
+| **Kubernetes** | `TASKER_CONFIG_PATH` | ConfigMap contains exact file |
+| **Tests (nextest)** | `TASKER_CONFIG_ROOT` | Tests span multiple contexts, convention handles both |
+| **Local dev** | Either | Personal preference |
+
+**Error Handling**:
+
+If neither `TASKER_CONFIG_PATH` nor `TASKER_CONFIG_ROOT` is set:
+```
+ConfigurationError("Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set.
+For Docker/production: set TASKER_CONFIG_PATH to the merged config file.
+For tests/development: set TASKER_CONFIG_ROOT to the config directory.")
+```
+
+**Local Development**: Directory-based loading (legacy tests only)
+
+For legacy test compatibility, you can still use directory-based loading via the `load_context_direct()` method, but this is **not supported for production use**.
+
+### 1.5 Merging Strategy
 
 Configuration merging follows **environment overrides win** pattern:
 
@@ -446,55 +523,81 @@ Tasker follows a **1:5:50 scaling pattern** across environments:
 
 ## Part 5: Deployment Workflows
 
-### 5.1 Docker Deployment
+### 5.1 Docker Deployment (TAS-50 Phase 3)
 
 **Build-Time Configuration Generation**:
 ```dockerfile
 FROM rust:1.75 as builder
 
+WORKDIR /app
+COPY . .
+
 # Build CLI tool
 RUN cargo build --release --bin tasker-cli
 
-# Generate production config
+# Generate production config (single merged file)
 RUN ./target/release/tasker-cli config generate \
     --context orchestration \
-    --environment production
+    --environment production \
+    --output config/tasker/orchestration-production.toml
+
+# Build orchestration binary
+RUN cargo build --release --bin tasker-orchestration
 
 FROM rust:1.75-slim
 
-# Copy generated config
-COPY --from=builder \
-    config/tasker/generated/orchestration-production.toml \
-    /app/config.toml
+WORKDIR /app
 
-# Set environment
-ENV TASKER_CONFIG_PATH=/app/config.toml
+# Copy orchestration binary
+COPY --from=builder /app/target/release/tasker-orchestration /usr/local/bin/
+
+# Copy generated config (single file with all merged settings)
+COPY --from=builder /app/config/tasker/orchestration-production.toml /app/config/orchestration.toml
+
+# Set environment - TASKER_CONFIG_PATH is REQUIRED
+ENV TASKER_CONFIG_PATH=/app/config/orchestration.toml
 ENV TASKER_ENV=production
 
-CMD ["./tasker-orchestration"]
+CMD ["tasker-orchestration"]
 ```
 
-### 5.2 Kubernetes Deployment
+**Key Changes from Phase 2**:
+- ✅ Single merged file generated at build time
+- ✅ `TASKER_CONFIG_PATH` environment variable (required)
+- ✅ No runtime merging - exact config known at build time
+- ✅ Fail loudly if `TASKER_CONFIG_PATH` not set
 
-**ConfigMap Strategy**:
+### 5.2 Kubernetes Deployment (TAS-50 Phase 3)
+
+**ConfigMap Strategy with Pre-Generated Config**:
+
+```bash
+# Step 1: Generate merged configuration locally
+tasker-cli config generate \
+  --context orchestration \
+  --environment production \
+  --output orchestration-production.toml
+
+# Step 2: Create ConfigMap from generated file
+kubectl create configmap tasker-orchestration-config \
+  --from-file=orchestration.toml=orchestration-production.toml
+```
+
+**Deployment Manifest**:
 ```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: tasker-orchestration-config
-data:
-  orchestration.toml: |
-    # Generated configuration
-    [database.pool]
-    max_connections = 50
-    # ... rest of config
----
-apiVersion: v1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: tasker-orchestration
 spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tasker-orchestration
   template:
+    metadata:
+      labels:
+        app: tasker-orchestration
     spec:
       containers:
       - name: orchestration
@@ -502,35 +605,75 @@ spec:
         env:
         - name: TASKER_ENV
           value: "production"
+        # REQUIRED: Path to single merged configuration file
         - name: TASKER_CONFIG_PATH
           value: "/config/orchestration.toml"
+        # DATABASE_URL should be in a separate secret
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: tasker-db-credentials
+              key: database-url
         volumeMounts:
         - name: config
           mountPath: /config
+          readOnly: true
       volumes:
       - name: config
         configMap:
           name: tasker-orchestration-config
+          items:
+          - key: orchestration.toml
+            path: orchestration.toml
 ```
 
-### 5.3 Local Development
+**Key Benefits**:
+- ✅ Generated file reviewed before deployment
+- ✅ Single source of truth for runtime configuration
+- ✅ Easy to diff between environments
+- ✅ ConfigMap contains exact runtime configuration
 
-**Standard Workflow**:
+### 5.3 Local Development and Testing
+
+**For Tests** (Legacy directory-based loading):
 ```bash
-# Set development environment
-export TASKER_ENV=development
+# Set test environment
+export TASKER_ENV=test
 
-# Run with automatic config loading
-cargo run --bin tasker-orchestration
-
-# Or use Docker Compose
-docker-compose up
+# Tests use legacy load_context_direct() method
+cargo test --all-features
 ```
 
-**Configuration Loading**:
-- Automatically loads from `config/tasker/base/` + `config/tasker/environments/development/`
-- Merges at runtime
-- No need to generate separately for local development
+**For Docker Compose** (Single-file loading):
+```bash
+# Generate test configs first
+tasker-cli config generate --context orchestration --environment test \
+  --output config/tasker/orchestration-test.toml
+
+tasker-cli config generate --context worker --environment test \
+  --output config/tasker/worker-test.toml
+
+# Start services with generated configs
+docker-compose -f docker/docker-compose.test.yml up
+```
+
+**Docker Compose Configuration**:
+```yaml
+services:
+  orchestration:
+    environment:
+      # REQUIRED: Path to single merged file
+      TASKER_CONFIG_PATH: /app/config/tasker/orchestration-test.toml
+    volumes:
+      # Mount config directory (contains generated files)
+      - ./config/tasker:/app/config/tasker:ro
+```
+
+**Key Points**:
+- ✅ Tests use legacy directory-based loading for convenience
+- ✅ Docker Compose uses single-file loading (matches production)
+- ✅ Generated files should be committed to repo for reproducibility
+- ✅ Both approaches work; choose based on use case
 
 ---
 
@@ -828,7 +971,7 @@ tasker-cli config detect-unused --context orchestration --fix
 
 - **[Environment Configuration Comparison](environment-configuration-comparison.md)** - Detailed comparison of configuration values across environments
 - **[Deployment Patterns](deployment-patterns.md)** - Deployment modes and strategies
-- **[TAS-50 CLI Specification](ticket-specs/TAS-50/CLI.md)** - Complete CLI implementation details
+- **[TAS-50 Phase 3 Specification](ticket-specs/TAS-50/phase3-single-file-config.md)** - Detailed single-file runtime loading implementation
 - **[Quick Start Guide](quick-start.md)** - Getting started with Tasker
 
 ---
@@ -839,15 +982,23 @@ Tasker's configuration system provides:
 
 1. **Component-Based Architecture**: Focused TOML files with single responsibility
 2. **Environment Scaling**: 1:5:50 pattern from test → development → production
-3. **Runtime Observability**: `/config` endpoints with comprehensive secret redaction
-4. **CLI Tools**: Generate and validate single deployable configs
-5. **Context-Specific Validation**: Catch errors before deployment
-6. **Security First**: Automatic secret redaction, environment variable substitution
+3. **Single-File Runtime Loading (TAS-50 Phase 3)**: Deploy exact configuration known at build time via `TASKER_CONFIG_PATH`
+4. **Runtime Observability**: `/config` endpoints with comprehensive secret redaction
+5. **CLI Tools**: Generate and validate single deployable configs
+6. **Context-Specific Validation**: Catch errors before deployment
+7. **Security First**: Automatic secret redaction, environment variable substitution
 
 **Key Workflows**:
-- **Development**: Use automatic loading with `TASKER_ENV=development`
-- **Production**: Generate artifacts with CLI, deploy single files
+- **Production/Docker**: Generate single-file config at build time, set `TASKER_CONFIG_PATH`, deploy
+- **Testing**: Use legacy directory-based loading for convenience
 - **Debugging**: Use `/config` endpoints to inspect runtime configuration
 - **Validation**: Validate before generating deployment artifacts
+
+**Phase 3 Changes (October 2025)**:
+- ✅ Runtime systems now require `TASKER_CONFIG_PATH` environment variable
+- ✅ Configuration loaded from single merged files (no runtime merging)
+- ✅ Deployment certainty: exact config known at build time
+- ✅ Fail loudly: missing/invalid config halts startup with explicit errors
+- ✅ Generated configs committed to repo for reproducibility
 
 ← Back to [Documentation Hub](README.md)

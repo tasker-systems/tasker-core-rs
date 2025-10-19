@@ -1,37 +1,13 @@
-# TAS-50 Phase 2: Common Configuration
-#
-# This file contains shared infrastructure configuration used by all deployment contexts:
-# - Database connection and pooling
-# - Queue system configuration (PGMQ)
-# - Environment detection
-# - Shared MPSC channel settings
-#
-# Used by: Orchestration, Worker, and Combined deployment contexts
-#
-# Environment Overrides: config/tasker/environments/{env}/common.toml
-
-# ============================================================================
-# ENVIRONMENT
-# ============================================================================
-
-# Current environment - can be overridden by TASKER_ENV environment variable
+# Current environment (overridden by environment-specific config)
 environment = "development"
 
-# ============================================================================
-# DATABASE CONFIGURATION
-# ============================================================================
-
 [database]
-enable_secondary_database = false
-url = "${DATABASE_URL}"
-adapter = "postgresql"
+url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_development}"
 encoding = "unicode"
 host = "localhost"
-username = "tasker"
-password = "tasker"
 checkout_timeout = 10
 reaping_frequency = 10
-skip_migration_check = false
+
 
 [database.pool]
 max_connections = 30
@@ -40,12 +16,47 @@ acquire_timeout_seconds = 30
 idle_timeout_seconds = 300
 max_lifetime_seconds = 3600
 
+# Documentation for database.pool parameters
+[database.pool._docs.max_connections]
+description = "Maximum number of concurrent database connections in the pool"
+type = "u32"
+valid_range = "1-1000"
+default = "30"
+system_impact = "Controls database connection concurrency. Too few = query queuing and slow task processing. Too many = database resource exhaustion and connection overhead."
+related = ["database.pool.min_connections", "database.pool.acquire_timeout_seconds"]
+example = """
+# Production example for high-load orchestration
+[database.pool]
+max_connections = 50    # Scale based on concurrent task volume
+min_connections = 10    # Keep connections warm
+"""
+
+[database.pool._docs.max_connections.recommendations]
+test = { value = "5", rationale = "Minimal connections for test isolation and fast cleanup" }
+development = { value = "10", rationale = "Small pool for local development with low concurrency" }
+production = { value = "30-50", rationale = "Scale based on expected concurrent task and step processing load" }
+
+[database.pool._docs.min_connections]
+description = "Minimum number of idle connections to maintain in the pool"
+type = "u32"
+valid_range = "1-100"
+default = "8"
+system_impact = "Keeps connections warm to avoid cold start latency when processing tasks. Too few = connection setup overhead. Too many = wasted database resources."
+related = ["database.pool.max_connections"]
+
+[database.pool._docs.min_connections.recommendations]
+test = { value = "2", rationale = "Minimal idle connections for test environments" }
+development = { value = "4", rationale = "Small idle pool for local development" }
+production = { value = "8-10", rationale = "Maintain warm connections for consistent performance" }
+
+
 [database.variables]
 statement_timeout = 5000
 
 # ============================================================================
 # QUEUE CONFIGURATION
 # ============================================================================
+
 
 [queues]
 # Backend selection (aligns with UnifiedMessageClient)
@@ -56,38 +67,37 @@ default_namespace = "default"
 naming_pattern = "{namespace}_{name}_queue"
 
 # Universal queue configuration (backend-agnostic)
-default_visibility_timeout_seconds = 30
 health_check_interval = 60
 default_batch_size = 10
-max_batch_size = 100
 
 # Queue type definitions for orchestration system
+
 [queues.orchestration_queues]
 task_requests = "orchestration_task_requests_queue"
 task_finalizations = "orchestration_task_finalizations_queue"
 step_results = "orchestration_step_results_queue"
 
 # Backend-specific configuration for PGMQ
+
 [queues.pgmq]
-poll_interval_ms = 250
-shutdown_timeout_seconds = 5
 max_retries = 3
 
 # Future RabbitMQ configuration (prepared for TAS-40+)
+
 [queues.rabbitmq]
 connection_timeout_seconds = 10
-heartbeat_interval_seconds = 60
-channel_pool_size = 10
 
 # ============================================================================
 # SHARED MPSC CHANNELS
 # ============================================================================
+
 
 [shared_channels.event_publisher]
 # Internal event publishing queue
 # Previously unbounded! Now bounded to prevent event storm OOM
 # Handles: System-wide event publishing (step completions, state transitions)
 event_queue_buffer_size = 5000
+
 
 [shared_channels.ffi]
 # Ruby FFI event communication channel
@@ -99,10 +109,12 @@ ruby_event_buffer_size = 1000
 # CIRCUIT BREAKERS
 # ============================================================================
 
+
 [circuit_breakers]
 # Global circuit breaker enablement
 # Used for database, queue, and API resilience patterns
 enabled = true
+
 
 [circuit_breakers.global_settings]
 # Maximum number of circuit breakers system can create
@@ -110,9 +122,9 @@ max_circuit_breakers = 50
 # Metrics collection interval for monitoring
 metrics_collection_interval_seconds = 30
 # Enable automatic circuit breaker creation for components
-auto_create_enabled = true
 # Minimum time between state transitions to prevent oscillation
 min_state_transition_interval_seconds = 1
+
 
 [circuit_breakers.default_config]
 # Default configuration for new circuit breakers
@@ -120,11 +132,13 @@ failure_threshold = 5
 timeout_seconds = 30
 success_threshold = 2
 
+
 [circuit_breakers.component_configs.pgmq]
 # PGMQ queue operations circuit breaker
 failure_threshold = 3
 timeout_seconds = 15
 success_threshold = 2
+
 
 [circuit_breakers.component_configs.task_readiness]
 # Task readiness event processing circuit breaker

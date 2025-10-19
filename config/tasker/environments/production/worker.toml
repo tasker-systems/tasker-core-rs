@@ -1,45 +1,51 @@
-# TAS-50 Phase 2: Production Environment - Worker Configuration Overrides
-
+# Override environment for production
 environment = "production"
 
 [worker_system]
 worker_id = "production-worker-001"
 
+
 [worker_system.step_processing]
 max_concurrent_steps = 500
 
+
 [worker_system.health_monitoring]
-metrics_collection_enabled = true
 performance_monitoring_enabled = true
+
 
 [worker_system.resource_limits]
 max_memory_mb = 4096
 max_cpu_percent = 90
 max_database_connections = 100
 
+
 [worker_system.web]
 enabled = true
 bind_address = "0.0.0.0:8081"
 request_timeout_ms = 60000
 
+
 [worker_system.web.database_pools]
 web_api_pool_size = 15
 web_api_max_connections = 25
-max_total_connections_hint = 50
 
 # Larger MPSC channel buffers for production (TAS-51)
+
 [mpsc_channels.command_processor]
 command_buffer_size = 2000
 
+
 [mpsc_channels.event_systems]
 event_channel_buffer_size = 2000
+
 
 [mpsc_channels.event_subscribers]
 completion_buffer_size = 2000
 result_buffer_size = 2000
 
+
 [mpsc_channels.in_process_events]
-broadcast_buffer_size = 2000
+
 
 [mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 2000

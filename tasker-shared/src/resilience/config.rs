@@ -99,9 +99,6 @@ pub struct GlobalCircuitBreakerSettings {
     /// Interval for metrics collection and reporting
     pub metrics_collection_interval: Duration,
 
-    /// Whether to automatically create circuit breakers for new components
-    pub auto_create_enabled: bool,
-
     /// Minimum interval between state transitions (prevents oscillation)
     pub min_state_transition_interval: Duration,
 }
@@ -134,7 +131,6 @@ impl Default for GlobalCircuitBreakerSettings {
         Self {
             max_circuit_breakers: 50,
             metrics_collection_interval: Duration::from_secs(30),
-            auto_create_enabled: true,
             min_state_transition_interval: Duration::from_secs(1),
         }
     }

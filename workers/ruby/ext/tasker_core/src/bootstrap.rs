@@ -10,7 +10,6 @@ use crate::{
 };
 use magnus::{value::ReprValue, Error, Value};
 use std::sync::Arc;
-use tasker_shared::config::ConfigManager;
 use tasker_worker::WorkerBootstrap;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -58,28 +57,21 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
         )
     })?;
 
-    // TAS-50 Phase 2: Load worker-specific configuration for bounded channel sizes (TAS-51)
-    // Use context-specific loading to avoid loading unnecessary orchestration config
-    let config_manager =
-        ConfigManager::load_context_direct(tasker_shared::config::contexts::ConfigContext::Worker)
+    // TAS-50 Phase 3: Load worker-specific configuration from TASKER_CONFIG_PATH (single-file)
+    // This respects TASKER_CONFIG_PATH environment variable for runtime overrides
+    let system_context = runtime.block_on(async {
+        tasker_shared::system_context::SystemContext::new_for_worker()
+            .await
             .map_err(|e| {
                 error!("Failed to load worker configuration: {}", e);
                 Error::new(
                     magnus::exception::runtime_error(),
                     format!("Configuration load failed: {}", e),
                 )
-            })?;
+            })
+    })?;
 
-    let config = config_manager
-        .as_tasker_config()
-        .ok_or_else(|| {
-            error!("Worker context loaded but TaskerConfig not available");
-            Error::new(
-                magnus::exception::runtime_error(),
-                "Worker configuration missing required fields",
-            )
-        })?
-        .clone();
+    let config = system_context.tasker_config.as_ref().clone();
 
     // Get global event system (shared singleton)
     let event_system = get_global_event_system();

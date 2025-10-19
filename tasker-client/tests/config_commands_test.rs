@@ -173,7 +173,8 @@ fn test_config_merger_missing_context() {
     let result = merger.merge_context("nonexistent");
 
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("nonexistent.toml"));
+    // TAS-50 Phase 3: Error message changed to be more descriptive
+    assert!(result.unwrap_err().to_string().contains("Unknown context 'nonexistent'"));
 }
 
 #[test]
@@ -326,10 +327,11 @@ fn test_environment_variable_substitution() {
     let mut merger = ConfigMerger::new(config_root, "test").unwrap();
     let merged = merger.merge_context("common").unwrap();
 
-    // Verify environment variable was substituted
+    // TAS-50 Phase 3: Placeholders are preserved during merge for runtime substitution
+    // This allows the same generated config to work in different environments
     assert!(
-        merged.contains("postgresql://test:test@testhost/testdb"),
-        "Expected substituted DATABASE_URL, got: {:?}",
+        merged.contains("${DATABASE_URL:-postgresql://localhost/tasker}"),
+        "Expected preserved placeholder for runtime substitution, got: {:?}",
         merged.lines().find(|l| l.contains("url ="))
     );
 
@@ -356,10 +358,11 @@ fn test_default_value_when_env_var_missing() {
     let mut merger = ConfigMerger::new(config_root, "test").unwrap();
     let merged = merger.merge_context("common").unwrap();
 
-    // Should use default value from ${DATABASE_URL:-postgresql://localhost/tasker}
+    // TAS-50 Phase 3: Placeholders are preserved during merge for runtime substitution
+    // The default value is embedded in the placeholder and will be used at runtime
     assert!(
-        merged.contains("postgresql://localhost/tasker"),
-        "Expected default DATABASE_URL, got: {:?}",
+        merged.contains("${DATABASE_URL:-postgresql://localhost/tasker}"),
+        "Expected preserved placeholder with default value, got: {:?}",
         merged.lines().find(|l| l.contains("url ="))
     );
 
@@ -570,4 +573,363 @@ max_connections = 10
         toml_value.get("environment").and_then(|v| v.as_str()),
         Some("test")
     );
+}
+
+// ============================================================================
+// Documentation and Explain Command Tests
+// ============================================================================
+
+/// Create test configuration with _docs sections for explain command testing
+fn create_test_config_with_docs() -> (TempDir, PathBuf) {
+    let temp_dir = TempDir::new().unwrap();
+    let config_root = temp_dir.path().join("tasker");
+
+    // Create directory structure
+    fs::create_dir_all(config_root.join("base")).unwrap();
+
+    // Create base common.toml with _docs sections
+    let base_common_with_docs = r#"
+[database]
+url = "${DATABASE_URL:-postgresql://localhost/tasker}"
+adapter = "postgresql"
+
+[database.pool]
+max_connections = 30
+min_connections = 8
+acquire_timeout_seconds = 30
+
+# Documentation metadata using _docs prefix
+[database.pool._docs.max_connections]
+description = "Maximum number of concurrent database connections in the pool"
+type = "u32"
+valid_range = "1-1000"
+default = "30"
+system_impact = "Controls database connection concurrency. Too few = query queuing, too many = DB resource exhaustion"
+related = ["database.pool.min_connections", "database.pool.acquire_timeout_seconds"]
+example = """
+[database.pool]
+max_connections = 30  # Production: 30-50 recommended
+"""
+
+[database.pool._docs.max_connections.recommendations]
+test = { value = "5", rationale = "Minimal connections for test isolation and fast cleanup" }
+development = { value = "10", rationale = "Small pool for local development without resource contention" }
+production = { value = "30-50", rationale = "Scale based on worker count and query patterns" }
+
+[database.pool._docs.min_connections]
+description = "Minimum number of idle connections to maintain in the pool"
+type = "u32"
+valid_range = "1-100"
+default = "8"
+system_impact = "Keeps connections warm to avoid cold start latency. Higher values trade memory for connection speed"
+related = ["database.pool.max_connections"]
+
+[database.pool._docs.min_connections.recommendations]
+test = { value = "2", rationale = "Minimal idle connections for test efficiency" }
+production = { value = "8-10", rationale = "Balance between warmup time and resource usage" }
+
+[circuit_breakers]
+enabled = true
+
+[circuit_breakers.global_settings]
+auto_create_enabled = true
+max_circuit_breakers = 20
+
+[circuit_breakers.global_settings._docs.max_circuit_breakers]
+description = "Maximum number of circuit breakers that can be created"
+type = "u32"
+valid_range = "1-100"
+default = "20"
+system_impact = "Limits memory usage for circuit breaker tracking. Each breaker consumes ~1KB of memory"
+"#;
+    fs::write(config_root.join("base/common.toml"), base_common_with_docs).unwrap();
+
+    // Create base orchestration.toml with _docs sections
+    let base_orchestration_with_docs = r#"
+[orchestration_system]
+max_concurrent_tasks = 100
+
+[orchestration_system._docs.max_concurrent_tasks]
+description = "Maximum number of tasks that can be processed concurrently by orchestration"
+type = "u32"
+valid_range = "1-10000"
+default = "100"
+system_impact = "Controls orchestration throughput and resource usage. Higher values increase concurrency but consume more memory and database connections"
+
+[orchestration_system._docs.max_concurrent_tasks.recommendations]
+test = { value = "10", rationale = "Low concurrency for deterministic test execution" }
+development = { value = "50", rationale = "Moderate concurrency for local development" }
+production = { value = "100-500", rationale = "Scale based on worker pool size and expected task volume" }
+"#;
+    fs::write(
+        config_root.join("base/orchestration.toml"),
+        base_orchestration_with_docs,
+    )
+    .unwrap();
+
+    // Create base worker.toml with _docs sections
+    let base_worker_with_docs = r#"
+[worker_system]
+max_concurrent_steps = 50
+
+[worker_system._docs.max_concurrent_steps]
+description = "Maximum number of workflow steps that can execute concurrently on this worker"
+type = "u32"
+valid_range = "1-1000"
+default = "50"
+system_impact = "Controls worker throughput and resource consumption. Limited by CPU cores and handler I/O characteristics"
+
+[worker_system._docs.max_concurrent_steps.recommendations]
+test = { value = "5", rationale = "Low concurrency for predictable test behavior" }
+production = { value = "50-200", rationale = "Scale based on available CPU cores and handler performance profile" }
+"#;
+    fs::write(config_root.join("base/worker.toml"), base_worker_with_docs).unwrap();
+
+    (temp_dir, config_root)
+}
+
+#[test]
+fn test_documentation_loading() {
+    use tasker_shared::config::ConfigDocumentation;
+
+    let (_temp_dir, config_root) = create_test_config_with_docs();
+    let base_dir = config_root.join("base");
+
+    let docs = ConfigDocumentation::load(base_dir).unwrap();
+
+    // Should have loaded documentation from all three contexts
+    assert!(docs.parameter_count() >= 5); // At least 5 documented parameters
+
+    // Verify specific parameters are documented
+    assert!(docs.lookup("database.pool.max_connections").is_some());
+    assert!(docs.lookup("database.pool.min_connections").is_some());
+    assert!(docs.lookup("circuit_breakers.global_settings.max_circuit_breakers").is_some());
+    assert!(docs.lookup("orchestration_system.max_concurrent_tasks").is_some());
+    assert!(docs.lookup("worker_system.max_concurrent_steps").is_some());
+}
+
+#[test]
+fn test_documentation_parameter_details() {
+    use tasker_shared::config::ConfigDocumentation;
+
+    let (_temp_dir, config_root) = create_test_config_with_docs();
+    let base_dir = config_root.join("base");
+
+    let docs = ConfigDocumentation::load(base_dir).unwrap();
+    let param = docs
+        .lookup("database.pool.max_connections")
+        .expect("max_connections should be documented");
+
+    // Verify all fields are populated correctly
+    assert_eq!(param.path, "database.pool.max_connections");
+    assert!(param.description.contains("Maximum number of concurrent"));
+    assert_eq!(param.param_type, "u32");
+    assert_eq!(param.valid_range, "1-1000");
+    assert_eq!(param.default, "30");
+    assert!(param.system_impact.contains("connection concurrency"));
+    assert_eq!(param.related.len(), 2);
+    assert!(param.example.contains("max_connections = 30"));
+
+    // Verify environment recommendations
+    assert_eq!(param.recommendations.len(), 3);
+    assert!(param.recommendations.contains_key("test"));
+    assert!(param.recommendations.contains_key("development"));
+    assert!(param.recommendations.contains_key("production"));
+
+    let test_rec = param.recommendations.get("test").unwrap();
+    assert_eq!(test_rec.value, "5");
+    assert!(test_rec.rationale.contains("test isolation"));
+}
+
+#[test]
+fn test_documentation_context_filtering() {
+    use tasker_shared::config::ConfigDocumentation;
+
+    let (_temp_dir, config_root) = create_test_config_with_docs();
+    let base_dir = config_root.join("base");
+
+    let docs = ConfigDocumentation::load(base_dir).unwrap();
+
+    // Test common context filtering
+    let common_params = docs.list_for_context("common");
+    assert!(!common_params.is_empty());
+    assert!(common_params
+        .iter()
+        .any(|p| p.path.starts_with("database")));
+    assert!(common_params
+        .iter()
+        .any(|p| p.path.starts_with("circuit_breakers")));
+
+    // Test orchestration context filtering
+    let orch_params = docs.list_for_context("orchestration");
+    assert!(!orch_params.is_empty());
+    assert!(orch_params
+        .iter()
+        .any(|p| p.path.starts_with("orchestration_system")));
+
+    // Test worker context filtering
+    let worker_params = docs.list_for_context("worker");
+    assert!(!worker_params.is_empty());
+    assert!(worker_params
+        .iter()
+        .any(|p| p.path.starts_with("worker_system")));
+}
+
+#[test]
+fn test_documentation_lookup_missing_parameter() {
+    use tasker_shared::config::ConfigDocumentation;
+
+    let (_temp_dir, config_root) = create_test_config_with_docs();
+    let base_dir = config_root.join("base");
+
+    let docs = ConfigDocumentation::load(base_dir).unwrap();
+
+    // Lookup non-existent parameter should return None
+    assert!(docs.lookup("nonexistent.parameter").is_none());
+    assert!(docs.lookup("database.pool.invalid_field").is_none());
+}
+
+#[test]
+fn test_documentation_stripping_during_merge() {
+    use tasker_shared::config::ConfigMerger;
+
+    let (_temp_dir, config_root) = create_test_config_with_docs();
+
+    let mut merger = ConfigMerger::new(config_root, "production").unwrap();
+    let merged = merger.merge_context("common").unwrap();
+
+    // Verify _docs sections are stripped from merged output
+    assert!(
+        !merged.contains("_docs"),
+        "Merged config should not contain _docs sections"
+    );
+    assert!(
+        !merged.contains("description ="),
+        "Merged config should not contain documentation metadata fields"
+    );
+    assert!(
+        !merged.contains("system_impact ="),
+        "Merged config should not contain system_impact field"
+    );
+    assert!(
+        !merged.contains("recommendations"),
+        "Merged config should not contain recommendations"
+    );
+
+    // Verify actual config values are preserved
+    assert!(
+        merged.contains("max_connections = 30"),
+        "Actual config values should be preserved"
+    );
+    assert!(
+        merged.contains("min_connections = 8"),
+        "Actual config values should be preserved"
+    );
+    assert!(
+        merged.contains("[database.pool]"),
+        "Config structure should be preserved"
+    );
+}
+
+#[test]
+fn test_documentation_recommendations_structure() {
+    use tasker_shared::config::ConfigDocumentation;
+
+    let (_temp_dir, config_root) = create_test_config_with_docs();
+    let base_dir = config_root.join("base");
+
+    let docs = ConfigDocumentation::load(base_dir).unwrap();
+    let param = docs
+        .lookup("orchestration_system.max_concurrent_tasks")
+        .expect("max_concurrent_tasks should be documented");
+
+    // Verify environment recommendations have correct structure
+    assert_eq!(param.recommendations.len(), 3);
+
+    let test_rec = param.recommendations.get("test").unwrap();
+    assert_eq!(test_rec.value, "10");
+    assert!(!test_rec.rationale.is_empty());
+
+    let dev_rec = param.recommendations.get("development").unwrap();
+    assert_eq!(dev_rec.value, "50");
+    assert!(!dev_rec.rationale.is_empty());
+
+    let prod_rec = param.recommendations.get("production").unwrap();
+    assert_eq!(prod_rec.value, "100-500");
+    assert!(prod_rec.rationale.contains("Scale based on"));
+}
+
+#[test]
+fn test_documentation_all_parameters_iteration() {
+    use tasker_shared::config::ConfigDocumentation;
+
+    let (_temp_dir, config_root) = create_test_config_with_docs();
+    let base_dir = config_root.join("base");
+
+    let docs = ConfigDocumentation::load(base_dir).unwrap();
+
+    // Collect all parameters
+    let all_params: Vec<_> = docs.all_parameters().collect();
+    assert!(!all_params.is_empty());
+
+    // Verify each parameter has required fields
+    for param in all_params {
+        assert!(!param.path.is_empty(), "Parameter path should not be empty");
+        assert!(
+            !param.description.is_empty(),
+            "Parameter description should not be empty"
+        );
+        assert!(
+            !param.param_type.is_empty(),
+            "Parameter type should not be empty"
+        );
+        assert!(
+            !param.system_impact.is_empty(),
+            "Parameter system_impact should not be empty"
+        );
+    }
+}
+
+#[test]
+fn test_documentation_loading_missing_directory() {
+    use tasker_shared::config::ConfigDocumentation;
+
+    let result = ConfigDocumentation::load(PathBuf::from("/nonexistent/path/to/config"));
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("not found"));
+}
+
+#[test]
+fn test_documentation_with_partial_metadata() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_root = temp_dir.path().join("tasker");
+    let base_dir = config_root.join("base");
+    fs::create_dir_all(&base_dir).unwrap();
+
+    // Create config with partial _docs (missing some optional fields)
+    let partial_docs_config = r#"
+[database.pool]
+max_connections = 30
+
+[database.pool._docs.max_connections]
+description = "Maximum connections"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Controls concurrency"
+# Note: No default, related, example, or recommendations
+"#;
+    fs::write(base_dir.join("common.toml"), partial_docs_config).unwrap();
+
+    use tasker_shared::config::ConfigDocumentation;
+    let docs = ConfigDocumentation::load(base_dir).unwrap();
+
+    let param = docs.lookup("database.pool.max_connections").unwrap();
+    assert_eq!(param.description, "Maximum connections");
+    assert_eq!(param.param_type, "u32");
+    // Optional fields should have default values
+    assert!(param.default.is_empty());
+    assert!(param.related.is_empty());
+    assert!(param.example.is_empty());
+    assert!(param.recommendations.is_empty());
 }

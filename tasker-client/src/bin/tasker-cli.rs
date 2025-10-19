@@ -208,6 +208,25 @@ pub enum ConfigCommands {
         environment: Option<String>,
     },
 
+    /// Validate source configuration files (base + environment) without generating output
+    ValidateSources {
+        /// Configuration context (orchestration, worker, or common)
+        #[arg(short, long)]
+        context: String,
+
+        /// Target environment (test, development, production)
+        #[arg(short, long)]
+        environment: String,
+
+        /// Source directory containing base and environment configs
+        #[arg(short, long, default_value = "config/tasker")]
+        source_dir: String,
+
+        /// Provide detailed error explanations
+        #[arg(long)]
+        explain_errors: bool,
+    },
+
     /// Detect unused configuration parameters
     DetectUnused {
         /// Source directory with TOML files
@@ -1191,29 +1210,233 @@ async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> C
                 println!("  (strict mode: no warnings detected)");
             }
         }
+        ConfigCommands::ValidateSources {
+            context,
+            environment,
+            source_dir,
+            explain_errors,
+        } => {
+            println!("Validating source configuration:");
+            println!("  Context: {}", context);
+            println!("  Environment: {}", environment);
+            println!("  Source directory: {}", source_dir);
+
+            // Create ConfigMerger
+            let mut merger = ConfigMerger::new(std::path::PathBuf::from(&source_dir), &environment)
+                .map_err(|e| {
+                    if explain_errors {
+                        eprintln!("\n❌ Failed to initialize config merger:");
+                        eprintln!("  {}", e);
+                        eprintln!("\nPossible causes:");
+                        eprintln!("  - Source directory doesn't exist");
+                        eprintln!("  - Missing base/ subdirectory");
+                        eprintln!("  - Invalid directory permissions");
+                    }
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to initialize config merger: {}",
+                        e
+                    ))
+                })?;
+
+            // Attempt to merge configuration (validates source files, env var substitution)
+            println!("\nValidating source files and merging...");
+            merger.merge_context(&context).map_err(|e| {
+                if explain_errors {
+                    eprintln!("\n❌ Source configuration validation failed:");
+                    eprintln!("  {}", e);
+                    eprintln!("\nPossible causes:");
+                    eprintln!("  - Missing required TOML files (base/{}.toml)", context);
+                    eprintln!("  - Invalid TOML syntax");
+                    eprintln!("  - Environment variables without defaults (use ${{VAR:-default}})");
+                    eprintln!("  - Structural validation errors");
+                }
+                tasker_client::ClientError::ConfigError(format!("Source validation failed: {}", e))
+            })?;
+
+            println!("✓ Source configuration is valid!");
+            println!("  Base files: config/tasker/base/{}.toml", context);
+            if context == "orchestration" || context == "worker" {
+                println!("  Also includes: config/tasker/base/common.toml");
+            }
+            println!(
+                "  Environment overrides: config/tasker/environments/{}/",
+                environment
+            );
+        }
         ConfigCommands::Explain {
             parameter,
             context,
             environment,
         } => {
-            println!("Configuration parameter help:");
-            if let Some(param) = parameter {
-                println!("  Parameter: {}", param);
-            } else {
-                println!("  Listing all parameters");
-            }
-            if let Some(ctx) = context {
-                println!("  Context: {}", ctx);
-            }
-            if let Some(env) = environment {
-                println!("  Environment: {}", env);
+            use tasker_shared::config::ConfigDocumentation;
+
+            // Load documentation from base configuration directory
+            let base_dir = std::path::PathBuf::from("config/tasker/base");
+
+            if !base_dir.exists() {
+                eprintln!("❌ Configuration base directory not found: {}", base_dir.display());
+                eprintln!("   Expected directory structure:");
+                eprintln!("   config/tasker/base/");
+                eprintln!("     ├── common.toml");
+                eprintln!("     ├── orchestration.toml");
+                eprintln!("     └── worker.toml");
+                return Err(tasker_client::ClientError::ConfigError(
+                    "Configuration base directory not found".to_string()
+                ));
             }
 
-            // TODO: Implement parameter documentation lookup
-            eprintln!("Configuration documentation not yet implemented");
-            return Err(tasker_client::ClientError::NotImplemented(
-                "Config explanation".to_string(),
-            ));
+            let docs = ConfigDocumentation::load(base_dir).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to load configuration documentation: {}",
+                    e
+                ))
+            })?;
+
+            // Handle specific parameter lookup
+            if let Some(param_path) = parameter {
+                if let Some(param_docs) = docs.lookup(&param_path) {
+                    println!("\n📖 Configuration Parameter: {}\n", param_docs.path);
+                    println!("Description:");
+                    println!("  {}\n", param_docs.description);
+
+                    println!("Type: {}", param_docs.param_type);
+                    println!("Valid Range: {}", param_docs.valid_range);
+
+                    if !param_docs.default.is_empty() {
+                        println!("Default: {}\n", param_docs.default);
+                    } else {
+                        println!();
+                    }
+
+                    println!("System Impact:");
+                    println!("  {}\n", param_docs.system_impact);
+
+                    if !param_docs.example.is_empty() {
+                        println!("Example Usage:");
+                        println!("{}\n", param_docs.example);
+                    }
+
+                    if !param_docs.related.is_empty() {
+                        println!("Related Parameters:");
+                        for related in &param_docs.related {
+                            println!("  • {}", related);
+                        }
+                        println!();
+                    }
+
+                    // Show environment-specific recommendations
+                    if !param_docs.recommendations.is_empty() {
+                        println!("Environment-Specific Recommendations:");
+
+                        // If environment specified, show only that one
+                        if let Some(env) = &environment {
+                            if let Some(rec) = param_docs.recommendations.get(env) {
+                                println!("  {} environment:", env);
+                                println!("    Value: {}", rec.value);
+                                println!("    Rationale: {}", rec.rationale);
+                            } else {
+                                println!("  ⚠️  No recommendation for {} environment", env);
+                            }
+                        } else {
+                            // Show all recommendations
+                            for (env_name, rec) in &param_docs.recommendations {
+                                println!("  {} environment:", env_name);
+                                println!("    Value: {}", rec.value);
+                                println!("    Rationale: {}", rec.rationale);
+                            }
+                        }
+                        println!();
+                    }
+
+                    if !param_docs.example.is_empty() {
+                        println!("Example Usage:");
+                        println!("{}", param_docs.example);
+                    }
+                } else {
+                    eprintln!("❌ No documentation found for parameter: {}", param_path);
+                    eprintln!("\n💡 Tip: Use 'tasker-cli config explain --context <context>' to list available parameters");
+                    eprintln!("   Valid contexts: common, orchestration, worker");
+                    return Err(tasker_client::ClientError::InvalidInput(format!(
+                        "Parameter '{}' not documented",
+                        param_path
+                    )));
+                }
+            }
+            // Handle context listing
+            else if let Some(ctx) = context {
+                let context_params = docs.list_for_context(&ctx);
+
+                if context_params.is_empty() {
+                    println!("\n⚠️  No documented parameters found for context: {}", ctx);
+                    println!("\n💡 Valid contexts: common, orchestration, worker");
+                } else {
+                    println!("\n📚 Configuration Parameters for {} Context\n", ctx);
+                    println!("Found {} documented parameters:\n", context_params.len());
+
+                    for param in context_params {
+                        println!("• {}", param.path);
+                        println!("  {}", param.description);
+                        println!();
+                    }
+
+                    println!("💡 Tip: Use 'tasker-cli config explain --parameter <path>' for detailed information");
+                    println!("   Example: tasker-cli config explain --parameter database.pool.max_connections");
+                }
+            }
+            // List all documented parameters
+            else {
+                let all_params: Vec<_> = docs.all_parameters().collect();
+
+                println!("\n📚 All Documented Configuration Parameters\n");
+                println!("Total: {} parameters\n", all_params.len());
+
+                // Group by prefix for better readability
+                let mut common_params = Vec::new();
+                let mut orch_params = Vec::new();
+                let mut worker_params = Vec::new();
+
+                for param in all_params {
+                    if param.path.starts_with("database") ||
+                       param.path.starts_with("queues") ||
+                       param.path.starts_with("circuit_breakers") ||
+                       param.path.starts_with("shared_channels") {
+                        common_params.push(param);
+                    } else if param.path.starts_with("orchestration") ||
+                              param.path.starts_with("backoff") ||
+                              param.path.starts_with("task_readiness") {
+                        orch_params.push(param);
+                    } else if param.path.starts_with("worker") {
+                        worker_params.push(param);
+                    }
+                }
+
+                if !common_params.is_empty() {
+                    println!("Common Configuration ({} parameters):", common_params.len());
+                    for param in common_params {
+                        println!("  • {} - {}", param.path, param.description);
+                    }
+                    println!();
+                }
+
+                if !orch_params.is_empty() {
+                    println!("Orchestration Configuration ({} parameters):", orch_params.len());
+                    for param in orch_params {
+                        println!("  • {} - {}", param.path, param.description);
+                    }
+                    println!();
+                }
+
+                if !worker_params.is_empty() {
+                    println!("Worker Configuration ({} parameters):", worker_params.len());
+                    for param in worker_params {
+                        println!("  • {} - {}", param.path, param.description);
+                    }
+                    println!();
+                }
+
+                println!("💡 Tip: Use --context <name> to filter by context (common, orchestration, worker)");
+                println!("   Or use --parameter <path> for detailed information about a specific parameter");
+            }
         }
         ConfigCommands::DetectUnused {
             source_dir,

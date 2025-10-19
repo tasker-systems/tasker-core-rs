@@ -1,13 +1,12 @@
-# TAS-50 Phase 2: Test Environment - Common Configuration Overrides
-
+# Override environment for test
 environment = "test"
 
 [database]
 # Test database connection
 host = "localhost"
-username = "tasker"
-password = "tasker"
 database = "tasker_rust_test"
+url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
+
 
 [database.pool]
 # Smaller pool for tests
@@ -15,30 +14,33 @@ max_connections = 10
 min_connections = 2
 acquire_timeout_seconds = 5
 idle_timeout_seconds = 60
-max_lifetime_seconds = 600
+
 
 [queues]
 # Faster polling for tests
-default_visibility_timeout_seconds = 10
 default_batch_size = 5
 
+
 [queues.pgmq]
-poll_interval_ms = 100  # Fast polling for tests
-max_retries = 1         # Fewer retries in tests
+max_retries = 1  # Fewer retries in tests
 
 # Smaller channel buffers for tests (TAS-51)
+
 [shared_channels.event_publisher]
 event_queue_buffer_size = 100
+
 
 [shared_channels.ffi]
 ruby_event_buffer_size = 100
 
 # Test circuit breaker settings - faster failure detection
+
 [circuit_breakers.global_settings]
 max_circuit_breakers = 20
 metrics_collection_interval_seconds = 10
 
+
 [circuit_breakers.default_config]
-failure_threshold = 3       # Fail faster in tests
-timeout_seconds = 5         # Shorter recovery timeout
-success_threshold = 1       # Single success to close
+failure_threshold = 3  # Fail faster in tests
+timeout_seconds = 5  # Shorter recovery timeout
+success_threshold = 1  # Single success to close

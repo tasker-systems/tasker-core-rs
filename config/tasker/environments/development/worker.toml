@@ -1,20 +1,18 @@
-# TAS-50 Phase 2: Development Environment - Worker Configuration Overrides
-#
-# Reasonable middle-ground for local development with Docker.
-# Comfortable concurrency for local testing without overwhelming system.
-
+# Override environment for development
 environment = "development"
 
 [worker_system]
 worker_id = "development-worker-001"
 
+
 [worker_system.step_processing]
 # Reasonable concurrency for local development
 max_concurrent_steps = 50
 
+
 [worker_system.health_monitoring]
-metrics_collection_enabled = true
 performance_monitoring_enabled = false  # Can enable for debugging
+
 
 [worker_system.resource_limits]
 # Reasonable limits for local Docker
@@ -22,30 +20,35 @@ max_memory_mb = 2048
 max_cpu_percent = 75
 max_database_connections = 25
 
+
 [worker_system.web]
 enabled = true
 bind_address = "0.0.0.0:8081"  # Development worker on 8081
 request_timeout_ms = 30000
 
+
 [worker_system.web.database_pools]
 # Balanced pool for local development
 web_api_pool_size = 8
 web_api_max_connections = 12
-max_total_connections_hint = 30
 
 # Medium MPSC channel buffers for development (TAS-51)
+
 [mpsc_channels.command_processor]
 command_buffer_size = 500
 
+
 [mpsc_channels.event_systems]
 event_channel_buffer_size = 500
+
 
 [mpsc_channels.event_subscribers]
 completion_buffer_size = 500
 result_buffer_size = 500
 
+
 [mpsc_channels.in_process_events]
-broadcast_buffer_size = 500
+
 
 [mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 1000

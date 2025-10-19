@@ -1,5 +1,4 @@
-# TAS-50 Phase 2: Test Environment - Orchestration Configuration Overrides
-
+# Override environment for test
 environment = "test"
 
 [backoff]
@@ -7,12 +6,12 @@ environment = "test"
 default_backoff_seconds = [1, 2, 4]
 max_backoff_seconds = 10
 
+
 [orchestration_system]
-max_concurrent_orchestrators = 1
+
 
 [orchestration_system.operational_state]
-graceful_shutdown_timeout_seconds = 5
-emergency_shutdown_timeout_seconds = 1
+
 
 [orchestration_system.web]
 enabled = true
@@ -20,11 +19,14 @@ bind_address = "0.0.0.0:8080"
 request_timeout_ms = 5000
 
 # Smaller MPSC channel buffers for tests (TAS-51)
+
 [mpsc_channels.command_processor]
 command_buffer_size = 100
 
+
 [mpsc_channels.event_systems]
 event_channel_buffer_size = 100
+
 
 [mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 500

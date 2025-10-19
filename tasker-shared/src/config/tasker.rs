@@ -499,7 +499,6 @@ impl Default for TaskerConfig {
                 global_settings: CircuitBreakerGlobalSettings {
                     max_circuit_breakers: 50,
                     metrics_collection_interval_seconds: 30,
-                    auto_create_enabled: true,
                     min_state_transition_interval_seconds: 1.0,
                 },
                 default_config: CircuitBreakerComponentConfig {

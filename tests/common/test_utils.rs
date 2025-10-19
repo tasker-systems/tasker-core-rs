@@ -7,12 +7,52 @@
 //! ## Migration Support
 //!
 //! Uses sqlx::migrate! macro for simple, reliable test database setup.
+//!
+//! ## Automatic .env Loading
+//!
+//! This module automatically loads .env files before any tests run using a
+//! static initializer. This ensures DATABASE_URL and other environment variables
+//! are available for all tests without needing to call setup functions manually.
 
 #![allow(dead_code)]
 
 use dotenvy::dotenv;
 use sqlx::PgPool;
 use std::env;
+use std::sync::{LazyLock, Mutex};
+
+/// Global test initializer that loads .env files before any tests run
+///
+/// This uses a LazyLock static to ensure .env is loaded exactly once across all tests.
+/// The Mutex ensures thread-safe initialization even though LazyLock already handles that.
+static TEST_INIT: LazyLock<Mutex<()>> = LazyLock::new(|| {
+    // Load .env file from workspace root
+    // This makes DATABASE_URL and other variables available to all tests
+    dotenv().ok();
+
+    // Set default test environment if not already set
+    if env::var("TASKER_ENV").is_err() {
+        env::set_var("TASKER_ENV", "test");
+    }
+
+    // Set default DATABASE_URL if not already set (for CI/local compatibility)
+    if env::var("DATABASE_URL").is_err() {
+        env::set_var(
+            "DATABASE_URL",
+            "postgresql://tasker:tasker@localhost:5432/tasker_rust_test",
+        );
+    }
+
+    Mutex::new(())
+});
+
+/// Ensure test environment is initialized
+///
+/// This should be called at the start of any test module to ensure .env is loaded.
+/// It's idempotent and thread-safe, so calling it multiple times is fine.
+pub fn ensure_test_init() {
+    let _ = &*TEST_INIT;
+}
 
 /// Setup DATABASE_URL environment variable for tests
 ///
@@ -109,9 +149,11 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 /// Set up test database pool with migrations applied
 ///
 /// Alternative to #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")] macro for cases where you need manual setup.
+///
+/// This function automatically calls ensure_test_init() to load .env files.
 pub async fn setup_test_db() -> PgPool {
-    // Load .env file for tests
-    dotenv().ok();
+    // Ensure .env is loaded and test environment is initialized
+    ensure_test_init();
 
     let database_url = get_test_database_url();
 
