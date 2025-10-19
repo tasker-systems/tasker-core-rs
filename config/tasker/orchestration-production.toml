@@ -15,7 +15,6 @@ environment = "production"
 
 [backoff]
 backoff_multiplier = 2.0
-buffer_seconds = 5
 default_backoff_seconds = [
     1,
     2,
@@ -24,7 +23,6 @@ default_backoff_seconds = [
     16,
     32,
 ]
-default_reenqueue_delay = 30
 jitter_enabled = true
 jitter_max_percentage = 0.1
 max_backoff_seconds = 300

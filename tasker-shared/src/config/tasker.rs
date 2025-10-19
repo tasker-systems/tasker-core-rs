@@ -317,8 +317,6 @@ pub struct BackoffConfig {
     pub jitter_enabled: bool,
     pub jitter_max_percentage: f64,
     pub reenqueue_delays: ReenqueueDelays,
-    pub default_reenqueue_delay: u64,
-    pub buffer_seconds: u64,
 }
 
 impl Default for BackoffConfig {
@@ -330,8 +328,6 @@ impl Default for BackoffConfig {
             jitter_enabled: true,
             jitter_max_percentage: 0.5,
             reenqueue_delays: ReenqueueDelays::default(),
-            default_reenqueue_delay: 10,
-            buffer_seconds: 10,
         }
     }
 }
@@ -466,8 +462,6 @@ impl Default for TaskerConfig {
                     waiting_for_retry: 60,
                     blocked_by_failures: 120,
                 },
-                default_reenqueue_delay: 30,
-                buffer_seconds: 5,
             },
             execution: ExecutionConfig {
                 max_concurrent_tasks: 100,

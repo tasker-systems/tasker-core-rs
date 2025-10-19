@@ -15,13 +15,11 @@ environment = "test"
 
 [backoff]
 backoff_multiplier = 2.0
-buffer_seconds = 5
 default_backoff_seconds = [
     1,
     2,
     4,
 ]
-default_reenqueue_delay = 30
 jitter_enabled = true
 jitter_max_percentage = 0.1
 max_backoff_seconds = 10
