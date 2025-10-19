@@ -102,10 +102,14 @@ pub struct BackoffConfig {
 }
 
 /// Orchestration-specific event system metadata
+///
+/// TAS-50: All metadata configuration consolidated to respective component configs.
+/// This type kept for backward compatibility but no longer holds configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestrationEventSystemMetadata {
-    /// Note: Queue configuration is populated from main queues config, not TOML
-    pub queues_populated_at_runtime: bool,
+    /// Placeholder to maintain type compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub _reserved: Option<()>,
 }
 
 /// Task readiness-specific event system metadata
@@ -256,9 +260,7 @@ impl Default for BackoffConfig {
 
 impl Default for OrchestrationEventSystemMetadata {
     fn default() -> Self {
-        Self {
-            queues_populated_at_runtime: true,
-        }
+        Self { _reserved: None }
     }
 }
 

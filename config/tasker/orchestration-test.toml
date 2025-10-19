@@ -101,9 +101,6 @@ error_rate_threshold_per_minute = 5
 max_consecutive_errors = 10
 performance_monitoring_enabled = true
 
-[orchestration_events.metadata]
-queues_populated_at_runtime = true
-
 [orchestration_events.processing]
 batch_size = 10
 max_concurrent_operations = 10
@@ -124,7 +121,6 @@ visibility_timeout_seconds = 30
 
 [orchestration_system]
 enable_performance_logging = false
-max_concurrent_orchestrators = 1
 mode = "standalone"
 use_unified_state_machine = true
 
