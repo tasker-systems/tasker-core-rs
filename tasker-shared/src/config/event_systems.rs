@@ -105,7 +105,7 @@ pub struct BackoffConfig {
 ///
 /// TAS-50: All metadata configuration consolidated to respective component configs.
 /// This type kept for backward compatibility but no longer holds configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OrchestrationEventSystemMetadata {
     /// Placeholder to maintain type compatibility
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,7 +116,7 @@ pub struct OrchestrationEventSystemMetadata {
 ///
 /// TAS-50: Metadata configuration consolidated to task_readiness.rs
 /// This type kept for backward compatibility but no longer holds configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TaskReadinessEventSystemMetadata {
     /// Placeholder to maintain type compatibility
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -258,17 +258,7 @@ impl Default for BackoffConfig {
     }
 }
 
-impl Default for OrchestrationEventSystemMetadata {
-    fn default() -> Self {
-        Self { _reserved: None }
-    }
-}
-
-impl Default for TaskReadinessEventSystemMetadata {
-    fn default() -> Self {
-        Self { _reserved: None }
-    }
-}
+// Clippy: Default implementations now derived for empty structs
 
 impl Default for WorkerEventSystemMetadata {
     fn default() -> Self {

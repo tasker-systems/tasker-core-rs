@@ -65,19 +65,8 @@ impl ConfigurationContext for CommonConfig {
         let mut errors = Vec::new();
 
         // Database validation
-        if self.database.host.is_empty() {
-            errors.push(ConfigurationError::MissingRequiredField {
-                field: "database.host".to_string(),
-                context: "CommonConfig".to_string(),
-            });
-        }
-
-        if self.database.username.is_empty() {
-            errors.push(ConfigurationError::MissingRequiredField {
-                field: "database.username".to_string(),
-                context: "CommonConfig".to_string(),
-            });
-        }
+        // Note: host, username, password no longer exist - removed in TAS-50 Phase 1
+        // We now rely on database.url with DATABASE_URL env var fallback (fail-fast)
 
         if self.database.pool.max_connections == 0 {
             errors.push(ConfigurationError::InvalidValue {
@@ -117,8 +106,8 @@ impl ConfigurationContext for CommonConfig {
 
     fn summary(&self) -> String {
         format!(
-            "CommonConfig: environment={}, database={}, max_connections={}",
-            self.environment, self.database.host, self.database.pool.max_connections
+            "CommonConfig: environment={}, max_connections={}",
+            self.environment, self.database.pool.max_connections
         )
     }
 }
@@ -153,7 +142,6 @@ mod tests {
         let common_config = CommonConfig::from(&tasker_config);
 
         // Verify fields were correctly extracted
-        assert_eq!(common_config.database.host, tasker_config.database.host);
         assert_eq!(
             common_config.database.pool.max_connections,
             tasker_config.database.pool.max_connections
@@ -174,22 +162,17 @@ mod tests {
     }
 
     #[test]
-    fn test_common_config_validation_missing_database_host() {
+    fn test_common_config_validation_missing_database_url() {
         let mut tasker_config = TaskerConfig::default();
-        tasker_config.database.host = String::new();
+        // Clear the database URL to test validation
+        tasker_config.database.url = None;
 
         let common_config = CommonConfig::from(&tasker_config);
 
-        // Should fail validation
+        // Validation should still pass - url is optional in config
+        // Actual database connection will fail fast if DATABASE_URL env var not set
         let result = common_config.validate();
-        assert!(result.is_err());
-
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(
-            errors[0],
-            ConfigurationError::MissingRequiredField { .. }
-        ));
+        assert!(result.is_ok());
     }
 
     #[test]

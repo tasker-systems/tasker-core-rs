@@ -590,9 +590,7 @@ mod tests {
         let mut config = TaskerConfig::default();
 
         // Override just the fields we want to test
-        config.database.host = "localhost".to_string();
-        config.database.username = "test_user".to_string();
-        config.database.password = "test_password".to_string();
+        // Note: database.url is already set in default() - we always use DATABASE_URL
         config.database.database = Some("test_db".to_string());
 
         config.orchestration.mode = "distributed".to_string();
@@ -614,7 +612,7 @@ mod tests {
         let manager = ConfigManager::from_tasker_config(config, "test".to_string());
 
         assert_eq!(manager.environment(), "test");
-        assert_eq!(manager.config().database.host, "localhost");
+        assert!(manager.config().database.url.is_some());
         assert_eq!(manager.config().orchestration.mode, "distributed");
     }
 
@@ -634,11 +632,11 @@ mod tests {
 
         // Test basic accessor methods
         assert_eq!(manager.environment(), "production");
-        assert!(manager.config().database.host == "localhost");
+        assert!(manager.config().database.url.is_some());
 
         // Test that config is immutable reference
         let config_ref = manager.config();
-        assert_eq!(config_ref.database.host, "localhost");
+        assert!(config_ref.database.url.is_some());
     }
 
     // TAS-50 Phase 1: ContextConfigManager tests
@@ -651,7 +649,7 @@ mod tests {
         let manager = ConfigManager::from_tasker_config(config.clone(), "test".to_string());
 
         // Verify the mock config structure for orchestration
-        assert!(!manager.config().database.host.is_empty());
+        assert!(manager.config().database.url.is_some());
         assert!(!manager.config().orchestration.mode.is_empty());
     }
 
@@ -672,8 +670,7 @@ mod tests {
         let common_config = CommonConfig::from(&tasker_config);
 
         // Verify common config extracted correctly
-        assert_eq!(common_config.database.host, "localhost");
-        assert_eq!(common_config.database.username, "test_user");
+        assert!(common_config.database.url.is_some());
         assert_eq!(common_config.queues.default_batch_size, 10);
         assert_eq!(
             common_config.environment,
@@ -719,7 +716,7 @@ mod tests {
 
         // Test Common config
         let common = CommonConfig::from(&config);
-        assert_eq!(common.database.host, "localhost");
+        assert!(common.database.url.is_some());
 
         // Test Orchestration config
         let orch = OrchestrationConfig::from(&config);
@@ -805,8 +802,7 @@ mod tests {
 
         // Phase 2: Would load from TOML, but we can't test file I/O here
         // Instead, verify the Phase 1 conversion produces expected structure
-        assert_eq!(phase1_common.database.host, "localhost");
-        assert_eq!(phase1_common.database.username, "test_user");
+        assert!(phase1_common.database.url.is_some());
         assert_eq!(phase1_common.queues.default_batch_size, 10);
         assert_eq!(
             phase1_common.environment,
@@ -854,7 +850,7 @@ mod tests {
         let orch = OrchestrationConfig::from(&manager.config);
 
         // Verify we can access expected fields
-        assert_eq!(common.database.host, "localhost");
+        assert!(common.database.url.is_some());
         assert_eq!(orch.orchestration_system.mode, "distributed");
     }
 

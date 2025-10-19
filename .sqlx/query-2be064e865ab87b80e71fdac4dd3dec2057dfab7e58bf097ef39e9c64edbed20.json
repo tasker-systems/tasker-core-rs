@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tasker_dependent_system_object_maps\n            SET dependent_system_one_uuid = $2::uuid,\n                dependent_system_two_uuid = $3::uuid,\n                remote_id_one = $4,\n                remote_id_two = $5,\n                updated_at = NOW()\n            WHERE dependent_system_object_map_id = $1\n            RETURNING dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,\n                      remote_id_one, remote_id_two, created_at, updated_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dependent_system_object_map_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "dependent_system_one_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "dependent_system_two_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "remote_id_one",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "remote_id_two",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2be064e865ab87b80e71fdac4dd3dec2057dfab7e58bf097ef39e9c64edbed20"
+}

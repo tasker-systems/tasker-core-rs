@@ -125,8 +125,15 @@ fn main() -> Result<()> {
 
 fn display_config_summary(config: &tasker_shared::config::TaskerConfig) {
     info!("📊 Configuration Summary:");
-    // username field removed from DatabaseConfig - not functional, handled by connection string
-    info!("  Database: {}", config.database.host);
+    // TAS-50: Database host/username/password fields removed - not functional, handled by DATABASE_URL
+    info!(
+        "  Database URL: {}",
+        config
+            .database
+            .url
+            .as_ref()
+            .unwrap_or(&"<not configured>".to_string())
+    );
     info!("  Environment: {}", config.execution.environment);
     info!(
         "  Telemetry: {}",

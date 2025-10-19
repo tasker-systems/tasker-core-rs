@@ -309,10 +309,13 @@ impl SystemContext {
             .max_connections(config.database.pool.max_connections)
             .min_connections(config.database.pool.min_connections)
             .acquire_timeout(std::time::Duration::from_secs(
-                config.database.checkout_timeout,
+                config.database.pool.acquire_timeout_seconds,
             ))
             .idle_timeout(Some(std::time::Duration::from_secs(
-                config.database.reaping_frequency,
+                config.database.pool.idle_timeout_seconds,
+            )))
+            .max_lifetime(Some(std::time::Duration::from_secs(
+                config.database.pool.max_lifetime_seconds,
             )))
     }
 
