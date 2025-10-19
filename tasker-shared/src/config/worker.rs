@@ -38,12 +38,6 @@ pub struct StepProcessingConfig {
     /// Maximum retries for failed steps
     pub max_retries: u32,
 
-    /// Retry backoff multiplier
-    pub retry_backoff_multiplier: f64,
-
-    /// Heartbeat interval for step processing (seconds)
-    pub heartbeat_interval_seconds: u64,
-
     /// Maximum concurrent steps this worker can process
     pub max_concurrent_steps: usize,
 }
@@ -112,20 +106,11 @@ pub struct HealthMonitoringConfig {
     /// Health check interval (seconds)
     pub health_check_interval_seconds: u64,
 
-    /// Enable metrics collection
-    pub metrics_collection_enabled: bool,
-
     /// Enable performance monitoring
     pub performance_monitoring_enabled: bool,
 
-    /// Step processing rate threshold (steps/second)
-    pub step_processing_rate_threshold: f64,
-
     /// Error rate threshold (0.0-1.0)
     pub error_rate_threshold: f64,
-
-    /// Memory usage threshold (MB)
-    pub memory_usage_threshold_mb: usize,
 }
 
 impl Default for WorkerConfig {
@@ -147,8 +132,6 @@ impl Default for StepProcessingConfig {
         Self {
             claim_timeout_seconds: 300,
             max_retries: 3,
-            retry_backoff_multiplier: 2.0,
-            heartbeat_interval_seconds: 30,
             max_concurrent_steps: 100,
         }
     }
@@ -190,11 +173,8 @@ impl Default for HealthMonitoringConfig {
     fn default() -> Self {
         Self {
             health_check_interval_seconds: 10,
-            metrics_collection_enabled: true,
             performance_monitoring_enabled: true,
-            step_processing_rate_threshold: 10.0,
             error_rate_threshold: 0.05,
-            memory_usage_threshold_mb: 1024,
         }
     }
 }

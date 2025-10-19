@@ -187,10 +187,7 @@ visibility_timeout_seconds = 30
 [worker_system.health_monitoring]
 error_rate_threshold = 0.05
 health_check_interval_seconds = 10
-memory_usage_threshold_mb = 1024
-metrics_collection_enabled = true
 performance_monitoring_enabled = true
-step_processing_rate_threshold = 10.0
 
 [worker_system.listener]
 batch_processing = true
@@ -213,10 +210,8 @@ max_queue_connections = 20
 
 [worker_system.step_processing]
 claim_timeout_seconds = 300
-heartbeat_interval_seconds = 30
 max_concurrent_steps = 10
 max_retries = 3
-retry_backoff_multiplier = 2.0
 
 [worker_system.web]
 bind_address = "0.0.0.0:8081"
