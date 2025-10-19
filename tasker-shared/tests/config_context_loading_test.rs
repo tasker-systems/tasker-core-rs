@@ -20,8 +20,8 @@ fn test_load_common_config_from_toml() {
 
     // Verify basic structure
     assert_eq!(common_config.environment, "test");
-    assert!(!common_config.database.host.is_empty());
-    // username field removed from DatabaseConfig - not functional, handled by connection string
+    // TAS-50: database.host removed - verify database.url instead
+    assert!(common_config.database.url.is_some());
     assert!(common_config.queues.default_batch_size > 0);
 
     // Verify validation passes
@@ -170,7 +170,8 @@ fn test_config_manager_load_context_direct_orchestration() {
 
     // Verify we can access common config
     let common = manager.common().expect("Should have common config");
-    assert!(!common.database.host.is_empty());
+    // TAS-50: database.host removed - verify database.url instead
+    assert!(common.database.url.is_some());
 
     // Verify we can access orchestration config
     let orch = manager
@@ -266,7 +267,8 @@ fn test_context_config_summary_contains_key_info() {
     let summary = common.summary();
     assert!(summary.contains("CommonConfig"));
     assert!(summary.contains("test"));
-    assert!(summary.contains(&common.database.host));
+    // TAS-50: database.host removed - summary now shows max_connections
+    assert!(summary.contains("max_connections"));
 
     let orch = loader
         .load_orchestration_config()
