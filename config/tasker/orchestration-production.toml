@@ -250,43 +250,8 @@ error_rate_threshold_per_minute = 5
 max_consecutive_errors = 10
 performance_monitoring_enabled = true
 
-[task_readiness_events.metadata.coordinator]
-instance_id_prefix = "task_readiness"
-operation_timeout_ms = 5000
-stats_interval_seconds = 60
-
-[task_readiness_events.metadata.enhanced_settings]
-metrics_enabled = true
-rollback_threshold_percent = 5.0
-shutdown_timeout_seconds = 10
-startup_timeout_seconds = 30
-
-[task_readiness_events.metadata.event_channel]
-max_retries = 3
-
-[task_readiness_events.metadata.event_channel.backoff]
-initial_delay_ms = 100
-jitter_percent = 0.1
-max_delay_ms = 5000
-multiplier = 2.0
-
-[task_readiness_events.metadata.notification]
-global_channels = [
-    "task_ready",
-    "task_state_change",
-    "namespace_created",
-]
-max_payload_size_bytes = 8000
-parse_timeout_ms = 100
-
-[task_readiness_events.metadata.notification.connection]
-auto_reconnect = true
-connection_retry_delay_seconds = 2
-max_connection_retries = 3
-
-[task_readiness_events.metadata.notification.namespace_patterns]
-task_ready = "task_ready.{namespace}"
-task_state_change = "task_state_change.{namespace}"
+# TAS-50: task_readiness_events.metadata.* configuration removed
+# Configuration consolidated to task_readiness.rs
 
 [task_readiness_events.processing]
 batch_size = 50

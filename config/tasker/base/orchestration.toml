@@ -261,39 +261,8 @@ performance_monitoring_enabled = true
 max_consecutive_errors = 10
 error_rate_threshold_per_minute = 5
 
-# Task readiness-specific metadata
-
-[task_readiness_events.metadata.enhanced_settings]
-metrics_enabled = true
-
-# PostgreSQL LISTEN/NOTIFY configuration
-
-[task_readiness_events.metadata.notification]
-
-
-[task_readiness_events.metadata.notification.namespace_patterns]
-task_ready = "task_ready.{namespace}"
-task_state_change = "task_state_change.{namespace}"
-
-
-[task_readiness_events.metadata.notification.connection]
-
-# Event channel configuration
-# NOTE: buffer_size and send_timeout_ms are in mpsc_channels.toml (TAS-51)
-
-[task_readiness_events.metadata.event_channel]
-max_retries = 3
-
-
-[task_readiness_events.metadata.event_channel.backoff]
-initial_delay_ms = 100
-max_delay_ms = 5000
-multiplier = 2.0
-jitter_percent = 0.1
-
-# Task readiness coordinator configuration
-
-[task_readiness_events.metadata.coordinator]
+# Task readiness event system uses unified metadata populated at runtime
+# No additional metadata configuration required in TOML
 
 # ============================================================================
 # ORCHESTRATION MPSC CHANNELS
