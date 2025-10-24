@@ -475,7 +475,6 @@ impl Default for TaskerConfig {
             orchestration: OrchestrationConfig {
                 mode: "distributed".to_string(),
                 enable_performance_logging: false,
-                use_unified_state_machine: true,
                 // Event systems configuration now comes from unified TaskerConfig.event_systems
                 // Queue configuration now comes from centralized QueuesConfig
                 // Heartbeat configuration moved to task_claim_step_enqueuer for TAS-41

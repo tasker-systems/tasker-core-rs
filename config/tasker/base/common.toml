@@ -69,6 +69,8 @@ naming_pattern = "{namespace}_{name}_queue"
 # Universal queue configuration (backend-agnostic)
 health_check_interval = 60
 default_batch_size = 10
+max_batch_size = 100
+default_visibility_timeout_seconds = 30
 
 # Queue type definitions for orchestration system
 
@@ -80,7 +82,36 @@ step_results = "orchestration_step_results_queue"
 # Backend-specific configuration for PGMQ
 
 [queues.pgmq]
+poll_interval_ms = 250
+shutdown_timeout_seconds = 5
 max_retries = 3
+
+# Documentation for queues.pgmq parameters
+[queues.pgmq._docs.poll_interval_ms]
+description = "Interval in milliseconds between PGMQ queue polling checks"
+type = "u64"
+valid_range = "50-5000"
+default = "250"
+system_impact = "Controls polling frequency for queue message checks. Lower values = more responsive but higher database load. Higher values = lower database load but increased latency."
+related = ["queues.pgmq.shutdown_timeout_seconds", "queues.default_batch_size"]
+
+[queues.pgmq._docs.poll_interval_ms.recommendations]
+test = { value = "100", rationale = "Fast polling for responsive test execution" }
+development = { value = "250", rationale = "Balanced polling for local development" }
+production = { value = "500-1000", rationale = "Reduce database load while maintaining acceptable latency" }
+
+[queues.pgmq._docs.shutdown_timeout_seconds]
+description = "Graceful shutdown timeout for PGMQ operations in seconds"
+type = "u64"
+valid_range = "1-300"
+default = "5"
+system_impact = "Time allowed for in-flight PGMQ messages to complete during shutdown. Too short = message loss during restart. Too long = slow deployments."
+related = ["queues.pgmq.poll_interval_ms"]
+
+[queues.pgmq._docs.shutdown_timeout_seconds.recommendations]
+test = { value = "5", rationale = "Quick shutdown for fast test cycles" }
+development = { value = "10", rationale = "Allow message completion in local development" }
+production = { value = "30", rationale = "Ensure in-flight messages complete during rolling deployments" }
 
 # Future RabbitMQ configuration (prepared for TAS-40+)
 

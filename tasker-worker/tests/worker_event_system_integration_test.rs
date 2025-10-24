@@ -3,7 +3,8 @@
 //! This test validates the complete event flow from pgmq-notify events
 //! through worker queue processing to command execution.
 
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, Once};
 use tokio::sync::mpsc;
 
 use pgmq_notify::MessageReadyEvent;
@@ -21,6 +22,23 @@ use tasker_worker::worker::{
     event_systems::worker_event_system::{WorkerEventSystem, WorkerEventSystemConfig},
     worker_queues::events::WorkerQueueEvent,
 };
+
+static INIT: Once = Once::new();
+
+/// Setup test environment to use complete unified config file
+fn setup_test_config() {
+    INIT.call_once(|| {
+        // Get the project root (go up from tasker-worker/tests to project root)
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let project_root = manifest_dir.parent().unwrap();
+        let complete_config_path = project_root.join("config/tasker/complete-test.toml");
+
+        // Set TASKER_CONFIG_PATH to point to complete config
+        std::env::set_var("TASKER_CONFIG_PATH", complete_config_path.to_str().unwrap());
+
+        println!("✓ Test config setup: TASKER_CONFIG_PATH={}", complete_config_path.display());
+    });
+}
 
 fn create_default_config() -> WorkerEventSystemConfig {
     WorkerEventSystemConfig {
@@ -84,6 +102,8 @@ fn create_default_config() -> WorkerEventSystemConfig {
 /// Test that the WorkerEventSystem can be created and started successfully
 #[tokio::test]
 async fn test_worker_event_system_creation_and_startup() {
+    setup_test_config();
+
     // Create test configuration using unified structure
     let mut config = create_default_config();
     config.system_id = "test-worker-event-system".to_string();
@@ -133,6 +153,7 @@ async fn test_worker_event_system_creation_and_startup() {
 /// Test the event processing flow through the WorkerEventSystem
 #[tokio::test]
 async fn test_worker_event_processing_flow() {
+    setup_test_config();
     // Create configuration for hybrid mode (would use both listener and poller in real scenario)
     let mut config = create_default_config();
     config.system_id = "test-event-processing".to_string();
@@ -179,6 +200,7 @@ async fn test_worker_event_processing_flow() {
 /// Test WorkerNotification handling
 #[tokio::test]
 async fn test_worker_notification_handling() {
+    setup_test_config();
     let mut config = create_default_config();
     config.system_id = "test-notification-handling".to_string();
 
@@ -234,6 +256,7 @@ async fn test_worker_notification_handling() {
 /// Test deployment mode behavior
 #[tokio::test]
 async fn test_deployment_mode_behavior() {
+    setup_test_config();
     let test_cases = vec![
         DeploymentMode::PollingOnly,
         DeploymentMode::EventDrivenOnly,
@@ -274,6 +297,7 @@ async fn test_deployment_mode_behavior() {
 /// Test error handling in event processing
 #[tokio::test]
 async fn test_event_processing_error_handling() {
+    setup_test_config();
     let mut config = create_default_config();
     config.system_id = "test-error-handling".to_string();
 
@@ -331,6 +355,7 @@ fn create_test_message_ready_event(
 /// This test demonstrates the full TAS-43 implementation working together
 #[tokio::test]
 async fn test_complete_tas43_integration() {
+    setup_test_config();
     println!("🚀 Running complete TAS-43 Worker Event System integration test");
 
     // 1. Create a complete WorkerEventSystem configuration using unified structure

@@ -72,8 +72,8 @@ impl ConfigMerger {
             ]));
         }
 
-        // Create unified loader with explicit path
-        let loader = UnifiedConfigLoader::with_root(source_dir.clone(), environment)?;
+        // Create unified loader for config generation (preserves env var placeholders)
+        let loader = UnifiedConfigLoader::for_generation(source_dir.clone(), environment)?;
 
         Ok(Self {
             loader,
@@ -88,7 +88,7 @@ impl ConfigMerger {
     /// overrides, then returns the merged result as a TOML string.
     ///
     /// # Arguments
-    /// * `context` - Context name (common, orchestration, worker)
+    /// * `context` - Context name (common, orchestration, worker, complete)
     ///
     /// # Returns
     /// * `Result<String, ConfigurationError>` - Merged TOML string or error
@@ -110,15 +110,84 @@ impl ConfigMerger {
     /// ```
     pub fn merge_context(&mut self, context: &str) -> ConfigResult<String> {
         info!(
-            "Merging context '{}' for environment '{}'",
+            "Merging context '{}' for environment '{}' (including common config)",
             context, self.environment
         );
 
-        // Load the context configuration (this already does the merging)
-        let merged_toml_value = self.loader.load_context_toml(context)?;
+        // 1. Load common configuration as base (for orchestration and worker contexts)
+        // For 'common' context itself, skip this step
+        let mut merged = if context == "common" {
+            // For common context, just load common.toml
+            self.loader.load_context_toml("common")?
+        } else if context == "complete" {
+            // For complete context, merge common + orchestration + worker
+            let mut base = self.loader.load_context_toml("common")?;
+            debug!("Loaded common config as base: {} bytes", base.to_string().len());
 
-        // Convert to TOML string
-        let merged_toml_string = toml::to_string_pretty(&merged_toml_value).map_err(|e| {
+            // 2. Load and merge orchestration configuration
+            let orch_config = self.loader.load_context_toml("orchestration")?;
+            debug!(
+                "Loaded orchestration config: {} bytes",
+                orch_config.to_string().len()
+            );
+
+            if let (toml::Value::Table(ref mut base_table), toml::Value::Table(orch_table)) =
+                (&mut base, orch_config)
+            {
+                for (key, value) in orch_table {
+                    base_table.insert(key, value);
+                }
+            }
+
+            // 3. Load and merge worker configuration
+            let worker_config = self.loader.load_context_toml("worker")?;
+            debug!(
+                "Loaded worker config: {} bytes",
+                worker_config.to_string().len()
+            );
+
+            if let toml::Value::Table(ref mut base_table) = &mut base {
+                if let toml::Value::Table(worker_table) = worker_config {
+                    for (key, value) in worker_table {
+                        base_table.insert(key, value);
+                    }
+                }
+            }
+
+            debug!("Complete merged config total: {} bytes", base.to_string().len());
+            base
+        } else {
+            // For orchestration/worker, start with common as base
+            let mut base = self.loader.load_context_toml("common")?;
+            debug!("Loaded common config as base: {} bytes", base.to_string().len());
+
+            // 2. Load context-specific configuration
+            let context_config = self.loader.load_context_toml(context)?;
+            debug!(
+                "Loaded {} config: {} bytes",
+                context,
+                context_config.to_string().len()
+            );
+
+            // 3. Merge context on top of common (context wins in conflicts)
+            if let (toml::Value::Table(ref mut base_table), toml::Value::Table(context_table)) =
+                (&mut base, context_config)
+            {
+                for (key, value) in context_table {
+                    base_table.insert(key, value);
+                }
+            }
+
+            debug!("Merged config total: {} bytes", base.to_string().len());
+            base
+        };
+
+        // 4. Strip documentation metadata (_docs sections) before serialization
+        // This removes internal documentation from production config files
+        Self::strip_docs_from_value(&mut merged);
+
+        // 5. Convert to TOML string
+        let merged_toml_string = toml::to_string_pretty(&merged).map_err(|e| {
             ConfigurationError::json_serialization_error(
                 format!("Failed to serialize merged {} config", context),
                 e,
@@ -126,12 +195,33 @@ impl ConfigMerger {
         })?;
 
         info!(
-            "Successfully merged {} configuration ({} bytes)",
+            "Successfully merged {} configuration with common ({} bytes)",
             context,
             merged_toml_string.len()
         );
 
         Ok(merged_toml_string)
+    }
+
+    /// Recursively strip _docs sections from TOML value
+    ///
+    /// Removes all keys ending with "_docs" to keep production configs clean
+    /// and prevent internal documentation from being exposed.
+    fn strip_docs_from_value(value: &mut toml::Value) {
+        if let toml::Value::Table(table) = value {
+            // Remove any keys ending with "_docs"
+            table.retain(|key, _| !key.ends_with("_docs"));
+
+            // Recursively strip from remaining values
+            for (_, v) in table.iter_mut() {
+                Self::strip_docs_from_value(v);
+            }
+        } else if let toml::Value::Array(array) = value {
+            // Recursively strip from array elements
+            for v in array.iter_mut() {
+                Self::strip_docs_from_value(v);
+            }
+        }
     }
 
     /// Merge all context configurations

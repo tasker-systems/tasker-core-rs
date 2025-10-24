@@ -13,9 +13,6 @@ pub struct WebConfig {
     /// Request timeout in milliseconds
     pub request_timeout_ms: u64,
 
-    /// Maximum request size in megabytes
-    pub max_request_size_mb: u64,
-
     /// TLS configuration
     pub tls: WebTlsConfig,
 
@@ -33,9 +30,6 @@ pub struct WebConfig {
 
     /// Resilience configuration
     pub resilience: WebResilienceConfig,
-
-    /// Resource monitoring configuration
-    pub resource_monitoring: WebResourceMonitoringConfig,
 }
 
 /// Web API TLS configuration
@@ -165,33 +159,18 @@ pub struct WebResilienceConfig {
     pub max_concurrent_requests: u32,
 }
 
-/// Web API resource monitoring configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WebResourceMonitoringConfig {
-    /// Whether to report pool usage to health monitor
-    pub report_pool_usage_to_health_monitor: bool,
-
-    /// Pool usage warning threshold (0.0-1.0)
-    pub pool_usage_warning_threshold: f64,
-
-    /// Pool usage critical threshold (0.0-1.0)
-    pub pool_usage_critical_threshold: f64,
-}
-
 impl Default for WebConfig {
     fn default() -> Self {
         Self {
             enabled: true,
             bind_address: "0.0.0.0:8080".to_string(),
             request_timeout_ms: 30000,
-            max_request_size_mb: 16,
             tls: WebTlsConfig::default(),
             database_pools: WebDatabasePoolsConfig::default(),
             cors: WebCorsConfig::default(),
             auth: WebAuthConfig::default(),
             rate_limiting: WebRateLimitConfig::default(),
             resilience: WebResilienceConfig::default(),
-            resource_monitoring: WebResourceMonitoringConfig::default(),
         }
     }
 }
@@ -349,16 +328,6 @@ impl Default for WebResilienceConfig {
             circuit_breaker_enabled: true,
             request_timeout_seconds: 30,
             max_concurrent_requests: 100,
-        }
-    }
-}
-
-impl Default for WebResourceMonitoringConfig {
-    fn default() -> Self {
-        Self {
-            report_pool_usage_to_health_monitor: true,
-            pool_usage_warning_threshold: 0.75,
-            pool_usage_critical_threshold: 0.90,
         }
     }
 }

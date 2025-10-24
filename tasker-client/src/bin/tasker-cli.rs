@@ -1043,9 +1043,20 @@ async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> C
                             ))
                         })?;
                     }
+                    "complete" => {
+                        use tasker_shared::config::TaskerConfig;
+                        let config: TaskerConfig = toml_value.clone().try_into().map_err(|e| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize TaskerConfig (complete context): {}",
+                                e
+                            ))
+                        })?;
+                        // TaskerConfig doesn't have a validate method, so just check deserialization succeeded
+                        println!("  Note: Complete context contains all sections (common + orchestration + worker)");
+                    }
                     _ => {
                         return Err(tasker_client::ClientError::InvalidInput(format!(
-                            "Unknown context '{}'. Valid contexts: common, orchestration, worker",
+                            "Unknown context '{}'. Valid contexts: common, orchestration, worker, complete",
                             context
                         )));
                     }
@@ -1196,9 +1207,33 @@ async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> C
 
                     println!("✓ WorkerConfig validation passed");
                 }
+                "complete" => {
+                    use tasker_shared::config::TaskerConfig;
+
+                    let _tasker_config: TaskerConfig =
+                        toml_value.clone().try_into().map_err(|e| {
+                            if explain_errors {
+                                eprintln!("\n❌ Configuration structure error:");
+                                eprintln!("  {}", e);
+                                eprintln!("\nExpected TaskerConfig structure with sections:");
+                                eprintln!("  - database (common)");
+                                eprintln!("  - circuit_breakers (common)");
+                                eprintln!("  - orchestration (orchestration context)");
+                                eprintln!("  - worker (worker context)");
+                            }
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize TaskerConfig (complete context): {}",
+                                e
+                            ))
+                        })?;
+
+                    // TaskerConfig doesn't have a validate method
+                    println!("✓ TaskerConfig (complete) validation passed");
+                    println!("  Note: Complete context contains all sections");
+                }
                 _ => {
                     return Err(tasker_client::ClientError::InvalidInput(format!(
-                        "Unknown context '{}'. Valid contexts: common, orchestration, worker",
+                        "Unknown context '{}'. Valid contexts: common, orchestration, worker, complete",
                         context
                     )));
                 }

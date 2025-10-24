@@ -31,6 +31,8 @@ pub struct UnifiedConfigLoader {
     environment: String,
     /// Cache for loaded components to avoid re-parsing
     component_cache: HashMap<String, toml::Value>,
+    /// Skip environment variable substitution (for config generation)
+    skip_env_substitution: bool,
 }
 
 impl UnifiedConfigLoader {
@@ -121,7 +123,25 @@ impl UnifiedConfigLoader {
             root,
             environment: environment.to_string(),
             component_cache: HashMap::new(),
+            skip_env_substitution: false, // Default: perform substitution for runtime loading
         })
+    }
+
+    /// Create a unified config loader for config generation (preserves env var placeholders)
+    ///
+    /// This is used by ConfigMerger to generate deployment configs that preserve
+    /// ${VAR:-default} placeholders for runtime substitution.
+    ///
+    /// # Arguments
+    /// * `root` - Configuration root directory path
+    /// * `environment` - Environment name
+    ///
+    /// # Returns
+    /// * `Result<Self, ConfigurationError>` - Loader instance or error
+    pub fn for_generation(root: PathBuf, environment: &str) -> ConfigResult<Self> {
+        let mut loader = Self::with_root(root, environment)?;
+        loader.skip_env_substitution = true; // Preserve placeholders for deployment flexibility
+        Ok(loader)
     }
 
     /// Load a single component configuration with environment overrides
@@ -282,8 +302,11 @@ impl UnifiedConfigLoader {
         let mut value: toml::Value = toml::from_str(&content)
             .map_err(|e| ConfigurationError::invalid_toml(path.display().to_string(), e))?;
 
-        // Then substitute environment variables in the parsed structure
-        self.substitute_env_vars_in_value(&mut value)?;
+        // Substitute environment variables only if not skipping (runtime loading)
+        // For config generation, we preserve ${VAR:-default} placeholders
+        if !self.skip_env_substitution {
+            self.substitute_env_vars_in_value(&mut value)?;
+        }
 
         Ok(value)
     }
@@ -944,6 +967,7 @@ mod tests {
             root: PathBuf::from("/test"),
             environment: "test".to_string(),
             component_cache: HashMap::new(),
+            skip_env_substitution: false,
         };
 
         // Set test env var
@@ -987,6 +1011,7 @@ mod tests {
             root: PathBuf::from("/test"),
             environment: "test".to_string(),
             component_cache: HashMap::new(),
+            skip_env_substitution: false,
         };
 
         // Create base config
@@ -1056,6 +1081,7 @@ mod tests {
             root: PathBuf::from("/test"),
             environment: "test".to_string(),
             component_cache: HashMap::new(),
+            skip_env_substitution: false,
         };
 
         // Test valid pool config

@@ -31,6 +31,7 @@ pub struct EventSystemConfig<T = ()> {
     pub health: EventSystemHealthConfig,
 
     /// System-specific metadata and configuration
+    #[serde(default)]
     pub metadata: T,
 }
 

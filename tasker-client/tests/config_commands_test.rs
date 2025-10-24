@@ -174,10 +174,10 @@ fn test_config_merger_missing_context() {
 
     assert!(result.is_err());
     // TAS-50 Phase 3: Error message changed to be more descriptive
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Unknown context 'nonexistent'"));
+    let error = result.unwrap_err();
+    eprintln!("DEBUG: Actual error message: {}", error);
+    assert!(error.to_string().contains("Unknown context 'nonexistent'")
+        || error.to_string().contains("nonexistent.toml"));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: production
-# Generated: 2025-10-17T20:32:43.205139+00:00
+# Generated: 2025-10-24T20:06:29.400673+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -55,28 +55,22 @@ success_threshold = 3
 timeout_seconds = 60
 
 [circuit_breakers.global_settings]
-auto_create_enabled = true
 max_circuit_breakers = 100
 metrics_collection_interval_seconds = 60
 min_state_transition_interval_seconds = 1
 
 [database]
-adapter = "postgresql"
 checkout_timeout = 10
-enable_secondary_database = false
 encoding = "unicode"
 host = "localhost"
-password = "tasker"
 reaping_frequency = 10
-skip_migration_check = false
-url = "postgresql://tasker:tasker@localhost:5432/tasker_development"
-username = "tasker"
+url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_production}"
 
 [database.pool]
 acquire_timeout_seconds = 30
 idle_timeout_seconds = 600
 max_connections = 50
-max_lifetime_seconds = 7200
+max_lifetime_seconds = 3600
 min_connections = 15
 
 [database.variables]
@@ -101,6 +95,8 @@ error_rate_threshold_per_minute = 5
 max_consecutive_errors = 10
 performance_monitoring_enabled = true
 
+[orchestration_events.metadata]
+
 [orchestration_events.processing]
 batch_size = 10
 max_concurrent_operations = 10
@@ -122,12 +118,10 @@ visibility_timeout_seconds = 30
 [orchestration_system]
 enable_performance_logging = true
 mode = "standalone"
-use_unified_state_machine = true
 
 [orchestration_system.web]
 bind_address = "0.0.0.0:8080"
 enabled = true
-max_request_size_mb = 16
 request_timeout_ms = 60000
 
 [orchestration_system.web.auth]
@@ -172,10 +166,9 @@ allowed_methods = [
 ]
 allowed_origins = ["*"]
 enabled = true
-max_age_seconds = 86400
 
 [orchestration_system.web.database_pools]
-max_total_connections_hint = 80
+max_total_connections_hint = 30
 web_api_connection_timeout_seconds = 30
 web_api_idle_timeout_seconds = 600
 web_api_max_connections = 30
@@ -192,11 +185,6 @@ circuit_breaker_enabled = true
 max_concurrent_requests = 100
 request_timeout_seconds = 30
 
-[orchestration_system.web.resource_monitoring]
-pool_usage_critical_threshold = 0.9
-pool_usage_warning_threshold = 0.75
-report_pool_usage_to_health_monitor = true
-
 [orchestration_system.web.tls]
 cert_path = ""
 enabled = false
@@ -208,7 +196,7 @@ default_batch_size = 50
 default_namespace = "default"
 default_visibility_timeout_seconds = 30
 health_check_interval = 60
-max_batch_size = 200
+max_batch_size = 100
 naming_pattern = "{namespace}_{name}_queue"
 orchestration_namespace = "orchestration"
 worker_namespace = "worker"
@@ -224,9 +212,7 @@ poll_interval_ms = 250
 shutdown_timeout_seconds = 5
 
 [queues.rabbitmq]
-channel_pool_size = 10
 connection_timeout_seconds = 10
-heartbeat_interval_seconds = 60
 
 [shared_channels.event_publisher]
 event_queue_buffer_size = 10000
@@ -243,9 +229,6 @@ enabled = true
 error_rate_threshold_per_minute = 5
 max_consecutive_errors = 10
 performance_monitoring_enabled = true
-
-# TAS-50: task_readiness_events.metadata.* configuration removed
-# Configuration consolidated to task_readiness.rs
 
 [task_readiness_events.processing]
 batch_size = 50

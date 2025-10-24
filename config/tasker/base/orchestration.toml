@@ -76,6 +76,7 @@ web_api_pool_size = 10
 web_api_max_connections = 15
 web_api_connection_timeout_seconds = 30
 web_api_idle_timeout_seconds = 600
+max_total_connections_hint = 30
 
 
 [orchestration_system.web.cors]
@@ -124,10 +125,6 @@ per_client_limit = true
 circuit_breaker_enabled = true
 request_timeout_seconds = 30
 max_concurrent_requests = 100
-
-
-[orchestration_system.web.resource_monitoring]
-# Integration with health monitoring system
 
 # ============================================================================
 # ORCHESTRATION EVENT SYSTEM

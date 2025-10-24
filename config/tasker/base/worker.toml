@@ -177,6 +177,7 @@ web_api_pool_size = 5
 web_api_max_connections = 10
 web_api_connection_timeout_seconds = 15
 web_api_idle_timeout_seconds = 300
+max_total_connections_hint = 15
 
 
 [worker_system.web.cors]
@@ -221,10 +222,6 @@ per_client_limit = true
 circuit_breaker_enabled = true
 request_timeout_seconds = 30
 max_concurrent_requests = 50   # Lower than main API for worker-specific load
-
-
-[worker_system.web.resource_monitoring]
-# Integration with worker health monitoring system
 
 # ============================================================================
 # WORKER EVENT SYSTEM
@@ -328,6 +325,7 @@ result_buffer_size = 1000
 [mpsc_channels.in_process_events]
 # In-process event broadcast channel (for FFI integration)
 # Handles: Rust → Ruby event broadcasts across FFI boundary
+broadcast_buffer_size = 1000
 
 
 [mpsc_channels.event_listeners]
