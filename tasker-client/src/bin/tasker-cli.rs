@@ -1045,7 +1045,7 @@ async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> C
                     }
                     "complete" => {
                         use tasker_shared::config::TaskerConfig;
-                        let config: TaskerConfig = toml_value.clone().try_into().map_err(|e| {
+                        let _config: TaskerConfig = toml_value.clone().try_into().map_err(|e| {
                             tasker_client::ClientError::ConfigError(format!(
                                 "Failed to deserialize TaskerConfig (complete context): {}",
                                 e

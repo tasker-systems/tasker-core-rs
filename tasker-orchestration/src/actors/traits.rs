@@ -196,25 +196,6 @@ pub trait Message: Send + 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use std::sync::Once;
-
-    static INIT: Once = Once::new();
-
-    /// Setup test environment to use complete unified config file
-    fn setup_test_config() {
-        INIT.call_once(|| {
-            // Get the project root (go up from tasker-orchestration/src to project root)
-            let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let project_root = manifest_dir.parent().unwrap();
-            let complete_config_path = project_root.join("config/tasker/complete-test.toml");
-
-            // Set TASKER_CONFIG_PATH to point to complete config
-            std::env::set_var("TASKER_CONFIG_PATH", complete_config_path.to_str().unwrap());
-
-            println!("✓ Test config setup: TASKER_CONFIG_PATH={}", complete_config_path.display());
-        });
-    }
 
     // Test message type
     struct TestMessage {
@@ -262,9 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_actor_trait_compilation() {
-        setup_test_config();
-
-        // Use context-specific loading for test (TAS-50 Phase 2)
+        // SystemContext will automatically use complete-test.toml in test builds
         let context = SystemContext::new_for_orchestration().await.unwrap();
         let actor = TestActor {
             context: Arc::new(context),

@@ -96,19 +96,11 @@ impl SystemContext {
         // Precedence:
         //   1. TASKER_CONFIG_PATH (explicit single file) - Docker/production deployment
         //   2. TASKER_CONFIG_ROOT/{context}-{environment}.toml - Test/development convention
+        //   3. (Test-only) complete-test.toml in project root - Zero-config test default
         let (path, source) = if let Ok(config_path) = std::env::var("TASKER_CONFIG_PATH") {
             (PathBuf::from(&config_path), "TASKER_CONFIG_PATH")
-        } else {
-            // Fall back to convention-based path
-            let config_root = std::env::var("TASKER_CONFIG_ROOT").map_err(|_| {
-                TaskerError::ConfigurationError(
-                    "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set. \
-                        For Docker/production: set TASKER_CONFIG_PATH to the merged config file. \
-                        For tests/development: set TASKER_CONFIG_ROOT to the config directory."
-                        .to_string(),
-                )
-            })?;
-
+        } else if let Ok(config_root) = std::env::var("TASKER_CONFIG_ROOT") {
+            // Convention-based path from TASKER_CONFIG_ROOT
             let environment = crate::config::UnifiedConfigLoader::detect_environment();
             let convention_path = PathBuf::from(&config_root)
                 .join("tasker")
@@ -121,6 +113,40 @@ impl SystemContext {
             );
 
             (convention_path, "TASKER_CONFIG_ROOT (convention)")
+        } else {
+            // Final fallback: try complete-test.toml in project root (only for TASKER_ENV=test)
+            // This provides zero-config test support without requiring TASKER_CONFIG_PATH
+            let environment = crate::config::UnifiedConfigLoader::detect_environment();
+
+            if environment == "test" {
+                let workspace = workspace_tools::workspace().map_err(|e| {
+                    TaskerError::ConfigurationError(format!("Failed to find workspace root: {}", e))
+                })?;
+                let test_config = workspace.join("config/tasker/complete-test.toml");
+
+                if test_config.exists() {
+                    info!(
+                        "🧪 Using test default: {} (TASKER_ENV=test, no config path set)",
+                        test_config.display()
+                    );
+                    (test_config, "Test default (complete-test.toml)")
+                } else {
+                    return Err(TaskerError::ConfigurationError(
+                        "TASKER_ENV=test but test default config not found. \
+                            Set TASKER_CONFIG_PATH or TASKER_CONFIG_ROOT, or ensure complete-test.toml exists."
+                            .to_string(),
+                    ));
+                }
+            } else {
+                return Err(TaskerError::ConfigurationError(
+                    format!(
+                        "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set (environment: {}). \
+                            For Docker/production: set TASKER_CONFIG_PATH to the merged config file. \
+                            For tests/development: set TASKER_CONFIG_ROOT to the config directory.",
+                        environment
+                    )
+                ));
+            }
         };
 
         info!(
@@ -196,19 +222,11 @@ impl SystemContext {
         // Precedence:
         //   1. TASKER_CONFIG_PATH (explicit single file) - Docker/production deployment
         //   2. TASKER_CONFIG_ROOT/{context}-{environment}.toml - Test/development convention
+        //   3. (Test-only) complete-test.toml in project root - Zero-config test default
         let (path, source) = if let Ok(config_path) = std::env::var("TASKER_CONFIG_PATH") {
             (PathBuf::from(&config_path), "TASKER_CONFIG_PATH")
-        } else {
-            // Fall back to convention-based path
-            let config_root = std::env::var("TASKER_CONFIG_ROOT").map_err(|_| {
-                TaskerError::ConfigurationError(
-                    "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set. \
-                        For Docker/production: set TASKER_CONFIG_PATH to the merged config file. \
-                        For tests/development: set TASKER_CONFIG_ROOT to the config directory."
-                        .to_string(),
-                )
-            })?;
-
+        } else if let Ok(config_root) = std::env::var("TASKER_CONFIG_ROOT") {
+            // Convention-based path from TASKER_CONFIG_ROOT
             let environment = crate::config::UnifiedConfigLoader::detect_environment();
             let convention_path = PathBuf::from(&config_root)
                 .join("tasker")
@@ -221,6 +239,40 @@ impl SystemContext {
             );
 
             (convention_path, "TASKER_CONFIG_ROOT (convention)")
+        } else {
+            // Final fallback: try complete-test.toml in project root (only for TASKER_ENV=test)
+            // This provides zero-config test support without requiring TASKER_CONFIG_PATH
+            let environment = crate::config::UnifiedConfigLoader::detect_environment();
+
+            if environment == "test" {
+                let workspace = workspace_tools::workspace().map_err(|e| {
+                    TaskerError::ConfigurationError(format!("Failed to find workspace root: {}", e))
+                })?;
+                let test_config = workspace.join("config/tasker/complete-test.toml");
+
+                if test_config.exists() {
+                    info!(
+                        "🧪 Using test default: {} (TASKER_ENV=test, no config path set)",
+                        test_config.display()
+                    );
+                    (test_config, "Test default (complete-test.toml)")
+                } else {
+                    return Err(TaskerError::ConfigurationError(
+                        "TASKER_ENV=test but test default config not found. \
+                            Set TASKER_CONFIG_PATH or TASKER_CONFIG_ROOT, or ensure complete-test.toml exists."
+                            .to_string(),
+                    ));
+                }
+            } else {
+                return Err(TaskerError::ConfigurationError(
+                    format!(
+                        "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set (environment: {}). \
+                            For Docker/production: set TASKER_CONFIG_PATH to the merged config file. \
+                            For tests/development: set TASKER_CONFIG_ROOT to the config directory.",
+                        environment
+                    )
+                ));
+            }
         };
 
         info!(

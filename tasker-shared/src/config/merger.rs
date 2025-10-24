@@ -122,7 +122,10 @@ impl ConfigMerger {
         } else if context == "complete" {
             // For complete context, merge common + orchestration + worker
             let mut base = self.loader.load_context_toml("common")?;
-            debug!("Loaded common config as base: {} bytes", base.to_string().len());
+            debug!(
+                "Loaded common config as base: {} bytes",
+                base.to_string().len()
+            );
 
             // 2. Load and merge orchestration configuration
             let orch_config = self.loader.load_context_toml("orchestration")?;
@@ -154,12 +157,18 @@ impl ConfigMerger {
                 }
             }
 
-            debug!("Complete merged config total: {} bytes", base.to_string().len());
+            debug!(
+                "Complete merged config total: {} bytes",
+                base.to_string().len()
+            );
             base
         } else {
             // For orchestration/worker, start with common as base
             let mut base = self.loader.load_context_toml("common")?;
-            debug!("Loaded common config as base: {} bytes", base.to_string().len());
+            debug!(
+                "Loaded common config as base: {} bytes",
+                base.to_string().len()
+            );
 
             // 2. Load context-specific configuration
             let context_config = self.loader.load_context_toml(context)?;
