@@ -79,6 +79,8 @@ jobs:
         run: |
           echo "🔨 Building all packages with full features..."
           cargo build --all-features --workspace --bins
+          echo "📦 Verifying binaries were created..."
+          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
@@ -123,6 +125,12 @@ jobs:
           name: unit-test-results
           path: target/nextest/ci/junit.xml
 
+      - name: Verify artifacts before upload
+        run: |
+          echo "📋 Files to be uploaded:"
+          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli || echo "❌ Binaries missing!"
+          ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extensions not found (expected on some platforms)"
+
       - name: Upload build artifacts for native execution
         uses: actions/upload-artifact@v4
         with:
@@ -134,6 +142,7 @@ jobs:
             workers/ruby/lib/tasker_core/tasker_worker_rb.bundle
             workers/ruby/lib/tasker_core/tasker_worker_rb.so
           retention-days: 1
+          if-no-files-found: error
 
   # Job 2a: Native binary execution (default)
   integration-tests-native:
@@ -201,21 +210,42 @@ jobs:
       - name: Restore artifacts to correct locations
         run: |
           echo "📦 Restoring build artifacts..."
+          echo "Contents of artifacts directory:"
+          ls -laR artifacts/ || echo "artifacts/ directory not found"
+
           mkdir -p target/debug
           mkdir -p workers/ruby/lib/tasker_core
 
           # Move binaries to target/debug
-          mv artifacts/tasker-server target/debug/ || echo "tasker-server not found"
-          mv artifacts/tasker-worker target/debug/ || echo "tasker-worker not found"
-          mv artifacts/tasker-cli target/debug/ || echo "tasker-cli not found"
+          if [ -f artifacts/tasker-server ]; then
+            mv artifacts/tasker-server target/debug/
+            echo "✅ tasker-server restored"
+          else
+            echo "❌ tasker-server not found in artifacts/"
+          fi
+
+          if [ -f artifacts/tasker-worker ]; then
+            mv artifacts/tasker-worker target/debug/
+            echo "✅ tasker-worker restored"
+          else
+            echo "❌ tasker-worker not found in artifacts/"
+          fi
+
+          if [ -f artifacts/tasker-cli ]; then
+            mv artifacts/tasker-cli target/debug/
+            echo "✅ tasker-cli restored"
+          else
+            echo "❌ tasker-cli not found in artifacts/"
+          fi
 
           # Move Ruby extension files
-          mv artifacts/tasker_worker_rb.bundle workers/ruby/lib/tasker_core/ 2>/dev/null || echo "bundle not found"
-          mv artifacts/tasker_worker_rb.so workers/ruby/lib/tasker_core/ 2>/dev/null || echo "so not found"
+          mv artifacts/*.bundle workers/ruby/lib/tasker_core/ 2>/dev/null && echo "✅ bundle restored" || echo "ℹ️  No bundle files"
+          mv artifacts/*.so workers/ruby/lib/tasker_core/ 2>/dev/null && echo "✅ .so restored" || echo "ℹ️  No .so files"
 
-          echo "✅ Artifacts restored"
-          ls -la target/debug/
-          ls -la workers/ruby/lib/tasker_core/
+          echo ""
+          echo "Final state:"
+          ls -lh target/debug/ || echo "target/debug/ is empty"
+          ls -lh workers/ruby/lib/tasker_core/ || echo "Ruby extension dir is empty"
 
       - name: Make binaries executable
         run: chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
