@@ -189,15 +189,17 @@ jobs:
         run: |
           mkdir -p config/tasker
           echo "🔧 Generating orchestration configuration..."
-          target/debug/tasker-cli config generate \
+          cargo run --package tasker-client --bin tasker-cli -- config generate \
             --context orchestration \
             --environment test \
             --output config/tasker/orchestration-test.toml
           echo "🔧 Generating worker configuration..."
-          target/debug/tasker-cli config generate \
+          cargo run --package tasker-client --bin tasker-cli -- config generate \
             --context worker \
             --environment test \
             --output config/tasker/worker-test.toml
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Start native services
         run: |
