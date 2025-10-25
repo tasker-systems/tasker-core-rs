@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workflow_step_uuid, name, current_state, dependencies_satisfied,\n                    ready_for_execution, total_parents, completed_parents,\n                    retry_eligible, attempts, max_attempts, next_retry_at\n             FROM get_step_readiness_status($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workflow_step_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "current_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "dependencies_satisfied",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "ready_for_execution",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "total_parents",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "completed_parents",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "retry_eligible",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "next_retry_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "41c9878707dbc5e91cfd5954af95459490459076b0862c2f36ba27b8d5a098ca"
+}

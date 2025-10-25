@@ -42,17 +42,14 @@ criterion = { version = "0.5.1" }
 # dashmap = "6.1"
 crossbeam = "0.8"
 dotenvy = "0.15"  # For loading .env files
-factori = "1.1"
 # Random number generation
 fastrand = "2.0"
 futures = "0.3"
-insta = { version = "1.34", features = ["json", "serde"] }
 # TTY detection for ANSI colors
 is-terminal = "0.4"
 jsonwebtoken = { version = "9" }
 # FFI support to be added in bindings and workers
 magnus = "0.7"
-mockall = "0.13"
 # Utility dependencies
 once_cell = "1.19"
 opentelemetry = "0.26"
@@ -65,7 +62,6 @@ opentelemetry-semantic-conventions = "0.26"
 # Message queue management
 pgmq = "0.30.1"
 pgmq-notify = { path = "pgmq-notify" }
-proptest = "1.0"
 rand = "0.9.1"
 regex = "1.0"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
