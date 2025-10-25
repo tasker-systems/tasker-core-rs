@@ -52,8 +52,6 @@ pub struct PgmqBackendConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RabbitMqBackendConfig {
     pub connection_timeout_seconds: u64,
-    pub heartbeat_interval_seconds: u64,
-    pub channel_pool_size: u32,
 }
 
 /// Configuration for orchestration-owned queues used in message classification
@@ -143,8 +141,6 @@ impl Default for QueuesConfig {
             },
             rabbitmq: Some(RabbitMqBackendConfig {
                 connection_timeout_seconds: 10,
-                heartbeat_interval_seconds: 60,
-                channel_pool_size: 10,
             }),
         }
     }

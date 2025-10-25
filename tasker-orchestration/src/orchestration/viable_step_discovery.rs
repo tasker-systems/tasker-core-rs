@@ -22,10 +22,8 @@
 //! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create system context for ViableStepDiscovery
-//! # use tasker_shared::config::ConfigManager;
-//! # let config_manager = ConfigManager::load()?;
-//! let context = Arc::new(SystemContext::from_config(config_manager).await?);
+//! // Create orchestration system context (TAS-50 Phase 2: context-specific loading)
+//! let context = Arc::new(SystemContext::new_for_orchestration().await?);
 //! let discovery = ViableStepDiscovery::new(context);
 //!
 //! // ViableStepDiscovery uses SQL functions to determine step readiness

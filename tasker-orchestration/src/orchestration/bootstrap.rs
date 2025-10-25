@@ -22,11 +22,11 @@ use crate::orchestration::{
 use crate::web;
 use crate::web::state::AppState;
 use std::sync::Arc;
-use tasker_shared::config::{ConfigManager, TaskerConfig};
+use tasker_shared::config::TaskerConfig;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 use tokio::sync::oneshot;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Unified orchestration system handle for lifecycle management
 pub struct OrchestrationSystemHandle {
@@ -178,31 +178,30 @@ impl OrchestrationBootstrap {
     /// # Returns
     /// Handle for managing the orchestration system lifecycle
     pub async fn bootstrap() -> TaskerResult<OrchestrationSystemHandle> {
-        info!("Starting unified orchestration system bootstrap");
-
-        let config_manager = ConfigManager::load().map_err(|e| {
-            error!("Failed to load configuration: {e}");
-            TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
-        })?;
-
-        let tasker_config = config_manager.config();
-        let config: BootstrapConfig = tasker_config.into();
-
         info!(
-            "Configuration loaded for environment: {}",
-            config_manager.environment()
+            "Starting unified orchestration system bootstrap with context-specific configuration"
         );
 
-        // Initialize system context
-        let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
+        // TAS-50 Phase 2: Use orchestration-specific context loading
+        // This loads only CommonConfig + OrchestrationConfig from context TOML files
+        let system_context = Arc::new(SystemContext::new_for_orchestration().await?);
 
-        // Initialize OrchestrationCore with unified configuration
+        info!(
+            "Orchestration context loaded successfully for environment: {}",
+            system_context.tasker_config.environment()
+        );
+
+        // Initialize OrchestrationCore with orchestration-specific configuration
         let orchestration_core = Arc::new(OrchestrationCore::new(system_context.clone()).await?);
 
         orchestration_core
             .context
             .initialize_orchestration_owned_queues()
             .await?;
+
+        // Build bootstrap config from tasker_config
+        let tasker_config = system_context.tasker_config.as_ref();
+        let config: BootstrapConfig = tasker_config.into();
 
         info!("OrchestrationCore initialized with unified configuration");
 
@@ -335,19 +334,17 @@ impl OrchestrationBootstrap {
             }
         });
 
-        let tasker_config = Arc::new(tasker_config.clone());
-
         let handle = OrchestrationSystemHandle::new(
             orchestration_core,
             unified_event_coordinator,
             web_state,
             shutdown_sender,
             runtime_handle,
-            tasker_config,
+            system_context.tasker_config.clone(), // Use tasker_config from SystemContext
             config,
         );
 
-        info!("Unified orchestration system bootstrap completed successfully");
+        info!("Unified orchestration system bootstrap completed successfully with context-specific configuration (TAS-50)");
         Ok(handle)
     }
 }

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tasker_task_transitions\n            SET metadata = $2, updated_at = NOW()\n            WHERE task_transition_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d88b6d73b4d2b768a57f99b930561265651f6a7c25c8ec83fcebdba7cf2be99d"
+}

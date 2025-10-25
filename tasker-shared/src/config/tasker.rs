@@ -52,7 +52,6 @@ pub use super::queues::{
 };
 
 pub use super::queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};
-pub use super::state::OperationalStateConfig;
 pub use super::worker::{
     EventSystemConfig as WorkerLegacyEventSystemConfig, HealthMonitoringConfig,
     StepProcessingConfig, WorkerConfig,
@@ -150,23 +149,20 @@ pub struct EventSystemsConfig {
 /// - Production performance tuning with timeout controls
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DatabaseConfig {
-    pub enable_secondary_database: bool,
+    /// Database URL - MUST be provided via TOML or DATABASE_URL env var
     pub url: Option<String>,
-    pub adapter: String,
-    pub encoding: String,
-    pub host: String,
-    pub username: String,
-    pub password: String,
     /// Structured pool configuration for high-performance orchestration
     pub pool: DatabasePoolConfig,
+    /// Database runtime variables (statement timeouts, etc.)
     pub variables: DatabaseVariables,
-    pub checkout_timeout: u64,
-    pub reaping_frequency: u64,
-    /// Environment-specific database name override
+    /// Environment-specific database name override (optional)
     pub database: Option<String>,
     /// Skip migration check on startup (useful for development/testing)
     #[serde(default)]
     pub skip_migration_check: bool,
+    // REMOVED (TAS-50 Phase 1): enable_secondary_database, adapter, encoding, host,
+    // username, password, checkout_timeout, reaping_frequency
+    // These fields were never used outside of config introspection
 }
 
 /// Database connection pool configuration
@@ -230,32 +226,38 @@ impl DatabaseConfig {
     }
 
     /// Build complete database URL from configuration
-    pub fn database_url(&self, environment: &str) -> String {
-        // If URL is explicitly provided (with ${DATABASE_URL} expansion), use it
+    ///
+    /// FAIL-FAST: This method expects DATABASE_URL to be set either:
+    /// 1. In the TOML config as `database.url`
+    /// 2. As the DATABASE_URL environment variable
+    ///
+    /// If neither is provided, the system will fail during validation.
+    pub fn database_url(&self, _environment: &str) -> String {
+        // Try TOML url field first
         if let Some(url) = &self.url {
-            if url == "${DATABASE_URL}" || url.starts_with("${DATABASE_URL}") {
-                // Try to expand ${DATABASE_URL} environment variable
-                if let Ok(env_url) = std::env::var("DATABASE_URL") {
-                    return env_url;
+            // Handle ${DATABASE_URL} or ${DATABASE_URL:-default} expansion
+            if url.starts_with("${DATABASE_URL") {
+                // Extract default value if present: ${DATABASE_URL:-default}
+                if let Some(default_start) = url.find(":-") {
+                    let default_end = url.rfind('}').unwrap_or(url.len());
+                    let default_value = &url[default_start + 2..default_end];
+
+                    return std::env::var("DATABASE_URL")
+                        .unwrap_or_else(|_| default_value.to_string());
+                } else {
+                    // ${DATABASE_URL} without default - environment var REQUIRED
+                    return std::env::var("DATABASE_URL")
+                        .expect("DATABASE_URL environment variable must be set");
                 }
-                // If DATABASE_URL is not set, fall through to build from components
             } else if !url.is_empty() {
                 // Use the URL as-is (not a variable reference)
                 return url.clone();
             }
         }
 
-        // Build URL from components
-        let port = std::env::var("DATABASE_PORT").unwrap_or_else(|_| "5432".to_string());
-
-        format!(
-            "postgresql://{}:{}@{}:{}/{}",
-            self.username,
-            self.password,
-            self.host,
-            port,
-            self.database_name(environment)
-        )
+        // Fallback to environment variable
+        std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must be provided in config or environment")
     }
 }
 
@@ -318,8 +320,6 @@ pub struct BackoffConfig {
     pub jitter_enabled: bool,
     pub jitter_max_percentage: f64,
     pub reenqueue_delays: ReenqueueDelays,
-    pub default_reenqueue_delay: u64,
-    pub buffer_seconds: u64,
 }
 
 impl Default for BackoffConfig {
@@ -331,8 +331,6 @@ impl Default for BackoffConfig {
             jitter_enabled: true,
             jitter_max_percentage: 0.5,
             reenqueue_delays: ReenqueueDelays::default(),
-            default_reenqueue_delay: 10,
-            buffer_seconds: 10,
         }
     }
 }
@@ -421,21 +419,13 @@ impl Default for TaskerConfig {
 
         Self {
             database: DatabaseConfig {
-                enable_secondary_database: false,
                 url: Some(
                     "postgresql://tasker:tasker@localhost:5432/tasker_development".to_string(),
                 ),
-                adapter: "postgresql".to_string(),
-                encoding: "unicode".to_string(),
-                host: "localhost".to_string(),
-                username: "tasker".to_string(),
-                password: "tasker".to_string(),
                 pool: DatabasePoolConfig::default(),
                 variables: DatabaseVariables {
                     statement_timeout: 5000,
                 },
-                checkout_timeout: 10,
-                reaping_frequency: 10,
                 database: None,
                 skip_migration_check: false,
             },
@@ -467,8 +457,6 @@ impl Default for TaskerConfig {
                     waiting_for_retry: 60,
                     blocked_by_failures: 120,
                 },
-                default_reenqueue_delay: 30,
-                buffer_seconds: 5,
             },
             execution: ExecutionConfig {
                 max_concurrent_tasks: 100,
@@ -487,11 +475,9 @@ impl Default for TaskerConfig {
             orchestration: OrchestrationConfig {
                 mode: "distributed".to_string(),
                 enable_performance_logging: false,
-                use_unified_state_machine: true,
                 // Event systems configuration now comes from unified TaskerConfig.event_systems
                 // Queue configuration now comes from centralized QueuesConfig
                 // Heartbeat configuration moved to task_claim_step_enqueuer for TAS-41
-                operational_state: OperationalStateConfig::default(), // TAS-37 Supplemental: Add missing field
                 web: WebConfig::default(),
             },
             circuit_breakers: CircuitBreakerConfig {
@@ -499,7 +485,6 @@ impl Default for TaskerConfig {
                 global_settings: CircuitBreakerGlobalSettings {
                     max_circuit_breakers: 50,
                     metrics_collection_interval_seconds: 30,
-                    auto_create_enabled: true,
                     min_state_transition_interval_seconds: 1.0,
                 },
                 default_config: CircuitBreakerComponentConfig {
@@ -541,19 +526,9 @@ impl TaskerConfig {
     /// Validate configuration for consistency and required fields
     pub fn validate(&self) -> Result<(), ConfigurationError> {
         // Database configuration validation
-        if self.database.host.is_empty() {
-            return Err(ConfigurationError::missing_required_field(
-                "database.host",
-                "database configuration",
-            ));
-        }
-
-        if self.database.username.is_empty() {
-            return Err(ConfigurationError::missing_required_field(
-                "database.username",
-                "database configuration",
-            ));
-        }
+        // Note: host, username, password, adapter are now optional fallback fields
+        // with defaults, so we don't validate them as they're only used when
+        // DATABASE_URL env var is not set (which is rare in practice)
 
         if self.database.pool.max_connections == 0 {
             return Err(ConfigurationError::invalid_value(

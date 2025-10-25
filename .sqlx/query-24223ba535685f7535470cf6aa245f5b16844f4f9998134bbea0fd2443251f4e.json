@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(DISTINCT nt.name) as count\n            FROM tasker_tasks t\n            INNER JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "24223ba535685f7535470cf6aa245f5b16844f4f9998134bbea0fd2443251f4e"
+}

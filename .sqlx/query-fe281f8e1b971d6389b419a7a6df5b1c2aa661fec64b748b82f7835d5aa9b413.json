@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*) as count\n            FROM tasker_dependent_system_object_maps\n            WHERE dependent_system_one_uuid = $1::uuid OR dependent_system_two_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fe281f8e1b971d6389b419a7a6df5b1c2aa661fec64b748b82f7835d5aa9b413"
+}

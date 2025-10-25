@@ -43,7 +43,7 @@ mod tests {
             global_settings: CircuitBreakerGlobalSettings {
                 max_circuit_breakers: 25,
                 metrics_collection_interval_seconds: 15,
-                auto_create_enabled: true,
+                // auto_create_enabled removed - hardcoded to true in conversion
                 min_state_transition_interval_seconds: 0.5,
             },
             default_config: CircuitBreakerComponentConfig {
@@ -91,7 +91,7 @@ mod tests {
             global_settings: CircuitBreakerGlobalSettings {
                 max_circuit_breakers: 10,
                 metrics_collection_interval_seconds: 1, // Fast metrics in test
-                auto_create_enabled: true,
+                // auto_create_enabled removed - hardcoded to true in conversion
                 min_state_transition_interval_seconds: 0.01, // Very fast transitions
             },
             default_config: CircuitBreakerComponentConfig {

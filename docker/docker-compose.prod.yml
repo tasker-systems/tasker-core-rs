@@ -63,7 +63,8 @@ services:
       PORT: 8080
       WORKER_POOL_SIZE: ${ORCHESTRATION_WORKERS:-4}
       WORKSPACE_PATH: /app
-      TASKER_CONFIG_ROOT: /app/config
+      # TAS-50 Phase 3: Single-file configuration
+      TASKER_CONFIG_PATH: /app/config/tasker/orchestration-production.toml
       # Migration settings
       RUN_MIGRATIONS: "${RUN_MIGRATIONS:-true}"
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-standard}
@@ -111,7 +112,8 @@ services:
       WORKER_ID: ${WORKER_ID:-prod-worker-001}
       WORKER_POOL_SIZE: ${WORKER_POOL_SIZE:-8}
       WORKSPACE_PATH: /app
-      TASKER_CONFIG_ROOT: /app/config
+      # TAS-50 Phase 3: Single-file configuration
+      TASKER_CONFIG_PATH: /app/config/tasker/worker-production.toml
       TASKER_TEMPLATE_PATH: /app/task-templates
     ports:
       - "${WORKER_PORT:-8081}:8081"

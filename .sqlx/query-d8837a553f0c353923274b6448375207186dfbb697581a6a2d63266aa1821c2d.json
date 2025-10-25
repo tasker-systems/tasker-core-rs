@@ -1,0 +1,92 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                task_uuid as \"task_uuid!: Uuid\",\n                task_name as \"task_name!: String\",\n                namespace_name as \"namespace_name!: String\",\n                version as \"version!: String\",\n                duration_seconds as \"duration_seconds!: BigDecimal\",\n                step_count as \"step_count!: i64\",\n                completed_steps as \"completed_steps!: i64\",\n                error_steps as \"error_steps!: i64\",\n                created_at as \"created_at!: NaiveDateTime\",\n                completed_at as \"completed_at?: NaiveDateTime\",\n                initiator,\n                source_system\n            FROM get_slowest_tasks($1, $2, $3, $4, $5)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_uuid!: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_name!: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "namespace_name!: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "version!: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "duration_seconds!: BigDecimal",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 5,
+        "name": "step_count!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "completed_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "error_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at!: NaiveDateTime",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 9,
+        "name": "completed_at?: NaiveDateTime",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 10,
+        "name": "initiator",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "source_system",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int4",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "d8837a553f0c353923274b6448375207186dfbb697581a6a2d63266aa1821c2d"
+}

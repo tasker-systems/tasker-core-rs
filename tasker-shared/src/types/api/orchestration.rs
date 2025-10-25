@@ -3,6 +3,7 @@ use crate::models::core::task::PaginationInfo;
 use crate::models::orchestration::execution_status::ExecutionStatus;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -387,5 +388,108 @@ mod tests {
             ExecutionStatus::HasReadySteps
         );
         assert!(ready_response.has_execution_ready_steps());
+    }
+}
+
+/// Unified orchestration configuration response with both common and orchestration-specific config
+///
+/// This provides a complete view of the orchestration system's configuration in a single response,
+/// making it easier for operators to understand the full deployment without multiple API calls.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct OrchestrationConfigResponse {
+    pub environment: String,
+    /// Common (shared) configuration components
+    pub common: JsonValue,
+    /// Orchestration-specific configuration
+    pub orchestration: JsonValue,
+    pub metadata: ConfigMetadata,
+}
+
+/// Unified worker configuration response with both common and worker-specific config
+///
+/// This provides a complete view of the worker system's configuration in a single response,
+/// making it easier for operators to understand the full deployment without multiple API calls.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct WorkerConfigResponse {
+    pub environment: String,
+    /// Common (shared) configuration components
+    pub common: JsonValue,
+    /// Worker-specific configuration
+    pub worker: JsonValue,
+    pub metadata: ConfigMetadata,
+}
+
+/// Metadata about the configuration response
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct ConfigMetadata {
+    pub timestamp: DateTime<Utc>,
+    pub source: String,
+    pub redacted_fields: Vec<String>,
+}
+
+/// Redact sensitive fields from a JSON configuration value
+///
+/// This function recursively walks through a JSON structure and redacts
+/// values for keys that commonly contain secrets or sensitive information.
+pub fn redact_secrets(value: JsonValue) -> (JsonValue, Vec<String>) {
+    let mut redacted_fields = Vec::new();
+    let redacted = redact_recursive(value, &mut redacted_fields, "");
+    (redacted, redacted_fields)
+}
+
+fn redact_recursive(value: JsonValue, redacted: &mut Vec<String>, path: &str) -> JsonValue {
+    match value {
+        JsonValue::Object(mut map) => {
+            let sensitive_keys = [
+                "password",
+                "secret",
+                "token",
+                "key",
+                "api_key",
+                "private_key",
+                "jwt_private_key",
+                "jwt_public_key",
+                "auth_token",
+                "credentials",
+                "database_url",
+                "url", // Database URLs often contain passwords
+            ];
+
+            for (key, val) in map.iter_mut() {
+                let key_lower = key.to_lowercase();
+                let field_path = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{}.{}", path, key)
+                };
+
+                if sensitive_keys.iter().any(|&s| key_lower.contains(s)) {
+                    // Check if the value is empty - don't redact empty values
+                    let should_redact = match &val {
+                        JsonValue::String(s) => !s.is_empty(),
+                        JsonValue::Number(_) => true,
+                        JsonValue::Bool(_) => false, // Don't redact booleans
+                        _ => false,
+                    };
+
+                    if should_redact {
+                        *val = JsonValue::String("***REDACTED***".to_string());
+                        redacted.push(field_path);
+                    }
+                } else {
+                    *val = redact_recursive(val.clone(), redacted, &field_path);
+                }
+            }
+            JsonValue::Object(map)
+        }
+        JsonValue::Array(arr) => JsonValue::Array(
+            arr.into_iter()
+                .map(|v| redact_recursive(v, redacted, path))
+                .collect(),
+        ),
+        _ => value,
     }
 }

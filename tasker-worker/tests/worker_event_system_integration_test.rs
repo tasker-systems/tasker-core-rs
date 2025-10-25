@@ -97,7 +97,7 @@ async fn test_worker_event_system_creation_and_startup() {
 
     // Create system context (mock)
     let context = Arc::new(
-        SystemContext::new()
+        SystemContext::new_for_worker()
             .await
             .expect("Failed to create SystemContext"),
     );
@@ -142,7 +142,7 @@ async fn test_worker_event_processing_flow() {
     config.timing.processing_timeout_seconds = 1;
 
     let context = Arc::new(
-        SystemContext::new()
+        SystemContext::new_for_worker()
             .await
             .expect("Failed to create SystemContext"),
     );
@@ -183,7 +183,7 @@ async fn test_worker_notification_handling() {
     config.system_id = "test-notification-handling".to_string();
 
     let context = Arc::new(
-        SystemContext::new()
+        SystemContext::new_for_worker()
             .await
             .expect("Failed to create SystemContext"),
     );
@@ -246,7 +246,7 @@ async fn test_deployment_mode_behavior() {
         config.system_id = format!("test-{:?}", deployment_mode);
 
         let context = Arc::new(
-            SystemContext::new()
+            SystemContext::new_for_worker()
                 .await
                 .expect("Failed to create SystemContext"),
         );
@@ -278,7 +278,7 @@ async fn test_event_processing_error_handling() {
     config.system_id = "test-error-handling".to_string();
 
     let context = Arc::new(
-        SystemContext::new()
+        SystemContext::new_for_worker()
             .await
             .expect("Failed to create SystemContext"),
     );
@@ -396,7 +396,7 @@ async fn test_complete_tas43_integration() {
 
     // 2. Set up system components
     let context = Arc::new(
-        SystemContext::new()
+        SystemContext::new_for_worker()
             .await
             .expect("Failed to create SystemContext"),
     );

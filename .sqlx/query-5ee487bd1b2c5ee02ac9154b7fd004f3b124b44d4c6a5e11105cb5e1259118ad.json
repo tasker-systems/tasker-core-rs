@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*) as count\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid\n            WHERE ws.task_uuid = $1::uuid AND ns.name = (\n                SELECT name FROM tasker_named_steps WHERE named_step_uuid = $2::uuid\n            ) AND ws.workflow_step_uuid != $3::uuid\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5ee487bd1b2c5ee02ac9154b7fd004f3b124b44d4c6a5e11105cb5e1259118ad"
+}

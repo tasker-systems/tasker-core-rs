@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,\n                   t.initiator, t.source_system, t.reason, t.bypass_steps,\n                   t.tags, t.context, t.identity_hash, t.priority,\n                   t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id\n            FROM tasker_tasks t\n            INNER JOIN tasker_task_transitions tt\n                ON t.task_uuid = tt.task_uuid\n            WHERE tt.most_recent = true\n                AND tt.to_state = 'complete'\n                AND tt.created_at >= $1\n            ORDER BY tt.created_at DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "named_task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "complete",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "requested_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 4,
+        "name": "initiator",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "source_system",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "reason",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "bypass_steps",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 8,
+        "name": "tags",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "context",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "identity_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "priority",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 14,
+        "name": "correlation_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 15,
+        "name": "parent_correlation_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "cd4505b0f1e8233f359eae39364c68b2cb8048bb3c411e71eae60850d24ac8ee"
+}

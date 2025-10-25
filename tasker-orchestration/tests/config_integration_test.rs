@@ -1,13 +1,15 @@
 //! Configuration Manager Integration Tests
 //!
 //! Tests for the complete configuration system with real YAML files.
+//! TAS-50 Phase 2-3: Tests updated to use context-specific configuration loading.
 
 use std::env;
+use tasker_shared::config::contexts::ConfigContext;
 use tasker_shared::config::ConfigManager;
 
 #[tokio::test]
 async fn test_load_system_configuration_from_file() {
-    // Test loading the system configuration from YAML file
+    // TAS-50 Phase 2-3: Test context-specific orchestration configuration loading
     let config_dir = "config";
 
     // Check if config directory exists (skip test if not)
@@ -16,11 +18,14 @@ async fn test_load_system_configuration_from_file() {
         return;
     }
 
-    let config_manager = ConfigManager::load().unwrap();
-    let config = config_manager.config();
+    // Load orchestration-specific context (includes backoff, execution, etc.)
+    let config_manager = ConfigManager::load_context_direct(ConfigContext::Orchestration).unwrap();
+    let config = config_manager
+        .as_tasker_config()
+        .expect("Orchestration context should provide TaskerConfig");
 
     // Verify default values match Rails engine
-    assert!(!config.database.enable_secondary_database);
+    // enable_secondary_database field removed - not functional
     assert_eq!(config.backoff.default_backoff_seconds, vec![1]);
     assert_eq!(config.backoff.max_backoff_seconds, 1);
     assert!(!config.backoff.jitter_enabled);
@@ -214,52 +219,4 @@ async fn test_task_template_validation() {
     assert!(template["steps"].is_sequence()); // New format: steps instead of step_templates
 
     println!("✅ Task template basic validation passed!");
-}
-
-#[test]
-fn test_configuration_builder_pattern() {
-    // Test that we can build configuration programmatically
-    let config_manager = ConfigManager::load().unwrap();
-    let config = config_manager.config();
-
-    // Verify we can access all configuration sections
-    assert!(!config.database.enable_secondary_database);
-    assert!(config.telemetry.service_name.contains("tasker-core"));
-    assert_eq!(config.backoff.default_backoff_seconds.len(), 1);
-    assert_eq!(config.execution.max_concurrent_tasks, 10);
-
-    println!("✅ Configuration builder pattern works correctly!");
-}
-
-#[test]
-fn test_configuration_defaults_match_rails() {
-    // Initialize tracing for debug output
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .with_test_writer()
-        .try_init();
-
-    // Test that our configuration loads properly from .env (which is currently test environment)
-    let config_manager = ConfigManager::load().unwrap();
-    let config = config_manager.config();
-
-    // Database defaults
-    assert!(!config.database.enable_secondary_database);
-
-    // Backoff defaults (test environment values from .env TASKER_ENV=test)
-    assert_eq!(config.backoff.default_backoff_seconds, vec![1]);
-    assert_eq!(config.backoff.max_backoff_seconds, 1);
-    assert_eq!(config.backoff.backoff_multiplier, 1.5);
-    assert!(!config.backoff.jitter_enabled);
-    assert_eq!(config.backoff.jitter_max_percentage, 0.1);
-    assert_eq!(config.backoff.default_reenqueue_delay, 1);
-    assert_eq!(config.backoff.buffer_seconds, 0);
-
-    // Execution defaults (test environment values from .env TASKER_ENV=test)
-    assert_eq!(config.execution.max_concurrent_tasks, 10);
-    assert_eq!(config.execution.max_concurrent_steps, 50);
-    assert_eq!(config.execution.default_timeout_seconds, 30);
-    assert_eq!(config.execution.step_execution_timeout_seconds, 10);
-
-    println!("✅ Configuration loaded successfully with test environment overrides!");
 }

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM tasker_named_tasks\n            WHERE named_task_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "32743eb9605cc70240bd16dd3ccb72250ae92fd21f07139dc4e4c3428cea4ff1"
+}

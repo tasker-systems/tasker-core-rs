@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                active_tasks_count as \"active_tasks_count!: i64\",\n                total_namespaces_count as \"total_namespaces_count!: i64\",\n                unique_task_types_count as \"unique_task_types_count!: i64\",\n                system_health_score as \"system_health_score!: BigDecimal\",\n                task_throughput as \"task_throughput!: i64\",\n                completion_count as \"completion_count!: i64\",\n                error_count as \"error_count!: i64\",\n                completion_rate as \"completion_rate!: BigDecimal\",\n                error_rate as \"error_rate!: BigDecimal\",\n                avg_task_duration as \"avg_task_duration!: BigDecimal\",\n                avg_step_duration as \"avg_step_duration!: BigDecimal\",\n                step_throughput as \"step_throughput!: i64\",\n                analysis_period_start as \"analysis_period_start!: DateTime<Utc>\",\n                calculated_at as \"calculated_at!: DateTime<Utc>\"\n            FROM get_analytics_metrics($1)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "active_tasks_count!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "total_namespaces_count!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "unique_task_types_count!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "system_health_score!: BigDecimal",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 4,
+        "name": "task_throughput!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "completion_count!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "error_count!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "completion_rate!: BigDecimal",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 8,
+        "name": "error_rate!: BigDecimal",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 9,
+        "name": "avg_task_duration!: BigDecimal",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 10,
+        "name": "avg_step_duration!: BigDecimal",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 11,
+        "name": "step_throughput!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "analysis_period_start!: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "calculated_at!: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2540c8d597beff379e6d05d5997faea30143bbdd4aba47b3e300b2ea23b7a159"
+}

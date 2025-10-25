@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT \n                at.annotation_type_id,\n                at.name,\n                at.description,\n                at.created_at,\n                at.updated_at,\n                COUNT(ta.task_annotation_id) as annotation_count\n            FROM tasker_annotation_types at\n            LEFT JOIN tasker_task_annotations ta ON ta.annotation_type_id = at.annotation_type_id\n            GROUP BY at.annotation_type_id, at.name, at.description, at.created_at, at.updated_at\n            ORDER BY annotation_count DESC, at.name\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "annotation_type_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 5,
+        "name": "annotation_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "4b7ec8a4eb3bc4d4f4dcf95f6c9fc2d2d681eff928137165cbaa966036611769"
+}

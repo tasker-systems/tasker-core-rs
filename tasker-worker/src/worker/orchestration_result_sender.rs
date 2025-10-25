@@ -130,8 +130,12 @@ mod tests {
     #[test]
     fn test_orchestration_result_sender_creation() {
         dotenv().ok();
-        let config_manager = ConfigManager::load_from_env("test").unwrap();
-        let tasker_config = config_manager.config();
+        // Use context-specific loading for test (TAS-50 Phase 2)
+        let context_manager = ConfigManager::load_context_direct(
+            tasker_shared::config::contexts::ConfigContext::Worker,
+        )
+        .unwrap();
+        let tasker_config = context_manager.as_tasker_config().unwrap();
         let queue_config = tasker_config.queues.clone();
 
         // Test that queue classifier ensures proper orchestration namespace prefixing

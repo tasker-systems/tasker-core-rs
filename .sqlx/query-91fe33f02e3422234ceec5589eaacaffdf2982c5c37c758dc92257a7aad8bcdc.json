@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                task_uuid as \"task_uuid!: Uuid\",\n                named_task_uuid as \"named_task_uuid!: Uuid\",\n                status as \"status!: String\",\n                total_steps as \"total_steps!: i64\",\n                pending_steps as \"pending_steps!: i64\",\n                in_progress_steps as \"in_progress_steps!: i64\",\n                completed_steps as \"completed_steps!: i64\",\n                failed_steps as \"failed_steps!: i64\",\n                ready_steps as \"ready_steps!: i64\",\n                execution_status as \"execution_status!: String\",\n                recommended_action,\n                completion_percentage as \"completion_percentage!: BigDecimal\",\n                health_status as \"health_status!: String\",\n                enqueued_steps as \"enqueued_steps!: i64\"\n            FROM get_task_execution_context($1::uuid)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_uuid!: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "named_task_uuid!: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "status!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "total_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "pending_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "in_progress_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "completed_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "failed_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "ready_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "execution_status!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "recommended_action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "completion_percentage!: BigDecimal",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 12,
+        "name": "health_status!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "enqueued_steps!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "91fe33f02e3422234ceec5589eaacaffdf2982c5c37c758dc92257a7aad8bcdc"
+}

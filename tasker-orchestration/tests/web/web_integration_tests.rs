@@ -2,6 +2,7 @@
 //!
 //! Simplified integration tests that focus on web functionality
 //! rather than environment variable management (which is handled by TaskerConfig).
+//! TAS-50 Phase 2-3: Tests updated to use context-specific configuration loading.
 
 mod web;
 use web::*;
@@ -28,12 +29,16 @@ async fn test_web_integration_infrastructure() {
 async fn test_web_config_loading() {
     println!("⚙️  Testing web configuration loading through TaskerConfig");
 
-    // Use our established configuration system instead of manual env var checking
-    match tasker_shared::config::ConfigManager::load() {
+    // TAS-50 Phase 2-3: Use context-specific orchestration loading (web API is part of orchestration)
+    match tasker_shared::config::ConfigManager::load_context_direct(
+        tasker_shared::config::contexts::ConfigContext::Orchestration,
+    ) {
         Ok(config_manager) => {
             println!("✅ ConfigManager loaded successfully");
 
-            let config = config_manager.config();
+            let config = config_manager
+                .as_tasker_config()
+                .expect("Orchestration context should provide TaskerConfig");
             let web_config = config.web_config();
 
             println!("   Web enabled: {}", web_config.enabled);

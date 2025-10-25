@@ -8,9 +8,9 @@
 //! replacing previous unbounded channels and hard-coded buffer sizes with a unified,
 //! configuration-driven approach.
 //!
-//! ### Configuration migrated from event_systems.toml:
-//! - `task_readiness.metadata.event_channel` (buffer_size, send_timeout_ms)
-//! - `worker.metadata.in_process_events.broadcast_buffer_size`
+//! ### Configuration migrated from event_systems.toml (TAS-51):
+//! - `task_readiness.event_channel` (buffer_size, send_timeout_ms)
+//! - `worker.in_process_events.broadcast_buffer_size`
 //!
 //! ### Key principles:
 //! - All channels are bounded to prevent unbounded memory growth

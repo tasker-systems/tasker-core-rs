@@ -77,10 +77,6 @@ workspace_tools = { workspace = true }
 [dev-dependencies]
 # Coverage tools (used in CI)
 cargo-llvm-cov = { workspace = true }
-factori = { workspace = true }
-insta = { workspace = true }
-mockall = { workspace = true }
-proptest = { workspace = true }
 serial_test = { workspace = true }
 tasker-core = { package = "tasker-core", path = "../" }
 # tasker-orchestration = { path = "../tasker-orchestration", package = "tasker-orchestration" }  # Commented out to test if actually needed

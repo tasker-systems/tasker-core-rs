@@ -7,7 +7,6 @@
 use crate::config::TaskerConfig;
 use crate::event_system::DeploymentMode;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::time::Duration;
 
 /// Core event system configuration shared across all event systems
@@ -32,6 +31,7 @@ pub struct EventSystemConfig<T = ()> {
     pub health: EventSystemHealthConfig,
 
     /// System-specific metadata and configuration
+    #[serde(default)]
     pub metadata: T,
 }
 
@@ -103,26 +103,25 @@ pub struct BackoffConfig {
 }
 
 /// Orchestration-specific event system metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// TAS-50: All metadata configuration consolidated to respective component configs.
+/// This type kept for backward compatibility but no longer holds configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OrchestrationEventSystemMetadata {
-    /// Note: Queue configuration is populated from main queues config, not TOML
-    pub queues_populated_at_runtime: bool,
+    /// Placeholder to maintain type compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub _reserved: Option<()>,
 }
 
 /// Task readiness-specific event system metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// TAS-50: Metadata configuration consolidated to task_readiness.rs
+/// This type kept for backward compatibility but no longer holds configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TaskReadinessEventSystemMetadata {
-    /// Enhanced coordinator settings
-    pub enhanced_settings: EnhancedCoordinatorSettings,
-
-    /// PostgreSQL LISTEN/NOTIFY configuration
-    pub notification: TaskReadinessNotificationConfig,
-
-    /// Event channel configuration
-    pub event_channel: EventChannelConfig,
-
-    /// Task readiness coordinator configuration
-    pub coordinator: TaskReadinessCoordinatorConfig,
+    /// Placeholder to maintain type compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub _reserved: Option<()>,
 }
 
 /// Worker-specific event system metadata
@@ -141,53 +140,9 @@ pub struct WorkerEventSystemMetadata {
     pub resource_limits: WorkerResourceLimits,
 }
 
-// Task Readiness specific configurations
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnhancedCoordinatorSettings {
-    pub startup_timeout_seconds: u64,
-    pub shutdown_timeout_seconds: u64,
-    pub metrics_enabled: bool,
-    pub rollback_threshold_percent: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskReadinessNotificationConfig {
-    pub global_channels: Vec<String>,
-    pub namespace_patterns: HashMap<String, String>,
-    pub max_payload_size_bytes: usize,
-    pub parse_timeout_ms: u64,
-    pub connection: ConnectionConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectionConfig {
-    pub max_connection_retries: u32,
-    pub connection_retry_delay_seconds: u64,
-    pub auto_reconnect: bool,
-}
-
-/// Event channel configuration
-///
-/// NOTE (TAS-51): buffer_size and send_timeout_ms have been MOVED to mpsc_channels.toml
-/// Access via: config.mpsc_channels.task_readiness.event_channel
-///
-/// This struct contains event processing configuration (retries, backoff)
-/// NOT MPSC channel sizing configuration (which is in mpsc_channels.toml)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventChannelConfig {
-    /// Maximum number of event processing retries
-    pub max_retries: u32,
-
-    /// Backoff configuration for event processing failures
-    pub backoff: BackoffConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskReadinessCoordinatorConfig {
-    pub instance_id_prefix: String,
-    pub operation_timeout_ms: u64,
-    pub stats_interval_seconds: u64,
-}
+// TAS-50: Task Readiness specific configurations removed
+// These types have been consolidated into tasker-shared/src/config/task_readiness.rs
+// which is the authoritative source for task readiness configuration
 
 // Worker specific configurations
 /// In-process event configuration
@@ -304,63 +259,7 @@ impl Default for BackoffConfig {
     }
 }
 
-impl Default for EventChannelConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: 3,
-            backoff: BackoffConfig::default(),
-        }
-    }
-}
-
-impl Default for OrchestrationEventSystemMetadata {
-    fn default() -> Self {
-        Self {
-            queues_populated_at_runtime: true,
-        }
-    }
-}
-
-impl Default for TaskReadinessEventSystemMetadata {
-    fn default() -> Self {
-        Self {
-            enhanced_settings: EnhancedCoordinatorSettings {
-                startup_timeout_seconds: 30,
-                shutdown_timeout_seconds: 10,
-                metrics_enabled: true,
-                rollback_threshold_percent: 5.0,
-            },
-            notification: TaskReadinessNotificationConfig {
-                global_channels: vec!["task_ready".to_string(), "task_state_change".to_string()],
-                namespace_patterns: {
-                    let mut patterns = HashMap::new();
-                    patterns.insert(
-                        "task_ready".to_string(),
-                        "task_ready.{namespace}".to_string(),
-                    );
-                    patterns.insert(
-                        "task_state_change".to_string(),
-                        "task_state_change.{namespace}".to_string(),
-                    );
-                    patterns
-                },
-                max_payload_size_bytes: 8000,
-                parse_timeout_ms: 100,
-                connection: ConnectionConfig {
-                    max_connection_retries: 3,
-                    connection_retry_delay_seconds: 2,
-                    auto_reconnect: true,
-                },
-            },
-            event_channel: EventChannelConfig::default(),
-            coordinator: TaskReadinessCoordinatorConfig {
-                instance_id_prefix: "task_readiness".to_string(),
-                operation_timeout_ms: 5000,
-                stats_interval_seconds: 60,
-            },
-        }
-    }
-}
+// Clippy: Default implementations now derived for empty structs
 
 impl Default for WorkerEventSystemMetadata {
     fn default() -> Self {
@@ -488,11 +387,8 @@ mod tests {
 
         assert_eq!(config.system_id, "task-readiness-event-system");
         assert_eq!(config.deployment_mode, DeploymentMode::Hybrid);
-        assert_eq!(
-            config.metadata.enhanced_settings.rollback_threshold_percent,
-            5.0
-        );
-        assert_eq!(config.metadata.notification.max_payload_size_bytes, 8000);
+        // TAS-50: Metadata fields removed, configuration consolidated to task_readiness.rs
+        assert!(config.metadata._reserved.is_none());
     }
 
     #[test]
