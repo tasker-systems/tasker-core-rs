@@ -196,13 +196,26 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts
-          path: .
+          path: artifacts
 
-      - name: Verify downloaded artifacts
+      - name: Restore artifacts to correct locations
         run: |
-          echo "Checking downloaded files:"
-          ls -la target/debug/ || echo "target/debug/ not found"
-          ls -la workers/ruby/lib/tasker_core/ || echo "Ruby extension path not found"
+          echo "📦 Restoring build artifacts..."
+          mkdir -p target/debug
+          mkdir -p workers/ruby/lib/tasker_core
+
+          # Move binaries to target/debug
+          mv artifacts/tasker-server target/debug/ || echo "tasker-server not found"
+          mv artifacts/tasker-worker target/debug/ || echo "tasker-worker not found"
+          mv artifacts/tasker-cli target/debug/ || echo "tasker-cli not found"
+
+          # Move Ruby extension files
+          mv artifacts/tasker_worker_rb.bundle workers/ruby/lib/tasker_core/ 2>/dev/null || echo "bundle not found"
+          mv artifacts/tasker_worker_rb.so workers/ruby/lib/tasker_core/ 2>/dev/null || echo "so not found"
+
+          echo "✅ Artifacts restored"
+          ls -la target/debug/
+          ls -la workers/ruby/lib/tasker_core/
 
       - name: Make binaries executable
         run: chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
