@@ -3,7 +3,8 @@ set -euo pipefail
 
 # Configuration
 POSTGRES_URL="${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
-CONFIG_PATH="${TASKER_CONFIG_PATH:-$(pwd)/config/tasker/complete-test.toml}"
+ORCHESTRATION_CONFIG="${ORCHESTRATION_CONFIG:-$(pwd)/config/tasker/orchestration-test.toml}"
+WORKER_CONFIG="${WORKER_CONFIG:-$(pwd)/config/tasker/worker-test.toml}"
 ORCHESTRATION_PORT="${ORCHESTRATION_PORT:-8080}"
 WORKER_PORT="${WORKER_PORT:-8081}"
 RUBY_WORKER_PORT="${RUBY_WORKER_PORT:-8082}"
@@ -16,7 +17,7 @@ DATABASE_URL="$POSTGRES_URL" cargo sqlx migrate run
 
 # 2. Start orchestration service in background
 echo "🎯 Starting orchestration service on port $ORCHESTRATION_PORT..."
-TASKER_CONFIG_PATH="$CONFIG_PATH" \
+TASKER_CONFIG_PATH="$ORCHESTRATION_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
   RUST_LOG=info \
   target/debug/tasker-server \
@@ -27,7 +28,7 @@ echo "Orchestration PID: $ORCHESTRATION_PID"
 
 # 3. Start Rust worker in background
 echo "⚙️  Starting Rust worker on port $WORKER_PORT..."
-TASKER_CONFIG_PATH="$CONFIG_PATH" \
+TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
   RUST_LOG=info \
   target/debug/rust-worker \
@@ -39,7 +40,7 @@ echo "Worker PID: $WORKER_PID"
 # 4. Start Ruby FFI worker in background
 echo "💎 Starting Ruby FFI worker on port $RUBY_WORKER_PORT..."
 cd workers/ruby
-TASKER_CONFIG_PATH="$CONFIG_PATH" \
+TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
   TASKER_ENV=test \
   bundle exec bin/server.rb \

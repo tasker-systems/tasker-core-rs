@@ -188,12 +188,16 @@ jobs:
       - name: Generate test configuration
         run: |
           mkdir -p config/tasker
-          cargo run --bin config-builder -- \
-            --context common \
+          echo "🔧 Generating orchestration configuration..."
+          cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
             --context orchestration \
+            --environment test \
+            --output config/tasker/orchestration-test.toml
+          echo "🔧 Generating worker configuration..."
+          cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
             --context worker \
             --environment test \
-            --output config/tasker/complete-test.toml
+            --output config/tasker/worker-test.toml
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
@@ -204,7 +208,6 @@ jobs:
           .github/scripts/start-native-services.sh
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
-          TASKER_CONFIG_PATH: ${{ github.workspace }}/config/tasker/complete-test.toml
 
       - name: Run integration tests
         run: |
