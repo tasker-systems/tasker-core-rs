@@ -67,7 +67,7 @@ jobs:
           echo "🔨 Building all packages with full features..."
           cargo build --all-features --all-targets
         env:
-          SQLX_OFFLINE: true
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Run unit tests
         run: |
