@@ -196,6 +196,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts
+          path: .
+
+      - name: Verify downloaded artifacts
+        run: |
+          echo "Checking downloaded files:"
+          ls -la target/debug/ || echo "target/debug/ not found"
+          ls -la workers/ruby/lib/tasker_core/ || echo "Ruby extension path not found"
 
       - name: Make binaries executable
         run: chmod +x target/debug/tasker-server target/debug/rust-worker target/debug/tasker-cli
