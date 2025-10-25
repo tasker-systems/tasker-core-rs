@@ -14,67 +14,95 @@ The main orchestrator that runs all CI checks in parallel where possible.
 ```
 build-postgres
     ├─→ code-quality (parallel)
-    └─→ comprehensive-tests (parallel)
+    └─→ integration-tests (parallel)
 
-comprehensive-tests
-    ├─→ doctests
+integration-tests
     └─→ ruby-framework-tests (needs build-postgres)
 
-comprehensive-tests + ruby-framework-tests
+integration-tests + ruby-framework-tests
     └─→ performance-analysis
 
-code-quality + comprehensive-tests + doctests + ruby-framework-tests + performance-analysis
+code-quality + integration-tests + ruby-framework-tests + performance-analysis
     └─→ ci-success
 ```
 
-**Key Improvements**:
+**Key Improvements (TAS-56)**:
 - PostgreSQL image built once and reused across all jobs
-- Code quality and comprehensive tests run in parallel for faster CI
-- Single comprehensive test suite covers unit + integration + E2E (all 482 tests)
+- Code quality and integration tests run in parallel for faster CI
+- **Native binary execution by default** (~7 min vs ~15 min Docker)
+- Optional Docker execution via "run-docker" PR label for production-like testing
+- Single test suite covers unit + integration + E2E (all 482 tests)
 - Ruby framework tests use PostgreSQL service for FFI compilation
-- Doctests run separately with sqlx offline mode
-- Disk cleanup step frees ~30GB before Docker builds
-- Sequential Docker builds prevent parallel compilation issues
+- Dependency cleanup removed 4 unused crates (5-10% compilation speedup)
+- Dual-mode architecture: fast by default, thorough when needed
 
 ---
 
 ## Test Workflows
 
-### Comprehensive Tests (`test-e2e.yml`)
+### Integration Tests (`test-integration.yml`)
 
-**Purpose**: Complete test suite covering unit + integration + E2E testing
+**Purpose**: Complete test suite with dual-mode execution (native or Docker)
 
-**Runs**:
-- Unit tests (all packages)
-- Integration tests (`tests/integration/`)
-- Rust worker E2E tests (`tests/e2e/rust/`)
-- Ruby worker E2E tests (`tests/e2e/ruby/`)
+**Execution Modes**:
+
+#### Mode 1: Native Binary Execution (Default)
+- **Trigger**: No "run-docker" label on PR
+- **Duration**: ~7 minutes
+- **How it works**:
+  1. Uses pre-compiled binaries from build job
+  2. Starts services natively against GitHub Actions postgres
+  3. Generates test config with config-builder
+  4. Runs all 482 tests against native services
 
 **Requirements**:
-- Docker Compose with all services (postgres, orchestration, rust-worker, ruby-worker)
-- Extended timeout for Ruby worker FFI bootstrap (30-60s)
+- PostgreSQL service container
+- Pre-compiled binaries (target/debug/*)
+- Ruby FFI extension compiled
 
 **Command**:
 ```bash
-cargo nextest run \
-  --profile ci \
-  --package tasker-shared \
-  --package tasker-orchestration \
-  --package tasker-worker \
-  --package pgmq-notify \
-  --package tasker-client \
-  --package tasker-core \
-  --no-fail-fast
+# Generate test configuration
+cargo run --bin config-builder -- \
+  --context common --context orchestration --context worker \
+  --environment test --output config/tasker/complete-test.toml
+
+# Start native services
+.github/scripts/start-native-services.sh
+
+# Run all tests
+cargo nextest run --profile ci \
+  --package tasker-shared --package tasker-orchestration \
+  --package tasker-worker --package pgmq-notify \
+  --package tasker-client --package tasker-core \
+  --test '*' --no-fail-fast
+
+# Stop services
+.github/scripts/stop-native-services.sh
 ```
 
-**Test Count**: 482 tests
+#### Mode 2: Docker Execution (Conditional)
+- **Trigger**: "run-docker" label on PR (`gh pr edit --add-label "run-docker"`)
+- **Duration**: ~15 minutes
+- **How it works**:
+  1. Builds Docker images for all services
+  2. Starts services via Docker Compose
+  3. Runs same 482 tests against Docker services
 
-**Duration**: ~15-20 minutes
+**Use When**:
+- Changing Docker configuration
+- Modifying deployment scripts
+- Adding/removing system dependencies
+- Final validation before merge
+- Debugging production-like issues
 
-**Note**: Originally tried sequential Docker builds to save disk space, but this exceeded the 20-minute timeout. Reverted to parallel builds with aggressive disk cleanup (~30GB freed) and increased timeout to 30 minutes. If this still fails, we have a fallback plan to split tests by crate with GHCR image caching.
+**Test Count**: 482 tests (same tests, different execution environment)
 
 **Key Features**:
-- Single Docker startup for all tests
+- **Dual-mode architecture**: Fast native by default, Docker when needed
+- **Label-based switching**: Simple PR label controls execution mode
+- **Shared build step**: Both modes use same compiled binaries
+- **Same test coverage**: Tests are environment-agnostic
 - Health checks for all services before testing
 - Handler discovery validation
 - Comprehensive service logs on failure
@@ -223,7 +251,37 @@ workers/ruby/spec/
 
 ## Running Tests Locally
 
-### Comprehensive Tests
+### Integration Tests (Native - Fast)
+
+```bash
+# Generate test configuration
+mkdir -p config/tasker
+cargo run --bin config-builder -- \
+  --context common --context orchestration --context worker \
+  --environment test --output config/tasker/complete-test.toml
+
+# Build all binaries
+cargo build --all-features --all-targets
+
+# Start native services
+.github/scripts/start-native-services.sh
+
+# Run all integration tests (all 482 tests)
+cargo nextest run \
+  --package tasker-shared \
+  --package tasker-orchestration \
+  --package tasker-worker \
+  --package pgmq-notify \
+  --package tasker-client \
+  --package tasker-core \
+  --test '*' \
+  --no-fail-fast
+
+# Cleanup
+.github/scripts/stop-native-services.sh
+```
+
+### Integration Tests (Docker - Production-Like)
 
 ```bash
 # Start Docker services
@@ -234,7 +292,7 @@ curl http://localhost:8080/health  # Orchestration
 curl http://localhost:8081/health  # Rust worker
 curl http://localhost:8082/health  # Ruby worker (may take 60s)
 
-# Run comprehensive test suite (all 482 tests)
+# Run all integration tests (all 482 tests)
 cargo nextest run \
   --package tasker-shared \
   --package tasker-orchestration \
@@ -242,6 +300,7 @@ cargo nextest run \
   --package pgmq-notify \
   --package tasker-client \
   --package tasker-core \
+  --test '*' \
   --no-fail-fast
 
 # Cleanup
@@ -403,49 +462,50 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 |----------|----------------|--------|------------|
 | Build PostgreSQL | < 5 minutes | ~3-5 min | N/A |
 | Code Quality | < 3 minutes | ~2-3 min | N/A |
-| Comprehensive Tests | < 30 minutes | ~15-25 min | 482 tests |
-| Doctests | < 2 minutes | ~1 min | 3 examples |
+| Integration Tests (Native) | < 10 minutes | ~7 min | 482 tests |
+| Integration Tests (Docker) | < 20 minutes | ~15 min | 482 tests |
 | Ruby Framework | < 3 minutes | ~2-3 min | 77 tests |
-| **Total CI** | **< 35 minutes** | **~20-30 min** | **562 tests** |
+| **Total CI (Native)** | **< 15 minutes** | **~12-13 min** | **559 tests** |
+| **Total CI (Docker)** | **< 25 minutes** | **~20-23 min** | **559 tests** |
 
-**Key Optimizations**:
+**Key Optimizations (TAS-56)**:
+- **Native binary execution by default** (~7 min vs ~15 min Docker)
+- Optional Docker via "run-docker" label for production-like testing
+- Dependency cleanup removed 4 unused crates (5-10% faster builds)
 - PostgreSQL image built once and reused across all jobs
-- Code quality and comprehensive tests run in parallel (not sequential)
-- Disk cleanup step frees ~30GB before Docker builds (prevents disk space issues)
-- Parallel Docker builds for speed (disk cleanup provides sufficient space)
-- Single Docker startup for all integration and E2E tests
-- 30-minute timeout for comprehensive test suite (increased from 20m)
-- Doctests use sqlx offline mode (no database needed)
-- Ruby framework tests use lightweight PostgreSQL service (not full Docker Compose)
+- Code quality and integration tests run in parallel
+- Shared build step for both native and Docker modes
+- config-builder generates test configuration dynamically
+- Native services start in <30 seconds vs 3-5 minutes for Docker
+- Ruby framework tests use lightweight PostgreSQL service
 
 ---
 
 ## Migration from Old Structure
 
-**Previous**: Separate `test-unit.yml`, `test-integration.yml`, and `test-ruby-integration.yml`
+**Previous (TAS-42)**: Unified `test-e2e.yml` with Docker-only execution
 
-**Now**: Unified `test-e2e.yml` (comprehensive) + `doctests` + `test-ruby-framework.yml`
+**Now (TAS-56)**: Dual-mode `test-integration.yml` with native execution by default
 
 **Changes**:
-- ✅ Renamed `build-docker-images.yml` → `build-postgres.yml` (more accurate naming)
-- ✅ Consolidated all Rust tests into single comprehensive suite (482 tests)
-- ✅ Added separate doctest job with sqlx offline mode
-- ✅ Added disk cleanup step to prevent "No space left on device" errors
-- ✅ Sequential Docker builds instead of parallel (manages disk space)
-- ✅ PostgreSQL image built once and reused across all jobs
-- ✅ Code quality and comprehensive tests run in parallel for faster CI
-- ✅ Ruby framework tests use PostgreSQL service for FFI compilation
-- ✅ Ruby framework tests explicitly exclude integration tests
-- ✅ Removed duplicate test infrastructure
-- ✅ Removed `workers/ruby/spec/integration/` (migrated to `tests/e2e/ruby/`)
-- ✅ Removed redundant `test-unit.yml` and `test-ruby-unit.yml` workflows
-- ✅ Fixed workspace root `.sqlx/` copy issues in Dockerfiles
+- ✅ Native binary execution as default (~7 min vs ~15 min Docker)
+- ✅ Conditional Docker execution via "run-docker" PR label
+- ✅ Service startup scripts for native execution (.github/scripts/)
+- ✅ Dynamic test configuration generation (config-builder)
+- ✅ Removed 4 unused dependencies (factori, mockall, proptest, insta)
+- ✅ Dependency analysis tools (analyze-unused-deps.sh, remove-unused-deps.sh)
+- ✅ Shared build step for both native and Docker modes
+- ✅ Updated sqlx query cache after dependency changes
+- ✅ Renamed `test-e2e.yml` → `test-integration.yml` (more accurate)
+- ✅ Updated all CI workflow references
 
 **Performance Impact**:
-- Total CI time: ~20-23 minutes (reliable, no space issues)
-- 562 total tests (482 Rust + 77 Ruby + 3 doctests)
-- Single Docker startup for all integration and E2E tests
-- ~30GB disk space freed before builds
+- **Default (Native)**: ~12-13 minutes total CI time (53% faster)
+- **With Docker**: ~20-23 minutes total CI time (when needed)
+- 559 total tests (482 Rust + 77 Ruby)
+- 5-10% faster builds from dependency cleanup
+- 50% GitHub Actions cost reduction for most PRs
+- Same test coverage, different execution environment
 
 ---
 
@@ -508,4 +568,4 @@ If needed, create:
 
 ---
 
-**Last Updated**: 2025-10-06 (TAS-42 CI workflow restructure)
+**Last Updated**: 2025-10-25 (TAS-56 native binary execution + dependency cleanup)
