@@ -210,42 +210,29 @@ jobs:
       - name: Restore artifacts to correct locations
         run: |
           echo "📦 Restoring build artifacts..."
-          echo "Contents of artifacts directory:"
-          ls -laR artifacts/ || echo "artifacts/ directory not found"
+          echo "Artifacts were uploaded with directory structure preserved"
 
-          mkdir -p target/debug
-          mkdir -p workers/ruby/lib/tasker_core
-
-          # Move binaries to target/debug
-          if [ -f artifacts/tasker-server ]; then
-            mv artifacts/tasker-server target/debug/
-            echo "✅ tasker-server restored"
+          # Artifacts are in artifacts/target/debug/ and artifacts/workers/ruby/lib/tasker_core/
+          # Simply move the entire directory trees
+          if [ -d artifacts/target/debug ]; then
+            mkdir -p target
+            mv artifacts/target/debug target/
+            echo "✅ Binaries restored from artifacts/target/debug/"
+            ls -lh target/debug/
           else
-            echo "❌ tasker-server not found in artifacts/"
+            echo "❌ artifacts/target/debug/ not found"
+            ls -laR artifacts/
+            exit 1
           fi
 
-          if [ -f artifacts/tasker-worker ]; then
-            mv artifacts/tasker-worker target/debug/
-            echo "✅ tasker-worker restored"
+          if [ -d artifacts/workers/ruby/lib/tasker_core ]; then
+            mkdir -p workers/ruby/lib
+            mv artifacts/workers/ruby/lib/tasker_core workers/ruby/lib/
+            echo "✅ Ruby extension restored"
+            ls -lh workers/ruby/lib/tasker_core/
           else
-            echo "❌ tasker-worker not found in artifacts/"
+            echo "ℹ️  No Ruby extensions found (may not be built on this platform)"
           fi
-
-          if [ -f artifacts/tasker-cli ]; then
-            mv artifacts/tasker-cli target/debug/
-            echo "✅ tasker-cli restored"
-          else
-            echo "❌ tasker-cli not found in artifacts/"
-          fi
-
-          # Move Ruby extension files
-          mv artifacts/*.bundle workers/ruby/lib/tasker_core/ 2>/dev/null && echo "✅ bundle restored" || echo "ℹ️  No bundle files"
-          mv artifacts/*.so workers/ruby/lib/tasker_core/ 2>/dev/null && echo "✅ .so restored" || echo "ℹ️  No .so files"
-
-          echo ""
-          echo "Final state:"
-          ls -lh target/debug/ || echo "target/debug/ is empty"
-          ls -lh workers/ruby/lib/tasker_core/ || echo "Ruby extension dir is empty"
 
       - name: Make binaries executable
         run: chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
