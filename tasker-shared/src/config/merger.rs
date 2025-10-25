@@ -12,7 +12,7 @@
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a config merger
-//! let merger = ConfigMerger::new(
+//! let mut merger = ConfigMerger::new(
 //!     PathBuf::from("config/tasker"),
 //!     "development"
 //! )?;
@@ -98,7 +98,7 @@ impl ConfigMerger {
     /// # use tasker_shared::config::ConfigMerger;
     /// # use std::path::PathBuf;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let merger = ConfigMerger::new(
+    /// let mut merger = ConfigMerger::new(
     ///     PathBuf::from("config/tasker"),
     ///     "production"
     /// )?;

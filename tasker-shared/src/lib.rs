@@ -59,8 +59,8 @@
 //! // Initialize configuration for tasker-core
 //! let config = TaskerConfig::default();
 //!
-//! // Configuration provides database settings
-//! assert_eq!(config.database.enable_secondary_database, false);
+//! // Configuration provides database and execution settings
+//! assert!(config.database.pool.max_connections > 0);
 //! assert_eq!(config.execution.max_concurrent_tasks, 100);
 //!
 //! // For complete database integration examples, see tests/models/ directory
