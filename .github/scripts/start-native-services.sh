@@ -11,7 +11,7 @@ RUBY_WORKER_PORT="${RUBY_WORKER_PORT:-8082}"
 
 echo "🚀 Starting native services..."
 
-# 1. Run database migrations
+# 1. Run database migrations (idempotent)
 echo "📊 Running database migrations..."
 DATABASE_URL="$POSTGRES_URL" cargo sqlx migrate run
 

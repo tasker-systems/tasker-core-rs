@@ -183,7 +183,12 @@ jobs:
       - name: Install tools
         uses: ./.github/actions/install-tools
         with:
-          tools: "nextest"
+          tools: "nextest sqlx-cli"
+
+      - name: Run database migrations
+        run: sqlx migrate run
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Generate test configuration
         run: |
