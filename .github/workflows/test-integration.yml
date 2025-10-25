@@ -129,7 +129,7 @@ jobs:
           name: build-artifacts
           path: |
             target/debug/tasker-server
-            target/debug/rust-worker
+            target/debug/tasker-worker
             target/debug/tasker-cli
             workers/ruby/lib/tasker_core/tasker_worker_rb.bundle
             workers/ruby/lib/tasker_core/tasker_worker_rb.so
@@ -205,7 +205,7 @@ jobs:
           ls -la workers/ruby/lib/tasker_core/ || echo "Ruby extension path not found"
 
       - name: Make binaries executable
-        run: chmod +x target/debug/tasker-server target/debug/rust-worker target/debug/tasker-cli
+        run: chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
 
       - name: Install tools
         uses: ./.github/actions/install-tools

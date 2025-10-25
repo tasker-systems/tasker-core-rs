@@ -31,7 +31,7 @@ echo "⚙️  Starting Rust worker on port $WORKER_PORT..."
 TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
   RUST_LOG=info \
-  target/debug/rust-worker \
+  target/debug/tasker-worker \
   --port "$WORKER_PORT" \
   > worker.log 2>&1 &
 WORKER_PID=$!
