@@ -213,12 +213,12 @@ jobs:
           echo "Artifacts were uploaded with directory structure preserved"
 
           # Artifacts are in artifacts/target/debug/ and artifacts/workers/ruby/lib/tasker_core/
-          # Simply move the entire directory trees
+          # Copy artifact binaries into existing target/debug (from cargo test --no-run)
           if [ -d artifacts/target/debug ]; then
-            mkdir -p target
-            mv artifacts/target/debug target/
+            mkdir -p target/debug
+            cp -rf artifacts/target/debug/* target/debug/
             echo "✅ Binaries restored from artifacts/target/debug/"
-            ls -lh target/debug/
+            ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
           else
             echo "❌ artifacts/target/debug/ not found"
             ls -laR artifacts/
@@ -226,8 +226,8 @@ jobs:
           fi
 
           if [ -d artifacts/workers/ruby/lib/tasker_core ]; then
-            mkdir -p workers/ruby/lib
-            mv artifacts/workers/ruby/lib/tasker_core workers/ruby/lib/
+            mkdir -p workers/ruby/lib/tasker_core
+            cp -rf artifacts/workers/ruby/lib/tasker_core/* workers/ruby/lib/tasker_core/
             echo "✅ Ruby extension restored"
             ls -lh workers/ruby/lib/tasker_core/
           else
