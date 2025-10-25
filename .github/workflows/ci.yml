@@ -22,6 +22,8 @@ jobs:
   comprehensive-tests:
     needs: build-postgres
     uses: ./.github/workflows/test-e2e.yml
+    with:
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
 
   # Ruby framework tests run after comprehensive tests (workers are shut down)
   ruby-framework-tests:

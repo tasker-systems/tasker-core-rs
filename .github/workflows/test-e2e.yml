@@ -2,12 +2,31 @@ name: E2E Tests (All Workers)
 
 on:
   workflow_call:
+    inputs:
+      postgres-image:
+        required: true
+        type: string
 
 jobs:
   build-and-unit-tests:
     name: Build + Unit Tests
     runs-on: ubuntu-22.04
     timeout-minutes: 15
+
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -36,7 +55,12 @@ jobs:
       - name: Install tools
         uses: ./.github/actions/install-tools
         with:
-          tools: "nextest"
+          tools: "nextest sqlx-cli"
+
+      - name: Setup database
+        run: sqlx migrate run
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Build all packages
         run: |
@@ -47,7 +71,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          echo "🧪 Running unit tests (no Docker required)..."
+          echo "🧪 Running unit tests (with postgres service)..."
           mkdir -p target/nextest/ci
 
           cargo nextest run \
@@ -60,7 +84,7 @@ jobs:
             --package tasker-client \
             --no-fail-fast
         env:
-          SQLX_OFFLINE: true
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Run doctests
         run: |
@@ -72,7 +96,7 @@ jobs:
             --package pgmq-notify \
             --package tasker-client
         env:
-          SQLX_OFFLINE: true
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Upload unit test results
         uses: actions/upload-artifact@v4
