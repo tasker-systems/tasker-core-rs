@@ -41,6 +41,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup Ruby for FFI extension
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: workers/ruby
+
       - name: Cache Rust build artifacts
         uses: actions/cache@v4
         with:
