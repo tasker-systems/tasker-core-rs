@@ -5,6 +5,8 @@ set -euo pipefail
 POSTGRES_URL="${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 ORCHESTRATION_CONFIG="${ORCHESTRATION_CONFIG:-$(pwd)/config/tasker/orchestration-test.toml}"
 WORKER_CONFIG="${WORKER_CONFIG:-$(pwd)/config/tasker/worker-test.toml}"
+RUST_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
+RUBY_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/ruby"
 ORCHESTRATION_PORT="${ORCHESTRATION_PORT:-8080}"
 WORKER_PORT="${WORKER_PORT:-8081}"
 RUBY_WORKER_PORT="${RUBY_WORKER_PORT:-8082}"
@@ -30,6 +32,7 @@ echo "Orchestration PID: $ORCHESTRATION_PID"
 echo "⚙️  Starting Rust worker on port $WORKER_PORT..."
 TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
+  TASKER_TEMPLATE_PATH="$RUST_TEMPLATE_PATH" \
   RUST_LOG=info \
   target/debug/tasker-worker \
   --port "$WORKER_PORT" \
@@ -43,6 +46,7 @@ cd workers/ruby
 TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
   TASKER_ENV=test \
+  TASKER_TEMPLATE_PATH="$RUBY_TEMPLATE_PATH" \
   TASKER_WEB_BIND_ADDRESS="0.0.0.0:$RUBY_WORKER_PORT" \
   bundle exec bin/server.rb \
   > ../../ruby-worker.log 2>&1 &
