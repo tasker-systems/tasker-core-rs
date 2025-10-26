@@ -53,11 +53,18 @@ impl TaskState {
     }
 
     /// Check if this state requires processor ownership
+    ///
+    /// TAS-54: Processor ownership enforcement removed to allow task recovery after
+    /// orchestrator crashes. Processor UUID is still tracked in transitions for audit
+    /// trail and debugging, but is no longer enforced.
+    ///
+    /// Previous behavior (TAS-41): Initializing, EnqueuingSteps, and EvaluatingResults
+    /// required ownership, blocking different orchestrators from taking over stuck tasks.
+    ///
+    /// Current behavior: All states allow any orchestrator to process. Idempotency is
+    /// guaranteed by state machine guards, transaction atomicity, and atomic claiming.
     pub fn requires_ownership(&self) -> bool {
-        matches!(
-            self,
-            TaskState::Initializing | TaskState::EnqueuingSteps | TaskState::EvaluatingResults
-        )
+        false // TAS-54: Audit-only mode - processor UUID tracked but not enforced
     }
 
     /// Check if this is an active processing state
@@ -429,11 +436,14 @@ mod tests {
 
     #[test]
     fn test_ownership_required_states() {
+        // TAS-54: All states now return false - processor UUID is audit-only
+        // Previously: Initializing, EnqueuingSteps, and EvaluatingResults required ownership
+        // Now: No states require ownership, allowing orchestrator recovery after crashes
         assert!(!TaskState::Pending.requires_ownership());
-        assert!(TaskState::Initializing.requires_ownership());
-        assert!(TaskState::EnqueuingSteps.requires_ownership());
+        assert!(!TaskState::Initializing.requires_ownership());
+        assert!(!TaskState::EnqueuingSteps.requires_ownership());
         assert!(!TaskState::StepsInProcess.requires_ownership());
-        assert!(TaskState::EvaluatingResults.requires_ownership());
+        assert!(!TaskState::EvaluatingResults.requires_ownership());
         assert!(!TaskState::WaitingForDependencies.requires_ownership());
         assert!(!TaskState::WaitingForRetry.requires_ownership());
         assert!(!TaskState::BlockedByFailures.requires_ownership());

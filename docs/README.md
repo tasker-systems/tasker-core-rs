@@ -30,6 +30,7 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 - **[Actor-Based Architecture](actors.md)** - Lightweight actor pattern for lifecycle components (TAS-46)
 - **[Events and Commands Architecture](events-and-commands.md)** - Event-driven coordination patterns
 - **[States and Lifecycles](states-and-lifecycles.md)** - Dual state machine architecture
+- **[Idempotency and Atomicity](idempotency-and-atomicity.md)** - Defense-in-depth guarantees for distributed orchestration
 - **[Deployment Patterns](deployment-patterns.md)** - Hybrid, EventDriven, and PollingOnly modes
 - **[Archive: Architectural Evolution](archive/architectural-evolution.md)** - Historical context and lessons learned
 - **[Archive: Orchestration Principles](archive/orchestration-principles.md)** - Fundamental design patterns
@@ -84,6 +85,7 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 | **[Actor-Based Architecture](actors.md)** | Lightweight actor pattern for lifecycle components (TAS-46) | Architects, Developers |
 | **[Events and Commands](events-and-commands.md)** | Event-driven coordination and command patterns | Architects, Developers |
 | **[States and Lifecycles](states-and-lifecycles.md)** | Task and step state machines | All |
+| **[Idempotency and Atomicity](idempotency-and-atomicity.md)** | Defense-in-depth guarantees for distributed orchestration | Architects, Developers |
 | **[Task Readiness & Execution](task-and-step-readiness-and-execution.md)** | SQL functions and orchestration logic | Developers, Architects |
 
 ### Guides & Patterns
@@ -134,6 +136,7 @@ tasker-core/
     Core Architecture
       events-and-commands.md         # Event-driven coordination
       states-and-lifecycles.md       # State machine architecture
+      idempotency-and-atomicity.md   # Defense-in-depth guarantees
       task-and-step-readiness-and-execution.md  # SQL functions
 
     Reference
@@ -178,6 +181,7 @@ tasker-core/
         TAS-48/  # Task Staleness Relief
         TAS-49/  # Future enhancements
         TAS-50/  # Configuration CLI & Single-File Runtime Loading
+        TAS-54/  # Idempotency Audit & Processor Ownership Removal
 
     Archive
       archive/
@@ -234,6 +238,8 @@ See **[Crate Architecture](crate-architecture.md)** for detailed explanations.
 
 - **"I want to build a workflow"** -> [Use Cases & Patterns](use-cases-and-patterns.md)
 - **"I need to understand the architecture"** -> [Crate Architecture](crate-architecture.md), [Events and Commands](events-and-commands.md)
+- **"I need to understand how concurrency is handled"** -> [Idempotency and Atomicity](idempotency-and-atomicity.md)
+- **"I'm debugging a race condition or data corruption"** -> [Idempotency and Atomicity](idempotency-and-atomicity.md), [States and Lifecycles](states-and-lifecycles.md)
 - **"I'm configuring a deployment"** -> [Configuration Management](configuration-management.md) (see Part 5: Deployment Workflows with TAS-50 Phase 3), [Environment Comparison](environment-configuration-comparison.md)
 - **"I'm debugging configuration issues"** -> [Configuration Management](configuration-management.md) (Part 9: Troubleshooting), check `/config` API endpoints
 - **"I'm debugging a state machine issue"** -> [States and Lifecycles](states-and-lifecycles.md)
@@ -244,9 +250,10 @@ See **[Crate Architecture](crate-architecture.md)** for detailed explanations.
 
 ### By Technology
 
-- **PostgreSQL/SQL** -> [Task Readiness & Execution](task-and-step-readiness-and-execution.md)
+- **PostgreSQL/SQL** -> [Task Readiness & Execution](task-and-step-readiness-and-execution.md), [Idempotency and Atomicity](idempotency-and-atomicity.md)
+- **Concurrency & Distributed Systems** -> [Idempotency and Atomicity](idempotency-and-atomicity.md), [Events and Commands](events-and-commands.md)
 - **Event Systems** -> [Events and Commands](events-and-commands.md)
-- **State Machines** -> [States and Lifecycles](states-and-lifecycles.md)
+- **State Machines** -> [States and Lifecycles](states-and-lifecycles.md), [Idempotency and Atomicity](idempotency-and-atomicity.md)
 - **PGMQ** -> [Events and Commands](events-and-commands.md), [Task Readiness & Execution](task-and-step-readiness-and-execution.md)
 - **Configuration (TOML)** -> [Configuration Management](configuration-management.md), [Environment Comparison](environment-configuration-comparison.md)
 - **REST API** -> [Configuration Management](configuration-management.md) (Part 2: Runtime Observability)

@@ -113,7 +113,7 @@ impl TaskStateMachine {
         let current_state = self.current_state;
         let target_state = self.determine_target_state_internal(current_state, &event)?;
 
-        // Use the new TransitionGuard for validation (TAS-41 approach)
+        // Use the TransitionGuard for validation
         use super::guards::TransitionGuard;
         TransitionGuard::can_transition(current_state, target_state, &event, &self.task).map_err(
             |e| StateMachineError::GuardFailed {
@@ -121,17 +121,18 @@ impl TaskStateMachine {
             },
         )?;
 
-        // Check ownership if required (TAS-41 processor ownership)
-        if target_state.requires_ownership() {
-            // Get current task processor from transitions
-            let current_processor = self.get_current_processor().await?;
-            TransitionGuard::check_ownership(target_state, current_processor, self.processor_uuid)
-                .map_err(|e| StateMachineError::GuardFailed {
-                    reason: e.to_string(),
-                })?;
-        }
+        // TAS-54: Processor ownership enforcement removed
+        // Processor UUID is still tracked in transitions for audit trail and debugging,
+        // but ownership is no longer enforced. This allows tasks to recover after
+        // orchestrator crashes without manual intervention.
+        //
+        // Idempotency is guaranteed by:
+        // - State machine guards (current state checks)
+        // - Transaction atomicity (all-or-nothing writes)
+        // - Unique constraints (identity_hash for tasks)
+        // - Atomic claiming (TAS-37 for finalization)
 
-        // Persist the transition atomically with ownership (TAS-41 atomic approach)
+        // Persist the transition with processor UUID for audit trail
         let metadata = Some(serde_json::json!({
             "event": format!("{:?}", event),
         }));
@@ -287,22 +288,6 @@ impl TaskStateMachine {
         self.task.task_uuid
     }
 
-    /// Get current processor UUID from the latest transition
-    async fn get_current_processor(&self) -> StateMachineResult<Option<Uuid>> {
-        // Query the processor_uuid from the latest transition (TAS-41: dedicated column)
-        let result = sqlx::query!(
-            "SELECT processor_uuid FROM tasker_task_transitions
-             WHERE task_uuid = $1
-             ORDER BY created_at DESC
-             LIMIT 1",
-            self.task_uuid
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| {
-            StateMachineError::Internal(format!("Failed to query current processor: {e}"))
-        })?;
-
-        Ok(result.and_then(|row| row.processor_uuid))
-    }
+    // TAS-54: get_current_processor() removed - no longer needed without ownership enforcement
+    // Processor UUID is still tracked in transitions via transition_with_ownership() for audit trail
 }

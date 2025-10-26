@@ -138,6 +138,35 @@ impl WorkflowStepBuilder {
             // Create edges for all dependencies using transaction method
             for dependency_name in &step_definition.dependencies {
                 if let Some(&from_step_uuid) = step_mapping.get(dependency_name) {
+                    // Check for self-referencing cycles (A -> A)
+                    if from_step_uuid == to_step_uuid {
+                        return Err(TaskInitializationError::CycleDetected {
+                            from: dependency_name.clone(),
+                            to: step_definition.name.clone(),
+                        });
+                    }
+
+                    // Check for cycles before creating the edge
+                    let would_cycle = tasker_shared::models::WorkflowStepEdge::would_create_cycle(
+                        self.context.database_pool(),
+                        from_step_uuid,
+                        to_step_uuid,
+                    )
+                    .await
+                    .map_err(|e| {
+                        TaskInitializationError::Database(format!(
+                            "Failed to check for cycles when adding edge '{}' -> '{}': {}",
+                            dependency_name, step_definition.name, e
+                        ))
+                    })?;
+
+                    if would_cycle {
+                        return Err(TaskInitializationError::CycleDetected {
+                            from: dependency_name.clone(),
+                            to: step_definition.name.clone(),
+                        });
+                    }
+
                     let new_edge = NewWorkflowStepEdge {
                         from_step_uuid,
                         to_step_uuid,
