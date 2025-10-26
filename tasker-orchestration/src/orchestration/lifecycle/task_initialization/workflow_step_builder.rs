@@ -46,15 +46,25 @@ impl WorkflowStepBuilder {
     }
 
     /// Create named steps and workflow steps using the shared WorkflowStepCreator
+    ///
+    /// For workflows with decision points, this only creates the initial step set
+    /// (steps up to and including decision points, but not their descendants).
+    /// For workflows without decision points, this creates all steps.
     async fn create_steps(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         task_uuid: Uuid,
         task_template: &TaskTemplate,
     ) -> Result<HashMap<String, Uuid>, TaskInitializationError> {
+        // Get the initial step set (partial graph for decision-point workflows)
+        let initial_steps = task_template.initial_step_set();
+
+        // Convert borrowed step definitions to owned for the batch creator
+        let step_defs: Vec<_> = initial_steps.into_iter().cloned().collect();
+
         // Delegate to the shared step creator
         self.step_creator
-            .create_steps_batch(tx, task_uuid, &task_template.steps)
+            .create_steps_batch(tx, task_uuid, &step_defs)
             .await
     }
 

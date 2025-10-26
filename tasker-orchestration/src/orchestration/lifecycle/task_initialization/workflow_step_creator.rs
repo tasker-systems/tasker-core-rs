@@ -7,8 +7,8 @@ use sqlx::types::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_shared::models::core::task_template::StepDefinition;
-use tasker_shared::models::{NamedStep, WorkflowStep};
 use tasker_shared::models::core::workflow_step::NewWorkflowStep;
+use tasker_shared::models::{NamedStep, WorkflowStep};
 use tasker_shared::system_context::SystemContext;
 
 use super::TaskInitializationError;
@@ -105,9 +105,9 @@ impl WorkflowStepCreator {
         let mut step_mapping = HashMap::new();
 
         for step_definition in step_definitions {
-            let (workflow_step, _named_step) =
-                self.create_single_step(tx, task_uuid, step_definition)
-                    .await?;
+            let (workflow_step, _named_step) = self
+                .create_single_step(tx, task_uuid, step_definition)
+                .await?;
 
             step_mapping.insert(
                 step_definition.name.clone(),
@@ -164,14 +164,14 @@ impl WorkflowStepCreator {
         if step_definition.handler.initialization.is_empty() {
             Ok(None)
         } else {
-            Some(serde_json::to_value(&step_definition.handler.initialization).map_err(
-                |e| {
+            Some(
+                serde_json::to_value(&step_definition.handler.initialization).map_err(|e| {
                     TaskInitializationError::Database(format!(
                         "Failed to serialize handler initialization for step '{}': {}",
                         step_definition.name, e
                     ))
-                },
-            ))
+                }),
+            )
             .transpose()
         }
     }
@@ -180,7 +180,9 @@ impl WorkflowStepCreator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tasker_shared::models::core::task_template::{BackoffStrategy, HandlerDefinition, RetryConfiguration, StepType};
+    use tasker_shared::models::core::task_template::{
+        BackoffStrategy, HandlerDefinition, RetryConfiguration, StepType,
+    };
     use tasker_shared::models::factories::{base::SqlxFactory, TaskFactory};
 
     fn create_test_step_definition(name: &str) -> StepDefinition {
@@ -227,9 +229,7 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-    async fn test_create_single_step(
-        pool: sqlx::PgPool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_create_single_step(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
         let creator = WorkflowStepCreator::new(context.clone());
 
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(workflow_step.task_uuid, task_uuid);
         assert_eq!(workflow_step.named_step_uuid, named_step.named_step_uuid);
         assert_eq!(named_step.name, "test_step_1");
-        assert_eq!(workflow_step.retryable, true);
+        assert!(workflow_step.retryable);
         assert_eq!(workflow_step.max_attempts, Some(3));
 
         Ok(())
@@ -287,9 +287,7 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-    async fn test_create_steps_batch(
-        pool: sqlx::PgPool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_create_steps_batch(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
         let creator = WorkflowStepCreator::new(context.clone());
 
@@ -363,7 +361,10 @@ mod tests {
             .await?;
         tx.commit().await?;
 
-        assert_eq!(first_named_step.named_step_uuid, second_named_step.named_step_uuid);
+        assert_eq!(
+            first_named_step.named_step_uuid,
+            second_named_step.named_step_uuid
+        );
         assert_eq!(second_named_step.name, "reused_step_name");
 
         Ok(())

@@ -805,12 +805,8 @@ mod tests {
             "branch_a".to_string(),
             "branch_b".to_string(),
         ]);
-        let result = StepExecutionResult::success(
-            step_uuid,
-            decision_outcome.to_value(),
-            100,
-            None,
-        );
+        let result =
+            StepExecutionResult::success(step_uuid, decision_outcome.to_value(), 100, None);
 
         let extracted = DecisionPointOutcome::from_step_result(&result);
         assert!(extracted.is_some());
@@ -825,12 +821,8 @@ mod tests {
 
         // Test extraction of NoBranches outcome
         let decision_outcome = DecisionPointOutcome::NoBranches;
-        let result = StepExecutionResult::success(
-            step_uuid,
-            decision_outcome.to_value(),
-            100,
-            None,
-        );
+        let result =
+            StepExecutionResult::success(step_uuid, decision_outcome.to_value(), 100, None);
 
         let extracted = DecisionPointOutcome::from_step_result(&result);
         assert!(extracted.is_some());
