@@ -3,15 +3,19 @@
 //! Main service that coordinates dynamic workflow step creation from decision outcomes.
 
 use crate::orchestration::lifecycle::task_initialization::WorkflowStepCreator;
+use opentelemetry::KeyValue;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
+use tasker_shared::config::DecisionPointsConfig;
 use tasker_shared::messaging::DecisionPointOutcome;
+use tasker_shared::metrics::orchestration::*;
 use tasker_shared::models::core::task_template::{StepDefinition, TaskTemplate};
 use tasker_shared::models::core::workflow_step_edge::NewWorkflowStepEdge;
 use tasker_shared::models::{Task, WorkflowStep, WorkflowStepEdge};
 use tasker_shared::system_context::SystemContext;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 /// Errors that can occur during decision point processing
 #[derive(Debug, thiserror::Error)]
@@ -54,15 +58,18 @@ impl From<sqlx::Error> for DecisionPointProcessingError {
 pub struct DecisionPointService {
     context: Arc<SystemContext>,
     step_creator: WorkflowStepCreator,
+    config: DecisionPointsConfig,
 }
 
 impl DecisionPointService {
     /// Create a new DecisionPointService
     pub fn new(context: Arc<SystemContext>) -> Self {
         let step_creator = WorkflowStepCreator::new(context.clone());
+        let config = context.tasker_config.decision_points.clone();
         Self {
             context,
             step_creator,
+            config,
         }
     }
 
@@ -87,8 +94,35 @@ impl DecisionPointService {
         task_uuid: Uuid,
         outcome: DecisionPointOutcome,
     ) -> Result<HashMap<String, Uuid>, DecisionPointProcessingError> {
+        // TAS-53 Phase 7: Start timing for metrics
+        let start_time = Instant::now();
+
+        // TAS-53 Phase 7: Check if decision points are enabled
+        if !self.config.is_enabled() {
+            warn!(
+                decision_step_uuid = %decision_step_uuid,
+                "Decision points are disabled in configuration, skipping processing"
+            );
+            return Ok(HashMap::new());
+        }
+
         // If no steps to create, return early
         if !outcome.requires_step_creation() {
+            // TAS-53 Phase 7: Record metric for no_branches outcome
+            let correlation_id = Task::find_by_id(self.context.database_pool(), task_uuid)
+                .await?
+                .map(|t| t.correlation_id)
+                .unwrap_or(task_uuid);
+
+            decision_outcomes_processed_total().add(
+                1,
+                &[
+                    KeyValue::new("correlation_id", correlation_id.to_string()),
+                    KeyValue::new("decision_name", "unknown"),
+                    KeyValue::new("outcome_type", "no_branches"),
+                ],
+            );
+
             debug!(
                 decision_step_uuid = %decision_step_uuid,
                 "No steps to create (NoBranches outcome)"
@@ -97,6 +131,42 @@ impl DecisionPointService {
         }
 
         let step_names = outcome.step_names();
+
+        // TAS-53 Phase 7: Check maximum limits
+        if self.config.exceeds_max_steps(step_names.len()) {
+            error!(
+                decision_step_uuid = %decision_step_uuid,
+                step_count = step_names.len(),
+                max_allowed = self.config.max_steps(),
+                "Decision outcome exceeds maximum step count"
+            );
+            return Err(DecisionPointProcessingError::Database(format!(
+                "Decision outcome creates {} steps, exceeding maximum of {}",
+                step_names.len(),
+                self.config.max_steps()
+            )));
+        }
+
+        // TAS-53 Phase 7: Check warning thresholds
+        if self.config.should_warn_steps(step_names.len()) {
+            warn!(
+                decision_step_uuid = %decision_step_uuid,
+                step_count = step_names.len(),
+                warn_threshold = self.config.warn_threshold_steps,
+                max_allowed = self.config.max_steps(),
+                "Decision outcome step count exceeds warning threshold"
+            );
+
+            // Record warning metric
+            decision_warnings_total().add(
+                1,
+                &[
+                    KeyValue::new("warning_type", "step_count"),
+                    KeyValue::new("correlation_id", task_uuid.to_string()),
+                ],
+            );
+        }
+
         info!(
             decision_step_uuid = %decision_step_uuid,
             task_uuid = %task_uuid,
@@ -165,7 +235,26 @@ impl DecisionPointService {
             .await?;
 
         // Validate outcome against template
-        self.validate_outcome(&task_template, &decision_step_def, &step_names)?;
+        // TAS-53 Phase 7: Record error metrics on validation failure
+        let correlation_id = task.correlation_id;
+        if let Err(e) = self.validate_outcome(&task_template, &decision_step_def, &step_names) {
+            let error_type = match &e {
+                DecisionPointProcessingError::InvalidDescendant { .. } => "invalid_descendant",
+                DecisionPointProcessingError::StepNotFoundInTemplate(_) => "step_not_found",
+                _ => "other",
+            };
+
+            decision_validation_errors_total().add(
+                1,
+                &[
+                    KeyValue::new("correlation_id", correlation_id.to_string()),
+                    KeyValue::new("decision_name", decision_step_def.name.clone()),
+                    KeyValue::new("error_type", error_type),
+                ],
+            );
+
+            return Err(e);
+        }
 
         // Create steps and dependencies within a transaction
         let mut tx = self.context.database_pool().begin().await?;
@@ -178,15 +267,72 @@ impl DecisionPointService {
             .create_steps_from_outcome(&mut tx, task_uuid, &task_template, &steps_to_create)
             .await?;
 
-        self.create_dependencies(&mut tx, decision_step_uuid, &step_mapping, &task_template)
-            .await?;
+        // TAS-53 Phase 7: Record error metrics on cycle detection
+        if let Err(e) = self
+            .create_dependencies(&mut tx, decision_step_uuid, &step_mapping, &task_template)
+            .await
+        {
+            if matches!(e, DecisionPointProcessingError::CycleDetected { .. }) {
+                decision_validation_errors_total().add(
+                    1,
+                    &[
+                        KeyValue::new("correlation_id", correlation_id.to_string()),
+                        KeyValue::new("decision_name", decision_step_def.name.clone()),
+                        KeyValue::new("error_type", "cycle_detected"),
+                    ],
+                );
+            }
+            return Err(e);
+        }
 
         tx.commit().await?;
+
+        // TAS-53 Phase 7: Record success metrics
+        let duration_ms = start_time.elapsed().as_millis() as f64;
+        let step_count = step_mapping.len();
+        let correlation_id = task.correlation_id;
+        let decision_name = &decision_step_def.name;
+
+        // Record outcome processed
+        decision_outcomes_processed_total().add(
+            1,
+            &[
+                KeyValue::new("correlation_id", correlation_id.to_string()),
+                KeyValue::new("decision_name", decision_name.clone()),
+                KeyValue::new("outcome_type", "create_steps"),
+            ],
+        );
+
+        // Record steps created count
+        decision_steps_created_total().add(
+            step_count as u64,
+            &[
+                KeyValue::new("correlation_id", correlation_id.to_string()),
+                KeyValue::new("decision_name", decision_name.clone()),
+            ],
+        );
+
+        // Record step count distribution
+        decision_step_count_histogram().record(
+            step_count as u64,
+            &[KeyValue::new("decision_name", decision_name.clone())],
+        );
+
+        // Record processing duration
+        decision_processing_duration().record(
+            duration_ms,
+            &[
+                KeyValue::new("correlation_id", correlation_id.to_string()),
+                KeyValue::new("decision_name", decision_name.clone()),
+                KeyValue::new("outcome_type", "create_steps"),
+            ],
+        );
 
         info!(
             decision_step_uuid = %decision_step_uuid,
             task_uuid = %task_uuid,
-            steps_created = step_mapping.len(),
+            steps_created = step_count,
+            duration_ms = duration_ms,
             "Decision outcome processed successfully"
         );
 

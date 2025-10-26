@@ -1,0 +1,135 @@
+# ============================================================================
+# DECISION POINT CONFIGURATION (TAS-53)
+# ============================================================================
+#
+# Configuration for dynamic workflow decision points that enable runtime
+# conditional branching and step creation based on handler outcomes.
+#
+# Decision points allow workflows to:
+# - Make runtime decisions based on step results
+# - Dynamically create workflow branches
+# - Support nested decision points
+# - Maintain DAG integrity with cycle detection
+#
+# ============================================================================
+
+[decision_points]
+# Enable decision point processing
+enabled = true
+
+# Maximum number of steps that can be created from a single decision
+# Prevents runaway step creation from misconfigured handlers
+max_steps_per_decision = 50
+
+# Maximum depth of nested decision points
+# Prevents infinite recursion in decision point chains
+max_decision_depth = 10
+
+# Warn when decision point creates more than this many steps
+# Helps identify potentially misconfigured decision handlers
+warn_threshold_steps = 20
+
+# Warn when decision depth exceeds this threshold
+# Helps identify overly complex decision chains
+warn_threshold_depth = 5
+
+# Enable detailed decision point logging
+enable_detailed_logging = false
+
+# Enable decision point metrics collection
+enable_metrics = true
+
+
+# Documentation for decision point parameters
+[decision_points._docs.max_steps_per_decision]
+description = "Maximum number of workflow steps that can be created from a single decision point outcome"
+type = "usize"
+valid_range = "1-1000"
+default = "50"
+system_impact = "Prevents runaway step creation from misconfigured decision handlers. Too low = legitimate complex workflows rejected. Too high = risk of resource exhaustion from bugs."
+related = ["decision_points.warn_threshold_steps"]
+example = """
+# Allow large decision fan-outs for batch processing
+[decision_points]
+max_steps_per_decision = 100
+warn_threshold_steps = 50
+"""
+
+[decision_points._docs.max_steps_per_decision.recommendations]
+test = { value = "10", rationale = "Small limit for fast test execution and validation" }
+development = { value = "50", rationale = "Moderate limit suitable for most development workflows" }
+production = { value = "100", rationale = "Higher limit for complex production workflows with large fan-outs" }
+
+
+[decision_points._docs.max_decision_depth]
+description = "Maximum nesting depth of decision points within a workflow"
+type = "usize"
+valid_range = "1-100"
+default = "10"
+system_impact = "Prevents infinite recursion and overly complex workflow structures. Too low = limits legitimate nested decisions. Too high = risks stack overflow and processing delays."
+related = ["decision_points.warn_threshold_depth"]
+example = """
+# Allow deep decision nesting for complex approval chains
+[decision_points]
+max_decision_depth = 20
+warn_threshold_depth = 10
+"""
+
+[decision_points._docs.max_decision_depth.recommendations]
+test = { value = "5", rationale = "Shallow nesting for simple test workflows" }
+development = { value = "10", rationale = "Moderate nesting for typical decision chains" }
+production = { value = "15", rationale = "Deeper nesting for complex multi-stage approvals" }
+
+
+[decision_points._docs.warn_threshold_steps]
+description = "Number of steps created that triggers a warning log"
+type = "usize"
+valid_range = "1-1000"
+default = "20"
+system_impact = "Warning-only threshold for identifying potentially misconfigured decision handlers. Does not block execution. Helps operators identify workflows that may need optimization."
+related = ["decision_points.max_steps_per_decision", "decision_points.enable_detailed_logging"]
+
+[decision_points._docs.warn_threshold_steps.recommendations]
+test = { value = "5", rationale = "Low threshold to catch test issues early" }
+development = { value = "20", rationale = "Moderate threshold for development monitoring" }
+production = { value = "30", rationale = "Higher threshold to reduce noise in complex workflows" }
+
+
+[decision_points._docs.warn_threshold_depth]
+description = "Decision depth that triggers a warning log"
+type = "usize"
+valid_range = "1-100"
+default = "5"
+system_impact = "Warning-only threshold for identifying deeply nested decision chains. Does not block execution. Helps identify workflows with complex logic that may benefit from refactoring."
+related = ["decision_points.max_decision_depth", "decision_points.enable_detailed_logging"]
+
+[decision_points._docs.warn_threshold_depth.recommendations]
+test = { value = "3", rationale = "Shallow threshold for simple test workflows" }
+development = { value = "5", rationale = "Moderate threshold for development" }
+production = { value = "7", rationale = "Higher threshold for complex production workflows" }
+
+
+[decision_points._docs.enable_detailed_logging]
+description = "Enable detailed debug logging for decision point processing"
+type = "bool"
+default = "false"
+system_impact = "When enabled, logs detailed information about decision outcome validation, step creation, and dependency wiring. Increases log volume significantly. Useful for debugging complex decision workflows."
+related = ["decision_points.enable_metrics"]
+
+[decision_points._docs.enable_detailed_logging.recommendations]
+test = { value = "true", rationale = "Detailed logging helps diagnose test failures" }
+development = { value = "false", rationale = "Standard logging sufficient for development" }
+production = { value = "false", rationale = "Disable detailed logging to reduce log volume" }
+
+
+[decision_points._docs.enable_metrics]
+description = "Enable OpenTelemetry metrics collection for decision points"
+type = "bool"
+default = "true"
+system_impact = "Collects metrics on decision outcomes, step creation counts, processing duration, and validation errors. Essential for monitoring decision point health in production."
+related = ["decision_points.enable_detailed_logging"]
+
+[decision_points._docs.enable_metrics.recommendations]
+test = { value = "false", rationale = "Metrics add overhead in tests" }
+development = { value = "true", rationale = "Metrics help understand decision behavior" }
+production = { value = "true", rationale = "Always enable metrics in production for observability" }
