@@ -21,9 +21,9 @@ DATABASE_URL="$POSTGRES_URL" cargo sqlx migrate run
 echo "🎯 Starting orchestration service on port $ORCHESTRATION_PORT..."
 TASKER_CONFIG_PATH="$ORCHESTRATION_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
+  TASKER_WEB_BIND_ADDRESS="0.0.0.0:$ORCHESTRATION_PORT" \
   RUST_LOG=info \
   target/debug/tasker-server \
-  --port "$ORCHESTRATION_PORT" \
   > orchestration.log 2>&1 &
 ORCHESTRATION_PID=$!
 echo "Orchestration PID: $ORCHESTRATION_PID"
@@ -33,9 +33,9 @@ echo "⚙️  Starting Rust worker on port $WORKER_PORT..."
 TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
   TASKER_TEMPLATE_PATH="$RUST_TEMPLATE_PATH" \
+  TASKER_WEB_BIND_ADDRESS="0.0.0.0:$WORKER_PORT" \
   RUST_LOG=info \
   target/debug/tasker-worker \
-  --port "$WORKER_PORT" \
   > worker.log 2>&1 &
 WORKER_PID=$!
 echo "Worker PID: $WORKER_PID"

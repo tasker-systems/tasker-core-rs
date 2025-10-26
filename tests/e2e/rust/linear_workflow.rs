@@ -17,7 +17,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::common::integration_test_manager::IntegrationTestManager;
-use crate::common::integration_test_utils::{create_task_request, wait_for_task_completion};
+use crate::common::integration_test_utils::{
+    create_task_request, get_task_completion_timeout, wait_for_task_completion,
+};
 use tasker_shared::models::core::task::TaskListQuery;
 
 #[tokio::test]
@@ -62,8 +64,14 @@ async fn test_end_to_end_linear_workflow_with_rust_worker() -> Result<()> {
     // Step 7: Monitor task execution
     println!("\n⏱️ Step 7: Monitoring task execution...");
 
-    // Wait for task completion with timeout
-    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 5).await?;
+    // Wait for task completion with timeout (15s in CI, 5s locally)
+    let timeout = get_task_completion_timeout();
+    wait_for_task_completion(
+        &manager.orchestration_client,
+        &task_response.task_uuid,
+        timeout,
+    )
+    .await?;
 
     // Step 8: Verify final results
     println!("\n🔍 Step 8: Verifying execution results...");
