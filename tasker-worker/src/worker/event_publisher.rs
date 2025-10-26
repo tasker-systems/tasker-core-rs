@@ -244,7 +244,7 @@ mod tests {
     use tasker_shared::models::orchestration::step_transitive_dependencies::StepDependencyResultMap;
     use tasker_shared::models::task::{Task, TaskForOrchestration};
     use tasker_shared::models::task_template::{
-        BackoffStrategy, HandlerDefinition, RetryConfiguration, StepDefinition,
+        BackoffStrategy, HandlerDefinition, RetryConfiguration, StepDefinition, StepType,
     };
     use tasker_shared::models::workflow_step::WorkflowStepWithName;
     use tasker_shared::types::TaskSequenceStep;
@@ -307,6 +307,7 @@ mod tests {
             dependency_results,
             step_definition: StepDefinition {
                 name: step_name.to_string(),
+                step_type: StepType::Standard,
                 description: Some(format!("Test step: {}", step_name)),
                 handler: HandlerDefinition {
                     callable: handler_class.to_string(),

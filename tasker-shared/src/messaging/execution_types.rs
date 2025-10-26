@@ -470,6 +470,94 @@ impl StepExecutionResult {
     }
 }
 
+/// Decision Point Outcome
+///
+/// Returned by decision point step handlers to indicate which downstream steps
+/// should be dynamically created and executed.
+///
+/// ## Usage
+///
+/// Decision point handlers evaluate parent step results and return a typed outcome:
+///
+/// ```rust
+/// use tasker_shared::messaging::DecisionPointOutcome;
+///
+/// // No branches - workflow ends here
+/// let no_action = DecisionPointOutcome::NoBranches;
+///
+/// // Create specific steps by name
+/// let create_steps = DecisionPointOutcome::CreateSteps {
+///     step_names: vec!["step_a".to_string(), "step_b".to_string()],
+/// };
+/// ```
+///
+/// ## Serialization
+///
+/// This type serializes to JSON in a tagged format for clear communication:
+///
+/// ```json
+/// // NoBranches variant
+/// { "type": "no_branches" }
+///
+/// // CreateSteps variant
+/// { "type": "create_steps", "step_names": ["step_a", "step_b"] }
+/// ```
+///
+/// The decision outcome is embedded in the `StepExecutionResult.result` field
+/// and processed by the DecisionPointActor for dynamic step creation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DecisionPointOutcome {
+    /// No branches should be created - workflow completes or waits
+    NoBranches,
+
+    /// Create and execute specific steps by name
+    ///
+    /// Step names must be declared in the task template as potential children
+    /// of this decision point. Only explicitly declared steps can be created.
+    CreateSteps {
+        /// Names of steps to create (must exist in template)
+        step_names: Vec<String>,
+    },
+}
+
+impl DecisionPointOutcome {
+    /// Create a NoBranches outcome
+    pub fn no_branches() -> Self {
+        Self::NoBranches
+    }
+
+    /// Create a CreateSteps outcome with specified step names
+    pub fn create_steps(step_names: Vec<String>) -> Self {
+        Self::CreateSteps { step_names }
+    }
+
+    /// Check if this outcome requires step creation
+    pub fn requires_step_creation(&self) -> bool {
+        matches!(self, Self::CreateSteps { .. })
+    }
+
+    /// Get the step names to create (if any)
+    pub fn step_names(&self) -> Vec<String> {
+        match self {
+            Self::NoBranches => vec![],
+            Self::CreateSteps { step_names } => step_names.clone(),
+        }
+    }
+
+    /// Convert to JSON Value for embedding in StepExecutionResult
+    pub fn to_value(&self) -> Value {
+        serde_json::to_value(self).expect("DecisionPointOutcome should always serialize")
+    }
+
+    /// Try to extract DecisionPointOutcome from StepExecutionResult
+    ///
+    /// Returns None if the result does not contain a valid decision outcome
+    pub fn from_step_result(result: &StepExecutionResult) -> Option<Self> {
+        serde_json::from_value(result.result.clone()).ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,5 +728,154 @@ mod tests {
             "DB_CONNECTION_ERROR"
         );
         assert_eq!(persistence_format["metadata"]["context"]["retry_count"], 2);
+    }
+
+    #[test]
+    fn test_decision_point_outcome_no_branches() {
+        let outcome = DecisionPointOutcome::no_branches();
+        assert_eq!(outcome, DecisionPointOutcome::NoBranches);
+        assert!(!outcome.requires_step_creation());
+        assert_eq!(outcome.step_names(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_decision_point_outcome_create_steps() {
+        let steps = vec!["step_a".to_string(), "step_b".to_string()];
+        let outcome = DecisionPointOutcome::create_steps(steps.clone());
+
+        assert!(outcome.requires_step_creation());
+        assert_eq!(outcome.step_names(), steps);
+
+        if let DecisionPointOutcome::CreateSteps { step_names } = outcome {
+            assert_eq!(step_names, steps);
+        } else {
+            panic!("Expected CreateSteps variant");
+        }
+    }
+
+    #[test]
+    fn test_decision_point_outcome_serialization() {
+        // Test NoBranches serialization
+        let no_branches = DecisionPointOutcome::NoBranches;
+        let json = serde_json::to_value(&no_branches).unwrap();
+        assert_eq!(json["type"], "no_branches");
+
+        // Test CreateSteps serialization
+        let create_steps = DecisionPointOutcome::CreateSteps {
+            step_names: vec!["step_1".to_string(), "step_2".to_string()],
+        };
+        let json = serde_json::to_value(&create_steps).unwrap();
+        assert_eq!(json["type"], "create_steps");
+        assert_eq!(json["step_names"][0], "step_1");
+        assert_eq!(json["step_names"][1], "step_2");
+    }
+
+    #[test]
+    fn test_decision_point_outcome_deserialization() {
+        // Test NoBranches deserialization
+        let json = serde_json::json!({"type": "no_branches"});
+        let outcome: DecisionPointOutcome = serde_json::from_value(json).unwrap();
+        assert_eq!(outcome, DecisionPointOutcome::NoBranches);
+
+        // Test CreateSteps deserialization
+        let json = serde_json::json!({
+            "type": "create_steps",
+            "step_names": ["step_a", "step_b"]
+        });
+        let outcome: DecisionPointOutcome = serde_json::from_value(json).unwrap();
+        assert!(outcome.requires_step_creation());
+        assert_eq!(outcome.step_names(), vec!["step_a", "step_b"]);
+    }
+
+    #[test]
+    fn test_decision_point_outcome_to_value() {
+        let outcome = DecisionPointOutcome::create_steps(vec!["step_1".to_string()]);
+        let value = outcome.to_value();
+
+        assert_eq!(value["type"], "create_steps");
+        assert_eq!(value["step_names"][0], "step_1");
+    }
+
+    #[test]
+    fn test_decision_point_outcome_from_step_result() {
+        let step_uuid = Uuid::now_v7();
+
+        // Test extraction from successful result with decision outcome
+        let decision_outcome = DecisionPointOutcome::create_steps(vec![
+            "branch_a".to_string(),
+            "branch_b".to_string(),
+        ]);
+        let result = StepExecutionResult::success(
+            step_uuid,
+            decision_outcome.to_value(),
+            100,
+            None,
+        );
+
+        let extracted = DecisionPointOutcome::from_step_result(&result);
+        assert!(extracted.is_some());
+        let extracted = extracted.unwrap();
+        assert!(extracted.requires_step_creation());
+        assert_eq!(extracted.step_names(), vec!["branch_a", "branch_b"]);
+    }
+
+    #[test]
+    fn test_decision_point_outcome_from_step_result_no_branches() {
+        let step_uuid = Uuid::now_v7();
+
+        // Test extraction of NoBranches outcome
+        let decision_outcome = DecisionPointOutcome::NoBranches;
+        let result = StepExecutionResult::success(
+            step_uuid,
+            decision_outcome.to_value(),
+            100,
+            None,
+        );
+
+        let extracted = DecisionPointOutcome::from_step_result(&result);
+        assert!(extracted.is_some());
+        let extracted = extracted.unwrap();
+        assert!(!extracted.requires_step_creation());
+        assert_eq!(extracted.step_names(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_decision_point_outcome_from_non_decision_result() {
+        let step_uuid = Uuid::now_v7();
+
+        // Test with regular result that's not a decision outcome
+        let result = StepExecutionResult::success(
+            step_uuid,
+            serde_json::json!({"regular": "data"}),
+            100,
+            None,
+        );
+
+        let extracted = DecisionPointOutcome::from_step_result(&result);
+        assert!(extracted.is_none());
+    }
+
+    #[test]
+    fn test_decision_point_outcome_empty_step_names() {
+        // Test CreateSteps with empty step names
+        let outcome = DecisionPointOutcome::create_steps(vec![]);
+        assert!(outcome.requires_step_creation());
+        assert_eq!(outcome.step_names(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_decision_point_outcome_roundtrip() {
+        // Test full serialization/deserialization roundtrip
+        let original = DecisionPointOutcome::create_steps(vec![
+            "step_1".to_string(),
+            "step_2".to_string(),
+            "step_3".to_string(),
+        ]);
+
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: DecisionPointOutcome = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original, deserialized);
+        assert_eq!(original.step_names(), deserialized.step_names());
     }
 }

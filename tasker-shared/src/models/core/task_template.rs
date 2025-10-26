@@ -126,6 +126,30 @@ pub struct DomainEventDefinition {
     pub schema: Option<Value>, // JSON Schema
 }
 
+/// Step type for workflow orchestration
+///
+/// ## Decision Point Steps
+///
+/// Decision point steps enable dynamic workflow creation based on runtime evaluation.
+/// When a decision step completes, the handler returns a `DecisionPointOutcome` that
+/// determines which downstream steps should be created and executed.
+///
+/// ### Constraints:
+/// - Decision steps MUST have at least one dependency (parent step)
+/// - Decision steps MUST declare potential child steps in the template
+/// - Only explicitly declared child steps can be created
+/// - Decision steps can fail (permanent or retryable) like any standard step
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StepType {
+    /// Standard workflow step (default)
+    #[default]
+    Standard,
+
+    /// Decision point that dynamically creates downstream steps
+    Decision,
+}
+
 /// Individual workflow step definition
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StepDefinition {
@@ -134,6 +158,10 @@ pub struct StepDefinition {
 
     /// Handler for this step
     pub handler: HandlerDefinition,
+
+    /// Step type (standard or decision)
+    #[serde(default)]
+    pub step_type: StepType,
 
     /// System this step interacts with
     pub system_dependency: Option<String>,
@@ -322,6 +350,11 @@ impl TaskTemplate {
                     ));
                 }
             }
+
+            // Validate decision point constraints
+            if let Err(e) = step.validate_decision_constraints() {
+                errors.push(e);
+            }
         }
 
         // Validate no circular dependencies
@@ -363,6 +396,32 @@ impl StepDefinition {
     /// Check if this step depends on another step
     pub fn depends_on(&self, other_step_name: &str) -> bool {
         self.dependencies.contains(&other_step_name.to_string())
+    }
+
+    /// Check if this is a decision point step
+    pub fn is_decision(&self) -> bool {
+        matches!(self.step_type, StepType::Decision)
+    }
+
+    /// Validate decision point constraints
+    ///
+    /// Decision points must:
+    /// - Have at least one dependency (parent step)
+    /// - Not be isolated (must have potential downstream impact)
+    pub fn validate_decision_constraints(&self) -> Result<(), String> {
+        if !self.is_decision() {
+            return Ok(());
+        }
+
+        // Decision steps must have at least one parent dependency
+        if self.dependencies.is_empty() {
+            return Err(format!(
+                "Decision step '{}' must have at least one dependency",
+                self.name
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -604,5 +663,247 @@ steps:
         assert!(callables.contains(&"MainHandler".to_string()));
         assert!(callables.contains(&"Step1Handler".to_string()));
         assert!(callables.contains(&"Step2Handler".to_string()));
+    }
+
+    #[test]
+    fn test_step_type_default_is_standard() {
+        let step_type = StepType::default();
+        assert_eq!(step_type, StepType::Standard);
+    }
+
+    #[test]
+    fn test_step_type_serialization() {
+        // Standard type serializes to "standard"
+        let standard = StepType::Standard;
+        let json = serde_json::to_string(&standard).expect("Should serialize");
+        assert_eq!(json, "\"standard\"");
+
+        // Decision type serializes to "decision"
+        let decision = StepType::Decision;
+        let json = serde_json::to_string(&decision).expect("Should serialize");
+        assert_eq!(json, "\"decision\"");
+    }
+
+    #[test]
+    fn test_step_type_deserialization() {
+        // "standard" deserializes to Standard
+        let standard: StepType = serde_json::from_str("\"standard\"").expect("Should deserialize");
+        assert_eq!(standard, StepType::Standard);
+
+        // "decision" deserializes to Decision
+        let decision: StepType = serde_json::from_str("\"decision\"").expect("Should deserialize");
+        assert_eq!(decision, StepType::Decision);
+    }
+
+    #[test]
+    fn test_step_definition_defaults_to_standard_type() {
+        let yaml_content = r#"
+name: test_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: simple_step
+    handler:
+      callable: "SimpleHandler"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+        assert_eq!(template.steps.len(), 1);
+        assert_eq!(template.steps[0].step_type, StepType::Standard);
+        assert!(!template.steps[0].is_decision());
+    }
+
+    #[test]
+    fn test_decision_step_from_yaml() {
+        let yaml_content = r#"
+name: test_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: parent_step
+    handler:
+      callable: "ParentHandler"
+  - name: decision_step
+    step_type: decision
+    handler:
+      callable: "DecisionHandler"
+    dependencies: ["parent_step"]
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+        assert_eq!(template.steps.len(), 2);
+
+        let decision_step = &template.steps[1];
+        assert_eq!(decision_step.name, "decision_step");
+        assert_eq!(decision_step.step_type, StepType::Decision);
+        assert!(decision_step.is_decision());
+        assert_eq!(decision_step.dependencies, vec!["parent_step"]);
+    }
+
+    #[test]
+    fn test_decision_step_validation_requires_dependencies() {
+        let yaml_content = r#"
+name: test_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: decision_without_deps
+    step_type: decision
+    handler:
+      callable: "DecisionHandler"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+        let validation_result = template.validate();
+
+        assert!(validation_result.is_err());
+        let error = validation_result.unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Decision step 'decision_without_deps' must have at least one dependency"));
+    }
+
+    #[test]
+    fn test_decision_step_validation_passes_with_dependencies() {
+        let yaml_content = r#"
+name: test_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: parent_step
+    handler:
+      callable: "ParentHandler"
+  - name: decision_step
+    step_type: decision
+    handler:
+      callable: "DecisionHandler"
+    dependencies: ["parent_step"]
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+        let validation_result = template.validate();
+
+        assert!(validation_result.is_ok());
+    }
+
+    #[test]
+    fn test_standard_step_validation_allows_no_dependencies() {
+        let yaml_content = r#"
+name: test_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: independent_step
+    handler:
+      callable: "IndependentHandler"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+        let validation_result = template.validate();
+
+        assert!(validation_result.is_ok());
+    }
+
+    #[test]
+    fn test_step_definition_is_decision_helper() {
+        let standard_step = StepDefinition {
+            name: "standard".to_string(),
+            description: None,
+            handler: HandlerDefinition {
+                callable: "Handler".to_string(),
+                initialization: HashMap::new(),
+            },
+            step_type: StepType::Standard,
+            system_dependency: None,
+            dependencies: vec![],
+            retry: RetryConfiguration::default(),
+            timeout_seconds: None,
+            publishes_events: vec![],
+        };
+        assert!(!standard_step.is_decision());
+
+        let decision_step = StepDefinition {
+            name: "decision".to_string(),
+            description: None,
+            handler: HandlerDefinition {
+                callable: "Handler".to_string(),
+                initialization: HashMap::new(),
+            },
+            step_type: StepType::Decision,
+            system_dependency: None,
+            dependencies: vec!["parent".to_string()],
+            retry: RetryConfiguration::default(),
+            timeout_seconds: None,
+            publishes_events: vec![],
+        };
+        assert!(decision_step.is_decision());
+    }
+
+    #[test]
+    fn test_decision_step_validate_constraints_directly() {
+        // Decision step without dependencies should fail
+        let invalid_decision = StepDefinition {
+            name: "invalid_decision".to_string(),
+            description: None,
+            handler: HandlerDefinition {
+                callable: "Handler".to_string(),
+                initialization: HashMap::new(),
+            },
+            step_type: StepType::Decision,
+            system_dependency: None,
+            dependencies: vec![],
+            retry: RetryConfiguration::default(),
+            timeout_seconds: None,
+            publishes_events: vec![],
+        };
+
+        let result = invalid_decision.validate_decision_constraints();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("must have at least one dependency"));
+
+        // Decision step with dependencies should pass
+        let valid_decision = StepDefinition {
+            name: "valid_decision".to_string(),
+            description: None,
+            handler: HandlerDefinition {
+                callable: "Handler".to_string(),
+                initialization: HashMap::new(),
+            },
+            step_type: StepType::Decision,
+            system_dependency: None,
+            dependencies: vec!["parent".to_string()],
+            retry: RetryConfiguration::default(),
+            timeout_seconds: None,
+            publishes_events: vec![],
+        };
+
+        let result = valid_decision.validate_decision_constraints();
+        assert!(result.is_ok());
+
+        // Standard step should always pass validation
+        let standard_step = StepDefinition {
+            name: "standard".to_string(),
+            description: None,
+            handler: HandlerDefinition {
+                callable: "Handler".to_string(),
+                initialization: HashMap::new(),
+            },
+            step_type: StepType::Standard,
+            system_dependency: None,
+            dependencies: vec![],
+            retry: RetryConfiguration::default(),
+            timeout_seconds: None,
+            publishes_events: vec![],
+        };
+
+        let result = standard_step.validate_decision_constraints();
+        assert!(result.is_ok());
     }
 }
