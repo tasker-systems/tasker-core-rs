@@ -51,6 +51,9 @@ pub enum TaskInitializationError {
 
     #[error("Step enqueuing error: {0}")]
     StepEnqueuing(String),
+
+    #[error("Cycle detected in workflow dependencies: '{from}' -> '{to}' would create a cycle")]
+    CycleDetected { from: String, to: String },
 }
 
 impl TaskInitializationError {

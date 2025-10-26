@@ -222,9 +222,9 @@ pub trait Handler<M: Message>: OrchestrationActor {
 - Atomic operations through actor delegation
 
 **Finalization System** (`tasker-orchestration/src/finalization_claimer.rs`)
-- Atomic SQL-based claiming via `claim_task_for_finalization` function
-- Prevents race conditions when multiple processors attempt to finalize same task
-- Comprehensive metrics for observability
+- **Note**: TAS-37 atomic claiming not yet implemented (spec exists, implementation deferred)
+- Current implementation relies on state machine guards for idempotency
+- Sufficient for recovery scenarios, graceful concurrent handling pending TAS-37
 
 **Circuit Breaker System** (`tasker-shared/src/resilience/`)
 - Protects database and messaging operations from cascading failures
@@ -643,14 +643,16 @@ async fn handle_finalize_task(&self, task_uuid: Uuid)
 - `get_ready_steps()`: Parallel execution candidate discovery
 
 **DAG Operations**
-- `detect_cycle()`: Cycle detection using recursive CTEs
+- `WorkflowStepEdge::would_create_cycle()`: Cycle detection using recursive CTEs (Rust function, not SQL)
+  - Enforced in `WorkflowStepBuilder` during task initialization
+  - Prevents circular workflow dependencies at creation time
 - `calculate_dependency_levels()`: Topological depth calculation
 - `get_step_transitive_dependencies()`: Full dependency tree traversal
 
 **State Management**
-- `transition_task_state_atomic()`: Atomic transitions with ownership
+- `transition_task_state_atomic()`: Atomic transitions (processor ownership tracked for audit, not enforced after TAS-54)
 - `get_current_task_state()`: Current state resolution
-- `finalize_task_completion()`: Task completion orchestration
+- Task finalization handled by `TaskFinalizerActor` using state machine guards
 
 **Analytics and Monitoring**
 - `get_analytics_metrics()`: Comprehensive system analytics
