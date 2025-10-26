@@ -5,41 +5,52 @@
 use opentelemetry::KeyValue;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use crate::actors::{DecisionPointActor, Handler, ProcessDecisionPointMessage};
 use super::metadata_processor::MetadataProcessor;
 use super::state_transition_handler::StateTransitionHandler;
 use super::task_coordinator::TaskCoordinator;
 use tasker_shared::errors::OrchestrationResult;
-use tasker_shared::messaging::StepExecutionStatus;
+use tasker_shared::messaging::{DecisionPointOutcome, StepExecutionStatus};
 use tasker_shared::metrics::orchestration::*;
+use tasker_shared::models::core::task_template::TaskTemplate;
 use tasker_shared::system_context::SystemContext;
 
 use tasker_shared::messaging::{StepExecutionResult, StepResultMessage};
-use tasker_shared::models::{Task, WorkflowStep};
+use tasker_shared::models::{NamedStep, Task, WorkflowStep};
 
 /// Handles different message types for result processing
+///
+/// TAS-53 Phase 6: Now includes decision point detection and dynamic step creation
 #[derive(Clone)]
 pub struct MessageHandler {
     context: Arc<SystemContext>,
     metadata_processor: MetadataProcessor,
     state_transition_handler: StateTransitionHandler,
     task_coordinator: TaskCoordinator,
+    /// TAS-53 Phase 6: Decision point actor for dynamic workflow step creation
+    decision_point_actor: Arc<DecisionPointActor>,
 }
 
 impl MessageHandler {
+    /// Create a new MessageHandler
+    ///
+    /// TAS-53 Phase 6: Now accepts DecisionPointActor for dynamic workflow step creation
     pub fn new(
         context: Arc<SystemContext>,
         metadata_processor: MetadataProcessor,
         state_transition_handler: StateTransitionHandler,
         task_coordinator: TaskCoordinator,
+        decision_point_actor: Arc<DecisionPointActor>,
     ) -> Self {
         Self {
             context,
             metadata_processor,
             state_transition_handler,
             task_coordinator,
+            decision_point_actor,
         }
     }
 
@@ -317,10 +328,231 @@ impl MessageHandler {
             return Err(e);
         }
 
+        // TAS-53 Phase 6: Check for decision point completion and process outcome
+        if let Err(e) = self
+            .process_decision_point_if_needed(step_uuid, status, correlation_id)
+            .await
+        {
+            warn!(
+                correlation_id = %correlation_id,
+                step_uuid = %step_uuid,
+                error = %e,
+                "Failed to process decision point outcome (non-fatal, continuing with task coordination)"
+            );
+        }
+
         // Coordinate task finalization
         self.task_coordinator
             .coordinate_task_finalization(step_uuid, status, correlation_id)
             .await
+    }
+
+    /// TAS-53 Phase 6: Process decision point outcome if this step is a decision point
+    ///
+    /// This method:
+    /// 1. Loads the workflow step and determines if it's a decision point
+    /// 2. If it's a successful decision step, extracts the DecisionPointOutcome
+    /// 3. Sends the outcome to DecisionPointActor for dynamic step creation
+    ///
+    /// Note: Errors are logged but don't fail the overall result processing,
+    /// as decision point processing is an enhancement that shouldn't block
+    /// the core result processing flow.
+    async fn process_decision_point_if_needed(
+        &self,
+        step_uuid: &Uuid,
+        status: &String,
+        correlation_id: Uuid,
+    ) -> OrchestrationResult<()> {
+        // Only process successful completions
+        if status != "completed" {
+            return Ok(());
+        }
+
+        // Load the workflow step
+        let workflow_step = match WorkflowStep::find_by_id(self.context.database_pool(), *step_uuid).await? {
+            Some(step) => step,
+            None => {
+                debug!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    "Workflow step not found for decision point check"
+                );
+                return Ok(());
+            }
+        };
+
+        // Check if this is a decision point by loading the task template
+        let is_decision = self.is_decision_step(&workflow_step, correlation_id).await?;
+        if !is_decision {
+            return Ok(());
+        }
+
+        debug!(
+            correlation_id = %correlation_id,
+            step_uuid = %step_uuid,
+            "Detected decision point step completion, extracting outcome"
+        );
+
+        // Extract the decision outcome from the step results
+        let outcome = match workflow_step.get_step_execution_result() {
+            Some(result) => match DecisionPointOutcome::from_step_result(&result) {
+                Some(outcome) => outcome,
+                None => {
+                    warn!(
+                        correlation_id = %correlation_id,
+                        step_uuid = %step_uuid,
+                        "Decision point step has no valid DecisionPointOutcome in results"
+                    );
+                    return Ok(());
+                }
+            },
+            None => {
+                warn!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    "Decision point step has no results"
+                );
+                return Ok(());
+            }
+        };
+
+        info!(
+            correlation_id = %correlation_id,
+            step_uuid = %step_uuid,
+            requires_creation = outcome.requires_step_creation(),
+            step_count = outcome.step_names().len(),
+            "Processing decision point outcome"
+        );
+
+        // Send to DecisionPointActor for processing
+        let msg = ProcessDecisionPointMessage {
+            workflow_step_uuid: *step_uuid,
+            task_uuid: workflow_step.task_uuid,
+            outcome,
+        };
+
+        match self.decision_point_actor.handle(msg).await {
+            Ok(_result) => {
+                info!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    "Decision point processing completed successfully"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    error = %e,
+                    "Decision point processing failed"
+                );
+                Err(tasker_shared::OrchestrationError::from(e.to_string().as_str()))
+            }
+        }
+    }
+
+    /// Check if a workflow step is a decision point by loading the task template
+    ///
+    /// This method:
+    /// 1. Loads the task to get namespace/task name/version
+    /// 2. Loads the task template from the handler registry
+    /// 3. Finds the step definition by matching the named step name
+    /// 4. Checks if the step definition is a decision step
+    async fn is_decision_step(
+        &self,
+        workflow_step: &WorkflowStep,
+        correlation_id: Uuid,
+    ) -> OrchestrationResult<bool> {
+        // Load the task to get metadata
+        let task = match Task::find_by_id(self.context.database_pool(), workflow_step.task_uuid).await? {
+            Some(task) => task,
+            None => {
+                debug!(
+                    correlation_id = %correlation_id,
+                    task_uuid = %workflow_step.task_uuid,
+                    "Task not found for decision point check"
+                );
+                return Ok(false);
+            }
+        };
+
+        // Get task orchestration metadata
+        let task_metadata = task
+            .for_orchestration(self.context.database_pool())
+            .await
+            .map_err(|e| {
+                tasker_shared::OrchestrationError::from(format!(
+                    "Failed to load task orchestration metadata: {}",
+                    e
+                ).as_str())
+            })?;
+
+        // Load the named step to get the step name
+        let named_step = match NamedStep::find_by_uuid(
+            self.context.database_pool(),
+            workflow_step.named_step_uuid,
+        )
+        .await?
+        {
+            Some(step) => step,
+            None => {
+                debug!(
+                    correlation_id = %correlation_id,
+                    named_step_uuid = %workflow_step.named_step_uuid,
+                    "Named step not found for decision point check"
+                );
+                return Ok(false);
+            }
+        };
+
+        // Load the task template from handler registry
+        let handler_metadata = self
+            .context
+            .task_handler_registry
+            .get_task_template_from_registry(
+                &task_metadata.namespace_name,
+                &task_metadata.task_name,
+                &task_metadata.task_version,
+            )
+            .await
+            .map_err(|e| {
+                tasker_shared::OrchestrationError::from(format!(
+                    "Failed to load task template from registry: {}",
+                    e
+                ).as_str())
+            })?;
+
+        // Extract TaskTemplate from handler metadata
+        let task_template: TaskTemplate = serde_json::from_value(
+            handler_metadata.config_schema.ok_or_else(|| {
+                tasker_shared::OrchestrationError::from("No config schema found in handler metadata")
+            })?,
+        )
+        .map_err(|e| {
+            tasker_shared::OrchestrationError::from(format!(
+                "Failed to deserialize task template: {}",
+                e
+            ).as_str())
+        })?;
+
+        // Find the step definition in the template
+        let step_def = task_template
+            .steps
+            .iter()
+            .find(|s| s.name == named_step.name);
+
+        match step_def {
+            Some(def) => Ok(def.is_decision()),
+            None => {
+                debug!(
+                    correlation_id = %correlation_id,
+                    step_name = %named_step.name,
+                    "Step definition not found in template"
+                );
+                Ok(false)
+            }
+        }
     }
 
     /// Get correlation_id for a step by looking up its task
@@ -368,11 +600,16 @@ mod tests {
         let state_transition_handler = StateTransitionHandler::new(context.clone());
         let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
 
+        // Create DecisionPointActor for testing (TAS-53 Phase 6)
+        let decision_point_service = Arc::new(crate::orchestration::lifecycle::DecisionPointService::new(context.clone()));
+        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(context.clone(), decision_point_service));
+
         let handler = MessageHandler::new(
             context,
             metadata_processor,
             state_transition_handler,
             task_coordinator,
+            decision_point_actor,
         );
 
         // Verify it's created (basic smoke test)
@@ -403,11 +640,16 @@ mod tests {
         let state_transition_handler = StateTransitionHandler::new(context.clone());
         let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
 
+        // Create DecisionPointActor for testing (TAS-53 Phase 6)
+        let decision_point_service = Arc::new(crate::orchestration::lifecycle::DecisionPointService::new(context.clone()));
+        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(context.clone(), decision_point_service));
+
         let handler = MessageHandler::new(
             context.clone(),
             metadata_processor,
             state_transition_handler,
             task_coordinator,
+            decision_point_actor,
         );
 
         let cloned = handler.clone();
@@ -440,11 +682,16 @@ mod tests {
         let state_transition_handler = StateTransitionHandler::new(context.clone());
         let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
 
+        // Create DecisionPointActor for testing (TAS-53 Phase 6)
+        let decision_point_service = Arc::new(crate::orchestration::lifecycle::DecisionPointService::new(context.clone()));
+        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(context.clone(), decision_point_service));
+
         let handler = MessageHandler::new(
             context,
             metadata_processor,
             state_transition_handler,
             task_coordinator,
+            decision_point_actor,
         );
 
         let nonexistent_step = Uuid::new_v4();

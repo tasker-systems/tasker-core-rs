@@ -49,9 +49,10 @@
 //! # }
 //! ```
 
+use crate::actors::DecisionPointActor;
 use crate::orchestration::lifecycle::{
     result_processing::OrchestrationResultProcessor, step_enqueuer_services::StepEnqueuerService,
-    task_finalization::TaskFinalizer,
+    task_finalization::TaskFinalizer, DecisionPointService,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -90,6 +91,8 @@ pub struct StepResultProcessor {
 
 impl StepResultProcessor {
     /// Create a new step result processor with unified client
+    ///
+    /// TAS-53 Phase 6: Now creates DecisionPointActor for dynamic workflow step creation
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
         let config: StepResultProcessorConfig = context.tasker_config.clone().into();
         // Create orchestration result processor with required dependencies
@@ -98,8 +101,13 @@ impl StepResultProcessor {
         let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
 
         let task_finalizer = TaskFinalizer::new(context.clone(), task_claim_step_enqueuer);
+
+        // TAS-53 Phase 6: Create DecisionPointActor for dynamic workflow step creation
+        let decision_point_service = Arc::new(DecisionPointService::new(context.clone()));
+        let decision_point_actor = Arc::new(DecisionPointActor::new(context.clone(), decision_point_service));
+
         let orchestration_result_processor =
-            OrchestrationResultProcessor::new(task_finalizer, context.clone());
+            OrchestrationResultProcessor::new(task_finalizer, context.clone(), decision_point_actor);
 
         Ok(Self {
             context,

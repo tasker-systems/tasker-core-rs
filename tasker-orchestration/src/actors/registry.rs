@@ -3,11 +3,13 @@
 //! Central registry for all orchestration actors, providing lifecycle management
 //! and unified access to actor instances.
 
+use crate::actors::decision_point_actor::DecisionPointActor;
 use crate::actors::result_processor_actor::ResultProcessorActor;
 use crate::actors::step_enqueuer_actor::StepEnqueuerActor;
 use crate::actors::task_finalizer_actor::TaskFinalizerActor;
 use crate::actors::task_request_actor::TaskRequestActor;
 use crate::actors::traits::OrchestrationActor;
+use crate::orchestration::lifecycle::DecisionPointService;
 use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
 use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
@@ -63,6 +65,9 @@ pub struct ActorRegistry {
 
     /// Task finalizer actor for task finalization with atomic claiming (TAS-46 Phase 3)
     pub task_finalizer_actor: Arc<TaskFinalizerActor>,
+
+    /// Decision point actor for dynamic workflow step creation (TAS-53 Phase 6)
+    pub decision_point_actor: Arc<DecisionPointActor>,
     // Future actors (TAS-46 Phase 3):
     // pub task_initializer_actor: Arc<TaskInitializerActor>,
 }
@@ -126,11 +131,19 @@ impl ActorRegistry {
         task_request_actor.started()?;
         let task_request_actor = Arc::new(task_request_actor);
 
+        // Create DecisionPointActor first (needed by ResultProcessorActor) - TAS-53 Phase 6
+        let decision_point_service = Arc::new(DecisionPointService::new(context.clone()));
+        let mut decision_point_actor =
+            DecisionPointActor::new(context.clone(), decision_point_service);
+        decision_point_actor.started()?;
+        let decision_point_actor = Arc::new(decision_point_actor);
+
         // Create ResultProcessorActor and its dependencies
         let task_finalizer = TaskFinalizer::new(context.clone(), task_claim_step_enqueuer.clone());
         let result_processor = Arc::new(OrchestrationResultProcessor::new(
             task_finalizer,
             context.clone(),
+            decision_point_actor.clone(),
         ));
 
         let mut result_processor_actor =
@@ -150,7 +163,7 @@ impl ActorRegistry {
         task_finalizer_actor.started()?;
         let task_finalizer_actor = Arc::new(task_finalizer_actor);
 
-        tracing::info!("✅ ActorRegistry built successfully with 4 actors");
+        tracing::info!("✅ ActorRegistry built successfully with 5 actors");
 
         Ok(Self {
             context,
@@ -158,6 +171,7 @@ impl ActorRegistry {
             result_processor_actor,
             step_enqueuer_actor,
             task_finalizer_actor,
+            decision_point_actor,
         })
     }
 
@@ -188,6 +202,12 @@ impl ActorRegistry {
         tracing::info!("Shutting down ActorRegistry");
 
         // Call stopped() on all actors in reverse initialization order
+        if let Some(actor) = Arc::get_mut(&mut self.decision_point_actor) {
+            if let Err(e) = actor.stopped() {
+                tracing::error!(error = %e, "Failed to stop DecisionPointActor");
+            }
+        }
+
         if let Some(actor) = Arc::get_mut(&mut self.task_finalizer_actor) {
             if let Err(e) = actor.stopped() {
                 tracing::error!(error = %e, "Failed to stop TaskFinalizerActor");
