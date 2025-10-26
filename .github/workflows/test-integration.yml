@@ -80,7 +80,7 @@ jobs:
           echo "🔨 Building all packages with full features..."
           cargo build --all-features --workspace --bins
           echo "📦 Verifying binaries were created..."
-          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
+          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
@@ -128,7 +128,7 @@ jobs:
       - name: Verify artifacts before upload
         run: |
           echo "📋 Files to be uploaded:"
-          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli || echo "❌ Binaries missing!"
+          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker || echo "❌ Binaries missing!"
           ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extensions not found (expected on some platforms)"
 
       - name: Upload build artifacts for native execution
@@ -139,6 +139,7 @@ jobs:
             target/debug/tasker-server
             target/debug/tasker-worker
             target/debug/tasker-cli
+            target/debug/rust-worker
             workers/ruby/lib/tasker_core/tasker_worker_rb.bundle
             workers/ruby/lib/tasker_core/tasker_worker_rb.so
           retention-days: 1
@@ -235,7 +236,7 @@ jobs:
           fi
 
       - name: Make binaries executable
-        run: chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
+        run: chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker
 
       - name: Install tools
         uses: ./.github/actions/install-tools

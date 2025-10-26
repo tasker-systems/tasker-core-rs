@@ -35,7 +35,7 @@ TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   TASKER_TEMPLATE_PATH="$RUST_TEMPLATE_PATH" \
   TASKER_WEB_BIND_ADDRESS="0.0.0.0:$WORKER_PORT" \
   RUST_LOG=info \
-  target/debug/tasker-worker \
+  target/debug/rust-worker \
   > worker.log 2>&1 &
 WORKER_PID=$!
 echo "Worker PID: $WORKER_PID"
