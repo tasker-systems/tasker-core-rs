@@ -954,6 +954,7 @@ async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> C
                  # Environment Variable Overrides (applied at runtime):\n\
                  # - DATABASE_URL: Override database.url (K8s secrets rotation)\n\
                  # - TASKER_TEMPLATE_PATH: Override worker.template_path (testing)\n\
+                 # - TASKER_WEB_BIND_ADDRESS: Override web bind address (CI/testing port isolation)\n\
                  #\n\n",
                 context,
                 environment,

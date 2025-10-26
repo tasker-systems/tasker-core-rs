@@ -43,8 +43,8 @@ cd workers/ruby
 TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
   TASKER_ENV=test \
+  TASKER_WEB_BIND_ADDRESS="0.0.0.0:$RUBY_WORKER_PORT" \
   bundle exec bin/server.rb \
-  --port "$RUBY_WORKER_PORT" \
   > ../../ruby-worker.log 2>&1 &
 RUBY_WORKER_PID=$!
 echo "Ruby worker PID: $RUBY_WORKER_PID"

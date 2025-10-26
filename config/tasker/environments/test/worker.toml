@@ -16,7 +16,7 @@ max_database_connections = 10
 
 [worker_system.web]
 enabled = true
-bind_address = "0.0.0.0:8081"  # Worker binds to 8081 internally (Docker maps external ports)
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"  # Worker binds to 8081 internally (Docker maps external ports)
 request_timeout_ms = 5000
 
 # Smaller MPSC channel buffers for tests (TAS-51)

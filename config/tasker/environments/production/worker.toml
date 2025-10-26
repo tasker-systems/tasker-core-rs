@@ -21,7 +21,7 @@ max_database_connections = 100
 
 [worker_system.web]
 enabled = true
-bind_address = "0.0.0.0:8081"
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
 request_timeout_ms = 60000
 
 

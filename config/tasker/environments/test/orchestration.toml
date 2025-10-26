@@ -12,7 +12,7 @@ max_backoff_seconds = 10
 
 [orchestration_system.web]
 enabled = true
-bind_address = "0.0.0.0:8080"
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
 request_timeout_ms = 5000
 
 # Smaller MPSC channel buffers for tests (TAS-51)
