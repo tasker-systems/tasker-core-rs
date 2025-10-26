@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-10-14
+**Last Updated**: 2025-10-26
 
 ## Project Overview
 
@@ -431,10 +431,11 @@ PostgreSQL-based queues with namespace isolation:
 - Transactional message processing
 - Atomic send + notify via pgmq_send_with_notify
 
-**TAS-41 Enhancements**: Processor ownership tracking
+**TAS-41/TAS-54 State Management**: Processor tracking and automatic recovery
 - 12 comprehensive task states for fine-grained control
-- Atomic state transitions with ownership validation
-- Prevents concurrent processing by multiple orchestrators
+- Atomic state transitions with audit trail (TAS-41)
+- Processor UUID tracked for debugging, not enforced (TAS-54)
+- Tasks automatically recover after orchestrator crashes
 
 ## Deployment Modes
 
@@ -583,11 +584,12 @@ let task_response = manager.orchestration_client.create_task(request).await?;
 4. Task processes step results and discovers next steps
 5. Task completes when all steps are complete
 
-**Processor Ownership (TAS-41)**
-- States requiring ownership: `Initializing`, `EnqueuingSteps`, `StepsInProcess`, `EvaluatingResults`
-- Processor UUID stored in `tasker_task_transitions.processor_uuid`
-- Atomic ownership claiming prevents concurrent processing
-- Ownership validated on each transition attempt
+**Processor Ownership (TAS-41, TAS-54)**
+- **TAS-54 Update**: Processor ownership enforcement removed for stale task recovery
+- Processor UUID stored in `tasker_task_transitions.processor_uuid` for audit trail only
+- No longer enforces ownership - any orchestrator can process any task
+- Idempotency guaranteed by state guards, transaction atomicity, and atomic claiming
+- Tasks automatically recover when orchestrator restarts with different UUID
 
 ### Command Types and Actor Mapping
 
@@ -657,6 +659,15 @@ async fn handle_finalize_task(&self, task_uuid: Uuid)
 
 ### Completed Features (Production Ready)
 
+**TAS-54**: Processor ownership removal for automatic stale task recovery (October 2025)
+- Removed processor UUID enforcement from TaskStateMachine transitions
+- Changed to audit-only mode - processor UUID tracked but not enforced
+- Tasks automatically recover when orchestrator crashes and restarts with different UUID
+- Idempotency guaranteed by state guards, transaction atomicity, unique constraints, and atomic claiming
+- Comprehensive audit trail maintained via processor UUID in transitions
+- All 377 tests passing after ownership removal
+- Zero manual intervention needed for stale task recovery
+
 **TAS-51**: Bounded MPSC channels with configuration-driven capacity (October 2025)
 - Migrated all unbounded channels to bounded with configurable capacities
 - Configuration-driven buffer sizing with environment-specific overrides
@@ -674,10 +685,11 @@ async fn handle_finalize_task(&self, task_uuid: Uuid)
 - Zero breaking changes: all refactoring internal, full test coverage
 - Clean architecture: pure routing, hydration layer, single responsibility
 
-**TAS-41**: Enhanced state machines with processor ownership
+**TAS-41**: Enhanced state machines with processor tracking
 - 12 task states for fine-grained control
 - Atomic state transitions preventing race conditions
 - Comprehensive audit trail with transition metadata
+- **Note**: Processor ownership enforcement removed in TAS-54 (audit-only mode)
 
 **TAS-40**: Command pattern replacement
 - Simplified architecture replacing complex coordinators
