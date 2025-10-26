@@ -12,6 +12,24 @@ use tasker_client::OrchestrationApiClient;
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::models::orchestration::execution_status::ExecutionStatus;
 
+/// Get appropriate timeout for task completion based on environment
+///
+/// In CI environments (GitHub Actions, etc.), tasks take longer due to:
+/// - Shared CPU resources
+/// - All services running natively (not isolated in Docker)
+/// - Higher contention for database connections
+///
+/// Returns:
+/// - 15 seconds in CI (detected via CI environment variable)
+/// - 5 seconds locally (fast feedback for development)
+pub fn get_task_completion_timeout() -> u64 {
+    if std::env::var("CI").is_ok() {
+        15 // CI environment - allow more time for shared resources
+    } else {
+        5 // Local development - keep fast feedback
+    }
+}
+
 /// Helper to create a TaskRequest matching CLI usage
 pub fn create_task_request(
     namespace: &str,

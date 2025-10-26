@@ -73,3 +73,8 @@ pub fn template_routes() -> Router<Arc<WorkerWebState>> {
             post(handlers::templates::refresh_template),
         )
 }
+
+/// Configuration observability routes - unified endpoint
+pub fn config_routes() -> Router<Arc<WorkerWebState>> {
+    Router::new().route("/config", get(handlers::config::get_config))
+}

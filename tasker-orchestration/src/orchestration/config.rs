@@ -31,7 +31,7 @@ mod tests {
 
         // Test basic configuration structure is loaded
         assert!(!config.orchestration.web.auth.enabled);
-        assert!(!config.database.enable_secondary_database);
+        // enable_secondary_database field removed - not functional
         assert_eq!(
             config.backoff.default_backoff_seconds,
             vec![1, 2, 4, 8, 16, 32]

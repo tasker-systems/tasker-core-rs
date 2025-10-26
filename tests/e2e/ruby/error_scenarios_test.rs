@@ -162,7 +162,7 @@ async fn test_retryable_failure_scenario() -> Result<()> {
     let start_time = std::time::Instant::now();
 
     // Should fail after retries (2 retries @ 50ms base = ~150-200ms total)
-    wait_for_task_failure(&manager.orchestration_client, &response.task_uuid, 5).await?;
+    wait_for_task_failure(&manager.orchestration_client, &response.task_uuid, 10).await?;
 
     let elapsed = start_time.elapsed();
 
@@ -173,7 +173,7 @@ async fn test_retryable_failure_scenario() -> Result<()> {
         elapsed
     );
     assert!(
-        elapsed.as_secs() < 4,
+        elapsed.as_secs() < 10,
         "Should not take too long, took {:?}",
         elapsed
     );

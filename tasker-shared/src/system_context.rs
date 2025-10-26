@@ -6,6 +6,7 @@ use crate::resilience::CircuitBreakerManager;
 use crate::{TaskerError, TaskerResult};
 use pgmq_notify::PgmqClient;
 use sqlx::PgPool;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
@@ -66,21 +67,252 @@ impl std::fmt::Debug for SystemContext {
 }
 
 impl SystemContext {
-    /// Create SystemContext with environment-aware configuration loading
+    /// Create SystemContext for orchestration using single-file configuration (TAS-50 Phase 3)
     ///
-    /// This is the primary initialization method that auto-detects environment and loads
-    /// the appropriate configuration, then bootstraps all shared system components
-    /// with the parsed configuration settings.
+    /// This method loads orchestration configuration from a single merged TOML file
+    /// specified by the TASKER_CONFIG_PATH environment variable. The file should contain:
+    /// - CommonConfig (database, queues, circuit breakers)
+    /// - OrchestrationConfig (backoff, orchestration system, task readiness)
+    ///
+    /// The configuration file should be generated using the tasker-cli config merge command.
+    ///
+    /// **FAIL LOUDLY**: This method will fail with explicit errors if:
+    /// - TASKER_CONFIG_PATH environment variable is not set
+    /// - Configuration file doesn't exist at the specified path
+    /// - TOML cannot be parsed or deserialized into orchestration config structs
     ///
     /// # Returns
-    /// Fully configured SystemContext with all components initialized from configuration
-    pub async fn new() -> TaskerResult<Self> {
-        info!("Initializing SystemContext with auto-detected environment configuration");
+    /// Fully configured SystemContext for orchestration with validated configuration
+    ///
+    /// # Errors
+    /// Returns TaskerError::ConfigurationError with explicit failure reason if:
+    /// - Environment variable not set
+    /// - File not found
+    /// - Parse/validation errors
+    pub async fn new_for_orchestration() -> TaskerResult<Self> {
+        info!("Initializing SystemContext for orchestration with single-file configuration (TAS-50 Phase 3)");
 
-        // Auto-detect environment and load configuration
-        let config_manager = ConfigManager::load().map_err(|e| {
-            TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
+        // TAS-50: Configuration path resolution with convention-based fallback
+        // Precedence:
+        //   1. TASKER_CONFIG_PATH (explicit single file) - Docker/production deployment
+        //   2. TASKER_CONFIG_ROOT/{context}-{environment}.toml - Test/development convention
+        //   3. (Test-only) complete-test.toml in project root - Zero-config test default
+        let (path, source) = if let Ok(config_path) = std::env::var("TASKER_CONFIG_PATH") {
+            (PathBuf::from(&config_path), "TASKER_CONFIG_PATH")
+        } else if let Ok(config_root) = std::env::var("TASKER_CONFIG_ROOT") {
+            // Convention-based path from TASKER_CONFIG_ROOT
+            let environment = crate::config::UnifiedConfigLoader::detect_environment();
+            let convention_path = PathBuf::from(&config_root)
+                .join("tasker")
+                .join("orchestration-{}.toml".replace("{}", &environment));
+
+            info!(
+                "Using convention-based config path: {} (environment={})",
+                convention_path.display(),
+                environment
+            );
+
+            (convention_path, "TASKER_CONFIG_ROOT (convention)")
+        } else {
+            // Final fallback: try complete-test.toml in project root (only for TASKER_ENV=test)
+            // This provides zero-config test support without requiring TASKER_CONFIG_PATH
+            let environment = crate::config::UnifiedConfigLoader::detect_environment();
+
+            if environment == "test" {
+                let workspace = workspace_tools::workspace().map_err(|e| {
+                    TaskerError::ConfigurationError(format!("Failed to find workspace root: {}", e))
+                })?;
+                let test_config = workspace.join("config/tasker/complete-test.toml");
+
+                if test_config.exists() {
+                    info!(
+                        "🧪 Using test default: {} (TASKER_ENV=test, no config path set)",
+                        test_config.display()
+                    );
+                    (test_config, "Test default (complete-test.toml)")
+                } else {
+                    return Err(TaskerError::ConfigurationError(
+                        "TASKER_ENV=test but test default config not found. \
+                            Set TASKER_CONFIG_PATH or TASKER_CONFIG_ROOT, or ensure complete-test.toml exists."
+                            .to_string(),
+                    ));
+                }
+            } else {
+                return Err(TaskerError::ConfigurationError(
+                    format!(
+                        "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set (environment: {}). \
+                            For Docker/production: set TASKER_CONFIG_PATH to the merged config file. \
+                            For tests/development: set TASKER_CONFIG_ROOT to the config directory.",
+                        environment
+                    )
+                ));
+            }
+        };
+
+        info!(
+            "📋 Loading orchestration configuration from: {} (source: {})",
+            path.display(),
+            source
+        );
+
+        // Load orchestration context configuration from single file - FAIL LOUDLY on errors
+        let context_manager = ConfigManager::load_from_single_file(
+            &path,
+            crate::config::contexts::ConfigContext::Orchestration,
+        )
+        .map_err(|e| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to load orchestration configuration from {}: {}",
+                path.display(),
+                e
+            ))
         })?;
+
+        // Build TaskerConfig from context configs for backward compatibility
+        let tasker_config = context_manager.as_tasker_config().ok_or_else(|| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to build TaskerConfig from orchestration configuration in {}",
+                path.display()
+            ))
+        })?;
+
+        // Wrap in Arc<ConfigManager> for compatibility with existing code
+        let config_manager = Arc::new(ConfigManager::from_tasker_config(
+            tasker_config,
+            context_manager.environment().to_string(),
+        ));
+
+        info!(
+            "Orchestration configuration loaded successfully from {}: environment={}",
+            path.display(),
+            config_manager.environment()
+        );
+
+        Self::from_config(config_manager).await
+    }
+
+    /// Create SystemContext for worker using single-file configuration (TAS-50 Phase 3)
+    ///
+    /// This method loads worker configuration from a single merged TOML file
+    /// specified by the TASKER_CONFIG_PATH environment variable. The file should contain:
+    /// - CommonConfig (database, queues, circuit breakers)
+    /// - WorkerConfig (worker system, step processing, web API)
+    ///
+    /// The configuration file should be generated using the tasker-cli config merge command.
+    ///
+    /// **FAIL LOUDLY**: This method will fail with explicit errors if:
+    /// - TASKER_CONFIG_PATH environment variable is not set
+    /// - Configuration file doesn't exist at the specified path
+    /// - TOML cannot be parsed or deserialized into worker config structs
+    ///
+    /// # Returns
+    /// Fully configured SystemContext for worker with validated configuration
+    ///
+    /// # Errors
+    /// Returns TaskerError::ConfigurationError with explicit failure reason if:
+    /// - Environment variable not set
+    /// - File not found
+    /// - Parse/validation errors
+    pub async fn new_for_worker() -> TaskerResult<Self> {
+        info!(
+            "Initializing SystemContext for worker with single-file configuration (TAS-50 Phase 3)"
+        );
+
+        // TAS-50: Configuration path resolution with convention-based fallback
+        // Precedence:
+        //   1. TASKER_CONFIG_PATH (explicit single file) - Docker/production deployment
+        //   2. TASKER_CONFIG_ROOT/{context}-{environment}.toml - Test/development convention
+        //   3. (Test-only) complete-test.toml in project root - Zero-config test default
+        let (path, source) = if let Ok(config_path) = std::env::var("TASKER_CONFIG_PATH") {
+            (PathBuf::from(&config_path), "TASKER_CONFIG_PATH")
+        } else if let Ok(config_root) = std::env::var("TASKER_CONFIG_ROOT") {
+            // Convention-based path from TASKER_CONFIG_ROOT
+            let environment = crate::config::UnifiedConfigLoader::detect_environment();
+            let convention_path = PathBuf::from(&config_root)
+                .join("tasker")
+                .join("worker-{}.toml".replace("{}", &environment));
+
+            info!(
+                "Using convention-based config path: {} (environment={})",
+                convention_path.display(),
+                environment
+            );
+
+            (convention_path, "TASKER_CONFIG_ROOT (convention)")
+        } else {
+            // Final fallback: try complete-test.toml in project root (only for TASKER_ENV=test)
+            // This provides zero-config test support without requiring TASKER_CONFIG_PATH
+            let environment = crate::config::UnifiedConfigLoader::detect_environment();
+
+            if environment == "test" {
+                let workspace = workspace_tools::workspace().map_err(|e| {
+                    TaskerError::ConfigurationError(format!("Failed to find workspace root: {}", e))
+                })?;
+                let test_config = workspace.join("config/tasker/complete-test.toml");
+
+                if test_config.exists() {
+                    info!(
+                        "🧪 Using test default: {} (TASKER_ENV=test, no config path set)",
+                        test_config.display()
+                    );
+                    (test_config, "Test default (complete-test.toml)")
+                } else {
+                    return Err(TaskerError::ConfigurationError(
+                        "TASKER_ENV=test but test default config not found. \
+                            Set TASKER_CONFIG_PATH or TASKER_CONFIG_ROOT, or ensure complete-test.toml exists."
+                            .to_string(),
+                    ));
+                }
+            } else {
+                return Err(TaskerError::ConfigurationError(
+                    format!(
+                        "Neither TASKER_CONFIG_PATH nor TASKER_CONFIG_ROOT is set (environment: {}). \
+                            For Docker/production: set TASKER_CONFIG_PATH to the merged config file. \
+                            For tests/development: set TASKER_CONFIG_ROOT to the config directory.",
+                        environment
+                    )
+                ));
+            }
+        };
+
+        info!(
+            "📋 Loading worker configuration from: {} (source: {})",
+            path.display(),
+            source
+        );
+
+        // Load worker context configuration from single file - FAIL LOUDLY on errors
+        let context_manager = ConfigManager::load_from_single_file(
+            &path,
+            crate::config::contexts::ConfigContext::Worker,
+        )
+        .map_err(|e| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to load worker configuration from {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+        // Build TaskerConfig from context configs for backward compatibility
+        let tasker_config = context_manager.as_tasker_config().ok_or_else(|| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to build TaskerConfig from worker configuration in {}",
+                path.display()
+            ))
+        })?;
+
+        // Wrap in Arc<ConfigManager> for compatibility with existing code
+        let config_manager = Arc::new(ConfigManager::from_tasker_config(
+            tasker_config,
+            context_manager.environment().to_string(),
+        ));
+
+        info!(
+            "Worker configuration loaded successfully from {}: environment={}",
+            path.display(),
+            config_manager.environment()
+        );
 
         Self::from_config(config_manager).await
     }
@@ -129,13 +361,13 @@ impl SystemContext {
             .max_connections(config.database.pool.max_connections)
             .min_connections(config.database.pool.min_connections)
             .acquire_timeout(std::time::Duration::from_secs(
-                config.database.checkout_timeout,
-            ))
-            .max_lifetime(std::time::Duration::from_secs(
-                config.database.pool.max_lifetime_seconds,
+                config.database.pool.acquire_timeout_seconds,
             ))
             .idle_timeout(Some(std::time::Duration::from_secs(
-                config.database.reaping_frequency,
+                config.database.pool.idle_timeout_seconds,
+            )))
+            .max_lifetime(Some(std::time::Duration::from_secs(
+                config.database.pool.max_lifetime_seconds,
             )))
     }
 
@@ -288,13 +520,24 @@ impl SystemContext {
 
         let system_id = Uuid::new_v4();
 
-        // Create minimal default configuration for testing
-        // Auto-detect environment and load configuration
-        let config_manager = ConfigManager::load().map_err(|e| {
-            TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
+        // Create minimal default configuration for testing using context-specific loading (TAS-50 Phase 2)
+        // Use Combined context for test compatibility (includes all configuration)
+        let context_manager =
+            ConfigManager::load_context_direct(crate::config::contexts::ConfigContext::Combined)
+                .map_err(|e| {
+                    TaskerError::ConfigurationError(format!(
+                        "Failed to load test configuration: {e}"
+                    ))
+                })?;
+
+        // Build TaskerConfig from context configs for backward compatibility with tests
+        let tasker_config_inner = context_manager.as_tasker_config().ok_or_else(|| {
+            TaskerError::ConfigurationError(
+                "Failed to build TaskerConfig from combined context for testing".to_string(),
+            )
         })?;
 
-        let tasker_config = Arc::new(config_manager.config().clone());
+        let tasker_config = Arc::new(tasker_config_inner);
 
         // Create standard PGMQ client (no circuit breaker for simplicity)
         let message_client = Arc::new(UnifiedPgmqClient::new_standard(

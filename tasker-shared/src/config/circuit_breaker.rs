@@ -27,9 +27,6 @@ pub struct CircuitBreakerGlobalSettings {
     /// Interval for metrics collection and reporting in seconds
     pub metrics_collection_interval_seconds: u64,
 
-    /// Whether to enable automatic circuit breaker creation
-    pub auto_create_enabled: bool,
-
     /// Minimum interval between state transitions in seconds (prevents oscillation)
     pub min_state_transition_interval_seconds: f64,
 }
@@ -76,7 +73,6 @@ impl CircuitBreakerGlobalSettings {
             metrics_collection_interval: Duration::from_secs(
                 self.metrics_collection_interval_seconds,
             ),
-            auto_create_enabled: self.auto_create_enabled,
             min_state_transition_interval: Duration::from_secs_f64(
                 self.min_state_transition_interval_seconds,
             ),

@@ -1,17 +1,30 @@
-[orchestration]
-mode = "distributed"
-enable_performance_logging = false
-active_namespaces = [
-    "diamond_workflow",
-    "mixed_dag_workflow",
-    "order_fulfillment",
-    "linear_workflow",
-    "tree_workflow",
-]
-heartbeat_interval_ms = 10000
+# Override environment for production
+environment = "production"
+
+[orchestration_system]
+enable_performance_logging = true
 
 
-[orchestration.queues.settings]
-visibility_timeout_seconds = 300
-message_retention_seconds = 2592000
-max_receive_count = 5
+[orchestration_system.web]
+enabled = true
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
+request_timeout_ms = 60000
+
+
+[orchestration_system.web.database_pools]
+web_api_pool_size = 20
+web_api_max_connections = 30
+
+# Larger MPSC channel buffers for production (TAS-51)
+
+[mpsc_channels.command_processor]
+command_buffer_size = 5000
+
+
+[mpsc_channels.event_systems]
+event_channel_buffer_size = 5000
+
+
+[mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 50000  # Very large for production notification bursts
+

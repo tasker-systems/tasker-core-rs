@@ -2,12 +2,31 @@ name: E2E Tests (All Workers)
 
 on:
   workflow_call:
+    inputs:
+      postgres-image:
+        required: true
+        type: string
 
 jobs:
-  e2e-tests:
-    name: E2E Tests (Rust + Ruby FFI Workers)
+  build-and-unit-tests:
+    name: Build + Unit Tests
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -15,6 +34,103 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
+            ${{ runner.os }}-cargo-
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install tools
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "nextest sqlx-cli"
+
+      - name: Setup database
+        run: sqlx migrate run
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Build all packages
+        run: |
+          echo "🔨 Building all packages with full features..."
+          cargo build --all-features --all-targets
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Run unit tests
+        run: |
+          echo "🧪 Running unit tests (with postgres service)..."
+          mkdir -p target/nextest/ci
+
+          cargo nextest run \
+            --profile ci \
+            --lib \
+            --package tasker-shared \
+            --package tasker-orchestration \
+            --package tasker-worker \
+            --package pgmq-notify \
+            --package tasker-client \
+            --no-fail-fast
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Run doctests
+        run: |
+          echo "📚 Running documentation tests..."
+          cargo test --doc \
+            --package tasker-shared \
+            --package tasker-orchestration \
+            --package tasker-worker \
+            --package pgmq-notify \
+            --package tasker-client
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Upload unit test results
+        uses: actions/upload-artifact@v4
+        if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
+        with:
+          name: unit-test-results
+          path: target/nextest/ci/junit.xml
+
+  integration-tests:
+    name: Integration & E2E Tests (Rust + Ruby FFI Workers)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    needs: build-and-unit-tests
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
+            ${{ runner.os }}-cargo-
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
@@ -42,8 +158,8 @@ jobs:
 
       - name: Build and start Docker services
         run: |
-          echo "🐳 Building and starting Docker services in parallel..."
-          echo "   Disk cleanup freed ~30GB - should be sufficient for parallel builds"
+          echo "🐳 Building and starting Docker services..."
+          echo "   Note: Rust compilation already cached from build job!"
 
           docker compose -f docker/docker-compose.test.yml up --build -d
 
@@ -96,25 +212,25 @@ jobs:
             echo "⚠️ Warning: No Ruby handlers discovered"
           fi
 
-      - name: Run comprehensive test suite
+      - name: Run integration and E2E tests
         run: |
-          echo "🏁 Running comprehensive test suite across all packages..."
-          echo "   - Unit tests (all packages)"
+          echo "🏁 Running integration and E2E tests..."
           echo "   - Integration tests (lifecycle, SQL functions)"
           echo "   - E2E tests (Rust + Ruby workers)"
+          echo "   Note: Unit tests already passed in build job!"
 
           # Ensure nextest output directory exists
           mkdir -p target/nextest/ci
 
-          # Run ALL tests: unit + integration + E2E across all packages
+          # Run ONLY integration and E2E tests (binaries pre-compiled from build job)
           cargo nextest run \
             --profile ci \
             --package tasker-shared \
             --package tasker-orchestration \
             --package tasker-worker \
-            --package pgmq-notify \
             --package tasker-client \
             --package tasker-core \
+            --test '*' \
             --no-fail-fast
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
@@ -123,11 +239,11 @@ jobs:
           TASKER_TEST_RUBY_WORKER_URL: http://localhost:8082
           RUST_LOG: info
 
-      - name: Upload test results
+      - name: Upload integration test results
         uses: actions/upload-artifact@v4
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
-          name: e2e-test-results
+          name: integration-test-results
           path: target/nextest/ci/junit.xml
 
       - name: Collect service logs on failure

@@ -1,0 +1,714 @@
+# Tasker Configuration - complete Context
+# Environment: test
+# Generated: 2025-10-24T19:07:36.978815+00:00
+# Source: config/tasker
+#
+# This file is a MERGED configuration (base + environment overrides).
+# DO NOT EDIT manually - regenerate using: tasker-cli config generate
+#
+# Environment Variable Overrides (applied at runtime):
+# - DATABASE_URL: Override database.url (K8s secrets rotation)
+# - TASKER_TEMPLATE_PATH: Override worker.template_path (testing)
+#
+
+environment = "test"
+
+[backoff]
+backoff_multiplier = 2.0
+default_backoff_seconds = [
+    1,
+    2,
+    4,
+]
+jitter_enabled = true
+jitter_max_percentage = 0.1
+max_backoff_seconds = 10
+
+[backoff.reenqueue_delays]
+blocked_by_failures = 60
+enqueuing_steps = 0
+evaluating_results = 5
+initializing = 5
+steps_in_process = 10
+waiting_for_dependencies = 45
+waiting_for_retry = 30
+
+[circuit_breakers]
+enabled = true
+
+[circuit_breakers.component_configs.pgmq]
+failure_threshold = 3
+success_threshold = 2
+timeout_seconds = 15
+
+[circuit_breakers.component_configs.task_readiness]
+failure_threshold = 5
+success_threshold = 2
+timeout_seconds = 30
+
+[circuit_breakers.default_config]
+failure_threshold = 3
+success_threshold = 1
+timeout_seconds = 5
+
+[circuit_breakers.global_settings]
+max_circuit_breakers = 20
+metrics_collection_interval_seconds = 10
+min_state_transition_interval_seconds = 1
+
+[database]
+checkout_timeout = 10
+database = "tasker_rust_test"
+encoding = "unicode"
+host = "localhost"
+reaping_frequency = 10
+url = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
+
+[database.pool]
+acquire_timeout_seconds = 5
+idle_timeout_seconds = 60
+max_connections = 10
+max_lifetime_seconds = 3600
+min_connections = 2
+
+[database.pool._docs.max_connections]
+default = "30"
+description = "Maximum number of concurrent database connections in the pool"
+example = """
+# Production example for high-load orchestration
+[database.pool]
+max_connections = 50    # Scale based on concurrent task volume
+min_connections = 10    # Keep connections warm
+"""
+related = [
+    "database.pool.min_connections",
+    "database.pool.acquire_timeout_seconds",
+]
+system_impact = "Controls database connection concurrency. Too few = query queuing and slow task processing. Too many = database resource exhaustion and connection overhead."
+type = "u32"
+valid_range = "1-1000"
+
+[database.pool._docs.max_connections.recommendations.development]
+rationale = "Small pool for local development with low concurrency"
+value = "10"
+
+[database.pool._docs.max_connections.recommendations.production]
+rationale = "Scale based on expected concurrent task and step processing load"
+value = "30-50"
+
+[database.pool._docs.max_connections.recommendations.test]
+rationale = "Minimal connections for test isolation and fast cleanup"
+value = "5"
+
+[database.pool._docs.min_connections]
+default = "8"
+description = "Minimum number of idle connections to maintain in the pool"
+related = ["database.pool.max_connections"]
+system_impact = "Keeps connections warm to avoid cold start latency when processing tasks. Too few = connection setup overhead. Too many = wasted database resources."
+type = "u32"
+valid_range = "1-100"
+
+[database.pool._docs.min_connections.recommendations.development]
+rationale = "Small idle pool for local development"
+value = "4"
+
+[database.pool._docs.min_connections.recommendations.production]
+rationale = "Maintain warm connections for consistent performance"
+value = "8-10"
+
+[database.pool._docs.min_connections.recommendations.test]
+rationale = "Minimal idle connections for test environments"
+value = "2"
+
+[database.variables]
+statement_timeout = 5000
+
+[mpsc_channels.command_processor]
+command_buffer_size = 100
+
+[mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 100
+
+[mpsc_channels.event_subscribers]
+completion_buffer_size = 100
+result_buffer_size = 100
+
+[mpsc_channels.event_systems]
+event_channel_buffer_size = 100
+
+[mpsc_channels.in_process_events]
+broadcast_buffer_size = 1000
+
+[orchestration_events]
+deployment_mode = "Hybrid"
+system_id = "orchestration-event-system"
+
+[orchestration_events._docs.deployment_mode]
+default = "Hybrid"
+description = "Event system deployment mode controlling how orchestration discovers and processes tasks"
+example = """
+# Production hybrid mode with fast fallback polling
+[orchestration_events]
+deployment_mode = "Hybrid"
+
+[orchestration_events.timing]
+fallback_polling_interval_seconds = 5  # Catch any missed events
+"""
+related = [
+    "orchestration_events.timing.fallback_polling_interval_seconds",
+    "orchestration_system.mode",
+]
+system_impact = "Determines coordination mechanism. PollingOnly = reliable but higher latency. EventDrivenOnly = lowest latency but requires stable PostgreSQL LISTEN/NOTIFY. Hybrid = event-driven with polling fallback for best reliability and performance."
+type = "String"
+valid_range = "'PollingOnly', 'EventDrivenOnly', 'Hybrid'"
+
+[orchestration_events._docs.deployment_mode.recommendations.development]
+rationale = "Test event-driven behavior with reliable fallback"
+value = "Hybrid"
+
+[orchestration_events._docs.deployment_mode.recommendations.production]
+rationale = "Event-driven performance with polling fallback for reliability"
+value = "Hybrid"
+
+[orchestration_events._docs.deployment_mode.recommendations.test]
+rationale = "Deterministic polling simplifies test execution and timing"
+value = "PollingOnly"
+
+[orchestration_events.health]
+enabled = true
+error_rate_threshold_per_minute = 5
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[orchestration_events.metadata]
+
+[orchestration_events.processing]
+batch_size = 10
+max_concurrent_operations = 10
+max_retries = 3
+
+[orchestration_events.processing._docs.max_concurrent_operations]
+default = "10"
+description = "Maximum number of concurrent orchestration operations (task initialization, result processing, finalization)"
+example = """
+# High-throughput production orchestration
+[orchestration_events.processing]
+max_concurrent_operations = 50
+batch_size = 20
+
+[database.pool]
+max_connections = 50  # Match orchestration concurrency
+"""
+related = [
+    "database.pool.max_connections",
+    "orchestration_events.processing.batch_size",
+]
+system_impact = "Controls orchestration concurrency and throughput. Too few = slow task processing and queuing. Too many = database connection exhaustion and CPU contention. Should align with database pool size."
+type = "usize"
+valid_range = "1-1000"
+
+[orchestration_events.processing._docs.max_concurrent_operations.recommendations.development]
+rationale = "Moderate concurrency for local development"
+value = "10"
+
+[orchestration_events.processing._docs.max_concurrent_operations.recommendations.production]
+rationale = "Scale based on task volume and database capacity"
+value = "20-50"
+
+[orchestration_events.processing._docs.max_concurrent_operations.recommendations.test]
+rationale = "Low concurrency for predictable test execution"
+value = "5"
+
+[orchestration_events.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 5000
+multiplier = 2.0
+
+[orchestration_events.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 5
+health_check_interval_seconds = 30
+processing_timeout_seconds = 30
+visibility_timeout_seconds = 30
+
+[orchestration_system]
+enable_performance_logging = false
+mode = "standalone"
+
+[orchestration_system._docs.mode]
+default = "standalone"
+description = "Orchestration deployment mode: 'standalone' for single-instance or 'distributed' for multi-instance coordination"
+example = """
+# Production distributed orchestration with multiple instances
+[orchestration_system]
+mode = "distributed"
+enable_performance_logging = true
+"""
+related = ["orchestration_events.deployment_mode"]
+system_impact = "Controls whether orchestration uses single-instance processing or distributed coordination with processor ownership. Standalone is simpler but limits horizontal scaling. Distributed enables multiple orchestrators but requires atomic state transitions."
+type = "String"
+valid_range = "'standalone', 'distributed'"
+
+[orchestration_system._docs.mode.recommendations.development]
+rationale = "Local development typically runs one orchestrator instance"
+value = "standalone"
+
+[orchestration_system._docs.mode.recommendations.production]
+rationale = "Multiple orchestrators for high availability and horizontal scaling"
+value = "distributed"
+
+[orchestration_system._docs.mode.recommendations.test]
+rationale = "Single orchestrator simplifies test execution and debugging"
+value = "standalone"
+
+[orchestration_system.web]
+bind_address = "0.0.0.0:8080"
+enabled = true
+request_timeout_ms = 5000
+
+[orchestration_system.web.auth]
+api_key = ""
+api_key_header = "X-API-Key"
+enabled = false
+jwt_audience = "tasker-api"
+jwt_issuer = "tasker-core"
+jwt_private_key = ""
+jwt_public_key = ""
+jwt_token_expiry_hours = 24
+
+[orchestration_system.web.auth.protected_routes."DELETE /v1/tasks/{task_uuid}"]
+auth_type = "bearer"
+required = true
+
+[orchestration_system.web.auth.protected_routes."GET /v1/analytics/bottlenecks"]
+auth_type = "bearer"
+required = false
+
+[orchestration_system.web.auth.protected_routes."GET /v1/analytics/performance"]
+auth_type = "bearer"
+required = false
+
+[orchestration_system.web.auth.protected_routes."PATCH /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"]
+auth_type = "bearer"
+required = true
+
+[orchestration_system.web.auth.protected_routes."POST /v1/tasks"]
+auth_type = "bearer"
+required = false
+
+[orchestration_system.web.cors]
+allowed_headers = ["*"]
+allowed_methods = [
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "PATCH",
+    "OPTIONS",
+]
+allowed_origins = ["*"]
+enabled = true
+
+[orchestration_system.web.database_pools]
+max_total_connections_hint = 30
+web_api_connection_timeout_seconds = 30
+web_api_idle_timeout_seconds = 600
+web_api_max_connections = 15
+web_api_pool_size = 10
+
+[orchestration_system.web.rate_limiting]
+burst_size = 100
+enabled = false
+per_client_limit = true
+requests_per_minute = 1000
+
+[orchestration_system.web.resilience]
+circuit_breaker_enabled = true
+max_concurrent_requests = 100
+request_timeout_seconds = 30
+
+[orchestration_system.web.tls]
+cert_path = ""
+enabled = false
+key_path = ""
+
+[queues]
+backend = "pgmq"
+default_batch_size = 5
+default_namespace = "default"
+default_visibility_timeout_seconds = 30
+health_check_interval = 60
+max_batch_size = 100
+naming_pattern = "{namespace}_{name}_queue"
+orchestration_namespace = "orchestration"
+worker_namespace = "worker"
+
+[queues.orchestration_queues]
+step_results = "orchestration_step_results_queue"
+task_finalizations = "orchestration_task_finalizations_queue"
+task_requests = "orchestration_task_requests_queue"
+
+[queues.pgmq]
+max_retries = 1
+poll_interval_ms = 250
+shutdown_timeout_seconds = 5
+
+[queues.pgmq._docs.poll_interval_ms]
+default = "250"
+description = "Interval in milliseconds between PGMQ queue polling checks"
+related = [
+    "queues.pgmq.shutdown_timeout_seconds",
+    "queues.default_batch_size",
+]
+system_impact = "Controls polling frequency for queue message checks. Lower values = more responsive but higher database load. Higher values = lower database load but increased latency."
+type = "u64"
+valid_range = "50-5000"
+
+[queues.pgmq._docs.poll_interval_ms.recommendations.development]
+rationale = "Balanced polling for local development"
+value = "250"
+
+[queues.pgmq._docs.poll_interval_ms.recommendations.production]
+rationale = "Reduce database load while maintaining acceptable latency"
+value = "500-1000"
+
+[queues.pgmq._docs.poll_interval_ms.recommendations.test]
+rationale = "Fast polling for responsive test execution"
+value = "100"
+
+[queues.pgmq._docs.shutdown_timeout_seconds]
+default = "5"
+description = "Graceful shutdown timeout for PGMQ operations in seconds"
+related = ["queues.pgmq.poll_interval_ms"]
+system_impact = "Time allowed for in-flight PGMQ messages to complete during shutdown. Too short = message loss during restart. Too long = slow deployments."
+type = "u64"
+valid_range = "1-300"
+
+[queues.pgmq._docs.shutdown_timeout_seconds.recommendations.development]
+rationale = "Allow message completion in local development"
+value = "10"
+
+[queues.pgmq._docs.shutdown_timeout_seconds.recommendations.production]
+rationale = "Ensure in-flight messages complete during rolling deployments"
+value = "30"
+
+[queues.pgmq._docs.shutdown_timeout_seconds.recommendations.test]
+rationale = "Quick shutdown for fast test cycles"
+value = "5"
+
+[queues.rabbitmq]
+connection_timeout_seconds = 10
+
+[shared_channels.event_publisher]
+event_queue_buffer_size = 100
+
+[shared_channels.ffi]
+ruby_event_buffer_size = 100
+
+[task_readiness_events]
+deployment_mode = "Hybrid"
+system_id = "task-readiness-event-system"
+
+[task_readiness_events.health]
+enabled = true
+error_rate_threshold_per_minute = 5
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[task_readiness_events.processing]
+batch_size = 50
+max_concurrent_operations = 100
+max_retries = 3
+
+[task_readiness_events.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 5000
+multiplier = 2.0
+
+[task_readiness_events.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 5
+health_check_interval_seconds = 30
+processing_timeout_seconds = 30
+visibility_timeout_seconds = 30
+
+[worker_events]
+deployment_mode = "Hybrid"
+system_id = "worker-event-system"
+
+[worker_events.health]
+enabled = true
+error_rate_threshold_per_minute = 5
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[worker_events.metadata.fallback_poller]
+age_threshold_seconds = 2
+batch_size = 10
+enabled = true
+max_age_hours = 12
+polling_interval_ms = 500
+visibility_timeout_seconds = 30
+
+[worker_events.metadata.in_process_events]
+deduplication_cache_size = 1000
+ffi_integration_enabled = true
+
+[worker_events.metadata.listener]
+batch_processing = true
+connection_timeout_seconds = 10
+event_timeout_seconds = 30
+max_retry_attempts = 3
+retry_interval_seconds = 5
+
+[worker_events.metadata.resource_limits]
+max_cpu_percent = 80.0
+max_database_connections = 50
+max_memory_mb = 2048
+max_queue_connections = 20
+
+[worker_events.processing]
+batch_size = 10
+max_concurrent_operations = 100
+max_retries = 3
+
+[worker_events.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 5000
+multiplier = 2.0
+
+[worker_events.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 1
+health_check_interval_seconds = 30
+processing_timeout_seconds = 30
+visibility_timeout_seconds = 30
+
+[worker_system]
+worker_id = "test-worker-001"
+worker_type = "general"
+
+[worker_system.event_driven]
+deployment_mode = "Hybrid"
+enabled = true
+health_check_interval_seconds = 30
+health_monitoring_enabled = true
+
+[worker_system.event_driven._docs.deployment_mode]
+default = "Hybrid"
+description = "Worker event system deployment mode controlling how workers discover and claim steps"
+example = """
+# Production hybrid mode with fast fallback
+[worker_system.event_driven]
+deployment_mode = "Hybrid"
+health_monitoring_enabled = true
+
+[worker_system.fallback_poller]
+polling_interval_ms = 45000  # 45s fallback polling
+"""
+related = [
+    "worker_system.fallback_poller.polling_interval_ms",
+    "worker_events.deployment_mode",
+]
+system_impact = "Determines step discovery mechanism. PollingOnly = reliable but higher latency. EventDrivenOnly = lowest latency via PostgreSQL LISTEN/NOTIFY. Hybrid = event-driven with polling fallback for best reliability and performance."
+type = "String"
+valid_range = "'PollingOnly', 'EventDrivenOnly', 'Hybrid'"
+
+[worker_system.event_driven._docs.deployment_mode.recommendations.development]
+rationale = "Test event-driven behavior with reliable fallback"
+value = "Hybrid"
+
+[worker_system.event_driven._docs.deployment_mode.recommendations.production]
+rationale = "Event-driven performance with polling fallback for reliability"
+value = "Hybrid"
+
+[worker_system.event_driven._docs.deployment_mode.recommendations.test]
+rationale = "Deterministic polling for predictable test timing"
+value = "PollingOnly"
+
+[worker_system.fallback_poller]
+age_threshold_seconds = 10
+batch_size = 5
+enabled = true
+max_age_hours = 12
+polling_interval_ms = 45000
+processable_states = [
+    "pending",
+    "waiting_for_dependencies",
+    "waiting_for_retry",
+]
+visibility_timeout_seconds = 30
+
+[worker_system.fallback_poller._docs.polling_interval_ms]
+default = "45000"
+description = "Fallback polling interval when event-driven notifications may be missed"
+example = """
+# PollingOnly mode with fast polling
+[worker_system.event_driven]
+deployment_mode = "PollingOnly"
+
+[worker_system.fallback_poller]
+polling_interval_ms = 500  # Fast polling as primary mechanism
+batch_size = 10
+
+# Hybrid mode with slower fallback
+[worker_system.event_driven]
+deployment_mode = "Hybrid"
+
+[worker_system.fallback_poller]
+polling_interval_ms = 45000  # 45s safety net
+batch_size = 5
+"""
+related = [
+    "worker_system.event_driven.deployment_mode",
+    "worker_system.fallback_poller.batch_size",
+]
+system_impact = "Safety net for event-driven mode. Lower values = more database queries but faster recovery from missed events. Higher values = fewer queries but slower recovery. In pure PollingOnly mode, this becomes the primary discovery mechanism and should be much lower."
+type = "u64"
+valid_range = "100-300000 (0.1s to 5 minutes)"
+
+[worker_system.fallback_poller._docs.polling_interval_ms.recommendations.development]
+rationale = "Moderate polling frequency for development feedback"
+value = "500-5000"
+
+[worker_system.fallback_poller._docs.polling_interval_ms.recommendations.production]
+rationale = "Hybrid mode uses slow fallback, PollingOnly mode needs fast primary polling"
+value = "45000 (Hybrid), 500-1000 (PollingOnly)"
+
+[worker_system.fallback_poller._docs.polling_interval_ms.recommendations.test]
+rationale = "Fast polling for predictable test execution in all modes"
+value = "100"
+
+[worker_system.health_monitoring]
+error_rate_threshold = 0.05
+health_check_interval_seconds = 10
+performance_monitoring_enabled = true
+
+[worker_system.listener]
+batch_processing = true
+connection_timeout_seconds = 10
+event_timeout_seconds = 30
+health_check_interval_seconds = 60
+max_retry_attempts = 3
+retry_interval_seconds = 5
+
+[worker_system.queue_config]
+batch_size = 10
+polling_interval_ms = 100
+visibility_timeout_seconds = 30
+
+[worker_system.resource_limits]
+max_cpu_percent = 80
+max_database_connections = 10
+max_memory_mb = 512
+max_queue_connections = 20
+
+[worker_system.step_processing]
+claim_timeout_seconds = 300
+max_concurrent_steps = 10
+max_retries = 3
+
+[worker_system.step_processing._docs.max_concurrent_steps]
+default = "100"
+description = "Maximum number of steps this worker can process concurrently"
+example = """
+# High-throughput worker for lightweight steps
+[worker_system.step_processing]
+max_concurrent_steps = 200
+claim_timeout_seconds = 300
+
+[worker_system.resource_limits]
+max_memory_mb = 4096
+max_cpu_percent = 90
+"""
+related = [
+    "worker_system.resource_limits.max_memory_mb",
+    "worker_system.resource_limits.max_cpu_percent",
+]
+system_impact = "Controls worker throughput and resource utilization. Too few = underutilized worker capacity and slow step processing. Too many = CPU/memory exhaustion and handler contention. Should consider handler execution time and resource requirements."
+type = "usize"
+valid_range = "1-1000"
+
+[worker_system.step_processing._docs.max_concurrent_steps.recommendations.development]
+rationale = "Moderate concurrency for local development"
+value = "10"
+
+[worker_system.step_processing._docs.max_concurrent_steps.recommendations.production]
+rationale = "Scale based on step complexity and available resources"
+value = "50-200"
+
+[worker_system.step_processing._docs.max_concurrent_steps.recommendations.test]
+rationale = "Low concurrency for deterministic test execution"
+value = "5"
+
+[worker_system.web]
+bind_address = "0.0.0.0:8081"
+enabled = true
+request_timeout_ms = 5000
+
+[worker_system.web.auth]
+api_key = ""
+api_key_header = "X-API-Key"
+enabled = false
+jwt_audience = "worker-api"
+jwt_issuer = "tasker-worker"
+jwt_private_key = ""
+jwt_public_key = ""
+jwt_token_expiry_hours = 24
+
+[worker_system.web.auth.protected_routes."DELETE /templates/cache"]
+auth_type = "bearer"
+required = true
+
+[worker_system.web.auth.protected_routes."GET /handlers"]
+auth_type = "bearer"
+required = false
+
+[worker_system.web.auth.protected_routes."GET /status/detailed"]
+auth_type = "bearer"
+required = false
+
+[worker_system.web.auth.protected_routes."POST /templates/cache/maintain"]
+auth_type = "bearer"
+required = true
+
+[worker_system.web.auth.protected_routes."POST /templates/{namespace}/{name}/{version}/refresh"]
+auth_type = "bearer"
+required = true
+
+[worker_system.web.cors]
+allowed_headers = ["*"]
+allowed_methods = [
+    "GET",
+    "POST",
+    "DELETE",
+    "OPTIONS",
+]
+allowed_origins = ["*"]
+enabled = true
+
+[worker_system.web.database_pools]
+max_total_connections_hint = 15
+web_api_connection_timeout_seconds = 15
+web_api_idle_timeout_seconds = 300
+web_api_max_connections = 10
+web_api_pool_size = 5
+
+[worker_system.web.rate_limiting]
+burst_size = 50
+enabled = false
+per_client_limit = true
+requests_per_minute = 500
+
+[worker_system.web.resilience]
+circuit_breaker_enabled = true
+max_concurrent_requests = 50
+request_timeout_seconds = 30
+
+[worker_system.web.tls]
+cert_path = ""
+enabled = false
+key_path = ""

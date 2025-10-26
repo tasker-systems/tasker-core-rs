@@ -17,7 +17,7 @@ fn config_has_expected_defaults() {
 
     // Database config
     assert_eq!(config.database.database, None);
-    assert!(!config.database.enable_secondary_database);
+    // enable_secondary_database field removed - not functional
 
     // Execution config
     assert_eq!(config.execution.max_concurrent_tasks, 100);

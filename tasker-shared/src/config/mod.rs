@@ -29,14 +29,15 @@
 //! ```
 
 pub mod circuit_breaker;
+pub mod documentation;
 pub mod error;
 pub mod event_systems;
 pub mod executor;
 pub mod manager;
+pub mod merger;
 pub mod mpsc_channels;
 pub mod orchestration;
 pub mod queues;
-pub mod state;
 pub mod task_readiness;
 pub mod tasker;
 pub mod unified_loader;
@@ -45,6 +46,10 @@ pub mod worker;
 
 // Primary exports - TAS-34 Unified Configuration System
 pub use unified_loader::{UnifiedConfigLoader, ValidatedConfig};
+
+// TAS-50: CLI configuration merger and documentation
+pub use documentation::{ConfigDocumentation, EnvironmentRecommendation, ParameterDocumentation};
+pub use merger::ConfigMerger;
 
 // Re-export types and errors
 pub use circuit_breaker::{
@@ -68,7 +73,6 @@ pub use queues::{
 
 pub mod queue_classification;
 pub use queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};
-pub use state::OperationalStateConfig;
 pub use worker::{
     EventSystemConfig as WorkerLegacyEventSystemConfig, HealthMonitoringConfig,
     StepProcessingConfig, WorkerConfig,
@@ -96,9 +100,21 @@ pub use mpsc_channels::{
 };
 
 // Compatibility wrapper (thin wrapper around UnifiedConfigLoader)
-pub use manager::ConfigManager;
+pub use manager::{ConfigManager, ContextConfigManager};
 pub use tasker::{
     BackoffConfig, DatabaseConfig, DatabasePoolConfig, EngineConfig, EventSystemsConfig,
     ExecutionConfig, ReenqueueDelays, SystemConfig, TaskTemplatesConfig, TaskerConfig,
     TelemetryConfig,
+};
+
+// TAS-50: Context-specific configuration system (Phase 1)
+// Non-breaking addition of context-specific configuration structs
+pub mod components;
+pub mod contexts;
+
+// Phase 1: New modules for context-specific configuration
+// These are additive and maintain 100% backward compatibility
+pub use contexts::{
+    CommonConfig, ConfigContext, ConfigurationContext,
+    OrchestrationConfig as ContextOrchestrationConfig, WorkerConfig as ContextWorkerConfig,
 };

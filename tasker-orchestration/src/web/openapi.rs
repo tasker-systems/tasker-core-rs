@@ -17,10 +17,10 @@ use tasker_shared::models::core::task_request::TaskRequest;
 use crate::web::handlers;
 
 use tasker_shared::types::api::orchestration::{
-    BottleneckAnalysis, DetailedHealthResponse, HandlerInfo, HealthCheck, HealthInfo,
-    HealthResponse, ManualResolutionRequest, NamespaceInfo, PerformanceMetrics,
-    ResourceUtilization, SlowStepInfo, SlowTaskInfo, StepResponse, TaskCreationResponse,
-    TaskListResponse, TaskResponse,
+    BottleneckAnalysis, ConfigMetadata, DetailedHealthResponse, HandlerInfo, HealthCheck,
+    HealthInfo, HealthResponse, ManualResolutionRequest, NamespaceInfo,
+    OrchestrationConfigResponse, PerformanceMetrics, ResourceUtilization, SlowStepInfo,
+    SlowTaskInfo, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
 };
 
 /// Main OpenAPI specification for the Tasker Web API
@@ -52,6 +52,9 @@ use tasker_shared::types::api::orchestration::{
         handlers::registry::list_namespaces,
         handlers::registry::list_namespace_handlers,
         handlers::registry::get_handler_info,
+
+        // Config API paths - unified endpoint
+        handlers::config::get_config,
     ),
     components(schemas(
         // Task-related schemas
@@ -86,6 +89,10 @@ use tasker_shared::types::api::orchestration::{
         NamespaceInfo,
         HandlerInfo,
 
+        // Config schemas - unified response types
+        OrchestrationConfigResponse,
+        ConfigMetadata,
+
         // Error schemas (re-exported from errors module)
         ApiError,
     )),
@@ -95,6 +102,7 @@ use tasker_shared::types::api::orchestration::{
         (name = "health", description = "Health check and monitoring"),
         (name = "analytics", description = "Performance analytics and metrics"),
         (name = "handlers", description = "Handler registry and discovery"),
+        (name = "config", description = "Runtime configuration observability (secrets redacted)"),
     ),
     info(
         title = "Tasker Web API",

@@ -25,7 +25,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::common::integration_test_manager::IntegrationTestManager;
-use crate::common::integration_test_utils::{create_task_request, wait_for_task_completion};
+use crate::common::integration_test_utils::{
+    create_task_request, get_task_completion_timeout, wait_for_task_completion,
+};
 
 #[tokio::test]
 async fn test_end_to_end_mixed_dag_workflow() -> Result<()> {
@@ -69,8 +71,14 @@ async fn test_end_to_end_mixed_dag_workflow() -> Result<()> {
     // Monitor task execution
     println!("\n⏱️ Monitoring mixed DAG workflow execution...");
 
-    // Wait for task completion with extended timeout for complex DAG
-    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 5).await?;
+    // Wait for task completion with timeout (15s in CI, 5s locally)
+    let timeout = get_task_completion_timeout();
+    wait_for_task_completion(
+        &manager.orchestration_client,
+        &task_response.task_uuid,
+        timeout,
+    )
+    .await?;
 
     // Verify final results
     println!("\n🔍 Verifying mixed DAG workflow results...");

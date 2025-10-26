@@ -50,8 +50,9 @@ pub fn create_app(app_state: AppState) -> Router {
     let router = Router::new()
         // API v1 routes - versioned endpoints
         .nest("/v1", routes::api_v1_routes())
-        // Health and metrics at root level (Kubernetes standard)
+        // System endpoints at root level (Kubernetes standard)
         .merge(routes::health_routes())
+        .merge(routes::config_routes())
         .merge(routes::docs_routes());
 
     router
@@ -90,7 +91,8 @@ pub fn create_test_app(app_state: AppState) -> Router {
 
     let mut router = Router::new()
         .nest("/v1", routes::api_v1_routes())
-        .merge(routes::health_routes());
+        .merge(routes::health_routes())
+        .merge(routes::config_routes());
 
     // API documentation routes (conditionally included)
     #[cfg(feature = "web-api")]

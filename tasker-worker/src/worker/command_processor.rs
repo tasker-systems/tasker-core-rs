@@ -278,10 +278,19 @@ impl WorkerProcessor {
     /// Start processing worker commands with event integration
     pub async fn start_with_events(&mut self) -> TaskerResult<()> {
         // Start completion listener if event subscriber is enabled
+        // TAS-50 Phase 2-3: Pass buffer size from already-loaded config instead of loading at runtime
+        let completion_buffer_size = self
+            .context
+            .tasker_config
+            .mpsc_channels
+            .worker
+            .event_subscribers
+            .completion_buffer_size;
+
         let completion_receiver = self
             .event_subscriber
             .as_ref()
-            .map(|subscriber| subscriber.start_completion_listener());
+            .map(|subscriber| subscriber.start_completion_listener(completion_buffer_size));
 
         self.start_with_completion_receiver(completion_receiver)
             .await

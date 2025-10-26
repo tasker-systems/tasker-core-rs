@@ -1,0 +1,16 @@
+{
+  "analysis_date": "2025-10-18T16:36:23Z",
+  "parameters": {
+    "common": [],
+    "orchestration": [],
+    "worker": []
+  },
+  "summary": {
+    "total_parameters": 0,
+    "by_context": {
+      "common": 0,
+      "orchestration": 0,
+      "worker": 0
+    }
+  }
+}

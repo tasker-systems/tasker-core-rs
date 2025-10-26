@@ -48,7 +48,8 @@ services:
       RUST_BACKTRACE: 1
       PORT: 8080
       WORKSPACE_PATH: /app
-      TASKER_CONFIG_ROOT: /app/config
+      # TAS-50 Phase 3: Single-file configuration
+      TASKER_CONFIG_PATH: /app/config/tasker/orchestration-test.toml
       # Migration settings
       RUN_MIGRATIONS: "true"
       DEPLOYMENT_MODE: standard
@@ -86,7 +87,8 @@ services:
       RUST_BACKTRACE: 1
       WORKER_ID: test-worker-001
       WORKSPACE_PATH: /app
-      TASKER_CONFIG_ROOT: /app/config
+      # TAS-50 Phase 3: Single-file configuration
+      TASKER_CONFIG_PATH: /app/config/tasker/worker-test.toml
       # Point to centralized E2E test templates for Rust handlers
       TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/rust
       PORT: 8081
@@ -124,7 +126,8 @@ services:
       RUST_BACKTRACE: 1
       WORKER_ID: test-ruby-worker-001
       WORKSPACE_PATH: /app
-      TASKER_CONFIG_ROOT: /app/config
+      # TAS-50 Phase 3: Single-file configuration
+      TASKER_CONFIG_PATH: /app/config/tasker/worker-test.toml
       # Point to centralized E2E test templates for Ruby handlers
       TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/ruby
       # Ruby environment

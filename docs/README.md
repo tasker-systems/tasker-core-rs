@@ -1,6 +1,6 @@
 # Tasker Core Documentation
 
-**Last Updated**: 2025-10-10
+**Last Updated**: 2025-10-17
 **Project Status**: Production Ready
 **Version**: 0.1.0
 
@@ -64,9 +64,13 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 - **[Archive: Deployment](archive/deployment.md)** - Production deployment insights
 
 **Configuration Management**:
+- **[Configuration Management](configuration-management.md)** - Complete configuration guide with TAS-50 Phase 3 updates
+- **[Environment Comparison](environment-configuration-comparison.md)** - Detailed environment settings
 - Component-based TOML configuration (see `config/tasker/base/`)
 - Environment-specific overrides (see `config/tasker/environments/`)
-- Configuration validation via `cargo run --bin config-validator`
+- **Single-file runtime loading** via `TASKER_CONFIG_PATH` (TAS-50 Phase 3)
+- Runtime observability via `/config` API endpoints
+- CLI tools for generation and validation
 
 ---
 
@@ -88,7 +92,9 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 |----------|-------------|----------|
 | **[Quick Start](quick-start.md)** | Get running in 5 minutes | Developers |
 | **[Use Cases & Patterns](use-cases-and-patterns.md)** | Practical workflow examples | All |
-| **[Deployment Patterns](deployment-patterns.md)** | Deployment modes and configuration | Architects, Operators |
+| **[Configuration Management](configuration-management.md)** | TOML architecture, CLI tools, runtime observability | Operators, Developers |
+| **[Environment Comparison](environment-configuration-comparison.md)** | Detailed environment settings | Operators |
+| **[Deployment Patterns](deployment-patterns.md)** | Deployment modes and strategies | Architects, Operators |
 | **[Retry Semantics](retry-semantics.md)** | Retry configuration explained | Developers |
 
 ### Reference Documentation
@@ -171,6 +177,7 @@ tasker-core/
         TAS-43/  # Worker Event System
         TAS-48/  # Task Staleness Relief
         TAS-49/  # Future enhancements
+        TAS-50/  # Configuration CLI & Single-File Runtime Loading
 
     Archive
       archive/
@@ -227,9 +234,11 @@ See **[Crate Architecture](crate-architecture.md)** for detailed explanations.
 
 - **"I want to build a workflow"** -> [Use Cases & Patterns](use-cases-and-patterns.md)
 - **"I need to understand the architecture"** -> [Crate Architecture](crate-architecture.md), [Events and Commands](events-and-commands.md)
+- **"I'm configuring a deployment"** -> [Configuration Management](configuration-management.md) (see Part 5: Deployment Workflows with TAS-50 Phase 3), [Environment Comparison](environment-configuration-comparison.md)
+- **"I'm debugging configuration issues"** -> [Configuration Management](configuration-management.md) (Part 9: Troubleshooting), check `/config` API endpoints
 - **"I'm debugging a state machine issue"** -> [States and Lifecycles](states-and-lifecycles.md)
 - **"I need to optimize performance"** -> [Benchmarks](benchmarks/README.md), [Archive: Performance Optimization](archive/performance-optimization.md)
-- **"I'm deploying to production"** -> [Deployment Patterns](deployment-patterns.md), [Observability](observability/README.md)
+- **"I'm deploying to production"** -> [Configuration Management](configuration-management.md), [Deployment Patterns](deployment-patterns.md), [Observability](observability/README.md)
 - **"I'm writing a custom handler"** -> [Use Cases & Patterns](use-cases-and-patterns.md), [Archive: Ruby Integration](archive/ruby-integration-lessons.md)
 - **"I need to understand SQL functions"** -> [Task Readiness & Execution](task-and-step-readiness-and-execution.md)
 
@@ -239,6 +248,8 @@ See **[Crate Architecture](crate-architecture.md)** for detailed explanations.
 - **Event Systems** -> [Events and Commands](events-and-commands.md)
 - **State Machines** -> [States and Lifecycles](states-and-lifecycles.md)
 - **PGMQ** -> [Events and Commands](events-and-commands.md), [Task Readiness & Execution](task-and-step-readiness-and-execution.md)
+- **Configuration (TOML)** -> [Configuration Management](configuration-management.md), [Environment Comparison](environment-configuration-comparison.md)
+- **REST API** -> [Configuration Management](configuration-management.md) (Part 2: Runtime Observability)
 - **Ruby FFI** -> [Archive: Ruby Integration Lessons](archive/ruby-integration-lessons.md)
 - **Testing** -> [Testing Guide](testing/comprehensive-lifecycle-testing-guide.md), [Archive: Testing Methodologies](archive/testing-methodologies.md)
 
