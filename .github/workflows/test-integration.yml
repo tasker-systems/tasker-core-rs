@@ -119,7 +119,7 @@ jobs:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Upload unit test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
           name: unit-test-results
@@ -132,7 +132,7 @@ jobs:
           ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extensions not found (expected on some platforms)"
 
       - name: Upload build artifacts for native execution
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build-artifacts
           path: |
@@ -293,7 +293,7 @@ jobs:
           RUST_LOG: info
 
       - name: Upload integration test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
           name: integration-test-results-native
@@ -309,7 +309,7 @@ jobs:
 
       - name: Upload service logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: native-service-logs
           path: native-logs/
@@ -444,7 +444,7 @@ jobs:
           RUST_LOG: info
 
       - name: Upload integration test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
           name: integration-test-results-docker
@@ -462,7 +462,7 @@ jobs:
 
       - name: Upload service logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: docker-service-logs
           path: docker-logs/

@@ -90,7 +90,7 @@ jobs:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always() && hashFiles('target/ruby-framework-results.xml') != ''
         with:
           name: ruby-framework-test-results
