@@ -552,9 +552,52 @@ impl DecisionPointOutcome {
 
     /// Try to extract DecisionPointOutcome from StepExecutionResult
     ///
-    /// Returns None if the result does not contain a valid decision outcome
+    /// Returns None if the result does not contain a valid decision outcome.
+    /// The decision_point_outcome is expected to be nested inside the result field:
+    /// ```json
+    /// {
+    ///   "result": {
+    ///     "decision_point_outcome": {
+    ///       "outcome_type": "CreateSteps",
+    ///       "step_names": ["step1", "step2"]
+    ///     }
+    ///   }
+    /// }
+    /// ```
     pub fn from_step_result(result: &StepExecutionResult) -> Option<Self> {
-        serde_json::from_value(result.result.clone()).ok()
+        tracing::warn!(
+            "[TAS-53 DEBUG] Attempting to extract DecisionPointOutcome from result: {:?}",
+            result.result
+        );
+
+        // Extract the decision_point_outcome field from the result object
+        let result_obj = result.result.as_object();
+        if result_obj.is_none() {
+            tracing::warn!("[TAS-53 DEBUG] Result is not an object, cannot extract decision_point_outcome");
+            return None;
+        }
+        let result_obj = result_obj.unwrap();
+        tracing::warn!("[TAS-53 DEBUG] Result is an object with keys: {:?}", result_obj.keys().collect::<Vec<_>>());
+
+        let outcome_value = result_obj.get("decision_point_outcome");
+        if outcome_value.is_none() {
+            tracing::warn!("[TAS-53 DEBUG] No 'decision_point_outcome' field found in result object");
+            return None;
+        }
+        let outcome_value = outcome_value.unwrap();
+        tracing::warn!("[TAS-53 DEBUG] Found decision_point_outcome field: {:?}", outcome_value);
+
+        let parsed: Result<Self, _> = serde_json::from_value(outcome_value.clone());
+        match &parsed {
+            Ok(outcome) => {
+                tracing::warn!("[TAS-53 DEBUG] Successfully parsed DecisionPointOutcome: {:?}", outcome);
+            }
+            Err(e) => {
+                tracing::warn!("[TAS-53 DEBUG] Failed to parse DecisionPointOutcome: {}", e);
+            }
+        }
+
+        parsed.ok()
     }
 }
 
@@ -805,8 +848,13 @@ mod tests {
             "branch_a".to_string(),
             "branch_b".to_string(),
         ]);
+
+        // Wrap the decision outcome in the expected structure
+        let result_data = serde_json::json!({
+            "decision_point_outcome": decision_outcome.to_value()
+        });
         let result =
-            StepExecutionResult::success(step_uuid, decision_outcome.to_value(), 100, None);
+            StepExecutionResult::success(step_uuid, result_data, 100, None);
 
         let extracted = DecisionPointOutcome::from_step_result(&result);
         assert!(extracted.is_some());
@@ -821,8 +869,13 @@ mod tests {
 
         // Test extraction of NoBranches outcome
         let decision_outcome = DecisionPointOutcome::NoBranches;
+
+        // Wrap the decision outcome in the expected structure
+        let result_data = serde_json::json!({
+            "decision_point_outcome": decision_outcome.to_value()
+        });
         let result =
-            StepExecutionResult::success(step_uuid, decision_outcome.to_value(), 100, None);
+            StepExecutionResult::success(step_uuid, result_data, 100, None);
 
         let extracted = DecisionPointOutcome::from_step_result(&result);
         assert!(extracted.is_some());

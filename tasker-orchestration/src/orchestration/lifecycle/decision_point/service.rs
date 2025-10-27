@@ -367,17 +367,26 @@ impl DecisionPointService {
             ))
     }
 
-    /// Determine which steps to create, including exit decision points
+    /// Determine which steps to create, including exit decision points and deferred convergence steps
     ///
     /// When creating steps from a decision outcome, we need to ensure that:
     /// 1. The explicitly requested steps are created
     /// 2. Any exit decision points are ALSO created so they can be discovered and executed
+    /// 3. Any deferred convergence steps whose dependencies intersect with created steps
     ///
     /// For example, with nested decisions:
     /// - decision_step_1 → branch_a → decision_step_2 → final_step
     ///
     /// When decision_step_1 chooses to create "branch_a", we must also create "decision_step_2"
     /// so that it exists and can be discovered by the orchestrator.
+    ///
+    /// For deferred steps (convergence pattern):
+    /// - routing_decision → auto_approve → finalize_approval (deferred)
+    /// - routing_decision → manager_approval → finalize_approval (deferred)
+    ///
+    /// When routing_decision creates "auto_approve", we detect that finalize_approval is deferred
+    /// with dependencies [auto_approve, manager_approval, finance_review]. Since auto_approve is
+    /// being created, we compute the intersection [auto_approve] and include finalize_approval.
     fn determine_steps_to_create(
         &self,
         template: &TaskTemplate,
@@ -406,6 +415,29 @@ impl DecisionPointService {
                     );
                     steps_to_create.insert(exit_decision.clone());
                 }
+            }
+        }
+
+        // Find and include deferred convergence steps
+        let deferred_steps = template.deferred_steps();
+        for deferred_step in &deferred_steps {
+            // Check if any of this deferred step's dependencies are being created
+            let intersection: Vec<String> = deferred_step
+                .dependencies
+                .iter()
+                .filter(|dep| steps_to_create.contains(*dep))
+                .cloned()
+                .collect();
+
+            if !intersection.is_empty() {
+                debug!(
+                    decision = %decision_step_def.name,
+                    deferred_step = %deferred_step.name,
+                    dependencies = ?deferred_step.dependencies,
+                    intersection = ?intersection,
+                    "Including deferred convergence step in step creation"
+                );
+                steps_to_create.insert(deferred_step.name.clone());
             }
         }
 
@@ -495,6 +527,9 @@ impl DecisionPointService {
     }
 
     /// Create dependencies between decision parent and new steps
+    ///
+    /// For deferred convergence steps, only creates edges to dependencies that were
+    /// actually created (intersection of declared dependencies and created steps).
     async fn create_dependencies(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -512,13 +547,23 @@ impl DecisionPointService {
 
             // For each dependency, create an edge
             for dep_name in &step_def.dependencies {
-                // The from_step_uuid is the decision step for dependencies that reference it
-                // For other dependencies, we need to look them up in step_mapping or existing steps
+                // The from_step_uuid is looked up in step_mapping (must exist for created steps)
+                // For deferred steps, we skip dependencies that weren't created
                 let from_step_uuid = if let Some(&from_uuid) = step_mapping.get(dep_name) {
                     from_uuid
                 } else {
-                    // This might be the decision step itself or another existing step
-                    // For now, assume it's the decision step (we validated this earlier)
+                    // For deferred steps, skip dependencies that weren't created
+                    // For regular steps, fall back to decision_step_uuid (parent)
+                    if step_def.is_deferred() {
+                        debug!(
+                            deferred_step = %step_name,
+                            missing_dep = %dep_name,
+                            "Skipping dependency not in created set (deferred step)"
+                        );
+                        continue; // Skip this dependency
+                    }
+
+                    // For regular steps, assume the dependency is the decision step itself
                     decision_step_uuid
                 };
 
@@ -569,6 +614,7 @@ impl DecisionPointService {
                     to = %step_name,
                     from_uuid = %from_step_uuid,
                     to_uuid = %to_step_uuid,
+                    step_type = if step_def.is_deferred() { "deferred" } else { "regular" },
                     "Created workflow step edge"
                 );
             }

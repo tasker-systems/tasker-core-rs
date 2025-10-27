@@ -86,10 +86,12 @@ module TaskerCore
       # Import the existing base step handler with preserved signatures
       require_relative 'step_handler/base'
       require_relative 'step_handler/api'
+      require_relative 'step_handler/decision' # TAS-53: Decision point handlers
 
       # Re-export with clean namespace
       Base = TaskerCore::StepHandler::Base
       API = TaskerCore::StepHandler::Api
+      Decision = TaskerCore::StepHandler::Decision
 
       class << self
         # Create a new step handler instance

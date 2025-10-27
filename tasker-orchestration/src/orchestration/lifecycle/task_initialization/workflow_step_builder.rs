@@ -75,8 +75,13 @@ impl WorkflowStepBuilder {
         task_template: &TaskTemplate,
         step_mapping: &HashMap<String, Uuid>,
     ) -> Result<(), TaskInitializationError> {
+        // Only create dependencies for steps that were actually created (in step_mapping)
+        // For decision-point workflows, this will be the initial_step_set
         for step_definition in &task_template.steps {
-            let to_step_uuid = step_mapping[&step_definition.name];
+            // Skip steps that weren't created in this initialization phase
+            let Some(&to_step_uuid) = step_mapping.get(&step_definition.name) else {
+                continue;
+            };
 
             // Create edges for all dependencies using transaction method
             for dependency_name in &step_definition.dependencies {

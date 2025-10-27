@@ -40,19 +40,30 @@ This document provides the complete implementation plan for TAS-53, which introd
 **Add StepType Enum**:
 ```rust
 /// Type of workflow step
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StepType {
     /// Regular workflow step (default)
-    Regular,
+    #[default]
+    Standard,
+
     /// Decision point step that determines downstream execution paths
     Decision,
-}
 
-impl Default for StepType {
-    fn default() -> Self {
-        StepType::Regular
-    }
+    /// Deferred convergence step with dynamically-resolved dependencies
+    ///
+    /// Used for convergence points where the final step is known, but which
+    /// preceding steps will be created is determined at runtime by a decision point.
+    ///
+    /// The dependencies field lists ALL possible dependencies. At runtime, when
+    /// a decision point creates steps, the system computes the intersection of:
+    /// - Declared dependencies in the template
+    /// - Actually created steps in this pass
+    /// This intersection determines the actual DAG dependencies for the deferred step.
+    ///
+    /// Example: A finalize_approval step that depends on [auto_approve, manager_approval,
+    /// finance_review], but only the steps chosen by the decision point are created.
+    Deferred,
 }
 ```
 

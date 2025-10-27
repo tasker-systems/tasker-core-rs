@@ -10,6 +10,7 @@ require_relative 'types/step_message'
 require_relative 'types/simple_message' # NEW: simplified UUID-based messages
 require_relative 'types/task_template' # TaskTemplate and StepTemplate types
 require_relative 'types/step_handler_call_result' # NEW: standardized handler results
+require_relative 'types/decision_point_outcome' # TAS-53: decision point outcomes
 
 module TaskerCore
   # Centralized type definitions for TaskerCore domain objects

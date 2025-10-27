@@ -67,10 +67,23 @@ module TaskerCore
       attribute(:retry, RetryConfiguration.default { RetryConfiguration.new })
       attribute :timeout_seconds, Types::Integer.optional.default(nil)
       attribute :publishes_events, Types::Array.of(Types::String).default([].freeze)
+      # TAS-53: Decision point step type classification
+      # Matches Rust field serialization name (Rust field: step_type, YAML: type)
+      attribute :type, Types::String.optional.default(nil).enum('standard', 'decision')
 
       # Check if this step depends on another step
       def depends_on?(other_step_name)
         dependencies.include?(other_step_name.to_s)
+      end
+
+      # TAS-53: Check if this is a decision point step
+      def decision?
+        self.type == 'decision'
+      end
+
+      # TAS-53: Check if this is a standard step
+      def standard?
+        self.type.nil? || self.type == 'standard'
       end
     end
 

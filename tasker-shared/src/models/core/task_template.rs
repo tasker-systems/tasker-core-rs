@@ -148,6 +148,21 @@ pub enum StepType {
 
     /// Decision point that dynamically creates downstream steps
     Decision,
+
+    /// Deferred convergence step with dynamically-resolved dependencies
+    ///
+    /// Used for convergence points where the final step is known, but which
+    /// preceding steps will be created is determined at runtime by a decision point.
+    ///
+    /// The dependencies field lists ALL possible dependencies. At runtime, when
+    /// a decision point creates steps, the system computes the intersection of:
+    /// - Declared dependencies in the template
+    /// - Actually created steps in this pass
+    /// This intersection determines the actual DAG dependencies for the deferred step.
+    ///
+    /// Example: A finalize_approval step that depends on [auto_approve, manager_approval,
+    /// finance_review], but only the steps chosen by the decision point are created.
+    Deferred,
 }
 
 /// Individual workflow step definition
@@ -436,6 +451,14 @@ impl TaskTemplate {
     /// Get all decision point steps in this template
     pub fn decision_point_steps(&self) -> Vec<&StepDefinition> {
         self.steps.iter().filter(|s| s.is_decision()).collect()
+    }
+
+    /// Get all deferred convergence steps in the template
+    ///
+    /// Deferred steps are convergence points whose dependencies are dynamically resolved
+    /// at runtime based on which paths were actually created by decision points.
+    pub fn deferred_steps(&self) -> Vec<&StepDefinition> {
+        self.steps.iter().filter(|s| s.is_deferred()).collect()
     }
 
     /// Get the initial step set (steps that should be created during task initialization)
@@ -769,6 +792,11 @@ impl StepDefinition {
     /// Check if this is a decision point step
     pub fn is_decision(&self) -> bool {
         matches!(self.step_type, StepType::Decision)
+    }
+
+    /// Check if this step is a deferred convergence step
+    pub fn is_deferred(&self) -> bool {
+        matches!(self.step_type, StepType::Deferred)
     }
 
     /// Validate decision point constraints
