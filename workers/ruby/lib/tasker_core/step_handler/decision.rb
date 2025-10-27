@@ -203,14 +203,16 @@ module TaskerCore
                          raise_invalid_outcome!('Outcome must be Hash or DecisionPointOutcome')
                        end
 
-        # Validate outcome_type field exists
-        outcome_type = outcome_hash[:outcome_type] || outcome_hash['outcome_type']
-        unless %w[NoBranches CreateSteps].include?(outcome_type)
+        # Validate type field exists (DecisionPointOutcome uses 'type', not 'outcome_type')
+        outcome_type = outcome_hash[:type] || outcome_hash['type'] ||
+                       outcome_hash[:outcome_type] || outcome_hash['outcome_type']
+        unless %w[NoBranches CreateSteps no_branches create_steps].include?(outcome_type)
           raise_invalid_outcome!("Invalid outcome_type: #{outcome_type}")
         end
 
         # Validate CreateSteps has step_names
-        if outcome_type == 'CreateSteps'
+        normalized_type = outcome_type.downcase.gsub('_', '')
+        if normalized_type == 'createsteps'
           step_names = outcome_hash[:step_names] || outcome_hash['step_names']
           validate_step_names!(step_names)
         end
@@ -288,10 +290,10 @@ module TaskerCore
 
       # Raise a permanent error for invalid decision outcomes
       def raise_invalid_outcome!(message)
-        raise TaskerCore::PermanentError.new(
+        raise TaskerCore::Errors::PermanentError.new(
           "Invalid decision point outcome: #{message}",
           error_code: 'INVALID_DECISION_OUTCOME',
-          error_category: 'validation'
+          context: { error_category: 'validation' }
         )
       end
     end

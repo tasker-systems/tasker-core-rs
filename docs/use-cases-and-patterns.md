@@ -22,7 +22,8 @@ This guide provides practical examples of when and how to use Tasker Core for wo
 3. [Data Transformation ETL](#data-transformation-etl)
 4. [Microservices Orchestration](#microservices-orchestration)
 5. [Scheduled Job Coordination](#scheduled-job-coordination)
-6. [Anti-Patterns](#anti-patterns)
+6. [Conditional Workflows and Decision Points](#conditional-workflows-and-decision-points)
+7. [Anti-Patterns](#anti-patterns)
 
 ---
 
@@ -719,6 +720,145 @@ pub async fn schedule_daily_reports() -> Result<Uuid> {
 
 ---
 
+## Conditional Workflows and Decision Points
+
+### Problem Statement
+
+Many workflows require **runtime decision-making** where the execution path depends on business logic evaluated at runtime:
+- Approval routing based on request amount or risk level
+- Tiered processing based on customer status
+- Compliance checks varying by jurisdiction
+- Dynamic resource allocation based on workload
+
+### Why Use Decision Points?
+
+**Traditional Approach (Static DAG)**:
+```yaml
+# Must define ALL possible paths upfront
+Steps:
+  - validate
+  - route_A  # Always created
+  - route_B  # Always created
+  - route_C  # Always created
+  - converge # Must handle all paths
+```
+
+**Decision Point Approach (Dynamic DAG)**:
+```yaml
+# Create ONLY the needed path at runtime
+Steps:
+  - validate
+  - routing_decision  # Decides which path
+  - route_A           # Created dynamically if needed
+  - route_B           # Created dynamically if needed
+  - route_C           # Created dynamically if needed
+  - converge          # Uses intersection semantics
+```
+
+### Benefits
+
+- **Efficiency**: Only execute steps actually needed
+- **Clarity**: Workflow reflects actual business logic
+- **Cost Savings**: Reduce API calls, processing time, and resource usage
+- **Flexibility**: Add new paths without changing core logic
+
+### Core Pattern
+
+```yaml
+Task: conditional_approval
+  Steps:
+    1. validate_request       # Regular step
+    2. routing_decision       # Decision point (type: decision_point)
+       → Evaluates business logic
+       → Returns: CreateSteps(['manager_approval']) or NoBranches
+    3. auto_approve          # Might be created
+    4. manager_approval      # Might be created
+    5. finance_review        # Might be created
+    6. finalize_approval     # Convergence (type: deferred)
+       → Waits for intersection of dependencies
+```
+
+### Example: Amount-Based Approval Routing
+
+```ruby
+class RoutingDecisionHandler < TaskerCore::StepHandler::Decision
+  def call(task, sequence, step)
+    amount = task.context['amount']
+
+    # Business logic determines which steps to create
+    steps = if amount < 1_000
+      ['auto_approve']
+    elsif amount < 5_000
+      ['manager_approval']
+    else
+      ['manager_approval', 'finance_review']
+    end
+
+    # Return decision outcome
+    decision_success(
+      steps: steps,
+      result_data: {
+        route_type: determine_route_type(amount),
+        amount: amount
+      }
+    )
+  end
+end
+```
+
+### Real-World Scenarios
+
+**1. E-Commerce Returns Processing**
+- Low-value returns: Auto-approve
+- Medium-value: Manager review
+- High-value or suspicious: Fraud investigation + manager review
+
+**2. Financial Risk Assessment**
+- Low-risk transactions: Standard processing
+- Medium-risk: Additional verification
+- High-risk: Manual review + compliance checks + legal review
+
+**3. Healthcare Prior Authorization**
+- Standard procedures: Auto-approve
+- Specialized care: Medical director review
+- Experimental treatments: Medical director + insurance review + compliance
+
+**4. Customer Support Escalation**
+- Simple issues: Tier 1 resolution
+- Complex issues: Tier 2 specialist
+- VIP customers: Immediate senior support + account manager notification
+
+### Key Features
+
+**Decision Point Steps** (TAS-53):
+- Special step type that returns `DecisionPointOutcome`
+- Can return `NoBranches` (no additional steps) or `CreateSteps` (list of step names)
+- Fully atomic - either all steps created or none
+- Supports nested decisions (configurable depth limit)
+
+**Deferred Steps**:
+- Use intersection semantics for dependencies
+- Wait for: (declared dependencies) ∩ (actually created steps)
+- Enable convergence regardless of path taken
+
+**Type-Safe Implementation**:
+- Ruby: `TaskerCore::StepHandler::Decision` base class
+- Rust: `DecisionPointOutcome` enum with serde support
+- Automatic validation and serialization
+
+### Implementation
+
+See the complete guide: **[Conditional Workflows and Decision Points](conditional-workflows.md)**
+
+Covers:
+- When to use conditional workflows
+- YAML configuration
+- Ruby and Rust implementation patterns
+- Simple and complex examples
+- Best practices and limitations
+
+---
+
 ## Anti-Patterns
 
 ### ❌ Don't Use Tasker Core For:
@@ -783,6 +923,7 @@ Task: fetch_user_data
 ## Related Documentation
 
 - **[Quick Start](quick-start.md)** - Get your first workflow running
+- **[Conditional Workflows](conditional-workflows.md)** - Runtime decision-making and dynamic step creation
 - **[Crate Architecture](crate-architecture.md)** - Understand the codebase
 - **[Deployment Patterns](deployment-patterns.md)** - Deploy to production
 - **[States and Lifecycles](states-and-lifecycles.md)** - State machine deep dive
