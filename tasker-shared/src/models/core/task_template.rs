@@ -158,6 +158,7 @@ pub enum StepType {
     /// a decision point creates steps, the system computes the intersection of:
     /// - Declared dependencies in the template
     /// - Actually created steps in this pass
+    ///
     /// This intersection determines the actual DAG dependencies for the deferred step.
     ///
     /// Example: A finalize_approval step that depends on [auto_approve, manager_approval,

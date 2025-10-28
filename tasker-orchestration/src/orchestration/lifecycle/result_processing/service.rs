@@ -117,10 +117,16 @@ mod tests {
         let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
 
         // Create DecisionPointActor for testing (TAS-53 Phase 6)
-        let decision_point_service = Arc::new(crate::orchestration::lifecycle::DecisionPointService::new(context.clone()));
-        let decision_point_actor = Arc::new(DecisionPointActor::new(context.clone(), decision_point_service));
+        let decision_point_service = Arc::new(
+            crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
+        );
+        let decision_point_actor = Arc::new(DecisionPointActor::new(
+            context.clone(),
+            decision_point_service,
+        ));
 
-        let processor = OrchestrationResultProcessor::new(task_finalizer, context, decision_point_actor);
+        let processor =
+            OrchestrationResultProcessor::new(task_finalizer, context, decision_point_actor);
 
         // Verify it's created (basic smoke test)
         assert!(std::mem::size_of_val(&processor) > 0);
@@ -141,10 +147,16 @@ mod tests {
         let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
 
         // Create DecisionPointActor for testing (TAS-53 Phase 6)
-        let decision_point_service = Arc::new(crate::orchestration::lifecycle::DecisionPointService::new(context.clone()));
-        let decision_point_actor = Arc::new(DecisionPointActor::new(context.clone(), decision_point_service));
+        let decision_point_service = Arc::new(
+            crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
+        );
+        let decision_point_actor = Arc::new(DecisionPointActor::new(
+            context.clone(),
+            decision_point_service,
+        ));
 
-        let processor = OrchestrationResultProcessor::new(task_finalizer, context, decision_point_actor);
+        let processor =
+            OrchestrationResultProcessor::new(task_finalizer, context, decision_point_actor);
 
         let cloned = processor.clone();
 

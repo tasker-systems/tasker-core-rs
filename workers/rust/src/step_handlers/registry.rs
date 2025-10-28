@@ -32,6 +32,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 // Import all handler implementations (only completed handlers with new() method)
+use super::conditional_approval_rust::{
+    AutoApproveHandler, FinalizeApprovalHandler, FinanceReviewHandler, ManagerApprovalHandler,
+    RoutingDecisionHandler, ValidateRequestHandler,
+};
 use super::diamond_workflow::{
     DiamondBranchBHandler, DiamondBranchCHandler, DiamondEndHandler, DiamondStartHandler,
 };
@@ -61,12 +65,13 @@ pub struct RustStepHandlerRegistry {
 impl RustStepHandlerRegistry {
     /// Create a new registry with all handlers pre-registered
     ///
-    /// This method registers all 27 step handlers across 5 workflow patterns:
+    /// This method registers all 33 step handlers across 6 workflow patterns:
     /// - Linear Workflow (4 handlers)
     /// - Diamond Workflow (4 handlers)
     /// - Tree Workflow (8 handlers)
     /// - Mixed DAG Workflow (7 handlers)
     /// - Order Fulfillment (4 handlers)
+    /// - Conditional Approval Rust (6 handlers)
     pub fn new() -> Self {
         let mut registry = Self {
             handlers: HashMap::new(),
@@ -180,6 +185,19 @@ impl RustStepHandlerRegistry {
             ],
         );
 
+        // Conditional Approval Rust
+        workflows.insert(
+            "conditional_approval_rust".to_string(),
+            vec![
+                "validate_request".to_string(),
+                "routing_decision".to_string(),
+                "auto_approve".to_string(),
+                "manager_approval".to_string(),
+                "finance_review".to_string(),
+                "finalize_approval".to_string(),
+            ],
+        );
+
         workflows
     }
 
@@ -229,6 +247,14 @@ impl RustStepHandlerRegistry {
         self.register_handler(Arc::new(ShipOrderHandler::new(empty_config.clone())));
         self.register_handler(Arc::new(ReserveInventoryHandler::new(empty_config.clone())));
         self.register_handler(Arc::new(ProcessPaymentHandler::new(empty_config.clone())));
+
+        // Conditional Approval Rust Handlers (6)
+        self.register_handler(Arc::new(ValidateRequestHandler::new(empty_config.clone())));
+        self.register_handler(Arc::new(RoutingDecisionHandler::new(empty_config.clone())));
+        self.register_handler(Arc::new(AutoApproveHandler::new(empty_config.clone())));
+        self.register_handler(Arc::new(ManagerApprovalHandler::new(empty_config.clone())));
+        self.register_handler(Arc::new(FinanceReviewHandler::new(empty_config.clone())));
+        self.register_handler(Arc::new(FinalizeApprovalHandler::new(empty_config.clone())));
     }
 
     /// Register a single handler in the registry
@@ -271,8 +297,8 @@ mod tests {
     fn test_registry_creation() {
         let registry = RustStepHandlerRegistry::new();
 
-        // Should have all 27 handlers (4+4+8+7+4)
-        assert_eq!(registry.handler_count(), 27);
+        // Should have all 33 handlers (4+4+8+7+4+6)
+        assert_eq!(registry.handler_count(), 33);
     }
 
     #[test]
@@ -305,6 +331,14 @@ mod tests {
         assert!(registry.has_handler("process_payment"));
         assert!(registry.has_handler("ship_order"));
 
+        // Test conditional approval rust handlers
+        assert!(registry.has_handler("validate_request"));
+        assert!(registry.has_handler("routing_decision"));
+        assert!(registry.has_handler("auto_approve"));
+        assert!(registry.has_handler("manager_approval"));
+        assert!(registry.has_handler("finance_review"));
+        assert!(registry.has_handler("finalize_approval"));
+
         // Test non-existent handler
         assert!(!registry.has_handler("nonexistent_handler"));
     }
@@ -330,12 +364,13 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let workflows = registry.get_handlers_by_workflow();
 
-        assert_eq!(workflows.len(), 5);
+        assert_eq!(workflows.len(), 6);
         assert_eq!(workflows["linear_workflow"].len(), 4);
         assert_eq!(workflows["diamond_workflow"].len(), 4);
         assert_eq!(workflows["tree_workflow"].len(), 8);
         assert_eq!(workflows["mixed_dag_workflow"].len(), 7);
         assert_eq!(workflows["order_fulfillment"].len(), 4);
+        assert_eq!(workflows["conditional_approval_rust"].len(), 6);
     }
 
     #[test]
@@ -345,7 +380,7 @@ mod tests {
 
         // Should be the same instance
         assert_eq!(registry1 as *const _, registry2 as *const _);
-        assert_eq!(registry1.handler_count(), 27);
+        assert_eq!(registry1.handler_count(), 33);
     }
 
     #[test]
@@ -353,8 +388,8 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let names = registry.get_all_handler_names();
 
-        // Should have 27 handlers
-        assert_eq!(names.len(), 27);
+        // Should have 33 handlers
+        assert_eq!(names.len(), 33);
 
         // Should be sorted
         let mut sorted_names = names.clone();
@@ -367,5 +402,6 @@ mod tests {
         assert!(names.contains(&"tree_root".to_string()));
         assert!(names.contains(&"dag_init".to_string()));
         assert!(names.contains(&"validate_order".to_string()));
+        assert!(names.contains(&"validate_request".to_string()));
     }
 }

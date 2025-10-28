@@ -213,78 +213,76 @@ warn_threshold = 2      # Warn when nearing limit
 
 ### Task Template Structure
 
+**Actual Implementation** (from `tests/fixtures/task_templates/ruby/conditional_approval_handler.yaml`):
+
 ```yaml
-namespace: approval_workflows
-name: conditional_approval
-version: "1.0"
-description: "Dynamic approval routing based on request amount"
-
+---
+name: approval_routing
+namespace_name: conditional_approval
+version: 1.0.0
+description: >
+  Ruby implementation of conditional approval workflow demonstrating TAS-53 dynamic decision points.
+  Routes approval requests through different paths based on amount thresholds.
+task_handler:
+  callable: tasker_worker_ruby::TaskHandler
+  initialization: {}
 steps:
-  # Regular initialization step
   - name: validate_request
-    handler: validate_request
-    description: "Validate approval request data"
-    retry:
-      retryable: true
-      max_attempts: 3
+    type: standard
+    dependencies: []
+    handler:
+      callable: ConditionalApproval::StepHandlers::ValidateRequestHandler
+      initialization: {}
 
-  # Decision point step
   - name: routing_decision
-    handler: routing_decision
-    description: "DECISION POINT: Route approval based on amount"
-    type: decision_point  # Mark as decision point
+    type: decision  # DECISION POINT
     dependencies:
       - validate_request
-    retry:
-      retryable: false  # Decision logic should be deterministic
-      max_attempts: 1
+    handler:
+      callable: ConditionalApproval::StepHandlers::RoutingDecisionHandler
+      initialization: {}
 
-  # Dynamically created steps (defined in template for reference)
-  - name: auto_approve
-    handler: auto_approve
-    description: "Automatic approval for small amounts"
+  - name: finalize_approval
+    type: deferred  # DEFERRED - uses intersection semantics
     dependencies:
-      - routing_decision  # Created by decision point
+      - auto_approve       # ALL possible dependencies listed
+      - manager_approval   # System computes intersection at runtime
+      - finance_review
+    handler:
+      callable: ConditionalApproval::StepHandlers::FinalizeApprovalHandler
+      initialization: {}
+
+  # Possible dynamic branches (created by decision point)
+  - name: auto_approve
+    type: standard
+    dependencies:
+      - routing_decision
+    handler:
+      callable: ConditionalApproval::StepHandlers::AutoApproveHandler
+      initialization: {}
 
   - name: manager_approval
-    handler: manager_approval
-    description: "Manager approval for medium amounts"
+    type: standard
     dependencies:
       - routing_decision
+    handler:
+      callable: ConditionalApproval::StepHandlers::ManagerApprovalHandler
+      initialization: {}
 
   - name: finance_review
-    handler: finance_review
-    description: "Finance review for large amounts"
+    type: standard
     dependencies:
       - routing_decision
-
-  # Convergence step with deferred dependencies
-  - name: finalize_approval
-    handler: finalize_approval
-    description: "Final convergence step after all approvals"
-    type: deferred  # Uses intersection semantics
-    dependencies:
-      - routing_decision  # Must wait for decision
-      - auto_approve      # Might be created
-      - manager_approval  # Might be created
-      - finance_review    # Might be created
-    retry:
-      retryable: true
-      max_attempts: 3
+    handler:
+      callable: ConditionalApproval::StepHandlers::FinanceReviewHandler
+      initialization: {}
 ```
 
-### Handler Configuration
-
-```yaml
-# workers/ruby/config/handlers/routing_decision.yaml
-handler:
-  callable: ConditionalApproval::StepHandlers::RoutingDecisionHandler
-  type: decision  # Uses Decision base class
-
-configuration:
-  small_amount_threshold: 1000
-  large_amount_threshold: 5000
-```
+**Key Points**:
+- `type: decision` marks the decision point step
+- `type: deferred` enables intersection semantics for convergence
+- ALL possible dependencies listed in deferred step
+- Orchestration computes: declared deps ∩ actually created steps
 
 ---
 
@@ -341,53 +339,81 @@ steps:
 
 ### Ruby Handler Implementation
 
+**Actual Implementation** (from `workers/ruby/spec/handlers/examples/conditional_approval/step_handlers/routing_decision_handler.rb`):
+
 ```ruby
+# frozen_string_literal: true
+
 module ConditionalApproval
   module StepHandlers
+    # Routing Decision: DECISION POINT that routes approval based on amount
+    #
+    # Uses TaskerCore::StepHandler::Decision base class for clean, type-safe
+    # decision outcome serialization consistent with Rust expectations.
     class RoutingDecisionHandler < TaskerCore::StepHandler::Decision
       SMALL_AMOUNT_THRESHOLD = 1_000
       LARGE_AMOUNT_THRESHOLD = 5_000
 
       def call(task, _sequence, _step)
+        # Get amount from validated request
         amount = task.context['amount']
+        raise 'Amount is required for routing decision' unless amount
 
-        # Determine which steps to create
-        steps_to_create = if amount < SMALL_AMOUNT_THRESHOLD
-          ['auto_approve']
-        elsif amount < LARGE_AMOUNT_THRESHOLD
-          ['manager_approval']
-        else
-          ['manager_approval', 'finance_review']
-        end
+        # Make routing decision based on amount
+        route = determine_route(amount)
 
-        # Use Decision base class helper
+        # TAS-53: Use Decision base class helper for clean outcome serialization
         decision_success(
-          steps: steps_to_create,
+          steps: route[:steps],
           result_data: {
-            route_type: determine_route_type(amount),
-            reasoning: build_reasoning(amount),
+            route_type: route[:type],
+            reasoning: route[:reasoning],
             amount: amount
+          },
+          metadata: {
+            operation: 'routing_decision',
+            route_thresholds: {
+              small: SMALL_AMOUNT_THRESHOLD,
+              large: LARGE_AMOUNT_THRESHOLD
+            }
           }
         )
       end
 
       private
 
-      def determine_route_type(amount)
-        return 'auto_approval' if amount < SMALL_AMOUNT_THRESHOLD
-        return 'manager_only' if amount < LARGE_AMOUNT_THRESHOLD
-        'dual_approval'
-      end
-
-      def build_reasoning(amount)
-        return "Amount $#{amount} below threshold - auto-approval" if amount < SMALL_AMOUNT_THRESHOLD
-        return "Amount $#{amount} requires manager approval" if amount < LARGE_AMOUNT_THRESHOLD
-        "Amount $#{amount} requires both manager and finance approval"
+      def determine_route(amount)
+        if amount < SMALL_AMOUNT_THRESHOLD
+          {
+            type: 'auto_approval',
+            steps: ['auto_approve'],
+            reasoning: "Amount $#{amount} below threshold - auto-approval"
+          }
+        elsif amount < LARGE_AMOUNT_THRESHOLD
+          {
+            type: 'manager_only',
+            steps: ['manager_approval'],
+            reasoning: "Amount $#{amount} requires manager approval"
+          }
+        else
+          {
+            type: 'dual_approval',
+            steps: %w[manager_approval finance_review],
+            reasoning: "Amount $#{amount} >= $#{LARGE_AMOUNT_THRESHOLD} - dual approval required"
+          }
+        end
       end
     end
   end
 end
 ```
+
+**Key Ruby Patterns**:
+- **Inherit from** `TaskerCore::StepHandler::Decision` - Specialized base class for decision points
+- **Use helper method** `decision_success(steps:, result_data:, metadata:)` - Clean API for decision outcomes
+- Helper automatically creates `DecisionPointOutcome` and embeds it correctly
+- No manual serialization needed - base class handles Rust compatibility
+- For no-branch scenarios, use `decision_no_branches(result_data:, metadata:)`
 
 ### Execution Flow Examples
 
@@ -717,54 +743,99 @@ end
 
 ## Rust Implementation Guide
 
-### Decision Handler Trait
+### Decision Handler Implementation
+
+**Actual Implementation** (from `workers/rust/src/step_handlers/conditional_approval_rust.rs`):
 
 ```rust
-use tasker_shared::messaging::execution_types::DecisionPointOutcome;
+use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
+use anyhow::Result;
+use async_trait::async_trait;
+use chrono::Utc;
+use serde_json::json;
+use std::collections::HashMap;
+use tasker_shared::messaging::{DecisionPointOutcome, StepExecutionResult};
+use tasker_shared::types::TaskSequenceStep;
 
-pub struct RoutingDecisionHandler;
+const SMALL_AMOUNT_THRESHOLD: i64 = 1000;
+const LARGE_AMOUNT_THRESHOLD: i64 = 5000;
+
+pub struct RoutingDecisionHandler {
+    #[allow(dead_code)]
+    config: StepHandlerConfig,
+}
 
 #[async_trait]
-impl StepHandler for RoutingDecisionHandler {
-    async fn execute(&self, context: StepContext) -> Result<StepResult> {
-        let amount: f64 = context.configuration.get("amount")?;
+impl RustStepHandler for RoutingDecisionHandler {
+    async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
+        let start_time = std::time::Instant::now();
+        let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
-        // Business logic
-        let outcome = if amount < 1000.0 {
-            DecisionPointOutcome::create_steps(vec!["auto_approve".to_string()])
-        } else if amount < 5000.0 {
-            DecisionPointOutcome::create_steps(vec!["manager_approval".to_string()])
+        // Extract amount from task context
+        let amount: i64 = step_data.get_context_field("amount")?;
+
+        // Business logic: determine routing
+        let (route_type, steps, reasoning) = if amount < SMALL_AMOUNT_THRESHOLD {
+            (
+                "auto_approval",
+                vec!["auto_approve"],
+                format!("Amount ${} under threshold", amount)
+            )
+        } else if amount < LARGE_AMOUNT_THRESHOLD {
+            (
+                "manager_only",
+                vec!["manager_approval"],
+                format!("Amount ${} requires manager approval", amount)
+            )
         } else {
-            DecisionPointOutcome::create_steps(vec![
-                "manager_approval".to_string(),
-                "finance_review".to_string(),
-            ])
+            (
+                "dual_approval",
+                vec!["manager_approval", "finance_review"],
+                format!("Amount ${} requires dual approval", amount)
+            )
         };
 
-        // Build result with decision outcome
-        let mut result_data = serde_json::json!({
-            "route_type": determine_route_type(amount),
+        // Create decision point outcome
+        let outcome = DecisionPointOutcome::create_steps(
+            steps.iter().map(|s| s.to_string()).collect()
+        );
+
+        // Build result with embedded outcome
+        let result_data = json!({
+            "route_type": route_type,
+            "reasoning": reasoning,
             "amount": amount,
+            "decision_point_outcome": outcome.to_value()  // Embedded outcome
         });
 
-        // Merge decision outcome into result
-        if let serde_json::Value::Object(ref mut map) = result_data {
-            map.insert(
-                "decision_point_outcome".to_string(),
-                outcome.to_value(),
-            );
-        }
+        let metadata = HashMap::from([
+            ("route_type".to_string(), json!(route_type)),
+            ("steps_to_create".to_string(), json!(steps)),
+        ]);
 
-        Ok(StepResult::success(result_data))
+        Ok(success_result(
+            step_uuid,
+            result_data,
+            start_time.elapsed().as_millis() as i64,
+            Some(metadata),
+        ))
+    }
+
+    fn name(&self) -> &str {
+        "routing_decision"
+    }
+
+    fn new(config: StepHandlerConfig) -> Self {
+        Self { config }
     }
 }
 ```
 
 ### DecisionPointOutcome Type
 
-```rust
-// tasker-shared/src/messaging/execution_types.rs
+**Type Definition** (from `tasker-shared/src/messaging/execution_types.rs`):
 
+```rust
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DecisionPointOutcome {
@@ -775,26 +846,36 @@ pub enum DecisionPointOutcome {
 }
 
 impl DecisionPointOutcome {
+    /// Create outcome that creates specific steps
     pub fn create_steps(step_names: Vec<String>) -> Self {
         Self::CreateSteps { step_names }
     }
 
+    /// Create outcome with no additional steps
     pub fn no_branches() -> Self {
         Self::NoBranches
     }
 
+    /// Convert to JSON value for embedding in StepExecutionResult
     pub fn to_value(&self) -> serde_json::Value {
-        serde_json::to_value(self).unwrap()
+        serde_json::to_value(self).expect("DecisionPointOutcome serialization should not fail")
     }
 
-    pub fn from_step_result(result: &StepExecutionResult) -> Option<Self> {
-        let outcome_value = result.result
+    /// Extract decision outcome from step execution result
+    pub fn from_step_result(result: &serde_json::Value) -> Option<Self> {
+        result
             .as_object()?
-            .get("decision_point_outcome")?;
-        serde_json::from_value(outcome_value.clone()).ok()
+            .get("decision_point_outcome")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 }
 ```
+
+**Key Rust Patterns**:
+- `DecisionPointOutcome::create_steps(vec![...])` - Type-safe factory
+- `outcome.to_value()` - Serializes to JSON matching Ruby format
+- Embedded in result JSON as `decision_point_outcome` field
+- Serde handles serialization: `{ "type": "create_steps", "step_names": [...] }`
 
 ---
 
@@ -1010,6 +1091,84 @@ routing_b creates routing_a
 
 ---
 
+## Testing Decision Point Workflows
+
+### E2E Test Structure
+
+Both Ruby and Rust implementations include comprehensive E2E tests covering all routing scenarios:
+
+**Test Locations**:
+- Ruby: `tests/e2e/ruby/conditional_approval_test.rs`
+- Rust: `tests/e2e/rust/conditional_approval_rust.rs`
+
+**Test Scenarios**:
+
+1. **Small Amount ($500)** - Auto-approval only
+   ```
+   validate_request → routing_decision → auto_approve → finalize_approval
+   Expected: 4 steps created, only auto_approve path taken
+   ```
+
+2. **Medium Amount ($3,000)** - Manager approval only
+   ```
+   validate_request → routing_decision → manager_approval → finalize_approval
+   Expected: 4 steps created, only manager path taken
+   ```
+
+3. **Large Amount ($10,000)** - Dual approval
+   ```
+   validate_request → routing_decision → manager_approval + finance_review → finalize_approval
+   Expected: 5 steps created, both approval paths taken (parallel)
+   ```
+
+4. **API Validation** - Initial step count verification
+   ```
+   Expected: 2 steps at initialization (validate_request, routing_decision)
+   Reason: finalize_approval is transitive descendant of decision point
+   ```
+
+### Running Tests
+
+```bash
+# Run all E2E tests
+cargo test --test e2e_tests
+
+# Run Ruby conditional approval tests only
+cargo test --test e2e_tests e2e::ruby::conditional_approval
+
+# Run Rust conditional approval tests only
+cargo test --test e2e_tests e2e::rust::conditional_approval_rust
+
+# Run with output for debugging
+cargo test --test e2e_tests -- --nocapture
+```
+
+### Test Fixtures
+
+**Ruby Template**: `tests/fixtures/task_templates/ruby/conditional_approval_handler.yaml`
+**Rust Template**: `tests/fixtures/task_templates/rust/conditional_approval_rust.yaml`
+
+Both templates demonstrate:
+- Decision point step configuration (`type: decision`)
+- Deferred convergence step (`type: deferred`)
+- Dynamic step dependencies
+- Namespace isolation between Ruby/Rust
+
+### Validation Checklist
+
+When implementing decision point workflows, ensure:
+
+- ✅ Decision point step has `type: decision`
+- ✅ Deferred convergence step has `type: deferred`
+- ✅ All possible dependencies listed in deferred step
+- ✅ Handler embeds `decision_point_outcome` in result
+- ✅ Step names in outcome match template definitions
+- ✅ E2E tests cover all routing scenarios
+- ✅ Tests validate step creation and completion
+- ✅ Namespace isolated if multiple implementations exist
+
+---
+
 ## Related Documentation
 
 - **[Use Cases & Patterns](use-cases-and-patterns.md)** - More workflow examples
@@ -1017,6 +1176,8 @@ routing_b creates routing_a
 - **[Task and Step Readiness](task-and-step-readiness-and-execution.md)** - Dependency resolution logic
 - **[Quick Start](quick-start.md)** - Getting started guide
 - **[Crate Architecture](crate-architecture.md)** - System architecture overview
+- **[Decision Point E2E Tests](testing/decision-point-e2e-tests.md)** - Detailed test documentation
+- **[TAS-53 Implementation](ticket-specs/TAS-53/implementation.md)** - Implementation details and learnings
 
 ---
 

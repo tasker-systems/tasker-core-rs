@@ -104,10 +104,16 @@ impl StepResultProcessor {
 
         // TAS-53 Phase 6: Create DecisionPointActor for dynamic workflow step creation
         let decision_point_service = Arc::new(DecisionPointService::new(context.clone()));
-        let decision_point_actor = Arc::new(DecisionPointActor::new(context.clone(), decision_point_service));
+        let decision_point_actor = Arc::new(DecisionPointActor::new(
+            context.clone(),
+            decision_point_service,
+        ));
 
-        let orchestration_result_processor =
-            OrchestrationResultProcessor::new(task_finalizer, context.clone(), decision_point_actor);
+        let orchestration_result_processor = OrchestrationResultProcessor::new(
+            task_finalizer,
+            context.clone(),
+            decision_point_actor,
+        );
 
         Ok(Self {
             context,

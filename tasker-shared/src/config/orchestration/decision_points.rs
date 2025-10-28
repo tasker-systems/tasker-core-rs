@@ -195,7 +195,10 @@ mod tests {
         let deserialized: DecisionPointsConfig = serde_json::from_str(&json).unwrap();
 
         assert_eq!(config.enabled, deserialized.enabled);
-        assert_eq!(config.max_steps_per_decision, deserialized.max_steps_per_decision);
+        assert_eq!(
+            config.max_steps_per_decision,
+            deserialized.max_steps_per_decision
+        );
         assert_eq!(config.max_decision_depth, deserialized.max_decision_depth);
     }
 }

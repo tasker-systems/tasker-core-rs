@@ -1,0 +1,59 @@
+---
+name: approval_routing
+namespace_name: conditional_approval_rust
+version: 1.0.0
+description: >
+  Rust implementation of conditional approval workflow demonstrating TAS-53 dynamic decision points.
+  Routes approval requests through different paths based on amount thresholds using native Rust handlers.
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization: {}
+steps:
+  - name: validate_request
+    type: standard
+    dependencies: []
+    handler:
+      callable: tasker_worker_rust::step_handlers::conditional_approval_rust::ValidateRequestHandler
+      initialization: {}
+
+  - name: routing_decision
+    type: decision
+    dependencies:
+      - validate_request
+    handler:
+      callable: tasker_worker_rust::step_handlers::conditional_approval_rust::RoutingDecisionHandler
+      initialization: {}
+
+  - name: finalize_approval
+    type: deferred
+    dependencies:
+      - auto_approve
+      - manager_approval
+      - finance_review
+    handler:
+      callable: tasker_worker_rust::step_handlers::conditional_approval_rust::FinalizeApprovalHandler
+      initialization: {}
+
+  - name: auto_approve
+    type: standard
+    dependencies:
+      - routing_decision
+    handler:
+      callable: tasker_worker_rust::step_handlers::conditional_approval_rust::AutoApproveHandler
+      initialization: {}
+
+  - name: manager_approval
+    type: standard
+    dependencies:
+      - routing_decision
+    handler:
+      callable: tasker_worker_rust::step_handlers::conditional_approval_rust::ManagerApprovalHandler
+      initialization: {}
+
+  - name: finance_review
+    type: standard
+    dependencies:
+      - routing_decision
+    handler:
+      callable: tasker_worker_rust::step_handlers::conditional_approval_rust::FinanceReviewHandler
+      initialization: {}

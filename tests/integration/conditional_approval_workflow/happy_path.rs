@@ -41,7 +41,9 @@ use crate::common::lifecycle_test_manager::LifecycleTestManager;
 async fn test_conditional_approval_auto_path(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: Auto-approval path initialization");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     // Create task request for small amount (auto-approval)
     let task_request = manager.create_task_request_for_template(
@@ -101,7 +103,9 @@ async fn test_conditional_approval_auto_path(pool: PgPool) -> Result<()> {
 async fn test_conditional_approval_manager_path(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: Manager-only path initialization");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     // Create task request for medium amount (manager approval)
     let task_request = manager.create_task_request_for_template(
@@ -158,7 +162,9 @@ async fn test_conditional_approval_manager_path(pool: PgPool) -> Result<()> {
 async fn test_conditional_approval_dual_path(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: Dual approval path initialization");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     // Create task request for large amount (dual approval)
     let task_request = manager.create_task_request_for_template(
@@ -215,7 +221,9 @@ async fn test_conditional_approval_dual_path(pool: PgPool) -> Result<()> {
 async fn test_decision_point_creates_auto_approval_step(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: Decision point step creation for auto-approval");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     let task_request = manager.create_task_request_for_template(
         "approval_routing",
@@ -259,7 +267,9 @@ async fn test_decision_point_creates_auto_approval_step(pool: PgPool) -> Result<
 async fn test_decision_point_no_branches_scenario(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: No-branches decision scenario");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     // Create task with zero amount (hypothetical no-approval scenario)
     // This tests the no_branches outcome type

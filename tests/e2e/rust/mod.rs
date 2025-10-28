@@ -1,3 +1,4 @@
+mod conditional_approval_rust;
 mod diamond_workflow;
 mod linear_workflow;
 mod mixed_dag_workflow;

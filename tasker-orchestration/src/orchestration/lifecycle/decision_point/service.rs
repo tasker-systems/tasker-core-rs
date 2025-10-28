@@ -386,7 +386,7 @@ impl DecisionPointService {
     ///
     /// When routing_decision creates "auto_approve", we detect that finalize_approval is deferred
     /// with dependencies [auto_approve, manager_approval, finance_review]. Since auto_approve is
-    /// being created, we compute the intersection [auto_approve] and include finalize_approval.
+    /// being created, we compute the intersection auto_approve and include finalize_approval.
     fn determine_steps_to_create(
         &self,
         template: &TaskTemplate,

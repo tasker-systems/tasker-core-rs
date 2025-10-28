@@ -8,10 +8,10 @@ use std::time::Instant;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::actors::{DecisionPointActor, Handler, ProcessDecisionPointMessage};
 use super::metadata_processor::MetadataProcessor;
 use super::state_transition_handler::StateTransitionHandler;
 use super::task_coordinator::TaskCoordinator;
+use crate::actors::{DecisionPointActor, Handler, ProcessDecisionPointMessage};
 use tasker_shared::errors::OrchestrationResult;
 use tasker_shared::messaging::{DecisionPointOutcome, StepExecutionStatus};
 use tasker_shared::metrics::orchestration::*;
@@ -369,20 +369,23 @@ impl MessageHandler {
         }
 
         // Load the workflow step
-        let workflow_step = match WorkflowStep::find_by_id(self.context.database_pool(), *step_uuid).await? {
-            Some(step) => step,
-            None => {
-                debug!(
-                    correlation_id = %correlation_id,
-                    step_uuid = %step_uuid,
-                    "Workflow step not found for decision point check"
-                );
-                return Ok(());
-            }
-        };
+        let workflow_step =
+            match WorkflowStep::find_by_id(self.context.database_pool(), *step_uuid).await? {
+                Some(step) => step,
+                None => {
+                    debug!(
+                        correlation_id = %correlation_id,
+                        step_uuid = %step_uuid,
+                        "Workflow step not found for decision point check"
+                    );
+                    return Ok(());
+                }
+            };
 
         // Check if this is a decision point by loading the task template
-        let is_decision = self.is_decision_step(&workflow_step, correlation_id).await?;
+        let is_decision = self
+            .is_decision_step(&workflow_step, correlation_id)
+            .await?;
         if !is_decision {
             return Ok(());
         }
@@ -447,7 +450,9 @@ impl MessageHandler {
                     error = %e,
                     "Decision point processing failed"
                 );
-                Err(tasker_shared::OrchestrationError::from(e.to_string().as_str()))
+                Err(tasker_shared::OrchestrationError::from(
+                    e.to_string().as_str(),
+                ))
             }
         }
     }
@@ -465,27 +470,27 @@ impl MessageHandler {
         correlation_id: Uuid,
     ) -> OrchestrationResult<bool> {
         // Load the task to get metadata
-        let task = match Task::find_by_id(self.context.database_pool(), workflow_step.task_uuid).await? {
-            Some(task) => task,
-            None => {
-                debug!(
-                    correlation_id = %correlation_id,
-                    task_uuid = %workflow_step.task_uuid,
-                    "Task not found for decision point check"
-                );
-                return Ok(false);
-            }
-        };
+        let task =
+            match Task::find_by_id(self.context.database_pool(), workflow_step.task_uuid).await? {
+                Some(task) => task,
+                None => {
+                    debug!(
+                        correlation_id = %correlation_id,
+                        task_uuid = %workflow_step.task_uuid,
+                        "Task not found for decision point check"
+                    );
+                    return Ok(false);
+                }
+            };
 
         // Get task orchestration metadata
         let task_metadata = task
             .for_orchestration(self.context.database_pool())
             .await
             .map_err(|e| {
-                tasker_shared::OrchestrationError::from(format!(
-                    "Failed to load task orchestration metadata: {}",
-                    e
-                ).as_str())
+                tasker_shared::OrchestrationError::from(
+                    format!("Failed to load task orchestration metadata: {}", e).as_str(),
+                )
             })?;
 
         // Load the named step to get the step name
@@ -517,24 +522,23 @@ impl MessageHandler {
             )
             .await
             .map_err(|e| {
-                tasker_shared::OrchestrationError::from(format!(
-                    "Failed to load task template from registry: {}",
-                    e
-                ).as_str())
+                tasker_shared::OrchestrationError::from(
+                    format!("Failed to load task template from registry: {}", e).as_str(),
+                )
             })?;
 
         // Extract TaskTemplate from handler metadata
-        let task_template: TaskTemplate = serde_json::from_value(
-            handler_metadata.config_schema.ok_or_else(|| {
-                tasker_shared::OrchestrationError::from("No config schema found in handler metadata")
-            })?,
-        )
-        .map_err(|e| {
-            tasker_shared::OrchestrationError::from(format!(
-                "Failed to deserialize task template: {}",
-                e
-            ).as_str())
-        })?;
+        let task_template: TaskTemplate =
+            serde_json::from_value(handler_metadata.config_schema.ok_or_else(|| {
+                tasker_shared::OrchestrationError::from(
+                    "No config schema found in handler metadata",
+                )
+            })?)
+            .map_err(|e| {
+                tasker_shared::OrchestrationError::from(
+                    format!("Failed to deserialize task template: {}", e).as_str(),
+                )
+            })?;
 
         // Find the step definition in the template
         let step_def = task_template
@@ -601,8 +605,13 @@ mod tests {
         let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
 
         // Create DecisionPointActor for testing (TAS-53 Phase 6)
-        let decision_point_service = Arc::new(crate::orchestration::lifecycle::DecisionPointService::new(context.clone()));
-        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(context.clone(), decision_point_service));
+        let decision_point_service = Arc::new(
+            crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
+        );
+        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(
+            context.clone(),
+            decision_point_service,
+        ));
 
         let handler = MessageHandler::new(
             context,
@@ -641,8 +650,13 @@ mod tests {
         let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
 
         // Create DecisionPointActor for testing (TAS-53 Phase 6)
-        let decision_point_service = Arc::new(crate::orchestration::lifecycle::DecisionPointService::new(context.clone()));
-        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(context.clone(), decision_point_service));
+        let decision_point_service = Arc::new(
+            crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
+        );
+        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(
+            context.clone(),
+            decision_point_service,
+        ));
 
         let handler = MessageHandler::new(
             context.clone(),
@@ -683,8 +697,13 @@ mod tests {
         let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
 
         // Create DecisionPointActor for testing (TAS-53 Phase 6)
-        let decision_point_service = Arc::new(crate::orchestration::lifecycle::DecisionPointService::new(context.clone()));
-        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(context.clone(), decision_point_service));
+        let decision_point_service = Arc::new(
+            crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
+        );
+        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(
+            context.clone(),
+            decision_point_service,
+        ));
 
         let handler = MessageHandler::new(
             context,

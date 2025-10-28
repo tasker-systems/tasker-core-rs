@@ -573,24 +573,37 @@ impl DecisionPointOutcome {
         // Extract the decision_point_outcome field from the result object
         let result_obj = result.result.as_object();
         if result_obj.is_none() {
-            tracing::warn!("[TAS-53 DEBUG] Result is not an object, cannot extract decision_point_outcome");
+            tracing::warn!(
+                "[TAS-53 DEBUG] Result is not an object, cannot extract decision_point_outcome"
+            );
             return None;
         }
         let result_obj = result_obj.unwrap();
-        tracing::warn!("[TAS-53 DEBUG] Result is an object with keys: {:?}", result_obj.keys().collect::<Vec<_>>());
+        tracing::warn!(
+            "[TAS-53 DEBUG] Result is an object with keys: {:?}",
+            result_obj.keys().collect::<Vec<_>>()
+        );
 
         let outcome_value = result_obj.get("decision_point_outcome");
         if outcome_value.is_none() {
-            tracing::warn!("[TAS-53 DEBUG] No 'decision_point_outcome' field found in result object");
+            tracing::warn!(
+                "[TAS-53 DEBUG] No 'decision_point_outcome' field found in result object"
+            );
             return None;
         }
         let outcome_value = outcome_value.unwrap();
-        tracing::warn!("[TAS-53 DEBUG] Found decision_point_outcome field: {:?}", outcome_value);
+        tracing::warn!(
+            "[TAS-53 DEBUG] Found decision_point_outcome field: {:?}",
+            outcome_value
+        );
 
         let parsed: Result<Self, _> = serde_json::from_value(outcome_value.clone());
         match &parsed {
             Ok(outcome) => {
-                tracing::warn!("[TAS-53 DEBUG] Successfully parsed DecisionPointOutcome: {:?}", outcome);
+                tracing::warn!(
+                    "[TAS-53 DEBUG] Successfully parsed DecisionPointOutcome: {:?}",
+                    outcome
+                );
             }
             Err(e) => {
                 tracing::warn!("[TAS-53 DEBUG] Failed to parse DecisionPointOutcome: {}", e);
@@ -853,8 +866,7 @@ mod tests {
         let result_data = serde_json::json!({
             "decision_point_outcome": decision_outcome.to_value()
         });
-        let result =
-            StepExecutionResult::success(step_uuid, result_data, 100, None);
+        let result = StepExecutionResult::success(step_uuid, result_data, 100, None);
 
         let extracted = DecisionPointOutcome::from_step_result(&result);
         assert!(extracted.is_some());
@@ -874,8 +886,7 @@ mod tests {
         let result_data = serde_json::json!({
             "decision_point_outcome": decision_outcome.to_value()
         });
-        let result =
-            StepExecutionResult::success(step_uuid, result_data, 100, None);
+        let result = StepExecutionResult::success(step_uuid, result_data, 100, None);
 
         let extracted = DecisionPointOutcome::from_step_result(&result);
         assert!(extracted.is_some());

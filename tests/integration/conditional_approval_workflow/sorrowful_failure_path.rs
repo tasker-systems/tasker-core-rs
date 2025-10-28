@@ -20,7 +20,9 @@ use crate::common::lifecycle_test_manager::LifecycleTestManager;
 async fn test_manager_approval_denial(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: Manager approval denial");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     // Create task request requiring manager approval
     let task_request = manager.create_task_request_for_template(
@@ -54,7 +56,9 @@ async fn test_manager_approval_denial(pool: PgPool) -> Result<()> {
 async fn test_finance_review_denial(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: Finance review denial");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     // Create task request requiring dual approval
     let task_request = manager.create_task_request_for_template(
@@ -89,7 +93,9 @@ async fn test_finance_review_denial(pool: PgPool) -> Result<()> {
 async fn test_invalid_amount_handling(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: Invalid amount handling");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     // Create task request with invalid amount
     let task_request = manager.create_task_request_for_template(
@@ -124,7 +130,9 @@ async fn test_invalid_amount_handling(pool: PgPool) -> Result<()> {
 async fn test_missing_context_fields(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: Missing context fields");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     // Create task request with missing fields
     let task_request = manager.create_task_request_for_template(
@@ -158,7 +166,9 @@ async fn test_missing_context_fields(pool: PgPool) -> Result<()> {
 async fn test_decision_point_invalid_step_names(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 CONDITIONAL APPROVAL: Decision point invalid step names");
 
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     // This test validates that the decision handler properly validates step names
     // The actual validation happens during step execution, not initialization
