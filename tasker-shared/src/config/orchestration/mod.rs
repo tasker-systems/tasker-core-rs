@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub mod decision_points;
+pub use decision_points::DecisionPointsConfig;
 pub mod task_claim_step_enqueuer;
 pub use task_claim_step_enqueuer::TaskClaimStepEnqueuerConfig;
 pub mod step_enqueuer;

@@ -70,6 +70,7 @@
 //! }
 //! ```
 
+pub mod decision_point_actor;
 pub mod registry;
 pub mod result_processor_actor;
 pub mod step_enqueuer_actor;
@@ -78,6 +79,9 @@ pub mod task_request_actor;
 pub mod traits;
 
 // Re-export core traits for convenience
+pub use decision_point_actor::{
+    DecisionPointActor, DecisionPointProcessingResult, ProcessDecisionPointMessage,
+};
 pub use registry::ActorRegistry;
 pub use result_processor_actor::{ProcessStepResultMessage, ResultProcessorActor};
 pub use step_enqueuer_actor::{ProcessBatchMessage, StepEnqueuerActor};

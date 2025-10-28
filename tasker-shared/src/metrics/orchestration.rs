@@ -291,6 +291,109 @@ pub static TASK_AGE_AT_DISCOVERY_SECONDS: OnceLock<Histogram<f64>> = OnceLock::n
 /// Static gauge: discovery_pool_saturation
 pub static DISCOVERY_POOL_SATURATION: OnceLock<Gauge<f64>> = OnceLock::new();
 
+// ============================================================================
+// TAS-53: Decision Point Metrics
+// ============================================================================
+
+/// Total number of decision point outcomes processed
+///
+/// Labels:
+/// - correlation_id: Request correlation ID
+/// - decision_name: Name of the decision step
+/// - outcome_type: no_branches, create_steps
+pub fn decision_outcomes_processed_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.decision_points.outcomes_processed.total")
+        .with_description("Total number of decision point outcomes processed")
+        .init()
+}
+
+/// Total number of workflow steps created from decision points
+///
+/// Labels:
+/// - correlation_id: Request correlation ID
+/// - decision_name: Name of the decision step
+pub fn decision_steps_created_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.decision_points.steps_created.total")
+        .with_description("Total number of workflow steps created from decision points")
+        .init()
+}
+
+/// Total number of decision point validation errors
+///
+/// Labels:
+/// - correlation_id: Request correlation ID
+/// - decision_name: Name of the decision step
+/// - error_type: invalid_descendant, cycle_detected, step_not_found
+pub fn decision_validation_errors_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.decision_points.validation_errors.total")
+        .with_description("Total number of decision point validation errors")
+        .init()
+}
+
+/// Total number of decision point warning thresholds exceeded
+///
+/// Labels:
+/// - warning_type: step_count, decision_depth
+/// - correlation_id: Request correlation ID
+pub fn decision_warnings_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.decision_points.warnings.total")
+        .with_description("Total number of decision point warning thresholds exceeded")
+        .init()
+}
+
+/// Decision point processing duration in milliseconds
+///
+/// Tracks time to validate and create steps from decision outcomes.
+///
+/// Labels:
+/// - correlation_id: Request correlation ID
+/// - decision_name: Name of the decision step
+/// - outcome_type: no_branches, create_steps
+pub fn decision_processing_duration() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.decision_point.processing.duration")
+        .with_description("Decision point processing duration in milliseconds")
+        .with_unit("ms")
+        .init()
+}
+
+/// Distribution of step counts created by decision points
+///
+/// Tracks distribution to validate configuration limits.
+///
+/// Labels:
+/// - decision_name: Name of the decision step
+pub fn decision_step_count_histogram() -> Histogram<u64> {
+    meter()
+        .u64_histogram("tasker.decision_point.step_count")
+        .with_description("Distribution of step counts created by decision points")
+        .init()
+}
+
+// TAS-53: Decision point metrics statics
+
+/// Static counter: decision_outcomes_processed_total
+pub static DECISION_OUTCOMES_PROCESSED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: decision_steps_created_total
+pub static DECISION_STEPS_CREATED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: decision_validation_errors_total
+pub static DECISION_VALIDATION_ERRORS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: decision_warnings_total
+pub static DECISION_WARNINGS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static histogram: decision_processing_duration
+pub static DECISION_PROCESSING_DURATION: OnceLock<Histogram<f64>> = OnceLock::new();
+
+/// Static histogram: decision_step_count_histogram
+pub static DECISION_STEP_COUNT_HISTOGRAM: OnceLock<Histogram<u64>> = OnceLock::new();
+
 /// Initialize all orchestration metrics
 ///
 /// This should be called during application startup after init_metrics().
@@ -311,4 +414,12 @@ pub fn init() {
     COMPUTED_PRIORITY_HISTOGRAM.get_or_init(computed_priority_histogram);
     TASK_AGE_AT_DISCOVERY_SECONDS.get_or_init(task_age_at_discovery_seconds);
     DISCOVERY_POOL_SATURATION.get_or_init(discovery_pool_saturation);
+
+    // TAS-53: Decision point metrics
+    DECISION_OUTCOMES_PROCESSED_TOTAL.get_or_init(decision_outcomes_processed_total);
+    DECISION_STEPS_CREATED_TOTAL.get_or_init(decision_steps_created_total);
+    DECISION_VALIDATION_ERRORS_TOTAL.get_or_init(decision_validation_errors_total);
+    DECISION_WARNINGS_TOTAL.get_or_init(decision_warnings_total);
+    DECISION_PROCESSING_DURATION.get_or_init(decision_processing_duration);
+    DECISION_STEP_COUNT_HISTOGRAM.get_or_init(decision_step_count_histogram);
 }

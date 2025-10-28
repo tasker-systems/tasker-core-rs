@@ -17,8 +17,8 @@ pub use clients::{
 pub use clients::types::{ClientStatus, PgmqStepMessage, PgmqStepMessageMetadata, QueueMetrics};
 pub use errors::{MessagingError, MessagingResult};
 pub use execution_types::{
-    StepBatchRequest, StepBatchResponse, StepExecutionError, StepExecutionMetadata,
-    StepExecutionRequest, StepExecutionResult, StepRequestMetadata,
+    DecisionPointOutcome, StepBatchRequest, StepBatchResponse, StepExecutionError,
+    StepExecutionMetadata, StepExecutionRequest, StepExecutionResult, StepRequestMetadata,
 };
 pub use message::{StepMessage, StepMessageMetadata};
 pub use orchestration_messages::*;

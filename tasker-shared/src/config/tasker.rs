@@ -44,8 +44,8 @@ pub use super::event_systems::{
     WorkerEventSystemConfig as UnifiedWorkerEventSystemConfig,
 };
 pub use super::orchestration::{
-    event_systems::OrchestrationEventSystemConfig, ExecutorConfig, ExecutorType,
-    OrchestrationConfig, OrchestrationSystemConfig,
+    event_systems::OrchestrationEventSystemConfig, DecisionPointsConfig, ExecutorConfig,
+    ExecutorType, OrchestrationConfig, OrchestrationSystemConfig,
 };
 pub use super::queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
@@ -111,6 +111,10 @@ pub struct TaskerConfig {
     /// MPSC channels configuration (TAS-51)
     /// Unified configuration for all Tokio MPSC channel buffer sizes
     pub mpsc_channels: MpscChannelsConfig,
+
+    /// Decision points configuration (TAS-53)
+    /// Dynamic workflow decision points for runtime conditional branching
+    pub decision_points: DecisionPointsConfig,
 
     /// Worker configuration
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -517,6 +521,7 @@ impl Default for TaskerConfig {
             // REMOVED: task_claimer for TAS-41 state machine approach
             event_systems: EventSystemsConfig::default(), // Unified Event Systems Configuration
             mpsc_channels: MpscChannelsConfig::default(), // TAS-51 MPSC Channels Configuration
+            decision_points: DecisionPointsConfig::default(), // TAS-53 Decision Points Configuration
             worker: None, // Optional, only populated when TOML contains worker configuration
         }
     }

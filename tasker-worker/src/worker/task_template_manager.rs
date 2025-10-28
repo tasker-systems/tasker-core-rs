@@ -693,7 +693,7 @@ impl WorkerTaskTemplateOperations for TaskTemplateManager {
 mod tests {
     use super::*;
     use tasker_shared::{
-        models::core::task_template::{HandlerDefinition, StepDefinition, TaskTemplate},
+        models::core::task_template::{HandlerDefinition, StepDefinition, StepType, TaskTemplate},
         registry::HandlerKey,
     };
 
@@ -715,6 +715,7 @@ mod tests {
             input_schema: None,
             steps: vec![StepDefinition {
                 name: "step1".to_string(),
+                step_type: StepType::Standard,
                 description: Some("Test step".to_string()),
                 handler: HandlerDefinition {
                     callable: "TestStepHandler".to_string(),

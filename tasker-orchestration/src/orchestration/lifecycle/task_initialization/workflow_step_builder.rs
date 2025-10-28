@@ -8,21 +8,24 @@ use sqlx::types::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_shared::models::core::task_template::TaskTemplate;
-use tasker_shared::models::core::workflow_step::NewWorkflowStep;
 use tasker_shared::models::core::workflow_step_edge::NewWorkflowStepEdge;
-use tasker_shared::models::{NamedStep, WorkflowStep};
 use tasker_shared::system_context::SystemContext;
 
-use super::TaskInitializationError;
+use super::{TaskInitializationError, WorkflowStepCreator};
 
 /// Builds workflow steps and dependencies from task templates
 pub struct WorkflowStepBuilder {
     context: Arc<SystemContext>,
+    step_creator: WorkflowStepCreator,
 }
 
 impl WorkflowStepBuilder {
     pub fn new(context: Arc<SystemContext>) -> Self {
-        Self { context }
+        let step_creator = WorkflowStepCreator::new(context.clone());
+        Self {
+            context,
+            step_creator,
+        }
     }
 
     /// Create workflow steps and their dependencies from task template
@@ -42,87 +45,27 @@ impl WorkflowStepBuilder {
         Ok((step_mapping.len(), step_mapping))
     }
 
-    /// Create named steps and workflow steps using consistent transaction methods
+    /// Create named steps and workflow steps using the shared WorkflowStepCreator
+    ///
+    /// For workflows with decision points, this only creates the initial step set
+    /// (steps up to and including decision points, but not their descendants).
+    /// For workflows without decision points, this creates all steps.
     async fn create_steps(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         task_uuid: Uuid,
         task_template: &TaskTemplate,
     ) -> Result<HashMap<String, Uuid>, TaskInitializationError> {
-        let mut step_mapping = HashMap::new();
+        // Get the initial step set (partial graph for decision-point workflows)
+        let initial_steps = task_template.initial_step_set();
 
-        for step_definition in &task_template.steps {
-            // Create or find named step using transaction
-            let named_steps =
-                NamedStep::find_by_name(self.context.database_pool(), &step_definition.name)
-                    .await
-                    .map_err(|e| {
-                        TaskInitializationError::Database(format!(
-                            "Failed to search for NamedStep '{}': {}",
-                            step_definition.name, e
-                        ))
-                    })?;
+        // Convert borrowed step definitions to owned for the batch creator
+        let step_defs: Vec<_> = initial_steps.into_iter().cloned().collect();
 
-            let named_step = if let Some(existing_step) = named_steps.first() {
-                existing_step.clone()
-            } else {
-                // Create new named step using transaction-aware method
-                let system_name = "tasker_core_rust"; // Use a consistent system name for Rust core
-                NamedStep::find_or_create_by_name_with_transaction(
-                    tx,
-                    self.context.database_pool(),
-                    &step_definition.name,
-                    system_name,
-                )
-                .await
-                .map_err(|e| {
-                    TaskInitializationError::Database(format!(
-                        "Failed to create NamedStep '{}': {}",
-                        step_definition.name, e
-                    ))
-                })?
-            };
-
-            // Create workflow step using consistent transaction method
-            // Convert handler initialization to JSON Value for inputs
-            let inputs = if step_definition.handler.initialization.is_empty() {
-                None
-            } else {
-                Some(
-                    serde_json::to_value(&step_definition.handler.initialization).map_err(|e| {
-                        TaskInitializationError::Database(format!(
-                            "Failed to serialize handler initialization for step '{}': {}",
-                            step_definition.name, e
-                        ))
-                    })?,
-                )
-            };
-
-            let new_workflow_step = NewWorkflowStep {
-                task_uuid,
-                named_step_uuid: named_step.named_step_uuid,
-                retryable: Some(step_definition.retry.retryable),
-                max_attempts: Some(step_definition.retry.max_attempts as i32),
-                inputs,
-                skippable: None, // Not available in new TaskTemplate - could be added if needed
-            };
-
-            let workflow_step = WorkflowStep::create_with_transaction(tx, new_workflow_step)
-                .await
-                .map_err(|e| {
-                    TaskInitializationError::Database(format!(
-                        "Failed to create WorkflowStep '{}': {}",
-                        step_definition.name, e
-                    ))
-                })?;
-
-            step_mapping.insert(
-                step_definition.name.clone(),
-                workflow_step.workflow_step_uuid,
-            );
-        }
-
-        Ok(step_mapping)
+        // Delegate to the shared step creator
+        self.step_creator
+            .create_steps_batch(tx, task_uuid, &step_defs)
+            .await
     }
 
     /// Create dependencies between workflow steps using consistent transaction methods
@@ -132,8 +75,13 @@ impl WorkflowStepBuilder {
         task_template: &TaskTemplate,
         step_mapping: &HashMap<String, Uuid>,
     ) -> Result<(), TaskInitializationError> {
+        // Only create dependencies for steps that were actually created (in step_mapping)
+        // For decision-point workflows, this will be the initial_step_set
         for step_definition in &task_template.steps {
-            let to_step_uuid = step_mapping[&step_definition.name];
+            // Skip steps that weren't created in this initialization phase
+            let Some(&to_step_uuid) = step_mapping.get(&step_definition.name) else {
+                continue;
+            };
 
             // Create edges for all dependencies using transaction method
             for dependency_name in &step_definition.dependencies {
@@ -192,6 +140,7 @@ impl WorkflowStepBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tasker_shared::models::core::workflow_step::NewWorkflowStep;
 
     #[test]
     fn test_step_mapping_structure() {

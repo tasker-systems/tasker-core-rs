@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use crate::actors::DecisionPointActor;
 use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
 use crate::orchestration::{BackoffCalculator, BackoffCalculatorConfig};
 use tasker_shared::errors::OrchestrationResult;
@@ -39,7 +40,13 @@ pub struct OrchestrationResultProcessor {
 
 impl OrchestrationResultProcessor {
     /// Create a new orchestration result processor
-    pub fn new(task_finalizer: TaskFinalizer, context: Arc<SystemContext>) -> Self {
+    ///
+    /// TAS-53 Phase 6: Now accepts DecisionPointActor for dynamic workflow step creation
+    pub fn new(
+        task_finalizer: TaskFinalizer,
+        context: Arc<SystemContext>,
+        decision_point_actor: Arc<DecisionPointActor>,
+    ) -> Self {
         // Create backoff calculator
         let backoff_config: BackoffCalculatorConfig = context.tasker_config.clone().into();
         let backoff_calculator =
@@ -50,12 +57,13 @@ impl OrchestrationResultProcessor {
         let state_transition_handler = StateTransitionHandler::new(context.clone());
         let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
 
-        // Create message handler that orchestrates all components
+        // Create message handler that orchestrates all components (TAS-53: includes decision point actor)
         let message_handler = MessageHandler::new(
             context.clone(),
             metadata_processor,
             state_transition_handler,
             task_coordinator,
+            decision_point_actor,
         );
 
         Self { message_handler }
@@ -108,7 +116,17 @@ mod tests {
         );
         let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
 
-        let processor = OrchestrationResultProcessor::new(task_finalizer, context);
+        // Create DecisionPointActor for testing (TAS-53 Phase 6)
+        let decision_point_service = Arc::new(
+            crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
+        );
+        let decision_point_actor = Arc::new(DecisionPointActor::new(
+            context.clone(),
+            decision_point_service,
+        ));
+
+        let processor =
+            OrchestrationResultProcessor::new(task_finalizer, context, decision_point_actor);
 
         // Verify it's created (basic smoke test)
         assert!(std::mem::size_of_val(&processor) > 0);
@@ -128,7 +146,17 @@ mod tests {
         );
         let task_finalizer = TaskFinalizer::new(context.clone(), step_enqueuer);
 
-        let processor = OrchestrationResultProcessor::new(task_finalizer, context);
+        // Create DecisionPointActor for testing (TAS-53 Phase 6)
+        let decision_point_service = Arc::new(
+            crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
+        );
+        let decision_point_actor = Arc::new(DecisionPointActor::new(
+            context.clone(),
+            decision_point_service,
+        ));
+
+        let processor =
+            OrchestrationResultProcessor::new(task_finalizer, context, decision_point_actor);
 
         let cloned = processor.clone();
 

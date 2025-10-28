@@ -46,6 +46,7 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 - **[Quick Start](quick-start.md)** - Get your first workflow running
 - **[Crate Architecture](crate-architecture.md)** - Understand the codebase structure
 - **[Use Cases & Patterns](use-cases-and-patterns.md)** - Practical workflow examples
+- **[Conditional Workflows](conditional-workflows.md)** - Runtime decision-making and dynamic step creation
 - **[Task and Step Readiness](task-and-step-readiness-and-execution.md)** - SQL functions and execution logic
 - **[Retry Semantics](retry-semantics.md)** - Understanding max_attempts and retryable flags
 - **[Archive: Testing Methodologies](archive/testing-methodologies.md)** - Testing patterns and strategies

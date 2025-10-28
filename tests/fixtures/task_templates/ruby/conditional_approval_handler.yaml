@@ -1,0 +1,233 @@
+# TaskTemplate Configuration - Ruby Implementation with Decision Points
+#
+# Conditional Approval Workflow with TAS-53 Decision Point Routing
+# Demonstrates dynamic workflow step creation based on runtime conditions
+#
+# Template: conditional_approval/approval_routing:1.0.0
+# Implementation: Ruby FFI with decision point support
+# Feature: TAS-53 Dynamic Workflows & DecisionPoint Steps
+#
+# Workflow Pattern:
+# 1. validate_request: Validate approval request data
+# 2. routing_decision: DECISION POINT - route based on amount
+#    - Creates different approval steps dynamically:
+#      * < $1,000: auto_approve
+#      * $1,000-$4,999: manager_approval
+#      * >= $5,000: manager_approval + finance_review
+# 3. Dynamic Steps (created by decision point):
+#    - auto_approve: Auto-approval for small amounts
+#    - manager_approval: Manager review
+#    - finance_review: Finance review for large amounts
+# 4. finalize_approval: Convergence step processing all approvals
+#
+---
+name: approval_routing
+namespace_name: conditional_approval
+version: 1.0.0
+description: "Decision point workflow with conditional routing: amount-based approval paths"
+metadata:
+  author: TAS-53 Decision Point Implementation
+  tags:
+    - namespace:conditional_approval
+    - pattern:decision_point
+    - feature:dynamic_workflows
+    - implementation:ruby_ffi
+    - language:ruby
+    - tas:TAS-53
+  documentation_url:
+  created_at: "2025-10-26T00:00:00Z"
+  updated_at: "2025-10-26T00:00:00Z"
+  notes: "Demonstrates TAS-53 decision point functionality with dynamic step creation"
+task_handler:
+  callable: ConditionalApproval::ConditionalApprovalHandler
+  initialization:
+    input_validation:
+      required_fields:
+        - amount
+        - requester
+        - purpose
+      amount_constraint: must_be_positive
+    routing_thresholds:
+      small: 1000
+      large: 5000
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - amount
+    - requester
+    - purpose
+  properties:
+    amount:
+      type: number
+      minimum: 0.01
+      maximum: 1000000
+      description: "Amount requiring approval"
+    requester:
+      type: string
+      minLength: 1
+      description: "Person requesting approval"
+    purpose:
+      type: string
+      minLength: 1
+      description: "Purpose of the approval request"
+steps:
+  # ========================================================================
+  # STATIC WORKFLOW STRUCTURE
+  # These steps are always created at task initialization
+  # ========================================================================
+
+  - name: validate_request
+    description: "Validate approval request data (initial step)"
+    handler:
+      callable: ConditionalApproval::StepHandlers::ValidateRequestHandler
+      initialization:
+        operation: validate
+        description: "Validate request fields and constraints"
+    system_dependency:
+    dependencies: []
+    type: standard  # Standard step - always created
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: routing_decision
+    description: "DECISION POINT: Route to appropriate approval path based on amount"
+    handler:
+      callable: ConditionalApproval::StepHandlers::RoutingDecisionHandler
+      initialization:
+        operation: routing
+        description: "Determine approval path based on amount thresholds"
+        thresholds:
+          small: 1000
+          large: 5000
+    system_dependency:
+    dependencies:
+      - validate_request
+    type: decision  # TAS-53: DECISION POINT - creates steps dynamically
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: finalize_approval
+    description: "Finalize approval after all required approvals received (convergence)"
+    handler:
+      callable: ConditionalApproval::StepHandlers::FinalizeApprovalHandler
+      initialization:
+        operation: finalize
+        description: "Process and record final approval decision"
+    system_dependency:
+    dependencies:
+      - auto_approve
+      - manager_approval
+      - finance_review
+      # NOTE: This is a deferred convergence step with ALL possible dependencies listed.
+      # At runtime, the decision point service computes the intersection of:
+      # - These declared dependencies
+      # - The steps actually created by routing_decision
+      # This intersection determines the actual DAG dependencies.
+      #
+      # Example: If routing_decision creates only auto_approve, then:
+      # finalize_approval's actual dependencies = [auto_approve]
+    type: deferred  # Deferred convergence step with dynamic dependency resolution
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  # ========================================================================
+  # DYNAMICALLY CREATED STEP DEFINITIONS
+  # These steps are NOT created at task initialization.
+  # They are created at runtime when the routing_decision step executes
+  # and returns a DecisionPointOutcome with step names.
+  #
+  # The WorkflowGraph segmentation logic identifies these as descendants
+  # of the decision point (routing_decision) and excludes them from
+  # initial_step_set(). They will be created dynamically when the
+  # decision point executes and specifies which steps to create.
+  # ========================================================================
+
+  - name: auto_approve
+    description: "Automatic approval for small amounts (< $1,000)"
+    handler:
+      callable: ConditionalApproval::StepHandlers::AutoApproveHandler
+      initialization:
+        operation: auto_approve
+        description: "Automatically approve small requests"
+    system_dependency:
+    dependencies:
+      - routing_decision  # Created as child of decision point
+    type: standard  # Dynamically created standard step
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: manager_approval
+    description: "Manager approval for medium amounts ($1,000-$4,999)"
+    handler:
+      callable: ConditionalApproval::StepHandlers::ManagerApprovalHandler
+      initialization:
+        operation: manager_approval
+        description: "Route to manager for approval"
+    system_dependency:
+    dependencies:
+      - routing_decision  # Created as child of decision point
+    type: standard  # Dynamically created standard step
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: finance_review
+    description: "Finance review for large amounts (>= $5,000)"
+    handler:
+      callable: ConditionalApproval::StepHandlers::FinanceReviewHandler
+      initialization:
+        operation: finance_review
+        description: "Route to finance for additional review"
+    system_dependency:
+    dependencies:
+      - routing_decision  # Created as child of decision point
+    type: standard  # Dynamically created standard step
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+environments:
+  test:
+    steps:
+      - name: ALL
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2

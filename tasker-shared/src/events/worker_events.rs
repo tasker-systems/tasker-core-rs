@@ -488,6 +488,7 @@ mod tests {
                     callable: handler_class.to_string(),
                     initialization: HashMap::new(),
                 },
+                step_type: crate::models::core::task_template::StepType::Standard,
                 system_dependency: None,
                 dependencies: vec![],
                 timeout_seconds: Some(30),

@@ -21,12 +21,14 @@ mod service;
 mod state_initializer;
 mod template_loader;
 mod workflow_step_builder;
+mod workflow_step_creator;
 
 pub use namespace_resolver::NamespaceResolver;
 pub use service::{TaskInitializationResult, TaskInitializer};
 pub use state_initializer::StateInitializer;
 pub use template_loader::TemplateLoader;
 pub use workflow_step_builder::WorkflowStepBuilder;
+pub use workflow_step_creator::WorkflowStepCreator;
 
 /// Errors that can occur during task initialization
 #[derive(Debug, thiserror::Error)]

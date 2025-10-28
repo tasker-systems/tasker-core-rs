@@ -755,3 +755,4 @@ For deep dives into specific architectural aspects:
   - `docs/architecture-decisions/TAS-51-bounded-mpsc-channels.md` - ADR with design decisions and rationale
   - `docs/operations/mpsc-channel-tuning.md` - Operational runbook for monitoring and capacity planning
   - `docs/development/mpsc-channel-guidelines.md` - Developer guidelines for creating and using channels
+- when running tests, *never* use SQLX_OFFLINE, *always* correctly export DATABASE_URL which can be found in the project root's .env
