@@ -99,7 +99,7 @@ jobs:
             --package tasker-client
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
           name: test-results-${{ matrix.rust-version }}

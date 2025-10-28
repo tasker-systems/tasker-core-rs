@@ -99,7 +99,7 @@ jobs:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Upload unit test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
           name: unit-test-results
@@ -240,7 +240,7 @@ jobs:
           RUST_LOG: info
 
       - name: Upload integration test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
           name: integration-test-results
@@ -258,7 +258,7 @@ jobs:
 
       - name: Upload service logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: e2e-service-logs
           path: docker-logs/
