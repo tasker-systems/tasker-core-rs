@@ -136,22 +136,51 @@ The step readiness system was enhanced to support the new `WaitingForRetry` stat
 - **Before**: `error` state included both retryable and permanent failures
 - **After**: `error` = permanent only, `waiting_for_retry` = awaiting backoff for retry
 
-**Helper Functions Introduced**:
+#### TAS-57: Backoff Logic Consolidation (October 2025)
 
-1. **`calculate_step_next_retry_time()`**: Centralizes retry time calculation logic
+The backoff calculation system was consolidated to eliminate configuration conflicts and race conditions:
+
+**Key Changes**:
+1. **Configuration Alignment**: Single source of truth (TOML config) with max_backoff_seconds = 60
+2. **Parameterized SQL Functions**: `calculate_step_next_retry_time()` accepts configurable max delay and multiplier
+3. **Atomic Updates**: Row-level locking prevents concurrent backoff update conflicts
+4. **Timing Consistency**: `last_attempted_at` updated atomically with `backoff_request_seconds`
+
+**Issues Resolved**:
+- **Configuration Conflicts**: Eliminated three conflicting max values (30s SQL, 60s code, 300s TOML)
+- **Race Conditions**: Added SELECT FOR UPDATE locking in BackoffCalculator
+- **Hardcoded Values**: Removed hardcoded 30-second cap and power(2, attempts) in SQL
+
+**Helper Functions Enhanced**:
+
+1. **`calculate_step_next_retry_time()`**: Now parameterized with configuration values
    ```sql
    CREATE OR REPLACE FUNCTION calculate_step_next_retry_time(
        backoff_request_seconds INTEGER,
        last_attempted_at TIMESTAMP,
        failure_time TIMESTAMP,
-       attempts INTEGER
+       attempts INTEGER,
+       p_max_backoff_seconds INTEGER DEFAULT 60,
+       p_backoff_multiplier NUMERIC DEFAULT 2.0
    ) RETURNS TIMESTAMP
    ```
-   - Respects custom backoff periods from step configuration
-   - Falls back to exponential backoff: `2^attempts` seconds (max 30)
+   - Respects custom backoff periods from step configuration (primary path)
+   - Falls back to exponential backoff with configurable parameters
+   - Defaults aligned with TOML config (60s max, 2.0 multiplier)
    - Used consistently across all readiness evaluation
 
-2. **`evaluate_step_state_readiness()`**: Determines if a step is ready for execution
+2. **`set_step_backoff_atomic()`**: New atomic update function
+   ```sql
+   CREATE OR REPLACE FUNCTION set_step_backoff_atomic(
+       p_step_uuid UUID,
+       p_backoff_seconds INTEGER
+   ) RETURNS BOOLEAN
+   ```
+   - Provides transactional guarantee for concurrent updates
+   - Updates both `backoff_request_seconds` and `last_attempted_at`
+   - Ensures timing consistency with SQL calculations
+
+3. **`evaluate_step_state_readiness()`**: Determines if a step is ready for execution
    ```sql
    CREATE OR REPLACE FUNCTION evaluate_step_state_readiness(
        current_state TEXT,

@@ -23,7 +23,7 @@ fn test_backoff_config_defaults() {
     assert_eq!(config.max_backoff_seconds, 60);
     assert!(config.jitter_enabled);
     assert_eq!(config.backoff_multiplier, 2.0);
-    assert_eq!(config.jitter_max_percentage, 0.5);
+    assert_eq!(config.jitter_max_percentage, 0.1);
 }
 
 #[test]
