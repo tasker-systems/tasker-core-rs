@@ -16,7 +16,7 @@ use tasker_shared::metrics::worker::*;
 use tasker_shared::{TaskerError, TaskerResult};
 
 /// Helper for sending step completion messages to orchestration with config-driven queue names
-pub struct OrchestrationResultSender {
+pub(crate) struct OrchestrationResultSender {
     /// Unified PGMQ client for queue operations
     pgmq_client: Arc<UnifiedPgmqClient>,
     /// Queue classifier for config-driven queue naming
@@ -112,6 +112,7 @@ impl OrchestrationResultSender {
     }
 
     /// Get the configured orchestration step results queue name with proper prefixing
+    #[allow(dead_code)]
     pub fn step_results_queue(&self) -> String {
         self.queue_classifier.ensure_queue_name_well_structured(
             self.queue_classifier.step_results_queue_name(),

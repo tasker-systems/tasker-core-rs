@@ -4,7 +4,6 @@
 //! and method implementations without requiring external dependencies.
 
 use super::*;
-use pgmq_notify::MessageReadyEvent;
 use std::collections::HashMap;
 
 #[test]

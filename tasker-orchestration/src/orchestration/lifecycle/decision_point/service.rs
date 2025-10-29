@@ -55,6 +55,7 @@ impl From<sqlx::Error> for DecisionPointProcessingError {
 }
 
 /// Service for processing decision point outcomes and dynamically creating steps
+#[derive(Debug)]
 pub struct DecisionPointService {
     context: Arc<SystemContext>,
     step_creator: WorkflowStepCreator,

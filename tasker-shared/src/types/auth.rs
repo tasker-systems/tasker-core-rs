@@ -72,6 +72,17 @@ pub struct JwtAuthenticator {
     decoding_key: Option<DecodingKey>,
 }
 
+impl std::fmt::Debug for JwtAuthenticator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JwtAuthenticator")
+            .field("enabled", &self.config.enabled)
+            .field("has_encoding_key", &self.encoding_key.is_some())
+            .field("has_decoding_key", &self.decoding_key.is_some())
+            .field("api_key_configured", &!self.config.api_key.is_empty())
+            .finish()
+    }
+}
+
 impl JwtAuthenticator {
     /// Create authenticator from configuration
     pub fn from_config(config: &WebAuthConfig) -> Result<Self, AuthError> {

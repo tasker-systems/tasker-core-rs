@@ -15,7 +15,7 @@ use tasker_shared::state_machine::task_state_machine::TaskStateMachine;
 use tasker_shared::{SystemContext, TaskerError, TaskerResult};
 
 /// Handles state-specific processing for tasks
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StateHandlers {
     context: Arc<SystemContext>,
 }

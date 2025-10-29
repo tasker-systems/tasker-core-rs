@@ -339,7 +339,6 @@ impl UnifiedConfigLoader {
     /// - ${VAR:-default} - replace with environment variable value or default if not set
     fn expand_env_vars(&self, input: &str) -> ConfigResult<String> {
         use regex::Regex;
-        use std::env;
 
         // Match ${VAR} or ${VAR:-default}
         let re = Regex::new(r"\$\{([^}:]+)(?::-([^}]*))?\}").unwrap();

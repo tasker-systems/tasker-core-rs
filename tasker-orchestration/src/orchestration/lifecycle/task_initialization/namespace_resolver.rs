@@ -14,6 +14,7 @@ use tasker_shared::system_context::SystemContext;
 use super::TaskInitializationError;
 
 /// Resolves or creates task namespaces and named tasks
+#[derive(Debug)]
 pub struct NamespaceResolver {
     context: Arc<SystemContext>,
 }

@@ -14,7 +14,7 @@ use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::system_context::SystemContext;
 
 /// Handles orchestration state transitions for steps
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StateTransitionHandler {
     context: Arc<SystemContext>,
 }

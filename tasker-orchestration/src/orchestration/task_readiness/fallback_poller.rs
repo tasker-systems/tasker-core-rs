@@ -41,6 +41,16 @@ pub struct FallbackPoller {
     shutdown_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+impl std::fmt::Debug for FallbackPoller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FallbackPoller")
+            .field("poller_id", &self.poller_id)
+            .field("config", &self.config)
+            .field("has_shutdown_handle", &self.shutdown_handle.is_some())
+            .finish()
+    }
+}
+
 impl FallbackPoller {
     /// Create a new fallback poller
     pub async fn new(

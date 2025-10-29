@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-10-26
+**Last Updated**: 2025-10-28
 
 ## Project Overview
 
@@ -33,12 +33,17 @@ cargo test --all-features
 cargo test --all-features --package <package-name>  # Test specific package
 cargo test --all-features <test-name>               # Run specific test
 
-# Linting and formatting
+# Linting and formatting (TAS-58: Microsoft Universal Guidelines enforced)
 cargo clippy --all-targets --all-features
 cargo fmt
 
 # Fast compilation check
 cargo check --all-features
+
+# Standards compliance (TAS-58)
+# All workspace crates must pass clippy with workspace lints
+# See: https://microsoft.github.io/rust-guidelines/guidelines/universal/
+# See: https://rust-lang.github.io/api-guidelines/checklist.html
 
 # Documentation
 cargo doc --all-features --open
@@ -132,6 +137,89 @@ docker-compose --profile server up -d
 docker-compose down
 docker system prune -af                           # Clean all Docker resources
 ```
+
+## Rust Standards and Linting (TAS-58)
+
+**Implemented**: 2025-10-28
+
+The workspace enforces **Microsoft Universal Guidelines** and **Rust API Guidelines** through workspace-level lints.
+
+### Linting Configuration
+
+All crates inherit workspace lints from root `Cargo.toml`:
+
+```toml
+[workspace.lints.rust]
+# Microsoft Universal Guidelines - Compiler Lints
+ambiguous_negative_literals = "warn"
+missing_debug_implementations = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+
+[workspace.lints.clippy]
+# All major clippy categories enabled
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+
+# Plus 21 restriction lints from Microsoft guidelines
+# See root Cargo.toml for full list
+```
+
+### Key Standards
+
+1. **Debug Implementations**: All public types must implement `Debug` (manual implementation required for types containing `PgPool`, `AtomicU64`, etc.)
+2. **Cargo Metadata**: All crates must have:
+   - `license` (MIT)
+   - `repository` (GitHub URL)
+   - `readme` (README.md)
+   - `keywords` (5 max)
+   - `categories` (appropriate Rust categories)
+3. **Lint Overrides**: Use `#[expect(lint_name, reason = "...")]` instead of `#[allow]` (Microsoft guideline M-LINT-OVERRIDE-EXPECT)
+4. **Documentation**: Public APIs should have rustdoc with examples (ongoing improvement)
+5. **Error Documentation**: Functions returning `Result` should document error conditions
+
+### Compliance Status (2025-10-28)
+
+**Baseline established** with 33% reduction in clippy warnings (2,460 → 1,638):
+
+- ✅ Workspace lint configuration complete
+- ✅ All crates inherit workspace lints
+- ✅ Cargo metadata complete for all crates
+- ✅ Debug implementations added where feasible
+- ✅ Auto-fixable style issues resolved
+- ⏳ Error documentation (ongoing)
+- ⏳ Lint override reasons (ongoing)
+- ⏳ Comprehensive rustdoc (future enhancement)
+
+### Development Workflow
+
+```bash
+# Check compliance
+cargo clippy --workspace --all-targets --all-features
+
+# Fix auto-fixable issues
+cargo clippy --fix --workspace --lib --all-features --allow-dirty
+
+# Format code
+cargo fmt --all
+
+# Validate tests still pass
+cargo test --workspace --all-features
+```
+
+### References
+
+- [Microsoft Rust Guidelines](https://microsoft.github.io/rust-guidelines/)
+- [Rust API Guidelines Checklist](https://rust-lang.github.io/api-guidelines/checklist.html)
+- [TAS-58 Ticket](Linear: jcoletaylor/tas-58-rust-standards-update)
 
 ## High-Level Architecture
 

@@ -35,6 +35,7 @@ pub struct TaskInitializationResult {
 }
 
 /// Atomic task creation with proper transaction safety
+#[derive(Debug)]
 pub struct TaskInitializer {
     context: Arc<SystemContext>,
     namespace_resolver: NamespaceResolver,

@@ -43,7 +43,7 @@ pub struct OrchestrationStatus {
 /// - Shared orchestration database pool reference
 /// - Circuit breaker for web database health
 /// - Configuration and orchestration status
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AppState {
     /// Web server configuration
     pub config: Arc<WebConfig>,

@@ -52,6 +52,7 @@ impl Message for ProcessTaskRequestMessage {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Debug)]
 pub struct TaskRequestActor {
     /// System context for framework operations
     context: Arc<SystemContext>,

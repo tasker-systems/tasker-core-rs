@@ -194,7 +194,6 @@ impl Clone for CircuitBreakerManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     fn create_test_config() -> CircuitBreakerConfig {
         use crate::config::CircuitBreakerGlobalSettings;

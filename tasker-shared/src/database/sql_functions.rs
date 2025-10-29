@@ -94,6 +94,8 @@ pub struct SqlFunctionExecutor {
     pool: PgPool,
 }
 
+crate::debug_with_pgpool!(SqlFunctionExecutor { pool: PgPool });
+
 impl SqlFunctionExecutor {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -682,6 +684,7 @@ impl SqlFunctionExecutor {
 
 /// Central registry for all SQL function operations
 /// Provides organized access to all function-based operations
+#[derive(Debug)]
 pub struct FunctionRegistry {
     executor: SqlFunctionExecutor,
 }

@@ -9,6 +9,9 @@ license = "MIT"
 keywords = ["async", "orchestration", "performance", "task", "workflow"]
 categories = ["concurrency", "database", "web-programming"]
 
+[lints]
+workspace = true
+
 [workspace]
 members = [
   ".",  # Current crate temporarily remains during migration
@@ -111,6 +114,73 @@ workspace_tools = { version = "0.2.0", features = ["full"] }
 # wasm-bindgen-futures = { version = "0.4", optional = true }
 # js-sys = { version = "0.3", optional = true }
 # web-sys = { version = "0.3", optional = true }
+
+# Workspace-level linting configuration (TAS-58)
+# Based on Microsoft Universal Guidelines and Rust API Guidelines
+# See: https://microsoft.github.io/rust-guidelines/guidelines/universal/
+# See: https://rust-lang.github.io/api-guidelines/checklist.html
+#
+# Strategy: Incremental enablement - Start with essentials, enable more over time
+# Current Status: Phase 1 - Essential lints only
+
+[workspace.lints.rust]
+# Phase 1: Essential compiler lints (ENABLED)
+missing_debug_implementations = "warn"
+redundant_imports = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+
+# Phase 2: Additional compiler lints (COMMENTED OUT - Enable next)
+# ambiguous_negative_literals = "warn"
+# redundant_lifetimes = "warn"
+# trivial_numeric_casts = "warn"
+# unused_lifetimes = "warn"
+
+[workspace.lints.clippy]
+# Phase 1: Critical categories (ENABLED)
+correctness = { level = "warn", priority = -1 }  # Bug prevention
+suspicious = { level = "warn", priority = -1 }   # Likely bugs
+
+# Phase 2: Cargo metadata (ENABLED - already fixed)
+cargo = { level = "warn", priority = -1 }
+
+# Phase 3: Categories to enable incrementally (COMMENTED OUT)
+# complexity = { level = "warn", priority = -1 }   # Enable when: Ready for complexity refactoring
+# perf = { level = "warn", priority = -1 }        # Enable when: Ready for performance improvements
+# style = { level = "warn", priority = -1 }       # Enable when: Ready for style consistency
+# pedantic = { level = "warn", priority = -1 }    # Enable when: Ready for all pedantic warnings
+
+# Phase 4: High-priority restriction lints (ENABLED)
+dbg_macro = "warn"                              # No debug prints in production
+undocumented_unsafe_blocks = "warn"             # Safety documentation required
+
+# Phase 5: Safety and correctness restriction lints (COMMENTED OUT - Enable next)
+# allow_attributes_without_reason = "warn"
+# as_underscore = "warn"
+# map_err_ignore = "warn"
+# unnecessary_safety_comment = "warn"
+# unnecessary_safety_doc = "warn"
+
+# Phase 6: Code quality restriction lints (COMMENTED OUT - Enable later)
+# assertions_on_result_states = "warn"
+# clone_on_ref_ptr = "warn"
+# deref_by_slicing = "warn"
+# disallowed_script_idents = "warn"
+# empty_drop = "warn"
+# empty_enum_variants_with_brackets = "warn"
+# empty_structs_with_brackets = "warn"
+# fn_to_numeric_cast_any = "warn"
+# if_then_some_else_none = "warn"
+# redundant_type_annotations = "warn"
+# renamed_function_params = "warn"
+# semicolon_outside_block = "warn"
+# string_to_string = "warn"
+# unneeded_field_pattern = "warn"
+# unused_result_ok = "warn"
+
+# Permanent exceptions (legitimate cases)
+uninlined_format_args = "allow"     # Mixed format args acceptable for readability
+module_inception = "allow"          # Sometimes necessary for re-exports
+multiple_crate_versions = "allow"   # Expected during migration
 
 [lib]
 crate-type = ["rlib"]

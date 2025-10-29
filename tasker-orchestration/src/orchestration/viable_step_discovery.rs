@@ -47,6 +47,7 @@ use tasker_shared::StepExecutionResult;
 use tracing::{debug, info, instrument, warn};
 
 /// High-performance step readiness discovery engine
+#[derive(Debug)]
 pub struct ViableStepDiscovery {
     sql_executor: SqlFunctionExecutor,
     event_publisher: Arc<EventPublisher>,
@@ -443,8 +444,6 @@ impl ViableStepDiscovery {
         &self,
         step_uuid: Uuid,
     ) -> Result<std::collections::HashMap<String, StepExecutionResult>, sqlx::Error> {
-        use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-
         // Use the new SQL function to get all transitive dependencies with their results
         let executor = SqlFunctionExecutor::new(self.pool.clone());
         executor.get_step_dependency_results_map(step_uuid).await

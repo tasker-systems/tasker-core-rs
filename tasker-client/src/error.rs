@@ -81,6 +81,7 @@ impl ClientError {
     }
 
     /// Check if error is recoverable (worth retrying)
+    #[must_use]
     pub fn is_recoverable(&self) -> bool {
         match self {
             ClientError::HttpError(e) => e.is_timeout() || e.is_connect(),

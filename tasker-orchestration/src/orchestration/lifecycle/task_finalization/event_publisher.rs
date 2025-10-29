@@ -13,7 +13,7 @@ use tasker_shared::system_context::SystemContext;
 use super::FinalizationError;
 
 /// Publishes task lifecycle events
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EventPublisher {
     context: Arc<SystemContext>,
 }

@@ -44,7 +44,7 @@ pub fn init_ffi_logger() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Convert Ruby hash to Rust HashMap for structured fields
+/// Convert Ruby hash to Rust `HashMap` for structured fields
 fn ruby_hash_to_map(hash: RHash) -> Result<HashMap<String, String>, Error> {
     let mut map = HashMap::new();
 

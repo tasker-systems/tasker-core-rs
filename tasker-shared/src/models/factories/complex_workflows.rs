@@ -686,7 +686,6 @@ impl ComplexWorkflowBatchFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
 
     #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_create_linear_workflow(pool: PgPool) -> FactoryResult<()> {

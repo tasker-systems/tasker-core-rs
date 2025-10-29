@@ -992,6 +992,7 @@ pub struct BackoffInfo {
 }
 
 /// Service class to format transition descriptions (Rails: TransitionDescriptionFormatter)
+#[derive(Debug)]
 pub struct TransitionDescriptionFormatter;
 
 impl TransitionDescriptionFormatter {

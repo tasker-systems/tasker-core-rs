@@ -247,9 +247,7 @@ mod tests {
         BackoffStrategy, HandlerDefinition, RetryConfiguration, StepDefinition, StepType,
     };
     use tasker_shared::models::workflow_step::WorkflowStepWithName;
-    use tasker_shared::types::TaskSequenceStep;
     use tasker_shared::StepExecutionResult;
-    use uuid::Uuid;
 
     /// Helper function to create a test TaskSequenceStep for testing
     fn create_test_task_sequence_step(

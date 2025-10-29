@@ -114,6 +114,12 @@ pub struct TaskHandlerRegistry {
     search_paths: Option<Vec<String>>,
 }
 
+crate::debug_with_pgpool!(TaskHandlerRegistry {
+    db_pool: PgPool,
+    event_publisher,
+    search_paths
+});
+
 impl TaskHandlerRegistry {
     /// Create a new database-backed task handler registry
     pub fn new(db_pool: PgPool) -> Self {
@@ -214,8 +220,6 @@ impl TaskHandlerRegistry {
             template.name,
             template.version
         );
-
-        use crate::models::core::{named_task::NamedTask, task_namespace::TaskNamespace};
 
         // 1. Find or create TaskNamespace using the model method
         let namespace = TaskNamespace::find_or_create(&self.db_pool, &template.namespace_name)
@@ -465,8 +469,6 @@ impl TaskHandlerRegistry {
         name: &str,
         version: &str,
     ) -> TaskerResult<bool> {
-        use crate::models::core::{named_task::NamedTask, task_namespace::TaskNamespace};
-
         // First find the namespace
         let namespace_obj = TaskNamespace::find_by_name(&self.db_pool, namespace)
             .await

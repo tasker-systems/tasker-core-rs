@@ -228,7 +228,7 @@ pub fn init() {
 /// Automatically exports channel metrics to OpenTelemetry at regular intervals.
 /// This integrates with the existing ChannelMonitor infrastructure to provide
 /// observability without changing the core monitoring code.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChannelMetricsRecorder {
     monitor: ChannelMonitor,
 }
@@ -377,6 +377,7 @@ impl ChannelMetricsRecorder {
 ///
 /// This allows system health endpoints to report on all channels without
 /// needing explicit references to each ChannelMonitor.
+#[derive(Debug)]
 pub struct ChannelMetricsRegistry {
     recorders: tokio::sync::RwLock<Vec<ChannelMetricsRecorder>>,
 }

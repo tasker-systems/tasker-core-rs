@@ -70,6 +70,17 @@ pub struct WorkerCore {
     pub core_id: Uuid,
 }
 
+impl std::fmt::Debug for WorkerCore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerCore")
+            .field("core_id", &self.core_id)
+            .field("status", &self.status)
+            .field("has_processor", &self.processor.is_some())
+            .field("has_event_driven", &self.event_driven_processor.is_some())
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorkerCoreStatus {
     Created,

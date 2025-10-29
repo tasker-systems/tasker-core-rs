@@ -67,7 +67,7 @@ impl WorkerWebConfig {
 }
 
 /// Shared state for the worker web application
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WorkerWebState {
     /// Worker core reference for health checks and status
     /// Wrapped in Arc<Mutex<>> for thread-safe shared access

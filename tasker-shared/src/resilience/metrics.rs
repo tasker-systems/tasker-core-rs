@@ -233,6 +233,7 @@ pub trait MetricsCollector {
 }
 
 /// Prometheus-style metrics exporter
+#[derive(Debug)]
 pub struct PrometheusMetricsExporter;
 
 impl MetricsCollector for PrometheusMetricsExporter {

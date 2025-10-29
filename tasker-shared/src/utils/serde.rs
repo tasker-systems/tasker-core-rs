@@ -80,7 +80,6 @@ where
 mod tests {
     use super::*;
     use serde::Deserialize;
-    use serde_yaml;
 
     #[derive(Deserialize, Debug, PartialEq)]
     struct TestStruct {

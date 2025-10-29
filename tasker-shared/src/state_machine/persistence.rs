@@ -53,7 +53,7 @@ pub trait TransitionPersistence<T> {
 }
 
 /// Task transition persistence implementation
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TaskTransitionPersistence;
 
 #[async_trait]
@@ -159,7 +159,7 @@ impl TaskTransitionPersistence {
 }
 
 /// Workflow step transition persistence implementation
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StepTransitionPersistence;
 
 #[async_trait]

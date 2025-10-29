@@ -32,6 +32,7 @@ use tasker_shared::system_context::SystemContext;
 
 /// Common foundation setup used across multiple workflow tests
 /// Creates the standard set of namespaces, systems, and named tasks
+#[derive(Debug)]
 pub struct StandardFoundation {
     pub namespaces: HashMap<String, TaskNamespace>,
     pub named_tasks: HashMap<String, NamedTask>,
@@ -94,6 +95,7 @@ impl StandardFoundation {
 
 /// Linear workflow scenario: A -> B -> C (3 steps)
 /// Simple sequential processing pattern
+#[derive(Debug)]
 pub struct LinearWorkflowScenario {
     pub task: Task,
     pub steps: Vec<WorkflowStep>,
@@ -163,6 +165,7 @@ impl LinearWorkflowScenario {
 
 /// Diamond workflow scenario: A -> (B, C) -> D (4 steps)
 /// Fork-join pattern for parallel processing
+#[derive(Debug)]
 pub struct DiamondWorkflowScenario {
     pub task: Task,
     pub steps: Vec<WorkflowStep>,
@@ -254,6 +257,7 @@ impl DiamondWorkflowScenario {
 
 /// Tree workflow scenario: A -> (B -> (D, E), C -> (F, G)) (7 steps)
 /// Hierarchical branching pattern for complex orchestration
+#[derive(Debug)]
 pub struct TreeWorkflowScenario {
     pub task: Task,
     pub steps: Vec<WorkflowStep>,

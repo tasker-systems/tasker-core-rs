@@ -1,6 +1,6 @@
 //! # pgmq-notify
 //!
-//! Generic PostgreSQL LISTEN/NOTIFY integration for PGMQ queues.
+//! Generic `PostgreSQL` LISTEN/NOTIFY integration for PGMQ queues.
 //!
 //! This crate provides event-driven capabilities for PGMQ queue operations,
 //! enabling real-time notifications for queue creation, message enqueueing,
@@ -10,8 +10,8 @@
 //!
 //! - **Generic Design**: Works with any PGMQ setup, not tied to specific applications
 //! - **Namespace Awareness**: Supports namespace extraction from queue names
-//! - **Reliable Notifications**: Built on sqlx::PgListener with auto-reconnection
-//! - **Minimal Payloads**: Keeps notifications under pg_notify 8KB limit
+//! - **Reliable Notifications**: Built on `sqlx::PgListener` with auto-reconnection
+//! - **Minimal Payloads**: Keeps notifications under `pg_notify` 8KB limit
 //! - **Configurable Channels**: Customizable channel naming and prefixes
 //!
 //! ## Architecture
@@ -20,7 +20,7 @@
 //!
 //! 1. **Event Types**: Structured representations of PGMQ events
 //! 2. **Database Triggers**: Automatically publish notifications via SQL triggers (recommended)  
-//! 3. **Listeners**: Subscribe to and receive typed events via pg_notify
+//! 3. **Listeners**: Subscribe to and receive typed events via `pg_notify`
 //! 4. **Enhanced Client**: PGMQ wrapper that integrates with trigger-based notifications
 //!
 //! ## Usage - Trigger-Based (Recommended)

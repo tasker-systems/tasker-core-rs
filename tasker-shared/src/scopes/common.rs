@@ -85,6 +85,7 @@ pub mod state_helpers {
 }
 
 /// Special query types that need custom execution
+#[derive(Debug)]
 pub enum SpecialQuery {
     SiblingsOf(Uuid),
     ProvidesToChildren(Uuid),

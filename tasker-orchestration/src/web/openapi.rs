@@ -121,4 +121,5 @@ use tasker_shared::types::api::orchestration::{
         (url = "/", description = "API version 1")
     )
 )]
+#[derive(Debug)]
 pub struct ApiDoc;

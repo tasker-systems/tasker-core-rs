@@ -343,7 +343,6 @@ impl SqlxFactory<NamedStep> for NamedStepFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
 
     #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_namespace_factory(pool: PgPool) -> FactoryResult<()> {

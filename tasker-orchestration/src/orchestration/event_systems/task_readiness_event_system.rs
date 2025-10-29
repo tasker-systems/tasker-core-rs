@@ -14,6 +14,7 @@ use tasker_shared::event_system::DeploymentMode;
 use tasker_shared::{SystemContext, TaskerResult};
 
 /// Simplified task readiness system that only manages fallback polling
+#[derive(Debug)]
 pub struct TaskReadinessEventSystem {
     context: Arc<SystemContext>,
     config: Option<FallbackPollerConfig>,

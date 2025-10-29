@@ -595,8 +595,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-    use tokio::time::{sleep, Duration};
+    use tokio::time::sleep;
 
     #[tokio::test]
     async fn test_simple_event_publishing() {

@@ -64,7 +64,7 @@ impl Default for WorkerPollerConfig {
 /// Provides queue polling safety net to catch messages missed by pgmq-notify events.
 /// Uses direct queue queries to find older messages that may have been missed
 /// by the event-driven coordination system.
-pub struct WorkerFallbackPoller {
+pub(crate) struct WorkerFallbackPoller {
     /// Poller identifier
     poller_id: Uuid,
     /// Configuration
@@ -77,6 +77,20 @@ pub struct WorkerFallbackPoller {
     is_running: AtomicBool,
     /// Statistics
     stats: WorkerPollerStats,
+}
+
+impl std::fmt::Debug for WorkerFallbackPoller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerFallbackPoller")
+            .field("poller_id", &self.poller_id)
+            .field("config", &self.config)
+            .field("has_command_sender", &true)
+            .field(
+                "is_running",
+                &self.is_running.load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .finish()
+    }
 }
 
 /// Runtime statistics for worker fallback poller
@@ -294,16 +308,19 @@ impl WorkerFallbackPoller {
     }
 
     /// Get poller statistics
+    #[allow(dead_code)]
     pub fn stats(&self) -> &WorkerPollerStats {
         &self.stats
     }
 
     /// Check if poller is running
+    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
         self.is_running.load(Ordering::SeqCst)
     }
 
     /// Get poller ID
+    #[allow(dead_code)]
     pub fn poller_id(&self) -> Uuid {
         self.poller_id
     }

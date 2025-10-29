@@ -16,7 +16,7 @@ use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::{SystemContext, TaskerResult};
 
 /// Processes batches of ready tasks
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BatchProcessor {
     task_processor: TaskProcessor,
     context: Arc<SystemContext>,

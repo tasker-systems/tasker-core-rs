@@ -12,6 +12,7 @@ use tasker_shared::system_context::SystemContext;
 use super::TaskInitializationError;
 
 /// Loads task templates from registry
+#[derive(Debug)]
 pub struct TemplateLoader {
     context: Arc<SystemContext>,
 }

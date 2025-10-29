@@ -19,6 +19,16 @@ pub struct TaskScope {
     has_conditions: bool,
 }
 
+crate::debug_with_query_builder!(TaskScope {
+    query: QueryBuilder,
+    has_current_transitions_join,
+    has_named_tasks_join,
+    has_namespaces_join,
+    has_workflow_steps_join,
+    has_workflow_step_transitions_join,
+    has_conditions
+});
+
 impl Task {
     /// Start building a scoped query
     pub fn scope() -> TaskScope {

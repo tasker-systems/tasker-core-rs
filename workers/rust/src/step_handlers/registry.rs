@@ -62,6 +62,15 @@ pub struct RustStepHandlerRegistry {
     handlers: HashMap<String, Arc<dyn RustStepHandler>>,
 }
 
+impl std::fmt::Debug for RustStepHandlerRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RustStepHandlerRegistry")
+            .field("handler_count", &self.handlers.len())
+            .field("handler_names", &self.handlers.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
 impl RustStepHandlerRegistry {
     /// Create a new registry with all handlers pre-registered
     ///
@@ -72,6 +81,7 @@ impl RustStepHandlerRegistry {
     /// - Mixed DAG Workflow (7 handlers)
     /// - Order Fulfillment (4 handlers)
     /// - Conditional Approval Rust (6 handlers)
+    #[must_use]
     pub fn new() -> Self {
         let mut registry = Self {
             handlers: HashMap::new(),
@@ -98,6 +108,7 @@ impl RustStepHandlerRegistry {
     }
 
     /// Check if a handler is registered
+    #[must_use]
     pub fn has_handler(&self, name: &str) -> bool {
         self.handlers.contains_key(name)
     }
@@ -105,6 +116,7 @@ impl RustStepHandlerRegistry {
     /// Get all registered handler names
     ///
     /// Returns a sorted vector of all handler names for debugging and introspection.
+    #[must_use]
     pub fn get_all_handler_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.handlers.keys().cloned().collect();
         names.sort();
@@ -112,6 +124,7 @@ impl RustStepHandlerRegistry {
     }
 
     /// Get the number of registered handlers
+    #[must_use]
     pub fn handler_count(&self) -> usize {
         self.handlers.len()
     }
@@ -120,6 +133,7 @@ impl RustStepHandlerRegistry {
     ///
     /// Returns a map of workflow patterns to their handler names for documentation
     /// and debugging purposes.
+    #[must_use]
     pub fn get_handlers_by_workflow(&self) -> HashMap<String, Vec<String>> {
         let mut workflows = HashMap::new();
 
@@ -276,6 +290,7 @@ impl Default for RustStepHandlerRegistry {
 ///
 /// Provides a global registry instance that can be accessed from anywhere
 /// in the application. The registry is initialized once and reused.
+#[derive(Debug)]
 pub struct GlobalRustStepHandlerRegistry;
 
 impl GlobalRustStepHandlerRegistry {

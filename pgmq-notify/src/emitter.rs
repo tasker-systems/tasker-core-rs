@@ -1,7 +1,6 @@
 //! Event emitters for PGMQ notifications
 
 use async_trait::async_trait;
-use serde_json;
 use sqlx::PgPool;
 use tracing::{debug, error, instrument, warn};
 
@@ -25,10 +24,19 @@ pub trait PgmqNotifyEmitter: Send + Sync {
     async fn is_healthy(&self) -> bool;
 }
 
-/// Database-backed emitter using PostgreSQL NOTIFY
+/// Database-backed emitter using `PostgreSQL` NOTIFY
 pub struct DbEmitter {
     pool: PgPool,
     config: PgmqNotifyConfig,
+}
+
+impl std::fmt::Debug for DbEmitter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DbEmitter")
+            .field("config", &self.config)
+            .field("pool", &"PgPool")
+            .finish()
+    }
 }
 
 impl DbEmitter {
@@ -39,6 +47,7 @@ impl DbEmitter {
     }
 
     /// Get the configuration
+    #[must_use]
     pub fn config(&self) -> &PgmqNotifyConfig {
         &self.config
     }
@@ -84,7 +93,7 @@ impl DbEmitter {
         Ok(payload)
     }
 
-    /// Send notification to PostgreSQL channel
+    /// Send notification to `PostgreSQL` channel
     #[instrument(skip(self, payload), fields(channel = %channel))]
     async fn notify_channel(&self, channel: &str, payload: &str) -> Result<()> {
         debug!("Sending notification to channel: {}", channel);
@@ -169,6 +178,7 @@ impl NoopEmitter {
     }
 
     /// Get the configuration
+    #[must_use]
     pub fn config(&self) -> &PgmqNotifyConfig {
         &self.config
     }
@@ -203,6 +213,7 @@ impl PgmqNotifyEmitter for NoopEmitter {
 }
 
 /// Factory for creating emitters based on configuration
+#[derive(Debug)]
 pub struct EmitterFactory;
 
 impl EmitterFactory {
@@ -220,7 +231,6 @@ impl EmitterFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::PgmqNotifyConfig;
     use std::collections::HashMap;
 
     #[tokio::test]

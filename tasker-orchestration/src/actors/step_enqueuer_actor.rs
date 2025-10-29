@@ -50,6 +50,7 @@ impl Message for ProcessBatchMessage {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Debug)]
 pub struct StepEnqueuerActor {
     /// System context for framework operations
     context: Arc<SystemContext>,

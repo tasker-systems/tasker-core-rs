@@ -271,7 +271,6 @@ pub type ConfigResult<T> = Result<T, ConfigurationError>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_config_file_not_found_error() {

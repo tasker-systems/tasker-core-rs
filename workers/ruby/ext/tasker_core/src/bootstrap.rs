@@ -177,34 +177,31 @@ pub fn get_worker_status() -> Result<Value, Error> {
     })?;
     let hash = ruby.hash_new();
 
-    match handle_guard.as_ref() {
-        Some(handle) => {
-            let runtime = handle.runtime_handle();
-            let status = runtime
-                .block_on(async { handle.status().await })
-                .map_err(|err| {
-                    error!("Failed to get status from runtime: {err}");
-                    Error::new(
-                        magnus::exception::runtime_error(),
-                        "Failed to get status from runtime {err}",
-                    )
-                })?;
+    if let Some(handle) = handle_guard.as_ref() {
+        let runtime = handle.runtime_handle();
+        let status = runtime
+            .block_on(async { handle.status().await })
+            .map_err(|err| {
+                error!("Failed to get status from runtime: {err}");
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    "Failed to get status from runtime {err}",
+                )
+            })?;
 
-            hash.aset("running", status.running)?;
-            hash.aset("environment", status.environment)?;
-            hash.aset(
-                "worker_core_status",
-                format!("{:?}", status.worker_core_status),
-            )?;
-            hash.aset("web_api_enabled", status.web_api_enabled)?;
-            hash.aset("supported_namespaces", status.supported_namespaces)?;
-            hash.aset("database_pool_size", status.database_pool_size)?;
-            hash.aset("database_pool_idle", status.database_pool_idle)?;
-        }
-        None => {
-            hash.aset("running", false)?;
-            hash.aset("error", "Worker system not initialized")?;
-        }
+        hash.aset("running", status.running)?;
+        hash.aset("environment", status.environment)?;
+        hash.aset(
+            "worker_core_status",
+            format!("{:?}", status.worker_core_status),
+        )?;
+        hash.aset("web_api_enabled", status.web_api_enabled)?;
+        hash.aset("supported_namespaces", status.supported_namespaces)?;
+        hash.aset("database_pool_size", status.database_pool_size)?;
+        hash.aset("database_pool_idle", status.database_pool_idle)?;
+    } else {
+        hash.aset("running", false)?;
+        hash.aset("error", "Worker system not initialized")?;
     }
 
     Ok(hash.as_value())

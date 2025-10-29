@@ -16,7 +16,7 @@ use tasker_shared::models::core::{task::TaskListQuery, task_request::TaskRequest
 use tracing::info;
 use uuid::Uuid;
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(name = "tasker-cli")]
 #[command(about = "Command-line interface for Tasker orchestration system")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
@@ -38,7 +38,7 @@ pub struct Cli {
     command: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum Commands {
     /// Task management operations
     #[command(subcommand)]
@@ -57,7 +57,7 @@ pub enum Commands {
     Config(ConfigCommands),
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum TaskCommands {
     /// Create a new task
     Create {
@@ -109,7 +109,7 @@ pub enum TaskCommands {
     },
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum WorkerCommands {
     /// List workers
     List {
@@ -134,7 +134,7 @@ pub enum WorkerCommands {
     },
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum SystemCommands {
     /// System health check
     Health {
@@ -149,7 +149,7 @@ pub enum SystemCommands {
     Info,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum ConfigCommands {
     /// Generate single deployable configuration file from base + environment
     Generate {

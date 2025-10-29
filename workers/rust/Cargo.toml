@@ -3,6 +3,13 @@ name = "tasker-worker-rust"
 version = "0.1.0"
 edition = "2021"
 description = "Native Rust worker demonstration for tasker-worker foundation"
+license = "MIT"
+repository = "https://github.com/tasker-systems/tasker-core"
+keywords = ["worker", "rust", "task", "execution", "async"]
+categories = ["asynchronous", "concurrency"]
+
+[lints]
+workspace = true
 
 [lib]
 name = "tasker_worker_rust"

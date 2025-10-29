@@ -19,7 +19,7 @@ use super::execution_context_provider::ExecutionContextProvider;
 use super::{FinalizationAction, FinalizationError, FinalizationResult};
 
 /// Handles different task execution states
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StateHandlers {
     sql_executor: SqlFunctionExecutor,
     step_enqueuer_service: Arc<StepEnqueuerService>,

@@ -31,6 +31,7 @@ use tasker_shared::types::TaskSequenceStep;
 use tracing::{error, info};
 
 /// Linear Step 1: Square the initial even number (6 -> 36)
+#[derive(Debug)]
 pub struct LinearStep1Handler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -96,7 +97,7 @@ impl RustStepHandler for LinearStep1Handler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "linear_step_1"
     }
 
@@ -106,6 +107,7 @@ impl RustStepHandler for LinearStep1Handler {
 }
 
 /// Linear Step 2: Square the result from step 1 (36 -> 1296)
+#[derive(Debug)]
 pub struct LinearStep2Handler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -164,7 +166,7 @@ impl RustStepHandler for LinearStep2Handler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "linear_step_2"
     }
 
@@ -174,6 +176,7 @@ impl RustStepHandler for LinearStep2Handler {
 }
 
 /// Linear Step 3: Square the result from step 2 (1296 -> 1679616)
+#[derive(Debug)]
 pub struct LinearStep3Handler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -229,7 +232,7 @@ impl RustStepHandler for LinearStep3Handler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "linear_step_3"
     }
 
@@ -239,6 +242,7 @@ impl RustStepHandler for LinearStep3Handler {
 }
 
 /// Linear Step 4: Square the result from step 3 (final step with verification)
+#[derive(Debug)]
 pub struct LinearStep4Handler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -319,7 +323,7 @@ impl RustStepHandler for LinearStep4Handler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "linear_step_4"
     }
 

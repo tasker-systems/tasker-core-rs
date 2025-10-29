@@ -516,8 +516,6 @@ impl SystemContext {
     /// suitable for unit tests that need database access.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn with_pool(database_pool: sqlx::PgPool) -> TaskerResult<Self> {
-        use uuid::Uuid;
-
         let system_id = Uuid::new_v4();
 
         // Create minimal default configuration for testing using context-specific loading (TAS-50 Phase 2)

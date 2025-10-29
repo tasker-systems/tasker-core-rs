@@ -122,6 +122,8 @@ pub struct StepTransitiveDependenciesQuery {
     pool: PgPool,
 }
 
+crate::debug_with_pgpool!(StepTransitiveDependenciesQuery { pool: PgPool });
+
 impl StepTransitiveDependenciesQuery {
     /// Create a new query builder
     pub fn new(pool: PgPool) -> Self {

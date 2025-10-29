@@ -1,6 +1,6 @@
 //! # Ruby Event Handler
 //!
-//! Bridges WorkerEventSystem to Ruby dry-events without circular dependencies.
+//! Bridges `WorkerEventSystem` to Ruby dry-events without circular dependencies.
 //! Events flow: Rust → Ruby for execution, Ruby → Rust for completion.
 //!
 //! Uses MPSC channel for thread-safe communication between tokio tasks and Ruby threads.
@@ -83,7 +83,7 @@ impl RubyEventHandler {
 
                         // Send to channel instead of directly calling Ruby
                         match event_sender.send(event).await {
-                            Ok(_) => {
+                            Ok(()) => {
                                 // TAS-51: Record send and periodically check saturation (optimized)
                                 if monitor.record_send_success() {
                                     monitor.check_and_warn_saturation(event_sender.capacity());

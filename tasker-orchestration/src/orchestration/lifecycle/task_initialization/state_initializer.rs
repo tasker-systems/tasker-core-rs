@@ -20,6 +20,7 @@ use tracing::{error, info, warn};
 use super::TaskInitializationError;
 
 /// Initializes state machines for tasks and workflow steps
+#[derive(Debug)]
 pub struct StateInitializer {
     context: Arc<SystemContext>,
     state_manager: StateManager,
@@ -184,7 +185,6 @@ impl StateInitializer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use tasker_shared::models::Task;
 
     #[test]

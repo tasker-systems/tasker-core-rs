@@ -16,6 +16,7 @@ use tasker_shared::database::sql_functions::ReadyTaskInfo;
 use tasker_shared::{SystemContext, TaskerResult};
 
 /// Main orchestration loop coordinator
+#[derive(Debug)]
 pub struct StepEnqueuerService {
     batch_processor: BatchProcessor,
     task_processor: TaskProcessor,

@@ -10,7 +10,7 @@ use tasker_shared::errors::OrchestrationResult;
 use tasker_shared::messaging::message::OrchestrationMetadata;
 
 /// Processes orchestration metadata for intelligent retry decisions
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MetadataProcessor {
     backoff_calculator: BackoffCalculator,
 }

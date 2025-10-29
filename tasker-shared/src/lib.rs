@@ -88,6 +88,7 @@ pub mod errors;
 pub mod event_system;
 pub mod events;
 pub mod logging;
+pub mod macros;
 pub mod messaging;
 pub mod metrics;
 pub mod models;

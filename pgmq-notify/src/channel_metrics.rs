@@ -26,6 +26,7 @@ pub enum ChannelHealthStatus {
 
 impl ChannelHealthStatus {
     /// Create health status from saturation percentage
+    #[must_use]
     pub fn from_saturation(saturation: f64) -> Self {
         if saturation >= 0.95 {
             Self::Critical {
@@ -41,11 +42,13 @@ impl ChannelHealthStatus {
     }
 
     /// Check if status indicates a problem
+    #[must_use]
     pub fn is_healthy(&self) -> bool {
         matches!(self, Self::Healthy)
     }
 
     /// Get saturation percentage if available
+    #[must_use]
     pub fn saturation_percent(&self) -> Option<f64> {
         match self {
             Self::Healthy => None,
@@ -104,11 +107,34 @@ pub struct ChannelMonitor {
     messages_dropped: Arc<AtomicU64>,
 }
 
+impl std::fmt::Debug for ChannelMonitor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChannelMonitor")
+            .field("channel_name", &self.channel_name)
+            .field("component_name", &self.component_name)
+            .field("buffer_size", &self.buffer_size)
+            .field("messages_sent", &self.messages_sent.load(Ordering::Relaxed))
+            .field(
+                "messages_received",
+                &self.messages_received.load(Ordering::Relaxed),
+            )
+            .field(
+                "overflow_events",
+                &self.overflow_events.load(Ordering::Relaxed),
+            )
+            .field(
+                "messages_dropped",
+                &self.messages_dropped.load(Ordering::Relaxed),
+            )
+            .finish()
+    }
+}
+
 impl ChannelMonitor {
     /// Create a new channel monitor
     ///
     /// # Arguments
-    /// * `channel_name` - Unique identifier for the channel (e.g., "orchestration_command")
+    /// * `channel_name` - Unique identifier for the channel (e.g., "`orchestration_command`")
     /// * `buffer_size` - Configured buffer size for saturation calculation
     pub fn new(channel_name: impl Into<String>, buffer_size: usize) -> Self {
         let channel_name = channel_name.into();
@@ -265,6 +291,7 @@ impl ChannelMonitor {
     }
 
     /// Get current channel metrics
+    #[must_use]
     pub fn metrics(&self) -> ChannelMetrics {
         ChannelMetrics {
             messages_sent: self.messages_sent.load(Ordering::Relaxed),
@@ -277,22 +304,26 @@ impl ChannelMonitor {
     }
 
     /// Check channel health based on current capacity
+    #[must_use]
     pub fn check_health(&self, available_capacity: usize) -> ChannelHealthStatus {
         let saturation = self.calculate_saturation(available_capacity);
         ChannelHealthStatus::from_saturation(saturation)
     }
 
     /// Get channel name
+    #[must_use]
     pub fn channel_name(&self) -> &str {
         &self.channel_name
     }
 
     /// Get component name
+    #[must_use]
     pub fn component_name(&self) -> &str {
         &self.component_name
     }
 
     /// Get buffer size
+    #[must_use]
     pub fn buffer_size(&self) -> usize {
         self.buffer_size
     }

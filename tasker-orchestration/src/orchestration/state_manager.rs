@@ -88,7 +88,7 @@ pub struct StateEvaluationResult {
 }
 
 /// State manager for coordinating SQL functions with state machines
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StateManager {
     system_context: Arc<SystemContext>,
     sql_executor: Arc<SqlFunctionExecutor>,

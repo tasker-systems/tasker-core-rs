@@ -50,6 +50,7 @@ const SMALL_AMOUNT_THRESHOLD: i64 = 1000;
 const LARGE_AMOUNT_THRESHOLD: i64 = 5000;
 
 /// Validate Request: Initial step that validates the approval request
+#[derive(Debug)]
 pub struct ValidateRequestHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -175,7 +176,7 @@ impl RustStepHandler for ValidateRequestHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "validate_request"
     }
 
@@ -188,6 +189,7 @@ impl RustStepHandler for ValidateRequestHandler {
 ///
 /// This is a TAS-53 Decision Point step that makes runtime decisions about
 /// which approval workflow steps to create dynamically.
+#[derive(Debug)]
 pub struct RoutingDecisionHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -265,7 +267,7 @@ impl RustStepHandler for RoutingDecisionHandler {
 
         // Create TAS-53 Decision Point Outcome
         let outcome =
-            DecisionPointOutcome::create_steps(steps.iter().map(|s| s.to_string()).collect());
+            DecisionPointOutcome::create_steps(steps.iter().map(|s| (*s).to_string()).collect());
 
         // Embed decision_point_outcome in result JSON for orchestration processing
         Ok(success_result(
@@ -281,7 +283,7 @@ impl RustStepHandler for RoutingDecisionHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "routing_decision"
     }
 
@@ -292,8 +294,9 @@ impl RustStepHandler for RoutingDecisionHandler {
 
 /// Auto Approve: Automatically approves small requests
 ///
-/// This step is dynamically created by the routing_decision decision point
+/// This step is dynamically created by the `routing_decision` decision point
 /// when the amount is below the small threshold ($1,000).
+#[derive(Debug)]
 pub struct AutoApproveHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -332,7 +335,7 @@ impl RustStepHandler for AutoApproveHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "auto_approve"
     }
 
@@ -343,7 +346,8 @@ impl RustStepHandler for AutoApproveHandler {
 
 /// Manager Approval: Manual manager review for medium/large requests
 ///
-/// Dynamically created by routing_decision for amounts >= $1,000.
+/// Dynamically created by `routing_decision` for amounts >= $1,000.
+#[derive(Debug)]
 pub struct ManagerApprovalHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -382,7 +386,7 @@ impl RustStepHandler for ManagerApprovalHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "manager_approval"
     }
 
@@ -393,7 +397,8 @@ impl RustStepHandler for ManagerApprovalHandler {
 
 /// Finance Review: Additional finance approval for large requests
 ///
-/// Dynamically created by routing_decision for amounts >= $5,000.
+/// Dynamically created by `routing_decision` for amounts >= $5,000.
+#[derive(Debug)]
 pub struct FinanceReviewHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -432,7 +437,7 @@ impl RustStepHandler for FinanceReviewHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "finance_review"
     }
 
@@ -444,9 +449,10 @@ impl RustStepHandler for FinanceReviewHandler {
 /// Finalize Approval: Final convergence step that processes all approvals
 ///
 /// This step receives results from whichever approval path was taken:
-/// - auto_approve (for small amounts)
-/// - manager_approval (for medium amounts)
-/// - manager_approval + finance_review (for large amounts)
+/// - `auto_approve` (for small amounts)
+/// - `manager_approval` (for medium amounts)
+/// - `manager_approval` + `finance_review` (for large amounts)
+#[derive(Debug)]
 pub struct FinalizeApprovalHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -476,7 +482,8 @@ impl RustStepHandler for FinalizeApprovalHandler {
             if let Ok(result) =
                 step_data.get_dependency_result_column_value::<serde_json::Value>(step_name)
             {
-                if let Some(approved) = result.get("approved").and_then(|v| v.as_bool()) {
+                if let Some(approved) = result.get("approved").and_then(serde_json::Value::as_bool)
+                {
                     if approved {
                         approvals.push(step_name.to_string());
                         if let Some(approval_type) =
@@ -537,7 +544,7 @@ impl RustStepHandler for FinalizeApprovalHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "finalize_approval"
     }
 

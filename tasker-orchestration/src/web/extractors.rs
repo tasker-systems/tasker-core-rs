@@ -17,6 +17,7 @@ use tasker_shared::types::{
 };
 
 /// Database connection extractor with smart pool selection
+#[derive(Debug)]
 pub struct DatabaseConnection {
     pub pool: PgPool,
     pub operation_type: DbOperationType,
@@ -52,6 +53,7 @@ impl DatabaseConnection {
 ///
 /// Extracts worker claims from request extensions (added by auth middleware).
 /// Fails if no valid authentication is present.
+#[derive(Debug)]
 pub struct AuthenticatedWorker {
     pub claims: WorkerClaims,
 }
@@ -80,6 +82,7 @@ where
 ///
 /// Similar to AuthenticatedWorker but returns None if no valid authentication
 /// is present instead of failing.
+#[derive(Debug)]
 pub struct OptionalAuthenticatedWorker {
     pub claims: Option<WorkerClaims>,
 }
@@ -105,6 +108,7 @@ where
 /// Request context extractor
 ///
 /// Extracts common request context information like request ID and tracing span.
+#[derive(Debug)]
 pub struct RequestContext {
     pub request_id: String,
 }

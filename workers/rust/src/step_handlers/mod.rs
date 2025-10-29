@@ -9,7 +9,7 @@
 //! - **Ruby Compatibility**: Matches Ruby `StepHandlerCallResult` structure for data persistence
 //! - **Type Safety**: Compile-time guarantees with Rust's type system
 //! - **Performance**: Native Rust performance with zero-overhead abstractions
-//! - **YAML Integration**: Compatible with TaskTemplate initialization configurations
+//! - **YAML Integration**: Compatible with `TaskTemplate` initialization configurations
 //!
 //! ## Usage
 //!
@@ -77,12 +77,12 @@ use tasker_shared::types::TaskSequenceStep;
 
 /// Configuration structure for step handlers from YAML initialization blocks
 ///
-/// Provides type-safe access to initialization parameters from TaskTemplate YAML configurations.
-/// Each step handler receives a StepHandlerConfig built from the handler.initialization section.
+/// Provides type-safe access to initialization parameters from `TaskTemplate` YAML configurations.
+/// Each step handler receives a `StepHandlerConfig` built from the handler.initialization section.
 ///
 /// ## YAML Integration
 ///
-/// This structure corresponds to the `initialization` field in TaskTemplate YAML:
+/// This structure corresponds to the `initialization` field in `TaskTemplate` YAML:
 /// ```yaml
 /// handler:
 ///   callable: "MyHandler"
@@ -109,48 +109,57 @@ pub struct StepHandlerConfig {
 
 impl StepHandlerConfig {
     /// Create new config from initialization data
+    #[must_use]
     pub fn new(data: HashMap<String, Value>) -> Self {
         Self { data }
     }
 
     /// Create empty config (for handlers that don't require initialization)
+    #[must_use]
     pub fn empty() -> Self {
         Self::default()
     }
 
     /// Get string value with optional default
+    #[must_use]
     pub fn get_string(&self, key: &str) -> Option<String> {
         self.data
             .get(key)
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .and_then(|v| v.as_str().map(std::string::ToString::to_string))
     }
 
     /// Get boolean value with optional default
+    #[must_use]
     pub fn get_bool(&self, key: &str) -> Option<bool> {
-        self.data.get(key).and_then(|v| v.as_bool())
+        self.data.get(key).and_then(serde_json::Value::as_bool)
     }
 
     /// Get i64 value with optional default
+    #[must_use]
     pub fn get_i64(&self, key: &str) -> Option<i64> {
-        self.data.get(key).and_then(|v| v.as_i64())
+        self.data.get(key).and_then(serde_json::Value::as_i64)
     }
 
     /// Get u64 value with optional default
+    #[must_use]
     pub fn get_u64(&self, key: &str) -> Option<u64> {
-        self.data.get(key).and_then(|v| v.as_u64())
+        self.data.get(key).and_then(serde_json::Value::as_u64)
     }
 
     /// Get f64 value with optional default
+    #[must_use]
     pub fn get_f64(&self, key: &str) -> Option<f64> {
-        self.data.get(key).and_then(|v| v.as_f64())
+        self.data.get(key).and_then(serde_json::Value::as_f64)
     }
 
     /// Get raw JSON value
+    #[must_use]
     pub fn get_value(&self, key: &str) -> Option<&Value> {
         self.data.get(key)
     }
 
     /// Check if key exists
+    #[must_use]
     pub fn has(&self, key: &str) -> bool {
         self.data.contains_key(key)
     }
@@ -165,14 +174,14 @@ impl StepHandlerConfig {
 /// ## Architectural Corrections Applied
 ///
 /// This implementation uses the **actual production types** from the codebase:
-/// - `TaskSequenceStep` contains all step execution data (task, workflow_step, dependency_results, step_definition)
+/// - `TaskSequenceStep` contains all step execution data (task, `workflow_step`, `dependency_results`, `step_definition`)
 /// - `StepExecutionResult` matches Ruby `StepHandlerCallResult` for seamless data persistence
 /// - Method signature uses single parameter with all needed data, not separate parameters
-/// - `new()` method matches YAML TaskTemplate initialization expectations
+/// - `new()` method matches YAML `TaskTemplate` initialization expectations
 ///
 /// ## YAML Integration
 ///
-/// Handlers receive configuration from TaskTemplate YAML initialization blocks:
+/// Handlers receive configuration from `TaskTemplate` YAML initialization blocks:
 /// ```yaml
 /// handler:
 ///   callable: "MyHandler"
@@ -181,12 +190,12 @@ impl StepHandlerConfig {
 ///     debug_mode: true
 /// ```
 ///
-/// ## Data Available in TaskSequenceStep
+/// ## Data Available in `TaskSequenceStep`
 ///
 /// - `step_data.task`: `TaskForOrchestration` with context and metadata
 /// - `step_data.workflow_step`: `WorkflowStepWithName` with step UUID and details
 /// - `step_data.dependency_results`: Previous step results for dependency resolution
-/// - `step_data.step_definition`: Step configuration from TaskTemplate YAML
+/// - `step_data.step_definition`: Step configuration from `TaskTemplate` YAML
 #[async_trait]
 pub trait RustStepHandler: Send + Sync {
     /// Execute the step - equivalent to Ruby's `call(task, sequence, step)` method
@@ -213,7 +222,7 @@ pub trait RustStepHandler: Send + Sync {
     /// Create new handler instance with YAML initialization parameters
     ///
     /// This method is called during handler instantiation with configuration data from
-    /// the TaskTemplate YAML initialization block. All handlers must implement this
+    /// the `TaskTemplate` YAML initialization block. All handlers must implement this
     /// method to be compatible with YAML-based configuration.
     ///
     /// ## Implementation Pattern
@@ -261,6 +270,7 @@ pub enum RustStepHandlerError {
 /// - `result_data`: The actual result data (any JSON-serializable value)
 /// - `execution_time_ms`: Execution time in milliseconds for performance monitoring
 /// - `custom_metadata`: Optional additional metadata for observability
+#[must_use]
 pub fn success_result(
     step_uuid: Uuid,
     result_data: Value,
@@ -281,11 +291,12 @@ pub fn success_result(
 ///
 /// - `step_uuid`: UUID of the workflow step that failed
 /// - `error_message`: Human-readable error message
-/// - `error_code`: Optional error code for categorization (e.g., "VALIDATION_ERROR")
-/// - `error_type`: Optional error type for classification (e.g., "ValidationError")
+/// - `error_code`: Optional error code for categorization (e.g., "`VALIDATION_ERROR`")
+/// - `error_type`: Optional error type for classification (e.g., "`ValidationError`")
 /// - `retryable`: Whether this error should trigger a retry
 /// - `execution_time_ms`: Execution time before failure occurred
 /// - `context`: Optional additional error context for debugging
+#[must_use]
 pub fn error_result(
     step_uuid: Uuid,
     error_message: String,

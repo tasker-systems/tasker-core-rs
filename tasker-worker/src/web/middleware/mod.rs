@@ -15,7 +15,8 @@ use crate::web::state::WorkerWebState;
 
 /// Request ID middleware struct for integration with axum middleware system
 #[derive(Clone)]
-pub struct RequestIdMiddleware;
+#[allow(dead_code)]
+pub(crate) struct RequestIdMiddleware;
 
 impl Default for RequestIdMiddleware {
     fn default() -> Self {

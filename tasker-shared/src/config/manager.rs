@@ -582,7 +582,6 @@ impl ContextConfigManager {
 mod tests {
     use super::*;
     use crate::config::contexts::ConfigurationContext;
-    use crate::config::TaskerConfig; // TAS-50 Phase 2: For validate() and summary()
 
     /// Create a mock TaskerConfig for testing without file I/O
     fn create_mock_tasker_config() -> TaskerConfig {

@@ -540,7 +540,6 @@ impl CorrelatedStepResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tasker_shared::types::StepExecutionCompletionEvent;
 
     #[tokio::test]
     async fn test_worker_event_subscriber_creation() {

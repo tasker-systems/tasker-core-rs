@@ -47,21 +47,21 @@ use crate::error::{PgmqNotifyError, Result};
 pub struct PgmqNotifyConfig {
     /// Pattern for extracting namespace from queue names
     /// Should contain a named capture group "namespace"
-    /// Default: `r"(?P<namespace>\w+)_queue"` matches "orders_queue" -> "orders"
+    /// Default: `r"(?P<namespace>\w+)_queue"` matches "`orders_queue`" -> "orders"
     pub queue_naming_pattern: String,
 
     /// Optional prefix for all notification channels to avoid conflicts
-    /// Example: "app1" results in channels like "app1.pgmq_queue_created"
+    /// Example: "app1" results in channels like "`app1.pgmq_queue_created`"
     pub channels_prefix: Option<String>,
 
     /// Whether to enable database triggers for automatic notifications
     /// If false, relies on application-level emitters
     pub enable_triggers: bool,
 
-    /// Default namespaces to auto-listen for message_ready events
+    /// Default namespaces to auto-listen for `message_ready` events
     pub default_namespaces: HashSet<String>,
 
-    /// Maximum payload size in bytes (pg_notify limit is 8000)
+    /// Maximum payload size in bytes (`pg_notify` limit is 8000)
     pub max_payload_size: usize,
 
     /// Whether to include queue metadata in notifications
@@ -83,6 +83,7 @@ impl Default for PgmqNotifyConfig {
 
 impl PgmqNotifyConfig {
     /// Create a new configuration with defaults
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -100,6 +101,7 @@ impl PgmqNotifyConfig {
     }
 
     /// Enable or disable database triggers
+    #[must_use]
     pub fn with_triggers_enabled(mut self, enabled: bool) -> Self {
         self.enable_triggers = enabled;
         self
@@ -124,12 +126,14 @@ impl PgmqNotifyConfig {
     }
 
     /// Set maximum payload size
+    #[must_use]
     pub fn with_max_payload_size(mut self, size: usize) -> Self {
         self.max_payload_size = size.min(7800); // Enforce pg_notify limit
         self
     }
 
     /// Enable/disable metadata inclusion
+    #[must_use]
     pub fn with_metadata_included(mut self, include: bool) -> Self {
         self.include_metadata = include;
         self
@@ -181,6 +185,7 @@ impl PgmqNotifyConfig {
     }
 
     /// Build channel name with optional prefix
+    #[must_use]
     pub fn build_channel_name(&self, base_channel: &str) -> String {
         match &self.channels_prefix {
             Some(prefix) => format!("{}.{}", prefix, base_channel),
@@ -189,22 +194,26 @@ impl PgmqNotifyConfig {
     }
 
     /// Build namespace-specific channel name
+    #[must_use]
     pub fn build_namespace_channel(&self, base_channel: &str, namespace: &str) -> String {
         let channel = format!("{}.{}", base_channel, namespace);
         self.build_channel_name(&channel)
     }
 
     /// Get the queue created channel name
+    #[must_use]
     pub fn queue_created_channel(&self) -> String {
         self.build_channel_name("pgmq_queue_created")
     }
 
     /// Get the message ready channel name for a namespace
+    #[must_use]
     pub fn message_ready_channel(&self, namespace: &str) -> String {
         self.build_namespace_channel("pgmq_message_ready", namespace)
     }
 
     /// Get the global message ready channel name
+    #[must_use]
     pub fn global_message_ready_channel(&self) -> String {
         self.build_channel_name("pgmq_message_ready")
     }

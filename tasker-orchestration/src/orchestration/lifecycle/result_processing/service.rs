@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use crate::actors::DecisionPointActor;
+use crate::actors::decision_point_actor::DecisionPointActor;
 use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
 use crate::orchestration::{BackoffCalculator, BackoffCalculatorConfig};
 use tasker_shared::errors::OrchestrationResult;
@@ -33,7 +33,7 @@ use super::task_coordinator::TaskCoordinator;
 /// - Step state transitions (Ruby workers + Statesman)
 /// - Step result persistence (Ruby MessageManager)
 /// - Workflow step transition creation (Ruby state machines)
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OrchestrationResultProcessor {
     message_handler: MessageHandler,
 }

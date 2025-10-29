@@ -12,7 +12,7 @@ use tasker_shared::database::sql_functions::{ReadyTaskInfo, SqlFunctionExecutor}
 use tasker_shared::{SystemContext, TaskerError, TaskerResult};
 
 /// Processes individual tasks
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TaskProcessor {
     state_handlers: StateHandlers,
     step_enqueuer: Arc<StepEnqueuer>,

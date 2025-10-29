@@ -222,7 +222,6 @@ impl TaskerPgmqClientExt for PgmqClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
 
     fn create_test_step_message() -> PgmqStepMessage {
         PgmqStepMessage {

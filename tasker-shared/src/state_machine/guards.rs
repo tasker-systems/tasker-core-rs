@@ -18,6 +18,7 @@ pub trait StateGuard<T> {
 }
 
 /// Guard conditions for state transitions (TAS-41 specification lines 147-249)
+#[derive(Debug)]
 pub struct TransitionGuard;
 
 impl TransitionGuard {
@@ -114,6 +115,7 @@ impl TransitionGuard {
 }
 
 /// Guard to check if all workflow steps are complete before completing a task
+#[derive(Debug)]
 pub struct AllStepsCompleteGuard;
 
 #[async_trait]
@@ -137,6 +139,7 @@ impl StateGuard<Task> for AllStepsCompleteGuard {
 }
 
 /// Guard to check if step dependencies are satisfied before starting a step
+#[derive(Debug)]
 pub struct StepDependenciesMetGuard;
 
 #[async_trait]
@@ -160,6 +163,7 @@ impl StateGuard<WorkflowStep> for StepDependenciesMetGuard {
 }
 
 /// Guard to check if task is not already in progress by another process
+#[derive(Debug)]
 pub struct TaskNotInProgressGuard;
 
 #[async_trait]
@@ -182,6 +186,7 @@ impl StateGuard<Task> for TaskNotInProgressGuard {
 }
 
 /// Guard to check if step is not already in progress
+#[derive(Debug)]
 pub struct StepNotInProgressGuard;
 
 #[async_trait]
@@ -204,6 +209,7 @@ impl StateGuard<WorkflowStep> for StepNotInProgressGuard {
 }
 
 /// Guard to check if task can be reset (must be in error state)
+#[derive(Debug)]
 pub struct TaskCanBeResetGuard;
 
 #[async_trait]
@@ -238,6 +244,7 @@ impl StateGuard<Task> for TaskCanBeResetGuard {
 }
 
 /// Guard to check if step can be retried (must be in error state)
+#[derive(Debug)]
 pub struct StepCanBeRetriedGuard;
 
 #[async_trait]
@@ -272,7 +279,8 @@ impl StateGuard<WorkflowStep> for StepCanBeRetriedGuard {
 }
 
 /// Guard to check if step can be enqueued for orchestration (must be in InProgress state)
-pub struct StepCanBeEnqueuedForOrchestrationGuard;
+#[allow(dead_code)]
+pub(crate) struct StepCanBeEnqueuedForOrchestrationGuard;
 
 #[async_trait]
 impl StateGuard<WorkflowStep> for StepCanBeEnqueuedForOrchestrationGuard {
@@ -306,7 +314,8 @@ impl StateGuard<WorkflowStep> for StepCanBeEnqueuedForOrchestrationGuard {
 }
 
 /// Guard to check if step can be completed from orchestration (must be in EnqueuedForOrchestration state)
-pub struct StepCanBeCompletedFromOrchestrationGuard;
+#[allow(dead_code)]
+pub(crate) struct StepCanBeCompletedFromOrchestrationGuard;
 
 #[async_trait]
 impl StateGuard<WorkflowStep> for StepCanBeCompletedFromOrchestrationGuard {
@@ -340,7 +349,8 @@ impl StateGuard<WorkflowStep> for StepCanBeCompletedFromOrchestrationGuard {
 }
 
 /// Guard to check if step can be failed from orchestration (must be in EnqueuedForOrchestration state)
-pub struct StepCanBeFailedFromOrchestrationGuard;
+#[allow(dead_code)]
+pub(crate) struct StepCanBeFailedFromOrchestrationGuard;
 
 #[async_trait]
 impl StateGuard<WorkflowStep> for StepCanBeFailedFromOrchestrationGuard {

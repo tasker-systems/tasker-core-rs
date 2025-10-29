@@ -11,7 +11,8 @@ use uuid::Uuid;
 use super::metadata_processor::MetadataProcessor;
 use super::state_transition_handler::StateTransitionHandler;
 use super::task_coordinator::TaskCoordinator;
-use crate::actors::{DecisionPointActor, Handler, ProcessDecisionPointMessage};
+use crate::actors::decision_point_actor::DecisionPointActor;
+use crate::actors::{Handler, ProcessDecisionPointMessage};
 use tasker_shared::errors::OrchestrationResult;
 use tasker_shared::messaging::{DecisionPointOutcome, StepExecutionStatus};
 use tasker_shared::metrics::orchestration::*;
@@ -24,7 +25,7 @@ use tasker_shared::models::{NamedStep, Task, WorkflowStep};
 /// Handles different message types for result processing
 ///
 /// TAS-53 Phase 6: Now includes decision point detection and dynamic step creation
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MessageHandler {
     context: Arc<SystemContext>,
     metadata_processor: MetadataProcessor,
@@ -608,10 +609,12 @@ mod tests {
         let decision_point_service = Arc::new(
             crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
         );
-        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(
-            context.clone(),
-            decision_point_service,
-        ));
+        let decision_point_actor = Arc::new(
+            crate::actors::decision_point_actor::DecisionPointActor::new(
+                context.clone(),
+                decision_point_service,
+            ),
+        );
 
         let handler = MessageHandler::new(
             context,
@@ -653,10 +656,12 @@ mod tests {
         let decision_point_service = Arc::new(
             crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
         );
-        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(
-            context.clone(),
-            decision_point_service,
-        ));
+        let decision_point_actor = Arc::new(
+            crate::actors::decision_point_actor::DecisionPointActor::new(
+                context.clone(),
+                decision_point_service,
+            ),
+        );
 
         let handler = MessageHandler::new(
             context.clone(),
@@ -700,10 +705,12 @@ mod tests {
         let decision_point_service = Arc::new(
             crate::orchestration::lifecycle::DecisionPointService::new(context.clone()),
         );
-        let decision_point_actor = Arc::new(crate::actors::DecisionPointActor::new(
-            context.clone(),
-            decision_point_service,
-        ));
+        let decision_point_actor = Arc::new(
+            crate::actors::decision_point_actor::DecisionPointActor::new(
+                context.clone(),
+                decision_point_service,
+            ),
+        );
 
         let handler = MessageHandler::new(
             context,

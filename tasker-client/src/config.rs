@@ -23,7 +23,7 @@ pub struct ClientConfig {
 /// API endpoint configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiEndpointConfig {
-    /// Base URL for the API (e.g., "http://localhost:8080")
+    /// Base URL for the API (e.g., "<http://localhost:8080>")
     pub base_url: String,
     /// Request timeout in milliseconds
     pub timeout_ms: u64,

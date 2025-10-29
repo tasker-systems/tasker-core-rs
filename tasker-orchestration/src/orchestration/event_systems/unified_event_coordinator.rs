@@ -29,6 +29,7 @@ use tasker_shared::{EventDrivenSystem, SystemStatistics};
 /// (database-level) event systems using the unified EventDrivenSystem interface.
 /// It demonstrates how different event types can be managed consistently while
 /// respecting their architectural differences.
+#[derive(Debug)]
 pub struct UnifiedEventCoordinator {
     /// Orchestration event system
     orchestration_system: Option<OrchestrationEventSystem>,
