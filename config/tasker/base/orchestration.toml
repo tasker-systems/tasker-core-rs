@@ -3,7 +3,7 @@ environment = "development"
 
 [backoff]
 default_backoff_seconds = [1, 2, 4, 8, 16, 32]
-max_backoff_seconds = 300
+max_backoff_seconds = 60  # TAS-57: Aligned to balance retry speed and system load
 backoff_multiplier = 2.0
 jitter_enabled = true
 jitter_max_percentage = 0.1

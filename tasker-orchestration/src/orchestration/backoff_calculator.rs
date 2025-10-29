@@ -211,6 +211,53 @@ impl BackoffCalculator {
         None
     }
 
+    /// TAS-57: Atomically update backoff with row-level locking
+    ///
+    /// This method uses SELECT FOR UPDATE to acquire a row-level lock before updating,
+    /// preventing race conditions when multiple orchestrators process the same step failure.
+    /// Also updates last_attempted_at to ensure timing consistency with SQL calculations.
+    async fn update_backoff_atomic(
+        &self,
+        step_uuid: &Uuid,
+        delay_seconds: u32,
+    ) -> Result<(), BackoffError> {
+        // Begin transaction
+        let mut tx = self.pool.begin().await.map_err(BackoffError::Database)?;
+
+        // Acquire row-level lock with SELECT FOR UPDATE
+        // This blocks other transactions from modifying this row until we commit
+        sqlx::query!(
+            "SELECT workflow_step_uuid
+             FROM tasker_workflow_steps
+             WHERE workflow_step_uuid = $1
+             FOR UPDATE",
+            step_uuid
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(BackoffError::Database)?;
+
+        // Update both backoff and timestamp within locked transaction
+        // The timestamp ensures SQL fallback calculations use consistent timing
+        sqlx::query!(
+            "UPDATE tasker_workflow_steps
+             SET backoff_request_seconds = $1,
+                 last_attempted_at = NOW(),
+                 updated_at = NOW()
+             WHERE workflow_step_uuid = $2",
+            delay_seconds as i32,
+            step_uuid
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(BackoffError::Database)?;
+
+        // Commit transaction and release lock
+        tx.commit().await.map_err(BackoffError::Database)?;
+
+        Ok(())
+    }
+
     /// Apply server-requested backoff from Retry-After header
     async fn apply_server_requested_backoff(
         &self,
@@ -220,15 +267,8 @@ impl BackoffCalculator {
         // Cap the server-requested delay
         let delay_seconds = retry_after_seconds.min(self.config.max_delay_seconds);
 
-        // Update the step with backoff information
-        sqlx::query!(
-            "UPDATE tasker_workflow_steps SET backoff_request_seconds = $1 WHERE workflow_step_uuid = $2",
-            delay_seconds as i32,
-            step_uuid
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(BackoffError::Database)?;
+        // TAS-57: Use atomic update instead of direct query
+        self.update_backoff_atomic(step_uuid, delay_seconds).await?;
 
         Ok(BackoffResult {
             delay_seconds,
@@ -267,15 +307,8 @@ impl BackoffCalculator {
             delay_seconds = self.apply_jitter(delay_seconds);
         }
 
-        // Update the step with backoff information
-        sqlx::query!(
-            "UPDATE tasker_workflow_steps SET backoff_request_seconds = $1 WHERE workflow_step_uuid = $2",
-            delay_seconds as i32,
-            step_uuid
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(BackoffError::Database)?;
+        // TAS-57: Use atomic update instead of direct query
+        self.update_backoff_atomic(step_uuid, delay_seconds).await?;
 
         Ok(BackoffResult {
             delay_seconds,

@@ -84,20 +84,58 @@ $$;
 
 -- Calculate the next retry time for a step based on backoff configuration
 -- This function encapsulates all backoff calculation logic in one place
+-- TAS-57: Parameterized backoff calculation with configurable max delay and multiplier
+-- This function now accepts configuration parameters to eliminate hardcoded values
+-- Default values align with TOML config: max_backoff_seconds=60, multiplier=2.0
 CREATE OR REPLACE FUNCTION calculate_step_next_retry_time(
     backoff_request_seconds INTEGER,
     last_attempted_at TIMESTAMP,
     failure_time TIMESTAMP,
-    attempts INTEGER
+    attempts INTEGER,
+    p_max_backoff_seconds INTEGER DEFAULT 60,
+    p_backoff_multiplier NUMERIC DEFAULT 2.0
 ) RETURNS TIMESTAMP
 LANGUAGE SQL STABLE AS $$
     SELECT CASE
+        -- Primary path: Use Rust-calculated backoff (set via BackoffCalculator)
         WHEN backoff_request_seconds IS NOT NULL AND last_attempted_at IS NOT NULL THEN
             last_attempted_at + (backoff_request_seconds * interval '1 second')
+
+        -- Fallback path: Calculate exponentially with configurable params
+        -- Used when Rust hasn't set backoff_request_seconds yet (race condition safety)
         WHEN failure_time IS NOT NULL THEN
-            failure_time + (LEAST(power(2, COALESCE(attempts, 1)) * interval '1 second', interval '30 seconds'))
+            failure_time + (
+                LEAST(
+                    power(p_backoff_multiplier, COALESCE(attempts, 1)) * interval '1 second',
+                    p_max_backoff_seconds * interval '1 second'
+                )
+            )
+
         ELSE NULL
     END
+$$;
+
+-- TAS-57: Atomic backoff update function with row-level locking
+-- This function provides transactional guarantee for concurrent backoff updates
+-- Updates both backoff_request_seconds and last_attempted_at to ensure timing consistency
+CREATE OR REPLACE FUNCTION set_step_backoff_atomic(
+    p_step_uuid UUID,
+    p_backoff_seconds INTEGER
+) RETURNS BOOLEAN
+LANGUAGE plpgsql AS $$
+BEGIN
+    -- Update with implicit row-level locking via UPDATE statement
+    -- PostgreSQL's MVCC ensures only one transaction can modify the row
+    UPDATE tasker_workflow_steps
+    SET
+        backoff_request_seconds = p_backoff_seconds,
+        last_attempted_at = NOW(),
+        updated_at = NOW()
+    WHERE workflow_step_uuid = p_step_uuid;
+
+    -- FOUND is a special PL/pgSQL variable that's true if UPDATE affected any rows
+    RETURN FOUND;
+END;
 $$;
 
 -- Evaluate if a step is ready for execution based on its state and conditions

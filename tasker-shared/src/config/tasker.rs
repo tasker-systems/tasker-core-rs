@@ -333,7 +333,7 @@ impl Default for BackoffConfig {
             max_backoff_seconds: 60,
             backoff_multiplier: 2.0,
             jitter_enabled: true,
-            jitter_max_percentage: 0.5,
+            jitter_max_percentage: 0.1, // TAS-57: Aligned with TOML config (10% jitter)
             reenqueue_delays: ReenqueueDelays::default(),
         }
     }
