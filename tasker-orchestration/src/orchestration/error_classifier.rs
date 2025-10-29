@@ -225,6 +225,7 @@ pub trait ErrorClassifier: Send + Sync {
 }
 
 /// Standard error classifier with comprehensive classification logic
+#[derive(Debug)]
 pub struct StandardErrorClassifier {
     /// Configuration for retry strategies
     config: ErrorClassifierConfig,
@@ -827,7 +828,6 @@ impl From<ErrorClassification> for StepExecutionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     fn create_test_context() -> ErrorContext {
         let step_uuid = Uuid::now_v7();

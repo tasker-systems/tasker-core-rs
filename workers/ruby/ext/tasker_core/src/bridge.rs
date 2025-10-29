@@ -90,35 +90,32 @@ pub fn poll_step_events() -> Result<Value, Error> {
     })?;
 
     // Poll for next event
-    match handle.poll_step_event() {
-        Some(event) => {
-            debug!(
-                event_id = %event.event_id,
-                step_name = %event.payload.task_sequence_step.workflow_step.name,
-                "Polled step execution event for Ruby processing"
-            );
+    if let Some(event) = handle.poll_step_event() {
+        debug!(
+            event_id = %event.event_id,
+            step_name = %event.payload.task_sequence_step.workflow_step.name,
+            "Polled step execution event for Ruby processing"
+        );
 
-            // Convert the event to Ruby format
-            let ruby_event = convert_step_execution_event_to_ruby(event).map_err(|e| {
-                error!("Failed to convert event to Ruby: {}", e);
-                Error::new(
-                    magnus::exception::runtime_error(),
-                    format!("Failed to convert event to Ruby: {}", e),
-                )
-            })?;
+        // Convert the event to Ruby format
+        let ruby_event = convert_step_execution_event_to_ruby(event).map_err(|e| {
+            error!("Failed to convert event to Ruby: {}", e);
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to convert event to Ruby: {}", e),
+            )
+        })?;
 
-            Ok(ruby_event.as_value())
-        }
-        None => {
-            // Return nil when no events are available
-            let ruby = magnus::Ruby::get().map_err(|err| {
-                Error::new(
-                    magnus::exception::runtime_error(),
-                    format!("Failed to get ruby system: {}", err),
-                )
-            })?;
-            Ok(ruby.qnil().as_value())
-        }
+        Ok(ruby_event.as_value())
+    } else {
+        // Return nil when no events are available
+        let ruby = magnus::Ruby::get().map_err(|err| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to get ruby system: {}", err),
+            )
+        })?;
+        Ok(ruby.qnil().as_value())
     }
 }
 

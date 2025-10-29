@@ -281,8 +281,6 @@ impl TaskResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
-    use uuid::Uuid;
 
     #[test]
     fn test_task_response_execution_status_conversion() {

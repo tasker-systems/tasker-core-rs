@@ -38,6 +38,7 @@ use tracing::{debug, error, info};
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Debug)]
 pub struct TaskRequestHydrator;
 
 impl TaskRequestHydrator {

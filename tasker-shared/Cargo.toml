@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "Shared components for tasker orchestration and worker systems"
 license = "MIT"
+repository = "https://github.com/tasker-systems/tasker-core"
+readme = "README.md"
+keywords = ["workflow", "orchestration", "async", "task", "shared"]
+categories = ["asynchronous", "database", "web-programming"]
+
+[lints]
+workspace = true
 
 [lib]
 crate-type = ["rlib"]

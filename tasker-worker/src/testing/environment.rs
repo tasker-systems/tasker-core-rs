@@ -11,6 +11,8 @@
 //! - Resource cleanup with proper ordering
 //! - Test isolation guarantees
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::env;
 use tracing::{error, info, warn};
@@ -199,7 +201,7 @@ impl WorkerTestEnvironment {
 }
 
 /// Test safety validator for specific test scenarios
-pub struct TestSafetyValidator {
+pub(crate) struct TestSafetyValidator {
     environment: WorkerTestEnvironment,
 }
 
@@ -250,7 +252,7 @@ impl TestSafetyValidator {
 }
 
 /// Test environment setup helper
-pub struct TestEnvironmentSetup;
+pub(crate) struct TestEnvironmentSetup;
 
 impl TestEnvironmentSetup {
     /// Setup complete test environment with safety checks

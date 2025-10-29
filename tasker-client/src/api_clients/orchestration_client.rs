@@ -54,7 +54,7 @@ use tasker_shared::{
 /// ```
 #[derive(Debug, Clone)]
 pub struct OrchestrationApiConfig {
-    /// Base URL for the orchestration API (e.g., "http://orchestration:8080")
+    /// Base URL for the orchestration API (e.g., "<http://orchestration:8080>")
     pub base_url: String,
     /// Request timeout in milliseconds
     pub timeout_ms: u64,
@@ -76,15 +76,15 @@ impl Default for OrchestrationApiConfig {
 }
 
 impl OrchestrationApiConfig {
-    /// Create OrchestrationApiConfig from TaskerConfig with proper configuration loading
+    /// Create `OrchestrationApiConfig` from `TaskerConfig` with proper configuration loading
     ///
     /// This method replaces manual configuration with values loaded from the
-    /// centralized TaskerConfig system. It properly extracts web configuration
+    /// centralized `TaskerConfig` system. It properly extracts web configuration
     /// including authentication settings and network bindings.
     ///
     /// # Arguments
     ///
-    /// * `config` - Reference to the loaded TaskerConfig containing orchestration settings
+    /// * `config` - Reference to the loaded `TaskerConfig` containing orchestration settings
     ///
     /// # Examples
     ///
@@ -97,6 +97,7 @@ impl OrchestrationApiConfig {
     ///
     /// assert!(client_config.base_url.starts_with("http://"));
     /// ```
+    #[must_use]
     pub fn from_tasker_config(config: &tasker_shared::config::TaskerConfig) -> Self {
         // Handle optional web configuration with sensible defaults
         let orchestration_web_config = config.orchestration.web_config();
@@ -141,6 +142,25 @@ pub struct OrchestrationApiClient {
     client: Client,
     config: OrchestrationApiConfig,
     base_url: Url,
+}
+
+impl std::fmt::Debug for OrchestrationApiClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrchestrationApiClient")
+            .field("base_url", &self.base_url.as_str())
+            .field("timeout_ms", &self.config.timeout_ms)
+            .field("max_retries", &self.config.max_retries)
+            .field(
+                "auth_enabled",
+                &self
+                    .config
+                    .auth
+                    .as_ref()
+                    .map(|a| a.enabled)
+                    .unwrap_or(false),
+            )
+            .finish()
+    }
 }
 
 impl OrchestrationApiClient {
@@ -233,7 +253,7 @@ impl OrchestrationApiClient {
                             vec!["*".to_string()], // Allow access to all namespaces
                             vec!["orchestration:read", "orchestration:write"]
                                 .into_iter()
-                                .map(|s| s.to_string())
+                                .map(std::string::ToString::to_string)
                                 .collect(),
                         )
                         .map_err(|e| {
@@ -373,7 +393,7 @@ impl OrchestrationApiClient {
 
     /// Get task via the orchestration API
     ///
-    /// GET /v1/tasks/{task_uuid}
+    /// GET /`v1/tasks/{task_uuid`}
     pub async fn get_task(&self, task_uuid: Uuid) -> TaskerResult<TaskResponse> {
         let url = self
             .base_url
@@ -449,11 +469,13 @@ impl OrchestrationApiClient {
     }
 
     /// Get the configured base URL for debugging/logging
+    #[must_use]
     pub fn base_url(&self) -> &str {
         &self.config.base_url
     }
 
     /// Get the configured timeout for debugging/logging
+    #[must_use]
     pub fn timeout_ms(&self) -> u64 {
         self.config.timeout_ms
     }
@@ -500,7 +522,7 @@ impl OrchestrationApiClient {
 
     /// Cancel a task
     ///
-    /// DELETE /v1/tasks/{task_uuid}
+    /// DELETE /`v1/tasks/{task_uuid`}
     pub async fn cancel_task(&self, task_uuid: Uuid) -> TaskerResult<()> {
         let url = self
             .base_url
@@ -542,7 +564,7 @@ impl OrchestrationApiClient {
 
     /// List workflow steps for a task
     ///
-    /// GET /v1/tasks/{task_uuid}/workflow_steps
+    /// GET /`v1/tasks/{task_uuid}/workflow_steps`
     pub async fn list_task_steps(&self, task_uuid: Uuid) -> TaskerResult<Vec<StepResponse>> {
         let url = self
             .base_url
@@ -566,7 +588,7 @@ impl OrchestrationApiClient {
 
     /// Get a specific workflow step
     ///
-    /// GET /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}
+    /// GET /`v1/tasks/{task_uuid}/workflow_steps/{step_uuid`}
     pub async fn get_step(&self, task_uuid: Uuid, step_uuid: Uuid) -> TaskerResult<StepResponse> {
         let url = self
             .base_url
@@ -594,7 +616,7 @@ impl OrchestrationApiClient {
 
     /// Manually resolve a workflow step
     ///
-    /// PATCH /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}
+    /// PATCH /`v1/tasks/{task_uuid}/workflow_steps/{step_uuid`}
     pub async fn resolve_step_manually(
         &self,
         task_uuid: Uuid,

@@ -150,6 +150,7 @@ pub struct MessageReadyEvent {
 
 impl PgmqNotifyEvent {
     /// Get the namespace for any event type
+    #[must_use]
     pub fn namespace(&self) -> &str {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => &event.namespace,
@@ -158,6 +159,7 @@ impl PgmqNotifyEvent {
     }
 
     /// Get the queue name for any event type
+    #[must_use]
     pub fn queue_name(&self) -> &str {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => &event.queue_name,
@@ -166,6 +168,7 @@ impl PgmqNotifyEvent {
     }
 
     /// Get the timestamp for any event type
+    #[must_use]
     pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => event.created_at,
@@ -174,6 +177,7 @@ impl PgmqNotifyEvent {
     }
 
     /// Get metadata for any event type
+    #[must_use]
     pub fn metadata(&self) -> &HashMap<String, String> {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => &event.metadata,
@@ -182,11 +186,13 @@ impl PgmqNotifyEvent {
     }
 
     /// Check if event matches a specific namespace
+    #[must_use]
     pub fn matches_namespace(&self, namespace: &str) -> bool {
         self.namespace() == namespace
     }
 
     /// Get the event type as a string
+    #[must_use]
     pub fn event_type(&self) -> &'static str {
         match self {
             PgmqNotifyEvent::QueueCreated(_) => "queue_created",
@@ -221,6 +227,7 @@ impl QueueCreatedEvent {
     }
 
     /// Add metadata to the event
+    #[must_use]
     pub fn with_metadata(mut self, metadata: HashMap<String, String>) -> Self {
         self.metadata = metadata;
         self
@@ -264,6 +271,7 @@ impl MessageReadyEvent {
     }
 
     /// Add metadata to the event
+    #[must_use]
     pub fn with_metadata(mut self, metadata: HashMap<String, String>) -> Self {
         self.metadata = metadata;
         self
@@ -276,6 +284,7 @@ impl MessageReadyEvent {
     }
 
     /// Set visibility timeout
+    #[must_use]
     pub fn with_visibility_timeout(mut self, timeout_seconds: i32) -> Self {
         self.visibility_timeout_seconds = Some(timeout_seconds);
         self

@@ -13,7 +13,7 @@ use tasker_shared::system_context::SystemContext;
 use super::FinalizationError;
 
 /// Provides task execution context for finalization decisions
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ExecutionContextProvider {
     context: Arc<SystemContext>,
 }

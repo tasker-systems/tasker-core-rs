@@ -82,6 +82,32 @@ pub struct TaskTemplateManager {
     stats: Arc<RwLock<CacheStats>>,
 }
 
+impl std::fmt::Debug for TaskTemplateManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cache_size = self.cache.try_read().ok().map(|c| c.len());
+        let stats = self.stats.try_read().ok();
+
+        let mut debug = f.debug_struct("TaskTemplateManager");
+
+        if let Some(size) = cache_size {
+            debug.field("cache_size", &size);
+        } else {
+            debug.field("cache_size", &"<locked>");
+        }
+
+        if let Some(s) = stats {
+            debug
+                .field("cache_hits", &s.cache_hits)
+                .field("cache_misses", &s.cache_misses)
+                .field("total_cached", &s.total_cached);
+        } else {
+            debug.field("stats", &"<locked>");
+        }
+
+        debug.finish()
+    }
+}
+
 impl TaskTemplateManager {
     /// Create a new task template manager with default configuration
     pub fn new(registry: Arc<TaskHandlerRegistry>) -> Self {
@@ -692,14 +718,9 @@ impl WorkerTaskTemplateOperations for TaskTemplateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tasker_shared::{
-        models::core::task_template::{HandlerDefinition, StepDefinition, StepType, TaskTemplate},
-        registry::HandlerKey,
-    };
+    use tasker_shared::models::task_template::{HandlerDefinition, StepDefinition, StepType};
 
     fn create_test_template() -> TaskTemplate {
-        use std::collections::HashMap;
-
         TaskTemplate {
             name: "test_task".to_string(),
             namespace_name: "test_namespace".to_string(),

@@ -18,7 +18,8 @@ use uuid::Uuid;
 use tracing::{debug, error};
 
 #[derive(Clone)]
-pub struct StepClaim {
+#[allow(dead_code)]
+pub(crate) struct StepClaim {
     pub task_uuid: Uuid,
     pub step_uuid: Uuid,
     pub context: Arc<SystemContext>,

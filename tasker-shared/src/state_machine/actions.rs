@@ -34,6 +34,11 @@ pub struct TransitionActions {
     event_publisher: Option<Arc<EventPublisher>>,
 }
 
+crate::debug_with_pgpool!(TransitionActions {
+    pool: PgPool,
+    event_publisher
+});
+
 impl TransitionActions {
     pub fn new(pool: PgPool, event_publisher: Option<Arc<EventPublisher>>) -> Self {
         Self {
@@ -231,7 +236,7 @@ fn build_task_event_context_legacy(
 }
 
 /// Action to publish lifecycle events when state transitions occur
-pub struct PublishTransitionEventAction {
+pub(crate) struct PublishTransitionEventAction {
     event_publisher: Arc<EventPublisher>,
 }
 
@@ -304,6 +309,7 @@ impl StateAction<WorkflowStep> for PublishTransitionEventAction {
 }
 
 /// Action to update task metadata when completing
+#[derive(Debug)]
 pub struct UpdateTaskCompletionAction;
 
 #[async_trait]
@@ -343,6 +349,7 @@ impl StateAction<Task> for UpdateTaskCompletionAction {
 }
 
 /// Action to update step results when completing
+#[derive(Debug)]
 pub struct UpdateStepResultsAction;
 
 impl UpdateStepResultsAction {
@@ -665,7 +672,7 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
 }
 
 /// Action to trigger next steps discovery when a step completes
-pub struct TriggerStepDiscoveryAction {
+pub(crate) struct TriggerStepDiscoveryAction {
     event_publisher: Arc<EventPublisher>,
 }
 
@@ -710,6 +717,7 @@ impl StateAction<WorkflowStep> for TriggerStepDiscoveryAction {
 }
 
 /// Action to handle error state cleanup
+#[derive(Debug)]
 pub struct ErrorStateCleanupAction;
 
 #[async_trait]

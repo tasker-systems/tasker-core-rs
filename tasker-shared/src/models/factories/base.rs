@@ -178,7 +178,6 @@ pub mod utils {
     use super::*;
     use crate::validation;
     use chrono::Utc;
-    use fastrand;
 
     /// Generate unique identity hash for testing
     pub fn generate_test_identity_hash() -> String {

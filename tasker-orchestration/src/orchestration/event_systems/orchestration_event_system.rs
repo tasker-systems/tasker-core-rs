@@ -39,6 +39,7 @@ use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 /// pgmq-notify and queue polling, coordinating orchestration operations through
 /// the command pattern. It integrates the orchestration queue components with
 /// the unified EventDrivenSystem interface.
+#[derive(Debug)]
 pub struct OrchestrationEventSystem {
     /// System identifier
     system_id: String,

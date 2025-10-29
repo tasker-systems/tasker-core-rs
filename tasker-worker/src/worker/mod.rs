@@ -16,18 +16,14 @@ pub mod worker_queues;
 pub use core::{WorkerCore, WorkerCoreStatus};
 
 pub use command_processor::{
-    EventIntegrationStatus, StepExecutionStats, WorkerCommand, WorkerProcessor, WorkerStatus,
+    EventIntegrationStatus, StepExecutionStats, WorkerCommand, WorkerStatus,
 };
-pub use event_driven_processor::{
-    EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
-};
+pub use event_driven_processor::{EventDrivenConfig, EventDrivenStats};
 pub use event_publisher::{WorkerEventError, WorkerEventPublisher, WorkerEventPublisherStats};
 pub use event_subscriber::{
     CorrelatedCompletionListener, CorrelatedStepResult, WorkerEventSubscriber,
     WorkerEventSubscriberError, WorkerEventSubscriberStats,
 };
-pub use orchestration_result_sender::OrchestrationResultSender;
-pub use step_claim::StepClaim;
 pub use task_template_manager::{
-    CachedTemplate, TaskTemplateManager, TaskTemplateManagerConfig, WorkerTaskTemplateOperations,
+    CachedTemplate, TaskTemplateManagerConfig, WorkerTaskTemplateOperations,
 };

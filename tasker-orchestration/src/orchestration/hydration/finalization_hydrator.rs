@@ -36,6 +36,7 @@ use uuid::Uuid;
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Debug)]
 pub struct FinalizationHydrator;
 
 impl FinalizationHydrator {

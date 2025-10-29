@@ -1,7 +1,7 @@
 //! # Native Rust Event Handler
 //!
 //! Subscribes to the worker event system and executes Rust step handlers
-//! when StepExecutionEvents are received.
+//! when `StepExecutionEvents` are received.
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -21,8 +21,19 @@ pub struct RustEventHandler {
     worker_id: String,
 }
 
+impl std::fmt::Debug for RustEventHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RustEventHandler")
+            .field("worker_id", &self.worker_id)
+            .field("has_registry", &true)
+            .field("has_event_subscriber", &true)
+            .finish()
+    }
+}
+
 impl RustEventHandler {
     /// Create a new event handler with the given registry and event system
+    #[must_use]
     pub fn new(
         registry: Arc<RustStepHandlerRegistry>,
         event_system: Arc<WorkerEventSystem>,

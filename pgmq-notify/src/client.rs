@@ -1,7 +1,7 @@
 //! # Unified PGMQ Client
 //!
-//! This module provides a unified PostgreSQL Message Queue (PGMQ) client that combines
-//! all functionality from both the original PgmqNotifyClient and the tasker-shared PgmqClient.
+//! This module provides a unified `PostgreSQL` Message Queue (PGMQ) client that combines
+//! all functionality from both the original `PgmqNotifyClient` and the tasker-shared `PgmqClient`.
 //! It includes both notification capabilities and comprehensive PGMQ operations.
 
 use crate::{
@@ -325,7 +325,7 @@ impl PgmqClient {
                 queue_name: queue_name.to_string(),
                 message_count: row.queue_length.unwrap_or(0),
                 consumer_count: None,
-                oldest_message_age_seconds: row.oldest_msg_age_sec.map(|age| age as i64),
+                oldest_message_age_seconds: row.oldest_msg_age_sec.map(i64::from),
             })
         } else {
             // Queue doesn't exist or has no metrics
@@ -339,21 +339,25 @@ impl PgmqClient {
     }
 
     /// Get reference to underlying connection pool for advanced operations
+    #[must_use]
     pub fn pool(&self) -> &sqlx::PgPool {
         &self.pool
     }
 
     /// Get reference to pgmq client for direct access
+    #[must_use]
     pub fn pgmq(&self) -> &PGMQueue {
         &self.pgmq
     }
 
     /// Get the configuration
+    #[must_use]
     pub fn config(&self) -> &PgmqNotifyConfig {
         &self.config
     }
 
     /// Check if this client has notification capabilities enabled
+    #[must_use]
     pub fn has_notify_capabilities(&self) -> bool {
         // Check if the config has triggers enabled which enable notifications
         self.config.enable_triggers
@@ -408,6 +412,7 @@ impl PgmqClient {
     }
 
     /// Extract namespace from queue name using configured pattern
+    #[must_use]
     pub fn extract_namespace(&self, queue_name: &str) -> Option<String> {
         let pattern = &self.config.queue_naming_pattern;
         if let Ok(regex) = Regex::new(pattern) {
@@ -419,11 +424,9 @@ impl PgmqClient {
         }
 
         // Fallback: assume queue name is "{namespace}_queue"
-        if queue_name.ends_with("_queue") {
-            Some(queue_name.trim_end_matches("_queue").to_string())
-        } else {
-            None
-        }
+        queue_name
+            .ends_with("_queue")
+            .then(|| queue_name.trim_end_matches("_queue").to_string())
     }
 
     /// Create a notify listener for this client
@@ -517,7 +520,8 @@ impl PgmqClient {
     }
 }
 
-/// Factory for creating PgmqClient instances
+/// Factory for creating `PgmqClient` instances
+#[derive(Debug)]
 pub struct PgmqClientFactory;
 
 impl PgmqClientFactory {

@@ -6,7 +6,7 @@
 //!
 //! ## Features
 //!
-//! - **Database Testing**: Simplified PostgreSQL test database setup and management
+//! - **Database Testing**: Simplified `PostgreSQL` test database setup and management
 //! - **Integration Testing**: Comprehensive integration test infrastructure with Docker support
 //! - **Environment Management**: Test environment configuration and validation
 //! - **Migration Support**: Database schema migrations for testing scenarios
@@ -40,7 +40,7 @@
 //!
 //! The following environment variables control test behavior:
 //!
-//! - `DATABASE_URL` - PostgreSQL connection string for tests
+//! - `DATABASE_URL` - `PostgreSQL` connection string for tests
 //! - `TASKER_ENV` - Environment name (test, development, production)
 //! - `TEST_ALLOW_DESTRUCTIVE` - Allow destructive test operations
 //!

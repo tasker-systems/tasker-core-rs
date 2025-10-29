@@ -107,6 +107,7 @@ impl EventSystemStatistics for WorkerEventSystemStatistics {
 /// 5. Rust receives completion via `tasker-shared/src/events/worker_events.rs:168`
 ///
 /// This avoids complex FFI memory management and dynamic method invocation.
+#[derive(Debug)]
 pub struct WorkerEventSystem {
     /// System identifier
     system_id: String,

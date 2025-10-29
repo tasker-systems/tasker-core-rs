@@ -444,7 +444,6 @@ impl WorkflowStepFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
 
     #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_task_factory_basic(pool: PgPool) -> FactoryResult<()> {

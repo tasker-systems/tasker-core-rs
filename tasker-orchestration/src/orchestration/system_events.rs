@@ -145,6 +145,7 @@ pub mod constants {
 }
 
 /// System events configuration manager
+#[derive(Debug)]
 pub struct SystemEventsManager {
     config: Arc<SystemEventsConfig>,
 }

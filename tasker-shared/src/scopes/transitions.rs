@@ -15,6 +15,11 @@ pub struct TaskTransitionScope {
     has_conditions: bool,
 }
 
+crate::debug_with_query_builder!(TaskTransitionScope {
+    query: QueryBuilder,
+    has_conditions
+});
+
 impl TaskTransition {
     /// Start building a scoped query
     pub fn scope() -> TaskTransitionScope {
@@ -142,6 +147,12 @@ pub struct WorkflowStepTransitionScope {
     has_conditions: bool,
     has_workflow_steps_join: bool,
 }
+
+crate::debug_with_query_builder!(WorkflowStepTransitionScope {
+    query: QueryBuilder,
+    has_conditions,
+    has_workflow_steps_join
+});
 
 impl WorkflowStepTransition {
     /// Start building a scoped query

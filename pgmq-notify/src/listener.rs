@@ -1,8 +1,7 @@
-//! Event listener for PGMQ notifications using sqlx::PgListener
+//! Event listener for PGMQ notifications using `sqlx::PgListener`
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use serde_json;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use std::collections::HashSet;
@@ -48,7 +47,7 @@ pub trait PgmqEventHandler: Send + Sync {
     }
 }
 
-/// PGMQ notification listener using PostgreSQL LISTEN/NOTIFY
+/// PGMQ notification listener using `PostgreSQL` LISTEN/NOTIFY
 pub struct PgmqNotifyListener {
     pool: PgPool,
     config: PgmqNotifyConfig,
@@ -60,11 +59,25 @@ pub struct PgmqNotifyListener {
     channel_monitor: ChannelMonitor,
 }
 
+impl std::fmt::Debug for PgmqNotifyListener {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PgmqNotifyListener")
+            .field("config", &self.config)
+            .field("listener_connected", &self.listener.is_some())
+            .field("listening_channels", &self.listening_channels)
+            .field("stats", &self.stats)
+            .field("has_event_sender", &self.event_sender.is_some())
+            .field("has_event_receiver", &self.event_receiver.is_some())
+            .field("channel_monitor", &self.channel_monitor)
+            .finish()
+    }
+}
+
 impl PgmqNotifyListener {
     /// Create a new PGMQ notification listener
     ///
     /// # Arguments
-    /// * `pool` - PostgreSQL connection pool
+    /// * `pool` - `PostgreSQL` connection pool
     /// * `config` - PGMQ notification configuration
     /// * `buffer_size` - MPSC channel buffer size (TAS-51: bounded channels)
     ///
@@ -97,11 +110,13 @@ impl PgmqNotifyListener {
     }
 
     /// Get the configuration
+    #[must_use]
     pub fn config(&self) -> &PgmqNotifyConfig {
         &self.config
     }
 
     /// Get listener statistics
+    #[must_use]
     pub fn stats(&self) -> ListenerStats {
         self.stats.read().unwrap().clone()
     }
@@ -123,7 +138,7 @@ impl PgmqNotifyListener {
         {
             let mut stats = self.stats.write().unwrap();
             stats.connected = true;
-        }
+        };
 
         info!("Successfully connected PGMQ notification listener");
         Ok(())
@@ -142,14 +157,14 @@ impl PgmqNotifyListener {
         {
             let mut channels = self.listening_channels.write().unwrap();
             channels.clear();
-        }
+        };
 
         // Update stats
         {
             let mut stats = self.stats.write().unwrap();
             stats.connected = false;
             stats.channels_listening = 0;
-        }
+        };
 
         info!("Disconnected PGMQ notification listener");
         Ok(())
@@ -180,14 +195,14 @@ impl PgmqNotifyListener {
         // Add to listening channels
         {
             let mut channels = self.listening_channels.write().unwrap();
-            channels.insert(channel.to_string());
-        }
+            channels.insert(channel.to_string())
+        };
 
         // Update stats
         {
             let mut stats = self.stats.write().unwrap();
             stats.channels_listening = self.listening_channels.read().unwrap().len();
-        }
+        };
 
         info!("Now listening to channel: {}", channel);
         Ok(())
@@ -209,14 +224,14 @@ impl PgmqNotifyListener {
         // Remove from listening channels
         {
             let mut channels = self.listening_channels.write().unwrap();
-            channels.remove(channel);
-        }
+            channels.remove(channel)
+        };
 
         // Update stats
         {
             let mut stats = self.stats.write().unwrap();
             stats.channels_listening = self.listening_channels.read().unwrap().len();
-        }
+        };
 
         info!("Stopped listening to channel: {}", channel);
         Ok(())
@@ -300,7 +315,7 @@ impl PgmqNotifyListener {
                             let mut stats = stats.write().unwrap();
                             stats.events_received += 1;
                             stats.last_event_at = Some(SystemTime::now());
-                        }
+                        };
 
                         // Parse the event
                         match serde_json::from_str::<PgmqNotifyEvent>(notification.payload()) {
@@ -317,7 +332,7 @@ impl PgmqNotifyListener {
                                     let mut stats = stats.write().unwrap();
                                     stats.parse_errors += 1;
                                     stats.last_error_at = Some(SystemTime::now());
-                                }
+                                };
 
                                 handler
                                     .handle_parse_error(
@@ -338,7 +353,7 @@ impl PgmqNotifyListener {
                             stats.connection_errors += 1;
                             stats.last_error_at = Some(SystemTime::now());
                             stats.connected = false;
-                        }
+                        };
 
                         handler.handle_connection_error(conn_error).await;
 
@@ -397,7 +412,7 @@ impl PgmqNotifyListener {
                                 let mut stats = stats.write().unwrap();
                                 stats.events_received += 1;
                                 stats.last_event_at = Some(SystemTime::now());
-                            }
+                            };
 
                             // Parse the event
                             match serde_json::from_str::<PgmqNotifyEvent>(notification.payload()) {
@@ -414,7 +429,7 @@ impl PgmqNotifyListener {
                                         let mut stats = stats.write().unwrap();
                                         stats.parse_errors += 1;
                                         stats.last_error_at = Some(SystemTime::now());
-                                    }
+                                    };
 
                                     handler
                                         .handle_parse_error(
@@ -435,7 +450,7 @@ impl PgmqNotifyListener {
                                 stats.connection_errors += 1;
                                 stats.last_error_at = Some(SystemTime::now());
                                 stats.connected = false;
-                            }
+                            };
 
                             handler.handle_connection_error(conn_error).await;
 
@@ -490,24 +505,20 @@ impl PgmqNotifyListener {
                                 let mut stats = stats.write().unwrap();
                                 stats.events_received += 1;
                                 stats.last_event_at = Some(SystemTime::now());
-                            }
+                            };
 
                             // Parse and queue the event
                             match serde_json::from_str::<PgmqNotifyEvent>(notification.payload()) {
                                 Ok(event) => {
                                     // Send the event
-                                    match sender.send(event).await {
-                                        Ok(_) => {
-                                            // TAS-51: Record send and periodically check saturation (optimized)
-                                            if monitor.record_send_success() {
-                                                monitor
-                                                    .check_and_warn_saturation(sender.capacity());
-                                            }
+                                    if let Ok(()) = sender.send(event).await {
+                                        // TAS-51: Record send and periodically check saturation (optimized)
+                                        if monitor.record_send_success() {
+                                            monitor.check_and_warn_saturation(sender.capacity());
                                         }
-                                        Err(_) => {
-                                            warn!("Event receiver dropped, stopping listener");
-                                            break;
-                                        }
+                                    } else {
+                                        warn!("Event receiver dropped, stopping listener");
+                                        break;
                                     }
                                 }
                                 Err(e) => {
@@ -516,7 +527,7 @@ impl PgmqNotifyListener {
                                         let mut stats = stats.write().unwrap();
                                         stats.parse_errors += 1;
                                         stats.last_error_at = Some(SystemTime::now());
-                                    }
+                                    };
 
                                     warn!(
                                         "Failed to parse notification from channel {}: {} - payload: {}",
@@ -534,7 +545,7 @@ impl PgmqNotifyListener {
                                 stats.connection_errors += 1;
                                 stats.last_error_at = Some(SystemTime::now());
                                 stats.connected = false;
-                            }
+                            };
 
                             error!("Connection error in listener: {}", e);
                             break;
@@ -556,6 +567,7 @@ impl PgmqNotifyListener {
     }
 
     /// Get list of channels currently being listened to
+    #[must_use]
     pub fn listening_channels(&self) -> Vec<String> {
         self.listening_channels
             .read()
@@ -569,7 +581,6 @@ impl PgmqNotifyListener {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::PgmqNotifyConfig;
     use crate::events::QueueCreatedEvent;
 
     // Mock event handler for testing

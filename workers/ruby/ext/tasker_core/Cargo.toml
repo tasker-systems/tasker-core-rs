@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "Ruby bindings for tasker-core: High-performance workflow orchestration"
 license = "MIT"
+repository = "https://github.com/tasker-systems/tasker-core"
+readme = "README.md"
+keywords = ["ruby", "ffi", "worker", "bindings", "magnus"]
+categories = ["api-bindings", "asynchronous"]
+
+[lints]
+workspace = true
 
 [lib]
 crate-type = ["cdylib"]

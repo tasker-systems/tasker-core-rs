@@ -79,6 +79,16 @@ pub struct ErrorHandlingService {
     system_context: Arc<SystemContext>,
 }
 
+impl std::fmt::Debug for ErrorHandlingService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ErrorHandlingService")
+            .field("config", &self.config)
+            .field("has_error_classifier", &true)
+            .field("backoff_calculator", &self.backoff_calculator)
+            .finish()
+    }
+}
+
 impl ErrorHandlingService {
     /// Create a new error handling service
     pub fn new(

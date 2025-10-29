@@ -27,6 +27,16 @@ pub struct TaskStateMachine {
     processor_uuid: Uuid,
 }
 
+crate::debug_with_pgpool!(TaskStateMachine {
+    pool: PgPool,
+    task_uuid,
+    task,
+    current_state,
+    event_publisher,
+    persistence,
+    processor_uuid
+});
+
 impl TaskStateMachine {
     /// Create a new task state machine instance
     pub fn new(task: Task, system_context: Arc<SystemContext>) -> Self {

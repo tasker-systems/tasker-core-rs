@@ -26,7 +26,7 @@ use super::{FinalizationAction, FinalizationError, FinalizationResult};
 /// This component provides implementation for task finalization while firing
 /// lifecycle events for observability. Enhanced with TaskExecutionContext
 /// integration for intelligent decision making.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TaskFinalizer {
     context: Arc<SystemContext>,
     context_provider: ExecutionContextProvider,

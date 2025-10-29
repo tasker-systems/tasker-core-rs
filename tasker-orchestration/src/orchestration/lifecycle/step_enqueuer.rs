@@ -98,6 +98,7 @@ pub struct NamespaceEnqueueStats {
 }
 
 /// Step enqueueing component for individual step processing
+#[derive(Debug)]
 pub struct StepEnqueuer {
     viable_step_discovery: ViableStepDiscovery,
     context: Arc<SystemContext>,

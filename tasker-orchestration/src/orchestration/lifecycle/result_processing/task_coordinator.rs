@@ -13,7 +13,7 @@ use tasker_shared::system_context::SystemContext;
 use tasker_shared::{errors::OrchestrationResult, OrchestrationError};
 
 /// Coordinates task finalization
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TaskCoordinator {
     context: Arc<SystemContext>,
     task_finalizer: TaskFinalizer,

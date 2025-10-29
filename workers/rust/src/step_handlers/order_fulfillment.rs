@@ -31,6 +31,7 @@ use tasker_shared::types::TaskSequenceStep;
 use tracing::{error, info};
 
 /// Validate Order: Validate customer info, order items, and calculate totals
+#[derive(Debug)]
 pub struct ValidateOrderHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -59,7 +60,7 @@ impl RustStepHandler for ValidateOrderHandler {
             }
         };
 
-        let customer_id = match customer_info.get("id").and_then(|v| v.as_i64()) {
+        let customer_id = match customer_info.get("id").and_then(serde_json::Value::as_i64) {
             Some(id) => id,
             None => {
                 return Ok(error_result(
@@ -151,7 +152,7 @@ impl RustStepHandler for ValidateOrderHandler {
                 }
             };
 
-            let quantity = match item.get("quantity").and_then(|v| v.as_i64()) {
+            let quantity = match item.get("quantity").and_then(serde_json::Value::as_i64) {
                 Some(qty) if qty > 0 => qty,
                 Some(qty) => {
                     return Ok(error_result(
@@ -183,7 +184,7 @@ impl RustStepHandler for ValidateOrderHandler {
                 }
             };
 
-            let price = match item.get("price").and_then(|v| v.as_f64()) {
+            let price = match item.get("price").and_then(serde_json::Value::as_f64) {
                 Some(p) if p >= 0.0 => p,
                 Some(p) => {
                     return Ok(error_result(
@@ -293,7 +294,7 @@ impl RustStepHandler for ValidateOrderHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "validate_order"
     }
 
@@ -303,6 +304,7 @@ impl RustStepHandler for ValidateOrderHandler {
 }
 
 /// Reserve Inventory: Reserve items in warehouse with expiration times
+#[derive(Debug)]
 pub struct ReserveInventoryHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -356,11 +358,11 @@ impl RustStepHandler for ReserveInventoryHandler {
 
         let _customer_id = validate_order_results
             .get("customer_id")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
         let _order_total = validate_order_results
             .get("order_total")
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
 
         // Generate reservation ID
@@ -382,14 +384,17 @@ impl RustStepHandler for ReserveInventoryHandler {
                 .get("sku")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let quantity = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0);
+            let quantity = item
+                .get("quantity")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0);
             let unit_price = item
                 .get("unit_price")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
             let line_total = item
                 .get("line_total")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
             let product_name = item
                 .get("product_name")
@@ -464,7 +469,7 @@ impl RustStepHandler for ReserveInventoryHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "reserve_inventory"
     }
 
@@ -474,6 +479,7 @@ impl RustStepHandler for ReserveInventoryHandler {
 }
 
 /// Process Payment: Charge payment method through gateway
+#[derive(Debug)]
 pub struct ProcessPaymentHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -568,11 +574,11 @@ impl RustStepHandler for ProcessPaymentHandler {
 
         let amount_to_charge = validate_order_results
             .get("order_total")
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
         let _customer_id = validate_order_results
             .get("customer_id")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
         let _reservation_id = reserve_inventory_results
             .get("reservation_id")
@@ -667,7 +673,7 @@ impl RustStepHandler for ProcessPaymentHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "process_payment"
     }
 
@@ -677,6 +683,7 @@ impl RustStepHandler for ProcessPaymentHandler {
 }
 
 /// Ship Order: Create shipping labels and generate tracking numbers
+#[derive(Debug)]
 pub struct ShipOrderHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -738,7 +745,7 @@ impl RustStepHandler for ShipOrderHandler {
             .unwrap_or(&empty_items);
         let _customer_id = validate_order_results
             .get("customer_id")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
         let _reservation_id = reserve_inventory_results
             .get("reservation_id")
@@ -814,7 +821,7 @@ impl RustStepHandler for ShipOrderHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "ship_order"
     }
 
@@ -914,7 +921,7 @@ fn simulate_payment_gateway_call(
     _method: &str,
     payment_id: &str,
 ) -> PaymentGatewayResponse {
-    let processing_time = (rand::random::<u16>() % 200 + 50) as i32; // 50-250ms
+    let processing_time = i32::from(rand::random::<u16>() % 200 + 50); // 50-250ms
 
     PaymentGatewayResponse {
         status: "succeeded".to_string(),
@@ -969,8 +976,8 @@ fn simulate_shipping_carrier_call(
         cost: shipping_cost,
         carrier: carrier.to_string(),
         service: service.to_string(),
-        api_response_time: (rand::random::<u16>() % 300 + 100) as i32, // 100-400ms
-        label_generation_time: (rand::random::<u16>() % 100 + 50) as i32, // 50-150ms
+        api_response_time: i32::from(rand::random::<u16>() % 300 + 100), // 100-400ms
+        label_generation_time: i32::from(rand::random::<u16>() % 100 + 50), // 50-150ms
     }
 }
 

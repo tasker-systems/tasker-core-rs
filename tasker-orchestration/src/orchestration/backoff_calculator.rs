@@ -148,7 +148,7 @@ impl BackoffContext {
 /// This component provides unified handling of both server-requested backoff
 /// (via Retry-After headers) and exponential backoff calculations.
 /// It integrates with the workflow step model to apply backoff settings.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BackoffCalculator {
     config: BackoffCalculatorConfig,
     pool: PgPool,

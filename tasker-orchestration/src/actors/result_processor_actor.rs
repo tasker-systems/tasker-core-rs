@@ -51,6 +51,7 @@ impl Message for ProcessStepResultMessage {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Debug)]
 pub struct ResultProcessorActor {
     /// System context for framework operations
     context: Arc<SystemContext>,

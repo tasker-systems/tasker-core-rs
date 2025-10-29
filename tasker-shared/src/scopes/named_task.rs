@@ -14,6 +14,12 @@ pub struct NamedTaskScope {
     has_task_namespace_join: bool,
 }
 
+crate::debug_with_query_builder!(NamedTaskScope {
+    query: QueryBuilder,
+    has_conditions,
+    has_task_namespace_join
+});
+
 impl NamedTask {
     /// Start building a scoped query
     pub fn scope() -> NamedTaskScope {
@@ -136,6 +142,11 @@ pub struct TaskNamespaceScope {
     query: QueryBuilder<'static, Postgres>,
     has_conditions: bool,
 }
+
+crate::debug_with_query_builder!(TaskNamespaceScope {
+    query: QueryBuilder,
+    has_conditions
+});
 
 impl TaskNamespace {
     /// Start building a scoped query

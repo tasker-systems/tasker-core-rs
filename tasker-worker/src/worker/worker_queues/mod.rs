@@ -24,7 +24,5 @@ pub mod events;
 pub mod fallback_poller;
 pub mod listener;
 
-// Re-export key types for external usage
+// Re-export key types for internal usage
 pub use events::{WorkerNotification, WorkerQueueEvent};
-pub use fallback_poller::{WorkerFallbackPoller, WorkerPollerConfig, WorkerPollerStats};
-pub use listener::{WorkerListenerConfig, WorkerListenerStats, WorkerQueueListener};

@@ -40,6 +40,7 @@ impl Default for TaskRequestProcessorConfig {
 }
 
 /// Processes task requests and validates them for orchestration
+#[derive(Debug)]
 pub struct TaskRequestProcessor {
     /// PostgreSQL message queue client (unified for circuit breaker flexibility)
     pgmq_client: Arc<UnifiedPgmqClient>,

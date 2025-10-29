@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Test database utilities for pgmq-notify integration tests
+#[derive(Debug)]
 pub struct TestDb {
     pub pool: PgPool,
     pub test_id: String,

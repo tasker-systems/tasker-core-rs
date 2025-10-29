@@ -79,6 +79,7 @@ pub enum DecisionPointProcessingResult {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Debug)]
 pub struct DecisionPointActor {
     /// System context for framework operations
     context: Arc<SystemContext>,

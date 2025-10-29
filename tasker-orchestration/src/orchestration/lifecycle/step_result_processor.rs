@@ -49,7 +49,7 @@
 //! # }
 //! ```
 
-use crate::actors::DecisionPointActor;
+use crate::actors::decision_point_actor::DecisionPointActor;
 use crate::orchestration::lifecycle::{
     result_processing::OrchestrationResultProcessor, step_enqueuer_services::StepEnqueuerService,
     task_finalization::TaskFinalizer, DecisionPointService,
@@ -79,7 +79,7 @@ pub struct StepResultProcessingResult {
 }
 
 /// Processes individual step results from pgmq queues
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StepResultProcessor {
     /// PostgreSQL message queue client (unified for circuit breaker flexibility)
     context: Arc<SystemContext>,

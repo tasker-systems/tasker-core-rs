@@ -47,7 +47,6 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
-use reqwest;
 use serde_json::Value;
 use std::env;
 use std::time::Duration;

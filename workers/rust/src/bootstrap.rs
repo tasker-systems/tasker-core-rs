@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tasker_worker::WorkerSystemHandle;
 use tracing::info;
 
+#[must_use]
 pub fn default_config() -> WorkerBootstrapConfig {
     // Configure worker with all supported workflow namespaces
     WorkerBootstrapConfig {
@@ -24,6 +25,7 @@ pub fn default_config() -> WorkerBootstrapConfig {
     }
 }
 
+#[must_use]
 pub fn no_web_api_config() -> WorkerBootstrapConfig {
     WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),
@@ -34,6 +36,7 @@ pub fn no_web_api_config() -> WorkerBootstrapConfig {
     }
 }
 
+#[must_use]
 pub fn no_event_driven_config() -> WorkerBootstrapConfig {
     WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),

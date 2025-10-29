@@ -339,7 +339,6 @@ impl CircuitBreaker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use tokio::time::sleep;
 
     #[tokio::test]

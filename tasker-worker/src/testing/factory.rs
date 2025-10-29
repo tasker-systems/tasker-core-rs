@@ -43,7 +43,7 @@ pub enum TestFactoryError {
 ///
 /// Provides factory methods for creating test tasks, steps, and related
 /// objects without FFI dependencies.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WorkerTestFactory {
     database_pool: Arc<PgPool>,
     api_client: Option<Arc<OrchestrationApiClient>>,
@@ -295,6 +295,7 @@ pub struct TestStepMessage {
 }
 
 /// Common test data builder for worker tests
+#[derive(Debug)]
 pub struct WorkerTestData {
     pub namespace_name: String,
     pub task_name: String,

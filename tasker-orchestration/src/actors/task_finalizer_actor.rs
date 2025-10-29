@@ -54,6 +54,7 @@ impl Message for FinalizeTaskMessage {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Debug)]
 pub struct TaskFinalizerActor {
     /// System context for framework operations
     context: Arc<SystemContext>,

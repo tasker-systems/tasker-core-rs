@@ -45,6 +45,17 @@ pub struct OrchestrationQueueListener {
     stats: Arc<OrchestrationListenerStats>,
 }
 
+impl std::fmt::Debug for OrchestrationQueueListener {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrchestrationQueueListener")
+            .field("listener_id", &self.listener_id)
+            .field("config", &self.config)
+            .field("is_connected", &self.is_connected)
+            .field("has_channel", &true)
+            .finish()
+    }
+}
+
 /// Configuration for orchestration queue listener
 #[derive(Debug, Clone)]
 pub struct OrchestrationListenerConfig {

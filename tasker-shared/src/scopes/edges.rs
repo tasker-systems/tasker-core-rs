@@ -17,6 +17,13 @@ pub struct WorkflowStepEdgeScope {
     special_query: Option<SpecialQuery>,
 }
 
+crate::debug_with_query_builder!(WorkflowStepEdgeScope {
+    query: QueryBuilder,
+    has_conditions,
+    is_custom_query,
+    special_query
+});
+
 impl WorkflowStepEdge {
     /// Start building a scoped query
     pub fn scope() -> WorkflowStepEdgeScope {

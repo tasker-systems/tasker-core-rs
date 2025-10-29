@@ -14,6 +14,7 @@ use tasker_shared::system_context::SystemContext;
 use super::{TaskInitializationError, WorkflowStepCreator};
 
 /// Builds workflow steps and dependencies from task templates
+#[derive(Debug)]
 pub struct WorkflowStepBuilder {
     context: Arc<SystemContext>,
     step_creator: WorkflowStepCreator,

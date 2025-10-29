@@ -4,7 +4,6 @@
 //! These replace the Command structures from the TCP system.
 
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -592,7 +591,6 @@ impl StepResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
 
     #[test]
     fn test_step_message_creation() {

@@ -36,6 +36,7 @@ use crate::orchestration::command_processor::{
 ///
 /// Replaces complex polling-based coordinator/executor system with simple command pattern
 /// while preserving all sophisticated orchestration logic through delegation.
+#[derive(Debug)]
 pub struct OrchestrationCore {
     /// System context for dependency injection
     pub context: Arc<SystemContext>,

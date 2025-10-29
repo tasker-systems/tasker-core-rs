@@ -24,6 +24,13 @@ pub struct StepStateMachine {
     persistence: StepTransitionPersistence,
 }
 
+crate::debug_with_pgpool!(StepStateMachine {
+    pool: PgPool,
+    step,
+    event_publisher,
+    persistence
+});
+
 impl StepStateMachine {
     /// Create a new step state machine instance
     pub fn new(step: WorkflowStep, system_context: Arc<SystemContext>) -> Self {

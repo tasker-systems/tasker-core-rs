@@ -1,7 +1,7 @@
 //! # Types for pgmq-notify client
 //!
 //! Contains generic types and shared structures used by the pgmq-notify client.
-//! Tasker-specific types like PgmqStepMessage are defined in tasker-shared.
+//! Tasker-specific types like `PgmqStepMessage` are defined in tasker-shared.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

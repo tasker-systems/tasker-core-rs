@@ -46,6 +46,21 @@ pub struct OrchestrationSystemHandle {
     pub bootstrap_config: BootstrapConfig,
 }
 
+impl std::fmt::Debug for OrchestrationSystemHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrchestrationSystemHandle")
+            .field("has_orchestration_core", &true)
+            .field(
+                "has_event_coordinator",
+                &self.unified_event_coordinator.is_some(),
+            )
+            .field("has_web_state", &self.web_state.is_some())
+            .field("is_running", &self.shutdown_sender.is_some())
+            .field("bootstrap_config", &self.bootstrap_config)
+            .finish()
+    }
+}
+
 impl OrchestrationSystemHandle {
     /// Create new orchestration system handle
     pub fn new(
@@ -164,6 +179,7 @@ impl From<&TaskerConfig> for BootstrapConfig {
 }
 
 /// Unified bootstrap system for orchestration
+#[derive(Debug)]
 pub struct OrchestrationBootstrap;
 
 impl OrchestrationBootstrap {

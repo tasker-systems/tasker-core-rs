@@ -31,6 +31,7 @@ use tasker_shared::types::TaskSequenceStep;
 use tracing::{error, info};
 
 /// Diamond Start: Square the initial even number (6 -> 36)
+#[derive(Debug)]
 pub struct DiamondStartHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -100,7 +101,7 @@ impl RustStepHandler for DiamondStartHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "diamond_start"
     }
 
@@ -110,6 +111,7 @@ impl RustStepHandler for DiamondStartHandler {
 }
 
 /// Diamond Branch B: Left parallel branch that squares the start result (36 -> 1,296)
+#[derive(Debug)]
 pub struct DiamondBranchBHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -166,7 +168,7 @@ impl RustStepHandler for DiamondBranchBHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "diamond_branch_b"
     }
 
@@ -176,6 +178,7 @@ impl RustStepHandler for DiamondBranchBHandler {
 }
 
 /// Diamond Branch C: Right parallel branch that squares the start result (36 -> 1,296)
+#[derive(Debug)]
 pub struct DiamondBranchCHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -232,7 +235,7 @@ impl RustStepHandler for DiamondBranchCHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "diamond_branch_c"
     }
 
@@ -242,6 +245,7 @@ impl RustStepHandler for DiamondBranchCHandler {
 }
 
 /// Diamond End: Convergence step that multiplies results from both branches and squares
+#[derive(Debug)]
 pub struct DiamondEndHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -349,7 +353,7 @@ impl RustStepHandler for DiamondEndHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "diamond_end"
     }
 

@@ -44,6 +44,16 @@ pub struct WorkerSystemHandle {
     pub worker_config: WorkerBootstrapConfig,
 }
 
+impl std::fmt::Debug for WorkerSystemHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerSystemHandle")
+            .field("running", &self.shutdown_sender.is_some())
+            .field("web_api_enabled", &self.web_state.is_some())
+            .field("worker_config", &self.worker_config)
+            .finish()
+    }
+}
+
 impl WorkerSystemHandle {
     /// Create new worker system handle
     pub fn new(
@@ -185,6 +195,7 @@ impl From<&TaskerConfig> for WorkerBootstrapConfig {
 }
 
 /// Unified bootstrap system for worker
+#[derive(Debug)]
 pub struct WorkerBootstrap;
 
 impl WorkerBootstrap {

@@ -7,7 +7,7 @@
 //!
 //! - **Native Performance**: Pure Rust step handlers for maximum performance
 //! - **Shared Infrastructure**: Uses same tasker-worker foundation as Ruby workers
-//! - **Event-Driven Processing**: PostgreSQL LISTEN/NOTIFY with fallback polling
+//! - **Event-Driven Processing**: `PostgreSQL` LISTEN/NOTIFY with fallback polling
 //! - **Workflow Compatibility**: Replicates all Ruby workflow patterns
 //! - **Type Safety**: Compile-time guarantees with Rust's type system
 //!

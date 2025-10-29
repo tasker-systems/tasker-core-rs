@@ -39,6 +39,7 @@ use tasker_shared::types::TaskSequenceStep;
 use tracing::{error, info};
 
 /// DAG Init: Initial step that squares the even number for mixed DAG (6 -> 36)
+#[derive(Debug)]
 pub struct DagInitHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -108,7 +109,7 @@ impl RustStepHandler for DagInitHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dag_init"
     }
 
@@ -118,6 +119,7 @@ impl RustStepHandler for DagInitHandler {
 }
 
 /// DAG Process Left: Squares the init result (step B in mixed DAG) (36 -> 1,296)
+#[derive(Debug)]
 pub struct DagProcessLeftHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -177,7 +179,7 @@ impl RustStepHandler for DagProcessLeftHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dag_process_left"
     }
 
@@ -187,6 +189,7 @@ impl RustStepHandler for DagProcessLeftHandler {
 }
 
 /// DAG Process Right: Squares the init result (step C in mixed DAG) (36 -> 1,296)
+#[derive(Debug)]
 pub struct DagProcessRightHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -246,7 +249,7 @@ impl RustStepHandler for DagProcessRightHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dag_process_right"
     }
 
@@ -256,6 +259,7 @@ impl RustStepHandler for DagProcessRightHandler {
 }
 
 /// DAG Validate: Convergence step that multiplies results from both process branches
+#[derive(Debug)]
 pub struct DagValidateHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -338,7 +342,7 @@ impl RustStepHandler for DagValidateHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dag_validate"
     }
 
@@ -348,6 +352,7 @@ impl RustStepHandler for DagValidateHandler {
 }
 
 /// DAG Transform: Squares the left process result (step E in mixed DAG)
+#[derive(Debug)]
 pub struct DagTransformHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -404,7 +409,7 @@ impl RustStepHandler for DagTransformHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dag_transform"
     }
 
@@ -414,6 +419,7 @@ impl RustStepHandler for DagTransformHandler {
 }
 
 /// DAG Analyze: Squares the right process result (step F in mixed DAG)
+#[derive(Debug)]
 pub struct DagAnalyzeHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -470,7 +476,7 @@ impl RustStepHandler for DagAnalyzeHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dag_analyze"
     }
 
@@ -480,6 +486,7 @@ impl RustStepHandler for DagAnalyzeHandler {
 }
 
 /// DAG Finalize: Final convergence step that processes results from D, E, and F
+#[derive(Debug)]
 pub struct DagFinalizeHandler {
     #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
@@ -630,7 +637,7 @@ impl RustStepHandler for DagFinalizeHandler {
         ))
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dag_finalize"
     }
 

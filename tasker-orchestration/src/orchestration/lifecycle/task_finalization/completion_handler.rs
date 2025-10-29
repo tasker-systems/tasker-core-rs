@@ -14,7 +14,7 @@ use tasker_shared::system_context::SystemContext;
 use super::{FinalizationAction, FinalizationError, FinalizationResult};
 
 /// Handles task completion and error state transitions
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CompletionHandler {
     context: Arc<SystemContext>,
 }

@@ -27,7 +27,7 @@ use super::events::{WorkerNotification, WorkerQueueEvent};
 /// Manages pgmq-notify connections with automatic reconnection, error handling,
 /// and config-driven event classification. Provides a unified interface for
 /// receiving all types of worker namespace queue events.
-pub struct WorkerQueueListener {
+pub(crate) struct WorkerQueueListener {
     /// Listener identifier
     listener_id: Uuid,
     /// Configuration
@@ -44,6 +44,18 @@ pub struct WorkerQueueListener {
     is_connected: bool,
     /// Statistics
     stats: Arc<WorkerListenerStats>,
+}
+
+impl std::fmt::Debug for WorkerQueueListener {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerQueueListener")
+            .field("listener_id", &self.listener_id)
+            .field("config", &self.config)
+            .field("has_event_sender", &true)
+            .field("has_pgmq_listener", &self.pgmq_listener.is_some())
+            .field("is_connected", &self.is_connected)
+            .finish()
+    }
 }
 
 /// Configuration for worker queue listener
@@ -259,16 +271,19 @@ impl WorkerQueueListener {
     }
 
     /// Get listener statistics
+    #[allow(dead_code)]
     pub fn stats(&self) -> Arc<WorkerListenerStats> {
         self.stats.clone()
     }
 
     /// Check if listener is connected
+    #[allow(dead_code)]
     pub fn is_connected(&self) -> bool {
         self.is_connected
     }
 
     /// Get listener ID
+    #[allow(dead_code)]
     pub fn listener_id(&self) -> Uuid {
         self.listener_id
     }

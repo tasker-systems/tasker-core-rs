@@ -49,7 +49,7 @@ use tasker_shared::{system_context::SystemContext, TaskerResult};
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ActorRegistry {
     /// System context shared by all actors
     context: Arc<SystemContext>,

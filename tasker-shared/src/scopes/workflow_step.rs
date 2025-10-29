@@ -18,6 +18,14 @@ pub struct WorkflowStepScope {
     has_tasks_join: bool,
 }
 
+crate::debug_with_query_builder!(WorkflowStepScope {
+    query: QueryBuilder,
+    has_conditions,
+    has_workflow_step_transitions_join,
+    has_current_transitions_join,
+    has_tasks_join
+});
+
 impl WorkflowStep {
     /// Start building a scoped query
     pub fn scope() -> WorkflowStepScope {

@@ -41,6 +41,7 @@ use super::TaskInitializationError;
 ///     &step_definitions,
 /// ).await?;
 /// ```
+#[derive(Debug)]
 pub struct WorkflowStepCreator {
     context: Arc<SystemContext>,
 }

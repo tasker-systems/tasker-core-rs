@@ -132,6 +132,40 @@ pub struct ChannelMonitor {
     messages_dropped: Arc<AtomicU64>,
 }
 
+impl std::fmt::Debug for ChannelMonitor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChannelMonitor")
+            .field("channel_name", &self.channel_name)
+            .field("component_name", &self.component_name)
+            .field("buffer_size", &self.buffer_size)
+            .field(
+                "messages_sent",
+                &self
+                    .messages_sent
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .field(
+                "messages_received",
+                &self
+                    .messages_received
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .field(
+                "overflow_events",
+                &self
+                    .overflow_events
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .field(
+                "messages_dropped",
+                &self
+                    .messages_dropped
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .finish()
+    }
+}
+
 impl ChannelMonitor {
     /// Create a new channel monitor
     ///

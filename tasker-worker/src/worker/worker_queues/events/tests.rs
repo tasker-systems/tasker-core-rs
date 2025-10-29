@@ -1,7 +1,6 @@
 //! Unit tests for worker queue events
 
 use super::*;
-use pgmq_notify::MessageReadyEvent;
 use std::collections::HashMap;
 
 #[test]

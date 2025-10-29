@@ -78,13 +78,11 @@ pub mod task_finalizer_actor;
 pub mod task_request_actor;
 pub mod traits;
 
-// Re-export core traits for convenience
-pub use decision_point_actor::{
-    DecisionPointActor, DecisionPointProcessingResult, ProcessDecisionPointMessage,
-};
+// Re-export message types and traits publicly
+pub use decision_point_actor::{DecisionPointProcessingResult, ProcessDecisionPointMessage};
 pub use registry::ActorRegistry;
-pub use result_processor_actor::{ProcessStepResultMessage, ResultProcessorActor};
-pub use step_enqueuer_actor::{ProcessBatchMessage, StepEnqueuerActor};
-pub use task_finalizer_actor::{FinalizeTaskMessage, TaskFinalizerActor};
-pub use task_request_actor::{ProcessTaskRequestMessage, TaskRequestActor};
+pub use result_processor_actor::ProcessStepResultMessage;
+pub use step_enqueuer_actor::ProcessBatchMessage;
+pub use task_finalizer_actor::FinalizeTaskMessage;
+pub use task_request_actor::ProcessTaskRequestMessage;
 pub use traits::{Handler, Message, OrchestrationActor};

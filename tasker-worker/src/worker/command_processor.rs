@@ -143,7 +143,7 @@ pub struct EventIntegrationStatus {
 /// Replaces complex executor pools, auto-scaling coordinators, and polling systems
 /// with simple tokio command pattern and declarative FFI event integration.
 /// No background threads, no polling, no complex state.
-pub struct WorkerProcessor {
+pub(crate) struct WorkerProcessor {
     /// Worker identification
     worker_id: String,
     processor_id: Uuid,
@@ -476,6 +476,7 @@ impl WorkerProcessor {
     }
 
     /// Start processing worker commands (replaces complex executor pools)
+    #[allow(dead_code)]
     pub async fn start(&mut self) -> TaskerResult<()> {
         info!(
             worker_id = %self.worker_id,

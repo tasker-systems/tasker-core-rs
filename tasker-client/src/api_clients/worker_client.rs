@@ -16,7 +16,7 @@ use tasker_shared::{
 /// Configuration for the worker API client
 #[derive(Debug, Clone)]
 pub struct WorkerApiConfig {
-    /// Base URL for the worker API (e.g., "http://worker:8081")
+    /// Base URL for the worker API (e.g., "<http://worker:8081>")
     pub base_url: String,
     /// Request timeout in milliseconds
     pub timeout_ms: u64,
@@ -42,6 +42,25 @@ pub struct WorkerApiClient {
     client: Client,
     base_url: Url,
     config: WorkerApiConfig,
+}
+
+impl std::fmt::Debug for WorkerApiClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerApiClient")
+            .field("base_url", &self.base_url.as_str())
+            .field("timeout_ms", &self.config.timeout_ms)
+            .field("max_retries", &self.config.max_retries)
+            .field(
+                "auth_enabled",
+                &self
+                    .config
+                    .auth
+                    .as_ref()
+                    .map(|a| a.enabled)
+                    .unwrap_or(false),
+            )
+            .finish()
+    }
 }
 
 impl WorkerApiClient {
@@ -270,11 +289,13 @@ impl WorkerApiClient {
     }
 
     /// Get the base URL of the worker API
+    #[must_use]
     pub fn base_url(&self) -> &str {
         self.base_url.as_str()
     }
 
     /// Get the configured timeout in milliseconds
+    #[must_use]
     pub fn timeout_ms(&self) -> u64 {
         self.config.timeout_ms
     }

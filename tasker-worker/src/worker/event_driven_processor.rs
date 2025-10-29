@@ -59,7 +59,7 @@ impl Default for EventDrivenConfig {
 }
 
 /// Event-driven message processor bridge that delegates to WorkerEventSystem
-pub struct EventDrivenMessageProcessor {
+pub(crate) struct EventDrivenMessageProcessor {
     /// Legacy configuration for API compatibility
     config: EventDrivenConfig,
 

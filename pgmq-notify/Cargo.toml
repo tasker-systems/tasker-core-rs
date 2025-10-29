@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "PG Notify layer for PGMQ"
 license = "MIT"
+repository = "https://github.com/tasker-systems/tasker-core"
+readme = "README.md"
+keywords = ["pgmq", "postgres", "notify", "queue", "async"]
+categories = ["asynchronous", "database"]
+
+[lints]
+workspace = true
 
 [lib]
 crate-type = ["rlib"]
@@ -49,6 +56,6 @@ tokio-test = { workspace = true }
 url = { workspace = true }
 
 [features]
-default = ["sqlx-support"]
-sqlx-support = []  # Feature for sqlx::PgListener integration
+default = ["sqlx"]
+sqlx = []  # Feature for sqlx::PgListener integration
 

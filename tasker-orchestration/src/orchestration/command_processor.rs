@@ -201,6 +201,7 @@ use tasker_shared::system_context::SystemContext;
 /// polling complexity.
 ///
 /// TAS-46: Uses ActorRegistry for message-based actor coordination.
+#[derive(Debug)]
 pub struct OrchestrationProcessor {
     /// Shared system dependencies
     context: Arc<SystemContext>,
@@ -289,6 +290,7 @@ impl OrchestrationProcessor {
     }
 }
 
+#[derive(Debug)]
 pub struct OrchestrationProcessorCommandHandler {
     context: Arc<SystemContext>,
     actors: Arc<ActorRegistry>, // TAS-46: Actor registry for message-based coordination
