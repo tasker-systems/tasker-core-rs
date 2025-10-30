@@ -283,3 +283,62 @@ event_channel_buffer_size = 1000
 # Handles: PostgreSQL LISTEN/NOTIFY events for orchestration_* queues
 pgmq_event_buffer_size = 10000  # Large buffer for notification bursts
 
+# ============================================================================
+# TAS-49: DEAD LETTER QUEUE (DLQ) AND LIFECYCLE MANAGEMENT
+# ============================================================================
+
+# Staleness Detection Configuration
+# Consolidates TAS-48 hardcoded thresholds into configurable system
+[staleness_detection]
+enabled = true
+detection_interval_seconds = 300  # Run every 5 minutes
+batch_size = 100                  # Process max 100 stale tasks per run
+dry_run = false                   # Start true for validation, false for production
+
+# Staleness Thresholds
+# Per-template lifecycle config in TaskTemplate YAML takes precedence over these defaults
+[staleness_detection.thresholds]
+waiting_for_dependencies_minutes = 60  # Consolidates TAS-48 hardcoded value
+waiting_for_retry_minutes = 30         # Consolidates TAS-48 hardcoded value
+steps_in_process_minutes = 30
+task_max_lifetime_hours = 24
+
+# Staleness Actions
+[staleness_detection.actions]
+auto_transition_to_error = true    # Automatically move stale tasks to Error state
+auto_move_to_dlq = true            # Automatically create DLQ investigation entry
+emit_events = true                 # Publish staleness events for monitoring
+event_channel = "task_staleness_detected"
+
+# Dead Letter Queue Operations
+[dlq]
+enabled = true
+auto_dlq_on_staleness = true       # Create DLQ entries when staleness detected
+include_full_task_snapshot = true  # Include complete task+steps state in JSONB
+max_pending_age_hours = 168        # Alert if investigation pending > 1 week (7 days)
+
+# DLQ Reasons Configuration
+# Controls which conditions trigger DLQ entry creation
+[dlq.reasons]
+staleness_timeout = true           # Tasks exceeding state timeout thresholds
+max_retries_exceeded = true        # TAS-42 retry limit hit
+worker_unavailable = true          # No worker available for extended period
+dependency_cycle_detected = true   # Circular dependency discovered
+manual_dlq = true                  # Operator manually sent to DLQ
+
+# Archive Configuration
+# Controls automatic archival of completed tasks
+[archive]
+enabled = true
+retention_days = 30                # Archive tasks in terminal states older than 30 days
+archive_batch_size = 1000          # Process max 1000 tasks per archival run
+archive_interval_hours = 24        # Run archival once per day
+
+# Archive Policies
+# Controls which task types are archived
+[archive.policies]
+archive_completed = true           # Archive tasks in Complete state
+archive_failed = true              # Archive tasks in Error state
+archive_cancelled = false          # Keep cancelled tasks for audit
+archive_dlq_resolved = true        # Archive tasks with resolved DLQ entries
+

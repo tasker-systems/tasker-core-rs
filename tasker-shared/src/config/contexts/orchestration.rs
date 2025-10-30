@@ -13,7 +13,9 @@
 use serde::{Deserialize, Serialize};
 
 use super::ConfigurationContext;
-use crate::config::components::{BackoffConfig, OrchestrationChannelsConfig};
+use crate::config::components::{
+    ArchiveConfig, BackoffConfig, DlqConfig, OrchestrationChannelsConfig, StalenessDetectionConfig,
+};
 use crate::config::error::ConfigurationError;
 use crate::config::event_systems::{
     OrchestrationEventSystemConfig, TaskReadinessEventSystemConfig,
@@ -28,6 +30,7 @@ use crate::config::TaskerConfig;
 /// - Orchestration system behavior
 /// - Event-driven coordination
 /// - MPSC channel buffer sizing
+/// - DLQ and lifecycle management (TAS-49)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestrationConfig {
     /// Backoff and retry configuration for task/step retries
@@ -44,6 +47,15 @@ pub struct OrchestrationConfig {
 
     /// MPSC channels configuration for orchestration
     pub mpsc_channels: OrchestrationChannelsConfig,
+
+    /// TAS-49: Staleness detection configuration
+    pub staleness_detection: StalenessDetectionConfig,
+
+    /// TAS-49: Dead Letter Queue configuration
+    pub dlq: DlqConfig,
+
+    /// TAS-49: Archive configuration
+    pub archive: ArchiveConfig,
 
     /// Current environment (cached from common config)
     pub environment: String,
@@ -106,6 +118,109 @@ impl ConfigurationContext for OrchestrationConfig {
             });
         }
 
+        // TAS-49: Staleness detection validation
+        if self.staleness_detection.enabled {
+            if self.staleness_detection.batch_size <= 0 {
+                errors.push(ConfigurationError::InvalidValue {
+                    field: "staleness_detection.batch_size".to_string(),
+                    value: self.staleness_detection.batch_size.to_string(),
+                    context: "batch_size must be greater than 0".to_string(),
+                });
+            }
+
+            if self.staleness_detection.detection_interval_seconds == 0 {
+                errors.push(ConfigurationError::InvalidValue {
+                    field: "staleness_detection.detection_interval_seconds".to_string(),
+                    value: "0".to_string(),
+                    context: "detection_interval_seconds must be greater than 0".to_string(),
+                });
+            }
+
+            // Threshold validation
+            if self
+                .staleness_detection
+                .thresholds
+                .waiting_for_dependencies_minutes
+                <= 0
+            {
+                errors.push(ConfigurationError::InvalidValue {
+                    field: "staleness_detection.thresholds.waiting_for_dependencies_minutes"
+                        .to_string(),
+                    value: self
+                        .staleness_detection
+                        .thresholds
+                        .waiting_for_dependencies_minutes
+                        .to_string(),
+                    context: "waiting_for_dependencies_minutes must be greater than 0".to_string(),
+                });
+            }
+
+            if self
+                .staleness_detection
+                .thresholds
+                .waiting_for_retry_minutes
+                <= 0
+            {
+                errors.push(ConfigurationError::InvalidValue {
+                    field: "staleness_detection.thresholds.waiting_for_retry_minutes".to_string(),
+                    value: self
+                        .staleness_detection
+                        .thresholds
+                        .waiting_for_retry_minutes
+                        .to_string(),
+                    context: "waiting_for_retry_minutes must be greater than 0".to_string(),
+                });
+            }
+
+            if self.staleness_detection.thresholds.task_max_lifetime_hours <= 0 {
+                errors.push(ConfigurationError::InvalidValue {
+                    field: "staleness_detection.thresholds.task_max_lifetime_hours".to_string(),
+                    value: self
+                        .staleness_detection
+                        .thresholds
+                        .task_max_lifetime_hours
+                        .to_string(),
+                    context: "task_max_lifetime_hours must be greater than 0".to_string(),
+                });
+            }
+        }
+
+        // TAS-49: Archive validation
+        if self.archive.enabled {
+            if self.archive.retention_days <= 0 {
+                errors.push(ConfigurationError::InvalidValue {
+                    field: "archive.retention_days".to_string(),
+                    value: self.archive.retention_days.to_string(),
+                    context: "retention_days must be greater than 0".to_string(),
+                });
+            }
+
+            if self.archive.archive_batch_size <= 0 {
+                errors.push(ConfigurationError::InvalidValue {
+                    field: "archive.archive_batch_size".to_string(),
+                    value: self.archive.archive_batch_size.to_string(),
+                    context: "archive_batch_size must be greater than 0".to_string(),
+                });
+            }
+
+            if self.archive.archive_interval_hours == 0 {
+                errors.push(ConfigurationError::InvalidValue {
+                    field: "archive.archive_interval_hours".to_string(),
+                    value: "0".to_string(),
+                    context: "archive_interval_hours must be greater than 0".to_string(),
+                });
+            }
+        }
+
+        // TAS-49: DLQ validation
+        if self.dlq.enabled && self.dlq.max_pending_age_hours <= 0 {
+            errors.push(ConfigurationError::InvalidValue {
+                field: "dlq.max_pending_age_hours".to_string(),
+                value: self.dlq.max_pending_age_hours.to_string(),
+                context: "max_pending_age_hours must be greater than 0".to_string(),
+            });
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
@@ -119,11 +234,14 @@ impl ConfigurationContext for OrchestrationConfig {
 
     fn summary(&self) -> String {
         format!(
-            "OrchestrationConfig: environment={}, max_backoff={}s, web_enabled={}, event_mode={:?}",
+            "OrchestrationConfig: environment={}, max_backoff={}s, web_enabled={}, event_mode={:?}, staleness_detection={}, dlq={}, archive={}",
             self.environment,
             self.backoff.max_backoff_seconds,
             self.orchestration_system.web.enabled,
-            self.orchestration_events.deployment_mode
+            self.orchestration_events.deployment_mode,
+            self.staleness_detection.enabled,
+            self.dlq.enabled,
+            self.archive.enabled
         )
     }
 }
@@ -133,6 +251,8 @@ impl From<&TaskerConfig> for OrchestrationConfig {
     ///
     /// This conversion extracts only the orchestration-specific configuration fields
     /// from the monolithic TaskerConfig structure.
+    ///
+    /// TAS-49: DLQ fields use defaults here; they are populated from TOML via unified_loader.
     fn from(config: &TaskerConfig) -> Self {
         Self {
             backoff: config.backoff.clone(),
@@ -141,6 +261,11 @@ impl From<&TaskerConfig> for OrchestrationConfig {
             task_readiness_events: config.event_systems.task_readiness.clone(),
             mpsc_channels: config.mpsc_channels.orchestration.clone(),
             environment: config.execution.environment.clone(),
+
+            // TAS-49: DLQ configuration - populated from TOML via unified_loader
+            staleness_detection: StalenessDetectionConfig::default(),
+            dlq: DlqConfig::default(),
+            archive: ArchiveConfig::default(),
         }
     }
 }

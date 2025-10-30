@@ -69,6 +69,13 @@ pub struct TaskTemplate {
     /// Environment-specific overrides
     #[serde(default)]
     pub environments: HashMap<String, EnvironmentOverride>,
+
+    /// TAS-49: Per-template lifecycle configuration (optional)
+    ///
+    /// Defines task-specific timeout thresholds and staleness detection behavior.
+    /// When specified, these settings override global orchestration.toml defaults.
+    #[serde(default)]
+    pub lifecycle: Option<LifecycleConfig>,
 }
 
 /// Template metadata for documentation and discovery
@@ -116,6 +123,64 @@ impl Default for SystemDependencies {
             secondary: Vec::new(),
         }
     }
+}
+
+/// TAS-49: Per-template lifecycle configuration
+///
+/// Provides fine-grained control over task and step timeout behavior.
+/// These settings override global system defaults for specific task templates.
+///
+/// ## Staleness Detection Integration
+///
+/// The thresholds defined here are used by `detect_and_transition_stale_tasks()`
+/// SQL function (TAS-48/TAS-49) to determine when a task has exceeded its
+/// maximum duration in a particular state.
+///
+/// ## Configuration Precedence
+///
+/// 1. Per-template lifecycle config (highest priority)
+/// 2. Global orchestration.toml staleness_detection.thresholds
+/// 3. System hardcoded defaults (lowest priority)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LifecycleConfig {
+    /// Maximum total task duration (from creation to completion)
+    pub max_duration_minutes: Option<i32>,
+
+    /// Maximum time a task can spend in WaitingForDependencies state
+    pub max_waiting_for_dependencies_minutes: Option<i32>,
+
+    /// Maximum time a task can spend in WaitingForRetry state
+    pub max_waiting_for_retry_minutes: Option<i32>,
+
+    /// Maximum time a task can spend in StepsInProcess state
+    pub max_steps_in_process_minutes: Option<i32>,
+
+    /// Action to take when staleness threshold exceeded
+    ///
+    /// Valid values:
+    /// - "dlq": Send to Dead Letter Queue for investigation (default)
+    /// - "error": Transition task to Error state
+    /// - "none": No automatic action (monitoring only)
+    #[serde(default = "default_staleness_action")]
+    pub staleness_action: String,
+
+    /// Automatically transition task to Error state on timeout
+    ///
+    /// When true, tasks exceeding thresholds are moved to Error state
+    /// before being sent to DLQ (if staleness_action = "dlq").
+    #[serde(default)]
+    pub auto_fail_on_timeout: Option<bool>,
+
+    /// Automatically send task to DLQ on timeout
+    ///
+    /// When true and staleness_action = "dlq", tasks are immediately
+    /// sent to DLQ when any threshold is exceeded.
+    #[serde(default)]
+    pub auto_dlq_on_timeout: Option<bool>,
+}
+
+fn default_staleness_action() -> String {
+    "dlq".to_string()
 }
 
 /// Domain event definition with schema
@@ -2001,5 +2066,173 @@ steps:
         let initial_step_names: std::collections::HashSet<String> =
             initial_steps.iter().map(|s| s.name.clone()).collect();
         assert_eq!(graph_step_names, initial_step_names);
+    }
+
+    // ========================================================================
+    // TAS-49: Lifecycle Configuration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_task_template_without_lifecycle_config() {
+        let yaml_content = r#"
+name: simple_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: step_1
+    handler:
+      callable: "Handler1"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+
+        // Lifecycle should be None when not specified
+        assert!(template.lifecycle.is_none());
+    }
+
+    #[test]
+    fn test_task_template_with_full_lifecycle_config() {
+        let yaml_content = r#"
+name: lifecycle_task
+namespace_name: test
+version: "1.0.0"
+
+lifecycle:
+  max_duration_minutes: 120
+  max_waiting_for_dependencies_minutes: 60
+  max_waiting_for_retry_minutes: 30
+  max_steps_in_process_minutes: 90
+  staleness_action: "error"
+  auto_fail_on_timeout: true
+  auto_dlq_on_timeout: false
+
+steps:
+  - name: step_1
+    handler:
+      callable: "Handler1"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+
+        // Lifecycle should be Some with all fields populated
+        assert!(template.lifecycle.is_some());
+
+        let lifecycle = template.lifecycle.as_ref().unwrap();
+        assert_eq!(lifecycle.max_duration_minutes, Some(120));
+        assert_eq!(lifecycle.max_waiting_for_dependencies_minutes, Some(60));
+        assert_eq!(lifecycle.max_waiting_for_retry_minutes, Some(30));
+        assert_eq!(lifecycle.max_steps_in_process_minutes, Some(90));
+        assert_eq!(lifecycle.staleness_action, "error");
+        assert_eq!(lifecycle.auto_fail_on_timeout, Some(true));
+        assert_eq!(lifecycle.auto_dlq_on_timeout, Some(false));
+    }
+
+    #[test]
+    fn test_task_template_with_partial_lifecycle_config() {
+        let yaml_content = r#"
+name: partial_lifecycle_task
+namespace_name: test
+version: "1.0.0"
+
+lifecycle:
+  max_duration_minutes: 180
+  staleness_action: "dlq"
+
+steps:
+  - name: step_1
+    handler:
+      callable: "Handler1"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+
+        // Lifecycle should be Some with partial fields
+        assert!(template.lifecycle.is_some());
+
+        let lifecycle = template.lifecycle.as_ref().unwrap();
+        assert_eq!(lifecycle.max_duration_minutes, Some(180));
+        assert_eq!(lifecycle.max_waiting_for_dependencies_minutes, None);
+        assert_eq!(lifecycle.max_waiting_for_retry_minutes, None);
+        assert_eq!(lifecycle.max_steps_in_process_minutes, None);
+        assert_eq!(lifecycle.staleness_action, "dlq");
+        assert_eq!(lifecycle.auto_fail_on_timeout, None);
+        assert_eq!(lifecycle.auto_dlq_on_timeout, None);
+    }
+
+    #[test]
+    fn test_lifecycle_config_default_staleness_action() {
+        let yaml_content = r#"
+name: default_action_task
+namespace_name: test
+version: "1.0.0"
+
+lifecycle:
+  max_duration_minutes: 60
+
+steps:
+  - name: step_1
+    handler:
+      callable: "Handler1"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+
+        let lifecycle = template.lifecycle.as_ref().unwrap();
+        // staleness_action should default to "dlq"
+        assert_eq!(lifecycle.staleness_action, "dlq");
+    }
+
+    #[test]
+    fn test_lifecycle_config_serialization_roundtrip() {
+        let lifecycle = LifecycleConfig {
+            max_duration_minutes: Some(120),
+            max_waiting_for_dependencies_minutes: Some(60),
+            max_waiting_for_retry_minutes: Some(30),
+            max_steps_in_process_minutes: Some(90),
+            staleness_action: "error".to_string(),
+            auto_fail_on_timeout: Some(true),
+            auto_dlq_on_timeout: Some(false),
+        };
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&lifecycle).expect("Should serialize");
+
+        // Deserialize back
+        let deserialized: LifecycleConfig =
+            serde_json::from_str(&json).expect("Should deserialize");
+
+        // Should match original
+        assert_eq!(deserialized, lifecycle);
+    }
+
+    #[test]
+    fn test_lifecycle_config_with_empty_object() {
+        let yaml_content = r#"
+name: empty_lifecycle_task
+namespace_name: test
+version: "1.0.0"
+
+lifecycle: {}
+
+steps:
+  - name: step_1
+    handler:
+      callable: "Handler1"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+
+        // Lifecycle should be Some but with all None values except staleness_action
+        assert!(template.lifecycle.is_some());
+
+        let lifecycle = template.lifecycle.as_ref().unwrap();
+        assert_eq!(lifecycle.max_duration_minutes, None);
+        assert_eq!(lifecycle.max_waiting_for_dependencies_minutes, None);
+        assert_eq!(lifecycle.max_waiting_for_retry_minutes, None);
+        assert_eq!(lifecycle.max_steps_in_process_minutes, None);
+        assert_eq!(lifecycle.staleness_action, "dlq"); // Default
+        assert_eq!(lifecycle.auto_fail_on_timeout, None);
+        assert_eq!(lifecycle.auto_dlq_on_timeout, None);
     }
 }

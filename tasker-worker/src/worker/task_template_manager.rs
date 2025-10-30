@@ -749,6 +749,7 @@ mod tests {
                 publishes_events: Vec::new(),
             }],
             environments: HashMap::new(),
+            lifecycle: None,
         }
     }
 

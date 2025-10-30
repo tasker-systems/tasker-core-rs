@@ -1,5 +1,21 @@
 # TAS-49: Comprehensive Task Dead Letter Queue (DLQ) & Lifecycle Management
 
+> **⚠️ DEPRECATED - Consolidated into plan.md**
+>
+> **This document represents the original specification and contains outdated architectural decisions.**
+>
+> **📖 For current implementation plan, see: [`plan.md`](./plan.md)**
+>
+> **Key changes from original spec:**
+> - DLQ is investigation tracking, not task manipulation (no requeue function)
+> - Table partitioning deferred (Phase 4 complexity not needed for pre-alpha)
+> - Configuration consolidated into `orchestration.toml` (not separate DLQ files)
+> - Per-template lifecycle config via TaskTemplate serialization (not separate DB columns)
+>
+> **Last Updated**: 2025-10-29 (archived after plan.md consolidation)
+>
+> ---
+
 ## Executive Summary
 
 Implement a comprehensive Dead Letter Queue (DLQ) system with automatic staleness detection, table partitioning, and archival strategies to address task lifecycle management at scale. Building on TAS-48's immediate relief for discovery priority drowning, this ticket delivers enterprise-grade task lifecycle management including: (1) automatic detection and transition of stale tasks to DLQ, (2) time-based table partitioning for unbounded growth, (3) multi-tier DLQ with requeue workflows, (4) automatic archival of completed tasks, and (5) per-template lifecycle configuration.
