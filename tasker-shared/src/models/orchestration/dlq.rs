@@ -178,6 +178,52 @@ pub struct DlqEntry {
     pub updated_at: NaiveDateTime,
 }
 
+/// DLQ list query parameters
+#[derive(Debug, Clone)]
+pub struct DlqListParams {
+    /// Filter by resolution status (optional)
+    pub resolution_status: Option<DlqResolutionStatus>,
+    /// Maximum number of entries to return (default: 50)
+    pub limit: i64,
+    /// Offset for pagination (default: 0)
+    pub offset: i64,
+}
+
+impl Default for DlqListParams {
+    fn default() -> Self {
+        Self {
+            resolution_status: None,
+            limit: 50,
+            offset: 0,
+        }
+    }
+}
+
+/// DLQ statistics by reason
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DlqStats {
+    pub dlq_reason: DlqReason,
+    pub total_entries: i64,
+    pub pending: i64,
+    pub manually_resolved: i64,
+    pub permanent_failures: i64,
+    pub oldest_entry: Option<NaiveDateTime>,
+    pub newest_entry: Option<NaiveDateTime>,
+}
+
+/// DLQ investigation update request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DlqInvestigationUpdate {
+    /// New resolution status (optional)
+    pub resolution_status: Option<DlqResolutionStatus>,
+    /// Investigation notes (optional)
+    pub resolution_notes: Option<String>,
+    /// Who resolved the investigation (optional)
+    pub resolved_by: Option<String>,
+    /// Additional metadata (optional)
+    pub metadata: Option<serde_json::Value>,
+}
+
 impl DlqEntry {
     /// Calculate how long this task has been in DLQ (minutes)
     #[must_use]
@@ -194,6 +240,230 @@ impl DlqEntry {
 
         let hours_in_dlq = (now - self.dlq_timestamp).num_hours();
         hours_in_dlq > i64::from(max_pending_age_hours)
+    }
+
+    /// List DLQ entries with optional filtering and pagination
+    ///
+    /// # Arguments
+    ///
+    /// * `pool` - Database connection pool
+    /// * `params` - Query parameters (status filter, pagination)
+    ///
+    /// # Returns
+    ///
+    /// Vector of DLQ entries ordered by dlq_timestamp (most recent first)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use tasker_shared::models::orchestration::dlq::{DlqEntry, DlqListParams, DlqResolutionStatus};
+    /// use sqlx::PgPool;
+    ///
+    /// async fn list_pending_investigations(pool: &PgPool) -> Result<Vec<DlqEntry>, sqlx::Error> {
+    ///     let params = DlqListParams {
+    ///         resolution_status: Some(DlqResolutionStatus::Pending),
+    ///         limit: 20,
+    ///         offset: 0,
+    ///     };
+    ///     DlqEntry::list(pool, params).await
+    /// }
+    /// ```
+    pub async fn list(
+        pool: &sqlx::PgPool,
+        params: DlqListParams,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        // Convert enum to text for SQL parameter binding
+        let resolution_status_text = params.resolution_status.map(|s| s.as_str());
+
+        let entries = sqlx::query_as!(
+            DlqEntry,
+            r#"
+            SELECT
+                dlq_entry_uuid,
+                task_uuid,
+                original_state,
+                dlq_reason as "dlq_reason: DlqReason",
+                dlq_timestamp,
+                resolution_status as "resolution_status: DlqResolutionStatus",
+                resolution_timestamp,
+                resolution_notes,
+                resolved_by,
+                task_snapshot,
+                metadata,
+                created_at,
+                updated_at
+            FROM tasker_tasks_dlq
+            WHERE ($1::text IS NULL OR resolution_status::text = $1)
+            ORDER BY dlq_timestamp DESC
+            LIMIT $2
+            OFFSET $3
+            "#,
+            resolution_status_text,
+            params.limit,
+            params.offset
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(entries)
+    }
+
+    /// Find the most recent DLQ entry for a specific task
+    ///
+    /// # Arguments
+    ///
+    /// * `pool` - Database connection pool
+    /// * `task_uuid` - UUID of the task
+    ///
+    /// # Returns
+    ///
+    /// Most recent DLQ entry for the task, or None if not found
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use tasker_shared::models::orchestration::dlq::DlqEntry;
+    /// use sqlx::PgPool;
+    /// use uuid::Uuid;
+    ///
+    /// async fn get_task_investigation(pool: &PgPool, task_uuid: Uuid) -> Result<Option<DlqEntry>, sqlx::Error> {
+    ///     DlqEntry::find_by_task(pool, task_uuid).await
+    /// }
+    /// ```
+    pub async fn find_by_task(
+        pool: &sqlx::PgPool,
+        task_uuid: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        let entry = sqlx::query_as!(
+            DlqEntry,
+            r#"
+            SELECT
+                dlq_entry_uuid,
+                task_uuid,
+                original_state,
+                dlq_reason as "dlq_reason: DlqReason",
+                dlq_timestamp,
+                resolution_status as "resolution_status: DlqResolutionStatus",
+                resolution_timestamp,
+                resolution_notes,
+                resolved_by,
+                task_snapshot,
+                metadata,
+                created_at,
+                updated_at
+            FROM tasker_tasks_dlq
+            WHERE task_uuid = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+            task_uuid
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(entry)
+    }
+
+    /// Update DLQ investigation status and notes
+    ///
+    /// # Arguments
+    ///
+    /// * `pool` - Database connection pool
+    /// * `dlq_entry_uuid` - UUID of the DLQ entry to update
+    /// * `update` - Update data (status, notes, resolved_by, metadata)
+    ///
+    /// # Returns
+    ///
+    /// True if entry was found and updated, false if not found
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use tasker_shared::models::orchestration::dlq::{DlqEntry, DlqInvestigationUpdate, DlqResolutionStatus};
+    /// use sqlx::PgPool;
+    /// use uuid::Uuid;
+    ///
+    /// async fn resolve_investigation(pool: &PgPool, entry_uuid: Uuid) -> Result<bool, sqlx::Error> {
+    ///     let update = DlqInvestigationUpdate {
+    ///         resolution_status: Some(DlqResolutionStatus::ManuallyResolved),
+    ///         resolution_notes: Some("Fixed by resetting retry count".to_string()),
+    ///         resolved_by: Some("operator@example.com".to_string()),
+    ///         metadata: None,
+    ///     };
+    ///     DlqEntry::update_investigation(pool, entry_uuid, update).await
+    /// }
+    /// ```
+    pub async fn update_investigation(
+        pool: &sqlx::PgPool,
+        dlq_entry_uuid: Uuid,
+        update: DlqInvestigationUpdate,
+    ) -> Result<bool, sqlx::Error> {
+        // Convert enum to text for SQL parameter binding
+        let resolution_status_text = update.resolution_status.map(|s| s.as_str());
+
+        let result = sqlx::query!(
+            r#"
+            UPDATE tasker_tasks_dlq
+            SET resolution_status = COALESCE($2::text::dlq_resolution_status, resolution_status),
+                resolution_timestamp = CASE WHEN $2 IS NOT NULL THEN NOW() ELSE resolution_timestamp END,
+                resolution_notes = COALESCE($3, resolution_notes),
+                resolved_by = COALESCE($4, resolved_by),
+                metadata = COALESCE($5, metadata),
+                updated_at = NOW()
+            WHERE dlq_entry_uuid = $1
+            "#,
+            dlq_entry_uuid,
+            resolution_status_text,
+            update.resolution_notes,
+            update.resolved_by,
+            update.metadata
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Get aggregated DLQ statistics by reason
+    ///
+    /// # Arguments
+    ///
+    /// * `pool` - Database connection pool
+    ///
+    /// # Returns
+    ///
+    /// Vector of statistics grouped by DLQ reason
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use tasker_shared::models::orchestration::dlq::{DlqEntry, DlqStats};
+    /// use sqlx::PgPool;
+    ///
+    /// async fn get_system_health(pool: &PgPool) -> Result<Vec<DlqStats>, sqlx::Error> {
+    ///     DlqEntry::get_stats(pool).await
+    /// }
+    /// ```
+    pub async fn get_stats(pool: &sqlx::PgPool) -> Result<Vec<DlqStats>, sqlx::Error> {
+        let stats = sqlx::query_as!(
+            DlqStats,
+            r#"
+            SELECT
+                dlq_reason as "dlq_reason: DlqReason",
+                COUNT(*) as "total_entries!",
+                COUNT(*) FILTER (WHERE resolution_status = 'pending') as "pending!",
+                COUNT(*) FILTER (WHERE resolution_status = 'manually_resolved') as "manually_resolved!",
+                COUNT(*) FILTER (WHERE resolution_status = 'permanently_failed') as "permanent_failures!",
+                MIN(dlq_timestamp) as oldest_entry,
+                MAX(dlq_timestamp) as newest_entry
+            FROM tasker_tasks_dlq
+            GROUP BY dlq_reason
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(stats)
     }
 }
 

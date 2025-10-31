@@ -141,11 +141,9 @@ pub async fn get_bottlenecks(
             .collect();
 
         // Calculate resource utilization
-        let pool_utilization = if health.max_connections > 0 {
-            health.active_connections as f64 / health.max_connections as f64
-        } else {
-            0.0
-        };
+        // Note: Connection pool metrics not available from SQL function
+        // TODO: Consider fetching from separate connection pool monitoring if needed
+        let pool_utilization = 0.0;
 
         let resource_utilization = ResourceUtilization {
             database_pool_utilization: pool_utilization,

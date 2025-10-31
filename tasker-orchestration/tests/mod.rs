@@ -13,3 +13,4 @@
 pub mod messaging;
 pub mod state_manager;
 pub mod task_initialization_cycle_detection_test;
+pub mod web;

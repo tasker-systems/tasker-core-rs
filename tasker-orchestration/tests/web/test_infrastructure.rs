@@ -5,10 +5,11 @@
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
-use tasker_shared::config::UnifiedConfigLoader;
+use tasker_orchestration::web::{create_test_app, state::AppState};
 use tasker_shared::models::core::task_request::TaskRequest;
-use tasker_shared::web::{create_test_app, state::AppState};
+use tasker_shared::SystemContext;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
@@ -65,12 +66,23 @@ impl TestServer {
         // Set up test environment
         std::env::set_var("TASKER_ENV", "test");
 
-        // Load configuration for test environment
-        let mut config_loader = UnifiedConfigLoader::new_from_env()?;
-        let tasker_config = config_loader.load_tasker_config()?;
+        // Create system context for orchestration
+        let system_context = Arc::new(
+            SystemContext::new_for_orchestration()
+                .await
+                .map_err(|e| format!("Failed to create system context: {e}"))?,
+        );
 
-        // Create app state for testing
-        let app_state = AppState::new_for_testing(tasker_config).await?;
+        // Create orchestration core (required for AppState)
+        let orchestration_core =
+            tasker_orchestration::orchestration::core::OrchestrationCore::new(system_context)
+                .await
+                .map_err(|e| format!("Failed to create orchestration core: {e}"))?;
+
+        // Create app state from orchestration core
+        let app_state = AppState::from_orchestration_core(Arc::new(orchestration_core))
+            .await
+            .map_err(|e| format!("Failed to create app state: {e}"))?;
 
         // Create the Axum app
         let app = create_test_app(app_state);
@@ -176,6 +188,22 @@ impl WebTestClient {
         request.send().await
     }
 
+    /// Make an authenticated PATCH request with JSON body
+    pub async fn patch_authenticated(
+        &self,
+        path: &str,
+        body: Value,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        let url = format!("{}{}", self.config.base_url, path);
+        let mut request = self.client.patch(&url).json(&body);
+
+        if let Some(token) = &self.jwt_token {
+            request = request.bearer_auth(token);
+        }
+
+        request.send().await
+    }
+
     /// Get the base URL for this test client
     pub fn base_url(&self) -> &str {
         &self.config.base_url
@@ -200,17 +228,16 @@ pub fn create_test_task_request() -> TaskRequest {
             "test_data": "integration_test",
             "test_id": uuid::Uuid::new_v4().to_string()
         }),
-        status: "pending".to_string(), // Default status
         initiator: "web_integration_test".to_string(),
         source_system: "test_suite".to_string(),
         reason: "Web API integration testing".to_string(),
-        complete: false,
         tags: vec![],
         bypass_steps: vec![],
         requested_at: chrono::Utc::now().naive_utc(),
         options: None,
         priority: Some(5),
-        claim_timeout_seconds: Some(300),
+        correlation_id: uuid::Uuid::now_v7(),
+        parent_correlation_id: None,
     }
 }
 
@@ -311,8 +338,8 @@ mod tests {
         assert_eq!(request.name, "test_task");
         assert_eq!(request.version, "1.0.0");
         assert_eq!(request.priority, Some(5));
-        assert_eq!(request.status, "pending");
-        assert!(!request.complete);
+        assert_eq!(request.initiator, "web_integration_test");
+        assert_eq!(request.source_system, "test_suite");
     }
 
     #[test]

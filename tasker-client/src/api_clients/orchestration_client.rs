@@ -907,6 +907,135 @@ impl OrchestrationApiClient {
     }
 
     // ===================================================================================
+    // DLQ API METHODS (TAS-49)
+    // ===================================================================================
+
+    /// List DLQ entries with optional filtering
+    ///
+    /// GET /v1/dlq
+    pub async fn list_dlq_entries(
+        &self,
+        params: Option<&tasker_shared::models::orchestration::DlqListParams>,
+    ) -> TaskerResult<Vec<tasker_shared::models::orchestration::DlqEntry>> {
+        let mut url = self.base_url.join("/v1/dlq").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        // Add query parameters if provided
+        if let Some(dlq_params) = params {
+            let mut query_pairs = url.query_pairs_mut();
+            if let Some(status) = &dlq_params.resolution_status {
+                query_pairs.append_pair("resolution_status", status.as_str());
+            }
+            query_pairs.append_pair("limit", &dlq_params.limit.to_string());
+            query_pairs.append_pair("offset", &dlq_params.offset.to_string());
+            drop(query_pairs);
+        }
+
+        debug!(url = %url, "Listing DLQ entries via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "list DLQ entries").await
+    }
+
+    /// Get DLQ entry by task UUID
+    ///
+    /// GET /v1/dlq/task/{task_uuid}
+    pub async fn get_dlq_entry(
+        &self,
+        task_uuid: Uuid,
+    ) -> TaskerResult<tasker_shared::models::orchestration::DlqEntry> {
+        let url = self
+            .base_url
+            .join(&format!("/v1/dlq/task/{}", task_uuid))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        debug!(
+            url = %url,
+            task_uuid = %task_uuid,
+            "Getting DLQ entry via orchestration API"
+        );
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get DLQ entry").await
+    }
+
+    /// Update DLQ investigation status
+    ///
+    /// PATCH /v1/dlq/entry/{dlq_entry_uuid}
+    pub async fn update_dlq_investigation(
+        &self,
+        dlq_entry_uuid: Uuid,
+        update: tasker_shared::models::orchestration::DlqInvestigationUpdate,
+    ) -> TaskerResult<()> {
+        let url = self
+            .base_url
+            .join(&format!("/v1/dlq/entry/{}", dlq_entry_uuid))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        debug!(
+            url = %url,
+            dlq_entry_uuid = %dlq_entry_uuid,
+            "Updating DLQ investigation via orchestration API"
+        );
+
+        let response = self
+            .client
+            .patch(url.clone())
+            .json(&update)
+            .send()
+            .await
+            .map_err(|e| {
+                TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+            })?;
+
+        if response.status().is_success() {
+            info!(dlq_entry_uuid = %dlq_entry_uuid, "Successfully updated DLQ investigation");
+            Ok(())
+        } else {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            error!(status = %status, error = %error_text, "Failed to update DLQ investigation");
+            Err(TaskerError::OrchestrationError(format!(
+                "HTTP {}: {}",
+                status, error_text
+            )))
+        }
+    }
+
+    /// Get DLQ statistics
+    ///
+    /// GET /v1/dlq/stats
+    pub async fn get_dlq_stats(
+        &self,
+    ) -> TaskerResult<Vec<tasker_shared::models::orchestration::DlqStats>> {
+        let url = self.base_url.join("/v1/dlq/stats").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        debug!(url = %url, "Getting DLQ statistics via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get DLQ statistics").await
+    }
+
+    // ===================================================================================
     // UTILITY METHODS
     // ===================================================================================
 
@@ -1201,4 +1330,87 @@ mod tests {
     // ===================================================================================
     // CONFIGURATION TESTS
     // ===================================================================================
+
+    // ===================================================================================
+    // DLQ API TESTS (TAS-49)
+    // ===================================================================================
+
+    #[test]
+    fn test_dlq_list_params_default() {
+        use tasker_shared::models::orchestration::DlqListParams;
+
+        let params = DlqListParams::default();
+        assert_eq!(params.limit, 50);
+        assert_eq!(params.offset, 0);
+        assert!(params.resolution_status.is_none());
+    }
+
+    #[test]
+    fn test_dlq_investigation_update_creation() {
+        use tasker_shared::models::orchestration::{DlqInvestigationUpdate, DlqResolutionStatus};
+
+        let update = DlqInvestigationUpdate {
+            resolution_status: Some(DlqResolutionStatus::ManuallyResolved),
+            resolution_notes: Some("Fixed by recreating upstream dependency".to_string()),
+            resolved_by: Some("operator@example.com".to_string()),
+            metadata: None,
+        };
+
+        assert!(update.resolution_status.is_some());
+        assert!(update.resolution_notes.is_some());
+        assert!(update.resolved_by.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_dlq_entry_deserialization() {
+        let json_response = json!({
+            "dlq_entry_uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "task_uuid": "650e8400-e29b-41d4-a716-446655440000",
+            "original_state": "BlockedByFailures",
+            "dlq_reason": "MaxRetriesExceeded",
+            "dlq_timestamp": "2023-12-01T12:00:00",
+            "resolution_status": "Pending",
+            "resolution_timestamp": null,
+            "resolution_notes": null,
+            "resolved_by": null,
+            "task_snapshot": {},
+            "metadata": null,
+            "created_at": "2023-12-01T12:00:00",
+            "updated_at": "2023-12-01T12:00:00"
+        });
+
+        let entry: tasker_shared::models::orchestration::DlqEntry =
+            serde_json::from_value(json_response).unwrap();
+        assert_eq!(
+            entry.dlq_entry_uuid.to_string(),
+            "550e8400-e29b-41d4-a716-446655440000"
+        );
+        assert_eq!(
+            entry.task_uuid.to_string(),
+            "650e8400-e29b-41d4-a716-446655440000"
+        );
+        assert_eq!(entry.original_state, "BlockedByFailures");
+    }
+
+    #[tokio::test]
+    async fn test_dlq_stats_deserialization() {
+        let json_response = json!({
+            "dlq_reason": "MaxRetriesExceeded",
+            "total_entries": 42,
+            "pending": 10,
+            "manually_resolved": 25,
+            "permanent_failures": 7,
+            "oldest_entry": "2023-12-01T10:00:00",
+            "newest_entry": "2023-12-01T15:00:00"
+        });
+
+        let stats: tasker_shared::models::orchestration::DlqStats =
+            serde_json::from_value(json_response).unwrap();
+        assert_eq!(stats.total_entries, 42);
+        assert_eq!(stats.pending, 10);
+        assert_eq!(stats.manually_resolved, 25);
+        assert_eq!(stats.permanent_failures, 7);
+        assert!(stats.oldest_entry.is_some());
+        assert!(stats.newest_entry.is_some());
+    }
 }

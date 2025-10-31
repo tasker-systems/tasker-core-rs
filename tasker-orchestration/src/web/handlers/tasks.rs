@@ -221,22 +221,15 @@ pub async fn get_task(
 
     match result {
         Ok(Some((task, execution_context, steps))) => {
-            // Get task metadata using existing Task model methods
-            let pool_for_metadata = pool.clone();
-            let task_name = task.name(&pool_for_metadata).await.map_err(|e| {
-                error!(error = %e, "Failed to get task name");
+            // Get task metadata using single JOIN query to avoid N+1 problem
+            let task_metadata = task.for_orchestration(&pool).await.map_err(|e| {
+                error!(error = %e, "Failed to get task metadata");
                 ApiError::database_error("Failed to retrieve task metadata")
             })?;
 
-            let namespace = task.namespace_name(&pool_for_metadata).await.map_err(|e| {
-                error!(error = %e, "Failed to get namespace name");
-                ApiError::database_error("Failed to retrieve task metadata")
-            })?;
-
-            let version = task.version(&pool_for_metadata).await.map_err(|e| {
-                error!(error = %e, "Failed to get task version");
-                ApiError::database_error("Failed to retrieve task metadata")
-            })?;
+            let task_name = task_metadata.task_name;
+            let namespace = task_metadata.namespace_name;
+            let version = task_metadata.task_version;
 
             // Convert tags from JSONB to Vec<String> if it's an array
             let tags = match &task.tags {

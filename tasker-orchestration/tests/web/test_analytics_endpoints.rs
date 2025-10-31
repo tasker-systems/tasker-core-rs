@@ -304,6 +304,16 @@ async fn test_analytics_endpoints_without_authentication() {
     // so we expect 200 OK if the endpoints are implemented correctly
     let status = response.status();
     println!("   Performance endpoint (unauthenticated): {status}");
+
+    if status != StatusCode::OK {
+        // Print error response body for debugging
+        let error_body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error body".to_string());
+        println!("   Error response body: {error_body}");
+    }
+
     assert_eq!(
         status,
         StatusCode::OK,

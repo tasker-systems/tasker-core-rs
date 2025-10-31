@@ -10,6 +10,7 @@
 pub mod authenticated_tests;
 pub mod resource_coordination_tests;
 pub mod test_analytics_endpoints;
+pub mod test_dlq_endpoints;
 pub mod test_infrastructure;
 pub mod test_openapi_documentation;
 pub mod tls_tests;

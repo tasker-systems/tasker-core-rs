@@ -493,14 +493,27 @@ impl SqlFunctionExecutor {
 
 /// System-wide health and performance counts
 /// Equivalent to Rails: FunctionBasedSystemHealthCounts
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+///
+/// **IMPORTANT**: Field names match the SQL function `get_system_health_counts()` output exactly.
+/// The SQL function returns detailed task state columns, not an aggregated `in_progress_tasks`.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, Default)]
 pub struct SystemHealthCounts {
-    pub total_tasks: i64,
+    // Task counts by state - matches SQL function output
     pub pending_tasks: i64,
-    pub in_progress_tasks: i64,
+    pub initializing_tasks: i64,
+    pub enqueuing_steps_tasks: i64,
+    pub steps_in_process_tasks: i64,
+    pub evaluating_results_tasks: i64,
+    pub waiting_for_dependencies_tasks: i64,
+    pub waiting_for_retry_tasks: i64,
+    pub blocked_by_failures_tasks: i64,
     pub complete_tasks: i64,
     pub error_tasks: i64,
     pub cancelled_tasks: i64,
+    pub resolved_manually_tasks: i64,
+    pub total_tasks: i64,
+
+    // Step counts by state - matches SQL function output
     pub pending_steps: i64,
     pub enqueued_steps: i64,
     pub in_progress_steps: i64,
@@ -512,62 +525,25 @@ pub struct SystemHealthCounts {
     pub cancelled_steps: i64,
     pub resolved_manually_steps: i64,
     pub total_steps: i64,
-    pub active_connections: i64,
-    pub max_connections: i64,
-}
-
-impl Default for SystemHealthCounts {
-    fn default() -> Self {
-        Self {
-            total_tasks: 0,
-            pending_tasks: 0,
-            in_progress_tasks: 0,
-            complete_tasks: 0,
-            error_tasks: 0,
-            cancelled_tasks: 0,
-            pending_steps: 0,
-            enqueued_steps: 0,
-            in_progress_steps: 0,
-            enqueued_for_orchestration_steps: 0,
-            enqueued_as_error_for_orchestration_steps: 0,
-            waiting_for_retry_steps: 0,
-            complete_steps: 0,
-            error_steps: 0,
-            cancelled_steps: 0,
-            resolved_manually_steps: 0,
-            total_steps: 0,
-            active_connections: 0,
-            max_connections: 100,
-        }
-    }
 }
 
 impl SystemHealthCounts {
-    /// Calculate system health score (0.0 to 1.0)
-    pub fn health_score(&self) -> f64 {
-        if self.total_tasks == 0 {
-            return 1.0;
-        }
-
-        let success_rate = self.complete_tasks as f64 / self.total_tasks as f64;
-        let error_rate = self.error_tasks as f64 / self.total_tasks as f64;
-        let connection_health =
-            1.0 - (self.active_connections as f64 / self.max_connections as f64).min(1.0);
-
-        // Weighted combination: 50% success rate, 30% error rate, 20% connection health
-        (success_rate * 0.5) + ((1.0 - error_rate) * 0.3) + (connection_health * 0.2)
-    }
-
-    /// Check if system is under heavy load
-    pub fn is_under_heavy_load(&self) -> bool {
-        let connection_pressure = self.active_connections as f64 / self.max_connections as f64;
-        let error_rate = if self.total_tasks > 0 {
+    /// Calculate error rate (0.0 to 1.0)
+    pub fn error_rate(&self) -> f64 {
+        if self.total_tasks > 0 {
             self.error_tasks as f64 / self.total_tasks as f64
         } else {
             0.0
-        };
+        }
+    }
 
-        connection_pressure > 0.8 || error_rate > 0.2
+    /// Calculate success rate (0.0 to 1.0)
+    pub fn success_rate(&self) -> f64 {
+        if self.total_tasks > 0 {
+            self.complete_tasks as f64 / self.total_tasks as f64
+        } else {
+            0.0
+        }
     }
 }
 

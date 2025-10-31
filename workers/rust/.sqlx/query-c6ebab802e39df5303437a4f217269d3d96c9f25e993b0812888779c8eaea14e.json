@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                dlq_reason as \"dlq_reason: DlqReason\",\n                COUNT(*) as \"total_entries!\",\n                COUNT(*) FILTER (WHERE resolution_status = 'pending') as \"pending!\",\n                COUNT(*) FILTER (WHERE resolution_status = 'manually_resolved') as \"manually_resolved!\",\n                COUNT(*) FILTER (WHERE resolution_status = 'permanently_failed') as \"permanent_failures!\",\n                MIN(dlq_timestamp) as oldest_entry,\n                MAX(dlq_timestamp) as newest_entry\n            FROM tasker_tasks_dlq\n            GROUP BY dlq_reason\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dlq_reason: DlqReason",
+        "type_info": {
+          "Custom": {
+            "name": "dlq_reason",
+            "kind": {
+              "Enum": [
+                "staleness_timeout",
+                "max_retries_exceeded",
+                "dependency_cycle_detected",
+                "worker_unavailable",
+                "manual_dlq"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "total_entries!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "pending!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "manually_resolved!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "permanent_failures!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "oldest_entry",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 6,
+        "name": "newest_entry",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "c6ebab802e39df5303437a4f217269d3d96c9f25e993b0812888779c8eaea14e"
+}
