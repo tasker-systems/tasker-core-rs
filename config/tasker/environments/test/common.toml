@@ -3,7 +3,6 @@ environment = "test"
 
 [database]
 # Test database connection
-host = "localhost"
 database = "tasker_rust_test"
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 
@@ -44,3 +43,29 @@ metrics_collection_interval_seconds = 10
 failure_threshold = 3  # Fail faster in tests
 timeout_seconds = 5  # Shorter recovery timeout
 success_threshold = 1  # Single success to close
+
+# Test-specific telemetry settings
+[telemetry]
+enabled = false  # Disable telemetry in tests
+
+# Test-specific system settings
+[system]
+max_memory_mb = 512  # Lower memory limits for tests
+max_cpu_percent = 80.0
+
+# Test-specific execution settings
+[execution]
+environment = "test"
+
+[execution.timeouts]
+default_operation_timeout_seconds = 10  # Shorter timeouts for tests
+shutdown_grace_period_seconds = 10
+
+# Test-specific decision points settings
+[decision_points]
+max_steps_per_decision = 10  # Lower limit for test safety
+max_decision_depth = 5  # Shallow nesting for simple tests
+warn_threshold_steps = 5  # Low threshold to catch issues early
+warn_threshold_depth = 3
+enable_detailed_logging = true  # Detailed logging helps diagnose test failures
+enable_metrics = false  # Metrics add overhead in tests

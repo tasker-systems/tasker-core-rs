@@ -65,6 +65,10 @@ pub mod error_handling_service;
 pub mod lifecycle;
 pub mod viable_step_discovery;
 
+// Background Services (TAS-49 Phase 2)
+pub mod archival_service;
+pub mod staleness_detector;
+
 // Configuration and Errors
 pub mod config;
 pub mod errors;
@@ -159,6 +163,10 @@ pub use error_classifier::{
 pub use error_handling_service::{
     ErrorHandlingAction, ErrorHandlingConfig, ErrorHandlingResult, ErrorHandlingService,
 };
+
+// Background Services (TAS-49 Phase 2)
+pub use archival_service::{ArchivalService, ArchivalStats};
+pub use staleness_detector::{StalenessDetector, StalenessResult};
 
 // ============================================================================
 // Re-exports: Configuration

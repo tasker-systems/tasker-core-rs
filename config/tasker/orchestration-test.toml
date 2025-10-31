@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2025-10-25T14:31:08.385464+00:00
+# Generated: 2025-10-31T12:44:44.822825+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -9,9 +9,22 @@
 # Environment Variable Overrides (applied at runtime):
 # - DATABASE_URL: Override database.url (K8s secrets rotation)
 # - TASKER_TEMPLATE_PATH: Override worker.template_path (testing)
+# - TASKER_WEB_BIND_ADDRESS: Override web bind address (CI/testing port isolation)
 #
 
 environment = "test"
+
+[archive]
+archive_batch_size = 1000
+archive_interval_hours = 24
+enabled = true
+retention_days = 30
+
+[archive.policies]
+archive_cancelled = false
+archive_completed = true
+archive_dlq_resolved = true
+archive_failed = true
 
 [backoff]
 backoff_multiplier = 2.0
@@ -57,11 +70,7 @@ metrics_collection_interval_seconds = 10
 min_state_transition_interval_seconds = 1
 
 [database]
-checkout_timeout = 10
 database = "tasker_rust_test"
-encoding = "unicode"
-host = "localhost"
-reaping_frequency = 10
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 
 [database.pool]
@@ -74,6 +83,35 @@ min_connections = 2
 [database.variables]
 statement_timeout = 5000
 
+[decision_points]
+enable_detailed_logging = true
+enable_metrics = false
+enabled = true
+max_decision_depth = 5
+max_steps_per_decision = 10
+warn_threshold_depth = 3
+warn_threshold_steps = 5
+
+[dlq]
+auto_dlq_on_staleness = true
+enabled = true
+include_full_task_snapshot = true
+max_pending_age_hours = 168
+
+[dlq.reasons]
+dependency_cycle_detected = true
+manual_dlq = true
+max_retries_exceeded = true
+staleness_timeout = true
+worker_unavailable = true
+
+[execution]
+environment = "test"
+
+[execution.timeouts]
+default_operation_timeout_seconds = 10
+shutdown_grace_period_seconds = 10
+
 [mpsc_channels.command_processor]
 command_buffer_size = 100
 
@@ -82,6 +120,14 @@ pgmq_event_buffer_size = 500
 
 [mpsc_channels.event_systems]
 event_channel_buffer_size = 100
+
+[mpsc_channels.overflow_policy]
+drop_policy = "block"
+log_warning_threshold = 0.8
+
+[mpsc_channels.overflow_policy.metrics]
+enabled = true
+saturation_check_interval_seconds = 60
 
 [orchestration_events]
 deployment_mode = "Hybrid"
@@ -118,7 +164,7 @@ enable_performance_logging = false
 mode = "standalone"
 
 [orchestration_system.web]
-bind_address = "0.0.0.0:8080"
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
 enabled = true
 request_timeout_ms = 5000
 
@@ -191,7 +237,6 @@ key_path = ""
 [queues]
 backend = "pgmq"
 default_batch_size = 5
-default_namespace = "default"
 default_visibility_timeout_seconds = 30
 health_check_interval = 60
 max_batch_size = 100
@@ -217,6 +262,29 @@ event_queue_buffer_size = 100
 
 [shared_channels.ffi]
 ruby_event_buffer_size = 100
+
+[staleness_detection]
+batch_size = 100
+detection_interval_seconds = 300
+dry_run = false
+enabled = true
+
+[staleness_detection.actions]
+auto_move_to_dlq = true
+auto_transition_to_error = true
+emit_events = true
+event_channel = "task_staleness_detected"
+
+[staleness_detection.thresholds]
+steps_in_process_minutes = 30
+task_max_lifetime_hours = 24
+waiting_for_dependencies_minutes = 60
+waiting_for_retry_minutes = 30
+
+[system]
+max_cpu_percent = 80.0
+max_memory_mb = 512
+process_name = "tasker"
 
 [task_readiness_events]
 deployment_mode = "Hybrid"
@@ -245,3 +313,22 @@ fallback_polling_interval_seconds = 5
 health_check_interval_seconds = 30
 processing_timeout_seconds = 30
 visibility_timeout_seconds = 30
+
+[task_templates]
+auto_reload = true
+cache_enabled = true
+reload_interval_seconds = 300
+template_path = "${TASKER_TEMPLATE_PATH:-}"
+
+[telemetry]
+enabled = false
+
+[telemetry.metrics]
+collection_interval_seconds = 60
+enabled = true
+export_endpoint = "${TELEMETRY_ENDPOINT:-}"
+
+[telemetry.tracing]
+enabled = true
+export_endpoint = "${TRACING_ENDPOINT:-}"
+sampling_rate = 1.0
