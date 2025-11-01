@@ -1,13 +1,16 @@
 -- ============================================================================
 -- TAS-49 Phase 1: DLQ Database Views
 -- ============================================================================
--- Migration: 20251122000002_add_dlq_views.sql
+-- Migration: 20251122000003_add_dlq_views.sql
 -- Description: Monitoring and dashboard views for DLQ operations
--- Dependencies: 20251115000000_add_dlq_tables.sql, 20251115000001_add_dlq_functions.sql
+-- Dependencies: 20251115000000_add_dlq_tables.sql, 20251115000001_add_dlq_functions.sql,
+--               20251122000002_add_dlq_helper_functions.sql (for calculate_staleness_threshold)
 --
 -- Views:
 -- 1. v_dlq_dashboard - DLQ statistics by reason
--- 2. v_task_staleness_monitoring - Real-time staleness tracking
+-- 2. v_task_state_analysis - Base view for task state analysis (TAS-49 refactor)
+-- 3. v_task_staleness_monitoring - Real-time staleness tracking
+-- 4. v_dlq_investigation_queue - Pending investigations prioritized
 -- ============================================================================
 
 -- ============================================================================
@@ -51,45 +54,65 @@ Columns:
 - avg_resolution_time_minutes: How long investigations typically take';
 
 -- ============================================================================
--- View: Task Staleness Monitoring
+-- View: Task State Analysis (Base View)
 -- ============================================================================
+-- TAS-49 Refactor: Extract expensive joins and threshold calculations into
+-- reusable base view. This view provides individual task records with
+-- calculated thresholds, used by multiple monitoring views and functions.
+
+CREATE OR REPLACE VIEW v_task_state_analysis AS
+SELECT
+    t.task_uuid,
+    nt.named_task_uuid,
+    nt.name as task_name,
+    tns.name as namespace_name,
+    tt.to_state as current_state,
+    EXTRACT(EPOCH FROM (NOW() - tt.created_at)) / 60 as minutes_in_state,
+    EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 60 as task_age_minutes,
+    t.priority,
+    t.created_at as task_created_at,
+    tt.created_at as state_created_at,
+    nt.configuration as template_config,
+    -- Calculate threshold using helper function (TAS-49 Phase 2)
+    -- Defaults from TAS-48: waiting_for_dependencies=60, waiting_for_retry=30, steps_in_process=30
+    calculate_staleness_threshold(
+        tt.to_state,
+        nt.configuration,
+        60,  -- default_waiting_deps
+        30,  -- default_waiting_retry
+        30   -- default_steps_process
+    ) as threshold_minutes
+FROM tasker_tasks t
+JOIN tasker_task_transitions tt ON tt.task_uuid = t.task_uuid AND tt.most_recent = true
+JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
+JOIN tasker_task_namespaces tns ON tns.task_namespace_uuid = nt.task_namespace_uuid
+WHERE tt.to_state NOT IN ('complete', 'error', 'cancelled', 'resolved_manually');
+
+COMMENT ON VIEW v_task_state_analysis IS
+'TAS-49: Base view for task state analysis with threshold calculations.
+
+Provides individual task records with:
+- Current state and time in state
+- Calculated staleness thresholds from template configuration
+- Template configuration JSONB
+- Task metadata (priority, timestamps)
+
+Used by:
+- v_task_staleness_monitoring (aggregated metrics)
+- get_stale_tasks_for_dlq() (DLQ detection function, Part 2 Phase 3)
+- Future monitoring and alerting systems
+
+Performance: Expensive joins materialized once, reusable across queries.
+Threshold calculation uses calculate_staleness_threshold() helper function
+for reusability and consistency (TAS-49 Phase 2).';
+
+-- ============================================================================
+-- View: Task Staleness Monitoring (Refactored)
+-- ============================================================================
+-- TAS-49 Refactor: Now built on v_task_state_analysis base view instead of
+-- inline CTE. Same output, but with reusable foundation.
 
 CREATE OR REPLACE VIEW v_task_staleness_monitoring AS
-WITH current_states AS (
-    SELECT
-        t.task_uuid,
-        nt.name as task_name,
-        tns.name as namespace_name,
-        tt.to_state as current_state,
-        EXTRACT(EPOCH FROM (NOW() - tt.created_at)) / 60 as minutes_in_state,
-        EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 60 as task_age_minutes,
-        t.priority,
-        t.created_at as task_created_at,
-        -- Get applicable threshold
-        CASE tt.to_state
-            WHEN 'waiting_for_dependencies' THEN
-                COALESCE(
-                    (nt.configuration->'lifecycle'->>'max_waiting_for_dependencies_minutes')::INTEGER,
-                    60  -- Default from TAS-48
-                )
-            WHEN 'waiting_for_retry' THEN
-                COALESCE(
-                    (nt.configuration->'lifecycle'->>'max_waiting_for_retry_minutes')::INTEGER,
-                    30  -- Default from TAS-48
-                )
-            WHEN 'steps_in_process' THEN
-                COALESCE(
-                    (nt.configuration->'lifecycle'->>'max_steps_in_process_minutes')::INTEGER,
-                    30
-                )
-            ELSE 1440  -- 24 hours for other states
-        END as threshold_minutes
-    FROM tasker_tasks t
-    JOIN tasker_task_transitions tt ON tt.task_uuid = t.task_uuid AND tt.most_recent = true
-    JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
-    JOIN tasker_task_namespaces tns ON tns.task_namespace_uuid = nt.task_namespace_uuid
-    WHERE tt.to_state NOT IN ('complete', 'error', 'cancelled', 'resolved_manually')
-)
 SELECT
     current_state,
     COUNT(*) as task_count,
@@ -102,7 +125,7 @@ SELECT
     array_agg(
         task_uuid ORDER BY minutes_in_state DESC
     ) FILTER (WHERE minutes_in_state > threshold_minutes) as stale_task_uuids
-FROM current_states
+FROM v_task_state_analysis
 GROUP BY current_state
 ORDER BY exceeds_threshold DESC, approaching_threshold DESC;
 
@@ -180,6 +203,10 @@ BEGIN
         RAISE EXCEPTION 'v_dlq_dashboard view not created';
     END IF;
 
+    IF NOT EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_task_state_analysis') THEN
+        RAISE EXCEPTION 'v_task_state_analysis view not created';
+    END IF;
+
     IF NOT EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_task_staleness_monitoring') THEN
         RAISE EXCEPTION 'v_task_staleness_monitoring view not created';
     END IF;
@@ -188,5 +215,5 @@ BEGIN
         RAISE EXCEPTION 'v_dlq_investigation_queue view not created';
     END IF;
 
-    RAISE NOTICE 'TAS-49: DLQ views created successfully';
+    RAISE NOTICE 'TAS-49: DLQ views created successfully (including v_task_state_analysis base view)';
 END $$;

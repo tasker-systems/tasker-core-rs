@@ -203,6 +203,21 @@ impl StalenessAction {
             Self::TransitionFailed => "transition_failed",
         }
     }
+
+    /// Parse from string representation
+    ///
+    /// Returns the matching StalenessAction variant, or TransitionFailed if unknown.
+    /// Unknown strings are treated as failures for safety.
+    #[must_use]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "would_transition_to_dlq_and_error" => Self::WouldTransitionToDlqAndError,
+            "transitioned_to_dlq_and_error" => Self::TransitionedToDlqAndError,
+            "moved_to_dlq_only" => Self::MovedToDlqOnly,
+            "transitioned_to_error_only" => Self::TransitionedToErrorOnly,
+            _ => Self::TransitionFailed, // Unknown strings treated as failures for safety
+        }
+    }
 }
 
 impl fmt::Display for StalenessAction {

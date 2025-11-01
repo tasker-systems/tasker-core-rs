@@ -35,6 +35,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::config::components::StalenessDetectionConfig;
+use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::errors::TaskerResult;
 use tasker_shared::metrics::orchestration;
 use tasker_shared::models::orchestration::StalenessAction;
@@ -98,10 +99,19 @@ pub struct StalenessResult {
 ///     }
 /// });
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct StalenessDetector {
-    pool: PgPool,
+    executor: SqlFunctionExecutor,
     config: StalenessDetectionConfig,
+}
+
+// Manual Debug implementation because SqlFunctionExecutor contains PgPool
+impl std::fmt::Debug for StalenessDetector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StalenessDetector")
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl StalenessDetector {
@@ -112,8 +122,9 @@ impl StalenessDetector {
     /// * `pool` - Database connection pool
     /// * `config` - Staleness detection configuration
     #[must_use]
-    pub const fn new(pool: PgPool, config: StalenessDetectionConfig) -> Self {
-        Self { pool, config }
+    pub fn new(pool: PgPool, config: StalenessDetectionConfig) -> Self {
+        let executor = SqlFunctionExecutor::new(pool);
+        Self { executor, config }
     }
 
     /// Run staleness detection loop
@@ -198,7 +209,7 @@ impl StalenessDetector {
 
     /// Detect and transition stale tasks using SQL function
     ///
-    /// Calls `detect_and_transition_stale_tasks()` with configured parameters.
+    /// Calls `detect_and_transition_stale_tasks()` via `SqlFunctionExecutor` with configured parameters.
     ///
     /// # Errors
     ///
@@ -214,39 +225,36 @@ impl StalenessDetector {
         debug!(
             dry_run = dry_run,
             batch_size = batch_size,
-            "Calling detect_and_transition_stale_tasks SQL function"
+            "Calling detect_and_transition_stale_tasks SQL function via SqlFunctionExecutor"
         );
 
-        let results = sqlx::query_as::<_, StalenessResult>(
-            r#"
-            SELECT
-                task_uuid,
-                namespace_name,
-                task_name,
-                current_state,
-                time_in_state_minutes,
-                staleness_threshold_minutes,
-                action_taken,
-                moved_to_dlq,
-                transition_success
-            FROM detect_and_transition_stale_tasks(
-                $1::BOOLEAN,
-                $2::INTEGER,
-                $3::INTEGER,
-                $4::INTEGER,
-                $5::INTEGER,
-                $6::INTEGER
+        let db_results = self
+            .executor
+            .detect_and_transition_stale_tasks(
+                dry_run,
+                batch_size,
+                waiting_deps_threshold,
+                waiting_retry_threshold,
+                steps_in_process_threshold,
+                max_lifetime_hours,
             )
-            "#,
-        )
-        .bind(dry_run)
-        .bind(batch_size)
-        .bind(waiting_deps_threshold)
-        .bind(waiting_retry_threshold)
-        .bind(steps_in_process_threshold)
-        .bind(max_lifetime_hours)
-        .fetch_all(&self.pool)
-        .await?;
+            .await?;
+
+        // Convert database results to internal StalenessResult format
+        let results = db_results
+            .into_iter()
+            .map(|r| StalenessResult {
+                task_uuid: r.task_uuid,
+                namespace_name: r.namespace_name,
+                task_name: r.task_name,
+                current_state: r.current_state,
+                time_in_state_minutes: r.time_in_state_minutes,
+                staleness_threshold_minutes: r.staleness_threshold_minutes,
+                action_taken: StalenessAction::from_str(&r.action_taken),
+                moved_to_dlq: r.moved_to_dlq,
+                transition_success: r.transition_success,
+            })
+            .collect();
 
         Ok(results)
     }

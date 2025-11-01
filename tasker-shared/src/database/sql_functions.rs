@@ -949,3 +949,271 @@ impl SqlFunctionExecutor {
         }
     }
 }
+
+// ============================================================================
+// 9. DLQ (DEAD LETTER QUEUE) OPERATIONS (TAS-49)
+// ============================================================================
+
+/// Stale task record from discovery function
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct StaleTaskRecord {
+    pub task_uuid: Uuid,
+    pub namespace_name: String,
+    pub task_name: String,
+    pub current_state: String,
+    pub time_in_state_minutes: BigDecimal,
+    pub threshold_minutes: i32,
+    pub task_age_minutes: BigDecimal,
+}
+
+/// Result from detect_and_transition_stale_tasks function
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct StalenessDetectionResult {
+    pub task_uuid: Uuid,
+    pub namespace_name: String,
+    pub task_name: String,
+    pub current_state: String,
+    pub time_in_state_minutes: i32,
+    pub staleness_threshold_minutes: i32,
+    pub action_taken: String,
+    pub moved_to_dlq: bool,
+    pub transition_success: bool,
+}
+
+impl SqlFunctionExecutor {
+    /// Discover stale tasks exceeding staleness thresholds
+    ///
+    /// This function queries the `get_stale_tasks_for_dlq()` SQL function which uses
+    /// the `v_task_state_analysis` base view for O(1) expensive join optimization.
+    ///
+    /// # Parameters
+    ///
+    /// - `default_waiting_deps`: Default threshold for waiting_for_dependencies (minutes)
+    /// - `default_waiting_retry`: Default threshold for waiting_for_retry (minutes)
+    /// - `default_steps_process`: Default threshold for steps_in_process (minutes)
+    /// - `max_lifetime_hours`: Maximum task lifetime regardless of state (hours)
+    /// - `batch_size`: Maximum number of stale tasks to return
+    ///
+    /// # Returns
+    ///
+    /// Vector of `StaleTaskRecord` with task details and staleness information
+    ///
+    /// # TAS-49 Phase 2 Refactoring
+    ///
+    /// This discovery function enables O(1) optimization - expensive multi-table joins
+    /// happen ONCE in the base view query, not O(n) times inside a loop.
+    pub async fn get_stale_tasks_for_dlq(
+        &self,
+        default_waiting_deps: i32,
+        default_waiting_retry: i32,
+        default_steps_process: i32,
+        max_lifetime_hours: i32,
+        batch_size: i32,
+    ) -> Result<Vec<StaleTaskRecord>, sqlx::Error> {
+        sqlx::query_as::<_, StaleTaskRecord>(
+            r#"
+            SELECT *
+            FROM get_stale_tasks_for_dlq($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(default_waiting_deps)
+        .bind(default_waiting_retry)
+        .bind(default_steps_process)
+        .bind(max_lifetime_hours)
+        .bind(batch_size)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Detect and transition stale tasks to DLQ
+    ///
+    /// This is the main staleness detection function that:
+    /// 1. Discovers stale tasks using `get_stale_tasks_for_dlq()`
+    /// 2. Creates DLQ entries using `create_dlq_entry()`
+    /// 3. Transitions tasks to Error state using `transition_stale_task_to_error()`
+    ///
+    /// # Parameters
+    ///
+    /// - `dry_run`: If true, only reports what would happen without making changes
+    /// - `batch_size`: Maximum tasks to process per run
+    /// - `default_waiting_deps_threshold`: Default for waiting_for_dependencies (minutes)
+    /// - `default_waiting_retry_threshold`: Default for waiting_for_retry (minutes)
+    /// - `default_steps_in_process_threshold`: Default for steps_in_process (minutes)
+    /// - `default_task_max_lifetime_hours`: Maximum task lifetime (hours)
+    ///
+    /// # Returns
+    ///
+    /// Vector of `StalenessDetectionResult` showing what happened to each detected task
+    ///
+    /// # TAS-49 Phase 2 Refactoring
+    ///
+    /// Refactored from 220 lines to 87 lines using helper functions:
+    /// - `get_stale_tasks_for_dlq()` for discovery (O(1) optimization)
+    /// - `create_dlq_entry()` for DLQ entry creation
+    /// - `transition_stale_task_to_error()` for state transitions
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// use tasker_shared::database::sql_functions::SqlFunctionExecutor;
+    /// use sqlx::PgPool;
+    ///
+    /// # async fn example(pool: PgPool) -> Result<(), sqlx::Error> {
+    /// let executor = SqlFunctionExecutor::new(pool);
+    ///
+    /// // Dry run (safe, no changes)
+    /// let results = executor.detect_and_transition_stale_tasks(
+    ///     true,  // dry_run
+    ///     10,    // batch_size
+    ///     60,    // waiting_deps
+    ///     30,    // waiting_retry
+    ///     30,    // steps_process
+    ///     24     // max_lifetime_hours
+    /// ).await?;
+    ///
+    /// for result in results {
+    ///     println!("Task {} would be moved to DLQ", result.task_uuid);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn detect_and_transition_stale_tasks(
+        &self,
+        dry_run: bool,
+        batch_size: i32,
+        default_waiting_deps_threshold: i32,
+        default_waiting_retry_threshold: i32,
+        default_steps_in_process_threshold: i32,
+        default_task_max_lifetime_hours: i32,
+    ) -> Result<Vec<StalenessDetectionResult>, sqlx::Error> {
+        sqlx::query_as::<_, StalenessDetectionResult>(
+            r#"
+            SELECT *
+            FROM detect_and_transition_stale_tasks($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(dry_run)
+        .bind(batch_size)
+        .bind(default_waiting_deps_threshold)
+        .bind(default_waiting_retry_threshold)
+        .bind(default_steps_in_process_threshold)
+        .bind(default_task_max_lifetime_hours)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Calculate staleness threshold for a task state
+    ///
+    /// Helper function that determines the appropriate staleness threshold by checking
+    /// template configuration first, then falling back to provided defaults.
+    ///
+    /// # Parameters
+    ///
+    /// - `task_state`: Current task state (e.g., 'waiting_for_dependencies')
+    /// - `template_config`: JSONB template configuration
+    /// - `default_waiting_deps`: Default for waiting_for_dependencies (minutes)
+    /// - `default_waiting_retry`: Default for waiting_for_retry (minutes)
+    /// - `default_steps_process`: Default for steps_in_process (minutes)
+    ///
+    /// # Returns
+    ///
+    /// Threshold in minutes (i32)
+    pub async fn calculate_staleness_threshold(
+        &self,
+        task_state: &str,
+        template_config: serde_json::Value,
+        default_waiting_deps: i32,
+        default_waiting_retry: i32,
+        default_steps_process: i32,
+    ) -> Result<i32, sqlx::Error> {
+        sqlx::query_scalar::<_, i32>(
+            r#"
+            SELECT calculate_staleness_threshold($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(task_state)
+        .bind(template_config)
+        .bind(default_waiting_deps)
+        .bind(default_waiting_retry)
+        .bind(default_steps_process)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    /// Create DLQ entry for a stale task
+    ///
+    /// Helper function that encapsulates DLQ entry creation with comprehensive snapshot.
+    ///
+    /// # Parameters
+    ///
+    /// - `task_uuid`: Task being moved to DLQ
+    /// - `namespace_name`: Namespace for context
+    /// - `task_name`: Template name for context
+    /// - `current_state`: State when detected as stale
+    /// - `time_in_state_minutes`: How long in state
+    /// - `threshold_minutes`: Threshold that was exceeded
+    /// - `dlq_reason`: Why entering DLQ (default: 'staleness_timeout')
+    ///
+    /// # Returns
+    ///
+    /// UUID of created DLQ entry, or None if creation failed
+    pub async fn create_dlq_entry(
+        &self,
+        task_uuid: Uuid,
+        namespace_name: &str,
+        task_name: &str,
+        current_state: &str,
+        time_in_state_minutes: i32,
+        threshold_minutes: i32,
+        dlq_reason: Option<&str>,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        sqlx::query_scalar::<_, Option<Uuid>>(
+            r#"
+            SELECT create_dlq_entry($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(task_uuid)
+        .bind(namespace_name)
+        .bind(task_name)
+        .bind(current_state)
+        .bind(time_in_state_minutes)
+        .bind(threshold_minutes)
+        .bind(dlq_reason.unwrap_or("staleness_timeout"))
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    /// Transition stale task to error state
+    ///
+    /// Helper function that handles state transition with staleness-specific context.
+    ///
+    /// # Parameters
+    ///
+    /// - `task_uuid`: Task to transition
+    /// - `current_state`: Current state for validation
+    /// - `namespace_name`: Namespace for audit trail
+    /// - `task_name`: Template name for audit trail
+    ///
+    /// # Returns
+    ///
+    /// Boolean indicating whether transition succeeded
+    pub async fn transition_stale_task_to_error(
+        &self,
+        task_uuid: Uuid,
+        current_state: &str,
+        namespace_name: &str,
+        task_name: &str,
+    ) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT transition_stale_task_to_error($1, $2, $3, $4)
+            "#,
+        )
+        .bind(task_uuid)
+        .bind(current_state)
+        .bind(namespace_name)
+        .bind(task_name)
+        .fetch_one(&self.pool)
+        .await
+    }
+}
