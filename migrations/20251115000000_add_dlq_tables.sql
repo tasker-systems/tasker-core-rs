@@ -1,8 +1,8 @@
 -- ============================================================================
--- TAS-49 Phase 1.1: Dead Letter Queue (DLQ) Tables and Archive Infrastructure
+-- TAS-49 Phase 1.1: Dead Letter Queue (DLQ) Tables
 -- ============================================================================
 -- Migration: 20251115000000_add_dlq_tables.sql
--- Description: Creates DLQ investigation tracking and archive tables
+-- Description: Creates DLQ investigation tracking tables
 -- Dependencies: 20250912000000_tas41_richer_task_states.sql (12-state machine)
 --
 -- Architecture:
@@ -176,57 +176,6 @@ CREATE TRIGGER update_dlq_updated_at
     BEFORE UPDATE ON tasker_tasks_dlq
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
-
--- ============================================================================
--- Archive Tables (Simple, No Partitioning)
--- ============================================================================
-
--- Archive table for completed tasks
--- Note: Pre-alpha simplification - no partitioning initially
--- Partitioning can be added later if table growth becomes issue
-CREATE TABLE tasker_tasks_archive (
-    LIKE tasker_tasks INCLUDING ALL,
-    archived_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-COMMENT ON TABLE tasker_tasks_archive IS
-'TAS-49: Long-term storage for completed/failed tasks past retention period.
-Simple archive strategy without partitioning (partitioning deferred to future work).
-Preserves complete task state for compliance/audit.';
-
--- Archive table for workflow steps
-CREATE TABLE tasker_workflow_steps_archive (
-    LIKE tasker_workflow_steps INCLUDING ALL,
-    archived_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-COMMENT ON TABLE tasker_workflow_steps_archive IS
-'TAS-49: Archive storage for workflow steps of archived tasks.';
-
--- Archive table for task transitions
-CREATE TABLE tasker_task_transitions_archive (
-    LIKE tasker_task_transitions INCLUDING ALL,
-    archived_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-COMMENT ON TABLE tasker_task_transitions_archive IS
-'TAS-49: Archive storage for state transitions of archived tasks.
-Preserves complete audit trail for historical analysis.';
-
--- ============================================================================
--- Archive Indexes
--- ============================================================================
-
--- Fast archived task lookup by task_uuid
-CREATE INDEX idx_archive_task_uuid ON tasker_tasks_archive(task_uuid);
-CREATE INDEX idx_archive_steps_task_uuid ON tasker_workflow_steps_archive(task_uuid);
-CREATE INDEX idx_archive_transitions_task_uuid ON tasker_task_transitions_archive(task_uuid);
-
--- Archival timestamp range queries
-CREATE INDEX idx_archive_archived_at ON tasker_tasks_archive(archived_at DESC);
-
--- Named task analysis in archive
-CREATE INDEX idx_archive_named_task ON tasker_tasks_archive(named_task_uuid);
 
 -- ============================================================================
 -- Migration Validation

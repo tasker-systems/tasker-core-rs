@@ -8,7 +8,6 @@
 -- Views:
 -- 1. v_dlq_dashboard - DLQ statistics by reason
 -- 2. v_task_staleness_monitoring - Real-time staleness tracking
--- 3. v_archive_statistics - Archive growth metrics
 -- ============================================================================
 
 -- ============================================================================
@@ -126,38 +125,6 @@ Columns:
 - stale_task_uuids: Array of tasks exceeding threshold for investigation';
 
 -- ============================================================================
--- View: Archive Statistics
--- ============================================================================
-
-CREATE OR REPLACE VIEW v_archive_statistics AS
-SELECT
-    DATE_TRUNC('month', archived_at) as archive_month,
-    COUNT(*) as tasks_archived,
-    COUNT(DISTINCT named_task_uuid) as distinct_task_templates,
-    MIN(created_at) as oldest_task_archived,
-    MAX(created_at) as newest_task_archived,
-    AVG(EXTRACT(EPOCH FROM (archived_at - created_at)) / 86400)::INTEGER as avg_task_lifetime_days
-FROM tasker_tasks_archive
-GROUP BY DATE_TRUNC('month', archived_at)
-ORDER BY archive_month DESC;
-
-COMMENT ON VIEW v_archive_statistics IS
-'TAS-49: Archive growth metrics and retention analysis.
-
-Usage:
-- Monitor archival process health
-- Capacity planning for archive storage
-- Validate retention policies
-
-Columns:
-- archive_month: Month when tasks were archived
-- tasks_archived: Number of tasks archived in this month
-- distinct_task_templates: Template diversity in archive
-- oldest_task_archived: Earliest task creation date archived
-- newest_task_archived: Most recent task creation date archived
-- avg_task_lifetime_days: Average time from creation to archival';
-
--- ============================================================================
 -- View: DLQ Investigation Queue
 -- ============================================================================
 
@@ -215,10 +182,6 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_task_staleness_monitoring') THEN
         RAISE EXCEPTION 'v_task_staleness_monitoring view not created';
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_archive_statistics') THEN
-        RAISE EXCEPTION 'v_archive_statistics view not created';
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_dlq_investigation_queue') THEN
