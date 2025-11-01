@@ -37,6 +37,7 @@ use uuid::Uuid;
 use tasker_shared::config::components::StalenessDetectionConfig;
 use tasker_shared::errors::TaskerResult;
 use tasker_shared::metrics::orchestration;
+use tasker_shared::models::orchestration::StalenessAction;
 
 /// Staleness detection result from SQL function
 ///
@@ -61,15 +62,8 @@ pub struct StalenessResult {
     /// Threshold that was exceeded (in minutes)
     pub staleness_threshold_minutes: i32,
 
-    /// Action taken by SQL function
-    ///
-    /// Values:
-    /// - "would_transition_to_dlq_and_error" (dry_run=true)
-    /// - "transitioned_to_dlq_and_error" (both succeeded)
-    /// - "moved_to_dlq_only" (DLQ succeeded, transition failed)
-    /// - "transitioned_to_error_only" (transition succeeded, DLQ failed)
-    /// - "transition_failed" (both failed)
-    pub action_taken: String,
+    /// Action taken by SQL function (type-safe enum)
+    pub action_taken: StalenessAction,
 
     /// Whether task was successfully moved to DLQ
     pub moved_to_dlq: bool,
@@ -317,7 +311,7 @@ impl StalenessDetector {
             // Count failures for alerting
             let failures = results
                 .iter()
-                .filter(|r| r.action_taken == "transition_failed")
+                .filter(|r| r.action_taken.is_failure())
                 .count();
 
             if failures > 0 {
@@ -364,7 +358,7 @@ mod tests {
             current_state: "waiting_for_dependencies".to_string(),
             time_in_state_minutes: 120,
             staleness_threshold_minutes: 60,
-            action_taken: "transitioned_to_dlq_and_error".to_string(),
+            action_taken: StalenessAction::TransitionedToDlqAndError,
             moved_to_dlq: true,
             transition_success: true,
         };
@@ -372,6 +366,10 @@ mod tests {
         assert!(result.moved_to_dlq);
         assert!(result.transition_success);
         assert_eq!(result.time_in_state_minutes, 120);
+        assert_eq!(result.action_taken, StalenessAction::TransitionedToDlqAndError);
+        assert!(!result.action_taken.is_failure());
+        assert!(result.action_taken.dlq_created());
+        assert!(result.action_taken.transition_succeeded());
     }
 
     #[tokio::test]

@@ -6,6 +6,7 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::Type;
+use std::fmt;
 use uuid::Uuid;
 
 /// DLQ Resolution Status
@@ -121,6 +122,92 @@ impl DlqReason {
             self,
             Self::DependencyCycleDetected | Self::MaxRetriesExceeded | Self::WorkerUnavailable
         )
+    }
+}
+
+/// Staleness Action
+///
+/// Action taken by the staleness detection SQL function `detect_and_transition_stale_tasks()`.
+/// This enum provides type-safe representation of the `action_taken` column returned by the function.
+///
+/// Maps to VARCHAR in SQL but provides compile-time validation in Rust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+pub enum StalenessAction {
+    /// Dry run mode - would have transitioned to DLQ and Error state
+    #[sqlx(rename = "would_transition_to_dlq_and_error")]
+    WouldTransitionToDlqAndError,
+
+    /// Successfully moved to DLQ and transitioned to Error state
+    #[sqlx(rename = "transitioned_to_dlq_and_error")]
+    TransitionedToDlqAndError,
+
+    /// DLQ entry created but state transition failed
+    #[sqlx(rename = "moved_to_dlq_only")]
+    MovedToDlqOnly,
+
+    /// State transitioned to Error but DLQ entry creation failed
+    #[sqlx(rename = "transitioned_to_error_only")]
+    TransitionedToErrorOnly,
+
+    /// Both DLQ creation and state transition failed
+    #[sqlx(rename = "transition_failed")]
+    TransitionFailed,
+}
+
+impl StalenessAction {
+    /// Returns true if the action represents any kind of failure
+    ///
+    /// A failure occurs when either DLQ creation or state transition fails.
+    /// This includes partial failures where one operation succeeded but the other failed.
+    #[must_use]
+    pub const fn is_failure(self) -> bool {
+        matches!(
+            self,
+            Self::MovedToDlqOnly | Self::TransitionedToErrorOnly | Self::TransitionFailed
+        )
+    }
+
+    /// Returns true if DLQ entry was successfully created
+    ///
+    /// This includes both complete success and partial success where DLQ creation
+    /// succeeded but state transition failed.
+    #[must_use]
+    pub const fn dlq_created(self) -> bool {
+        matches!(
+            self,
+            Self::TransitionedToDlqAndError | Self::MovedToDlqOnly
+        )
+    }
+
+    /// Returns true if state transition succeeded
+    ///
+    /// This includes both complete success and partial success where state transition
+    /// succeeded but DLQ creation failed.
+    #[must_use]
+    pub const fn transition_succeeded(self) -> bool {
+        matches!(
+            self,
+            Self::TransitionedToDlqAndError | Self::TransitionedToErrorOnly
+        )
+    }
+
+    /// Get human-readable description of the action
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::WouldTransitionToDlqAndError => "would_transition_to_dlq_and_error",
+            Self::TransitionedToDlqAndError => "transitioned_to_dlq_and_error",
+            Self::MovedToDlqOnly => "moved_to_dlq_only",
+            Self::TransitionedToErrorOnly => "transitioned_to_error_only",
+            Self::TransitionFailed => "transition_failed",
+        }
+    }
+}
+
+impl fmt::Display for StalenessAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 

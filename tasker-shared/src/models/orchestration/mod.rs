@@ -37,6 +37,7 @@ pub mod task_execution_context;
 // Re-export for easy access
 pub use dlq::{
     DlqEntry, DlqInvestigationUpdate, DlqListParams, DlqReason, DlqResolutionStatus, DlqStats,
+    StalenessAction,
 };
 pub use execution_status::{ExecutionStatus, RecommendedAction};
 pub use step_dag_relationship::{StepDagRelationship, StepDagRelationshipQuery};
