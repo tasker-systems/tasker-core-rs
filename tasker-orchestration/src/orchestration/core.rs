@@ -22,7 +22,6 @@ use tasker_shared::monitoring::ChannelMonitor; // TAS-51: Channel monitoring
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
-use crate::orchestration::archival_service::ArchivalService; // TAS-49: Background services
 use crate::orchestration::command_processor::{
     OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, SystemHealth,
 };
@@ -60,9 +59,6 @@ pub struct OrchestrationCore {
 
     /// TAS-49: Staleness detector background service
     staleness_detector_handle: Option<JoinHandle<()>>,
-
-    /// TAS-49: Archival service background service
-    archival_service_handle: Option<JoinHandle<()>>,
 }
 
 // Manual Debug implementation since JoinHandle doesn't implement Debug
@@ -80,10 +76,6 @@ impl std::fmt::Debug for OrchestrationCore {
                     .staleness_detector_handle
                     .as_ref()
                     .map(|_| "JoinHandle"),
-            )
-            .field(
-                "archival_service_handle",
-                &self.archival_service_handle.as_ref().map(|_| "JoinHandle"),
             )
             .finish()
     }
@@ -146,7 +138,6 @@ impl OrchestrationCore {
             status: OrchestrationCoreStatus::Created,
             command_channel_monitor: channel_monitor, // Store monitor for sender instrumentation
             staleness_detector_handle: None,          // TAS-49: Started in start()
-            archival_service_handle: None,            // TAS-49: Started in start()
         })
     }
 
@@ -181,13 +172,12 @@ impl OrchestrationCore {
         Ok(())
     }
 
-    /// TAS-49: Start background services for staleness detection and archival
+    /// TAS-49: Start background services for staleness detection
     async fn start_background_services(&mut self) -> TaskerResult<()> {
         // Get TAS-49 DLQ configuration (TODO: Add to TaskerConfig root for easier access)
         // For now, using defaults from component config
         let staleness_config =
             tasker_shared::config::components::StalenessDetectionConfig::default();
-        let archive_config = tasker_shared::config::components::ArchiveConfig::default();
 
         // Start staleness detector if enabled
         if staleness_config.enabled {
@@ -207,24 +197,6 @@ impl OrchestrationCore {
             info!("Staleness detector background service started");
         } else {
             info!("Staleness detector disabled in configuration");
-        }
-
-        // Start archival service if enabled
-        if archive_config.enabled {
-            let archival_service =
-                ArchivalService::new(self.context.database_pool().clone(), archive_config.clone());
-
-            let handle = tokio::spawn(async move {
-                info!("Spawning archival service background task");
-                if let Err(e) = archival_service.run().await {
-                    error!(error = %e, "Archival service failed");
-                }
-            });
-
-            self.archival_service_handle = Some(handle);
-            info!("Archival service background task started");
-        } else {
-            info!("Archival service disabled in configuration");
         }
 
         Ok(())
@@ -275,18 +247,6 @@ impl OrchestrationCore {
             match tokio::time::timeout(Duration::from_secs(5), handle).await {
                 Ok(_) => info!("Staleness detector stopped gracefully"),
                 Err(_) => warn!("Staleness detector stop timed out (already aborted)"),
-            }
-        }
-
-        // Stop archival service
-        if let Some(handle) = self.archival_service_handle.take() {
-            info!("Stopping archival service background task");
-            handle.abort();
-
-            // Give it a moment to clean up
-            match tokio::time::timeout(Duration::from_secs(5), handle).await {
-                Ok(_) => info!("Archival service stopped gracefully"),
-                Err(_) => warn!("Archival service stop timed out (already aborted)"),
             }
         }
     }

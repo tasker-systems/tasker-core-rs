@@ -170,68 +170,6 @@ impl Default for DlqReasons {
     }
 }
 
-/// Archive Configuration
-///
-/// Controls automatic archival of completed tasks to reduce table growth.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArchiveConfig {
-    /// Enable archival background service
-    pub enabled: bool,
-
-    /// Archive tasks in terminal states older than this (days)
-    pub retention_days: i32,
-
-    /// Maximum number of tasks to archive per run
-    pub archive_batch_size: i32,
-
-    /// Interval between archival runs (hours)
-    pub archive_interval_hours: u64,
-
-    /// Archive policies controlling which tasks to archive
-    pub policies: ArchivePolicies,
-}
-
-impl Default for ArchiveConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            retention_days: 30,
-            archive_batch_size: 1000,
-            archive_interval_hours: 24, // Once per day
-            policies: ArchivePolicies::default(),
-        }
-    }
-}
-
-/// Archive Policies
-///
-/// Controls which task types are archived.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArchivePolicies {
-    /// Archive tasks in Complete state
-    pub archive_completed: bool,
-
-    /// Archive tasks in Error state
-    pub archive_failed: bool,
-
-    /// Archive cancelled tasks (usually kept for audit)
-    pub archive_cancelled: bool,
-
-    /// Archive tasks with resolved DLQ entries
-    pub archive_dlq_resolved: bool,
-}
-
-impl Default for ArchivePolicies {
-    fn default() -> Self {
-        Self {
-            archive_completed: true,
-            archive_failed: true,
-            archive_cancelled: false, // Keep for audit
-            archive_dlq_resolved: true,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,23 +219,5 @@ mod tests {
         assert!(reasons.worker_unavailable);
         assert!(reasons.dependency_cycle_detected);
         assert!(reasons.manual_dlq);
-    }
-
-    #[test]
-    fn test_archive_config_default() {
-        let config = ArchiveConfig::default();
-        assert!(config.enabled);
-        assert_eq!(config.retention_days, 30);
-        assert_eq!(config.archive_batch_size, 1000);
-        assert_eq!(config.archive_interval_hours, 24);
-    }
-
-    #[test]
-    fn test_archive_policies_default() {
-        let policies = ArchivePolicies::default();
-        assert!(policies.archive_completed);
-        assert!(policies.archive_failed);
-        assert!(!policies.archive_cancelled); // Keep for audit
-        assert!(policies.archive_dlq_resolved);
     }
 }

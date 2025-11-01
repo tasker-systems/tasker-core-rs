@@ -666,6 +666,115 @@ impl LifecycleTestManager {
 
         Ok(())
     }
+
+    /// Transition a task to Complete state for testing purposes
+    ///
+    /// This method creates a terminal task transition to 'complete' state, which is useful
+    /// for testing scenarios that require tasks in terminal states, such as:
+    /// - Task finalization logic
+    /// - Analytics queries on completed tasks
+    /// - Dead Letter Queue (DLQ) processing
+    /// - Any testing scenarios requiring terminal state tasks
+    ///
+    /// # Note
+    ///
+    /// In production, task completion is handled automatically by the orchestration system
+    /// after all steps complete. For tests that don't run full orchestration, we need to
+    /// manually create the terminal transition.
+    ///
+    /// This bypasses the state machine guards for testing convenience.
+    /// The transition is created properly with sort_key ordering and most_recent flags
+    /// to match production behavior.
+    pub async fn complete_task(&self, task_uuid: Uuid) -> Result<()> {
+        // Get current state
+        let current_state: Option<String> = sqlx::query_scalar(
+            r#"
+            SELECT to_state
+            FROM tasker_task_transitions
+            WHERE task_uuid = $1 AND most_recent = true
+            "#,
+        )
+        .bind(task_uuid)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        tracing::info!(
+            task_uuid = %task_uuid,
+            current_state = ?current_state,
+            "🔄 Creating terminal transition to Complete state for testing"
+        );
+
+        // Mark existing transitions as not most_recent
+        sqlx::query(
+            r#"
+            UPDATE tasker_task_transitions
+            SET most_recent = false
+            WHERE task_uuid = $1
+            "#,
+        )
+        .bind(task_uuid)
+        .execute(&self.pool)
+        .await?;
+
+        // Get max sort_key
+        let max_sort_key: Option<i32> = sqlx::query_scalar(
+            r#"
+            SELECT MAX(sort_key)
+            FROM tasker_task_transitions
+            WHERE task_uuid = $1
+            "#,
+        )
+        .bind(task_uuid)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let next_sort_key = max_sort_key.unwrap_or(0) + 1;
+
+        // Insert transition to 'complete' state
+        sqlx::query(
+            r#"
+            INSERT INTO tasker_task_transitions (
+                task_transition_uuid,
+                task_uuid,
+                to_state,
+                from_state,
+                sort_key,
+                most_recent,
+                processor_uuid,
+                metadata,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, 'complete', $3, $4, true, $5, $6, NOW(), NOW())
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(task_uuid)
+        .bind(current_state)
+        .bind(next_sort_key)
+        .bind(self.system_context.processor_uuid())
+        .bind(serde_json::json!({"source": "test_helper", "event": "complete"}))
+        .execute(&self.pool)
+        .await?;
+
+        // Update task complete flag
+        sqlx::query(
+            r#"
+            UPDATE tasker_tasks
+            SET complete = true, updated_at = NOW()
+            WHERE task_uuid = $1
+            "#,
+        )
+        .bind(task_uuid)
+        .execute(&self.pool)
+        .await?;
+
+        tracing::info!(
+            task_uuid = %task_uuid,
+            "✅ Task transitioned to Complete state for testing"
+        );
+
+        Ok(())
+    }
 }
 
 /// Step readiness information from SQL function

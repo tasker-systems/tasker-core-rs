@@ -442,20 +442,6 @@ pub fn tasks_transitioned_to_error_total() -> Counter<u64> {
         .init()
 }
 
-/// Total number of tasks archived
-///
-/// Tracks tasks moved from active tables to archive tables.
-///
-/// Labels:
-/// - final_state: Task state at archival time (complete, error, cancelled)
-/// - age_days: Task age bucket (7-14, 14-30, 30-90, >90)
-pub fn tasks_archived_total() -> Counter<u64> {
-    meter()
-        .u64_counter("tasker.archive.tasks_archived.total")
-        .with_description("Total number of tasks archived")
-        .init()
-}
-
 /// Total number of staleness detection runs
 ///
 /// Tracks how many times the staleness detection function has run.
@@ -466,19 +452,6 @@ pub fn staleness_detection_runs_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.staleness.detection_runs.total")
         .with_description("Total number of staleness detection runs")
-        .init()
-}
-
-/// Total number of archival runs
-///
-/// Tracks how many times the archival function has run.
-///
-/// Labels:
-/// - dry_run: true/false - whether this was a dry run
-pub fn archival_runs_total() -> Counter<u64> {
-    meter()
-        .u64_counter("tasker.archive.archival_runs.total")
-        .with_description("Total number of archival runs")
         .init()
 }
 
@@ -493,21 +466,6 @@ pub fn staleness_detection_duration() -> Histogram<f64> {
     meter()
         .f64_histogram("tasker.staleness.detection.duration")
         .with_description("Staleness detection execution duration in milliseconds")
-        .with_unit("ms")
-        .init()
-}
-
-/// Archival execution duration in milliseconds
-///
-/// Tracks time to archive completed tasks.
-///
-/// Labels:
-/// - dry_run: true/false
-/// - tasks_archived: Number of tasks archived in this run
-pub fn archival_execution_duration() -> Histogram<f64> {
-    meter()
-        .f64_histogram("tasker.archive.execution.duration")
-        .with_description("Archival execution duration in milliseconds")
         .with_unit("ms")
         .init()
 }
@@ -540,19 +498,6 @@ pub fn dlq_pending_investigations() -> Gauge<u64> {
         .init()
 }
 
-/// Number of tasks eligible for archival
-///
-/// Tracks current count of completed tasks older than retention period.
-///
-/// Labels:
-/// - final_state: complete, error, cancelled
-pub fn tasks_eligible_for_archival() -> Gauge<u64> {
-    meter()
-        .u64_gauge("tasker.archive.tasks_eligible")
-        .with_description("Number of tasks eligible for archival")
-        .init()
-}
-
 // TAS-49: DLQ and lifecycle metrics statics
 
 /// Static counter: dlq_entries_created_total
@@ -564,29 +509,17 @@ pub static STALE_TASKS_DETECTED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
 /// Static counter: tasks_transitioned_to_error_total
 pub static TASKS_TRANSITIONED_TO_ERROR_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
 
-/// Static counter: tasks_archived_total
-pub static TASKS_ARCHIVED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
-
 /// Static counter: staleness_detection_runs_total
 pub static STALENESS_DETECTION_RUNS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
 
-/// Static counter: archival_runs_total
-pub static ARCHIVAL_RUNS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
-
 /// Static histogram: staleness_detection_duration
 pub static STALENESS_DETECTION_DURATION: OnceLock<Histogram<f64>> = OnceLock::new();
-
-/// Static histogram: archival_execution_duration
-pub static ARCHIVAL_EXECUTION_DURATION: OnceLock<Histogram<f64>> = OnceLock::new();
 
 /// Static histogram: task_time_in_dlq_hours
 pub static TASK_TIME_IN_DLQ_HOURS: OnceLock<Histogram<f64>> = OnceLock::new();
 
 /// Static gauge: dlq_pending_investigations
 pub static DLQ_PENDING_INVESTIGATIONS: OnceLock<Gauge<u64>> = OnceLock::new();
-
-/// Static gauge: tasks_eligible_for_archival
-pub static TASKS_ELIGIBLE_FOR_ARCHIVAL: OnceLock<Gauge<u64>> = OnceLock::new();
 
 /// Initialize all orchestration metrics
 ///
@@ -621,12 +554,8 @@ pub fn init() {
     DLQ_ENTRIES_CREATED_TOTAL.get_or_init(dlq_entries_created_total);
     STALE_TASKS_DETECTED_TOTAL.get_or_init(stale_tasks_detected_total);
     TASKS_TRANSITIONED_TO_ERROR_TOTAL.get_or_init(tasks_transitioned_to_error_total);
-    TASKS_ARCHIVED_TOTAL.get_or_init(tasks_archived_total);
     STALENESS_DETECTION_RUNS_TOTAL.get_or_init(staleness_detection_runs_total);
-    ARCHIVAL_RUNS_TOTAL.get_or_init(archival_runs_total);
     STALENESS_DETECTION_DURATION.get_or_init(staleness_detection_duration);
-    ARCHIVAL_EXECUTION_DURATION.get_or_init(archival_execution_duration);
     TASK_TIME_IN_DLQ_HOURS.get_or_init(task_time_in_dlq_hours);
     DLQ_PENDING_INVESTIGATIONS.get_or_init(dlq_pending_investigations);
-    TASKS_ELIGIBLE_FOR_ARCHIVAL.get_or_init(tasks_eligible_for_archival);
 }

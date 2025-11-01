@@ -21,8 +21,7 @@ pub use backoff::BackoffConfig;
 pub use circuit_breakers::CircuitBreakersConfig;
 pub use database::{DatabaseConfig, DatabasePoolConfig};
 pub use dlq::{
-    ArchiveConfig, ArchivePolicies, DlqConfig, DlqReasons, StalenessActions,
-    StalenessDetectionConfig, StalenessThresholds,
+    DlqConfig, DlqReasons, StalenessActions, StalenessDetectionConfig, StalenessThresholds,
 };
 pub use event_systems::{
     EventSystemsConfig, OrchestrationEventSystemConfig, TaskReadinessEventSystemConfig,

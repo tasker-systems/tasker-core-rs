@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use super::ConfigurationContext;
 use crate::config::components::{
-    ArchiveConfig, BackoffConfig, DlqConfig, OrchestrationChannelsConfig, StalenessDetectionConfig,
+    BackoffConfig, DlqConfig, OrchestrationChannelsConfig, StalenessDetectionConfig,
 };
 use crate::config::error::ConfigurationError;
 use crate::config::event_systems::{
@@ -53,9 +53,6 @@ pub struct OrchestrationConfig {
 
     /// TAS-49: Dead Letter Queue configuration
     pub dlq: DlqConfig,
-
-    /// TAS-49: Archive configuration
-    pub archive: ArchiveConfig,
 
     /// Current environment (cached from common config)
     pub environment: String,
@@ -185,33 +182,6 @@ impl ConfigurationContext for OrchestrationConfig {
             }
         }
 
-        // TAS-49: Archive validation
-        if self.archive.enabled {
-            if self.archive.retention_days <= 0 {
-                errors.push(ConfigurationError::InvalidValue {
-                    field: "archive.retention_days".to_string(),
-                    value: self.archive.retention_days.to_string(),
-                    context: "retention_days must be greater than 0".to_string(),
-                });
-            }
-
-            if self.archive.archive_batch_size <= 0 {
-                errors.push(ConfigurationError::InvalidValue {
-                    field: "archive.archive_batch_size".to_string(),
-                    value: self.archive.archive_batch_size.to_string(),
-                    context: "archive_batch_size must be greater than 0".to_string(),
-                });
-            }
-
-            if self.archive.archive_interval_hours == 0 {
-                errors.push(ConfigurationError::InvalidValue {
-                    field: "archive.archive_interval_hours".to_string(),
-                    value: "0".to_string(),
-                    context: "archive_interval_hours must be greater than 0".to_string(),
-                });
-            }
-        }
-
         // TAS-49: DLQ validation
         if self.dlq.enabled && self.dlq.max_pending_age_hours <= 0 {
             errors.push(ConfigurationError::InvalidValue {
@@ -234,14 +204,13 @@ impl ConfigurationContext for OrchestrationConfig {
 
     fn summary(&self) -> String {
         format!(
-            "OrchestrationConfig: environment={}, max_backoff={}s, web_enabled={}, event_mode={:?}, staleness_detection={}, dlq={}, archive={}",
+            "OrchestrationConfig: environment={}, max_backoff={}s, web_enabled={}, event_mode={:?}, staleness_detection={}, dlq={}",
             self.environment,
             self.backoff.max_backoff_seconds,
             self.orchestration_system.web.enabled,
             self.orchestration_events.deployment_mode,
             self.staleness_detection.enabled,
-            self.dlq.enabled,
-            self.archive.enabled
+            self.dlq.enabled
         )
     }
 }
@@ -265,7 +234,6 @@ impl From<&TaskerConfig> for OrchestrationConfig {
             // TAS-49: DLQ configuration - populated from TOML via unified_loader
             staleness_detection: StalenessDetectionConfig::default(),
             dlq: DlqConfig::default(),
-            archive: ArchiveConfig::default(),
         }
     }
 }
