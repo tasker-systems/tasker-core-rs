@@ -222,7 +222,7 @@ pub async fn get_task(
     match result {
         Ok(Some((task, execution_context, steps))) => {
             // Get task metadata using single JOIN query to avoid N+1 problem
-            let task_metadata = task.for_orchestration(&pool).await.map_err(|e| {
+            let task_metadata = task.for_orchestration(pool).await.map_err(|e| {
                 error!(error = %e, "Failed to get task metadata");
                 ApiError::database_error("Failed to retrieve task metadata")
             })?;
