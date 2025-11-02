@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO tasker_task_transitions (\n            task_uuid,\n            from_state,\n            to_state,\n            sort_key,\n            most_recent,\n            created_at,\n            updated_at\n        )\n        VALUES ($1, 'pending', $2, 1, true, $3, $3)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fef35aeeb57958a654a491bb1b4a89c4dd4375302ee6550d5ef83849cf6feefc"
+}

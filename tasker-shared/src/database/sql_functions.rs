@@ -589,33 +589,40 @@ impl SqlFunctionExecutor {
 
 /// Slowest steps analysis for performance optimization
 /// Equivalent to Rails: FunctionBasedSlowestSteps
+/// Returns individual step executions sorted by duration
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SlowestStepAnalysis {
-    pub named_step_uuid: i32,
+    pub workflow_step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub step_name: String,
-    pub avg_duration_seconds: f64,
-    pub max_duration_seconds: f64,
-    pub min_duration_seconds: f64,
-    pub execution_count: i32,
-    pub error_count: i32,
-    pub error_rate: f64,
-    pub last_executed_at: Option<DateTime<Utc>>,
+    pub task_name: String,
+    pub namespace_name: String,
+    pub version: String,
+    pub duration_seconds: BigDecimal,
+    pub attempts: i32,
+    pub created_at: chrono::NaiveDateTime,
+    pub completed_at: Option<chrono::NaiveDateTime>,
+    pub retryable: bool,
+    pub step_status: String,
 }
 
 /// Slowest tasks analysis for performance optimization
 /// Equivalent to Rails: FunctionBasedSlowestTasks
+/// Returns individual task executions sorted by duration
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SlowestTaskAnalysis {
-    pub named_task_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub task_name: String,
-    pub avg_duration_seconds: f64,
-    pub max_duration_seconds: f64,
-    pub min_duration_seconds: f64,
-    pub execution_count: i32,
-    pub avg_step_count: f64,
-    pub error_count: i32,
-    pub error_rate: f64,
-    pub last_executed_at: Option<DateTime<Utc>>,
+    pub namespace_name: String,
+    pub version: String,
+    pub duration_seconds: BigDecimal,
+    pub step_count: i64,
+    pub completed_steps: i64,
+    pub error_steps: i64,
+    pub created_at: chrono::NaiveDateTime,
+    pub completed_at: Option<chrono::NaiveDateTime>,
+    pub initiator: String,
+    pub source_system: String,
 }
 
 impl SqlFunctionExecutor {

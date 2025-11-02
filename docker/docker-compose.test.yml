@@ -17,6 +17,14 @@ services:
     build:
       context: ..
       dockerfile: docker/db/Dockerfile
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=300"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
     environment:
       POSTGRES_DB: tasker_rust_test
       POSTGRES_USER: tasker

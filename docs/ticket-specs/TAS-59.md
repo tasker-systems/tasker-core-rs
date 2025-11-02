@@ -252,13 +252,13 @@ impl BatchRecoveryService {
     pub async fn detect_and_recover_stalled_batches(&self) -> TaskerResult<RecoveryStats> {
         // 1. Query for stalled batch workers with resumability check
         let stalled_batches = self.get_resumable_stalled_batches().await?;
-        
+
         let mut recovered = 0;
         let mut isolated = 0;
-        
+
         for batch in stalled_batches {
             let batch_config = self.get_batch_config(batch.workflow_step_uuid).await?;
-            
+
             // Check if this batch is configured for automatic recovery
             if !batch_config.resumable {
                 tracing::warn!(
@@ -270,26 +270,35 @@ impl BatchRecoveryService {
                 isolated += 1;
                 continue;
             }
-            
-            // 2. Transition step back to Pending (with retry increment)
-            transition_step_for_recovery(batch.workflow_step_uuid).await?;
-            
-            // 3. Re-enqueue for processing
+
+            // 2. Use standard retry event (NOT custom transition)
+            // This ensures proper attempt tracking and backoff calculation
+            use tasker_shared::state_machine::events::StepEvent;
+
+            self.step_state_machine
+                .transition_step(
+                    batch.workflow_step_uuid,
+                    StepEvent::Retry,  // Standard retry event - does NOT reset attempts
+                    &self.context.db_pool,
+                )
+                .await?;
+
+            // 3. Re-enqueue for processing (cursor will resume from last checkpoint)
             self.step_enqueuer.enqueue_single_step(batch.workflow_step_uuid).await?;
-            
+
             // 4. Log recovery event
             tracing::warn!(
                 batch_id = %batch.batch_id,
                 last_position = %batch.current_position,
-                "Recovered stalled batch worker"
+                "Recovered stalled batch worker via automatic retry - will resume from checkpoint"
             );
-            
+
             recovered += 1;
         }
-        
-        Ok(RecoveryStats { 
+
+        Ok(RecoveryStats {
             recovered_batches: recovered,
-            isolated_batches: isolated 
+            isolated_batches: isolated
         })
     }
     
@@ -962,37 +971,72 @@ class AggregateResultsHandler < TaskerCore::StepHandler::Base
 end
 ```
 
-#### 5. Manual Resolution Interface
+#### 5. Manual Resolution Interface (TAS-49 Integration)
 
-For non-resumable batches requiring manual intervention:
+For non-resumable batches requiring manual intervention, use TAS-49's `StepManualAction`:
 
 ```rust
-// Manual resolution API
+use tasker_shared::types::api::orchestration::{StepManualAction, ManualCompletionData};
+
+// Manual resolution API (TAS-49 compatible)
 pub async fn resolve_batch_manually(
     &self,
+    task_uuid: Uuid,
     workflow_step_uuid: Uuid,
-    resolution: ManualResolution,
-) -> TaskerResult<()> {
-    match resolution {
-        ManualResolution::Retry => {
-            // Reset cursor and re-enqueue
+    action: StepManualAction,
+) -> TaskerResult<StepResponse> {
+    match action {
+        StepManualAction::ResetForRetry { reason, reset_by } => {
+            // Reset attempt counter and cursor, return to pending for automatic retry
             self.reset_batch_cursor(workflow_step_uuid).await?;
-            self.step_enqueuer.enqueue_single_step(workflow_step_uuid).await?;
+
+            // Use proper state machine event for operator reset
+            self.orchestration_client
+                .resolve_step_manually(task_uuid, workflow_step_uuid, action)
+                .await
         }
-        ManualResolution::Skip => {
-            // Mark as resolved_manually and continue
-            self.mark_step_resolved_manually(workflow_step_uuid).await?;
+        StepManualAction::ResolveManually { reason, resolved_by } => {
+            // Mark as manually resolved without providing results
+            // Cursor state preserved for audit trail
+            // Allows workflow to continue past failed batch
+            self.orchestration_client
+                .resolve_step_manually(task_uuid, workflow_step_uuid, action)
+                .await
         }
-        ManualResolution::FailTask => {
-            // Fail the entire task
-            self.fail_task_from_batch(workflow_step_uuid).await?;
+        StepManualAction::CompleteManually { completion_data, reason, completed_by } => {
+            // Complete batch manually with execution results
+            // Use when operator has manually processed batch items
+            // Cursor state preserved showing what was completed
+            self.orchestration_client
+                .resolve_step_manually(task_uuid, workflow_step_uuid, action)
+                .await
         }
     }
-    Ok(())
 }
 ```
 
-This flexibility ensures the batch processing system can handle sensitive operations appropriately while still providing automation where desired.
+**CLI Integration Examples**:
+
+```bash
+# Reset batch worker with cursor preserved (retry from last checkpoint)
+tasker-cli task reset-step <TASK_UUID> <BATCH_WORKER_STEP_UUID> \
+  --reason "Database connection restored, resuming from checkpoint" \
+  --reset-by "ops-team@example.com"
+
+# Resolve batch manually without results (skip failed batch)
+tasker-cli task resolve-step <TASK_UUID> <BATCH_WORKER_STEP_UUID> \
+  --reason "Non-critical batch, skipping to unblock workflow" \
+  --resolved-by "ops-team@example.com"
+
+# Complete batch manually with results (manually processed items)
+tasker-cli task complete-step <TASK_UUID> <BATCH_WORKER_STEP_UUID> \
+  --result '{"items_processed": 450, "batch_id": "batch_003", "manual_completion": true}' \
+  --metadata '{"cursor": {"current_position": 3450, "end_position": 4000}}' \
+  --reason "Manually processed remaining items after infrastructure fix" \
+  --completed-by "ops-team@example.com"
+```
+
+This integration ensures batch processing leverages TAS-49's proven manual resolution infrastructure while preserving batch-specific cursor state for resumability.
 
 ### Critical Distinction: Batch Failure vs Step State Transitions
 
@@ -1138,9 +1182,15 @@ WHERE workflow_step_uuid IN (batch_worker_001, batch_worker_002, ...)
 
 This architecture ensures batch processing integrates cleanly with the existing state machine and DAG traversal logic without special cases.
 
-### Batch Resumability via Step Retry Mechanism
+### Batch Resumability via Step Retry Mechanism (TAS-49 Aligned)
 
-Batch resumability leverages the existing step retry and backoff infrastructure rather than creating a parallel recovery system. This ensures consistent behavior and reuses proven patterns.
+Batch resumability leverages the existing step retry and backoff infrastructure rather than creating a parallel recovery system. This ensures consistent behavior and reuses proven patterns from TAS-49.
+
+**Key Alignment with TAS-49**:
+- Automatic retries use `StepEvent::Retry` - preserves attempt counter
+- Operator resets use `StepEvent::ResetForRetry` - resets attempt counter
+- Both preserve cursor state for position resumability
+- Retry limits and backoff come from template `lifecycle` configuration
 
 #### Integration with Standard Retry Logic
 
@@ -1297,31 +1347,39 @@ This integration ensures that batch resumability is not a special case but rathe
 
 The batch processing system must integrate carefully with TAS-49's Dead Letter Queue and staleness detection to avoid false positives and ensure proper lifecycle management.
 
-#### 1. Timeout Configuration Hierarchy
+#### 1. Timeout Configuration Hierarchy (TAS-49 Aligned)
 
-Batch workers may legitimately run much longer than regular steps. The timeout hierarchy ensures proper detection:
+Batch workers may legitimately run much longer than regular steps. The timeout hierarchy aligns with TAS-49's lifecycle configuration:
 
 ```yaml
 # Global defaults (orchestration.toml)
 [orchestration.staleness_detection.thresholds]
 waiting_for_dependencies_minutes = 60    # Regular steps
 waiting_for_retry_minutes = 30          # Regular steps
-steps_in_process_minutes = 30           # Regular steps
+steps_in_process_minutes = 30           # Regular steps (TAS-49 default)
 
-# Template-specific overrides (YAML)
+# Template-specific overrides (YAML) - TAS-49 lifecycle settings
 lifecycle:
-  max_steps_in_process_minutes: 120     # Template-wide override
+  max_steps_in_process_minutes: 120     # Aligns with TAS-49 DLQ staleness detection
+  max_retries: 3                        # Standard retry limit
+  backoff_multiplier: 2.0               # Exponential backoff
 
-# Batch-specific configuration
+# Batch-specific configuration (extends lifecycle settings)
 batch_config:
-  max_batch_duration_minutes: 240       # Batch workers can run 4 hours
   checkpoint_stall_minutes: 15          # No checkpoint for 15min = stalled
+  checkpoint_interval: 100              # Save cursor every N items
 ```
 
 **Resolution Order**:
-1. Batch-specific timeout (if batch worker)
-2. Template lifecycle config (if defined)
-3. Global staleness thresholds (fallback)
+1. Template `lifecycle.max_steps_in_process_minutes` (if defined) - **Primary timeout for DLQ detection**
+2. Batch-specific `checkpoint_stall_minutes` (if batch worker) - **Additional checkpoint health check**
+3. Global `staleness_detection.thresholds.steps_in_process_minutes` (fallback)
+
+**Key Alignment with TAS-49**:
+- Template `lifecycle.max_steps_in_process_minutes` determines when task enters DLQ
+- Batch workers use checkpoint-based health checks PLUS duration limits
+- Both systems respect the same timeout configuration for consistency
+- No duplicate timeout settings - single source of truth in `lifecycle` config
 
 #### 2. Staleness Detection for Batch Workers
 
@@ -1401,7 +1459,81 @@ match batch_config.failure_strategy {
 }
 ```
 
-#### 4. Preventing False Positive Detections
+#### 4. DLQ Resolution Workflow for Batch Workers
+
+When batch workers end up in DLQ, operators use TAS-49's established resolution workflow:
+
+**Investigation Phase**:
+```bash
+# 1. List DLQ entries for batch processing tasks
+tasker-cli dlq list --reason batch_stalled --limit 10
+
+# Example output:
+# UUID: task-123 | Namespace: data_pipeline | Entered: 2h ago
+# Reason: BatchStalledNoCheckpoint
+# Metadata: {"batch_id": "batch_003", "last_checkpoint": "2h ago", "current_position": 3450}
+
+# 2. Get batch-specific details
+tasker-cli task steps task-123
+
+# Example output shows:
+# Step: batch_worker_003 | State: InProgress | Attempts: 2/3
+# Cursor: {"current_position": 3450, "end_position": 4000, "last_checkpoint": "2h ago"}
+# Last error: "Database connection timeout"
+
+# 3. Investigate infrastructure issue
+# - Check database connectivity
+# - Review worker logs
+# - Identify root cause
+```
+
+**Resolution Phase** (using TAS-49 manual actions):
+
+```bash
+# Option A: Reset for automatic retry (infrastructure fixed)
+tasker-cli task reset-step task-123 batch_worker_003 \
+  --reason "Database connection pool restored, resetting for retry" \
+  --reset-by "ops-team@example.com"
+# Result:
+# - Attempt counter reset to 0
+# - Cursor preserved at position 3450
+# - Step returns to Pending
+# - Worker resumes from checkpoint on next execution
+# - Task removed from DLQ when step becomes ready
+
+# Option B: Resolve manually without results (skip failed batch)
+tasker-cli task resolve-step task-123 batch_worker_003 \
+  --reason "Non-critical batch, workflow can proceed with partial data" \
+  --resolved-by "ops-team@example.com"
+# Result:
+# - Step marked as ResolvedManually
+# - Cursor preserved for audit trail
+# - Convergence step can proceed
+# - Task removed from DLQ when convergence becomes ready
+
+# Option C: Complete manually with results (manually processed items)
+tasker-cli task complete-step task-123 batch_worker_003 \
+  --result '{"items_processed": 550, "batch_id": "batch_003", "manual": true}' \
+  --metadata '{"cursor": {"current_position": 4000, "completed_manually": true}}' \
+  --reason "Manually processed remaining 550 items via direct SQL" \
+  --completed-by "ops-team@example.com"
+# Result:
+# - Step marked as Complete with results
+# - Cursor shows full completion
+# - Dependent steps receive manual results
+# - Task removed from DLQ when convergence becomes ready
+```
+
+**Cursor State Preservation Across Manual Actions**:
+
+All three TAS-49 manual actions preserve cursor state:
+- **ResetForRetry**: Cursor maintained, worker resumes from checkpoint
+- **ResolveManually**: Cursor preserved for audit, shows where failure occurred
+- **CompleteManually**: Cursor updated to show manual completion status
+
+This ensures resumability and audit trail regardless of resolution method.
+
+#### 5. Preventing False Positive Detections
 
 Long-running batch workers must not trigger premature staleness detection:
 
@@ -1479,23 +1611,30 @@ batch_config:
 
 **For Long-Running Batches** (hours/days):
 ```yaml
+# TAS-49 aligned: lifecycle config is primary
+lifecycle:
+  max_steps_in_process_minutes: 1500  # 25 hours (primary DLQ timeout)
+  max_retries: 2                      # Fewer retries for long batches
+  backoff_multiplier: 3.0             # Longer backoff between retries
+
 batch_config:
-  max_batch_duration_minutes: 1440  # 24 hours
-  checkpoint_interval: 1000         # Less frequent checkpoints
-  checkpoint_stall_minutes: 60      # Allow longer between checkpoints
+  checkpoint_interval: 1000           # Less frequent checkpoints (batch-specific)
+  checkpoint_stall_minutes: 60        # Allow longer between checkpoints (batch-specific)
   resumable: true
   failure_strategy: continue_on_failure
-
-# Template lifecycle override
-lifecycle:
-  max_steps_in_process_minutes: 1500  # 25 hours (> batch duration)
 ```
 
 **For Sensitive Batches** (financial):
 ```yaml
+# TAS-49 aligned: lifecycle config with strict timeouts
+lifecycle:
+  max_steps_in_process_minutes: 60  # Strict timeout for financial operations
+  max_retries: 1                    # Limited retries for sensitive operations
+  backoff_multiplier: 1.0           # No exponential backoff
+
 batch_config:
-  max_batch_duration_minutes: 60
-  checkpoint_interval: 10           # Frequent checkpoints
+  checkpoint_interval: 10           # Frequent checkpoints (batch-specific)
+  checkpoint_stall_minutes: 5       # Quick stall detection (batch-specific)
   resumable: false                  # No auto-recovery
   failure_strategy: isolate         # Manual investigation required
 ```
@@ -1517,6 +1656,41 @@ staleness_detection_duration{step_type="batch_worker"}
 ```
 
 This compatibility ensures batch processing and DLQ/staleness detection work together without interference, while maintaining appropriate oversight for both short-running and long-running batch operations.
+
+#### 8. TAS-49 Integration Summary
+
+This batch processing implementation fully integrates with TAS-49's DLQ and manual resolution infrastructure:
+
+**Unified Manual Resolution**:
+- ✅ Uses `StepManualAction` enum (ResetForRetry, ResolveManually, CompleteManually)
+- ✅ Cursor state preserved across all manual action types
+- ✅ CLI commands work identically for batch workers and regular steps
+- ✅ Same API endpoints, same workflows, same operator experience
+
+**State Machine Integration**:
+- ✅ Automatic retries use `StepEvent::Retry` (does NOT reset attempts)
+- ✅ Operator resets use `StepEvent::ResetForRetry` (DOES reset attempts)
+- ✅ Standard retry limits and backoff from `lifecycle` configuration
+- ✅ No custom batch-specific state transitions
+
+**Configuration Consolidation**:
+- ✅ Single source of truth: template `lifecycle` config
+- ✅ No duplicate timeout settings between batch and lifecycle
+- ✅ Batch config only adds checkpoint-specific health checks
+- ✅ Both systems respect same `max_steps_in_process_minutes` for DLQ
+
+**DLQ Workflow**:
+- ✅ Batch workers enter DLQ via standard staleness detection
+- ✅ Operators investigate using standard DLQ commands
+- ✅ Resolution uses proven TAS-49 manual action workflow
+- ✅ Cursor preservation ensures resumability and audit trail
+
+**Benefits of Integration**:
+- No new operator training needed - same commands for all step types
+- Consistent behavior between batch and non-batch workflows
+- Reuses proven TAS-49 patterns for reliability
+- Single configuration model eliminates conflicts
+- Full audit trail through cursor preservation
 
 ### Alternative Approaches Considered
 
@@ -1582,14 +1756,21 @@ The template approach provides the best balance of flexibility, simplicity, and 
 - [ ] Create recovery metrics and monitoring
 - [ ] Add configuration for stall detection thresholds
 
-#### Phase 4: Testing & Polish (Week 4)
+#### Phase 4: Testing & TAS-49 Integration (Week 4)
 - [ ] E2E integration tests with batch processing
 - [ ] Stall simulation and recovery tests
 - [ ] Performance benchmarks for large batches
+- [ ] TAS-49 DLQ integration tests
+  - [ ] Test batch workers entering DLQ via staleness detection
+  - [ ] Test all three manual actions with cursor preservation
+  - [ ] Test CLI commands for batch worker resolution
+- [ ] Configuration consolidation validation
+  - [ ] Verify lifecycle config takes precedence
+  - [ ] Test timeout hierarchy with batch-specific overrides
 - [ ] Documentation and examples
 - [ ] Monitoring dashboard updates
 
-### Configuration Changes
+### Configuration Changes (TAS-49 Consolidated)
 
 Add to `config/tasker/base/orchestration.toml`:
 
@@ -1599,17 +1780,41 @@ enabled = true
 max_parallelism = 20          # Maximum parallel batch workers
 default_batch_size = 1000     # Default items per batch
 checkpoint_interval = 100     # Checkpoint every N items
-stall_timeout_seconds = 300   # Mark as stalled after 5 minutes
-cursor_stall_seconds = 60     # No checkpoint for 1 minute = stalled
+cursor_stall_minutes = 15     # No checkpoint for 15min = stalled (batch-specific health check)
 default_resumable = true      # Default resumability for batches
 default_failure_strategy = "continue_on_failure"  # Default failure handling
 
 [orchestration.batch_recovery]
 enabled = true
 check_interval_seconds = 30   # Check for stalled batches every 30s
-max_retries = 3              # Max recovery attempts per batch
-backoff_multiplier = 2.0     # Exponential backoff for retries
+# NOTE: max_retries and backoff_multiplier removed
+# These are now configured per-template via lifecycle.max_retries and lifecycle.backoff_multiplier
+# This eliminates duplicate configuration and aligns with TAS-49 patterns
 ```
+
+**Configuration Consolidation Notes**:
+
+1. **Removed Duplicate Timeout Settings**:
+   - ❌ `stall_timeout_seconds` - Now uses `lifecycle.max_steps_in_process_minutes` from template
+   - ❌ `max_retries` - Now uses `lifecycle.max_retries` from template
+   - ❌ `backoff_multiplier` - Now uses `lifecycle.backoff_multiplier` from template
+
+2. **Single Source of Truth**:
+   - Template `lifecycle` config controls retry behavior and timeouts
+   - Batch config only adds checkpoint-specific health checks
+   - No conflicts between batch-specific and lifecycle settings
+
+3. **Example Template Configuration**:
+   ```yaml
+   lifecycle:
+     max_steps_in_process_minutes: 240  # 4 hours for batch workers
+     max_retries: 3                     # Standard retry limit
+     backoff_multiplier: 2.0            # Exponential backoff
+
+   batch_config:
+     checkpoint_stall_minutes: 15       # Additional checkpoint health check
+     checkpoint_interval: 100           # Save cursor every 100 items
+   ```
 
 ### Migration Strategy
 
