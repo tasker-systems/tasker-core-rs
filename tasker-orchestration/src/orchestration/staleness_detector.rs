@@ -131,10 +131,13 @@ impl StalenessDetector {
     ///
     /// Runs continuously until cancelled or error occurs. Each cycle:
     /// 1. Waits for interval tick
-    /// 2. Checks if detection is enabled
-    /// 3. Calls SQL detection function
-    /// 4. Records metrics
-    /// 5. Logs results
+    /// 2. Calls SQL detection function
+    /// 3. Records metrics
+    /// 4. Logs results
+    ///
+    /// **Note**: This method assumes the detector has already been enabled via bootstrap.
+    /// The `enabled` config flag is checked at startup (see `OrchestrationCore::start_background_services`),
+    /// and this background task is only spawned when enabled. Runtime enable/disable is not supported.
     ///
     /// # Errors
     ///
@@ -158,11 +161,6 @@ impl StalenessDetector {
 
         loop {
             interval_timer.tick().await;
-
-            if !self.config.enabled {
-                debug!("Staleness detection disabled, skipping cycle");
-                continue;
-            }
 
             let start = std::time::Instant::now();
 
@@ -250,7 +248,7 @@ impl StalenessDetector {
                 current_state: r.current_state,
                 time_in_state_minutes: r.time_in_state_minutes,
                 staleness_threshold_minutes: r.staleness_threshold_minutes,
-                action_taken: StalenessAction::from_str(&r.action_taken),
+                action_taken: r.action_taken.parse().unwrap(), // Infallible: always returns Ok
                 moved_to_dlq: r.moved_to_dlq,
                 transition_success: r.transition_success,
             })
@@ -261,7 +259,8 @@ impl StalenessDetector {
 
     /// Record detection metrics for monitoring
     ///
-    /// Records OpenTelemetry metrics for each detected stale task.
+    /// Records OpenTelemetry metrics for each detected stale task and updates
+    /// the pending investigations gauge at the end of the cycle.
     fn record_detection_metrics(&self, results: &[StalenessResult]) {
         for result in results {
             // Calculate time bucket for labeling
@@ -330,6 +329,54 @@ impl StalenessDetector {
                 );
             }
         }
+
+        // Update pending investigations gauge
+        // Note: This is a best-effort gauge update. If the query fails, we log it but don't fail the detection cycle.
+        self.update_pending_investigations_gauge();
+    }
+
+    /// Update the pending investigations gauge
+    ///
+    /// Queries the database for current pending DLQ count and updates the gauge metric.
+    /// This provides real-time visibility into DLQ backlog for monitoring and alerting.
+    fn update_pending_investigations_gauge(&self) {
+        // Spawn a non-blocking task to update the gauge
+        let executor = self.executor.clone();
+        tokio::spawn(async move {
+            match executor.pool().acquire().await {
+                Ok(mut conn) => {
+                    match sqlx::query_scalar::<_, i64>(
+                        "SELECT COUNT(*) FROM tasker_tasks_dlq WHERE resolution_status = 'pending'"
+                    )
+                    .fetch_one(&mut *conn)
+                    .await
+                    {
+                        Ok(pending_count) => {
+                            orchestration::dlq_pending_investigations().record(
+                                pending_count as u64,
+                                &[],
+                            );
+                            debug!(
+                                pending_investigations = pending_count,
+                                "Updated DLQ pending investigations gauge"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                error = %e,
+                                "Failed to query pending DLQ count for gauge update"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        "Failed to acquire database connection for pending DLQ gauge update"
+                    );
+                }
+            }
+        });
     }
 
     /// Get current configuration
@@ -374,7 +421,10 @@ mod tests {
         assert!(result.moved_to_dlq);
         assert!(result.transition_success);
         assert_eq!(result.time_in_state_minutes, 120);
-        assert_eq!(result.action_taken, StalenessAction::TransitionedToDlqAndError);
+        assert_eq!(
+            result.action_taken,
+            StalenessAction::TransitionedToDlqAndError
+        );
         assert!(!result.action_taken.is_failure());
         assert!(result.action_taken.dlq_created());
         assert!(result.action_taken.transition_succeeded());

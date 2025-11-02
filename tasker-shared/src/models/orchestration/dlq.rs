@@ -7,6 +7,7 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::Type;
 use std::fmt;
+use std::str::FromStr;
 use uuid::Uuid;
 
 /// DLQ Resolution Status
@@ -174,10 +175,7 @@ impl StalenessAction {
     /// succeeded but state transition failed.
     #[must_use]
     pub const fn dlq_created(self) -> bool {
-        matches!(
-            self,
-            Self::TransitionedToDlqAndError | Self::MovedToDlqOnly
-        )
+        matches!(self, Self::TransitionedToDlqAndError | Self::MovedToDlqOnly)
     }
 
     /// Returns true if state transition succeeded
@@ -203,20 +201,25 @@ impl StalenessAction {
             Self::TransitionFailed => "transition_failed",
         }
     }
+}
+
+impl FromStr for StalenessAction {
+    type Err = std::convert::Infallible;
 
     /// Parse from string representation
     ///
     /// Returns the matching StalenessAction variant, or TransitionFailed if unknown.
-    /// Unknown strings are treated as failures for safety.
-    #[must_use]
-    pub fn from_str(s: &str) -> Self {
-        match s {
+    /// Unknown strings are treated as failures for safety. This implementation is
+    /// infallible and always returns Ok(_).
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let action = match s {
             "would_transition_to_dlq_and_error" => Self::WouldTransitionToDlqAndError,
             "transitioned_to_dlq_and_error" => Self::TransitionedToDlqAndError,
             "moved_to_dlq_only" => Self::MovedToDlqOnly,
             "transitioned_to_error_only" => Self::TransitionedToErrorOnly,
             _ => Self::TransitionFailed, // Unknown strings treated as failures for safety
-        }
+        };
+        Ok(action)
     }
 }
 
@@ -302,6 +305,8 @@ impl Default for DlqListParams {
 }
 
 /// DLQ statistics by reason
+///
+/// Sourced from `v_dlq_dashboard` view for high-level DLQ monitoring.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DlqStats {
     pub dlq_reason: DlqReason,
@@ -309,8 +314,10 @@ pub struct DlqStats {
     pub pending: i64,
     pub manually_resolved: i64,
     pub permanent_failures: i64,
+    pub cancelled: i64,
     pub oldest_entry: Option<NaiveDateTime>,
     pub newest_entry: Option<NaiveDateTime>,
+    pub avg_resolution_time_minutes: Option<f64>,
 }
 
 /// DLQ investigation update request
@@ -324,6 +331,118 @@ pub struct DlqInvestigationUpdate {
     pub resolved_by: Option<String>,
     /// Additional metadata (optional)
     pub metadata: Option<serde_json::Value>,
+}
+
+/// DLQ investigation queue entry with priority scoring
+///
+/// Sourced from `v_dlq_investigation_queue` view for operator triage dashboard.
+/// Entries are sorted by priority score (higher = more urgent).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DlqInvestigationQueueEntry {
+    pub dlq_entry_uuid: Uuid,
+    pub task_uuid: Uuid,
+    pub original_state: String,
+    pub dlq_reason: DlqReason,
+    pub dlq_timestamp: NaiveDateTime,
+    pub minutes_in_dlq: f64,
+    pub namespace_name: Option<String>,
+    pub task_name: Option<String>,
+    pub current_state: Option<String>,
+    pub time_in_state_minutes: Option<i32>,
+    pub priority_score: f64,
+}
+
+/// Health status classification for task staleness monitoring
+///
+/// Indicates how close a task is to exceeding its staleness threshold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "text", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum StalenessHealthStatus {
+    /// Task within normal operating parameters (< 80% of threshold)
+    Healthy,
+    /// Task approaching threshold (80-100% of threshold)
+    Warning,
+    /// Task exceeded threshold, candidate for DLQ
+    Stale,
+}
+
+impl StalenessHealthStatus {
+    /// Check if status is healthy
+    #[must_use]
+    pub const fn is_healthy(self) -> bool {
+        matches!(self, Self::Healthy)
+    }
+
+    /// Check if status requires attention (warning or stale)
+    #[must_use]
+    pub const fn needs_attention(self) -> bool {
+        matches!(self, Self::Warning | Self::Stale)
+    }
+
+    /// Check if status indicates staleness
+    #[must_use]
+    pub const fn is_stale(self) -> bool {
+        matches!(self, Self::Stale)
+    }
+}
+
+/// Staleness monitoring data for active tasks
+///
+/// Sourced from `v_task_staleness_monitoring` view for real-time health monitoring.
+/// Provides per-task visibility into staleness with health status classification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StalenessMonitoring {
+    /// Task UUID being monitored
+    pub task_uuid: Uuid,
+
+    /// Namespace name (for context)
+    pub namespace_name: Option<String>,
+
+    /// Task template name (for context)
+    pub task_name: Option<String>,
+
+    /// Current task state
+    pub current_state: String,
+
+    /// Minutes task has been in current state
+    pub time_in_state_minutes: i32,
+
+    /// Total task age in minutes
+    pub task_age_minutes: i32,
+
+    /// Staleness threshold for this state (considers template overrides)
+    pub staleness_threshold_minutes: i32,
+
+    /// Health status classification
+    pub health_status: StalenessHealthStatus,
+
+    /// Task priority (from configuration)
+    pub priority: i32,
+}
+
+impl StalenessMonitoring {
+    /// Calculate percentage of threshold consumed
+    #[must_use]
+    pub fn threshold_percentage(&self) -> f64 {
+        if self.staleness_threshold_minutes == 0 {
+            return 100.0;
+        }
+        (f64::from(self.time_in_state_minutes) / f64::from(self.staleness_threshold_minutes))
+            * 100.0
+    }
+
+    /// Calculate minutes until threshold exceeded
+    #[must_use]
+    pub fn minutes_until_stale(&self) -> i32 {
+        (self.staleness_threshold_minutes - self.time_in_state_minutes).max(0)
+    }
+
+    /// Check if task is approaching threshold (≥ 80%)
+    #[must_use]
+    pub fn is_approaching_threshold(&self) -> bool {
+        self.threshold_percentage() >= 80.0
+    }
 }
 
 impl DlqEntry {
@@ -500,6 +619,62 @@ impl DlqEntry {
         dlq_entry_uuid: Uuid,
         update: DlqInvestigationUpdate,
     ) -> Result<bool, sqlx::Error> {
+        // If resolution status is changing to a terminal state, record time in DLQ metric
+        if let Some(new_status) = &update.resolution_status {
+            if matches!(
+                new_status,
+                DlqResolutionStatus::ManuallyResolved
+                    | DlqResolutionStatus::PermanentlyFailed
+                    | DlqResolutionStatus::Cancelled
+            ) {
+                // Fetch DLQ entry to get dlq_timestamp and dlq_reason for metric labels
+                if let Ok(Some(entry)) = sqlx::query_as!(
+                    DlqEntry,
+                    r#"
+                    SELECT
+                        dlq_entry_uuid,
+                        task_uuid,
+                        original_state,
+                        dlq_reason as "dlq_reason: DlqReason",
+                        dlq_timestamp,
+                        resolution_status as "resolution_status: DlqResolutionStatus",
+                        resolution_timestamp,
+                        resolution_notes,
+                        resolved_by,
+                        task_snapshot,
+                        metadata,
+                        created_at,
+                        updated_at
+                    FROM tasker_tasks_dlq
+                    WHERE dlq_entry_uuid = $1
+                    "#,
+                    dlq_entry_uuid
+                )
+                .fetch_optional(pool)
+                .await
+                {
+                    // Calculate time in DLQ (hours with fractional minutes)
+                    let duration = chrono::Utc::now()
+                        .signed_duration_since(entry.dlq_timestamp.and_utc())
+                        .to_std()
+                        .unwrap_or(std::time::Duration::ZERO);
+                    let time_in_dlq_hours = duration.as_secs_f64() / 3600.0;
+
+                    // Record metric with labels
+                    use opentelemetry::KeyValue;
+                    use crate::metrics::orchestration;
+
+                    orchestration::task_time_in_dlq_hours().record(
+                        time_in_dlq_hours,
+                        &[
+                            KeyValue::new("resolution_status", new_status.as_str().to_string()),
+                            KeyValue::new("dlq_reason", entry.dlq_reason.as_str().to_string()),
+                        ],
+                    );
+                }
+            }
+        }
+
         // Convert enum to text for SQL parameter binding
         let resolution_status_text = update.resolution_status.map(|s| s.as_str());
 
@@ -551,21 +726,138 @@ impl DlqEntry {
             DlqStats,
             r#"
             SELECT
-                dlq_reason as "dlq_reason: DlqReason",
-                COUNT(*) as "total_entries!",
-                COUNT(*) FILTER (WHERE resolution_status = 'pending') as "pending!",
-                COUNT(*) FILTER (WHERE resolution_status = 'manually_resolved') as "manually_resolved!",
-                COUNT(*) FILTER (WHERE resolution_status = 'permanently_failed') as "permanent_failures!",
-                MIN(dlq_timestamp) as oldest_entry,
-                MAX(dlq_timestamp) as newest_entry
-            FROM tasker_tasks_dlq
-            GROUP BY dlq_reason
+                dlq_reason as "dlq_reason!: DlqReason",
+                total_entries as "total_entries!",
+                pending as "pending!",
+                manually_resolved as "manually_resolved!",
+                permanent_failures as "permanent_failures!",
+                cancelled as "cancelled!",
+                oldest_entry,
+                newest_entry,
+                avg_resolution_time_minutes as "avg_resolution_time_minutes: f64"
+            FROM v_dlq_dashboard
             "#
         )
         .fetch_all(pool)
         .await?;
 
         Ok(stats)
+    }
+
+    /// List pending DLQ investigations in priority order
+    ///
+    /// # Arguments
+    ///
+    /// * `pool` - Database connection pool
+    /// * `limit` - Maximum number of entries to return (defaults to 100)
+    ///
+    /// # Returns
+    ///
+    /// Vector of DLQ investigation queue entries ordered by priority (highest first)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use tasker_shared::models::orchestration::dlq::{DlqEntry, DlqInvestigationQueueEntry};
+    /// use sqlx::PgPool;
+    ///
+    /// async fn get_top_investigations(pool: &PgPool) -> Result<Vec<DlqInvestigationQueueEntry>, sqlx::Error> {
+    ///     DlqEntry::list_investigation_queue(pool, Some(10)).await
+    /// }
+    /// ```
+    pub async fn list_investigation_queue(
+        pool: &sqlx::PgPool,
+        limit: Option<i64>,
+    ) -> Result<Vec<DlqInvestigationQueueEntry>, sqlx::Error> {
+        let limit = limit.unwrap_or(100);
+
+        let entries = sqlx::query_as!(
+            DlqInvestigationQueueEntry,
+            r#"
+            SELECT
+                dlq_entry_uuid as "dlq_entry_uuid!",
+                task_uuid as "task_uuid!",
+                original_state as "original_state!",
+                dlq_reason as "dlq_reason!: DlqReason",
+                dlq_timestamp as "dlq_timestamp!",
+                minutes_in_dlq::double precision as "minutes_in_dlq!",
+                namespace_name,
+                task_name,
+                current_state,
+                time_in_state_minutes,
+                priority_score::double precision as "priority_score!"
+            FROM v_dlq_investigation_queue
+            LIMIT $1
+            "#,
+            limit
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(entries)
+    }
+
+    /// Get staleness monitoring data for active tasks
+    ///
+    /// Queries `v_task_staleness_monitoring` view for real-time task health monitoring.
+    /// Returns tasks in waiting states with health status classification.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool` - Database connection pool
+    /// * `limit` - Optional limit (defaults to 100)
+    ///
+    /// # Health Status
+    ///
+    /// - `healthy`: Task within normal operating parameters
+    /// - `warning`: Task at 80%+ of staleness threshold
+    /// - `stale`: Task exceeded threshold, candidate for DLQ
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let monitoring = DlqEntry::get_staleness_monitoring(&pool, Some(50)).await?;
+    /// for entry in monitoring {
+    ///     if entry.health_status == StalenessHealthStatus::Stale {
+    ///         warn!("Task {} is stale in state {}", entry.task_uuid, entry.current_state);
+    ///     }
+    /// }
+    /// ```
+    pub async fn get_staleness_monitoring(
+        pool: &sqlx::PgPool,
+        limit: Option<i64>,
+    ) -> Result<Vec<StalenessMonitoring>, sqlx::Error> {
+        let limit = limit.unwrap_or(100);
+
+        let monitoring = sqlx::query_as!(
+            StalenessMonitoring,
+            r#"
+            SELECT
+                task_uuid as "task_uuid!",
+                namespace_name,
+                task_name,
+                current_state as "current_state!",
+                time_in_state_minutes::integer as "time_in_state_minutes!",
+                task_age_minutes::integer as "task_age_minutes!",
+                staleness_threshold_minutes::integer as "staleness_threshold_minutes!",
+                health_status as "health_status!: StalenessHealthStatus",
+                priority::integer as "priority!"
+            FROM v_task_staleness_monitoring
+            ORDER BY
+                CASE health_status
+                    WHEN 'stale' THEN 1
+                    WHEN 'warning' THEN 2
+                    ELSE 3
+                END,
+                time_in_state_minutes DESC
+            LIMIT $1
+            "#,
+            limit
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(monitoring)
     }
 }
 

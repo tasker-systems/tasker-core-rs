@@ -1035,6 +1035,116 @@ impl OrchestrationApiClient {
         self.handle_response(response, "get DLQ statistics").await
     }
 
+    /// Get DLQ investigation queue
+    ///
+    /// GET /v1/dlq/investigation-queue
+    ///
+    /// Returns a prioritized queue of pending DLQ entries for operator triage.
+    /// Entries are ordered by priority score (higher = more urgent).
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - Optional limit for number of entries (default: 100)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let queue = client.get_investigation_queue(Some(50)).await?;
+    /// for entry in queue {
+    ///     println!("Priority {}: Task {} in DLQ for {} min",
+    ///         entry.priority_score,
+    ///         entry.task_uuid,
+    ///         entry.minutes_in_dlq
+    ///     );
+    /// }
+    /// ```
+    pub async fn get_investigation_queue(
+        &self,
+        limit: Option<i64>,
+    ) -> TaskerResult<Vec<tasker_shared::models::orchestration::DlqInvestigationQueueEntry>> {
+        let mut url = self
+            .base_url
+            .join("/v1/dlq/investigation-queue")
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        // Add query parameter if provided
+        if let Some(limit_val) = limit {
+            let mut query_pairs = url.query_pairs_mut();
+            query_pairs.append_pair("limit", &limit_val.to_string());
+            drop(query_pairs);
+        }
+
+        debug!(url = %url, limit = ?limit, "Getting DLQ investigation queue via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get investigation queue")
+            .await
+    }
+
+    /// Get staleness monitoring data
+    ///
+    /// GET /v1/dlq/staleness
+    ///
+    /// Returns real-time staleness monitoring for active tasks in waiting states.
+    /// Provides proactive visibility into tasks approaching staleness thresholds,
+    /// enabling prevention of DLQ entries through early intervention.
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - Optional limit for number of tasks (default: 100)
+    ///
+    /// # Health Status
+    ///
+    /// - `healthy` - Task < 80% of staleness threshold
+    /// - `warning` - Task at 80-99% of threshold (alerting recommended)
+    /// - `stale` - Task ≥ 100% of threshold (DLQ candidate)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let monitoring = client.get_staleness_monitoring(Some(50)).await?;
+    /// for task in monitoring {
+    ///     if task.health_status.needs_attention() {
+    ///         println!("Task {} is {} in state {} for {} min (threshold: {} min)",
+    ///             task.task_uuid,
+    ///             task.health_status,
+    ///             task.current_state,
+    ///             task.time_in_state_minutes,
+    ///             task.staleness_threshold_minutes
+    ///         );
+    ///     }
+    /// }
+    /// ```
+    pub async fn get_staleness_monitoring(
+        &self,
+        limit: Option<i64>,
+    ) -> TaskerResult<Vec<tasker_shared::models::orchestration::StalenessMonitoring>> {
+        let mut url = self.base_url.join("/v1/dlq/staleness").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        // Add query parameter if provided
+        if let Some(limit_val) = limit {
+            let mut query_pairs = url.query_pairs_mut();
+            query_pairs.append_pair("limit", &limit_val.to_string());
+            drop(query_pairs);
+        }
+
+        debug!(url = %url, limit = ?limit, "Getting staleness monitoring via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get staleness monitoring")
+            .await
+    }
+
     // ===================================================================================
     // UTILITY METHODS
     // ===================================================================================
@@ -1400,8 +1510,10 @@ mod tests {
             "pending": 10,
             "manually_resolved": 25,
             "permanent_failures": 7,
+            "cancelled": 3,
             "oldest_entry": "2023-12-01T10:00:00",
-            "newest_entry": "2023-12-01T15:00:00"
+            "newest_entry": "2023-12-01T15:00:00",
+            "avg_resolution_time_minutes": 45.5
         });
 
         let stats: tasker_shared::models::orchestration::DlqStats =
@@ -1410,7 +1522,9 @@ mod tests {
         assert_eq!(stats.pending, 10);
         assert_eq!(stats.manually_resolved, 25);
         assert_eq!(stats.permanent_failures, 7);
+        assert_eq!(stats.cancelled, 3);
         assert!(stats.oldest_entry.is_some());
         assert!(stats.newest_entry.is_some());
+        assert_eq!(stats.avg_resolution_time_minutes, Some(45.5));
     }
 }

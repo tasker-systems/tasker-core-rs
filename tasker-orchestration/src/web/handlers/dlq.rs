@@ -22,6 +22,8 @@
 //! - `GET /v1/dlq/task/{task_uuid}` - Get DLQ entry with full task snapshot
 //! - `PATCH /v1/dlq/entry/{dlq_entry_uuid}` - Update investigation status
 //! - `GET /v1/dlq/stats` - DLQ statistics by reason
+//! - `GET /v1/dlq/investigation-queue` - Prioritized investigation queue for triage
+//! - `GET /v1/dlq/staleness` - Proactive staleness monitoring
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
@@ -31,8 +33,9 @@ use uuid::Uuid;
 
 use crate::web::state::AppState;
 use tasker_shared::models::orchestration::dlq::{
-    DlqEntry, DlqInvestigationUpdate, DlqListParams as ModelDlqListParams, DlqResolutionStatus,
-    DlqStats as ModelDlqStats,
+    DlqEntry, DlqInvestigationQueueEntry, DlqInvestigationUpdate,
+    DlqListParams as ModelDlqListParams, DlqResolutionStatus, DlqStats as ModelDlqStats,
+    StalenessMonitoring,
 };
 use tasker_shared::types::web::{ApiError, ApiResult};
 
@@ -84,6 +87,22 @@ impl From<UpdateInvestigationRequest> for DlqInvestigationUpdate {
             metadata: req.metadata,
         }
     }
+}
+
+/// Query parameters for investigation queue endpoint
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::IntoParams))]
+pub struct InvestigationQueueParams {
+    /// Maximum number of entries to return (default: 100)
+    pub limit: Option<i64>,
+}
+
+/// Query parameters for staleness monitoring endpoint
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::IntoParams))]
+pub struct StalenessMonitoringParams {
+    /// Maximum number of tasks to return (default: 100)
+    pub limit: Option<i64>,
 }
 
 // ============================================================================
@@ -326,4 +345,134 @@ pub async fn get_dlq_stats(State(state): State<AppState>) -> ApiResult<Json<Vec<
         "Successfully fetched DLQ statistics"
     );
     Ok(Json(stats))
+}
+
+/// Get DLQ investigation queue: GET /v1/dlq/investigation-queue
+///
+/// Returns a prioritized queue of pending DLQ entries for operator triage.
+/// Entries are ordered by priority score (higher = more urgent) combining
+/// base reason priority with age factor.
+///
+/// # Query Parameters
+///
+/// - `limit` - Maximum entries to return (default: 100)
+///
+/// # Response
+///
+/// Returns investigation queue entries including:
+/// - DLQ entry and task UUIDs
+/// - Original state and DLQ reason
+/// - Task metadata (namespace, name, current state)
+/// - Time in DLQ (minutes)
+/// - Priority score for triage ordering
+///
+/// # Example
+///
+/// ```text
+/// GET /v1/dlq/investigation-queue?limit=50
+/// ```
+#[cfg_attr(feature = "web-api", utoipa::path(
+    get,
+    path = "/v1/dlq/investigation-queue",
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum entries to return (default: 100)")
+    ),
+    responses(
+        (status = 200, description = "Prioritized investigation queue", body = Vec<DlqInvestigationQueueEntry>),
+        (status = 500, description = "Database error", body = ApiError)
+    ),
+    tag = "dlq"
+))]
+pub async fn get_investigation_queue(
+    State(state): State<AppState>,
+    Query(params): Query<InvestigationQueueParams>,
+) -> ApiResult<Json<Vec<DlqInvestigationQueueEntry>>> {
+    debug!(limit = params.limit, "Fetching DLQ investigation queue");
+
+    // Delegate to model layer
+    let queue = DlqEntry::list_investigation_queue(&state.orchestration_db_pool, params.limit)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch investigation queue: {}", e);
+            ApiError::database_error(format!("Failed to fetch investigation queue: {}", e))
+        })?;
+
+    info!(
+        queue_size = queue.len(),
+        "Successfully fetched investigation queue"
+    );
+    Ok(Json(queue))
+}
+
+/// Get task staleness monitoring: GET /v1/dlq/staleness
+///
+/// Returns real-time staleness monitoring for active tasks in waiting states.
+/// Provides proactive visibility into tasks approaching staleness thresholds,
+/// enabling prevention of DLQ entries through early intervention.
+///
+/// # Query Parameters
+///
+/// - `limit` - Maximum tasks to return (default: 100)
+///
+/// # Response
+///
+/// Returns staleness monitoring entries with:
+/// - Task UUID and metadata (namespace, name)
+/// - Current state and time in state
+/// - Staleness threshold and health status classification
+/// - Health status: `healthy` (< 80%), `warning` (80-99%), `stale` (≥ 100%)
+///
+/// Results are ordered by health status (stale first) then time in state.
+///
+/// # Use Cases
+///
+/// - **Alerting**: Monitor tasks at 80%+ threshold (warning status)
+/// - **Prevention**: Investigate tasks before they hit DLQ
+/// - **Capacity Planning**: Identify systemic staleness patterns
+///
+/// # Example
+///
+/// ```text
+/// GET /v1/dlq/staleness?limit=50
+/// ```
+#[cfg_attr(feature = "web-api", utoipa::path(
+    get,
+    path = "/v1/dlq/staleness",
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum tasks to return (default: 100)")
+    ),
+    responses(
+        (status = 200, description = "Task staleness monitoring data", body = Vec<StalenessMonitoring>),
+        (status = 500, description = "Database error", body = ApiError)
+    ),
+    tag = "dlq"
+))]
+pub async fn get_staleness_monitoring(
+    State(state): State<AppState>,
+    Query(params): Query<StalenessMonitoringParams>,
+) -> ApiResult<Json<Vec<StalenessMonitoring>>> {
+    debug!(limit = params.limit, "Fetching staleness monitoring data");
+
+    // Delegate to model layer
+    let monitoring = DlqEntry::get_staleness_monitoring(&state.orchestration_db_pool, params.limit)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch staleness monitoring: {}", e);
+            ApiError::database_error(format!("Failed to fetch staleness monitoring: {}", e))
+        })?;
+
+    info!(
+        monitoring_count = monitoring.len(),
+        stale_count = monitoring
+            .iter()
+            .filter(|m| m.health_status.is_stale())
+            .count(),
+        warning_count = monitoring
+            .iter()
+            .filter(|m| m.health_status
+                == tasker_shared::models::orchestration::StalenessHealthStatus::Warning)
+            .count(),
+        "Successfully fetched staleness monitoring data"
+    );
+    Ok(Json(monitoring))
 }

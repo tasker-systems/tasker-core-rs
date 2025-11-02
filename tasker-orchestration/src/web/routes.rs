@@ -65,6 +65,14 @@ pub fn api_v1_routes() -> Router<AppState> {
             patch(handlers::dlq::update_dlq_investigation),
         )
         .route("/dlq/stats", get(handlers::dlq::get_dlq_stats))
+        .route(
+            "/dlq/investigation-queue",
+            get(handlers::dlq::get_investigation_queue),
+        )
+        .route(
+            "/dlq/staleness",
+            get(handlers::dlq::get_staleness_monitoring),
+        )
 }
 
 /// Create health and metrics routes

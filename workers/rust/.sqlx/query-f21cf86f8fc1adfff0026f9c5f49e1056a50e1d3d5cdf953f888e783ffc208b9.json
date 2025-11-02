@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                dlq_entry_uuid as \"dlq_entry_uuid!\",\n                task_uuid as \"task_uuid!\",\n                original_state as \"original_state!\",\n                dlq_reason as \"dlq_reason!: DlqReason\",\n                dlq_timestamp as \"dlq_timestamp!\",\n                minutes_in_dlq::double precision as \"minutes_in_dlq!\",\n                namespace_name,\n                task_name,\n                current_state,\n                time_in_state_minutes,\n                priority_score::double precision as \"priority_score!\"\n            FROM v_dlq_investigation_queue\n            LIMIT $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dlq_entry_uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "original_state!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "dlq_reason!: DlqReason",
+        "type_info": {
+          "Custom": {
+            "name": "dlq_reason",
+            "kind": {
+              "Enum": [
+                "staleness_timeout",
+                "max_retries_exceeded",
+                "dependency_cycle_detected",
+                "worker_unavailable",
+                "manual_dlq"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "dlq_timestamp!",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 5,
+        "name": "minutes_in_dlq!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "namespace_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "task_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "current_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "time_in_state_minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "priority_score!",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "f21cf86f8fc1adfff0026f9c5f49e1056a50e1d3d5cdf953f888e783ffc208b9"
+}
