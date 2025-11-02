@@ -16,8 +16,8 @@ use tasker_shared::{
     types::{
         api::orchestration::{
             BottleneckAnalysis, BottleneckQuery, DetailedHealthResponse, HandlerInfo,
-            HealthResponse, ManualResolutionRequest, MetricsQuery, NamespaceInfo,
-            PerformanceMetrics, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
+            HealthResponse, MetricsQuery, NamespaceInfo, PerformanceMetrics, StepManualAction,
+            StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
         },
         auth::JwtAuthenticator,
     },
@@ -621,7 +621,7 @@ impl OrchestrationApiClient {
         &self,
         task_uuid: Uuid,
         step_uuid: Uuid,
-        request: ManualResolutionRequest,
+        action: StepManualAction,
     ) -> TaskerResult<StepResponse> {
         let url = self
             .base_url
@@ -637,14 +637,13 @@ impl OrchestrationApiClient {
             url = %url,
             task_uuid = %task_uuid,
             step_uuid = %step_uuid,
-            resolved_by = %request.resolved_by,
-            "Manually resolving step via orchestration API"
+            "Performing manual step action via orchestration API"
         );
 
         let response = self
             .client
             .patch(url.clone())
-            .json(&request)
+            .json(&action)
             .send()
             .await
             .map_err(|e| {
@@ -1187,6 +1186,7 @@ impl OrchestrationApiClient {
 mod tests {
     use super::*;
     use serde_json::json;
+    use tasker_shared::types::api::orchestration::ManualCompletionData;
 
     #[test]
     fn test_orchestration_api_config_default() {
@@ -1403,16 +1403,51 @@ mod tests {
     }
 
     #[test]
-    fn test_manual_resolution_request_serialization() {
-        let request = ManualResolutionRequest {
-            resolution_data: json!({"result": "success"}),
-            resolved_by: "admin".to_string(),
-            reason: "Manual intervention required".to_string(),
+    fn test_step_manual_action_reset_for_retry_serialization() {
+        let action = StepManualAction::ResetForRetry {
+            reset_by: "admin".to_string(),
+            reason: "Database connection restored".to_string(),
         };
 
-        let serialized = serde_json::to_string(&request).unwrap();
-        assert!(serialized.contains("resolution_data"));
+        let serialized = serde_json::to_string(&action).unwrap();
+        assert!(serialized.contains("action_type"));
+        assert!(serialized.contains("reset_for_retry"));
+        assert!(serialized.contains("reset_by"));
+        assert!(serialized.contains("reason"));
+    }
+
+    #[test]
+    fn test_step_manual_action_resolve_manually_serialization() {
+        let action = StepManualAction::ResolveManually {
+            resolved_by: "admin".to_string(),
+            reason: "Non-critical step, bypassing".to_string(),
+        };
+
+        let serialized = serde_json::to_string(&action).unwrap();
+        assert!(serialized.contains("action_type"));
+        assert!(serialized.contains("resolve_manually"));
         assert!(serialized.contains("resolved_by"));
+        assert!(serialized.contains("reason"));
+    }
+
+    #[test]
+    fn test_step_manual_action_complete_manually_serialization() {
+        let completion_data = ManualCompletionData {
+            result: json!({"validated": true, "score": 95}),
+            metadata: Some(json!({"manually_verified": true})),
+        };
+
+        let action = StepManualAction::CompleteManually {
+            completion_data,
+            reason: "Manual verification completed".to_string(),
+            completed_by: "admin".to_string(),
+        };
+
+        let serialized = serde_json::to_string(&action).unwrap();
+        assert!(serialized.contains("action_type"));
+        assert!(serialized.contains("complete_manually"));
+        assert!(serialized.contains("completion_data"));
+        assert!(serialized.contains("completed_by"));
         assert!(serialized.contains("reason"));
     }
 

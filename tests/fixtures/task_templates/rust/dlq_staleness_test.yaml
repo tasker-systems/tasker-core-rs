@@ -1,0 +1,96 @@
+# TaskTemplate Configuration - DLQ Staleness Testing
+#
+# Simple 2-step workflow for DLQ staleness detection testing
+# Demonstrates staleness detection with low thresholds for fast test execution
+#
+# Template: dlq_test/dlq_staleness_test:1.0.0
+# Implementation: Test-only template for TAS-49 lifecycle testing
+# Created: 2025-11-01 (TAS-49 Testing Phase)
+#
+---
+name: dlq_staleness_test
+namespace_name: dlq_test
+version: 1.0.0
+description: "Simple 2-step workflow for DLQ staleness detection testing with low thresholds"
+metadata:
+  author: TAS-49 DLQ Testing
+  tags:
+    - test:dlq
+    - pattern:linear
+    - dependencies:simple
+    - testing:lifecycle
+  documentation_url:
+  created_at: "2025-11-01T00:00:00Z"
+  updated_at: "2025-11-01T00:00:00Z"
+  notes: "Test-only template with 2-minute staleness thresholds for fast lifecycle testing"
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization:
+    test_mode: true
+    expected_results:
+      dlq_step_1: "test_input"
+      dlq_step_2: "test_input"
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - test_input
+  properties:
+    test_input:
+      type: integer
+      description: "Test input value"
+lifecycle:
+  max_waiting_for_dependencies_minutes: 2
+  max_waiting_for_retry_minutes: 2
+  max_steps_in_process_minutes: 2
+  max_duration_minutes: 30
+steps:
+  - name: dlq_step_1
+    description: "First step that will be placed in stuck state for testing"
+    handler:
+      callable: tasker_worker_rust::step_handlers::test::TestStepHandler
+      initialization:
+        operation: "return_input"
+        test_mode: true
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: dlq_step_2
+    description: "Second step depending on first for dependency testing"
+    handler:
+      callable: tasker_worker_rust::step_handlers::test::TestStepHandler
+      initialization:
+        operation: "return_input"
+        test_mode: true
+    system_dependency:
+    dependencies:
+      - dlq_step_1
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: dlq_step_1
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2
+      - name: dlq_step_2
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2

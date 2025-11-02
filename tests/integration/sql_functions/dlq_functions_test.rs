@@ -1322,7 +1322,7 @@ async fn test_staleness_monitoring_view_integration(pool: PgPool) -> Result<(), 
             );
         } else if entry.health_status == StalenessHealthStatus::Warning {
             assert!(
-                percentage >= 80.0 && percentage < 100.0,
+                (80.0..100.0).contains(&percentage),
                 "Warning tasks should have 80-99% threshold consumption, got {}%",
                 percentage
             );

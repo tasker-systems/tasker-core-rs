@@ -661,8 +661,8 @@ impl DlqEntry {
                     let time_in_dlq_hours = duration.as_secs_f64() / 3600.0;
 
                     // Record metric with labels
-                    use opentelemetry::KeyValue;
                     use crate::metrics::orchestration;
+                    use opentelemetry::KeyValue;
 
                     orchestration::task_time_in_dlq_hours().record(
                         time_in_dlq_hours,

@@ -191,7 +191,14 @@ async fn test_staleness_detection_metrics_integration(pool: PgPool) -> sqlx::Res
     .await?;
 
     // Create task that exceeded threshold (10 minutes in waiting_for_dependencies state)
-    create_stale_task(&pool, task_uuid, named_task_uuid, "waiting_for_dependencies", 10).await?;
+    create_stale_task(
+        &pool,
+        task_uuid,
+        named_task_uuid,
+        "waiting_for_dependencies",
+        10,
+    )
+    .await?;
 
     // Execute: Run staleness detection (exercises metrics 1-6)
     let executor = SqlFunctionExecutor::new(pool.clone());
@@ -265,7 +272,14 @@ async fn test_dlq_investigation_metrics_integration(pool: PgPool) -> sqlx::Resul
     )
     .await?;
 
-    create_stale_task(&pool, task_uuid, named_task_uuid, "waiting_for_dependencies", 10).await?;
+    create_stale_task(
+        &pool,
+        task_uuid,
+        named_task_uuid,
+        "waiting_for_dependencies",
+        10,
+    )
+    .await?;
 
     // Create DLQ entry
     let executor = SqlFunctionExecutor::new(pool.clone());
@@ -341,8 +355,14 @@ async fn test_pending_investigations_gauge_query(pool: PgPool) -> sqlx::Result<(
     // Create 3 tasks and DLQ entries
     for _ in 0..3 {
         let task_uuid = Uuid::now_v7();
-        create_stale_task(&pool, task_uuid, named_task_uuid, "waiting_for_dependencies", 10)
-            .await?;
+        create_stale_task(
+            &pool,
+            task_uuid,
+            named_task_uuid,
+            "waiting_for_dependencies",
+            10,
+        )
+        .await?;
     }
 
     // Create DLQ entries for all 3 tasks

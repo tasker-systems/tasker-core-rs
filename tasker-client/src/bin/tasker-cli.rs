@@ -13,6 +13,7 @@ use tasker_client::{
 };
 use tasker_shared::config::{ConfigMerger, ConfigurationContext};
 use tasker_shared::models::core::{task::TaskListQuery, task_request::TaskRequest};
+use tasker_shared::types::api::orchestration::{ManualCompletionData, StepManualAction};
 use tracing::info;
 use uuid::Uuid;
 
@@ -110,6 +111,72 @@ pub enum TaskCommands {
         /// Task UUID to cancel
         #[arg(value_name = "UUID")]
         task_id: String,
+    },
+    /// List workflow steps for a task
+    Steps {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+    },
+    /// Get workflow step details
+    Step {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+        /// Step UUID
+        #[arg(value_name = "STEP_UUID")]
+        step_id: String,
+    },
+    /// Reset step attempt counter and return to pending for automatic retry
+    ResetStep {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+        /// Step UUID
+        #[arg(value_name = "STEP_UUID")]
+        step_id: String,
+        /// Reason for reset
+        #[arg(short, long)]
+        reason: String,
+        /// Operator performing reset
+        #[arg(short = 'b', long, default_value = "cli-operator")]
+        reset_by: String,
+    },
+    /// Mark step as manually resolved without providing results
+    ResolveStep {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+        /// Step UUID
+        #[arg(value_name = "STEP_UUID")]
+        step_id: String,
+        /// Reason for resolution
+        #[arg(short, long)]
+        reason: String,
+        /// Operator performing resolution
+        #[arg(short = 'b', long, default_value = "cli-operator")]
+        resolved_by: String,
+    },
+    /// Complete step manually with execution results for dependent steps
+    CompleteStep {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+        /// Step UUID
+        #[arg(value_name = "STEP_UUID")]
+        step_id: String,
+        /// Execution result as JSON string
+        #[arg(long)]
+        result: String,
+        /// Optional metadata as JSON string
+        #[arg(long)]
+        metadata: Option<String>,
+        /// Reason for manual completion
+        #[arg(short, long)]
+        reason: String,
+        /// Operator performing completion
+        #[arg(short = 'b', long, default_value = "cli-operator")]
+        completed_by: String,
     },
 }
 
@@ -495,6 +562,207 @@ async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Client
                 }
                 Err(e) => {
                     eprintln!("✗ Failed to cancel task: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::Steps { task_id } => {
+            println!("Listing workflow steps for task: {}", task_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid UUID: {}", e))
+            })?;
+
+            match client.list_task_steps(task_uuid).await {
+                Ok(steps) => {
+                    println!("\n✓ Found {} workflow steps:\n", steps.len());
+                    for step in steps {
+                        println!("  Step: {} ({})", step.name, step.step_uuid);
+                        println!("    State: {}", step.current_state);
+                        println!(
+                            "    Dependencies satisfied: {}",
+                            step.dependencies_satisfied
+                        );
+                        println!("    Ready for execution: {}", step.ready_for_execution);
+                        println!("    Attempts: {}/{}", step.attempts, step.max_attempts);
+                        if step.retry_eligible {
+                            println!("    ⚠ Retry eligible");
+                        }
+                        println!();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to list steps: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::Step { task_id, step_id } => {
+            println!("Getting step details: {} for task: {}", step_id, task_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid task UUID: {}", e))
+            })?;
+
+            let step_uuid = Uuid::parse_str(&step_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid step UUID: {}", e))
+            })?;
+
+            match client.get_step(task_uuid, step_uuid).await {
+                Ok(step) => {
+                    println!("\n✓ Step Details:\n");
+                    println!("  UUID: {}", step.step_uuid);
+                    println!("  Name: {}", step.name);
+                    println!("  State: {}", step.current_state);
+                    println!("  Dependencies satisfied: {}", step.dependencies_satisfied);
+                    println!("  Ready for execution: {}", step.ready_for_execution);
+                    println!("  Retry eligible: {}", step.retry_eligible);
+                    println!("  Attempts: {}/{}", step.attempts, step.max_attempts);
+                    if let Some(last_failure) = step.last_failure_at {
+                        println!("  Last failure: {}", last_failure);
+                    }
+                    if let Some(next_retry) = step.next_retry_at {
+                        println!("  Next retry: {}", next_retry);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to get step: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::ResetStep {
+            task_id,
+            step_id,
+            reason,
+            reset_by,
+        } => {
+            println!("Resetting step {} for retry...", step_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid task UUID: {}", e))
+            })?;
+
+            let step_uuid = Uuid::parse_str(&step_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid step UUID: {}", e))
+            })?;
+
+            let action = StepManualAction::ResetForRetry {
+                reason: reason.clone(),
+                reset_by: reset_by.clone(),
+            };
+
+            match client
+                .resolve_step_manually(task_uuid, step_uuid, action)
+                .await
+            {
+                Ok(step) => {
+                    println!("\n✓ Step reset successfully!");
+                    println!("  New state: {}", step.current_state);
+                    println!("  Reason: {}", reason);
+                    println!("  Reset by: {}", reset_by);
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to reset step: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::ResolveStep {
+            task_id,
+            step_id,
+            reason,
+            resolved_by,
+        } => {
+            println!("Manually resolving step {}...", step_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid task UUID: {}", e))
+            })?;
+
+            let step_uuid = Uuid::parse_str(&step_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid step UUID: {}", e))
+            })?;
+
+            let action = StepManualAction::ResolveManually {
+                reason: reason.clone(),
+                resolved_by: resolved_by.clone(),
+            };
+
+            match client
+                .resolve_step_manually(task_uuid, step_uuid, action)
+                .await
+            {
+                Ok(step) => {
+                    println!("\n✓ Step resolved manually!");
+                    println!("  New state: {}", step.current_state);
+                    println!("  Reason: {}", reason);
+                    println!("  Resolved by: {}", resolved_by);
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to resolve step: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::CompleteStep {
+            task_id,
+            step_id,
+            result,
+            metadata,
+            reason,
+            completed_by,
+        } => {
+            println!("Manually completing step {} with results...", step_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid task UUID: {}", e))
+            })?;
+
+            let step_uuid = Uuid::parse_str(&step_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid step UUID: {}", e))
+            })?;
+
+            // Parse result JSON
+            let result_value: serde_json::Value = serde_json::from_str(&result).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid result JSON: {}", e))
+            })?;
+
+            // Parse optional metadata JSON
+            let metadata_value: Option<serde_json::Value> = if let Some(meta) = metadata {
+                Some(serde_json::from_str(&meta).map_err(|e| {
+                    tasker_client::ClientError::InvalidInput(format!(
+                        "Invalid metadata JSON: {}",
+                        e
+                    ))
+                })?)
+            } else {
+                None
+            };
+
+            let completion_data = ManualCompletionData {
+                result: result_value,
+                metadata: metadata_value,
+            };
+
+            let action = StepManualAction::CompleteManually {
+                completion_data,
+                reason: reason.clone(),
+                completed_by: completed_by.clone(),
+            };
+
+            match client
+                .resolve_step_manually(task_uuid, step_uuid, action)
+                .await
+            {
+                Ok(step) => {
+                    println!("\n✓ Step completed manually with results!");
+                    println!("  New state: {}", step.current_state);
+                    println!("  Reason: {}", reason);
+                    println!("  Completed by: {}", completed_by);
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to complete step: {}", e);
                     return Err(e.into());
                 }
             }

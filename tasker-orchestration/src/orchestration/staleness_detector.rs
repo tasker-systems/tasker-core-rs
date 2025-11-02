@@ -346,16 +346,14 @@ impl StalenessDetector {
             match executor.pool().acquire().await {
                 Ok(mut conn) => {
                     match sqlx::query_scalar::<_, i64>(
-                        "SELECT COUNT(*) FROM tasker_tasks_dlq WHERE resolution_status = 'pending'"
+                        "SELECT COUNT(*) FROM tasker_tasks_dlq WHERE resolution_status = 'pending'",
                     )
                     .fetch_one(&mut *conn)
                     .await
                     {
                         Ok(pending_count) => {
-                            orchestration::dlq_pending_investigations().record(
-                                pending_count as u64,
-                                &[],
-                            );
+                            orchestration::dlq_pending_investigations()
+                                .record(pending_count as u64, &[]);
                             debug!(
                                 pending_investigations = pending_count,
                                 "Updated DLQ pending investigations gauge"
