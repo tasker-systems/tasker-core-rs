@@ -144,6 +144,12 @@ pub struct SystemHealthSummary {
 impl SystemHealthCounts {
     /// Convert from sql_functions::SystemHealthCounts to insights::SystemHealthCounts
     fn from_sql_function_result(sql_counts: SqlSystemHealthCounts) -> Self {
+        // Calculate in_progress_tasks by summing the actively processing task states
+        let in_progress_tasks = sql_counts.initializing_tasks
+            + sql_counts.enqueuing_steps_tasks
+            + sql_counts.steps_in_process_tasks
+            + sql_counts.evaluating_results_tasks;
+
         // Compute retry metrics from available data
         let retryable_error_steps = sql_counts.waiting_for_retry_steps;
         let exhausted_retry_steps = if sql_counts.error_steps >= sql_counts.waiting_for_retry_steps
@@ -156,7 +162,7 @@ impl SystemHealthCounts {
         Self {
             total_tasks: sql_counts.total_tasks,
             pending_tasks: sql_counts.pending_tasks,
-            in_progress_tasks: sql_counts.in_progress_tasks,
+            in_progress_tasks,
             complete_tasks: sql_counts.complete_tasks,
             error_tasks: sql_counts.error_tasks,
             cancelled_tasks: sql_counts.cancelled_tasks,
@@ -172,8 +178,10 @@ impl SystemHealthCounts {
             error_steps: sql_counts.error_steps,
             cancelled_steps: sql_counts.cancelled_steps,
             resolved_manually_steps: sql_counts.resolved_manually_steps,
-            active_connections: sql_counts.active_connections,
-            max_connections: sql_counts.max_connections,
+            // Connection metrics not available from SQL function - set to 0
+            // TODO: Fetch from separate connection pool monitoring if needed
+            active_connections: 0,
+            max_connections: 0,
             retryable_error_steps,
             exhausted_retry_steps,
         }

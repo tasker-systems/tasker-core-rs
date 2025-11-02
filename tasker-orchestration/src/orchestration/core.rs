@@ -14,7 +14,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{info, warn};
+use tokio::task::JoinHandle;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::monitoring::ChannelMonitor; // TAS-51: Channel monitoring
@@ -24,19 +25,19 @@ use tasker_shared::{TaskerError, TaskerResult};
 use crate::orchestration::command_processor::{
     OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, SystemHealth,
 };
-// use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
-// use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
-// use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
-// use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
-// use crate::orchestration::lifecycle::task_request_processor::{
-//     TaskRequestProcessor, TaskRequestProcessorConfig,
-// };
+use crate::orchestration::staleness_detector::StalenessDetector; // TAS-49: Background services
+                                                                 // use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
+                                                                 // use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
+                                                                 // use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
+                                                                 // use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
+                                                                 // use crate::orchestration::lifecycle::task_request_processor::{
+                                                                 //     TaskRequestProcessor, TaskRequestProcessorConfig,
+                                                                 // };
 
 /// TAS-40 Command Pattern OrchestrationCore
 ///
 /// Replaces complex polling-based coordinator/executor system with simple command pattern
 /// while preserving all sophisticated orchestration logic through delegation.
-#[derive(Debug)]
 pub struct OrchestrationCore {
     /// System context for dependency injection
     pub context: Arc<SystemContext>,
@@ -55,6 +56,29 @@ pub struct OrchestrationCore {
 
     /// Channel monitor for command channel observability (TAS-51)
     command_channel_monitor: ChannelMonitor,
+
+    /// TAS-49: Staleness detector background service
+    staleness_detector_handle: Option<JoinHandle<()>>,
+}
+
+// Manual Debug implementation since JoinHandle doesn't implement Debug
+impl std::fmt::Debug for OrchestrationCore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrchestrationCore")
+            .field("context", &self.context)
+            .field("command_sender", &self.command_sender)
+            .field("processor", &self.processor)
+            .field("status", &self.status)
+            .field("command_channel_monitor", &self.command_channel_monitor)
+            .field(
+                "staleness_detector_handle",
+                &self
+                    .staleness_detector_handle
+                    .as_ref()
+                    .map(|_| "JoinHandle"),
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,6 +137,7 @@ impl OrchestrationCore {
             processor: Some(processor),
             status: OrchestrationCoreStatus::Created,
             command_channel_monitor: channel_monitor, // Store monitor for sender instrumentation
+            staleness_detector_handle: None,          // TAS-49: Started in start()
         })
     }
 
@@ -132,13 +157,47 @@ impl OrchestrationCore {
 
         self.status = OrchestrationCoreStatus::Starting;
 
-        // The processor is already started in new(), just update status
+        // The processor is already started in new()
+
+        // TAS-49: Start background services
+        self.start_background_services().await?;
+
         self.status = OrchestrationCoreStatus::Running;
 
         info!(
             processor_uuid = %self.context.processor_uuid(),
-            "OrchestrationCore started successfully with TAS-40 command pattern"
+            "OrchestrationCore started successfully with TAS-40 command pattern and TAS-49 background services"
         );
+
+        Ok(())
+    }
+
+    /// TAS-49: Start background services for staleness detection
+    async fn start_background_services(&mut self) -> TaskerResult<()> {
+        // Get TAS-49 DLQ configuration (TODO: Add to TaskerConfig root for easier access)
+        // For now, using defaults from component config
+        let staleness_config =
+            tasker_shared::config::components::StalenessDetectionConfig::default();
+
+        // Start staleness detector if enabled
+        if staleness_config.enabled {
+            let detector = StalenessDetector::new(
+                self.context.database_pool().clone(),
+                staleness_config.clone(),
+            );
+
+            let handle = tokio::spawn(async move {
+                info!("Spawning staleness detector background service");
+                if let Err(e) = detector.run().await {
+                    error!(error = %e, "Staleness detector failed");
+                }
+            });
+
+            self.staleness_detector_handle = Some(handle);
+            info!("Staleness detector background service started");
+        } else {
+            info!("Staleness detector disabled in configuration");
+        }
 
         Ok(())
     }
@@ -148,6 +207,9 @@ impl OrchestrationCore {
         info!("Stopping OrchestrationCore");
 
         self.status = OrchestrationCoreStatus::Stopping;
+
+        // TAS-49: Stop background services first
+        self.stop_background_services().await;
 
         // Send shutdown command to processor
         let (resp_tx, resp_rx) = oneshot::channel();
@@ -172,6 +234,21 @@ impl OrchestrationCore {
         );
 
         Ok(())
+    }
+
+    /// TAS-49: Stop background services gracefully
+    async fn stop_background_services(&mut self) {
+        // Stop staleness detector
+        if let Some(handle) = self.staleness_detector_handle.take() {
+            info!("Stopping staleness detector background service");
+            handle.abort();
+
+            // Give it a moment to clean up
+            match tokio::time::timeout(Duration::from_secs(5), handle).await {
+                Ok(_) => info!("Staleness detector stopped gracefully"),
+                Err(_) => warn!("Staleness detector stop timed out (already aborted)"),
+            }
+        }
     }
 
     /// Get system health status via command pattern

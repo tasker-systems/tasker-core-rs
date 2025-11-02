@@ -57,6 +57,22 @@ pub fn api_v1_routes() -> Router<AppState> {
             "/analytics/bottlenecks",
             get(handlers::analytics::get_bottlenecks),
         )
+        // DLQ API - Investigation tracking (TAS-49)
+        .route("/dlq", get(handlers::dlq::list_dlq_entries))
+        .route("/dlq/task/:task_uuid", get(handlers::dlq::get_dlq_entry))
+        .route(
+            "/dlq/entry/:dlq_entry_uuid",
+            patch(handlers::dlq::update_dlq_investigation),
+        )
+        .route("/dlq/stats", get(handlers::dlq::get_dlq_stats))
+        .route(
+            "/dlq/investigation-queue",
+            get(handlers::dlq::get_investigation_queue),
+        )
+        .route(
+            "/dlq/staleness",
+            get(handlers::dlq::get_staleness_monitoring),
+        )
 }
 
 /// Create health and metrics routes

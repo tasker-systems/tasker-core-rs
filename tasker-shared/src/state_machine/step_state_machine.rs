@@ -1,6 +1,6 @@
 use super::{
     actions::{
-        ErrorStateCleanupAction, PublishTransitionEventAction, StateAction,
+        ErrorStateCleanupAction, PublishTransitionEventAction, ResetAttemptsAction, StateAction,
         TriggerStepDiscoveryAction, UpdateStepResultsAction,
     },
     errors::{StateMachineError, StateMachineResult},
@@ -185,8 +185,16 @@ impl StepStateMachine {
             // Cancel from waiting for retry
             (WorkflowStepState::WaitingForRetry, StepEvent::Cancel) => WorkflowStepState::Cancelled,
 
-            // Manual resolution
+            // Manual completion with results - transitions to Complete state
+            // This allows operators to provide execution results that dependent steps can consume
+            (_, StepEvent::CompleteManually(_)) => WorkflowStepState::Complete,
+
+            // Manual resolution - transitions to ResolvedManually state
             (_, StepEvent::ResolveManually) => WorkflowStepState::ResolvedManually,
+
+            // Reset for retry - resets attempt counter and returns to Pending
+            // Allows operators to reset failed steps when transient issues are resolved
+            (WorkflowStepState::Error, StepEvent::ResetForRetry) => WorkflowStepState::Pending,
 
             // Invalid transitions
             (from_state, _) => {
@@ -259,6 +267,7 @@ impl StepStateMachine {
                 self.event_publisher.clone(),
             )),
             Box::new(ErrorStateCleanupAction),
+            Box::new(ResetAttemptsAction::new()),
         ];
 
         for action in actions {

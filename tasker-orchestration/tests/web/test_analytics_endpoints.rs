@@ -304,6 +304,16 @@ async fn test_analytics_endpoints_without_authentication() {
     // so we expect 200 OK if the endpoints are implemented correctly
     let status = response.status();
     println!("   Performance endpoint (unauthenticated): {status}");
+
+    if status != StatusCode::OK {
+        // Print error response body for debugging
+        let error_body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error body".to_string());
+        println!("   Error response body: {error_body}");
+    }
+
     assert_eq!(
         status,
         StatusCode::OK,
@@ -318,6 +328,16 @@ async fn test_analytics_endpoints_without_authentication() {
 
     let status = response.status();
     println!("   Bottlenecks endpoint (unauthenticated): {status}");
+
+    if status != StatusCode::OK {
+        // Print error response body for debugging
+        let error_body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error body".to_string());
+        println!("   Error response body: {error_body}");
+    }
+
     assert_eq!(
         status,
         StatusCode::OK,
@@ -398,11 +418,6 @@ async fn test_analytics_endpoints_with_proper_authentication() {
 
     let status = response.status();
     println!("   Bottlenecks endpoint (authenticated): {status}");
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "Expected 200 OK with valid auth token, got {status}"
-    );
 
     if status.is_success() {
         // Validate the response structure to ensure the endpoint actually works
@@ -426,7 +441,20 @@ async fn test_analytics_endpoints_with_proper_authentication() {
         );
 
         println!("   ✓ Bottlenecks response structure validated");
+    } else {
+        // Print error response body for debugging
+        let error_body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error body".to_string());
+        println!("   Error response body: {error_body}");
     }
+
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "Expected 200 OK with valid auth token, got {status}"
+    );
 
     println!("✅ Analytics endpoints work correctly with proper authentication");
 

@@ -179,8 +179,18 @@ pub enum StepEvent {
     Fail(String),
     /// Cancel the step
     Cancel,
-    /// Manually resolve the step
+    /// Manually resolve the step (transitions to resolved_manually state)
     ResolveManually,
+    /// Manually complete the step with execution results (transitions to complete state)
+    ///
+    /// This allows operators to provide properly-shaped execution results that
+    /// dependent steps can consume, enabling the task to continue normal execution.
+    CompleteManually(Option<Value>),
+    /// Reset attempt counter and return to pending for natural retry (error → pending)
+    ///
+    /// This allows operators to reset failed steps when they believe the transient
+    /// issue has been resolved and natural retry should succeed.
+    ResetForRetry,
     /// Retry the step (from error state)
     Retry,
     /// Wait for retry delay with backoff (error → waiting_for_retry)
@@ -199,6 +209,8 @@ impl StepEvent {
             Self::Fail(_) => "fail",
             Self::Cancel => "cancel",
             Self::ResolveManually => "resolve_manually",
+            Self::CompleteManually(_) => "complete_manually",
+            Self::ResetForRetry => "reset_for_retry",
             Self::Retry => "retry",
             Self::WaitForRetry(_) => "wait_for_retry",
         }
@@ -216,6 +228,7 @@ impl StepEvent {
     pub fn results(&self) -> Option<&Value> {
         match self {
             Self::Complete(results) => results.as_ref(),
+            Self::CompleteManually(results) => results.as_ref(),
             Self::EnqueueForOrchestration(results) => results.as_ref(),
             Self::EnqueueAsErrorForOrchestration(results) => results.as_ref(),
             _ => None,
@@ -227,13 +240,16 @@ impl StepEvent {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            Self::Complete(_) | Self::Cancel | Self::ResolveManually
+            Self::Complete(_) | Self::CompleteManually(_) | Self::Cancel | Self::ResolveManually
         )
     }
 
     /// Check if this event can be applied from error state
     pub fn allows_retry(&self) -> bool {
-        matches!(self, Self::Retry | Self::Cancel | Self::ResolveManually)
+        matches!(
+            self,
+            Self::Retry | Self::Cancel | Self::ResolveManually | Self::CompleteManually(_)
+        )
     }
 }
 
@@ -304,5 +320,15 @@ impl StepEvent {
     /// Create a wait for retry event with error message
     pub fn wait_for_retry(error_message: impl Into<String>) -> Self {
         Self::WaitForRetry(error_message.into())
+    }
+
+    /// Create a manual completion event with results
+    pub fn complete_manually_with_results(results: Value) -> Self {
+        Self::CompleteManually(Some(results))
+    }
+
+    /// Create a simple manual completion event without results
+    pub fn complete_manually_simple() -> Self {
+        Self::CompleteManually(None)
     }
 }

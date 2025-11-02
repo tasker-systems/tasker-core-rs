@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT * FROM get_step_readiness_status($1)\n        WHERE workflow_step_uuid = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workflow_step_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "named_step_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "current_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "dependencies_satisfied",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "retry_eligible",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "ready_for_execution",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_failure_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 9,
+        "name": "next_retry_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 10,
+        "name": "total_parents",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "completed_parents",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 14,
+        "name": "backoff_request_seconds",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 15,
+        "name": "last_attempted_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "cd2e5a8e04ac0608924319d0ea206900179fdbd091cada57fa8d98cbaf62a13b"
+}

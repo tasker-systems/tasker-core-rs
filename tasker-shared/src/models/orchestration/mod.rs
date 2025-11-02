@@ -27,6 +27,7 @@
 //! - Real-time execution state monitoring
 //! - Orchestrator health and progress tracking
 
+pub mod dlq;
 pub mod execution_status;
 pub mod step_dag_relationship;
 pub mod step_readiness_status;
@@ -34,6 +35,10 @@ pub mod step_transitive_dependencies;
 pub mod task_execution_context;
 
 // Re-export for easy access
+pub use dlq::{
+    DlqEntry, DlqInvestigationQueueEntry, DlqInvestigationUpdate, DlqListParams, DlqReason,
+    DlqResolutionStatus, DlqStats, StalenessAction, StalenessHealthStatus, StalenessMonitoring,
+};
 pub use execution_status::{ExecutionStatus, RecommendedAction};
 pub use step_dag_relationship::{StepDagRelationship, StepDagRelationshipQuery};
 pub use step_readiness_status::{

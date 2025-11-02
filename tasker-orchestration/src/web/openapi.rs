@@ -18,9 +18,9 @@ use crate::web::handlers;
 
 use tasker_shared::types::api::orchestration::{
     BottleneckAnalysis, ConfigMetadata, DetailedHealthResponse, HandlerInfo, HealthCheck,
-    HealthInfo, HealthResponse, ManualResolutionRequest, NamespaceInfo,
-    OrchestrationConfigResponse, PerformanceMetrics, ResourceUtilization, SlowStepInfo,
-    SlowTaskInfo, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
+    HealthInfo, HealthResponse, ManualCompletionData, NamespaceInfo, OrchestrationConfigResponse,
+    PerformanceMetrics, ResourceUtilization, SlowStepInfo, SlowTaskInfo, StepManualAction,
+    StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
 };
 
 /// Main OpenAPI specification for the Tasker Web API
@@ -70,7 +70,8 @@ use tasker_shared::types::api::orchestration::{
 
         // Workflow Step schemas
         StepResponse,
-        ManualResolutionRequest,
+        StepManualAction,
+        ManualCompletionData,
 
         // Health schemas
         HealthResponse,

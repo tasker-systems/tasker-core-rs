@@ -41,7 +41,7 @@ fn meter() -> &'static Meter {
 /// Total number of SQL queries executed
 ///
 /// Labels:
-/// - query_type: get_next_ready_tasks, transition_task_state_atomic, etc.
+/// - query_type: get_next_ready_tasks, get_step_readiness_status, etc.
 /// - result: success, error
 pub fn sql_queries_total() -> Counter<u64> {
     meter()
@@ -79,7 +79,7 @@ pub fn db_connection_errors_total() -> Counter<u64> {
 /// Tracks end-to-end query execution time.
 ///
 /// Labels:
-/// - query_type: get_next_ready_tasks, transition_task_state_atomic, etc.
+/// - query_type: get_next_ready_tasks, get_step_readiness_status, etc.
 /// - result: success, error
 pub fn sql_query_duration() -> Histogram<f64> {
     meter()

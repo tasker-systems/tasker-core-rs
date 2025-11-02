@@ -394,6 +394,133 @@ pub static DECISION_PROCESSING_DURATION: OnceLock<Histogram<f64>> = OnceLock::ne
 /// Static histogram: decision_step_count_histogram
 pub static DECISION_STEP_COUNT_HISTOGRAM: OnceLock<Histogram<u64>> = OnceLock::new();
 
+// ============================================================================
+// TAS-49: Dead Letter Queue (DLQ) and Lifecycle Management Metrics
+// ============================================================================
+
+/// Total number of DLQ entries created
+///
+/// Tracks tasks sent to DLQ for investigation.
+///
+/// Labels:
+/// - correlation_id: Task correlation ID
+/// - dlq_reason: staleness_timeout, max_retries_exceeded, dependency_cycle_detected, worker_unavailable, manual_dlq
+/// - original_state: Task state when sent to DLQ
+pub fn dlq_entries_created_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.dlq.entries_created.total")
+        .with_description("Total number of DLQ entries created")
+        .init()
+}
+
+/// Total number of stale tasks detected
+///
+/// Tracks tasks identified as stale by staleness detection.
+///
+/// Labels:
+/// - state: Task state where staleness was detected
+/// - time_in_state_minutes: Duration bucket (60-120, 120-360, >360)
+pub fn stale_tasks_detected_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.staleness.tasks_detected.total")
+        .with_description("Total number of stale tasks detected")
+        .init()
+}
+
+/// Total number of tasks transitioned to Error state due to staleness
+///
+/// Tracks tasks automatically moved to Error state by staleness detection.
+///
+/// Labels:
+/// - correlation_id: Task correlation ID
+/// - original_state: State before transition
+/// - reason: staleness_timeout
+pub fn tasks_transitioned_to_error_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.staleness.tasks_transitioned_to_error.total")
+        .with_description("Total number of tasks transitioned to Error state due to staleness")
+        .init()
+}
+
+/// Total number of staleness detection runs
+///
+/// Tracks how many times the staleness detection function has run.
+///
+/// Labels:
+/// - dry_run: true/false - whether this was a dry run
+pub fn staleness_detection_runs_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.staleness.detection_runs.total")
+        .with_description("Total number of staleness detection runs")
+        .init()
+}
+
+/// Staleness detection execution duration in milliseconds
+///
+/// Tracks time to detect and process stale tasks.
+///
+/// Labels:
+/// - dry_run: true/false
+/// - tasks_detected: Number of stale tasks detected in this run
+pub fn staleness_detection_duration() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.staleness.detection.duration")
+        .with_description("Staleness detection execution duration in milliseconds")
+        .with_unit("ms")
+        .init()
+}
+
+/// Task time in DLQ in hours
+///
+/// Tracks how long tasks spend in DLQ before resolution.
+///
+/// Labels:
+/// - resolution_status: manually_resolved, permanently_failed, cancelled
+/// - dlq_reason: staleness_timeout, max_retries_exceeded, etc.
+pub fn task_time_in_dlq_hours() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.dlq.time_in_queue")
+        .with_description("Task time in DLQ in hours")
+        .with_unit("h")
+        .init()
+}
+
+/// Number of pending DLQ investigations
+///
+/// Tracks current backlog of unresolved DLQ entries.
+///
+/// Labels:
+/// - dlq_reason: staleness_timeout, max_retries_exceeded, etc.
+pub fn dlq_pending_investigations() -> Gauge<u64> {
+    meter()
+        .u64_gauge("tasker.dlq.pending_investigations")
+        .with_description("Number of pending DLQ investigations")
+        .init()
+}
+
+// TAS-49: DLQ and lifecycle metrics statics
+
+/// Static counter: dlq_entries_created_total
+pub static DLQ_ENTRIES_CREATED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: stale_tasks_detected_total
+pub static STALE_TASKS_DETECTED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: tasks_transitioned_to_error_total
+pub static TASKS_TRANSITIONED_TO_ERROR_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: staleness_detection_runs_total
+pub static STALENESS_DETECTION_RUNS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static histogram: staleness_detection_duration
+pub static STALENESS_DETECTION_DURATION: OnceLock<Histogram<f64>> = OnceLock::new();
+
+/// Static histogram: task_time_in_dlq_hours
+pub static TASK_TIME_IN_DLQ_HOURS: OnceLock<Histogram<f64>> = OnceLock::new();
+
+/// Static gauge: dlq_pending_investigations
+pub static DLQ_PENDING_INVESTIGATIONS: OnceLock<Gauge<u64>> = OnceLock::new();
+
 /// Initialize all orchestration metrics
 ///
 /// This should be called during application startup after init_metrics().
@@ -422,4 +549,13 @@ pub fn init() {
     DECISION_WARNINGS_TOTAL.get_or_init(decision_warnings_total);
     DECISION_PROCESSING_DURATION.get_or_init(decision_processing_duration);
     DECISION_STEP_COUNT_HISTOGRAM.get_or_init(decision_step_count_histogram);
+
+    // TAS-49: DLQ and lifecycle metrics
+    DLQ_ENTRIES_CREATED_TOTAL.get_or_init(dlq_entries_created_total);
+    STALE_TASKS_DETECTED_TOTAL.get_or_init(stale_tasks_detected_total);
+    TASKS_TRANSITIONED_TO_ERROR_TOTAL.get_or_init(tasks_transitioned_to_error_total);
+    STALENESS_DETECTION_RUNS_TOTAL.get_or_init(staleness_detection_runs_total);
+    STALENESS_DETECTION_DURATION.get_or_init(staleness_detection_duration);
+    TASK_TIME_IN_DLQ_HOURS.get_or_init(task_time_in_dlq_hours);
+    DLQ_PENDING_INVESTIGATIONS.get_or_init(dlq_pending_investigations);
 }

@@ -8,6 +8,7 @@
 pub mod backoff;
 pub mod circuit_breakers;
 pub mod database;
+pub mod dlq;
 pub mod event_systems;
 pub mod mpsc_channels;
 pub mod orchestration_system;
@@ -19,6 +20,9 @@ pub mod worker_system;
 pub use backoff::BackoffConfig;
 pub use circuit_breakers::CircuitBreakersConfig;
 pub use database::{DatabaseConfig, DatabasePoolConfig};
+pub use dlq::{
+    DlqConfig, DlqReasons, StalenessActions, StalenessDetectionConfig, StalenessThresholds,
+};
 pub use event_systems::{
     EventSystemsConfig, OrchestrationEventSystemConfig, TaskReadinessEventSystemConfig,
     WorkerEventSystemConfig,

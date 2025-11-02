@@ -413,10 +413,26 @@ impl StateManager {
                 reason: e.to_string(),
             })?;
 
+        // Calculate in_progress_tasks by summing the actively processing task states
+        let in_progress_tasks = health_counts.initializing_tasks
+            + health_counts.enqueuing_steps_tasks
+            + health_counts.steps_in_process_tasks
+            + health_counts.evaluating_results_tasks;
+
+        // Calculate basic health score from success and error rates
+        let overall_health_score = if health_counts.total_tasks > 0 {
+            let success_rate = health_counts.success_rate();
+            let error_rate = health_counts.error_rate();
+            // Simple health score: 60% success rate, 40% inverse error rate
+            (success_rate * 0.6 + (1.0 - error_rate) * 0.4).clamp(0.0, 1.0)
+        } else {
+            1.0 // No tasks means system is healthy
+        };
+
         Ok(StateHealthSummary {
             total_tasks: health_counts.total_tasks,
             pending_tasks: health_counts.pending_tasks,
-            in_progress_tasks: health_counts.in_progress_tasks,
+            in_progress_tasks,
             completed_tasks: health_counts.complete_tasks,
             failed_tasks: health_counts.error_tasks,
             total_steps: health_counts.total_steps,
@@ -424,7 +440,7 @@ impl StateManager {
             in_progress_steps: health_counts.in_progress_steps,
             completed_steps: health_counts.complete_steps,
             failed_steps: health_counts.error_steps,
-            overall_health_score: health_counts.health_score(),
+            overall_health_score,
             last_updated: Utc::now(),
         })
     }

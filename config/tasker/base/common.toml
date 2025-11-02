@@ -1,12 +1,13 @@
 # Current environment (overridden by environment-specific config)
 environment = "development"
 
+# ============================================================================
+# DATABASE CONFIGURATION
+# ============================================================================
+
 [database]
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_development}"
-encoding = "unicode"
-host = "localhost"
-checkout_timeout = 10
-reaping_frequency = 10
+database = "tasker_development"
 
 
 [database.pool]
@@ -63,7 +64,6 @@ statement_timeout = 5000
 backend = "pgmq"                            # Future: "rabbitmq", "redis", etc.
 orchestration_namespace = "orchestration"
 worker_namespace = "worker"
-default_namespace = "default"
 naming_pattern = "{namespace}_{name}_queue"
 
 # Universal queue configuration (backend-agnostic)
@@ -136,6 +136,20 @@ event_queue_buffer_size = 5000
 # Handles: Rust → Ruby event communication across FFI boundary
 ruby_event_buffer_size = 1000
 
+
+[mpsc_channels.overflow_policy]
+# Overflow policy for channel backpressure (TAS-51)
+# Log warning when channel usage exceeds this threshold (0.0-1.0)
+log_warning_threshold = 0.8
+# Default drop policy: block (provides natural backpressure)
+drop_policy = "block"
+
+
+[mpsc_channels.overflow_policy.metrics]
+# Overflow metrics collection
+enabled = true
+saturation_check_interval_seconds = 60
+
 # ============================================================================
 # CIRCUIT BREAKERS
 # ============================================================================
@@ -176,3 +190,98 @@ success_threshold = 2
 failure_threshold = 5
 timeout_seconds = 30
 success_threshold = 2
+
+# ============================================================================
+# TELEMETRY CONFIGURATION
+# ============================================================================
+
+[telemetry]
+# Telemetry enablement and configuration
+enabled = true
+
+[telemetry.metrics]
+# Metrics collection configuration
+enabled = true
+collection_interval_seconds = 60
+export_endpoint = "${TELEMETRY_ENDPOINT:-}"
+
+[telemetry.tracing]
+# Distributed tracing configuration
+enabled = true
+sampling_rate = 1.0
+export_endpoint = "${TRACING_ENDPOINT:-}"
+
+# ============================================================================
+# SYSTEM CONFIGURATION
+# ============================================================================
+
+[system]
+# System-level configuration
+max_memory_mb = 2048
+max_cpu_percent = 80.0
+process_name = "tasker"
+
+# ============================================================================
+# EXECUTION CONFIGURATION
+# ============================================================================
+
+[execution]
+# CRITICAL: Environment detection (previously missing!)
+environment = "${TASKER_ENV:-development}"
+
+[execution.timeouts]
+# Global operation timeouts
+default_operation_timeout_seconds = 30
+shutdown_grace_period_seconds = 30
+
+# ============================================================================
+# TASK TEMPLATES CONFIGURATION
+# ============================================================================
+
+[task_templates]
+# Task template discovery and caching
+cache_enabled = true
+template_path = "${TASKER_TEMPLATE_PATH:-}"
+auto_reload = true
+reload_interval_seconds = 300
+
+# ============================================================================
+# DECISION POINT CONFIGURATION (TAS-53)
+# ============================================================================
+#
+# Configuration for dynamic workflow decision points that enable runtime
+# conditional branching and step creation based on handler outcomes.
+#
+# Decision points allow workflows to:
+# - Make runtime decisions based on step results
+# - Dynamically create workflow branches
+# - Support nested decision points
+# - Maintain DAG integrity with cycle detection
+#
+# ============================================================================
+
+[decision_points]
+# Enable decision point processing
+enabled = true
+
+# Maximum number of steps that can be created from a single decision
+# Prevents runaway step creation from misconfigured handlers
+max_steps_per_decision = 50
+
+# Maximum depth of nested decision points
+# Prevents infinite recursion in decision point chains
+max_decision_depth = 10
+
+# Warn when decision point creates more than this many steps
+# Helps identify potentially misconfigured decision handlers
+warn_threshold_steps = 20
+
+# Warn when decision depth exceeds this threshold
+# Helps identify overly complex decision chains
+warn_threshold_depth = 5
+
+# Enable detailed decision point logging
+enable_detailed_logging = false
+
+# Enable decision point metrics collection
+enable_metrics = true

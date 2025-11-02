@@ -3,7 +3,6 @@ environment = "development"
 
 [database]
 # Local development database
-host = "localhost"
 database = "tasker_rust_development"
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_development}"
 
@@ -44,3 +43,24 @@ metrics_collection_interval_seconds = 30
 failure_threshold = 5  # Middle ground
 timeout_seconds = 30  # Balanced recovery timeout
 success_threshold = 2  # Two successes to close
+
+# Development telemetry settings
+[telemetry]
+enabled = true
+
+[telemetry.metrics]
+enabled = true
+collection_interval_seconds = 30  # More frequent for development
+
+# Development system settings
+[system]
+max_memory_mb = 2048  # Default for development
+max_cpu_percent = 80.0
+
+# Development execution settings
+[execution]
+environment = "development"
+
+# Development decision points settings (use defaults from base)
+[decision_points]
+enable_detailed_logging = true  # Enable detailed logging for development debugging

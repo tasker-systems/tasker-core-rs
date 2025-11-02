@@ -116,6 +116,31 @@ docker compose -f docker/docker-compose.test.yml down
 cargo nextest show-config version                  # Show nextest configuration
 ls target/nextest/ci/junit.xml                    # Check JUnit output
 
+### SQLx Query Cache Management
+
+The project uses SQLx's offline mode for CI and pre-commit hooks. When you add new `sqlx::query!` macros (including in test files), you must update the query cache:
+
+```bash
+# IMPORTANT: Include --all-targets to cache test queries
+DATABASE_URL=postgresql://tasker:tasker@localhost:5432/tasker_rust_test \
+cargo sqlx prepare --workspace -- --all-targets --all-features
+
+# This generates/updates .sqlx/ directory with query metadata
+# Commit the .sqlx/ directory to version control
+git add .sqlx/
+```
+
+**When to rebuild the cache:**
+- After adding new `sqlx::query!`, `sqlx::query_as!`, or `sqlx::query_scalar!` macros
+- After modifying existing SQL queries
+- After changing database schema that affects queries
+- If you see "SQLX_OFFLINE but there is no cached data" errors
+
+**Why `--all-targets` is required:**
+- Test files contain `sqlx!` macros for test data manipulation
+- Pre-commit hooks run clippy on all targets including tests
+- Without test query cache, SQLX_OFFLINE mode fails on commit
+
 ### Coverage and Benchmarking
 ```bash
 cargo llvm-cov --all-features                      # Generate coverage report

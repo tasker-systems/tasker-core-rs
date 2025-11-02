@@ -199,9 +199,10 @@ for project in "${EXISTING_SQLX_PROJECTS[@]}"; do
         # For the main workspace, we need to be more specific about which packages to prepare
         if [[ "$project" == "." ]]; then
             # Prepare SQLX for all workspace members that use it
-            sqlx_cmd="cargo sqlx prepare --workspace"
+            # IMPORTANT: Include --all-targets to cache test queries for pre-commit hooks
+            sqlx_cmd="cargo sqlx prepare --workspace -- --all-targets --all-features"
         else
-            sqlx_cmd="cargo sqlx prepare"
+            sqlx_cmd="cargo sqlx prepare -- --all-targets --all-features"
         fi
 
         if ! run_cargo_in_project "$project" "$sqlx_cmd" "SQLX preparation"; then

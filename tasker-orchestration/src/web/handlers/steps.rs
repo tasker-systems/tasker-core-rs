@@ -8,10 +8,12 @@
 
 use axum::extract::{Path, State};
 use axum::Json;
+use std::collections::HashMap;
 use tracing::{error, info};
 use uuid::Uuid;
 
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
+use tasker_shared::messaging::execution_types::StepExecutionResult;
 use tasker_shared::models::core::workflow_step::WorkflowStep;
 
 // StepReadinessStatus is used through SqlFunctionExecutor, removing unused direct import
@@ -20,7 +22,7 @@ use crate::web::state::AppState;
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::state_machine::StateMachineError;
-use tasker_shared::types::api::orchestration::{ManualResolutionRequest, StepResponse};
+use tasker_shared::types::api::orchestration::{StepManualAction, StepResponse};
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// List workflow steps for a task: GET /v1/tasks/{uuid}/workflow_steps
@@ -274,7 +276,20 @@ pub async fn get_step(
     })
 }
 
-/// Manually resolve a workflow step: PATCH /v1/tasks/{uuid}/workflow_steps/{step_uuid}
+/// Manually resolve or complete a workflow step: PATCH /v1/tasks/{uuid}/workflow_steps/{step_uuid}
+///
+/// This endpoint supports two resolution modes:
+///
+/// 1. **Simple Resolution** (`ResolveManually`): Marks the step as `resolved_manually` without providing execution results.
+///    Use this when you want to acknowledge a step issue without continuing workflow execution.
+///
+/// 2. **Complete with Results** (`CompleteManually`): Provides execution results and transitions the step to `complete` state.
+///    - Operators provide only `result` (business data) and optional `metadata`
+///    - System automatically enforces `success: true` and `status: "completed"`
+///    - Prevents operators from incorrectly setting `status` or `error` fields
+///    - Dependent steps can consume the provided results, allowing workflow continuation
+///
+/// You can optionally reset the attempt counter when resolving a step that has exceeded retry limits.
 #[cfg_attr(feature = "web-api", utoipa::path(
     patch,
     path = "/v1/tasks/{uuid}/workflow_steps/{step_uuid}",
@@ -282,9 +297,9 @@ pub async fn get_step(
         ("uuid" = String, Path, description = "Task UUID"),
         ("step_uuid" = String, Path, description = "Step UUID")
     ),
-    request_body = ManualResolutionRequest,
+    request_body = StepManualAction,
     responses(
-        (status = 200, description = "Step resolved successfully", body = StepResponse),
+        (status = 200, description = "Step resolved successfully. The response indicates whether the step was marked as 'resolved_manually' (simple resolution) or 'complete' (with execution results).", body = StepResponse),
         (status = 400, description = "Invalid request or step cannot be resolved", body = ApiError),
         (status = 404, description = "Step not found", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
@@ -294,15 +309,45 @@ pub async fn get_step(
 pub async fn resolve_step_manually(
     State(state): State<AppState>,
     Path((task_uuid, step_uuid)): Path<(String, String)>,
-    Json(request): Json<ManualResolutionRequest>,
+    Json(action): Json<StepManualAction>,
 ) -> ApiResult<Json<StepResponse>> {
-    info!(
-        task_uuid = %task_uuid,
-        step_uuid = %step_uuid,
-        resolved_by = %request.resolved_by,
-        reason = %request.reason,
-        "Manually resolving workflow step"
-    );
+    // Log the action with operator details
+    match &action {
+        StepManualAction::ResetForRetry { reset_by, reason } => {
+            info!(
+                task_uuid = %task_uuid,
+                step_uuid = %step_uuid,
+                reset_by = %reset_by,
+                reason = %reason,
+                "Resetting step for retry"
+            );
+        }
+        StepManualAction::ResolveManually {
+            resolved_by,
+            reason,
+        } => {
+            info!(
+                task_uuid = %task_uuid,
+                step_uuid = %step_uuid,
+                resolved_by = %resolved_by,
+                reason = %reason,
+                "Manually resolving step"
+            );
+        }
+        StepManualAction::CompleteManually {
+            completed_by,
+            reason,
+            ..
+        } => {
+            info!(
+                task_uuid = %task_uuid,
+                step_uuid = %step_uuid,
+                completed_by = %completed_by,
+                reason = %reason,
+                "Manually completing step with results"
+            );
+        }
+    }
 
     let task_uuid = Uuid::parse_str(&task_uuid)
         .map_err(|_| ApiError::bad_request("Invalid task UUID format"))?;
@@ -312,39 +357,90 @@ pub async fn resolve_step_manually(
     execute_with_circuit_breaker(&state, || async {
         let db_pool = state.select_db_pool(DbOperationType::WebWrite);
 
-        // Use WorkflowStep domain model to find the step
+        // Find the step and verify it belongs to the task
         let workflow_step = WorkflowStep::find_by_id(db_pool, step_uuid)
             .await
             .map_err(ApiError::from)?;
 
         let step = match workflow_step {
-            Some(step) => {
-                // Verify the step belongs to the specified task
-                if step.task_uuid != task_uuid {
-                    return Err(ApiError::not_found("Resource not found"));
-                }
-                step
-            }
-            None => {
-                return Err(ApiError::not_found("Resource not found"));
-            }
+            Some(step) if step.task_uuid == task_uuid => step,
+            Some(_) => return Err(ApiError::not_found("Resource not found")),
+            None => return Err(ApiError::not_found("Resource not found")),
         };
 
         // Initialize StepStateMachine for proper state transition
         let mut step_state_machine =
             StepStateMachine::new(step.clone(), state.orchestration_core.context.clone());
 
-        // Attempt manual resolution using state machine
-        match step_state_machine
-            .transition(StepEvent::ResolveManually)
-            .await
-        {
+        // Route to the appropriate event based on action type
+        let event = match action {
+            StepManualAction::ResetForRetry { .. } => {
+                info!(step_uuid = %step_uuid, "Using ResetForRetry event");
+                StepEvent::ResetForRetry
+            }
+            StepManualAction::ResolveManually { .. } => {
+                info!(step_uuid = %step_uuid, "Using ResolveManually event");
+                StepEvent::ResolveManually
+            }
+            StepManualAction::CompleteManually { completion_data, reason, completed_by } => {
+                info!(step_uuid = %step_uuid, "Using CompleteManually event with execution results");
+
+                // Build custom metadata from operator-provided metadata or defaults
+                let mut custom_metadata = if let Some(metadata_value) = completion_data.metadata {
+                    // If operator provided metadata as JSON object, convert to HashMap
+                    if let Some(metadata_obj) = metadata_value.as_object() {
+                        metadata_obj
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect()
+                    } else {
+                        // If metadata is not an object, create a wrapper
+                        let mut map = HashMap::new();
+                        map.insert("operator_metadata".to_string(), metadata_value);
+                        map
+                    }
+                } else {
+                    HashMap::new()
+                };
+
+                // Always add manual completion tracking
+                custom_metadata.insert(
+                    "manually_completed".to_string(),
+                    serde_json::json!(true),
+                );
+                custom_metadata.insert(
+                    "completed_by".to_string(),
+                    serde_json::json!(completed_by),
+                );
+                custom_metadata.insert(
+                    "completion_reason".to_string(),
+                    serde_json::json!(reason),
+                );
+
+                // Construct proper StepExecutionResult using typed constructor
+                // System enforces success=true and status="completed"
+                let execution_result = StepExecutionResult::success(
+                    step_uuid,
+                    completion_data.result,
+                    0, // execution_time_ms - manual completion has no measured execution time
+                    Some(custom_metadata),
+                );
+
+                // Serialize to JSON for the event
+                let execution_result_json = serde_json::to_value(&execution_result)
+                    .map_err(|e| ApiError::internal_server_error(format!("Failed to serialize execution result: {}", e)))?;
+
+                StepEvent::CompleteManually(Some(execution_result_json))
+            }
+        };
+
+        // Attempt transition using state machine
+        match step_state_machine.transition(event).await {
             Ok(new_state) => {
                 info!(
                     step_uuid = %step_uuid,
                     new_state = %new_state,
-                    resolved_by = %request.resolved_by,
-                    "Step manually resolved successfully"
+                    "Step action completed successfully"
                 );
 
                 // Get updated step data after state transition

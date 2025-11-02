@@ -71,13 +71,122 @@ pub struct TaskListResponse {
     pub pagination: PaginationInfo,
 }
 
-/// Manual step resolution request
+/// Manual completion data for providing step execution results
+///
+/// This structure contains only the operator-provided business data.
+/// The system will automatically set:
+/// - `success: true` (manual completion implies success)
+/// - `status: "completed"` (always completed for manual resolution)
+/// - `error: None` (no errors for successful manual completion)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct ManualCompletionData {
+    /// The actual result data for this step
+    ///
+    /// This should contain the business data that dependent steps expect.
+    /// The shape must match what downstream step handlers require.
+    pub result: serde_json::Value,
+
+    /// Optional metadata for observability and tracking
+    ///
+    /// Can include execution timing, resource usage, or other operational metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Manual step action request for PATCH /tasks/{uuid}/workflow_steps/{step_uuid}
+///
+/// Supports three distinct operator actions via tagged enum:
+///
+/// ## 1. Reset for Retry
+/// Reset attempt counter and return step to `pending` for automatic retry.
+/// Use when the issue was transient and natural retry should succeed.
+///
+/// ```json
+/// {
+///   "action_type": "reset_for_retry",
+///   "reason": "Database connection restored, retry should succeed",
+///   "reset_by": "operator@example.com"
+/// }
+/// ```
+///
+/// ## 2. Resolve Manually (Simple)
+/// Mark step as `resolved_manually` without providing results.
+/// Use when acknowledging failure and moving workflow forward without correction.
+///
+/// ```json
+/// {
+///   "action_type": "resolve_manually",
+///   "reason": "Non-critical validation step, bypassing",
+///   "resolved_by": "operator@example.com"
+/// }
+/// ```
+///
+/// ## 3. Complete Manually (with Results)
+/// Transition step to `complete` with operator-provided execution results.
+/// Use when providing corrected data for dependent steps to consume.
+///
+/// ```json
+/// {
+///   "action_type": "complete_manually",
+///   "completion_data": {
+///     "result": {"validated": true, "score": 95},
+///     "metadata": {"manually_verified": true}
+///   },
+///   "reason": "Manual verification completed",
+///   "completed_by": "operator@example.com"
+/// }
+/// ```
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct ManualResolutionRequest {
-    pub resolution_data: serde_json::Value,
-    pub resolved_by: String,
-    pub reason: String,
+#[serde(tag = "action_type", rename_all = "snake_case")]
+pub enum StepManualAction {
+    /// Reset attempt counter and return step to pending for automatic retry
+    ///
+    /// State transition: `error` → `pending`
+    /// Attempt counter: Reset to 0
+    /// Use case: Transient failures that should be retried naturally
+    ResetForRetry {
+        /// Human-readable reason for reset
+        reason: String,
+        /// Operator performing the reset
+        reset_by: String,
+    },
+
+    /// Mark step as manually resolved without providing results
+    ///
+    /// State transition: Any state → `resolved_manually`
+    /// Terminal state: Yes
+    /// Use case: Acknowledge failure, move workflow forward without correction
+    ResolveManually {
+        /// Human-readable reason for manual resolution
+        reason: String,
+        /// Operator performing the resolution
+        resolved_by: String,
+    },
+
+    /// Complete step manually with execution results
+    ///
+    /// State transition: Any state → `complete`
+    /// Terminal state: Yes
+    /// Use case: Provide corrected data for dependent steps to consume
+    ///
+    /// System enforces `success: true` and `status: "completed"`.
+    /// Operator only provides `result` and optional `metadata`.
+    CompleteManually {
+        /// Execution results to persist
+        ///
+        /// Contains business data that dependent steps expect.
+        /// System automatically wraps this in `StepExecutionResult` with:
+        /// - `success: true`
+        /// - `status: "completed"`
+        /// - `error: null`
+        completion_data: ManualCompletionData,
+        /// Human-readable reason for manual completion
+        reason: String,
+        /// Operator performing the completion
+        completed_by: String,
+    },
 }
 
 /// Step details response with readiness information

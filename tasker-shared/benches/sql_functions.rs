@@ -16,10 +16,9 @@
 //!
 //! 1. **Task Discovery**: `get_next_ready_tasks()` performance (4 batch sizes)
 //! 2. **Step Readiness**: `get_step_readiness_status()` with various DAG complexities (5 samples)
-//! 3. **State Transitions**: `transition_task_state_atomic()` atomic operations (5 samples)
-//! 4. **Task Context**: `get_task_execution_context()` for orchestration status (5 samples)
-//! 5. **Transitive Dependencies**: `get_step_transitive_dependencies()` recursive CTE traversal (10 samples)
-//! 6. **Query Analysis**: EXPLAIN ANALYZE (runs once per function, not repeated since plans don't change)
+//! 3. **Task Context**: `get_task_execution_context()` for orchestration status (5 samples)
+//! 4. **Transitive Dependencies**: `get_step_transitive_dependencies()` recursive CTE traversal (10 samples)
+//! 5. **Query Analysis**: EXPLAIN ANALYZE (runs once per function, not repeated since plans don't change)
 //!
 //! ## Running Benchmarks
 //!
@@ -280,54 +279,10 @@ fn bench_step_readiness_status(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark 3: transition_task_state_atomic() performance
-///
-/// Measures state transition speed with atomic compare-and-swap across diverse tasks.
-/// Tests the atomic transition logic with multiple task samples.
-fn bench_state_transitions(c: &mut Criterion) {
-    let (runtime, pool) = setup_runtime();
-
-    // Sample diverse tasks for representative benchmarking
-    let task_sample = sample_task_uuids(&runtime, &pool, 5);
-
-    if task_sample.is_empty() {
-        eprintln!("⚠️  Skipping state_transitions benchmark - no test data found");
-        eprintln!("    Run integration tests first to populate test data");
-        return;
-    }
-
-    let mut group = c.benchmark_group("state_transitions");
-    group.sample_size(50);
-    group.measurement_time(Duration::from_secs(10));
-    group.noise_threshold(0.15); // 15% threshold for database variance
-
-    for (idx, task_uuid) in task_sample.iter().enumerate() {
-        group.bench_with_input(
-            BenchmarkId::new("atomic_transition_attempt", idx),
-            task_uuid,
-            |b, &uuid| {
-                b.iter(|| {
-                    runtime.block_on(async {
-                        let processor_uuid = Uuid::now_v7();
-                        // Attempt a transition (will likely fail if task isn't in right state)
-                        let _result: Result<bool, _> = sqlx::query_scalar(
-                            "SELECT transition_task_state_atomic($1, $2, $3, $4)",
-                        )
-                        .bind(uuid)
-                        .bind("Pending")
-                        .bind("Initializing")
-                        .bind(processor_uuid)
-                        .fetch_one(&pool)
-                        .await;
-                        // Ignore failures - we're measuring the function call time
-                    })
-                });
-            },
-        );
-    }
-
-    group.finish();
-}
+// Benchmark 3: transition_task_state_atomic() - REMOVED (TAS-54)
+// This function had deprecated ownership checking logic removed in TAS-54.
+// State transitions are now handled through TaskStateMachine in Rust.
+// The SQL function still exists for DLQ helpers but is not benchmarked.
 
 // Benchmark 4: claim_task_for_finalization() - REMOVED
 // This function was removed from the codebase and doesn't exist in current schema.
@@ -607,7 +562,6 @@ criterion_group!(
     benches,
     bench_get_next_ready_tasks,
     bench_step_readiness_status,
-    bench_state_transitions,
     bench_task_execution_context,
     bench_step_transitive_dependencies,
     bench_explain_analyze

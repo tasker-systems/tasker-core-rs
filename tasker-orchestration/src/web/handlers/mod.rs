@@ -5,6 +5,7 @@
 
 pub mod analytics;
 pub mod config;
+pub mod dlq;
 pub mod health;
 pub mod registry;
 pub mod steps;

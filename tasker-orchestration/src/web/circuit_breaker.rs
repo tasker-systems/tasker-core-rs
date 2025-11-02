@@ -248,9 +248,7 @@ where
         Err(e) => {
             state.record_database_failure();
             error!(error = %e, "Database operation failed");
-            Err(ApiError::internal_server_error(format!(
-                "Operation failed: {e}"
-            )))
+            Err(ApiError::database_error(format!("Operation failed: {e}")))
         }
     }
 }

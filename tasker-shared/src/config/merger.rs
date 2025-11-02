@@ -137,9 +137,8 @@ impl ConfigMerger {
             if let (toml::Value::Table(ref mut base_table), toml::Value::Table(orch_table)) =
                 (&mut base, orch_config)
             {
-                for (key, value) in orch_table {
-                    base_table.insert(key, value);
-                }
+                // Deep merge to preserve nested tables like mpsc_channels.orchestration.*
+                Self::deep_merge_tables(base_table, orch_table);
             }
 
             // 3. Load and merge worker configuration
@@ -151,9 +150,8 @@ impl ConfigMerger {
 
             if let toml::Value::Table(ref mut base_table) = &mut base {
                 if let toml::Value::Table(worker_table) = worker_config {
-                    for (key, value) in worker_table {
-                        base_table.insert(key, value);
-                    }
+                    // Deep merge to preserve nested tables like mpsc_channels.worker.*
+                    Self::deep_merge_tables(base_table, worker_table);
                 }
             }
 
@@ -182,9 +180,8 @@ impl ConfigMerger {
             if let (toml::Value::Table(ref mut base_table), toml::Value::Table(context_table)) =
                 (&mut base, context_config)
             {
-                for (key, value) in context_table {
-                    base_table.insert(key, value);
-                }
+                // Deep merge to preserve nested tables
+                Self::deep_merge_tables(base_table, context_table);
             }
 
             debug!("Merged config total: {} bytes", base.to_string().len());
@@ -210,6 +207,47 @@ impl ConfigMerger {
         );
 
         Ok(merged_toml_string)
+    }
+
+    /// Recursively merge two TOML tables (deep merge)
+    ///
+    /// If both values are tables, recursively merge them.
+    /// Otherwise, the new value overwrites the old value.
+    ///
+    /// This is used to properly merge nested configurations like:
+    /// - `mpsc_channels.orchestration.*` + `mpsc_channels.worker.*`
+    /// - `database.pool.*` + `database.connection.*`
+    ///
+    /// Without deep merging, the second table would completely replace the first.
+    fn deep_merge_tables(base: &mut toml::value::Table, overlay: toml::value::Table) {
+        for (key, value) in overlay {
+            match base.get_mut(&key) {
+                Some(base_value) => {
+                    // Both base and overlay have this key
+                    // Check if both are tables before consuming them
+                    let both_are_tables = matches!(
+                        (&*base_value, &value),
+                        (toml::Value::Table(_), toml::Value::Table(_))
+                    );
+
+                    if both_are_tables {
+                        // Both are tables - recursively merge
+                        if let toml::Value::Table(base_table) = base_value {
+                            if let toml::Value::Table(overlay_table) = value {
+                                Self::deep_merge_tables(base_table, overlay_table);
+                            }
+                        }
+                    } else {
+                        // Not both tables - overlay wins
+                        *base_value = value;
+                    }
+                }
+                None => {
+                    // Key only in overlay - insert it
+                    base.insert(key, value);
+                }
+            }
+        }
     }
 
     /// Recursively strip _docs sections from TOML value

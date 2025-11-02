@@ -13,6 +13,7 @@ use tasker_client::{
 };
 use tasker_shared::config::{ConfigMerger, ConfigurationContext};
 use tasker_shared::models::core::{task::TaskListQuery, task_request::TaskRequest};
+use tasker_shared::types::api::orchestration::{ManualCompletionData, StepManualAction};
 use tracing::info;
 use uuid::Uuid;
 
@@ -55,6 +56,10 @@ pub enum Commands {
     /// Configuration management
     #[command(subcommand)]
     Config(ConfigCommands),
+
+    /// Dead Letter Queue (DLQ) investigation operations (TAS-49)
+    #[command(subcommand)]
+    Dlq(DlqCommands),
 }
 
 #[derive(Debug, Subcommand)]
@@ -106,6 +111,72 @@ pub enum TaskCommands {
         /// Task UUID to cancel
         #[arg(value_name = "UUID")]
         task_id: String,
+    },
+    /// List workflow steps for a task
+    Steps {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+    },
+    /// Get workflow step details
+    Step {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+        /// Step UUID
+        #[arg(value_name = "STEP_UUID")]
+        step_id: String,
+    },
+    /// Reset step attempt counter and return to pending for automatic retry
+    ResetStep {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+        /// Step UUID
+        #[arg(value_name = "STEP_UUID")]
+        step_id: String,
+        /// Reason for reset
+        #[arg(short, long)]
+        reason: String,
+        /// Operator performing reset
+        #[arg(short = 'b', long, default_value = "cli-operator")]
+        reset_by: String,
+    },
+    /// Mark step as manually resolved without providing results
+    ResolveStep {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+        /// Step UUID
+        #[arg(value_name = "STEP_UUID")]
+        step_id: String,
+        /// Reason for resolution
+        #[arg(short, long)]
+        reason: String,
+        /// Operator performing resolution
+        #[arg(short = 'b', long, default_value = "cli-operator")]
+        resolved_by: String,
+    },
+    /// Complete step manually with execution results for dependent steps
+    CompleteStep {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+        /// Step UUID
+        #[arg(value_name = "STEP_UUID")]
+        step_id: String,
+        /// Execution result as JSON string
+        #[arg(long)]
+        result: String,
+        /// Optional metadata as JSON string
+        #[arg(long)]
+        metadata: Option<String>,
+        /// Reason for manual completion
+        #[arg(short, long)]
+        reason: String,
+        /// Operator performing completion
+        #[arg(short = 'b', long, default_value = "cli-operator")]
+        completed_by: String,
     },
 }
 
@@ -246,6 +317,45 @@ pub enum ConfigCommands {
     Show,
 }
 
+#[derive(Debug, Subcommand)]
+pub enum DlqCommands {
+    /// List DLQ entries
+    List {
+        /// Filter by resolution status (pending, manually_resolved, permanently_failed, cancelled)
+        #[arg(short, long)]
+        status: Option<String>,
+        /// Limit number of results
+        #[arg(short, long, default_value = "50")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(short, long, default_value = "0")]
+        offset: i64,
+    },
+    /// Get DLQ entry by task UUID
+    Get {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_uuid: String,
+    },
+    /// Update DLQ investigation status
+    Update {
+        /// DLQ entry UUID
+        #[arg(value_name = "DLQ_ENTRY_UUID")]
+        dlq_entry_uuid: String,
+        /// New resolution status (pending, manually_resolved, permanently_failed, cancelled)
+        #[arg(short, long)]
+        status: Option<String>,
+        /// Resolution notes
+        #[arg(short, long)]
+        notes: Option<String>,
+        /// Who resolved the investigation
+        #[arg(short = 'b', long)]
+        resolved_by: Option<String>,
+    },
+    /// Get DLQ statistics
+    Stats,
+}
+
 #[tokio::main]
 async fn main() -> ClientResult<()> {
     let cli = Cli::parse();
@@ -278,6 +388,7 @@ async fn main() -> ClientResult<()> {
         Commands::Worker(worker_cmd) => handle_worker_command(worker_cmd, &config).await,
         Commands::System(system_cmd) => handle_system_command(system_cmd, &config).await,
         Commands::Config(config_cmd) => handle_config_command(config_cmd, &config).await,
+        Commands::Dlq(dlq_cmd) => handle_dlq_command(dlq_cmd, &config).await,
     }
 }
 
@@ -451,6 +562,207 @@ async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Client
                 }
                 Err(e) => {
                     eprintln!("✗ Failed to cancel task: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::Steps { task_id } => {
+            println!("Listing workflow steps for task: {}", task_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid UUID: {}", e))
+            })?;
+
+            match client.list_task_steps(task_uuid).await {
+                Ok(steps) => {
+                    println!("\n✓ Found {} workflow steps:\n", steps.len());
+                    for step in steps {
+                        println!("  Step: {} ({})", step.name, step.step_uuid);
+                        println!("    State: {}", step.current_state);
+                        println!(
+                            "    Dependencies satisfied: {}",
+                            step.dependencies_satisfied
+                        );
+                        println!("    Ready for execution: {}", step.ready_for_execution);
+                        println!("    Attempts: {}/{}", step.attempts, step.max_attempts);
+                        if step.retry_eligible {
+                            println!("    ⚠ Retry eligible");
+                        }
+                        println!();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to list steps: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::Step { task_id, step_id } => {
+            println!("Getting step details: {} for task: {}", step_id, task_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid task UUID: {}", e))
+            })?;
+
+            let step_uuid = Uuid::parse_str(&step_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid step UUID: {}", e))
+            })?;
+
+            match client.get_step(task_uuid, step_uuid).await {
+                Ok(step) => {
+                    println!("\n✓ Step Details:\n");
+                    println!("  UUID: {}", step.step_uuid);
+                    println!("  Name: {}", step.name);
+                    println!("  State: {}", step.current_state);
+                    println!("  Dependencies satisfied: {}", step.dependencies_satisfied);
+                    println!("  Ready for execution: {}", step.ready_for_execution);
+                    println!("  Retry eligible: {}", step.retry_eligible);
+                    println!("  Attempts: {}/{}", step.attempts, step.max_attempts);
+                    if let Some(last_failure) = step.last_failure_at {
+                        println!("  Last failure: {}", last_failure);
+                    }
+                    if let Some(next_retry) = step.next_retry_at {
+                        println!("  Next retry: {}", next_retry);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to get step: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::ResetStep {
+            task_id,
+            step_id,
+            reason,
+            reset_by,
+        } => {
+            println!("Resetting step {} for retry...", step_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid task UUID: {}", e))
+            })?;
+
+            let step_uuid = Uuid::parse_str(&step_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid step UUID: {}", e))
+            })?;
+
+            let action = StepManualAction::ResetForRetry {
+                reason: reason.clone(),
+                reset_by: reset_by.clone(),
+            };
+
+            match client
+                .resolve_step_manually(task_uuid, step_uuid, action)
+                .await
+            {
+                Ok(step) => {
+                    println!("\n✓ Step reset successfully!");
+                    println!("  New state: {}", step.current_state);
+                    println!("  Reason: {}", reason);
+                    println!("  Reset by: {}", reset_by);
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to reset step: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::ResolveStep {
+            task_id,
+            step_id,
+            reason,
+            resolved_by,
+        } => {
+            println!("Manually resolving step {}...", step_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid task UUID: {}", e))
+            })?;
+
+            let step_uuid = Uuid::parse_str(&step_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid step UUID: {}", e))
+            })?;
+
+            let action = StepManualAction::ResolveManually {
+                reason: reason.clone(),
+                resolved_by: resolved_by.clone(),
+            };
+
+            match client
+                .resolve_step_manually(task_uuid, step_uuid, action)
+                .await
+            {
+                Ok(step) => {
+                    println!("\n✓ Step resolved manually!");
+                    println!("  New state: {}", step.current_state);
+                    println!("  Reason: {}", reason);
+                    println!("  Resolved by: {}", resolved_by);
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to resolve step: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        TaskCommands::CompleteStep {
+            task_id,
+            step_id,
+            result,
+            metadata,
+            reason,
+            completed_by,
+        } => {
+            println!("Manually completing step {} with results...", step_id);
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid task UUID: {}", e))
+            })?;
+
+            let step_uuid = Uuid::parse_str(&step_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid step UUID: {}", e))
+            })?;
+
+            // Parse result JSON
+            let result_value: serde_json::Value = serde_json::from_str(&result).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid result JSON: {}", e))
+            })?;
+
+            // Parse optional metadata JSON
+            let metadata_value: Option<serde_json::Value> = if let Some(meta) = metadata {
+                Some(serde_json::from_str(&meta).map_err(|e| {
+                    tasker_client::ClientError::InvalidInput(format!(
+                        "Invalid metadata JSON: {}",
+                        e
+                    ))
+                })?)
+            } else {
+                None
+            };
+
+            let completion_data = ManualCompletionData {
+                result: result_value,
+                metadata: metadata_value,
+            };
+
+            let action = StepManualAction::CompleteManually {
+                completion_data,
+                reason: reason.clone(),
+                completed_by: completed_by.clone(),
+            };
+
+            match client
+                .resolve_step_manually(task_uuid, step_uuid, action)
+                .await
+            {
+                Ok(step) => {
+                    println!("\n✓ Step completed manually with results!");
+                    println!("  New state: {}", step.current_state);
+                    println!("  Reason: {}", reason);
+                    println!("  Completed by: {}", completed_by);
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to complete step: {}", e);
                     return Err(e.into());
                 }
             }
@@ -1501,6 +1813,216 @@ async fn handle_config_command(cmd: ConfigCommands, _config: &ClientConfig) -> C
         ConfigCommands::Show => {
             println!("Current CLI Configuration:");
             println!("{}", toml::to_string_pretty(_config).unwrap());
+        }
+    }
+    Ok(())
+}
+
+async fn handle_dlq_command(cmd: DlqCommands, config: &ClientConfig) -> ClientResult<()> {
+    let orchestration_config = OrchestrationApiConfig {
+        base_url: config.orchestration.base_url.clone(),
+        timeout_ms: config.orchestration.timeout_ms,
+        max_retries: config.orchestration.max_retries,
+        auth: None,
+    };
+
+    let client = OrchestrationApiClient::new(orchestration_config)?;
+
+    match cmd {
+        DlqCommands::List {
+            status,
+            limit,
+            offset,
+        } => {
+            println!("Listing DLQ entries (limit: {}, offset: {})", limit, offset);
+
+            // Parse status if provided
+            let resolution_status = if let Some(status_str) = status {
+                Some(match status_str.as_str() {
+                    "pending" => tasker_shared::models::orchestration::DlqResolutionStatus::Pending,
+                    "manually_resolved" => {
+                        tasker_shared::models::orchestration::DlqResolutionStatus::ManuallyResolved
+                    }
+                    "permanently_failed" => {
+                        tasker_shared::models::orchestration::DlqResolutionStatus::PermanentlyFailed
+                    }
+                    "cancelled" => {
+                        tasker_shared::models::orchestration::DlqResolutionStatus::Cancelled
+                    }
+                    _ => {
+                        eprintln!(
+                            "✗ Invalid status '{}'. Valid: pending, manually_resolved, permanently_failed, cancelled",
+                            status_str
+                        );
+                        return Err(tasker_client::ClientError::InvalidInput(format!(
+                            "Invalid status: {}",
+                            status_str
+                        )));
+                    }
+                })
+            } else {
+                None
+            };
+
+            let params = tasker_shared::models::orchestration::DlqListParams {
+                resolution_status,
+                limit,
+                offset,
+            };
+
+            match client.list_dlq_entries(Some(&params)).await {
+                Ok(entries) => {
+                    println!("✓ Found {} DLQ entries\n", entries.len());
+
+                    for entry in entries {
+                        println!("  • DLQ Entry: {}", entry.dlq_entry_uuid);
+                        println!("    Task UUID: {}", entry.task_uuid);
+                        println!("    Reason: {:?}", entry.dlq_reason);
+                        println!("    Original state: {}", entry.original_state);
+                        println!("    Resolution status: {:?}", entry.resolution_status);
+                        println!("    DLQ timestamp: {}", entry.dlq_timestamp);
+                        if let Some(ref notes) = entry.resolution_notes {
+                            println!("    Notes: {}", notes);
+                        }
+                        if let Some(ref resolved_by) = entry.resolved_by {
+                            println!("    Resolved by: {}", resolved_by);
+                        }
+                        println!();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to list DLQ entries: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        DlqCommands::Get { task_uuid } => {
+            println!("Getting DLQ entry for task: {}", task_uuid);
+
+            let task_uuid = Uuid::parse_str(&task_uuid).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid UUID: {}", e))
+            })?;
+
+            match client.get_dlq_entry(task_uuid).await {
+                Ok(entry) => {
+                    println!("✓ DLQ Entry Details:\n");
+                    println!("  DLQ Entry UUID: {}", entry.dlq_entry_uuid);
+                    println!("  Task UUID: {}", entry.task_uuid);
+                    println!("  Reason: {:?}", entry.dlq_reason);
+                    println!("  Original state: {}", entry.original_state);
+                    println!("  Resolution status: {:?}", entry.resolution_status);
+                    println!("  DLQ timestamp: {}", entry.dlq_timestamp);
+
+                    if let Some(resolution_ts) = entry.resolution_timestamp {
+                        println!("  Resolution timestamp: {}", resolution_ts);
+                    }
+                    if let Some(ref notes) = entry.resolution_notes {
+                        println!("  Resolution notes: {}", notes);
+                    }
+                    if let Some(ref resolved_by) = entry.resolved_by {
+                        println!("  Resolved by: {}", resolved_by);
+                    }
+
+                    println!("\n  Task Snapshot:");
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&entry.task_snapshot).unwrap()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to get DLQ entry: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        DlqCommands::Update {
+            dlq_entry_uuid,
+            status,
+            notes,
+            resolved_by,
+        } => {
+            println!("Updating DLQ investigation: {}", dlq_entry_uuid);
+
+            let dlq_entry_uuid = Uuid::parse_str(&dlq_entry_uuid).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid UUID: {}", e))
+            })?;
+
+            // Parse status if provided
+            let resolution_status = if let Some(status_str) = status {
+                Some(match status_str.as_str() {
+                    "pending" => tasker_shared::models::orchestration::DlqResolutionStatus::Pending,
+                    "manually_resolved" => {
+                        tasker_shared::models::orchestration::DlqResolutionStatus::ManuallyResolved
+                    }
+                    "permanently_failed" => {
+                        tasker_shared::models::orchestration::DlqResolutionStatus::PermanentlyFailed
+                    }
+                    "cancelled" => {
+                        tasker_shared::models::orchestration::DlqResolutionStatus::Cancelled
+                    }
+                    _ => {
+                        eprintln!(
+                            "✗ Invalid status '{}'. Valid: pending, manually_resolved, permanently_failed, cancelled",
+                            status_str
+                        );
+                        return Err(tasker_client::ClientError::InvalidInput(format!(
+                            "Invalid status: {}",
+                            status_str
+                        )));
+                    }
+                })
+            } else {
+                None
+            };
+
+            let update = tasker_shared::models::orchestration::DlqInvestigationUpdate {
+                resolution_status,
+                resolution_notes: notes,
+                resolved_by,
+                metadata: None,
+            };
+
+            match client
+                .update_dlq_investigation(dlq_entry_uuid, update)
+                .await
+            {
+                Ok(()) => {
+                    println!("✓ DLQ investigation updated successfully");
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to update DLQ investigation: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        DlqCommands::Stats => {
+            println!("Getting DLQ statistics...\n");
+
+            match client.get_dlq_stats().await {
+                Ok(stats) => {
+                    println!("✓ DLQ Statistics by Reason:\n");
+
+                    for stat in stats {
+                        println!("  Reason: {:?}", stat.dlq_reason);
+                        println!("    Total entries: {}", stat.total_entries);
+                        println!("    Pending: {}", stat.pending);
+                        println!("    Manually resolved: {}", stat.manually_resolved);
+                        println!("    Permanent failures: {}", stat.permanent_failures);
+
+                        if let Some(oldest) = stat.oldest_entry {
+                            println!("    Oldest entry: {}", oldest);
+                        }
+                        if let Some(newest) = stat.newest_entry {
+                            println!("    Newest entry: {}", newest);
+                        }
+                        println!();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to get DLQ statistics: {}", e);
+                    return Err(e.into());
+                }
+            }
         }
     }
     Ok(())

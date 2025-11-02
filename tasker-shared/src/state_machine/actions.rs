@@ -780,6 +780,69 @@ impl StateAction<WorkflowStep> for ErrorStateCleanupAction {
     }
 }
 
+/// Action to reset step attempt counter atomically during state transition
+///
+/// This action is triggered when an operator uses `ResetForRetry` to reset
+/// a failed step's attempt counter and return it to `pending` state for
+/// automatic retry. The attempt reset happens atomically within the same
+/// transaction as the state transition.
+#[derive(Debug, Default)]
+pub struct ResetAttemptsAction;
+
+impl ResetAttemptsAction {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+#[async_trait]
+impl StateAction<WorkflowStep> for ResetAttemptsAction {
+    async fn execute(
+        &self,
+        step: &WorkflowStep,
+        from_state: Option<String>,
+        to_state: String,
+        event: &str,
+        pool: &PgPool,
+    ) -> ActionResult<()> {
+        // Only reset attempts when operator explicitly uses ResetForRetry event
+        // Do NOT reset for automatic retries (StepEvent::Retry)
+        if from_state.as_deref() == Some(WorkflowStepState::Error.as_str())
+            && to_state == WorkflowStepState::Pending.as_str()
+            && event.contains("reset_for_retry")
+        {
+            sqlx::query!(
+                r#"
+                UPDATE tasker_workflow_steps
+                SET attempts = 0,
+                    updated_at = NOW()
+                WHERE workflow_step_uuid = $1
+                "#,
+                step.workflow_step_uuid
+            )
+            .execute(pool)
+            .await
+            .map_err(|e| ActionError::DatabaseUpdateFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step.workflow_step_uuid.to_string(),
+                reason: format!("Failed to reset attempt counter: {e}"),
+            })?;
+
+            tracing::info!(
+                step_uuid = %step.workflow_step_uuid,
+                task_uuid = %step.task_uuid,
+                "Reset attempt counter to 0 for operator-initiated retry"
+            );
+        }
+
+        Ok(())
+    }
+
+    fn description(&self) -> &'static str {
+        "Reset attempt counter for operator-initiated retry"
+    }
+}
+
 // Helper functions for event processing
 
 fn determine_task_event_name(from_state: &Option<String>, to_state: &str) -> Option<&'static str> {
@@ -825,11 +888,13 @@ fn build_step_event_context(
 }
 
 fn extract_results_from_event(event: &str) -> ActionResult<Option<Value>> {
-    // Try to parse event as JSON to extract results from StepEvent::Complete, StepEvent::EnqueueForOrchestration, or StepEvent::EnqueueAsErrorForOrchestration
+    // Try to parse event as JSON to extract results from StepEvent::Complete, StepEvent::CompleteManually, StepEvent::EnqueueForOrchestration, or StepEvent::EnqueueAsErrorForOrchestration
     if let Ok(event_data) = serde_json::from_str::<Value>(event) {
-        // StepEvent serializes as: {"type": "Complete", "data": { results }}, {"type": "EnqueueForOrchestration", "data": { results }}, or {"type": "EnqueueAsErrorForOrchestration", "data": { results }}
+        // StepEvent serializes as: {"type": "Complete", "data": { results }}, {"type": "CompleteManually", "data": { results }}, {"type": "EnqueueForOrchestration", "data": { results }}, or {"type": "EnqueueAsErrorForOrchestration", "data": { results }}
+        // Note: Uses variant names (PascalCase) not event_type() values (snake_case)
         if let Some(event_type) = event_data.get("type") {
             if event_type == "Complete"
+                || event_type == "CompleteManually"
                 || event_type == "EnqueueForOrchestration"
                 || event_type == "EnqueueAsErrorForOrchestration"
             {

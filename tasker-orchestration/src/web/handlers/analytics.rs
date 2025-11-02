@@ -111,41 +111,92 @@ pub async fn get_bottlenecks(
             executor.get_system_health_counts()
         )?;
 
-        // Convert slow steps to response format
-        let slow_step_infos: Vec<SlowStepInfo> = slow_steps
+        // Aggregate slow steps by step name
+        use bigdecimal::ToPrimitive;
+        use std::collections::HashMap;
+
+        // Type aliases for complex aggregation data structures
+        // (durations, error_count, last_executed)
+        type StepAggregateData = (Vec<f64>, i32, Option<chrono::NaiveDateTime>);
+        // (durations, step_counts, total_errors, last_executed)
+        type TaskAggregateData = (Vec<f64>, Vec<i64>, i64, Option<chrono::NaiveDateTime>);
+
+        let mut step_aggregates: HashMap<String, StepAggregateData> = HashMap::new();
+
+        for step in slow_steps {
+            let entry = step_aggregates.entry(step.step_name.clone()).or_insert((Vec::new(), 0, None));
+            if let Some(duration) = step.duration_seconds.to_f64() {
+                entry.0.push(duration);
+            }
+            if step.step_status == "error" {
+                entry.1 += 1;
+            }
+            if let Some(completed) = step.completed_at {
+                if entry.2.is_none() || Some(&completed) > entry.2.as_ref() {
+                    entry.2 = Some(completed);
+                }
+            }
+        }
+
+        let slow_step_infos: Vec<SlowStepInfo> = step_aggregates
             .into_iter()
-            .map(|step| SlowStepInfo {
-                step_name: step.step_name,
-                average_duration_seconds: step.avg_duration_seconds,
-                max_duration_seconds: step.max_duration_seconds,
-                execution_count: step.execution_count,
-                error_count: step.error_count,
-                error_rate: step.error_rate,
-                last_executed_at: step.last_executed_at.map(|dt| dt.to_rfc3339()),
+            .map(|(step_name, (durations, error_count, last_executed))| {
+                let execution_count = durations.len() as i32;
+                let avg = durations.iter().sum::<f64>() / (execution_count as f64);
+                let max = durations.iter().fold(0.0_f64, |a, &b| f64::max(a, b));
+                SlowStepInfo {
+                    step_name,
+                    average_duration_seconds: avg,
+                    max_duration_seconds: max,
+                    execution_count,
+                    error_count,
+                    error_rate: error_count as f64 / execution_count as f64,
+                    last_executed_at: last_executed.map(|dt| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc).to_rfc3339()),
+                }
             })
             .collect();
 
-        // Convert slow tasks to response format
-        let slow_task_infos: Vec<SlowTaskInfo> = slow_tasks
+        // Aggregate slow tasks by task name
+        let mut task_aggregates: HashMap<String, TaskAggregateData> = HashMap::new();
+
+        for task in slow_tasks {
+            let entry = task_aggregates.entry(task.task_name.clone()).or_insert((Vec::new(), Vec::new(), 0, None));
+            if let Some(duration) = task.duration_seconds.to_f64() {
+                entry.0.push(duration);
+            }
+            entry.1.push(task.step_count);
+            entry.2 += task.error_steps;
+            if let Some(completed) = task.completed_at {
+                if entry.3.is_none() || Some(&completed) > entry.3.as_ref() {
+                    entry.3 = Some(completed);
+                }
+            }
+        }
+
+        let slow_task_infos: Vec<SlowTaskInfo> = task_aggregates
             .into_iter()
-            .map(|task| SlowTaskInfo {
-                task_name: task.task_name,
-                average_duration_seconds: task.avg_duration_seconds,
-                max_duration_seconds: task.max_duration_seconds,
-                execution_count: task.execution_count,
-                average_step_count: task.avg_step_count,
-                error_count: task.error_count,
-                error_rate: task.error_rate,
-                last_executed_at: task.last_executed_at.map(|dt| dt.to_rfc3339()),
+            .map(|(task_name, (durations, step_counts, total_errors, last_executed))| {
+                let execution_count = durations.len() as i32;
+                let avg_duration = durations.iter().sum::<f64>() / (execution_count as f64);
+                let max_duration = durations.iter().fold(0.0_f64, |a, &b| f64::max(a, b));
+                let avg_step_count = step_counts.iter().sum::<i64>() as f64 / (execution_count as f64);
+                SlowTaskInfo {
+                    task_name,
+                    average_duration_seconds: avg_duration,
+                    max_duration_seconds: max_duration,
+                    execution_count,
+                    average_step_count: avg_step_count,
+                    error_count: total_errors as i32,
+                    error_rate: total_errors as f64 / execution_count as f64,
+                    last_executed_at: last_executed.map(|dt| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc).to_rfc3339()),
+                }
             })
             .collect();
 
         // Calculate resource utilization
-        let pool_utilization = if health.max_connections > 0 {
-            health.active_connections as f64 / health.max_connections as f64
-        } else {
-            0.0
-        };
+        // Note: Connection pool metrics not available from SQL function
+        // TODO: Consider fetching from separate connection pool monitoring if needed
+        let pool_utilization = 0.0;
 
         let resource_utilization = ResourceUtilization {
             database_pool_utilization: pool_utilization,
