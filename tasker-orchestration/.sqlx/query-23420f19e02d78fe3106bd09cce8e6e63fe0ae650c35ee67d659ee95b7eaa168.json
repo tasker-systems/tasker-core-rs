@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT to_state, from_state FROM tasker_task_transitions WHERE task_uuid = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "to_state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "from_state",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "23420f19e02d78fe3106bd09cce8e6e63fe0ae650c35ee67d659ee95b7eaa168"
+}

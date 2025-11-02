@@ -23,7 +23,7 @@ use std::fmt;
 ///
 /// Defines the operational mode for event-driven coordination, supporting
 /// gradual rollout and reliable fallback mechanisms.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DeploymentMode {
     /// Pure polling approach (maximum reliability)
     ///
@@ -41,6 +41,7 @@ pub enum DeploymentMode {
     /// - Production deployments (optimal reliability + performance)
     /// - Gradual rollout of event-driven features
     /// - Systems requiring zero missed events guarantee
+    #[default]
     Hybrid,
 
     /// Pure event-driven approach (maximum performance)
@@ -69,13 +70,6 @@ impl fmt::Display for DeploymentMode {
             DeploymentMode::EventDrivenOnly => write!(f, "EventDrivenOnly"),
             DeploymentMode::Disabled => write!(f, "Disabled"),
         }
-    }
-}
-
-impl Default for DeploymentMode {
-    fn default() -> Self {
-        // Hybrid provides the best balance of performance and reliability
-        Self::Hybrid
     }
 }
 
