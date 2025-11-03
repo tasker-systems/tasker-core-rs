@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 /// Configuration for decision point processing
 ///
 /// Controls limits, thresholds, and behavior for dynamic workflow
-/// decision points. See `config/tasker/base/decision_points.toml`
-/// for detailed documentation of each parameter.
+/// decision points. See `config/tasker/base/common.toml` [decision_points]
+/// section for detailed documentation of each parameter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecisionPointsConfig {
     /// Enable decision point processing

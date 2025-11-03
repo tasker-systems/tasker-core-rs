@@ -48,18 +48,15 @@ success_threshold = 1  # Single success to close
 [telemetry]
 enabled = false  # Disable telemetry in tests
 
-# Test-specific system settings
-[system]
-max_memory_mb = 512  # Lower memory limits for tests
-max_cpu_percent = 80.0
-
 # Test-specific execution settings
 [execution]
 environment = "test"
-
-[execution.timeouts]
-default_operation_timeout_seconds = 10  # Shorter timeouts for tests
-shutdown_grace_period_seconds = 10
+# Smaller concurrency limits for test environments
+max_concurrent_tasks = 10
+max_concurrent_steps = 50
+# Shorter timeouts for faster test failures
+default_timeout_seconds = 60
+step_execution_timeout_seconds = 30
 
 # Test-specific decision points settings
 [decision_points]

@@ -194,56 +194,92 @@ success_threshold = 2
 # ============================================================================
 # TELEMETRY CONFIGURATION
 # ============================================================================
+#
+# OpenTelemetry configuration for metrics and tracing
+# Note: Full OpenTelemetry configuration (endpoints, exporters) is managed
+# via OTEL_* environment variables following OpenTelemetry spec
+#
+# ============================================================================
 
 [telemetry]
-# Telemetry enablement and configuration
-enabled = true
-
-[telemetry.metrics]
-# Metrics collection configuration
-enabled = true
-collection_interval_seconds = 60
-export_endpoint = "${TELEMETRY_ENDPOINT:-}"
-
-[telemetry.tracing]
-# Distributed tracing configuration
-enabled = true
-sampling_rate = 1.0
-export_endpoint = "${TRACING_ENDPOINT:-}"
+# Enable telemetry collection (metrics and tracing)
+enabled = false
+# Service name for telemetry identification
+service_name = "tasker-core"
+# Sampling rate for traces (0.0-1.0, where 1.0 = 100% sampling)
+sample_rate = 1.0
 
 # ============================================================================
 # SYSTEM CONFIGURATION
 # ============================================================================
+#
+# Core system-level settings including dependent system defaults,
+# versioning, and recursion limits.
+#
+# ============================================================================
 
 [system]
-# System-level configuration
-max_memory_mb = 2048
-max_cpu_percent = 80.0
-process_name = "tasker"
+# Default dependent system identifier (used when no specific system specified)
+default_dependent_system = "default"
+# Tasker core version (semantic versioning)
+version = "0.1.0"
+# Maximum recursion depth for nested workflow operations (prevents stack overflow)
+max_recursion_depth = 50
 
 # ============================================================================
 # EXECUTION CONFIGURATION
 # ============================================================================
+#
+# Workflow execution parameters including concurrency limits, timeouts,
+# and operational constraints.
+#
+# ============================================================================
 
 [execution]
-# CRITICAL: Environment detection (previously missing!)
+# CRITICAL: Environment detection (test/development/production)
 environment = "${TASKER_ENV:-development}"
 
-[execution.timeouts]
-# Global operation timeouts
-default_operation_timeout_seconds = 30
-shutdown_grace_period_seconds = 30
+# Maximum number of tasks that can execute concurrently
+max_concurrent_tasks = 100
+# Maximum number of workflow steps that can execute concurrently
+max_concurrent_steps = 1000
+
+# Default timeout for task operations (seconds)
+default_timeout_seconds = 3600
+# Timeout for individual step execution (seconds)
+step_execution_timeout_seconds = 300
+
+# Maximum attempts to discover ready steps before failure
+max_discovery_attempts = 3
+# Batch size for step discovery operations
+step_batch_size = 10
+
+# Maximum retry attempts for failed steps
+max_retries = 3
+# Maximum number of steps allowed in a single workflow (prevents runaway expansion)
+max_workflow_steps = 1000
+# Connection timeout for API and database operations (seconds)
+connection_timeout_seconds = 10
 
 # ============================================================================
 # TASK TEMPLATES CONFIGURATION
 # ============================================================================
+#
+# Template discovery paths for task definitions (YAML/JSON workflow files).
+# Supports glob patterns for flexible template organization.
+#
+# ============================================================================
 
 [task_templates]
-# Task template discovery and caching
-cache_enabled = true
-template_path = "${TASKER_TEMPLATE_PATH:-}"
-auto_reload = true
-reload_interval_seconds = 300
+# Glob patterns for discovering task template files
+# Example patterns:
+#   - "config/task_templates/*.{yml,yaml}"   - Top-level templates only
+#   - "config/task_templates/**/*.{yml,yaml}" - Recursive search
+#   - Multiple paths for different template categories
+search_paths = [
+    "config/task_templates/*.{yml,yaml}",
+    "config/task_templates/**/*.{yml,yaml}"
+]
 
 # ============================================================================
 # DECISION POINT CONFIGURATION (TAS-53)
