@@ -34,6 +34,7 @@ pub mod error;
 pub mod event_systems;
 pub mod executor;
 pub mod manager;
+pub mod merge;
 pub mod merger;
 pub mod mpsc_channels;
 pub mod orchestration;

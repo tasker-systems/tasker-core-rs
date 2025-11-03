@@ -27,6 +27,7 @@
 //! ```
 
 use super::error::{ConfigResult, ConfigurationError};
+use super::merge::deep_merge_toml;
 use super::unified_loader::UnifiedConfigLoader;
 use std::path::PathBuf;
 use tracing::{debug, info};
@@ -134,12 +135,8 @@ impl ConfigMerger {
                 orch_config.to_string().len()
             );
 
-            if let (toml::Value::Table(ref mut base_table), toml::Value::Table(orch_table)) =
-                (&mut base, orch_config)
-            {
-                // Deep merge to preserve nested tables like mpsc_channels.orchestration.*
-                Self::deep_merge_tables(base_table, orch_table);
-            }
+            // Deep merge to preserve nested tables like mpsc_channels.orchestration.*
+            deep_merge_toml(&mut base, orch_config)?;
 
             // 3. Load and merge worker configuration
             let worker_config = self.loader.load_context_toml("worker")?;
@@ -148,12 +145,8 @@ impl ConfigMerger {
                 worker_config.to_string().len()
             );
 
-            if let toml::Value::Table(ref mut base_table) = &mut base {
-                if let toml::Value::Table(worker_table) = worker_config {
-                    // Deep merge to preserve nested tables like mpsc_channels.worker.*
-                    Self::deep_merge_tables(base_table, worker_table);
-                }
-            }
+            // Deep merge to preserve nested tables like mpsc_channels.worker.*
+            deep_merge_toml(&mut base, worker_config)?;
 
             debug!(
                 "Complete merged config total: {} bytes",
@@ -177,12 +170,8 @@ impl ConfigMerger {
             );
 
             // 3. Merge context on top of common (context wins in conflicts)
-            if let (toml::Value::Table(ref mut base_table), toml::Value::Table(context_table)) =
-                (&mut base, context_config)
-            {
-                // Deep merge to preserve nested tables
-                Self::deep_merge_tables(base_table, context_table);
-            }
+            // Deep merge to preserve nested tables
+            deep_merge_toml(&mut base, context_config)?;
 
             debug!("Merged config total: {} bytes", base.to_string().len());
             base
@@ -207,47 +196,6 @@ impl ConfigMerger {
         );
 
         Ok(merged_toml_string)
-    }
-
-    /// Recursively merge two TOML tables (deep merge)
-    ///
-    /// If both values are tables, recursively merge them.
-    /// Otherwise, the new value overwrites the old value.
-    ///
-    /// This is used to properly merge nested configurations like:
-    /// - `mpsc_channels.orchestration.*` + `mpsc_channels.worker.*`
-    /// - `database.pool.*` + `database.connection.*`
-    ///
-    /// Without deep merging, the second table would completely replace the first.
-    fn deep_merge_tables(base: &mut toml::value::Table, overlay: toml::value::Table) {
-        for (key, value) in overlay {
-            match base.get_mut(&key) {
-                Some(base_value) => {
-                    // Both base and overlay have this key
-                    // Check if both are tables before consuming them
-                    let both_are_tables = matches!(
-                        (&*base_value, &value),
-                        (toml::Value::Table(_), toml::Value::Table(_))
-                    );
-
-                    if both_are_tables {
-                        // Both are tables - recursively merge
-                        if let toml::Value::Table(base_table) = base_value {
-                            if let toml::Value::Table(overlay_table) = value {
-                                Self::deep_merge_tables(base_table, overlay_table);
-                            }
-                        }
-                    } else {
-                        // Not both tables - overlay wins
-                        *base_value = value;
-                    }
-                }
-                None => {
-                    // Key only in overlay - insert it
-                    base.insert(key, value);
-                }
-            }
-        }
     }
 
     /// Recursively strip _docs sections from TOML value

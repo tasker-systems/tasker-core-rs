@@ -382,28 +382,10 @@ impl UnifiedConfigLoader {
     }
 
     /// Merge TOML configurations with environment overrides taking precedence
-    #[allow(clippy::only_used_in_recursion)]
+    ///
+    /// Delegates to shared deep merge implementation in config::merge module.
     fn merge_toml(&self, base: &mut toml::Value, override_config: toml::Value) -> ConfigResult<()> {
-        if let (toml::Value::Table(base_table), toml::Value::Table(override_table)) =
-            (base, override_config)
-        {
-            for (key, value) in override_table {
-                if let Some(base_value) = base_table.get_mut(&key) {
-                    // Recursively merge nested tables
-                    if let (toml::Value::Table(_), toml::Value::Table(_)) = (&*base_value, &value) {
-                        self.merge_toml(base_value, value)?;
-                    } else {
-                        // Override scalar values
-                        *base_value = value;
-                    }
-                } else {
-                    // Add new keys from override
-                    base_table.insert(key, value);
-                }
-            }
-        }
-
-        Ok(())
+        super::merge::deep_merge_toml(base, override_config)
     }
 
     /// Validate component configuration
