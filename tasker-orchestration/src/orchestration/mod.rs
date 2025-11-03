@@ -180,4 +180,4 @@ pub use tasker_shared::config::orchestration::{
     OrchestrationSystemConfig, StepEnqueuerConfig, StepResultProcessorConfig,
     TaskClaimStepEnqueuerConfig,
 };
-pub use tasker_shared::config::{ReadinessFallbackConfig, TaskReadinessNotificationConfig};
+// TAS-61: ReadinessFallbackConfig and TaskReadinessNotificationConfig removed (part of deleted TaskReadinessConfig)

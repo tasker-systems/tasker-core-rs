@@ -355,9 +355,7 @@ mod tests {
             10000
         );
 
-        // Test task readiness defaults
-        assert_eq!(config.task_readiness.event_channel.buffer_size, 1000);
-        assert_eq!(config.task_readiness.event_channel.send_timeout_ms, 1000);
+        // TAS-61: task_readiness removed (zero runtime usage)
 
         // Test worker defaults
         assert_eq!(config.worker.command_processor.command_buffer_size, 1000);

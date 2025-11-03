@@ -1,0 +1,13 @@
+tasker-shared/src/config/task_readiness.rs:12:pub struct TaskReadinessConfig {
+tasker-shared/src/config/task_readiness.rs:235:impl Default for TaskReadinessConfig {
+tasker-shared/src/config/task_readiness.rs:360:impl TaskReadinessConfig {
+tasker-shared/src/config/task_readiness.rs:504:        let config = TaskReadinessConfig::default();
+tasker-shared/src/config/task_readiness.rs:515:        let config = TaskReadinessConfig::default();
+tasker-shared/src/config/task_readiness.rs:524:        let config = TaskReadinessConfig::default();
+tasker-shared/src/config/task_readiness.rs:538:        let mut config = TaskReadinessConfig::default();
+tasker-shared/src/config/task_readiness.rs:558:        let config = TaskReadinessConfig::default();
+tasker-shared/src/config/task_readiness.rs:565:        let deserialized: TaskReadinessConfig =
+tasker-shared/src/config/tasker.rs:66:    ReadinessFallbackConfig, TaskReadinessConfig, TaskReadinessCoordinatorConfig,
+tasker-shared/src/config/tasker.rs:105:    pub task_readiness: TaskReadinessConfig,
+tasker-shared/src/config/tasker.rs:520:            task_readiness: TaskReadinessConfig::default(), // TAS-43 Task Readiness System
+tasker-shared/src/config/mod.rs:87:    ReadinessFallbackConfig, TaskReadinessConfig, TaskReadinessCoordinatorConfig,

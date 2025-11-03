@@ -1,0 +1,6 @@
+pgmq-notify: 1
+tasker-client: 5
+tasker-orchestration: 11
+tasker-shared: 99
+tasker-worker: 9
+workers: 1

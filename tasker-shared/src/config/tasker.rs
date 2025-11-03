@@ -59,13 +59,7 @@ pub use super::worker::{
 
 pub use super::web::*;
 
-// TAS-43 Task Readiness System exports
-pub use super::task_readiness::{
-    BackoffConfig as TaskReadinessBackoffConfig, ConnectionConfig, EnhancedCoordinatorSettings,
-    ErrorHandlingConfig, EventChannelConfig, EventClassificationConfig, NamespacePatterns,
-    ReadinessFallbackConfig, TaskReadinessConfig, TaskReadinessCoordinatorConfig,
-    TaskReadinessNotificationConfig,
-};
+// TAS-43 Task Readiness System - Removed in TAS-61 Phase 1a (zero runtime usage)
 
 // TAS-51 MPSC Channels Configuration export
 pub use super::mpsc_channels::MpscChannelsConfig;
@@ -101,9 +95,7 @@ pub struct TaskerConfig {
     /// Circuit breaker configuration for resilience patterns
     pub circuit_breakers: CircuitBreakerConfig,
 
-    /// Task readiness event-driven system configuration
-    pub task_readiness: TaskReadinessConfig,
-
+    // REMOVED: task_readiness for TAS-61 Phase 1a (zero runtime usage)
     // REMOVED: task_claimer for TAS-41 state machine approach
     /// Unified event systems configuration
     pub event_systems: EventSystemsConfig,
@@ -130,7 +122,7 @@ pub struct EventSystemsConfig {
     /// Orchestration event system configuration
     pub orchestration: UnifiedOrchestrationEventSystemConfig,
 
-    /// Task readiness event system configuration
+    /// Task readiness event system configuration (TAS-61: kept, old TaskReadinessConfig removed)
     pub task_readiness: UnifiedTaskReadinessEventSystemConfig,
 
     /// Worker event system configuration
@@ -517,7 +509,7 @@ impl Default for TaskerConfig {
                     configs
                 },
             },
-            task_readiness: TaskReadinessConfig::default(), // TAS-43 Task Readiness System
+            // REMOVED: task_readiness for TAS-61 Phase 1a (zero runtime usage)
             // REMOVED: task_claimer for TAS-41 state machine approach
             event_systems: EventSystemsConfig::default(), // Unified Event Systems Configuration
             mpsc_channels: MpscChannelsConfig::default(), // TAS-51 MPSC Channels Configuration

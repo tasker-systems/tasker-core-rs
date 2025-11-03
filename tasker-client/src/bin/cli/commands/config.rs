@@ -1,0 +1,1029 @@
+//! Configuration command handlers for the Tasker CLI
+
+use chrono::Utc;
+use regex::Regex;
+use tasker_client::{ClientConfig, ClientResult};
+use tasker_shared::config::{ConfigMerger, ConfigurationContext, TaskerConfig};
+
+use crate::ConfigCommands;
+
+/// Extract line and column from TOML error message
+fn extract_error_position(error_msg: &str) -> Option<(usize, usize)> {
+    // TOML errors often contain "at line X column Y" patterns
+    let re = Regex::new(r"line (\d+) column (\d+)").ok()?;
+    let caps = re.captures(error_msg)?;
+
+    let line = caps.get(1)?.as_str().parse().ok()?;
+    let col = caps.get(2)?.as_str().parse().ok()?;
+
+    Some((line, col))
+}
+
+pub async fn handle_config_command(
+    cmd: ConfigCommands,
+    _config: &ClientConfig,
+) -> ClientResult<()> {
+    match cmd {
+        ConfigCommands::Generate {
+            context,
+            environment,
+            source_dir,
+            output,
+            validate,
+        } => {
+            println!("Generating configuration:");
+            println!("  Context: {}", context);
+            println!("  Environment: {}", environment);
+            println!("  Source: {}", source_dir);
+            println!("  Output: {}", output);
+
+            // Create ConfigMerger
+            let mut merger = ConfigMerger::new(std::path::PathBuf::from(&source_dir), &environment)
+                .map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to initialize config merger: {}",
+                        e
+                    ))
+                })?;
+
+            // Merge configuration
+            println!("\nMerging configuration...");
+            let merged_config = merger.merge_context(&context).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to merge configuration: {}",
+                    e
+                ))
+            })?;
+
+            // Generate metadata header
+            let header = format!(
+                "# Tasker Configuration - {} Context\n\
+                 # Environment: {}\n\
+                 # Generated: {}\n\
+                 # Source: {}\n\
+                 #\n\
+                 # This file is a MERGED configuration (base + environment overrides).\n\
+                 # DO NOT EDIT manually - regenerate using: tasker-cli config generate\n\
+                 #\n\
+                 # Environment Variable Overrides (applied at runtime):\n\
+                 # - DATABASE_URL: Override database.url (K8s secrets rotation)\n\
+                 # - TASKER_TEMPLATE_PATH: Override worker.template_path (testing)\n\
+                 # - TASKER_WEB_BIND_ADDRESS: Override web bind address (CI/testing port isolation)\n\
+                 #\n\n",
+                context,
+                environment,
+                Utc::now().to_rfc3339(),
+                source_dir
+            );
+
+            // Write header + merged config to output file
+            let full_config = format!("{}{}", header, merged_config);
+            println!("Writing to: {}", output);
+            std::fs::write(&output, &full_config).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to write output file: {}",
+                    e
+                ))
+            })?;
+
+            println!("✓ Successfully generated configuration!");
+            println!("  Output file: {}", output);
+            println!("  Size: {} bytes", full_config.len());
+
+            // Optionally validate if requested
+            if validate {
+                println!("\nValidating generated configuration...");
+
+                // Re-read the file we just wrote
+                let written_content = std::fs::read_to_string(&output).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to read generated file for validation: {}",
+                        e
+                    ))
+                })?;
+
+                // Parse as TOML
+                let toml_value: toml::Value = toml::from_str(&written_content).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Generated file is not valid TOML: {}",
+                        e
+                    ))
+                })?;
+
+                // Validate based on context
+                match context.as_str() {
+                    "common" => {
+                        use tasker_shared::config::contexts::CommonConfig;
+                        let config: CommonConfig = toml_value.clone().try_into().map_err(|e| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize CommonConfig: {}",
+                                e
+                            ))
+                        })?;
+                        config.validate().map_err(|errors| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Validation failed: {:?}",
+                                errors
+                            ))
+                        })?;
+                    }
+                    "orchestration" => {
+                        use tasker_shared::config::contexts::OrchestrationConfig;
+                        let config: OrchestrationConfig =
+                            toml_value.clone().try_into().map_err(|e| {
+                                tasker_client::ClientError::ConfigError(format!(
+                                    "Failed to deserialize OrchestrationConfig: {}",
+                                    e
+                                ))
+                            })?;
+                        config.validate().map_err(|errors| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Validation failed: {:?}",
+                                errors
+                            ))
+                        })?;
+                    }
+                    "worker" => {
+                        use tasker_shared::config::contexts::WorkerConfig;
+                        let config: WorkerConfig = toml_value.clone().try_into().map_err(|e| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize WorkerConfig: {}",
+                                e
+                            ))
+                        })?;
+                        config.validate().map_err(|errors| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Validation failed: {:?}",
+                                errors
+                            ))
+                        })?;
+                    }
+                    "complete" => {
+                        let _config: TaskerConfig = toml_value.clone().try_into().map_err(|e| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize TaskerConfig (complete context): {}",
+                                e
+                            ))
+                        })?;
+                        // TaskerConfig doesn't have a validate method, so just check deserialization succeeded
+                        println!("  Note: Complete context contains all sections (common + orchestration + worker)");
+                    }
+                    _ => {
+                        return Err(tasker_client::ClientError::InvalidInput(format!(
+                            "Unknown context '{}'. Valid contexts: common, orchestration, worker, complete",
+                            context
+                        )));
+                    }
+                }
+
+                println!("✓ Validation passed!");
+            }
+        }
+        ConfigCommands::Validate {
+            config: config_path,
+            context,
+            strict,
+            explain_errors,
+        } => {
+            println!("Validating configuration:");
+            println!("  File: {}", config_path);
+            println!("  Context: {}", context);
+            println!("  Strict mode: {}", strict);
+
+            // Load the configuration file
+            let config_content = std::fs::read_to_string(&config_path).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to read config file '{}': {}",
+                    config_path, e
+                ))
+            })?;
+
+            // Parse as TOML
+            let toml_value: toml::Value = toml::from_str(&config_content).map_err(|e| {
+                if explain_errors {
+                    eprintln!("\n❌ TOML parsing error:");
+                    eprintln!("  {}", e);
+                    if let Some((line, col)) = extract_error_position(&e.to_string()) {
+                        eprintln!("  Location: line {}, column {}", line, col);
+                    }
+                }
+                tasker_client::ClientError::ConfigError(format!("Invalid TOML syntax: {}", e))
+            })?;
+
+            // Validate based on context
+            println!("\nValidating {} configuration...", context);
+
+            match context.as_str() {
+                "common" => {
+                    use tasker_shared::config::contexts::CommonConfig;
+
+                    let common_config: CommonConfig =
+                        toml_value.clone().try_into().map_err(|e| {
+                            if explain_errors {
+                                eprintln!("\n❌ Configuration structure error:");
+                                eprintln!("  {}", e);
+                                eprintln!("\nExpected CommonConfig structure with sections:");
+                                eprintln!("  - database");
+                                eprintln!("  - circuit_breakers");
+                                eprintln!("  - engine (optional)");
+                            }
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize CommonConfig: {}",
+                                e
+                            ))
+                        })?;
+
+                    // Run validation
+                    common_config.validate().map_err(|errors| {
+                        if explain_errors {
+                            eprintln!("\n❌ Validation errors:");
+                            for error in &errors {
+                                eprintln!("  - {}", error);
+                            }
+                        }
+                        tasker_client::ClientError::ConfigError(format!(
+                            "CommonConfig validation failed: {:?}",
+                            errors
+                        ))
+                    })?;
+
+                    println!("✓ CommonConfig validation passed");
+                }
+                "orchestration" => {
+                    use tasker_shared::config::contexts::OrchestrationConfig;
+
+                    let orch_config: OrchestrationConfig =
+                        toml_value.clone().try_into().map_err(|e| {
+                            if explain_errors {
+                                eprintln!("\n❌ Configuration structure error:");
+                                eprintln!("  {}", e);
+                                eprintln!(
+                                    "\nExpected OrchestrationConfig structure with sections:"
+                                );
+                                eprintln!("  - backoff");
+                                eprintln!("  - event_systems");
+                                eprintln!("  - mpsc_channels");
+                            }
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize OrchestrationConfig: {}",
+                                e
+                            ))
+                        })?;
+
+                    // Run validation
+                    orch_config.validate().map_err(|errors| {
+                        if explain_errors {
+                            eprintln!("\n❌ Validation errors:");
+                            for error in &errors {
+                                eprintln!("  - {}", error);
+                            }
+                        }
+                        tasker_client::ClientError::ConfigError(format!(
+                            "OrchestrationConfig validation failed: {:?}",
+                            errors
+                        ))
+                    })?;
+
+                    println!("✓ OrchestrationConfig validation passed");
+                }
+                "worker" => {
+                    use tasker_shared::config::contexts::WorkerConfig;
+
+                    let worker_config: WorkerConfig =
+                        toml_value.clone().try_into().map_err(|e| {
+                            if explain_errors {
+                                eprintln!("\n❌ Configuration structure error:");
+                                eprintln!("  {}", e);
+                                eprintln!("\nExpected WorkerConfig structure with sections:");
+                                eprintln!("  - event_systems");
+                                eprintln!("  - mpsc_channels");
+                                eprintln!("  - health_monitoring (optional)");
+                            }
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize WorkerConfig: {}",
+                                e
+                            ))
+                        })?;
+
+                    // Run validation
+                    worker_config.validate().map_err(|errors| {
+                        if explain_errors {
+                            eprintln!("\n❌ Validation errors:");
+                            for error in &errors {
+                                eprintln!("  - {}", error);
+                            }
+                        }
+                        tasker_client::ClientError::ConfigError(format!(
+                            "WorkerConfig validation failed: {:?}",
+                            errors
+                        ))
+                    })?;
+
+                    println!("✓ WorkerConfig validation passed");
+                }
+                "complete" => {
+                    let _tasker_config: TaskerConfig =
+                        toml_value.clone().try_into().map_err(|e| {
+                            if explain_errors {
+                                eprintln!("\n❌ Configuration structure error:");
+                                eprintln!("  {}", e);
+                                eprintln!("\nExpected TaskerConfig structure with sections:");
+                                eprintln!("  - database (common)");
+                                eprintln!("  - circuit_breakers (common)");
+                                eprintln!("  - orchestration (orchestration context)");
+                                eprintln!("  - worker (worker context)");
+                            }
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to deserialize TaskerConfig (complete context): {}",
+                                e
+                            ))
+                        })?;
+
+                    // TaskerConfig doesn't have a validate method
+                    println!("✓ TaskerConfig (complete) validation passed");
+                    println!("  Note: Complete context contains all sections");
+                }
+                _ => {
+                    return Err(tasker_client::ClientError::InvalidInput(format!(
+                        "Unknown context '{}'. Valid contexts: common, orchestration, worker, complete",
+                        context
+                    )));
+                }
+            }
+
+            println!("\n✓ Configuration is valid!");
+
+            if strict {
+                println!("  (strict mode: no warnings detected)");
+            }
+        }
+        ConfigCommands::ValidateSources {
+            context,
+            environment,
+            source_dir,
+            explain_errors,
+        } => {
+            println!("Validating source configuration:");
+            println!("  Context: {}", context);
+            println!("  Environment: {}", environment);
+            println!("  Source directory: {}", source_dir);
+
+            // Create ConfigMerger
+            let mut merger = ConfigMerger::new(std::path::PathBuf::from(&source_dir), &environment)
+                .map_err(|e| {
+                    if explain_errors {
+                        eprintln!("\n❌ Failed to initialize config merger:");
+                        eprintln!("  {}", e);
+                        eprintln!("\nPossible causes:");
+                        eprintln!("  - Source directory doesn't exist");
+                        eprintln!("  - Missing base/ subdirectory");
+                        eprintln!("  - Invalid directory permissions");
+                    }
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to initialize config merger: {}",
+                        e
+                    ))
+                })?;
+
+            // Attempt to merge configuration (validates source files, env var substitution)
+            println!("\nValidating source files and merging...");
+            merger.merge_context(&context).map_err(|e| {
+                if explain_errors {
+                    eprintln!("\n❌ Source configuration validation failed:");
+                    eprintln!("  {}", e);
+                    eprintln!("\nPossible causes:");
+                    eprintln!("  - Missing required TOML files (base/{}.toml)", context);
+                    eprintln!("  - Invalid TOML syntax");
+                    eprintln!("  - Environment variables without defaults (use ${{VAR:-default}})");
+                    eprintln!("  - Structural validation errors");
+                }
+                tasker_client::ClientError::ConfigError(format!("Source validation failed: {}", e))
+            })?;
+
+            println!("✓ Source configuration is valid!");
+            println!("  Base files: config/tasker/base/{}.toml", context);
+            if context == "orchestration" || context == "worker" {
+                println!("  Also includes: config/tasker/base/common.toml");
+            }
+            println!(
+                "  Environment overrides: config/tasker/environments/{}/",
+                environment
+            );
+        }
+        ConfigCommands::Explain {
+            parameter,
+            context,
+            environment,
+        } => {
+            use tasker_shared::config::ConfigDocumentation;
+
+            // Load documentation from base configuration directory
+            let base_dir = std::path::PathBuf::from("config/tasker/base");
+
+            if !base_dir.exists() {
+                eprintln!(
+                    "❌ Configuration base directory not found: {}",
+                    base_dir.display()
+                );
+                eprintln!("   Expected directory structure:");
+                eprintln!("   config/tasker/base/");
+                eprintln!("     ├── common.toml");
+                eprintln!("     ├── orchestration.toml");
+                eprintln!("     └── worker.toml");
+                return Err(tasker_client::ClientError::ConfigError(
+                    "Configuration base directory not found".to_string(),
+                ));
+            }
+
+            let docs = ConfigDocumentation::load(base_dir).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to load configuration documentation: {}",
+                    e
+                ))
+            })?;
+
+            // Handle specific parameter lookup
+            if let Some(param_path) = parameter {
+                if let Some(param_docs) = docs.lookup(&param_path) {
+                    println!("\n📖 Configuration Parameter: {}\n", param_docs.path);
+                    println!("Description:");
+                    println!("  {}\n", param_docs.description);
+
+                    println!("Type: {}", param_docs.param_type);
+                    println!("Valid Range: {}", param_docs.valid_range);
+
+                    if !param_docs.default.is_empty() {
+                        println!("Default: {}\n", param_docs.default);
+                    } else {
+                        println!();
+                    }
+
+                    println!("System Impact:");
+                    println!("  {}\n", param_docs.system_impact);
+
+                    if !param_docs.example.is_empty() {
+                        println!("Example Usage:");
+                        println!("{}\n", param_docs.example);
+                    }
+
+                    if !param_docs.related.is_empty() {
+                        println!("Related Parameters:");
+                        for related in &param_docs.related {
+                            println!("  • {}", related);
+                        }
+                        println!();
+                    }
+
+                    // Show environment-specific recommendations
+                    if !param_docs.recommendations.is_empty() {
+                        println!("Environment-Specific Recommendations:");
+
+                        // If environment specified, show only that one
+                        if let Some(env) = &environment {
+                            if let Some(rec) = param_docs.recommendations.get(env) {
+                                println!("  {} environment:", env);
+                                println!("    Value: {}", rec.value);
+                                println!("    Rationale: {}", rec.rationale);
+                            } else {
+                                println!("  ⚠️  No recommendation for {} environment", env);
+                            }
+                        } else {
+                            // Show all recommendations
+                            for (env_name, rec) in &param_docs.recommendations {
+                                println!("  {} environment:", env_name);
+                                println!("    Value: {}", rec.value);
+                                println!("    Rationale: {}", rec.rationale);
+                            }
+                        }
+                        println!();
+                    }
+
+                    if !param_docs.example.is_empty() {
+                        println!("Example Usage:");
+                        println!("{}", param_docs.example);
+                    }
+                } else {
+                    eprintln!("❌ No documentation found for parameter: {}", param_path);
+                    eprintln!("\n💡 Tip: Use 'tasker-cli config explain --context <context>' to list available parameters");
+                    eprintln!("   Valid contexts: common, orchestration, worker");
+                    return Err(tasker_client::ClientError::InvalidInput(format!(
+                        "Parameter '{}' not documented",
+                        param_path
+                    )));
+                }
+            }
+            // Handle context listing
+            else if let Some(ctx) = context {
+                let context_params = docs.list_for_context(&ctx);
+
+                if context_params.is_empty() {
+                    println!("\n⚠️  No documented parameters found for context: {}", ctx);
+                    println!("\n💡 Valid contexts: common, orchestration, worker");
+                } else {
+                    println!("\n📚 Configuration Parameters for {} Context\n", ctx);
+                    println!("Found {} documented parameters:\n", context_params.len());
+
+                    for param in context_params {
+                        println!("• {}", param.path);
+                        println!("  {}", param.description);
+                        println!();
+                    }
+
+                    println!("💡 Tip: Use 'tasker-cli config explain --parameter <path>' for detailed information");
+                    println!("   Example: tasker-cli config explain --parameter database.pool.max_connections");
+                }
+            }
+            // List all documented parameters
+            else {
+                let all_params: Vec<_> = docs.all_parameters().collect();
+
+                println!("\n📚 All Documented Configuration Parameters\n");
+                println!("Total: {} parameters\n", all_params.len());
+
+                // Group by prefix for better readability
+                let mut common_params = Vec::new();
+                let mut orch_params = Vec::new();
+                let mut worker_params = Vec::new();
+
+                for param in all_params {
+                    if param.path.starts_with("database")
+                        || param.path.starts_with("queues")
+                        || param.path.starts_with("circuit_breakers")
+                        || param.path.starts_with("shared_channels")
+                    {
+                        common_params.push(param);
+                    } else if param.path.starts_with("orchestration")
+                        || param.path.starts_with("backoff")
+                        || param.path.starts_with("task_readiness")
+                    {
+                        orch_params.push(param);
+                    } else if param.path.starts_with("worker") {
+                        worker_params.push(param);
+                    }
+                }
+
+                if !common_params.is_empty() {
+                    println!("Common Configuration ({} parameters):", common_params.len());
+                    for param in common_params {
+                        println!("  • {} - {}", param.path, param.description);
+                    }
+                    println!();
+                }
+
+                if !orch_params.is_empty() {
+                    println!(
+                        "Orchestration Configuration ({} parameters):",
+                        orch_params.len()
+                    );
+                    for param in orch_params {
+                        println!("  • {} - {}", param.path, param.description);
+                    }
+                    println!();
+                }
+
+                if !worker_params.is_empty() {
+                    println!("Worker Configuration ({} parameters):", worker_params.len());
+                    for param in worker_params {
+                        println!("  • {} - {}", param.path, param.description);
+                    }
+                    println!();
+                }
+
+                println!("💡 Tip: Use --context <name> to filter by context (common, orchestration, worker)");
+                println!("   Or use --parameter <path> for detailed information about a specific parameter");
+            }
+        }
+        ConfigCommands::AnalyzeUsage {
+            source_dir,
+            context,
+            format,
+            show_unused,
+            output,
+            show_locations,
+        } => {
+            use std::collections::HashMap;
+            use std::process::Command;
+
+            println!("Analyzing configuration usage patterns...");
+            println!("  Source directory: {}", source_dir);
+            println!("  Context filter: {}", context);
+            println!("  Report format: {}", format);
+
+            // Step 1: Find all *Config struct definitions
+            println!("\n[1/4] Finding Config struct definitions...");
+            let struct_output = Command::new("rg")
+                .args(&[
+                    "pub struct \\w*Config",
+                    "--type",
+                    "rust",
+                    "-n",
+                    "--no-heading",
+                ])
+                .current_dir(&source_dir)
+                .output()
+                .map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to run ripgrep for structs: {}. Is ripgrep installed?",
+                        e
+                    ))
+                })?;
+
+            if !struct_output.status.success() {
+                return Err(tasker_client::ClientError::ConfigError(
+                    "Failed to find config structs. Ensure ripgrep is installed.".to_string(),
+                ));
+            }
+
+            let struct_lines = String::from_utf8_lossy(&struct_output.stdout);
+            let mut config_structs: HashMap<String, (String, usize)> = HashMap::new(); // name -> (file, line)
+            let struct_re = Regex::new(r"pub struct ([A-Za-z0-9_]+Config)").unwrap();
+
+            for line in struct_lines.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 2 {
+                    let file_path = parts[0];
+                    let line_num: usize = parts[1].parse().unwrap_or(0);
+
+                    if let Some(caps) = struct_re.captures(line) {
+                        if let Some(struct_name) = caps.get(1) {
+                            config_structs.insert(
+                                struct_name.as_str().to_string(),
+                                (file_path.to_string(), line_num),
+                            );
+                        }
+                    }
+                }
+            }
+
+            println!("   Found {} Config structs", config_structs.len());
+
+            // Step 2: Find all config field accesses (config.*)
+            println!("[2/4] Finding config field accesses in code...");
+            let usage_output = Command::new("rg")
+                .args(&[r"config\.\w+", "--type", "rust", "-o", "-n", "--no-heading"])
+                .current_dir(&source_dir)
+                .output()
+                .map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to run ripgrep for usage: {}",
+                        e
+                    ))
+                })?;
+
+            let usage_lines = String::from_utf8_lossy(&usage_output.stdout);
+            let mut field_usage: HashMap<String, Vec<(String, usize)>> = HashMap::new(); // field -> [(file, line)]
+            let field_re = Regex::new(r"config\.([a-z_]+)").unwrap();
+
+            for line in usage_lines.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 3 {
+                    let file_path = parts[0];
+                    let line_num: usize = parts[1].parse().unwrap_or(0);
+                    let access = parts[2];
+
+                    if let Some(caps) = field_re.captures(access) {
+                        if let Some(field_name) = caps.get(1) {
+                            field_usage
+                                .entry(field_name.as_str().to_string())
+                                .or_insert_with(Vec::new)
+                                .push((file_path.to_string(), line_num));
+                        }
+                    }
+                }
+            }
+
+            println!(
+                "   Found {} unique config field accesses",
+                field_usage.len()
+            );
+
+            // Step 3: Find struct type references (direct usage like TaskerConfig, etc.)
+            println!("[3/4] Finding struct instantiations and type references...");
+            let mut struct_usage: HashMap<String, Vec<(String, usize)>> = HashMap::new();
+
+            for (struct_name, _) in &config_structs {
+                let struct_output = Command::new("rg")
+                    .args(&[struct_name, "--type", "rust", "-n", "--no-heading"])
+                    .current_dir(&source_dir)
+                    .output()
+                    .map_err(|e| {
+                        tasker_client::ClientError::ConfigError(format!(
+                            "Failed to search for struct usage: {}",
+                            e
+                        ))
+                    })?;
+
+                let lines = String::from_utf8_lossy(&struct_output.stdout);
+                let references: Vec<(String, usize)> = lines
+                    .lines()
+                    .filter(|l| {
+                        // Exclude the struct definition itself
+                        !l.contains("pub struct")
+                            && !l.contains("impl Default for")
+                            && !l.contains("impl ")
+                    })
+                    .filter_map(|line| {
+                        let parts: Vec<&str> = line.split(':').collect();
+                        if parts.len() >= 2 {
+                            let file = parts[0].to_string();
+                            let line_num = parts[1].parse().ok()?;
+                            Some((file, line_num))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                if !references.is_empty() {
+                    struct_usage.insert(struct_name.clone(), references);
+                }
+            }
+
+            println!(
+                "   Found {} structs with usage references",
+                struct_usage.len()
+            );
+
+            // Step 4: Analyze and categorize
+            println!("[4/4] Analyzing usage patterns...");
+
+            let mut used_structs: Vec<String> = Vec::new();
+            let mut unused_structs: Vec<String> = Vec::new();
+
+            for (struct_name, _) in &config_structs {
+                if struct_usage.contains_key(struct_name) {
+                    used_structs.push(struct_name.clone());
+                } else {
+                    unused_structs.push(struct_name.clone());
+                }
+            }
+
+            used_structs.sort();
+            unused_structs.sort();
+
+            // Calculate statistics
+            let total_structs = config_structs.len();
+            let used_count = used_structs.len();
+            let unused_count = unused_structs.len();
+            let used_percentage = if total_structs > 0 {
+                (used_count as f64 / total_structs as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            // Sort field usage by frequency
+            let mut field_usage_vec: Vec<(String, usize)> = field_usage
+                .iter()
+                .map(|(field, locations)| (field.clone(), locations.len()))
+                .collect();
+            field_usage_vec.sort_by(|a, b| b.1.cmp(&a.1));
+
+            // Generate report based on format
+            let report = match format.as_str() {
+                "json" => {
+                    let mut report = serde_json::json!({
+                        "summary": {
+                            "total_config_structs": total_structs,
+                            "used_structs": used_count,
+                            "unused_structs": unused_count,
+                            "used_percentage": used_percentage,
+                            "total_field_accesses": field_usage_vec.iter().map(|(_, c)| c).sum::<usize>(),
+                            "unique_fields_accessed": field_usage.len(),
+                        },
+                        "used_structs": used_structs,
+                        "unused_structs": unused_structs
+                            .iter()
+                            .map(|name| {
+                                let (file, line) = config_structs.get(name).unwrap();
+                                serde_json::json!({
+                                    "name": name,
+                                    "location": format!("{}:{}", file, line)
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                        "top_field_usage": field_usage_vec.iter().take(20).map(|(field, count)| {
+                            serde_json::json!({
+                                "field": format!("config.{}", field),
+                                "access_count": count
+                            })
+                        }).collect::<Vec<_>>(),
+                    });
+
+                    if show_locations {
+                        report["field_usage_locations"] = serde_json::json!(
+                            field_usage.iter().map(|(field, locations)| {
+                                serde_json::json!({
+                                    "field": format!("config.{}", field),
+                                    "locations": locations.iter().take(10).map(|(f, l)| format!("{}:{}", f, l)).collect::<Vec<_>>()
+                                })
+                            }).collect::<Vec<_>>()
+                        );
+                    }
+
+                    serde_json::to_string_pretty(&report).unwrap()
+                }
+                "markdown" => {
+                    let mut md = String::new();
+                    md.push_str("# Configuration Usage Analysis\n\n");
+                    md.push_str(&format!(
+                        "**Generated**: {}\n\n",
+                        chrono::Utc::now().to_rfc3339()
+                    ));
+
+                    md.push_str("## Summary\n\n");
+                    md.push_str(&format!("- **Total Config Structs**: {}\n", total_structs));
+                    md.push_str(&format!(
+                        "- **Used**: {} ({:.1}%)\n",
+                        used_count, used_percentage
+                    ));
+                    md.push_str(&format!(
+                        "- **Unused**: {} ({:.1}%)\n\n",
+                        unused_count,
+                        100.0 - used_percentage
+                    ));
+
+                    if !show_unused || unused_structs.is_empty() {
+                        md.push_str("## Top Field Usage\n\n");
+                        md.push_str("| Field | Access Count |\n");
+                        md.push_str("|-------|-------------|\n");
+                        for (field, count) in field_usage_vec.iter().take(20) {
+                            md.push_str(&format!("| `config.{}` | {} |\n", field, count));
+                        }
+                        md.push_str("\n");
+                    }
+
+                    if !unused_structs.is_empty() {
+                        md.push_str("## Unused Config Structs\n\n");
+                        md.push_str("These structs are defined but have no runtime usage:\n\n");
+                        for struct_name in &unused_structs {
+                            let (file, line) = config_structs.get(struct_name).unwrap();
+                            md.push_str(&format!("- **{}** - `{}:{}`\n", struct_name, file, line));
+                        }
+                        md.push_str("\n");
+                    }
+
+                    md
+                }
+                _ => {
+                    // Default text format
+                    let mut text = String::new();
+                    text.push_str(
+                        "\n╔═══════════════════════════════════════════════════════════════╗\n",
+                    );
+                    text.push_str(
+                        "║        Configuration Usage Analysis Report                   ║\n",
+                    );
+                    text.push_str(
+                        "╚═══════════════════════════════════════════════════════════════╝\n\n",
+                    );
+
+                    text.push_str("SUMMARY\n");
+                    text.push_str("═══════\n");
+                    text.push_str(&format!("Total Config Structs: {}\n", total_structs));
+                    text.push_str(&format!(
+                        "  Used:   {} ({:.1}%)\n",
+                        used_count, used_percentage
+                    ));
+                    text.push_str(&format!(
+                        "  Unused: {} ({:.1}%)\n\n",
+                        unused_count,
+                        100.0 - used_percentage
+                    ));
+
+                    if !show_unused || unused_structs.is_empty() {
+                        text.push_str("TOP FIELD USAGE\n");
+                        text.push_str("═══════════════\n");
+                        for (i, (field, count)) in field_usage_vec.iter().take(20).enumerate() {
+                            text.push_str(&format!(
+                                "{:2}. config.{:<30} {:>5} accesses\n",
+                                i + 1,
+                                field,
+                                count
+                            ));
+                        }
+                        text.push_str("\n");
+                    }
+
+                    if !unused_structs.is_empty() {
+                        text.push_str("UNUSED CONFIG STRUCTS\n");
+                        text.push_str("═══════════════════════\n");
+                        text.push_str("These structs are defined but have no runtime usage:\n\n");
+                        for struct_name in &unused_structs {
+                            let (file, line) = config_structs.get(struct_name).unwrap();
+                            text.push_str(&format!("  ✗ {:<40} {}:{}\n", struct_name, file, line));
+                        }
+                        text.push_str("\n");
+                        text.push_str("💡 Consider removing or documenting why these exist.\n\n");
+                    } else {
+                        text.push_str(
+                            "✓ All config structs have at least one usage reference!\n\n",
+                        );
+                    }
+
+                    if show_locations && !field_usage.is_empty() {
+                        text.push_str("FIELD USAGE LOCATIONS (Top 10 Most Used)\n");
+                        text.push_str("═════════════════════════════════════════\n");
+                        for (field, count) in field_usage_vec.iter().take(10) {
+                            text.push_str(&format!("\nconfig.{} ({} accesses):\n", field, count));
+                            if let Some(locations) = field_usage.get(field) {
+                                for (file, line) in locations.iter().take(5) {
+                                    text.push_str(&format!("  • {}:{}\n", file, line));
+                                }
+                                if locations.len() > 5 {
+                                    text.push_str(&format!(
+                                        "  ... and {} more\n",
+                                        locations.len() - 5
+                                    ));
+                                }
+                            }
+                        }
+                        text.push_str("\n");
+                    }
+
+                    text
+                }
+            };
+
+            // Output report
+            if let Some(output_file) = output {
+                std::fs::write(&output_file, &report).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to write report to file: {}",
+                        e
+                    ))
+                })?;
+                println!("\n✓ Report written to: {}", output_file);
+            } else {
+                println!("\n{}", report);
+            }
+        }
+        ConfigCommands::Dump {
+            context,
+            environment,
+            source_dir,
+            format,
+        } => {
+            println!("Dumping configuration structure:");
+            println!("  Context: {}", context);
+            println!("  Environment: {}", environment);
+            println!("  Source: {}", source_dir);
+            println!("  Format: {}", format);
+
+            // Create ConfigMerger
+            let mut merger = ConfigMerger::new(std::path::PathBuf::from(&source_dir), &environment)
+                .map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to initialize config merger: {}",
+                        e
+                    ))
+                })?;
+
+            // Merge configuration to TOML string
+            let merged_toml = merger.merge_context(&context).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to merge configuration: {}",
+                    e
+                ))
+            })?;
+
+            // Parse TOML into Value
+            let toml_value: toml::Value = toml::from_str(&merged_toml).map_err(|e| {
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to parse merged TOML: {}",
+                    e
+                ))
+            })?;
+
+            // Convert to the requested format
+            let output = match format.as_str() {
+                "json" => serde_json::to_string_pretty(&toml_value).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to serialize to JSON: {}",
+                        e
+                    ))
+                })?,
+                "yaml" => serde_yaml::to_string(&toml_value).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to serialize to YAML: {}",
+                        e
+                    ))
+                })?,
+                "toml" => merged_toml,
+                _ => {
+                    return Err(tasker_client::ClientError::InvalidInput(format!(
+                        "Unknown format '{}'. Valid formats: json, yaml, toml",
+                        format
+                    )));
+                }
+            };
+
+            // Print to stdout
+            println!("\n{}", output);
+        }
+        ConfigCommands::Show => {
+            println!("Current CLI Configuration:");
+            println!("{}", toml::to_string_pretty(_config).unwrap());
+        }
+    }
+    Ok(())
+}

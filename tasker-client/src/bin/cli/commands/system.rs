@@ -1,0 +1,237 @@
+//! System command handlers for the Tasker CLI
+
+use tasker_client::{
+    ClientConfig, ClientResult, OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient,
+    WorkerApiConfig,
+};
+
+use crate::SystemCommands;
+
+pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> ClientResult<()> {
+    match cmd {
+        SystemCommands::Health {
+            orchestration,
+            workers,
+        } => {
+            if orchestration || !workers {
+                println!("Checking orchestration health...");
+
+                let orchestration_config = OrchestrationApiConfig {
+                    base_url: config.orchestration.base_url.clone(),
+                    timeout_ms: config.orchestration.timeout_ms,
+                    max_retries: config.orchestration.max_retries,
+                    auth: None,
+                };
+
+                let orch_client = OrchestrationApiClient::new(orchestration_config)?;
+
+                // Check basic health
+                match orch_client.health_check().await {
+                    Ok(()) => {
+                        println!("  ✓ Orchestration service is healthy");
+                    }
+                    Err(e) => {
+                        println!("  ✗ Orchestration service health check failed: {}", e);
+                    }
+                }
+
+                // Get detailed health if available
+                match orch_client.get_detailed_health().await {
+                    Ok(detailed) => {
+                        println!("  ✓ Detailed orchestration health:");
+                        println!(
+                            "    Status: {} | Environment: {} | Version: {}",
+                            detailed.status, detailed.info.environment, detailed.info.version
+                        );
+                        println!(
+                            "    Operational state: {} | Circuit breaker: {}",
+                            detailed.info.operational_state, detailed.info.circuit_breaker_state
+                        );
+                        println!(
+                            "    DB pools - Web: {}, Orchestration: {}",
+                            detailed.info.web_database_pool_size,
+                            detailed.info.orchestration_database_pool_size
+                        );
+
+                        if !detailed.checks.is_empty() {
+                            println!("    Health checks:");
+                            for (check_name, check_result) in detailed.checks {
+                                let status_icon = if check_result.status == "healthy" {
+                                    "✓"
+                                } else {
+                                    "✗"
+                                };
+                                println!(
+                                    "      {} {}: {} ({}ms)",
+                                    status_icon,
+                                    check_name,
+                                    check_result.status,
+                                    check_result.duration_ms
+                                );
+                                if let Some(message) = check_result.message {
+                                    println!("        {}", message);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("  Could not get detailed health info: {}", e);
+                    }
+                }
+            }
+
+            if workers || !orchestration {
+                println!("\nChecking worker health...");
+
+                let worker_config = WorkerApiConfig {
+                    base_url: config.worker.base_url.clone(),
+                    timeout_ms: config.worker.timeout_ms,
+                    max_retries: config.worker.max_retries,
+                    auth: None,
+                };
+
+                let worker_client = WorkerApiClient::new(worker_config)?;
+
+                // Check basic worker service health
+                match worker_client.health_check().await {
+                    Ok(()) => {
+                        println!("  ✓ Worker service is healthy");
+                    }
+                    Err(e) => {
+                        println!("  ✗ Worker service health check failed: {}", e);
+                    }
+                }
+
+                // Get worker instances
+                match worker_client.list_workers(None).await {
+                    Ok(worker_list) => {
+                        println!(
+                            "  ✓ Found {} worker instances (active: {})",
+                            worker_list.total_count, worker_list.active_count
+                        );
+
+                        for worker in worker_list.workers.iter().take(5) {
+                            // Show first 5
+                            match worker_client.worker_health(&worker.worker_id).await {
+                                Ok(health) => {
+                                    println!(
+                                        "    ✓ {}: {} | {} | {}s uptime",
+                                        worker.worker_id,
+                                        health.status,
+                                        health.system_info.version,
+                                        health.system_info.uptime_seconds
+                                    );
+                                }
+                                Err(_) => {
+                                    println!("    ✗ {}: Health check failed", worker.worker_id);
+                                }
+                            }
+                        }
+
+                        if worker_list.workers.len() > 5 {
+                            println!("    ... and {} more workers", worker_list.workers.len() - 5);
+                        }
+                    }
+                    Err(e) => {
+                        println!("  ✗ Could not get worker list: {}", e);
+                    }
+                }
+            }
+
+            if !orchestration && !workers {
+                println!(
+                    "\nOverall system health: Both orchestration and worker services checked above"
+                );
+            }
+        }
+        SystemCommands::Info => {
+            println!("Tasker System Information");
+            println!("================================");
+            println!("CLI Version: {}", env!("CARGO_PKG_VERSION"));
+            println!("Build Target: {}", std::env::consts::ARCH);
+            println!();
+
+            println!("Configuration:");
+            println!("  Orchestration API: {}", config.orchestration.base_url);
+            println!("  Worker API: {}", config.worker.base_url);
+            println!("  Request timeout: {}ms", config.orchestration.timeout_ms);
+            println!("  Max retries: {}", config.orchestration.max_retries);
+            println!();
+
+            // Try to get version info from services
+            println!("🔗 Service Information:");
+
+            // Orchestration service info
+            let orchestration_config = OrchestrationApiConfig {
+                base_url: config.orchestration.base_url.clone(),
+                timeout_ms: config.orchestration.timeout_ms,
+                max_retries: config.orchestration.max_retries,
+                auth: None,
+            };
+
+            if let Ok(orch_client) = OrchestrationApiClient::new(orchestration_config) {
+                match orch_client.get_detailed_health().await {
+                    Ok(health) => {
+                        println!(
+                            "  Orchestration: {} v{} ({})",
+                            health.status, health.info.version, health.info.environment
+                        );
+                        println!("    Operational state: {}", health.info.operational_state);
+                        println!(
+                            "    Database pools: Web={}, Orch={}",
+                            health.info.web_database_pool_size,
+                            health.info.orchestration_database_pool_size
+                        );
+                    }
+                    Err(_) => {
+                        println!("  Orchestration: Unable to retrieve service info");
+                    }
+                }
+            } else {
+                println!("  Orchestration: Configuration error");
+            }
+
+            // Worker service info
+            let worker_config = WorkerApiConfig {
+                base_url: config.worker.base_url.clone(),
+                timeout_ms: config.worker.timeout_ms,
+                max_retries: config.worker.max_retries,
+                auth: None,
+            };
+
+            if let Ok(worker_client) = WorkerApiClient::new(worker_config) {
+                match worker_client.list_workers(None).await {
+                    Ok(worker_list) => {
+                        println!(
+                            "  Workers: {} total, {} active",
+                            worker_list.total_count, worker_list.active_count
+                        );
+
+                        if let Some(first_worker) = worker_list.workers.first() {
+                            if let Ok(health) =
+                                worker_client.worker_health(&first_worker.worker_id).await
+                            {
+                                println!(
+                                    "    Sample worker: {} v{} ({})",
+                                    health.system_info.worker_type,
+                                    health.system_info.version,
+                                    health.system_info.environment
+                                );
+                                println!(
+                                    "    Supported namespaces: {}",
+                                    health.system_info.supported_namespaces.join(", ")
+                                );
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        println!("  Workers: Unable to retrieve worker info");
+                    }
+                }
+            } else {
+                println!("  Workers: Configuration error");
+            }
+        }
+    }
+    Ok(())
+}

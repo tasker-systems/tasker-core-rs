@@ -38,7 +38,6 @@ pub mod merger;
 pub mod mpsc_channels;
 pub mod orchestration;
 pub mod queues;
-pub mod task_readiness;
 pub mod tasker;
 pub mod unified_loader;
 pub mod web;
@@ -81,12 +80,6 @@ pub use worker::{
 pub use web::*;
 
 // TAS-43 Task Readiness System exports
-pub use task_readiness::{
-    BackoffConfig as TaskReadinessBackoffConfig, ConnectionConfig, EnhancedCoordinatorSettings,
-    ErrorHandlingConfig, EventChannelConfig, EventClassificationConfig, NamespacePatterns,
-    ReadinessFallbackConfig, TaskReadinessConfig, TaskReadinessCoordinatorConfig,
-    TaskReadinessNotificationConfig,
-};
 
 // TAS-51 MPSC Channels Configuration exports
 pub use mpsc_channels::{

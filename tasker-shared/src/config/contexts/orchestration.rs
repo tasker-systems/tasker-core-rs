@@ -42,7 +42,7 @@ pub struct OrchestrationConfig {
     /// Orchestration event system configuration
     pub orchestration_events: OrchestrationEventSystemConfig,
 
-    /// Task readiness event system configuration
+    /// Task readiness event system configuration (TAS-61: kept, old TaskReadinessConfig removed)
     pub task_readiness_events: TaskReadinessEventSystemConfig,
 
     /// MPSC channels configuration for orchestration

@@ -3908,6 +3908,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "serde_yaml",
  "serial_test",
  "tasker-shared",
  "tempfile",
