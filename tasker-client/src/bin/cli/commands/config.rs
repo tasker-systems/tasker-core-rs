@@ -3,7 +3,10 @@
 use chrono::Utc;
 use regex::Regex;
 use tasker_client::{ClientConfig, ClientResult};
-use tasker_shared::config::{ConfigMerger, ConfigurationContext, TaskerConfig};
+use tasker_shared::config::{
+    contexts::ConfigContext, manager::ConfigManager, ConfigMerger, ConfigurationContext,
+    TaskerConfig,
+};
 
 use crate::ConfigCommands;
 
@@ -962,53 +965,99 @@ pub async fn handle_config_command(
             environment,
             source_dir,
             format,
+            path,
         } => {
-            println!("Dumping configuration structure:");
-            println!("  Context: {}", context);
-            println!("  Environment: {}", environment);
-            println!("  Source: {}", source_dir);
-            println!("  Format: {}", format);
-
-            // Create ConfigMerger
-            let mut merger = ConfigMerger::new(std::path::PathBuf::from(&source_dir), &environment)
+            // Check if --path was provided (legacy single-file mode)
+            let tasker_config: TaskerConfig = if let Some(config_path) = path {
+                // Use the same loading logic as SystemContext::new_for_orchestration()
+                // This ensures proper environment variable substitution and default handling
+                let path_buf = std::path::PathBuf::from(&config_path);
+                let context_manager = ConfigManager::load_from_single_file(
+                    &path_buf,
+                    ConfigContext::Combined, // Load all configs (common + orchestration + worker)
+                )
                 .map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to initialize config merger: {}",
+                        "Failed to load configuration from '{}': {}",
+                        config_path, e
+                    ))
+                })?;
+
+                // Build TaskerConfig from context configs (applies defaults properly)
+                context_manager.as_tasker_config().ok_or_else(|| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to build TaskerConfig from configuration in '{}'",
+                        config_path
+                    ))
+                })?
+            } else {
+                // Context/environment mode (TAS-61)
+                let context = context.as_ref().ok_or_else(|| {
+                    tasker_client::ClientError::InvalidInput(
+                        "Context is required when --path is not provided".to_string(),
+                    )
+                })?;
+                let environment = environment.as_ref().ok_or_else(|| {
+                    tasker_client::ClientError::InvalidInput(
+                        "Environment is required when --path is not provided".to_string(),
+                    )
+                })?;
+
+                // Create ConfigMerger
+                let mut merger =
+                    ConfigMerger::new(std::path::PathBuf::from(&source_dir), environment)
+                        .map_err(|e| {
+                            tasker_client::ClientError::ConfigError(format!(
+                                "Failed to initialize config merger: {}",
+                                e
+                            ))
+                        })?;
+
+                // Merge configuration to TOML string
+                let merged_toml = merger.merge_context(context).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to merge configuration: {}",
                         e
                     ))
                 })?;
 
-            // Merge configuration to TOML string
-            let merged_toml = merger.merge_context(&context).map_err(|e| {
-                tasker_client::ClientError::ConfigError(format!(
-                    "Failed to merge configuration: {}",
-                    e
-                ))
-            })?;
+                // Parse TOML into Value then into TaskerConfig
+                let toml_value: toml::Value = toml::from_str(&merged_toml).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to parse merged TOML: {}",
+                        e
+                    ))
+                })?;
 
-            // Parse TOML into Value
-            let toml_value: toml::Value = toml::from_str(&merged_toml).map_err(|e| {
-                tasker_client::ClientError::ConfigError(format!(
-                    "Failed to parse merged TOML: {}",
-                    e
-                ))
-            })?;
+                // Hydrate full TaskerConfig from merged TOML
+                toml_value.try_into().map_err(|e: toml::de::Error| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to hydrate TaskerConfig from merged TOML: {}",
+                        e
+                    ))
+                })?
+            };
 
             // Convert to the requested format
             let output = match format.as_str() {
-                "json" => serde_json::to_string_pretty(&toml_value).map_err(|e| {
+                "json" => serde_json::to_string_pretty(&tasker_config).map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to serialize to JSON: {}",
+                        "Failed to serialize TaskerConfig to JSON: {}",
                         e
                     ))
                 })?,
-                "yaml" => serde_yaml::to_string(&toml_value).map_err(|e| {
+                "yaml" => serde_yaml::to_string(&tasker_config).map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to serialize to YAML: {}",
+                        "Failed to serialize TaskerConfig to YAML: {}",
                         e
                     ))
                 })?,
-                "toml" => merged_toml,
+                "toml" => toml::to_string_pretty(&tasker_config).map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to serialize TaskerConfig to TOML: {}",
+                        e
+                    ))
+                })?,
                 _ => {
                     return Err(tasker_client::ClientError::InvalidInput(format!(
                         "Unknown format '{}'. Valid formats: json, yaml, toml",
@@ -1017,8 +1066,8 @@ pub async fn handle_config_command(
                 }
             };
 
-            // Print to stdout
-            println!("\n{}", output);
+            // Print raw output to stdout (no preamble for easy piping)
+            println!("{}", output);
         }
         ConfigCommands::Show => {
             println!("Current CLI Configuration:");

@@ -32,37 +32,39 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 // Re-export types and errors
-pub use super::circuit_breaker::{
+pub use crate::config::circuit_breaker::{
     CircuitBreakerComponentConfig, CircuitBreakerConfig, CircuitBreakerGlobalSettings,
 };
-pub use super::error::{ConfigResult, ConfigurationError};
-pub use super::event_systems::{
+pub use crate::config::error::{ConfigResult, ConfigurationError};
+pub use crate::config::event_systems::{
     EventSystemConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
     EventSystemTimingConfig,
     OrchestrationEventSystemConfig as UnifiedOrchestrationEventSystemConfig,
     TaskReadinessEventSystemConfig as UnifiedTaskReadinessEventSystemConfig,
     WorkerEventSystemConfig as UnifiedWorkerEventSystemConfig,
 };
-pub use super::orchestration::{
+pub use crate::config::orchestration::{
     event_systems::OrchestrationEventSystemConfig, DecisionPointsConfig, ExecutorConfig,
     ExecutorType, OrchestrationConfig, OrchestrationSystemConfig,
 };
-pub use super::queues::{
+pub use crate::config::queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
 };
 
-pub use super::queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};
-pub use super::worker::{
+pub use crate::config::queue_classification::{
+    ConfigDrivenMessageEvent, QueueClassifier, QueueType,
+};
+pub use crate::config::worker::{
     EventSystemConfig as WorkerLegacyEventSystemConfig, HealthMonitoringConfig,
     StepProcessingConfig, WorkerConfig,
 };
 
-pub use super::web::*;
+pub use crate::config::web::*;
 
 // TAS-43 Task Readiness System - Removed in TAS-61 Phase 1a (zero runtime usage)
 
 // TAS-51 MPSC Channels Configuration export
-pub use super::mpsc_channels::MpscChannelsConfig;
+pub use crate::config::mpsc_channels::MpscChannelsConfig;
 
 /// Root configuration structure for component-based config system
 #[derive(Debug, Clone, Deserialize, Serialize)]

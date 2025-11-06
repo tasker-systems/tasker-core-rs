@@ -325,12 +325,12 @@ pub enum ConfigCommands {
     /// Dump configuration structure for analysis (TAS-61)
     Dump {
         /// Configuration context (orchestration, worker, complete)
-        #[arg(short, long)]
-        context: String,
+        #[arg(short, long, required_unless_present = "path")]
+        context: Option<String>,
 
         /// Target environment (test, development, production)
-        #[arg(short, long)]
-        environment: String,
+        #[arg(short, long, required_unless_present = "path")]
+        environment: Option<String>,
 
         /// Source directory containing base and environment configs
         #[arg(short, long, default_value = "config/tasker")]
@@ -339,6 +339,10 @@ pub enum ConfigCommands {
         /// Output format (json, yaml, toml)
         #[arg(short, long, default_value = "json")]
         format: String,
+
+        /// Path to complete TOML configuration file (bypasses context/environment)
+        #[arg(short, long, conflicts_with = "context")]
+        path: Option<String>,
     },
 
     /// Show current CLI configuration

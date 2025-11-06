@@ -3,14 +3,11 @@ name = "tasker-shared"
 version = "0.1.0"
 edition = "2021"
 description = "Shared components for tasker orchestration and worker systems"
-license = "MIT"
-repository = "https://github.com/tasker-systems/tasker-core"
 readme = "README.md"
-keywords = ["workflow", "orchestration", "async", "task", "shared"]
+repository = "https://github.com/tasker-systems/tasker-core"
+license = "MIT"
+keywords = ["async", "orchestration", "shared", "task", "workflow"]
 categories = ["asynchronous", "database", "web-programming"]
-
-[lints]
-workspace = true
 
 [lib]
 crate-type = ["rlib"]
@@ -75,12 +72,13 @@ tower = { workspace = true, optional = true }
 tower-http = { workspace = true, optional = true }
 # Logging and telemetry
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 tracing-opentelemetry = { workspace = true }
+tracing-subscriber = { workspace = true }
 # OpenAPI documentation
 utoipa = { workspace = true, optional = true }
 utoipa-swagger-ui = { workspace = true, optional = true }
 uuid = { workspace = true }
+validator = { workspace = true }
 workspace_tools = { workspace = true }
 
 [dev-dependencies]
@@ -108,3 +106,6 @@ web-api = [
   "utoipa",
   "utoipa-swagger-ui",
 ]
+
+[lints]
+workspace = true

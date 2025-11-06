@@ -9,9 +9,6 @@ license = "MIT"
 keywords = ["async", "orchestration", "performance", "task", "workflow"]
 categories = ["concurrency", "database", "web-programming"]
 
-[lints]
-workspace = true
-
 [workspace]
 members = [
   ".",  # Current crate temporarily remains during migration
@@ -60,7 +57,11 @@ opentelemetry-otlp = { version = "0.26", features = ["grpc-tonic"] }
 # rt-tokio: Telemetry tasks run on shared tokio runtime (lower overhead, sufficient for I/O-bound workloads)
 # Alternative: rt-tokio-current-thread creates separate runtime (higher isolation, higher resource cost)
 # Our choice: rt-tokio works well for async I/O-bound orchestration without CPU-intensive workloads
-opentelemetry_sdk = { version = "0.26", features = ["rt-tokio", "trace", "metrics"] }
+opentelemetry_sdk = { version = "0.26", features = [
+  "metrics",
+  "rt-tokio",
+  "trace"
+] }
 opentelemetry-semantic-conventions = "0.26"
 # Message queue management
 pgmq = "0.30.1"
@@ -101,13 +102,14 @@ tower = { version = "0.4" }
 tower-http = { version = "0.6", features = ["cors", "timeout", "trace"] }
 # Logging and telemetry
 tracing = "0.1"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
 tracing-opentelemetry = "0.27"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
 url = "2.0"
 # OpenAPI documentation
 utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
 uuid = { version = "1.11", features = ["serde", "v4", "v7"] }
+validator = { version = "0.19", features = ["derive"] }
 workspace_tools = { version = "0.2.0", features = ["full"] }
 # pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
 # wasm-bindgen = { version = "0.2", optional = true }
@@ -123,43 +125,28 @@ workspace_tools = { version = "0.2.0", features = ["full"] }
 # Strategy: Incremental enablement - Start with essentials, enable more over time
 # Current Status: Phase 1 - Essential lints only
 
-[workspace.lints.rust]
-# Phase 1: Essential compiler lints (ENABLED)
-missing_debug_implementations = "warn"
-redundant_imports = "warn"
-unsafe_op_in_unsafe_fn = "warn"
-
-# Phase 2: Additional compiler lints (COMMENTED OUT - Enable next)
-# ambiguous_negative_literals = "warn"
-# redundant_lifetimes = "warn"
-# trivial_numeric_casts = "warn"
-# unused_lifetimes = "warn"
-
 [workspace.lints.clippy]
-# Phase 1: Critical categories (ENABLED)
-correctness = { level = "warn", priority = -1 }  # Bug prevention
-suspicious = { level = "warn", priority = -1 }   # Likely bugs
-
 # Phase 2: Cargo metadata (ENABLED - already fixed)
 cargo = { level = "warn", priority = -1 }
-
+# Phase 1: Critical categories (ENABLED)
+correctness = { level = "warn", priority = -1 }  # Bug prevention
 # Phase 3: Categories to enable incrementally (COMMENTED OUT)
 # complexity = { level = "warn", priority = -1 }   # Enable when: Ready for complexity refactoring
 # perf = { level = "warn", priority = -1 }        # Enable when: Ready for performance improvements
 # style = { level = "warn", priority = -1 }       # Enable when: Ready for style consistency
 # pedantic = { level = "warn", priority = -1 }    # Enable when: Ready for all pedantic warnings
-
 # Phase 4: High-priority restriction lints (ENABLED)
-dbg_macro = "warn"                              # No debug prints in production
-undocumented_unsafe_blocks = "warn"             # Safety documentation required
-
+dbg_macro = "warn"  # No debug prints in production
+module_inception = "allow"  # Sometimes necessary for re-exports
+multiple_crate_versions = "allow"  # Expected during migration
+suspicious = { level = "warn", priority = -1 }  # Likely bugs
+undocumented_unsafe_blocks = "warn"  # Safety documentation required
 # Phase 5: Safety and correctness restriction lints (COMMENTED OUT - Enable next)
 # allow_attributes_without_reason = "warn"
 # as_underscore = "warn"
 # map_err_ignore = "warn"
 # unnecessary_safety_comment = "warn"
 # unnecessary_safety_doc = "warn"
-
 # Phase 6: Code quality restriction lints (COMMENTED OUT - Enable later)
 # assertions_on_result_states = "warn"
 # clone_on_ref_ptr = "warn"
@@ -176,11 +163,20 @@ undocumented_unsafe_blocks = "warn"             # Safety documentation required
 # string_to_string = "warn"
 # unneeded_field_pattern = "warn"
 # unused_result_ok = "warn"
-
 # Permanent exceptions (legitimate cases)
-uninlined_format_args = "allow"     # Mixed format args acceptable for readability
-module_inception = "allow"          # Sometimes necessary for re-exports
-multiple_crate_versions = "allow"   # Expected during migration
+uninlined_format_args = "allow"  # Mixed format args acceptable for readability
+
+[workspace.lints.rust]
+# Phase 1: Essential compiler lints (ENABLED)
+missing_debug_implementations = "warn"
+redundant_imports = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+
+# Phase 2: Additional compiler lints (COMMENTED OUT - Enable next)
+# ambiguous_negative_literals = "warn"
+# redundant_lifetimes = "warn"
+# trivial_numeric_casts = "warn"
+# unused_lifetimes = "warn"
 
 [lib]
 crate-type = ["rlib"]
@@ -234,6 +230,9 @@ test-utils = [
   "tasker-shared/test-utils",
   "tasker-worker/test-utils",
 ]
+
+[lints]
+workspace = true
 
 [profile.dev]
 opt-level = 0
