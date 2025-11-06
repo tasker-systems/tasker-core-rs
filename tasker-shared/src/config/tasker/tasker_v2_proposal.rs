@@ -49,6 +49,7 @@
 //! - TODO(TAS-61): Custom validators for domain-specific logic (e.g., PostgreSQL URLs)
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use validator::Validate;
 
 // ============================================================================
@@ -1027,6 +1028,75 @@ pub struct AuthConfig {
     /// API key header
     #[validate(length(min = 1))]
     pub api_key_header: String,
+
+    /// Route-specific authentication configuration
+    ///
+    /// Uses TOML array of tables for ergonomic route declarations.
+    /// At load time, converted to HashMap for efficient runtime lookups.
+    #[serde(default)]
+    pub protected_routes: Vec<ProtectedRouteConfig>,
+}
+
+impl AuthConfig {
+    /// Convert protected routes list to HashMap for efficient runtime lookups
+    ///
+    /// Creates route keys in format "METHOD /path" for pattern matching.
+    pub fn routes_map(&self) -> HashMap<String, RouteAuthConfig> {
+        self.protected_routes
+            .iter()
+            .map(|route| {
+                let key = format!("{} {}", route.method, route.path);
+                let config = RouteAuthConfig {
+                    auth_type: route.auth_type.clone(),
+                    required: route.required,
+                };
+                (key, config)
+            })
+            .collect()
+    }
+}
+
+/// Protected route configuration (TOML-friendly format)
+///
+/// This struct is designed for ergonomic TOML declaration using array of tables:
+///
+/// ```toml
+/// [[orchestration.web.auth.protected_routes]]
+/// method = "GET"
+/// path = "/v1/tasks"
+/// auth_type = "bearer"
+/// required = false
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate)]
+#[serde(rename_all = "snake_case")]
+pub struct ProtectedRouteConfig {
+    /// HTTP method (GET, POST, PUT, DELETE, PATCH, etc.)
+    #[validate(length(min = 1))]
+    pub method: String,
+
+    /// Route path pattern (supports parameters like /v1/tasks/{task_uuid})
+    #[validate(length(min = 1))]
+    pub path: String,
+
+    /// Type of authentication required ("bearer", "api_key")
+    #[validate(length(min = 1))]
+    pub auth_type: String,
+
+    /// Whether authentication is required for this route
+    pub required: bool,
+}
+
+/// Runtime route authentication config (for HashMap lookups)
+///
+/// This is the internal representation used by the legacy WebAuthConfig
+/// for efficient route lookups at runtime.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RouteAuthConfig {
+    /// Type of authentication required ("bearer", "api_key")
+    pub auth_type: String,
+
+    /// Whether authentication is required for this route
+    pub required: bool,
 }
 
 /// Rate limiting configuration
@@ -1765,10 +1835,56 @@ mod tests {
                 assert_eq!(orch.mode, "standalone");
                 assert!(orch.decision_points.enabled);
 
+                // Verify orchestration auth with protected routes
+                if let Some(web) = &orch.web {
+                    if let Some(auth) = &web.auth {
+                        assert!(!auth.protected_routes.is_empty(), "Should have protected routes");
+                        assert_eq!(auth.protected_routes.len(), 5, "Should have 5 orchestration routes");
+
+                        // Verify specific route using Vec structure
+                        let delete_task_route = auth.protected_routes.iter()
+                            .find(|r| r.method == "DELETE" && r.path == "/v1/tasks/{task_uuid}");
+                        assert!(delete_task_route.is_some(), "Should have DELETE /v1/tasks route");
+                        if let Some(r) = delete_task_route {
+                            assert_eq!(r.auth_type, "bearer");
+                            assert!(r.required);
+                        }
+
+                        // Verify routes_map() conversion works
+                        let routes_map = auth.routes_map();
+                        assert_eq!(routes_map.len(), 5, "Routes map should have 5 entries");
+                        let key = "DELETE /v1/tasks/{task_uuid}";
+                        assert!(routes_map.contains_key(key), "Routes map should contain DELETE route");
+                    }
+                }
+
                 // Verify worker config
                 let worker = cfg.worker.as_ref().unwrap();
                 assert_eq!(worker.worker_id, "test-worker-001");
                 assert_eq!(worker.worker_type, "general");
+
+                // Verify worker auth with protected routes
+                if let Some(web) = &worker.web {
+                    if let Some(auth) = &web.auth {
+                        assert!(!auth.protected_routes.is_empty(), "Should have protected routes");
+                        assert_eq!(auth.protected_routes.len(), 5, "Should have 5 worker routes");
+
+                        // Verify specific route using Vec structure
+                        let delete_cache_route = auth.protected_routes.iter()
+                            .find(|r| r.method == "DELETE" && r.path == "/templates/cache");
+                        assert!(delete_cache_route.is_some(), "Should have DELETE /templates/cache route");
+                        if let Some(r) = delete_cache_route {
+                            assert_eq!(r.auth_type, "bearer");
+                            assert!(r.required);
+                        }
+
+                        // Verify routes_map() conversion works
+                        let routes_map = auth.routes_map();
+                        assert_eq!(routes_map.len(), 5, "Routes map should have 5 entries");
+                        let key = "DELETE /templates/cache";
+                        assert!(routes_map.contains_key(key), "Routes map should contain DELETE route");
+                    }
+                }
             }
             Err(e) => {
                 panic!("Failed to deserialize complete-test.toml: {}", e);

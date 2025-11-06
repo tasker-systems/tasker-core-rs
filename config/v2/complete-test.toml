@@ -239,11 +239,36 @@ jwt_public_key = ""
 api_key = ""
 api_key_header = "X-API-Key"
 
-# NOTE: protected_routes not supported in current tasker_v2_proposal.rs
-# Consider adding to AuthConfig or handling separately in future iteration
-# [orchestration.web.auth.protected_routes."GET /v1/analytics/bottlenecks"]
-# auth_type = "bearer"
-# required = false
+# Protected routes using ergonomic array of tables syntax
+[[orchestration.web.auth.protected_routes]]
+method = "GET"
+path = "/v1/analytics/bottlenecks"
+auth_type = "bearer"
+required = false
+
+[[orchestration.web.auth.protected_routes]]
+method = "PATCH"
+path = "/v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"
+auth_type = "bearer"
+required = true
+
+[[orchestration.web.auth.protected_routes]]
+method = "DELETE"
+path = "/v1/tasks/{task_uuid}"
+auth_type = "bearer"
+required = true
+
+[[orchestration.web.auth.protected_routes]]
+method = "GET"
+path = "/v1/analytics/performance"
+auth_type = "bearer"
+required = false
+
+[[orchestration.web.auth.protected_routes]]
+method = "POST"
+path = "/v1/tasks"
+auth_type = "bearer"
+required = false
 
 [orchestration.web.rate_limiting]
 enabled = false
@@ -379,11 +404,36 @@ jwt_public_key = ""
 api_key = ""
 api_key_header = "X-API-Key"
 
-# NOTE: protected_routes not supported in current tasker_v2_proposal.rs
-# Consider adding to AuthConfig or handling separately in future iteration
-# [worker.web.auth.protected_routes."GET /status/detailed"]
-# auth_type = "bearer"
-# required = false
+# Protected routes using ergonomic array of tables syntax
+[[worker.web.auth.protected_routes]]
+method = "GET"
+path = "/status/detailed"
+auth_type = "bearer"
+required = false
+
+[[worker.web.auth.protected_routes]]
+method = "DELETE"
+path = "/templates/cache"
+auth_type = "bearer"
+required = true
+
+[[worker.web.auth.protected_routes]]
+method = "GET"
+path = "/handlers"
+auth_type = "bearer"
+required = false
+
+[[worker.web.auth.protected_routes]]
+method = "POST"
+path = "/templates/cache/maintain"
+auth_type = "bearer"
+required = true
+
+[[worker.web.auth.protected_routes]]
+method = "POST"
+path = "/templates/{namespace}/{name}/{version}/refresh"
+auth_type = "bearer"
+required = true
 
 [worker.web.rate_limiting]
 enabled = false
