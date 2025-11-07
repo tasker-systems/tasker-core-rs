@@ -1,0 +1,14 @@
+# Production Environment - Common Configuration Overrides
+
+[common.database.pool]
+max_connections = 50
+min_connections = 10
+
+[common.execution]
+max_concurrent_tasks = 200
+max_concurrent_steps = 2000
+environment = "production"
+
+[common.telemetry]
+enabled = true
+sample_rate = 0.01

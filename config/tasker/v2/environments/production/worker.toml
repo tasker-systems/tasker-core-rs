@@ -1,0 +1,42 @@
+# Override environment for production
+environment = "production"
+
+[worker]
+worker_id = "production-worker-001"
+
+[worker.step_processing]
+max_concurrent_steps = 500
+
+[worker.health_monitoring]
+performance_monitoring_enabled = true
+
+[worker.event_systems.worker.metadata.resource_limits]
+max_memory_mb = 4096
+max_cpu_percent = 90
+max_database_connections = 100
+
+[worker.web]
+enabled = true
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
+request_timeout_ms = 60000
+
+[worker.web.database_pools]
+web_api_pool_size = 15
+web_api_max_connections = 25
+
+# Larger MPSC channel buffers for production (TAS-51)
+
+[worker.mpsc_channels.command_processor]
+command_buffer_size = 2000
+
+[worker.mpsc_channels.event_systems]
+event_channel_buffer_size = 2000
+
+[worker.mpsc_channels.event_subscribers]
+completion_buffer_size = 2000
+result_buffer_size = 2000
+
+[worker.mpsc_channels.in_process_events]
+
+[worker.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 2000

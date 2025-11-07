@@ -12,7 +12,8 @@ use dotenvy::dotenv;
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
+use validator::Validate;
 use workspace_tools::workspace;
 
 /// Unified configuration loader using TOML format exclusively
@@ -530,6 +531,101 @@ impl UnifiedConfigLoader {
         self.component_cache.clear();
         debug!("Configuration cache cleared");
     }
+
+    // ============================================================================
+    // TAS-61: Version Detection for Gradual Rollout
+    // ============================================================================
+
+    /// Detect if v2 configuration structure is available
+    ///
+    /// Checks if the v2 directory structure exists in the configuration root.
+    /// This allows for gradual rollout of v2 configs alongside legacy configs.
+    ///
+    /// # Returns
+    /// * `true` if `config/v2/base/` directory exists
+    /// * `false` if only legacy config structure is present
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let loader = UnifiedConfigLoader::new("test")?;
+    /// if loader.has_v2_config() {
+    ///     let config = loader.load_tasker_config_v2()?;
+    /// } else {
+    ///     let config = loader.load_tasker_config()?;
+    /// }
+    /// ```
+    pub fn has_v2_config(&self) -> bool {
+        let v2_base = self
+            .root
+            .parent()
+            .and_then(|parent| Some(parent.join("v2").join("base")));
+
+        match v2_base {
+            Some(path) => {
+                let exists = path.exists() && path.is_dir();
+                debug!(
+                    "V2 config directory check: {} - {}",
+                    path.display(),
+                    if exists { "exists" } else { "not found" }
+                );
+                exists
+            }
+            None => {
+                debug!(
+                    "Cannot determine v2 config path from root: {}",
+                    self.root.display()
+                );
+                false
+            }
+        }
+    }
+
+    /// Auto-detect and load appropriate config version (TAS-61 gradual rollout)
+    ///
+    /// This method automatically detects whether v2 or legacy config should be used:
+    /// 1. Check for `TASKER_CONFIG_VERSION` environment variable (v1/v2)
+    /// 2. If not set, check if v2 directory structure exists
+    /// 3. Fall back to legacy if v2 not available
+    ///
+    /// # Returns
+    /// * `Result<TaskerConfig, ConfigurationError>` - Config loaded from detected version
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// // Automatically uses v2 if available, otherwise v1
+    /// let mut loader = UnifiedConfigLoader::new("test")?;
+    /// let config = loader.load_auto_version()?;
+    /// ```
+    pub fn load_auto_version(&mut self) -> ConfigResult<super::TaskerConfig> {
+        // Check for explicit version override
+        if let Ok(version) = std::env::var("TASKER_CONFIG_VERSION") {
+            match version.as_str() {
+                "v2" | "2" => {
+                    info!("Loading v2 config (TASKER_CONFIG_VERSION={})", version);
+                    return self.load_legacy_from_v2();
+                }
+                "v1" | "1" | "legacy" => {
+                    info!("Loading legacy config (TASKER_CONFIG_VERSION={})", version);
+                    return self.load_tasker_config();
+                }
+                _ => {
+                    warn!(
+                        "Unknown TASKER_CONFIG_VERSION '{}', falling back to auto-detect",
+                        version
+                    );
+                }
+            }
+        }
+
+        // Auto-detect based on directory structure
+        if self.has_v2_config() {
+            info!("V2 config directory detected, loading v2 with bridge conversion");
+            self.load_legacy_from_v2()
+        } else {
+            info!("V2 config not found, loading legacy config");
+            self.load_tasker_config()
+        }
+    }
 }
 
 /// Environment detection utilities
@@ -606,11 +702,138 @@ impl UnifiedConfigLoader {
 
     /// Load configuration directly as TaskerConfig
     ///
+    /// **⚠️ DEPRECATED (TAS-61)**: This method loads legacy v1 configuration.
+    /// Use `load_tasker_config_v2()` for new v2 context-based configuration,
+    /// or `load_auto_version()` for automatic version detection.
+    ///
     /// This is the preferred method for loading TOML configuration as it avoids
     /// unnecessary JSON conversion and directly produces the target structure.
+    ///
+    /// # Deprecation Notice
+    /// This method will be removed in a future version. Migrate to:
+    /// - `load_tasker_config_v2()` + bridge conversion for v2 config
+    /// - `load_auto_version()` for automatic version detection
     pub fn load_tasker_config(&mut self) -> ConfigResult<super::TaskerConfig> {
+        // Check if v2 config is available and warn
+        if self.has_v2_config() {
+            warn!(
+                "⚠️  DEPRECATION WARNING (TAS-61): Loading legacy v1 config but v2 config is available. \
+                 Consider using load_tasker_config_v2() or load_auto_version(). \
+                 See docs/ticket-specs/TAS-61/migration-status.md for details."
+            );
+        }
+
         let validated_config = self.load_with_validation()?;
         validated_config.to_tasker_config()
+    }
+
+    /// Load configuration directly as TaskerConfigV2 (TAS-61)
+    ///
+    /// This loads the v2 context-based configuration by merging three context files:
+    /// - common.toml (required)
+    /// - orchestration.toml (optional)
+    /// - worker.toml (optional)
+    ///
+    /// Each context file is loaded with environment-specific overrides applied.
+    ///
+    /// # Returns
+    /// * `Result<TaskerConfigV2, ConfigurationError>` - Loaded and validated v2 config
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let mut loader = UnifiedConfigLoader::new("test")?;
+    /// let config_v2 = loader.load_tasker_config_v2()?;
+    /// assert!(config_v2.common.database.url.contains("postgresql"));
+    /// ```
+    pub fn load_tasker_config_v2(&mut self) -> ConfigResult<super::tasker::TaskerConfigV2> {
+        use super::tasker::TaskerConfigV2;
+
+        debug!("Loading TaskerConfigV2 from context files");
+
+        // Load the three context TOML files with environment overrides
+        let common_toml = self.load_context_toml("common")?;
+        let orchestration_toml = self.load_context_toml("orchestration").ok();
+        let worker_toml = self.load_context_toml("worker").ok();
+
+        // Build a combined TOML document
+        // Note: load_context_toml() returns tables that ALREADY have the context key
+        // (e.g., { common: {...} }, { orchestration: {...} }, { worker: {...} })
+        // So we merge them directly, not wrap them again
+        let mut combined = toml::Table::new();
+
+        // Add common section (required)
+        if let toml::Value::Table(common_table) = common_toml {
+            // Merge the table directly - it already has "common" key inside
+            for (key, value) in common_table {
+                combined.insert(key, value);
+            }
+        } else {
+            return Err(ConfigurationError::validation_error(
+                "Common configuration must be a TOML table",
+            ));
+        }
+
+        // Add orchestration section (optional)
+        if let Some(toml::Value::Table(orch_table)) = orchestration_toml {
+            // Merge the table directly - it already has "orchestration" key inside
+            for (key, value) in orch_table {
+                combined.insert(key, value);
+            }
+        }
+
+        // Add worker section (optional)
+        if let Some(toml::Value::Table(worker_table)) = worker_toml {
+            // Merge the table directly - it already has "worker" key inside
+            for (key, value) in worker_table {
+                combined.insert(key, value);
+            }
+        }
+
+        // Deserialize into TaskerConfigV2
+        let config_v2: TaskerConfigV2 = toml::Value::Table(combined).try_into().map_err(|e| {
+            error!("Failed to deserialize TaskerConfigV2. Error: {}", e);
+            ConfigurationError::json_serialization_error(
+                "TOML to TaskerConfigV2 deserialization",
+                e,
+            )
+        })?;
+
+        // Validate the configuration
+        config_v2.validate().map_err(|errors| {
+            ConfigurationError::validation_error(format!(
+                "TaskerConfigV2 validation failed: {:?}",
+                errors
+            ))
+        })?;
+
+        debug!("Successfully loaded and validated TaskerConfigV2");
+        Ok(config_v2)
+    }
+
+    /// Load v2 configuration and convert to legacy format (TAS-61 Bridge)
+    ///
+    /// This convenience method loads TaskerConfigV2 from context files and
+    /// automatically converts it to legacy TaskerConfig format using the bridge.
+    ///
+    /// This is useful during the TAS-61 migration when systems need to use v2
+    /// configuration files but still require legacy config format.
+    ///
+    /// # Returns
+    /// * `Result<TaskerConfig, ConfigurationError>` - Legacy config converted from v2
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let mut loader = UnifiedConfigLoader::new("test")?;
+    /// let legacy_config = loader.load_legacy_from_v2()?;
+    /// // Use with existing systems that expect legacy format
+    /// let system_context = SystemContext::from_config(legacy_config).await?;
+    /// ```
+    pub fn load_legacy_from_v2(&mut self) -> ConfigResult<super::TaskerConfig> {
+        debug!("Loading v2 configuration and converting to legacy format");
+        let config_v2 = self.load_tasker_config_v2()?;
+        let legacy_config: super::TaskerConfig = config_v2.into();
+        debug!("Successfully converted v2 configuration to legacy format");
+        Ok(legacy_config)
     }
 
     // ============================================================================

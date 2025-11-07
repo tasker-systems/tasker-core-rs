@@ -40,18 +40,82 @@ impl ConfigManager {
 
     /// Load configuration from directory with specific environment
     ///
+    /// **⚠️ DEPRECATED (TAS-61)**: This method loads legacy v1 configuration.
+    /// Use `load_from_v2()` for new v2 context-based configuration.
+    ///
     /// This is the core loading method that delegates to UnifiedConfigLoader.
     /// Fails fast on any configuration errors.
+    ///
+    /// # Deprecation Notice
+    /// This method will be removed in a future version. Migrate to:
+    /// - `ConfigManager::load_from_v2()` for v2 config loading
+    /// - Or use `load_auto_version()` for automatic version detection
     pub fn load_from_env(environment: &str) -> ConfigResult<Arc<ConfigManager>> {
-        // Use UnifiedConfigLoader - no fallbacks, fail fast on errors
+        // Check if v2 config is available and warn if not using it
         let mut loader = UnifiedConfigLoader::new(environment)?;
+        if loader.has_v2_config() {
+            tracing::warn!(
+                "⚠️  DEPRECATION WARNING (TAS-61): Legacy v1 config loading used but v2 config is available. \
+                 Consider migrating to ConfigManager::load_from_v2() or load_auto_version(). \
+                 See docs/ticket-specs/TAS-61/migration-status.md for details."
+            );
+        }
+
         let config = loader.load_tasker_config()?;
 
         // Validate the configuration
         config.validate()?;
 
         info!(
-            "Configuration loaded successfully for environment: {}",
+            "Configuration loaded successfully for environment: {} (legacy v1 format)",
+            environment
+        );
+
+        Ok(Arc::new(ConfigManager {
+            config,
+            environment: environment.to_string(),
+        }))
+    }
+
+    /// Load configuration from v2 context files with bridge conversion (TAS-61)
+    ///
+    /// This method loads the new v2 context-based configuration and automatically
+    /// converts it to legacy TaskerConfig format using the bridge. This allows
+    /// systems to use v2 configuration files while maintaining backward compatibility.
+    ///
+    /// The v2 configuration is loaded from:
+    /// - `config/v2/base/{common,orchestration,worker}.toml`
+    /// - `config/v2/environments/{env}/{common,orchestration,worker}.toml` (overrides)
+    ///
+    /// # Arguments
+    /// * `environment` - The environment name (test, development, production)
+    ///
+    /// # Returns
+    /// * `Result<Arc<ConfigManager>, ConfigError>` - ConfigManager with legacy config
+    ///
+    /// # Example
+    /// ```no_run
+    /// use tasker_shared::config::ConfigManager;
+    ///
+    /// // Load v2 config and convert to legacy format
+    /// let manager = ConfigManager::load_from_v2("test").unwrap();
+    /// let config = manager.config();
+    /// ```
+    pub fn load_from_v2(environment: &str) -> ConfigResult<Arc<ConfigManager>> {
+        info!(
+            "Loading v2 configuration with bridge conversion for environment: {}",
+            environment
+        );
+
+        // Create loader and load v2 config
+        let mut loader = UnifiedConfigLoader::new(environment)?;
+        let config = loader.load_legacy_from_v2()?;
+
+        // Validate the converted configuration
+        config.validate()?;
+
+        info!(
+            "V2 configuration loaded and converted successfully for environment: {}",
             environment
         );
 

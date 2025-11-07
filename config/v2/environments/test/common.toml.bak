@@ -1,0 +1,64 @@
+# Test Environment - Common Configuration Overrides
+
+[common.database]
+url = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
+database = "tasker_rust_test"
+skip_migration_check = false
+
+[common.database.pool]
+max_connections = 10
+min_connections = 2
+acquire_timeout_seconds = 5
+idle_timeout_seconds = 60
+max_lifetime_seconds = 3600
+
+[common.database.variables]
+statement_timeout = 5000
+
+[common.queues]
+default_batch_size = 5
+health_check_interval = 60
+
+[common.queues.pgmq]
+poll_interval_ms = 250
+shutdown_timeout_seconds = 5
+max_retries = 1
+
+[common.circuit_breakers.global_settings]
+max_circuit_breakers = 20
+metrics_collection_interval_seconds = 10
+
+[common.mpsc_channels.event_publisher]
+event_queue_buffer_size = 100
+
+[common.mpsc_channels.ffi]
+ruby_event_buffer_size = 100
+
+[common.mpsc_channels.overflow_policy.metrics]
+saturation_check_interval_seconds = 10
+
+[common.execution]
+max_concurrent_tasks = 100
+max_concurrent_steps = 1000
+step_batch_size = 10
+max_workflow_steps = 1000
+environment = "test"
+
+[common.backoff]
+default_backoff_seconds = [1, 2, 4]
+max_backoff_seconds = 10
+
+[common.backoff.reenqueue_delays]
+initializing = 5
+enqueuing_steps = 0
+steps_in_process = 10
+evaluating_results = 5
+waiting_for_dependencies = 45
+waiting_for_retry = 30
+blocked_by_failures = 60
+
+[common.task_templates]
+search_paths = ["config/task_templates/*.{yml,yaml}"]
+
+[common.telemetry]
+enabled = false

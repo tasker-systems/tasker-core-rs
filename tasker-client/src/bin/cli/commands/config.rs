@@ -1005,13 +1005,14 @@ pub async fn handle_config_command(
 
                 // Create ConfigMerger
                 let mut merger =
-                    ConfigMerger::new(std::path::PathBuf::from(&source_dir), environment)
-                        .map_err(|e| {
+                    ConfigMerger::new(std::path::PathBuf::from(&source_dir), environment).map_err(
+                        |e| {
                             tasker_client::ClientError::ConfigError(format!(
                                 "Failed to initialize config merger: {}",
                                 e
                             ))
-                        })?;
+                        },
+                    )?;
 
                 // Merge configuration to TOML string
                 let merged_toml = merger.merge_context(context).map_err(|e| {

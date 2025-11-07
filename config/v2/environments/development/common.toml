@@ -1,0 +1,8 @@
+# Development Environment - Common Configuration Overrides
+
+[common.execution]
+environment = "development"
+
+[common.telemetry]
+enabled = true
+sample_rate = 1.0

@@ -69,6 +69,9 @@ impl std::fmt::Debug for SystemContext {
 impl SystemContext {
     /// Create SystemContext for orchestration using single-file configuration (TAS-50 Phase 3)
     ///
+    /// **⚠️ DEPRECATED (TAS-61)**: This method loads legacy v1 configuration.
+    /// Use `new_for_orchestration_v2()` for new v2 context-based configuration.
+    ///
     /// This method loads orchestration configuration from a single merged TOML file
     /// specified by the TASKER_CONFIG_PATH environment variable. The file should contain:
     /// - CommonConfig (database, queues, circuit breakers)
@@ -81,6 +84,10 @@ impl SystemContext {
     /// - Configuration file doesn't exist at the specified path
     /// - TOML cannot be parsed or deserialized into orchestration config structs
     ///
+    /// # Deprecation Notice
+    /// This method will be removed in a future version. Migrate to:
+    /// - `SystemContext::new_for_orchestration_v2()` for v2 config loading
+    ///
     /// # Returns
     /// Fully configured SystemContext for orchestration with validated configuration
     ///
@@ -91,6 +98,18 @@ impl SystemContext {
     /// - Parse/validation errors
     pub async fn new_for_orchestration() -> TaskerResult<Self> {
         info!("Initializing SystemContext for orchestration with single-file configuration (TAS-50 Phase 3)");
+
+        // Check if v2 config is available
+        let environment = crate::config::UnifiedConfigLoader::detect_environment();
+        if let Ok(loader) = crate::config::UnifiedConfigLoader::new(&environment) {
+            if loader.has_v2_config() {
+                tracing::warn!(
+                    "⚠️  DEPRECATION WARNING (TAS-61): Legacy orchestration bootstrap used but v2 config is available. \
+                     Consider migrating to SystemContext::new_for_orchestration_v2(). \
+                     See docs/ticket-specs/TAS-61/migration-status.md for details."
+                );
+            }
+        }
 
         // TAS-50: Configuration path resolution with convention-based fallback
         // Precedence:
@@ -193,6 +212,9 @@ impl SystemContext {
 
     /// Create SystemContext for worker using single-file configuration (TAS-50 Phase 3)
     ///
+    /// **⚠️ DEPRECATED (TAS-61)**: This method loads legacy v1 configuration.
+    /// Use `new_for_worker_v2()` for new v2 context-based configuration.
+    ///
     /// This method loads worker configuration from a single merged TOML file
     /// specified by the TASKER_CONFIG_PATH environment variable. The file should contain:
     /// - CommonConfig (database, queues, circuit breakers)
@@ -204,6 +226,10 @@ impl SystemContext {
     /// - TASKER_CONFIG_PATH environment variable is not set
     /// - Configuration file doesn't exist at the specified path
     /// - TOML cannot be parsed or deserialized into worker config structs
+    ///
+    /// # Deprecation Notice
+    /// This method will be removed in a future version. Migrate to:
+    /// - `SystemContext::new_for_worker_v2()` for v2 config loading
     ///
     /// # Returns
     /// Fully configured SystemContext for worker with validated configuration
@@ -217,6 +243,18 @@ impl SystemContext {
         info!(
             "Initializing SystemContext for worker with single-file configuration (TAS-50 Phase 3)"
         );
+
+        // Check if v2 config is available
+        let environment = crate::config::UnifiedConfigLoader::detect_environment();
+        if let Ok(loader) = crate::config::UnifiedConfigLoader::new(&environment) {
+            if loader.has_v2_config() {
+                tracing::warn!(
+                    "⚠️  DEPRECATION WARNING (TAS-61): Legacy worker bootstrap used but v2 config is available. \
+                     Consider migrating to SystemContext::new_for_worker_v2(). \
+                     See docs/ticket-specs/TAS-61/migration-status.md for details."
+                );
+            }
+        }
 
         // TAS-50: Configuration path resolution with convention-based fallback
         // Precedence:
@@ -311,6 +349,82 @@ impl SystemContext {
         info!(
             "Worker configuration loaded successfully from {}: environment={}",
             path.display(),
+            config_manager.environment()
+        );
+
+        Self::from_config(config_manager).await
+    }
+
+    /// Create SystemContext for orchestration using v2 configuration (TAS-61)
+    ///
+    /// This method loads orchestration configuration from v2 context-based files
+    /// and uses the bridge to convert to legacy format for backward compatibility.
+    ///
+    /// Loads from:
+    /// - `config/v2/base/{common,orchestration}.toml`
+    /// - `config/v2/environments/{env}/{common,orchestration}.toml` (overrides)
+    ///
+    /// # Returns
+    /// Fully configured SystemContext for orchestration using v2 configs
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use tasker_shared::system_context::SystemContext;
+    /// # tokio_test::block_on(async {
+    /// let system_context = SystemContext::new_for_orchestration_v2().await.unwrap();
+    /// # })
+    /// ```
+    pub async fn new_for_orchestration_v2() -> TaskerResult<Self> {
+        info!("Initializing SystemContext for orchestration with v2 configuration (TAS-61)");
+
+        let environment = crate::config::UnifiedConfigLoader::detect_environment();
+        let config_manager = ConfigManager::load_from_v2(&environment).map_err(|e| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to load v2 orchestration configuration: {}",
+                e
+            ))
+        })?;
+
+        info!(
+            "V2 orchestration configuration loaded successfully: environment={}",
+            config_manager.environment()
+        );
+
+        Self::from_config(config_manager).await
+    }
+
+    /// Create SystemContext for worker using v2 configuration (TAS-61)
+    ///
+    /// This method loads worker configuration from v2 context-based files
+    /// and uses the bridge to convert to legacy format for backward compatibility.
+    ///
+    /// Loads from:
+    /// - `config/v2/base/{common,worker}.toml`
+    /// - `config/v2/environments/{env}/{common,worker}.toml` (overrides)
+    ///
+    /// # Returns
+    /// Fully configured SystemContext for worker using v2 configs
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use tasker_shared::system_context::SystemContext;
+    /// # tokio_test::block_on(async {
+    /// let system_context = SystemContext::new_for_worker_v2().await.unwrap();
+    /// # })
+    /// ```
+    pub async fn new_for_worker_v2() -> TaskerResult<Self> {
+        info!("Initializing SystemContext for worker with v2 configuration (TAS-61)");
+
+        let environment = crate::config::UnifiedConfigLoader::detect_environment();
+        let config_manager = ConfigManager::load_from_v2(&environment).map_err(|e| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to load v2 worker configuration: {}",
+                e
+            ))
+        })?;
+
+        info!(
+            "V2 worker configuration loaded successfully: environment={}",
             config_manager.environment()
         );
 

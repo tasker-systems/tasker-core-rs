@@ -1,0 +1,21 @@
+# Test Environment - Orchestration Configuration Overrides
+
+[orchestration]
+enable_performance_logging = false
+
+[orchestration.mpsc_channels.command_processor]
+command_buffer_size = 100
+
+[orchestration.mpsc_channels.event_systems]
+event_channel_buffer_size = 100
+
+[orchestration.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 100
+
+[orchestration.web]
+request_timeout_ms = 5000
+
+[orchestration.web.database_pools]
+web_api_pool_size = 10
+web_api_max_connections = 15
+max_total_connections_hint = 30

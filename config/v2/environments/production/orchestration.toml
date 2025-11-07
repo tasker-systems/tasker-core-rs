@@ -1,0 +1,13 @@
+# Production Environment - Orchestration Configuration Overrides
+
+[orchestration]
+enable_performance_logging = true
+
+[orchestration.mpsc_channels.command_processor]
+command_buffer_size = 10000
+
+[orchestration.mpsc_channels.event_systems]
+event_channel_buffer_size = 20000
+
+[orchestration.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 100000

@@ -267,6 +267,16 @@ pub struct TelemetryConfig {
     pub sample_rate: f64,
 }
 
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            service_name: "tasker-core".to_string(),
+            sample_rate: 1.0,
+        }
+    }
+}
+
 /// Task processing engine configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EngineConfig {
