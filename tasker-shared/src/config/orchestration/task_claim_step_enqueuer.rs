@@ -1,5 +1,6 @@
 use crate::config::orchestration::step_enqueuer::StepEnqueuerConfig;
 use crate::config::orchestration::step_result_processor::StepResultProcessorConfig;
+use crate::config::tasker::TaskerConfigV2;
 use crate::config::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -60,6 +61,41 @@ impl From<Arc<TaskerConfig>> for TaskClaimStepEnqueuerConfig {
             enable_heartbeat: true,
             step_enqueuer_config: config.clone().into(),
             step_result_processor_config: config.clone().into(),
+        }
+    }
+}
+
+// TAS-61 Phase 6B: V2 configuration support
+impl From<&TaskerConfigV2> for TaskClaimStepEnqueuerConfig {
+    fn from(config: &TaskerConfigV2) -> TaskClaimStepEnqueuerConfig {
+        TaskClaimStepEnqueuerConfig {
+            batch_size: config.common.queues.default_batch_size,
+            namespace_filter: None,
+            enable_performance_logging: config
+                .orchestration
+                .as_ref()
+                .map(|o| o.enable_performance_logging)
+                .unwrap_or(false),
+            enable_heartbeat: true,
+            step_enqueuer_config: config.into(),
+            step_result_processor_config: config.into(),
+        }
+    }
+}
+
+impl From<Arc<TaskerConfigV2>> for TaskClaimStepEnqueuerConfig {
+    fn from(config: Arc<TaskerConfigV2>) -> TaskClaimStepEnqueuerConfig {
+        TaskClaimStepEnqueuerConfig {
+            batch_size: config.common.queues.default_batch_size,
+            namespace_filter: None,
+            enable_performance_logging: config
+                .orchestration
+                .as_ref()
+                .map(|o| o.enable_performance_logging)
+                .unwrap_or(false),
+            enable_heartbeat: true,
+            step_enqueuer_config: config.as_ref().into(),
+            step_result_processor_config: config.as_ref().into(),
         }
     }
 }

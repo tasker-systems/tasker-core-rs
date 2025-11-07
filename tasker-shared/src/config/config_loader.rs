@@ -141,32 +141,117 @@ impl ConfigLoader {
     }
 }
 
-/// Legacy ConfigManager wrapper for backward compatibility
+/// Configuration Manager with parallel config support
 ///
-/// This provides the same interface as the old ConfigManager but
-/// delegates to the simpler ConfigLoader internally.
+/// ## TAS-61 Phase 6A: Parallel Config Support
+///
+/// Holds BOTH legacy and V2 configs during migration:
+/// - `config_v2`: Source of truth (TaskerConfigV2)
+/// - `config`: Legacy (TaskerConfig via bridge)
+///
+/// This enables incremental migration from legacy to V2.
 #[derive(Debug, Clone)]
 pub struct ConfigManager {
+    /// Legacy configuration (via bridge) - will be removed in Phase 6D
     config: TaskerConfig,
+    /// V2 configuration (source of truth) - primary going forward
+    config_v2: TaskerConfigV2,
     environment: String,
 }
 
 impl ConfigManager {
     /// Load configuration from TASKER_CONFIG_PATH environment variable
     ///
-    /// This is the main entry point for configuration loading.
+    /// ## TAS-61 Phase 6A: Parallel Config Support
+    ///
+    /// Loads V2 config and populates BOTH fields:
+    /// - `config_v2`: Direct from file
+    /// - `config`: Converted via bridge
     pub fn load_from_env(environment: &str) -> ConfigResult<std::sync::Arc<ConfigManager>> {
-        let config = ConfigLoader::load_from_env()?;
+        // Load .env file if present (silently ignore if not found)
+        dotenvy::dotenv().ok();
+
+        let config_path = std::env::var("TASKER_CONFIG_PATH").map_err(|_| {
+            ConfigurationError::validation_error(
+                "TASKER_CONFIG_PATH environment variable not set. \
+                 Set it to the path of your pre-merged configuration file.",
+            )
+        })?;
+
+        tracing::info!(
+            "Loading configuration from TASKER_CONFIG_PATH: {} (environment: {}) [TAS-61 Phase 6A: parallel config]",
+            config_path,
+            environment
+        );
+
+        // TAS-61 Phase 6A: Load V2 config (source of truth)
+        let config_v2 = Self::load_v2_from_path(&PathBuf::from(&config_path))?;
+
+        // TAS-61 Phase 6A: Convert to legacy via bridge
+        let config: TaskerConfig = config_v2.clone().into();
 
         Ok(std::sync::Arc::new(ConfigManager {
             config,
+            config_v2,
             environment: environment.to_string(),
         }))
     }
 
-    /// Get reference to the configuration
+    /// Load TaskerConfigV2 from file path (internal helper)
+    ///
+    /// This is the V2 loading logic extracted for reuse.
+    fn load_v2_from_path(path: &PathBuf) -> ConfigResult<TaskerConfigV2> {
+        // 1. Read file
+        let contents = std::fs::read_to_string(path).map_err(|e| {
+            ConfigurationError::validation_error(format!(
+                "Failed to read config file {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+        // 2. Perform environment variable substitution
+        let contents_with_env = ConfigLoader::substitute_env_vars(&contents);
+
+        // 3. Parse TOML
+        let toml_value: toml::Value = toml::from_str(&contents_with_env)
+            .map_err(|e| ConfigurationError::json_serialization_error("TOML parsing", e))?;
+
+        // 4. Deserialize to TaskerConfigV2
+        let config_v2: TaskerConfigV2 = toml_value.try_into().map_err(|e| {
+            ConfigurationError::json_serialization_error(
+                "TOML to TaskerConfigV2 deserialization",
+                e,
+            )
+        })?;
+
+        // 5. Validate
+        config_v2.validate().map_err(|errors| {
+            ConfigurationError::validation_error(format!(
+                "Configuration validation failed: {:?}",
+                errors
+            ))
+        })?;
+
+        tracing::debug!("Successfully loaded and validated TaskerConfigV2");
+
+        Ok(config_v2)
+    }
+
+    /// Get reference to the legacy configuration
+    ///
+    /// TAS-61 Phase 6: This will be removed in Phase 6D.
+    /// New code should use `config_v2()` instead.
     pub fn config(&self) -> &TaskerConfig {
         &self.config
+    }
+
+    /// Get reference to the V2 configuration
+    ///
+    /// TAS-61 Phase 6: This is the source of truth.
+    /// All new code should use this method.
+    pub fn config_v2(&self) -> &TaskerConfigV2 {
+        &self.config_v2
     }
 
     /// Get the environment name
@@ -175,9 +260,42 @@ impl ConfigManager {
     }
 
     /// Create ConfigManager from existing TaskerConfig
+    ///
+    /// TAS-61 Phase 6: This is for test compatibility only.
+    /// Will be removed in Phase 6D.
+    ///
+    /// **Warning**: This method cannot properly reconstruct V2 config from legacy config.
+    /// It will load V2 config from TASKER_CONFIG_PATH if available, otherwise panic.
+    /// Only use in tests where TASKER_CONFIG_PATH is properly set.
+    #[deprecated(since = "0.1.0", note = "TAS-61 Phase 6: Use load_from_env instead")]
     pub fn from_tasker_config(config: TaskerConfig, environment: String) -> Self {
+        tracing::warn!(
+            "ConfigManager::from_tasker_config is deprecated (TAS-61 Phase 6). \
+             Loading V2 config from TASKER_CONFIG_PATH instead."
+        );
+
+        // Load V2 config from environment if possible
+        let config_v2 = match std::env::var("TASKER_CONFIG_PATH") {
+            Ok(path) => {
+                match Self::load_v2_from_path(&PathBuf::from(&path)) {
+                    Ok(cfg) => cfg,
+                    Err(e) => {
+                        tracing::error!("Failed to load V2 config: {}. Tests may fail.", e);
+                        panic!("ConfigManager::from_tasker_config cannot load V2 config: {}", e);
+                    }
+                }
+            }
+            Err(_) => {
+                panic!(
+                    "ConfigManager::from_tasker_config requires TASKER_CONFIG_PATH to be set \
+                     (TAS-61 Phase 6: cannot reverse-convert legacy → V2)"
+                );
+            }
+        };
+
         Self {
             config,
+            config_v2,
             environment,
         }
     }

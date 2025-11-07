@@ -25,6 +25,7 @@ use crate::{
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
 use tasker_shared::{
+    config::tasker::TaskerConfigV2,
     config::TaskerConfig,
     errors::{TaskerError, TaskerResult},
     system_context::SystemContext,
@@ -190,6 +191,28 @@ impl From<&TaskerConfig> for WorkerBootstrapConfig {
                 .deployment_mode
                 .has_event_driven(),
             deployment_mode_hint: Some(config.event_systems.worker.deployment_mode.to_string()),
+        }
+    }
+}
+
+// TAS-61 Phase 6B: V2 configuration support
+impl From<&TaskerConfigV2> for WorkerBootstrapConfig {
+    fn from(config: &TaskerConfigV2) -> WorkerBootstrapConfig {
+        WorkerBootstrapConfig {
+            worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
+            enable_web_api: config
+                .worker
+                .as_ref()
+                .and_then(|w| w.web.as_ref())
+                .map(|web| web.enabled)
+                .unwrap_or(true),
+            // TAS-61 Phase 6B: Use default configs for now (helper methods will be migrated in Phase 6C)
+            web_config: WorkerWebConfig::default(),
+            orchestration_api_config: OrchestrationApiConfig::default(),
+            environment_override: Some(config.common.execution.environment.clone()),
+            // TAS-61 Phase 6B: Default to event-driven mode (will be properly migrated in Phase 6C)
+            event_driven_enabled: true,
+            deployment_mode_hint: Some("Hybrid".to_string()),
         }
     }
 }

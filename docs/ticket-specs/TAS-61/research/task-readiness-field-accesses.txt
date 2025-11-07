@@ -1,2 +1,0 @@
-tasker-shared/src/config/mpsc_channels.rs:359:        assert_eq!(config.task_readiness.event_channel.buffer_size, 1000);
-tasker-shared/src/config/mpsc_channels.rs:360:        assert_eq!(config.task_readiness.event_channel.send_timeout_ms, 1000);

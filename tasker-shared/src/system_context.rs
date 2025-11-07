@@ -1,3 +1,4 @@
+use crate::config::tasker::TaskerConfigV2;
 use crate::config::{ConfigManager, TaskerConfig};
 use crate::events::EventPublisher;
 use crate::messaging::{PgmqClientTrait, UnifiedPgmqClient};
@@ -19,12 +20,29 @@ use uuid::Uuid;
 /// - Task handler registry
 /// - Circuit breaker management
 /// - Operational state management
+///
+/// ## TAS-61 Phase 6A: Parallel Config Support
+///
+/// During Phase 6A-6C migration, both legacy and V2 configs are available:
+/// - `tasker_config`: Legacy monolithic config (via bridge conversion)
+/// - `tasker_config_v2`: Context-based configuration (primary going forward)
+///
+/// The legacy config will be removed in Phase 6D once all consumers migrate to V2.
 pub struct SystemContext {
     /// System instance ID
     pub processor_uuid: Uuid,
 
-    /// Tasker Config
+    /// Legacy Tasker Config (TAS-61 Phase 6: will be removed in Phase 6D)
+    ///
+    /// This is populated via bridge conversion from `tasker_config_v2` for backward compatibility.
+    /// All new code should use `tasker_config_v2` directly.
     pub tasker_config: Arc<TaskerConfig>,
+
+    /// Context-based Tasker Config (TAS-61 Phase 6: primary config)
+    ///
+    /// This is the source of truth for configuration. Use this for all new code.
+    /// Contains optional orchestration and worker contexts.
+    pub tasker_config_v2: Arc<TaskerConfigV2>,
 
     /// Unified message queue client (PGMQ/RabbitMQ abstraction)
     pub message_client: Arc<UnifiedPgmqClient>,
@@ -47,6 +65,7 @@ impl std::fmt::Debug for SystemContext {
         f.debug_struct("SystemContext")
             .field("processor_uuid", &self.processor_uuid)
             .field("tasker_config", &"Arc<TaskerConfig>")
+            .field("tasker_config_v2", &"Arc<TaskerConfigV2>")
             .field("message_client", &"Arc<UnifiedMessageClient>")
             .field(
                 "database_pool",
@@ -235,16 +254,28 @@ impl SystemContext {
     ///
     /// This method contains the unified bootstrap logic that creates all shared system
     /// components with proper configuration passed to each component.
+    ///
+    /// ## TAS-61 Phase 6A: Parallel Config Support
+    ///
+    /// Populates BOTH `tasker_config` (legacy) and `tasker_config_v2` (primary):
+    /// - `tasker_config_v2`: Source of truth from ConfigManager
+    /// - `tasker_config`: Generated via bridge conversion for backward compatibility
     async fn from_pool_and_config(
         database_pool: PgPool,
         config_manager: Arc<ConfigManager>,
     ) -> TaskerResult<Self> {
-        info!("Creating system components with unified configuration");
+        info!("Creating system components with unified configuration (TAS-61 Phase 6A: parallel config support)");
 
-        let config = config_manager.config();
+        // TAS-61 Phase 6A: Get V2 config (source of truth)
+        let config_v2 = config_manager.config_v2();
+        let tasker_config_v2 = Arc::new(config_v2.clone());
+
+        // TAS-61 Phase 6A: Generate legacy config via bridge for backward compatibility
+        let config_legacy = config_manager.config(); // Already converted via bridge in ConfigManager
+        let tasker_config = Arc::new(config_legacy.clone());
 
         let (circuit_breaker_manager, message_client) =
-            Self::get_circuit_breaker_and_queue_client(config, database_pool.clone()).await;
+            Self::get_circuit_breaker_and_queue_client(config_legacy, database_pool.clone()).await;
 
         // Create task handler registry with configuration
         let task_handler_registry = Arc::new(TaskHandlerRegistry::new(database_pool.clone()));
@@ -253,20 +284,19 @@ impl SystemContext {
         let system_id = Uuid::now_v7();
 
         // Create event publisher with bounded channel (TAS-51)
-        let event_publisher_buffer_size = config
+        let event_publisher_buffer_size = config_legacy
             .mpsc_channels
             .shared
             .event_publisher
             .event_queue_buffer_size;
         let event_publisher = Arc::new(EventPublisher::with_capacity(event_publisher_buffer_size));
 
-        info!("SystemContext components created successfully");
-
-        let tasker_config = Arc::new(config.clone());
+        info!("SystemContext components created successfully (both configs available)");
 
         Ok(Self {
             processor_uuid: system_id,
             tasker_config,
+            tasker_config_v2,
             message_client,
             database_pool,
             task_handler_registry,
@@ -346,11 +376,15 @@ impl SystemContext {
     ///
     /// This bypasses full configuration loading and creates a basic context
     /// suitable for unit tests that need database access.
+    ///
+    /// ## TAS-61 Phase 6A: Parallel Config Support
+    ///
+    /// Populates BOTH configs for test compatibility during migration.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn with_pool(database_pool: sqlx::PgPool) -> TaskerResult<Self> {
         let system_id = Uuid::new_v4();
 
-        // Create minimal default configuration for testing using simple V2 loader
+        // Create minimal default configuration for testing using V2 loader
         // Requires TASKER_CONFIG_PATH to be set
         let environment = crate::config::ConfigLoader::detect_environment();
         let config_manager = ConfigManager::load_from_env(&environment).map_err(|e| {
@@ -360,7 +394,12 @@ impl SystemContext {
             ))
         })?;
 
-        let tasker_config = Arc::new(config_manager.config().clone());
+        // TAS-61 Phase 6A: Get both configs
+        let config_v2 = config_manager.config_v2();
+        let tasker_config_v2 = Arc::new(config_v2.clone());
+
+        let config_legacy = config_manager.config();
+        let tasker_config = Arc::new(config_legacy.clone());
 
         // Create standard PGMQ client (no circuit breaker for simplicity)
         let message_client = Arc::new(UnifiedPgmqClient::new_standard(
@@ -381,6 +420,7 @@ impl SystemContext {
         Ok(Self {
             processor_uuid: system_id,
             tasker_config,
+            tasker_config_v2,
             message_client,
             database_pool,
             task_handler_registry,

@@ -1,3 +1,4 @@
+use crate::config::tasker::TaskerConfigV2;
 use crate::config::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -44,6 +45,37 @@ impl From<Arc<TaskerConfig>> for StepEnqueuerConfig {
             enqueue_delay_seconds: 0, // No direct mapping, keep default
             enable_detailed_logging: config.orchestration.enable_performance_logging,
             enqueue_timeout_seconds: config.execution.step_execution_timeout_seconds,
+        }
+    }
+}
+
+// TAS-61 Phase 6B: V2 configuration support
+impl From<&TaskerConfigV2> for StepEnqueuerConfig {
+    fn from(config: &TaskerConfigV2) -> StepEnqueuerConfig {
+        StepEnqueuerConfig {
+            max_steps_per_task: config.common.execution.step_batch_size as usize,
+            enqueue_delay_seconds: 0, // No direct mapping, keep default
+            enable_detailed_logging: config
+                .orchestration
+                .as_ref()
+                .map(|o| o.enable_performance_logging)
+                .unwrap_or(false),
+            enqueue_timeout_seconds: config.common.execution.step_execution_timeout_seconds as u64,
+        }
+    }
+}
+
+impl From<Arc<TaskerConfigV2>> for StepEnqueuerConfig {
+    fn from(config: Arc<TaskerConfigV2>) -> StepEnqueuerConfig {
+        StepEnqueuerConfig {
+            max_steps_per_task: config.common.execution.step_batch_size as usize,
+            enqueue_delay_seconds: 0, // No direct mapping, keep default
+            enable_detailed_logging: config
+                .orchestration
+                .as_ref()
+                .map(|o| o.enable_performance_logging)
+                .unwrap_or(false),
+            enqueue_timeout_seconds: config.common.execution.step_execution_timeout_seconds as u64,
         }
     }
 }
