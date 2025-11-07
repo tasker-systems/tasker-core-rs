@@ -1,51 +1,43 @@
-//! # TaskerCore Configuration System (TAS-34 Unified TOML)
+//! # TaskerCore Configuration System (TAS-61 V2 Simple Loader)
 //!
-//! This module provides unified TOML-based configuration management with strict validation
-//! and fail-fast behavior. All configuration loading is handled by UnifiedConfigLoader.
-//!
-//! ## Architecture
-//!
-//! - **Single Source of Truth**: UnifiedConfigLoader handles all configuration loading
-//! - **TOML Only**: Component-based TOML configuration with environment overrides
-//! - **Fail-Fast Validation**: No silent fallbacks or defaults
-//! - **Strict Type Safety**: ValidatedConfig provides type-safe access to all components
+//! Dead-simple configuration loading:
+//! 1. Read pre-merged TOML from TASKER_CONFIG_PATH
+//! 2. Deserialize to TaskerConfigV2
+//! 3. Validate
+//! 4. Convert to legacy TaskerConfig via bridge
 //!
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::config::UnifiedConfigLoader;
+//! use tasker_shared::config::ConfigLoader;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! // Load configuration with environment detection
-//! let mut loader = UnifiedConfigLoader::new_from_env()?;
-//! let config = loader.load_tasker_config()?;
+//! // Load configuration from TASKER_CONFIG_PATH
+//! let config = ConfigLoader::load_from_env()?;
 //!
 //! // Access configuration values
 //! let database_url = config.database_url();
-//! let pool_size = config.database.pool;
-//! let timeout = config.execution.step_execution_timeout_seconds;
 //! # Ok(())
 //! # }
 //! ```
 
 pub mod circuit_breaker;
+pub mod config_loader;
 pub mod documentation;
 pub mod error;
 pub mod event_systems;
 pub mod executor;
-pub mod manager;
 pub mod merge;
 pub mod merger;
 pub mod mpsc_channels;
 pub mod orchestration;
 pub mod queues;
 pub mod tasker;
-pub mod unified_loader;
 pub mod web;
 pub mod worker;
 
-// Primary exports - TAS-34 Unified Configuration System
-pub use unified_loader::{UnifiedConfigLoader, ValidatedConfig};
+// Primary exports - TAS-61 Simple V2 Configuration System
+pub use config_loader::{ConfigLoader, ConfigManager};
 
 // TAS-50: CLI configuration merger and documentation
 pub use documentation::{ConfigDocumentation, EnvironmentRecommendation, ParameterDocumentation};
@@ -93,8 +85,7 @@ pub use mpsc_channels::{
     WorkerInProcessEventsConfig,
 };
 
-// Compatibility wrapper (thin wrapper around UnifiedConfigLoader)
-pub use manager::{ConfigManager, ContextConfigManager};
+// ConfigManager now exported from config_loader above
 pub use tasker::{
     BackoffConfig, DatabaseConfig, DatabasePoolConfig, EngineConfig, EventSystemsConfig,
     ExecutionConfig, ReenqueueDelays, SystemConfig, TaskTemplatesConfig, TaskerConfig,

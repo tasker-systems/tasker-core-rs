@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Configuration
 POSTGRES_URL="${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
-ORCHESTRATION_CONFIG="${ORCHESTRATION_CONFIG:-$(pwd)/config/tasker/orchestration-test.toml}"
-WORKER_CONFIG="${WORKER_CONFIG:-$(pwd)/config/tasker/worker-test.toml}"
+ORCHESTRATION_CONFIG="${ORCHESTRATION_CONFIG:-$(pwd)/config/v2/orchestration-test.toml}"
+WORKER_CONFIG="${WORKER_CONFIG:-$(pwd)/config/v2/worker-test.toml}"
 RUST_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
 RUBY_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/ruby"
 ORCHESTRATION_PORT="${ORCHESTRATION_PORT:-8080}"

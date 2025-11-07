@@ -78,6 +78,8 @@ pub fn deep_merge_toml(base: &mut toml::Value, overlay: toml::Value) -> ConfigRe
         (toml::Value::Table(base_table), toml::Value::Table(overlay_table)) => {
             // Both are tables - recursively merge
             deep_merge_tables(base_table, overlay_table);
+            // Strip _docs sections from merged result
+            strip_docs_sections(base_table);
         }
         (base_value, overlay_value) => {
             // Non-table values: overlay replaces base entirely
@@ -87,18 +89,45 @@ pub fn deep_merge_toml(base: &mut toml::Value, overlay: toml::Value) -> ConfigRe
     Ok(())
 }
 
+/// Strip documentation sections from a TOML table
+///
+/// Recursively removes all keys ending with `_docs` OR equal to `_docs` from the table and its nested tables.
+/// This ensures that documentation metadata is not included in merged configurations.
+///
+/// Examples of stripped keys:
+/// - `_docs` (exact match)
+/// - `field_docs` (ends with _docs)
+/// - Nested sections like `database.pool._docs.max_connections`
+fn strip_docs_sections(table: &mut toml::value::Table) {
+    // Remove all keys that are "_docs" or end with "_docs"
+    table.retain(|key, _| key != "_docs" && !key.ends_with("_docs"));
+
+    // Recursively strip from nested tables
+    for (_key, value) in table.iter_mut() {
+        if let toml::Value::Table(nested_table) = value {
+            strip_docs_sections(nested_table);
+        }
+    }
+}
+
 /// Deep merge two TOML tables (internal implementation)
 ///
 /// This is the core recursive merge logic. It handles:
 /// - Recursive table merging when both base and overlay have the same key with table values
 /// - Value replacement when keys exist in both but are not both tables
 /// - Insertion of new keys from overlay that don't exist in base
+/// - **Skips** keys ending with `_docs` (documentation sections)
 ///
 /// # Arguments
 /// * `base` - Mutable base table to merge into
 /// * `overlay` - Overlay table whose values take precedence
 fn deep_merge_tables(base: &mut toml::value::Table, overlay: toml::value::Table) {
     for (key, value) in overlay {
+        // Skip documentation sections (keys ending with _docs)
+        if key.ends_with("_docs") {
+            continue;
+        }
+
         match base.get_mut(&key) {
             Some(base_value) => {
                 // Both base and overlay have this key
@@ -283,5 +312,32 @@ enabled = true
         assert_eq!(values.len(), 2);
         assert_eq!(values[0].as_integer().unwrap(), 4);
         assert_eq!(values[1].as_integer().unwrap(), 5);
+    }
+
+    #[test]
+    fn test_docs_stripping() {
+        let mut config = toml::from_str(
+            r#"
+[database.pool]
+max_connections = 30
+
+[database.pool._docs]
+description = "Pool configuration"
+
+[database.pool._docs.max_connections]
+description = "Max connections field"
+"#,
+        )
+        .unwrap();
+
+        deep_merge_toml(&mut config, toml::Value::Table(toml::value::Table::new())).unwrap();
+
+        let result_string = toml::to_string(&config).unwrap();
+        // Should not contain _docs
+        assert!(
+            !result_string.contains("_docs"),
+            "Config should not contain _docs sections:\n{}",
+            result_string
+        );
     }
 }

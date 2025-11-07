@@ -63,13 +63,15 @@ code-quality + integration-tests + ruby-framework-tests + performance-analysis
 **Command**:
 ```bash
 # Generate test configurations
-mkdir -p config/tasker
+mkdir -p config/v2
 cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
   --context orchestration --environment test \
-  --output config/tasker/orchestration-test.toml
+  --source-dir config/v2 \
+  --output config/v2/orchestration-test.toml
 cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
   --context worker --environment test \
-  --output config/tasker/worker-test.toml
+  --source-dir config/v2 \
+  --output config/v2/worker-test.toml
 
 # Start native services
 .github/scripts/start-native-services.sh
@@ -259,13 +261,15 @@ workers/ruby/spec/
 
 ```bash
 # Generate test configurations
-mkdir -p config/tasker
+mkdir -p config/v2
 cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
   --context orchestration --environment test \
-  --output config/tasker/orchestration-test.toml
+  --source-dir config/v2 \
+  --output config/v2/orchestration-test.toml
 cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
   --context worker --environment test \
-  --output config/tasker/worker-test.toml
+  --source-dir config/v2 \
+  --output config/v2/worker-test.toml
 
 # Build all binaries
 cargo build --all-features --all-targets

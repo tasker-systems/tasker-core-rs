@@ -211,6 +211,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_no_branches_outcome_processing() {
+        // ConfigLoader automatically loads .env file
         let context = Arc::new(SystemContext::new_for_orchestration().await.unwrap());
         let service = Arc::new(DecisionPointService::new(context.clone()));
         let mut actor = DecisionPointActor::new(context, service);

@@ -1,16 +1,22 @@
 //! Configuration Demo Example
 //!
-//! Demonstrates the unified configuration loading system and validates
-//! that all TOML files can be properly loaded and deserialized into TaskerConfig.
+//! Demonstrates the V2 configuration system with ConfigMerger (CLI) and ConfigLoader (runtime).
+//! Shows how to generate merged configs and load them with environment variable substitution.
 //!
 //! Usage:
+//!   # Generate test config and load it
 //!   TASKER_ENV=test cargo run --example config_demo --all-features
+//!
+//!   # Generate development config and load it
 //!   TASKER_ENV=development cargo run --example config_demo --all-features
+//!
+//!   # Generate production config and load it
 //!   TASKER_ENV=production cargo run --example config_demo --all-features
 
 use anyhow::Result;
-use tasker_shared::config::unified_loader::UnifiedConfigLoader;
-use tracing::{error, info, warn};
+use std::env;
+use tasker_shared::config::{ConfigLoader, ConfigMerger};
+use tracing::{error, info};
 
 fn main() -> Result<()> {
     // Initialize tracing
@@ -18,114 +24,76 @@ fn main() -> Result<()> {
         .with_env_filter("config_demo=debug,tasker_shared::config=debug")
         .init();
 
-    info!("🔧 Configuration Demo Starting");
+    info!("🔧 Configuration Demo Starting (V2 System)");
 
     // Detect environment
-    let environment = UnifiedConfigLoader::detect_environment();
-    info!("📋 Detected environment: {}", environment);
+    let environment = env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string());
+    info!("📋 Environment: {}", environment);
 
-    // Create loader
-    let mut loader = match UnifiedConfigLoader::new(&environment) {
-        Ok(loader) => {
-            info!(
-                "✅ Successfully created UnifiedConfigLoader for environment: {}",
-                environment
-            );
-            loader
-        }
-        Err(e) => {
-            error!("❌ Failed to create UnifiedConfigLoader: {}", e);
-            return Err(e.into());
-        }
-    };
+    // Step 1: Generate merged config using ConfigMerger (CLI simulation)
+    info!("🔨 Step 1: Generating merged config with ConfigMerger...");
 
-    // Load individual components (using known component names)
-    info!("🔍 Loading known components...");
+    let workspace_root = env::current_dir()?;
+    let v2_config_dir = workspace_root.join("config").join("v2");
 
-    let known_components = [
-        "database",
-        "telemetry",
-        "task_templates",
-        "system",
-        "backoff",
-        "execution",
-        "queues",
-        "orchestration",
-        "circuit_breakers",
-        "task_readiness",
-        "task_claimer",
-        "event_systems",
-        "worker",
-    ];
-
-    for component in &known_components {
-        match loader.load_component(component) {
-            Ok(_config) => {
-                info!("✅ Loaded component '{}'", component);
-            }
-            Err(e) => {
-                warn!("⚠️ Failed to load component '{}': {}", component, e);
-            }
-        }
+    if !v2_config_dir.exists() {
+        error!("❌ V2 config directory not found: {:?}", v2_config_dir);
+        info!("   Expected structure: config/v2/{{common,orchestration,worker}}-{{base,test,development,production}}.toml");
+        return Err(anyhow::anyhow!("V2 config directory not found"));
     }
 
-    // Load complete TaskerConfig
-    info!("🎯 Loading complete TaskerConfig...");
+    let mut merger = ConfigMerger::new(v2_config_dir, &environment)?;
 
-    // First, let's get the validated config to see what we loaded
-    match loader.load_with_validation() {
-        Ok(validated_config) => {
-            info!(
-                "✅ Successfully loaded ValidatedConfig with {} components",
-                validated_config.configs.len()
-            );
+    // Generate merged config for "complete" context (includes all components)
+    let merged_toml = merger.merge_context("complete")?;
+    info!("✅ Generated merged config ({} bytes)", merged_toml.len());
 
-            // Let's inspect what was loaded
-            for component_name in validated_config.configs.keys() {
-                info!("  Component loaded: {}", component_name);
-            }
+    // Step 2: Write to temporary file (simulating CLI output)
+    info!("💾 Step 2: Writing merged config to temp file...");
 
-            // Now try to convert to TaskerConfig
-            match validated_config.to_tasker_config() {
-                Ok(config) => {
-                    info!("✅ Successfully loaded complete TaskerConfig!");
+    let temp_file = env::temp_dir().join(format!("tasker-{}-complete.toml", environment));
+    std::fs::write(&temp_file, &merged_toml)?;
+    info!("✅ Wrote to: {:?}", temp_file);
 
-                    // Display key configuration details
-                    display_config_summary(&config);
+    // Step 3: Load config using ConfigLoader (runtime simulation)
+    info!("📖 Step 3: Loading config with ConfigLoader...");
 
-                    // Validate configuration
-                    match config.validate() {
-                        Ok(()) => {
-                            info!("✅ Configuration validation passed!");
-                        }
-                        Err(e) => {
-                            error!("❌ Configuration validation failed: {}", e);
-                            return Err(e.into());
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!(
-                        "❌ Failed to convert ValidatedConfig to TaskerConfig: {}",
-                        e
-                    );
-                    return Err(e.into());
-                }
-            }
-        }
-        Err(e) => {
-            error!("❌ Failed to load ValidatedConfig: {}", e);
-            return Err(e.into());
-        }
+    // Set TASKER_CONFIG_PATH as would be done in deployment
+    env::set_var("TASKER_CONFIG_PATH", temp_file.to_str().unwrap());
+
+    // Also set DATABASE_URL for environment variable substitution demo
+    if env::var("DATABASE_URL").is_err() {
+        env::set_var(
+            "DATABASE_URL",
+            "postgresql://tasker:tasker@localhost:5432/tasker_rust_demo",
+        );
     }
+
+    let config = ConfigLoader::load_from_env()?;
+    info!("✅ Successfully loaded TaskerConfig from merged file");
+
+    // Step 4: Display configuration summary
+    info!("📊 Step 4: Configuration Summary");
+    display_config_summary(&config);
+
+    // Step 5: Validate configuration
+    info!("🔍 Step 5: Validating configuration...");
+    config.validate()?;
+    info!("✅ Configuration validation passed!");
+
+    // Step 6: Demonstrate context-specific merging
+    info!("🎯 Step 6: Context-specific config generation");
+    demonstrate_contexts(&mut merger)?;
+
+    // Cleanup
+    std::fs::remove_file(&temp_file).ok();
 
     info!("🎉 Configuration demo completed successfully!");
     Ok(())
 }
 
 fn display_config_summary(config: &tasker_shared::config::TaskerConfig) {
-    info!("📊 Configuration Summary:");
-    // TAS-50: Database host/username/password fields removed - not functional, handled by DATABASE_URL
+    info!("  Environment: {}", config.execution.environment);
     info!(
         "  Database URL: {}",
         config
@@ -134,7 +102,6 @@ fn display_config_summary(config: &tasker_shared::config::TaskerConfig) {
             .as_ref()
             .unwrap_or(&"<not configured>".to_string())
     );
-    info!("  Environment: {}", config.execution.environment);
     info!(
         "  Telemetry: {}",
         if config.telemetry.enabled {
@@ -148,10 +115,6 @@ fn display_config_summary(config: &tasker_shared::config::TaskerConfig) {
     info!(
         "  Max Concurrent Tasks: {}",
         config.execution.max_concurrent_tasks
-    );
-    info!(
-        "  Max Concurrent Steps: {}",
-        config.execution.max_concurrent_steps
     );
     info!(
         "  Database Pool: {}-{} connections",
@@ -168,7 +131,7 @@ fn display_config_summary(config: &tasker_shared::config::TaskerConfig) {
 
     if let Some(worker_config) = &config.worker {
         info!(
-            "  Worker Configuration: present (web API {})",
+            "  Worker: present (web API {})",
             if worker_config.web.enabled {
                 "enabled"
             } else {
@@ -176,24 +139,43 @@ fn display_config_summary(config: &tasker_shared::config::TaskerConfig) {
             }
         );
     } else {
-        info!("  Worker Configuration: not present");
+        info!("  Worker: not configured");
     }
 
     info!("  Event Systems:");
     info!(
-        "    Orchestration: {} (mode: {})",
+        "    Orchestration: {} ({})",
         config.event_systems.orchestration.system_id,
         config.event_systems.orchestration.deployment_mode
     );
     info!(
-        "    Task Readiness: {} (mode: {})",
+        "    Task Readiness: {} ({})",
         config.event_systems.task_readiness.system_id,
         config.event_systems.task_readiness.deployment_mode
     );
     info!(
-        "    Worker: {} (mode: {})",
+        "    Worker: {} ({})",
         config.event_systems.worker.system_id, config.event_systems.worker.deployment_mode
     );
+}
+
+fn demonstrate_contexts(merger: &mut ConfigMerger) -> Result<()> {
+    // Show different context merging
+    let contexts = ["common", "orchestration", "worker"];
+
+    for context in &contexts {
+        match merger.merge_context(context) {
+            Ok(merged) => {
+                let lines = merged.lines().count();
+                info!("  ✅ Context '{}': {} lines", context, lines);
+            }
+            Err(e) => {
+                info!("  ⚠️ Context '{}': {}", context, e);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -202,13 +184,15 @@ mod tests {
 
     #[test]
     fn test_config_demo_loads_successfully() {
-        // This test ensures the config demo can run without panics
+        // Set required environment variables
         std::env::set_var("TASKER_ENV", "test");
+        std::env::set_var("DATABASE_URL", "postgresql://test:test@localhost/test");
 
-        let result = std::panic::catch_unwind(|| main());
+        // Run the demo - it should not panic
+        let result = std::panic::catch_unwind(|| {
+            let _ = main(); // May fail due to missing files, but shouldn't panic
+        });
 
-        // We don't require success (might fail due to missing files in test env)
-        // but we do require no panics
         assert!(!result.is_err(), "Config demo should not panic");
     }
 }

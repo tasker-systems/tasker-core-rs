@@ -3,10 +3,7 @@
 use chrono::Utc;
 use regex::Regex;
 use tasker_client::{ClientConfig, ClientResult};
-use tasker_shared::config::{
-    contexts::ConfigContext, manager::ConfigManager, ConfigMerger, ConfigurationContext,
-    TaskerConfig,
-};
+use tasker_shared::config::{ConfigMerger, ConfigurationContext, TaskerConfig};
 
 use crate::ConfigCommands;
 
@@ -969,25 +966,12 @@ pub async fn handle_config_command(
         } => {
             // Check if --path was provided (legacy single-file mode)
             let tasker_config: TaskerConfig = if let Some(config_path) = path {
-                // Use the same loading logic as SystemContext::new_for_orchestration()
-                // This ensures proper environment variable substitution and default handling
+                // Load directly from path using simple V2 loader
                 let path_buf = std::path::PathBuf::from(&config_path);
-                let context_manager = ConfigManager::load_from_single_file(
-                    &path_buf,
-                    ConfigContext::Combined, // Load all configs (common + orchestration + worker)
-                )
-                .map_err(|e| {
+                tasker_shared::config::ConfigLoader::load_from_path(&path_buf).map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
                         "Failed to load configuration from '{}': {}",
                         config_path, e
-                    ))
-                })?;
-
-                // Build TaskerConfig from context configs (applies defaults properly)
-                context_manager.as_tasker_config().ok_or_else(|| {
-                    tasker_client::ClientError::ConfigError(format!(
-                        "Failed to build TaskerConfig from configuration in '{}'",
-                        config_path
                     ))
                 })?
             } else {
