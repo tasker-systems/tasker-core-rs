@@ -64,7 +64,7 @@ services:
       WORKER_POOL_SIZE: ${ORCHESTRATION_WORKERS:-4}
       WORKSPACE_PATH: /app
       # TAS-61 V2: Single-file configuration from v2 directory
-      TASKER_CONFIG_PATH: /app/config/v2/orchestration-production.toml
+      TASKER_CONFIG_PATH: /app/config/tasker/orchestration-production.toml
       # Migration settings
       RUN_MIGRATIONS: "${RUN_MIGRATIONS:-true}"
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-standard}
@@ -75,7 +75,7 @@ services:
     ports:
       - "${ORCHESTRATION_PORT:-8080}:8080"
     volumes:
-      - ../config/v2:/app/config/v2:ro
+      - ../config/tasker:/app/config/tasker:ro
       - orchestration_logs:/home/tasker/logs
     depends_on:
       postgres:
@@ -113,12 +113,12 @@ services:
       WORKER_POOL_SIZE: ${WORKER_POOL_SIZE:-8}
       WORKSPACE_PATH: /app
       # TAS-61 V2: Single-file configuration from v2 directory
-      TASKER_CONFIG_PATH: /app/config/v2/worker-production.toml
+      TASKER_CONFIG_PATH: /app/config/tasker/worker-production.toml
       TASKER_TEMPLATE_PATH: /app/task-templates
     ports:
       - "${WORKER_PORT:-8081}:8081"
     volumes:
-      - ../config/v2:/app/config/v2:ro
+      - ../config/tasker:/app/config/tasker:ro
       - ../workers/rust/config/tasks:/app/task-templates:ro
       - worker_logs:/home/tasker/logs
     depends_on:

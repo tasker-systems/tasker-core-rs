@@ -1,14 +1,14 @@
-// Legacy config (will be deprecated in Phase 6-8 of TAS-61)
-pub mod tasker;
-
-// V2 config (new baseline - TAS-61)
+// Primary context-based configuration system (TAS-61 Phase 5.5)
 pub mod tasker_v2;
 
-// Bridge for v2 → legacy conversion (TAS-61 Phase 2)
+// Bridge for context-based → legacy conversion (TAS-61 Phase 2)
 pub mod bridge;
 
-// Re-export all legacy config types for backward compatibility
-// This maintains backward compatibility during TAS-61 migration
+// Legacy monolithic config (to be removed in Phase 6-8 of TAS-61)
+pub mod tasker;
+
+// Re-export all legacy config types for backward compatibility during Phase 6-8
+// These will be fully removed once all consumers migrate to context-based configuration
 pub use tasker::{
     // Core structs defined in tasker.rs
     AlertThresholds,
@@ -53,5 +53,5 @@ pub use tasker::{
     WorkerConfig,
 };
 
-// Re-export v2 config with alias for clarity
+// Primary context-based configuration (use this for all new code)
 pub use tasker_v2::TaskerConfig as TaskerConfigV2;

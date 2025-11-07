@@ -1,0 +1,335 @@
+# Current environment (overridden by environment-specific config)
+environment = "development"
+
+[worker_system]
+# Worker system identification
+worker_id = "worker-001"
+worker_type = "general"
+
+# TAS-43 Event-Driven Processing Configuration
+
+[worker_system.event_driven]
+# Enable event-driven processing (vs polling-only mode)
+enabled = true
+# Deployment mode: "PollingOnly", "EventDrivenOnly", or "Hybrid" (recommended)
+deployment_mode = "Hybrid"
+# Health monitoring for event system
+health_monitoring_enabled = true
+health_check_interval_seconds = 30
+
+
+# Documentation for worker event-driven parameters
+[worker_system.event_driven._docs.deployment_mode]
+description = "Worker event system deployment mode controlling how workers discover and claim steps"
+type = "String"
+valid_range = "'PollingOnly', 'EventDrivenOnly', 'Hybrid'"
+default = "Hybrid"
+system_impact = "Determines step discovery mechanism. PollingOnly = reliable but higher latency. EventDrivenOnly = lowest latency via PostgreSQL LISTEN/NOTIFY. Hybrid = event-driven with polling fallback for best reliability and performance."
+related = ["worker_system.fallback_poller.polling_interval_ms", "worker_events.deployment_mode"]
+example = """
+# Production hybrid mode with fast fallback
+[worker_system.event_driven]
+deployment_mode = "Hybrid"
+health_monitoring_enabled = true
+
+[worker_system.fallback_poller]
+polling_interval_ms = 45000  # 45s fallback polling
+"""
+
+[worker_system.event_driven._docs.deployment_mode.recommendations]
+test = { value = "PollingOnly", rationale = "Deterministic polling for predictable test timing" }
+development = { value = "Hybrid", rationale = "Test event-driven behavior with reliable fallback" }
+production = { value = "Hybrid", rationale = "Event-driven performance with polling fallback for reliability" }
+
+# Step processing configuration (command pattern)
+
+[worker_system.step_processing]
+claim_timeout_seconds = 300
+max_retries = 3
+max_concurrent_steps = 100
+
+
+# Documentation for worker step processing parameters
+[worker_system.step_processing._docs.max_concurrent_steps]
+description = "Maximum number of steps this worker can process concurrently"
+type = "usize"
+valid_range = "1-1000"
+default = "100"
+system_impact = "Controls worker throughput and resource utilization. Too few = underutilized worker capacity and slow step processing. Too many = CPU/memory exhaustion and handler contention. Should consider handler execution time and resource requirements."
+related = ["worker_system.resource_limits.max_memory_mb", "worker_system.resource_limits.max_cpu_percent"]
+example = """
+# High-throughput worker for lightweight steps
+[worker_system.step_processing]
+max_concurrent_steps = 200
+claim_timeout_seconds = 300
+
+[worker_system.resource_limits]
+max_memory_mb = 4096
+max_cpu_percent = 90
+"""
+
+[worker_system.step_processing._docs.max_concurrent_steps.recommendations]
+test = { value = "5", rationale = "Low concurrency for deterministic test execution" }
+development = { value = "10", rationale = "Moderate concurrency for local development" }
+production = { value = "50-200", rationale = "Scale based on step complexity and available resources" }
+
+# TAS-43 Event-Driven Listener Configuration (PostgreSQL LISTEN/NOTIFY)
+
+[worker_system.listener]
+# Retry configuration for listener connection failures
+retry_interval_seconds = 5
+max_retry_attempts = 3
+event_timeout_seconds = 30
+health_check_interval_seconds = 60
+batch_processing = true
+connection_timeout_seconds = 10
+
+# TAS-43 Fallback Poller Configuration (TAS-41 updated for event-driven architecture)
+
+[worker_system.fallback_poller]
+enabled = true
+# Polling interval increased from 500ms to 45000ms (45s) due to event-driven notifications
+polling_interval_ms = 45000
+batch_size = 5
+age_threshold_seconds = 10
+max_age_hours = 12
+visibility_timeout_seconds = 30
+# TAS-41: Task states that can be picked up for processing
+processable_states = ["pending", "waiting_for_dependencies", "waiting_for_retry"]
+
+
+# Documentation for worker fallback poller parameters
+[worker_system.fallback_poller._docs.polling_interval_ms]
+description = "Fallback polling interval when event-driven notifications may be missed"
+type = "u64"
+valid_range = "100-300000 (0.1s to 5 minutes)"
+default = "45000"
+system_impact = "Safety net for event-driven mode. Lower values = more database queries but faster recovery from missed events. Higher values = fewer queries but slower recovery. In pure PollingOnly mode, this becomes the primary discovery mechanism and should be much lower."
+related = ["worker_system.event_driven.deployment_mode", "worker_system.fallback_poller.batch_size"]
+example = """
+# PollingOnly mode with fast polling
+[worker_system.event_driven]
+deployment_mode = "PollingOnly"
+
+[worker_system.fallback_poller]
+polling_interval_ms = 500  # Fast polling as primary mechanism
+batch_size = 10
+
+# Hybrid mode with slower fallback
+[worker_system.event_driven]
+deployment_mode = "Hybrid"
+
+[worker_system.fallback_poller]
+polling_interval_ms = 45000  # 45s safety net
+batch_size = 5
+"""
+
+[worker_system.fallback_poller._docs.polling_interval_ms.recommendations]
+test = { value = "100", rationale = "Fast polling for predictable test execution in all modes" }
+development = { value = "500-5000", rationale = "Moderate polling frequency for development feedback" }
+production = { value = "45000 (Hybrid), 500-1000 (PollingOnly)", rationale = "Hybrid mode uses slow fallback, PollingOnly mode needs fast primary polling" }
+
+# Worker health monitoring
+
+[worker_system.health_monitoring]
+health_check_interval_seconds = 10
+performance_monitoring_enabled = true
+error_rate_threshold = 0.05
+
+# Worker resource limits
+
+[worker_system.resource_limits]
+max_memory_mb = 2048
+max_cpu_percent = 80
+max_database_connections = 50
+max_queue_connections = 20
+
+# Queue configuration for message consumption
+
+[worker_system.queue_config]
+visibility_timeout_seconds = 30
+batch_size = 10
+polling_interval_ms = 100
+
+# Worker Web API Configuration
+# Separate from orchestration web API (different port)
+
+[worker_system.web]
+enabled = true
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}" # Worker uses port 8081 (orchestration uses 8080)
+request_timeout_ms = 30000
+
+
+[worker_system.web.tls]
+enabled = false
+cert_path = ""
+key_path = ""
+# For production, set these via environment variables:
+# WORKER_WEB_TLS_ENABLED=true
+# WORKER_WEB_TLS_CERT_PATH=/path/to/cert.pem
+# WORKER_WEB_TLS_KEY_PATH=/path/to/key.pem
+
+
+[worker_system.web.database_pools]
+# Worker Web API dedicated pool configuration
+# Separate from main worker database pool to prevent resource contention
+web_api_pool_size = 5
+web_api_max_connections = 10
+web_api_connection_timeout_seconds = 15
+web_api_idle_timeout_seconds = 300
+max_total_connections_hint = 15
+
+
+[worker_system.web.cors]
+enabled = true
+allowed_origins = ["*"]
+allowed_methods = ["GET", "POST", "DELETE", "OPTIONS"]
+allowed_headers = ["*"]
+
+
+[worker_system.web.auth]
+enabled = false
+jwt_issuer = "tasker-worker"
+jwt_audience = "worker-api"
+jwt_token_expiry_hours = 24
+# JWT keys should be provided via environment variables for security
+jwt_private_key = ""
+jwt_public_key = ""
+api_key = ""
+api_key_header = "X-API-Key"
+
+# Route-specific authentication configuration for worker endpoints
+
+[worker_system.web.auth.protected_routes]
+# Template management endpoints that should require auth by default
+"DELETE /templates/cache" = { auth_type = "bearer", required = true }
+"POST /templates/cache/maintain" = { auth_type = "bearer", required = true }
+"POST /templates/{namespace}/{name}/{version}/refresh" = { auth_type = "bearer", required = true }
+
+# Status endpoints that can be configured to require auth
+"GET /status/detailed" = { auth_type = "bearer", required = false }
+"GET /handlers" = { auth_type = "bearer", required = false }
+
+
+[worker_system.web.rate_limiting]
+enabled = false
+requests_per_minute = 500 # Lower than main API since worker has fewer endpoints
+burst_size = 50
+per_client_limit = true
+
+
+[worker_system.web.resilience]
+circuit_breaker_enabled = true
+request_timeout_seconds = 30
+max_concurrent_requests = 50   # Lower than main API for worker-specific load
+
+# ============================================================================
+# WORKER EVENT SYSTEM
+# ============================================================================
+
+
+[worker_events]
+system_id = "worker-event-system"
+deployment_mode = "Hybrid"
+
+# Timing configuration
+
+[worker_events.timing]
+health_check_interval_seconds = 30
+fallback_polling_interval_seconds = 1  # Workers need faster polling
+visibility_timeout_seconds = 30
+processing_timeout_seconds = 30
+claim_timeout_seconds = 300
+
+# Processing and concurrency configuration
+
+[worker_events.processing]
+max_concurrent_operations = 100  # Workers handle more concurrent operations
+batch_size = 10
+max_retries = 3
+
+
+[worker_events.processing.backoff]
+initial_delay_ms = 100
+max_delay_ms = 5000
+multiplier = 2.0
+jitter_percent = 0.1
+
+# Health monitoring configuration
+
+[worker_events.health]
+enabled = true
+performance_monitoring_enabled = true
+max_consecutive_errors = 10
+error_rate_threshold_per_minute = 5
+
+# Worker-specific metadata
+# In-process event system (no TCP endpoints - uses broadcast channels for FFI)
+
+[worker_events.metadata.in_process_events]
+# NOTE: broadcast_buffer_size is in mpsc_channels.toml (TAS-51)
+ffi_integration_enabled = true
+deduplication_cache_size = 1000
+
+# PostgreSQL LISTEN/NOTIFY listener configuration
+
+[worker_events.metadata.listener]
+retry_interval_seconds = 5
+max_retry_attempts = 3
+event_timeout_seconds = 30
+batch_processing = true
+connection_timeout_seconds = 10
+
+# Fallback poller configuration for reliability
+
+[worker_events.metadata.fallback_poller]
+enabled = true
+polling_interval_ms = 500
+batch_size = 10
+age_threshold_seconds = 2
+max_age_hours = 12
+visibility_timeout_seconds = 30
+
+# Resource limits for workers
+
+[worker_events.metadata.resource_limits]
+max_memory_mb = 2048
+max_cpu_percent = 80.0
+max_database_connections = 50
+max_queue_connections = 20
+
+# ============================================================================
+# WORKER MPSC CHANNELS
+# ============================================================================
+
+
+[mpsc_channels.command_processor]
+# Worker command processor channel
+# Handles: ExecuteStep, SendStepResult, ProcessStepCompletion commands
+command_buffer_size = 1000
+
+
+[mpsc_channels.event_systems]
+# Worker event system notification channels
+# Handles: PGMQ message ready events for namespace queues
+event_channel_buffer_size = 1000
+
+
+[mpsc_channels.event_subscribers]
+# Step completion and result channels
+# Handles: Step execution completion notifications and result processing
+completion_buffer_size = 1000
+result_buffer_size = 1000
+
+
+[mpsc_channels.in_process_events]
+# In-process event broadcast channel (for FFI integration)
+# Handles: Rust → Ruby event broadcasts across FFI boundary
+broadcast_buffer_size = 1000
+
+
+[mpsc_channels.event_listeners]
+# PGMQ notification listener for worker namespace queues
+# Handles: PostgreSQL LISTEN/NOTIFY events for {namespace}_queue
+pgmq_event_buffer_size = 1000
+

@@ -63,9 +63,7 @@ impl ConfigMerger {
         // Validate base directory exists
         let base_dir = source_dir.join("base");
         if !base_dir.exists() {
-            return Err(ConfigurationError::config_file_not_found(vec![
-                base_dir
-            ]));
+            return Err(ConfigurationError::config_file_not_found(vec![base_dir]));
         }
 
         Ok(Self {
@@ -133,7 +131,10 @@ impl ConfigMerger {
         );
 
         // 1. Load base context configuration - REQUIRED
-        let base_path = self.source_dir.join("base").join(format!("{}.toml", context_name));
+        let base_path = self
+            .source_dir
+            .join("base")
+            .join(format!("{}.toml", context_name));
         let mut config = self.load_toml_file(&base_path)?;
 
         // 2. Apply environment overrides if they exist

@@ -1,323 +1,118 @@
-# Current environment (overridden by environment-specific config)
-environment = "development"
+# Tasker V2 Common Configuration (Base)
+# Shared across all contexts (orchestration and worker)
 
-# ============================================================================
-# DATABASE CONFIGURATION
-# ============================================================================
-
-[database]
-url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_development}"
-database = "tasker_development"
-
-
-[database.pool]
-max_connections = 30
-min_connections = 8
-acquire_timeout_seconds = 30
-idle_timeout_seconds = 300
-max_lifetime_seconds = 3600
-
-# Documentation for database.pool parameters
-[database.pool._docs.max_connections]
-description = "Maximum number of concurrent database connections in the pool"
-type = "u32"
-valid_range = "1-1000"
-default = "30"
-system_impact = "Controls database connection concurrency. Too few = query queuing and slow task processing. Too many = database resource exhaustion and connection overhead."
-related = ["database.pool.min_connections", "database.pool.acquire_timeout_seconds"]
-example = """
-# Production example for high-load orchestration
-[database.pool]
-max_connections = 50    # Scale based on concurrent task volume
-min_connections = 10    # Keep connections warm
-"""
-
-[database.pool._docs.max_connections.recommendations]
-test = { value = "5", rationale = "Minimal connections for test isolation and fast cleanup" }
-development = { value = "10", rationale = "Small pool for local development with low concurrency" }
-production = { value = "30-50", rationale = "Scale based on expected concurrent task and step processing load" }
-
-[database.pool._docs.min_connections]
-description = "Minimum number of idle connections to maintain in the pool"
-type = "u32"
-valid_range = "1-100"
-default = "8"
-system_impact = "Keeps connections warm to avoid cold start latency when processing tasks. Too few = connection setup overhead. Too many = wasted database resources."
-related = ["database.pool.max_connections"]
-
-[database.pool._docs.min_connections.recommendations]
-test = { value = "2", rationale = "Minimal idle connections for test environments" }
-development = { value = "4", rationale = "Small idle pool for local development" }
-production = { value = "8-10", rationale = "Maintain warm connections for consistent performance" }
-
-
-[database.variables]
-statement_timeout = 5000
-
-# ============================================================================
-# QUEUE CONFIGURATION
-# ============================================================================
-
-
-[queues]
-# Backend selection (aligns with UnifiedMessageClient)
-backend = "pgmq"                            # Future: "rabbitmq", "redis", etc.
-orchestration_namespace = "orchestration"
-worker_namespace = "worker"
-naming_pattern = "{namespace}_{name}_queue"
-
-# Universal queue configuration (backend-agnostic)
-health_check_interval = 60
-default_batch_size = 10
-max_batch_size = 100
-default_visibility_timeout_seconds = 30
-
-# Queue type definitions for orchestration system
-
-[queues.orchestration_queues]
-task_requests = "orchestration_task_requests_queue"
-task_finalizations = "orchestration_task_finalizations_queue"
-step_results = "orchestration_step_results_queue"
-
-# Backend-specific configuration for PGMQ
-
-[queues.pgmq]
-poll_interval_ms = 250
-shutdown_timeout_seconds = 5
-max_retries = 3
-
-# Documentation for queues.pgmq parameters
-[queues.pgmq._docs.poll_interval_ms]
-description = "Interval in milliseconds between PGMQ queue polling checks"
-type = "u64"
-valid_range = "50-5000"
-default = "250"
-system_impact = "Controls polling frequency for queue message checks. Lower values = more responsive but higher database load. Higher values = lower database load but increased latency."
-related = ["queues.pgmq.shutdown_timeout_seconds", "queues.default_batch_size"]
-
-[queues.pgmq._docs.poll_interval_ms.recommendations]
-test = { value = "100", rationale = "Fast polling for responsive test execution" }
-development = { value = "250", rationale = "Balanced polling for local development" }
-production = { value = "500-1000", rationale = "Reduce database load while maintaining acceptable latency" }
-
-[queues.pgmq._docs.shutdown_timeout_seconds]
-description = "Graceful shutdown timeout for PGMQ operations in seconds"
-type = "u64"
-valid_range = "1-300"
-default = "5"
-system_impact = "Time allowed for in-flight PGMQ messages to complete during shutdown. Too short = message loss during restart. Too long = slow deployments."
-related = ["queues.pgmq.poll_interval_ms"]
-
-[queues.pgmq._docs.shutdown_timeout_seconds.recommendations]
-test = { value = "5", rationale = "Quick shutdown for fast test cycles" }
-development = { value = "10", rationale = "Allow message completion in local development" }
-production = { value = "30", rationale = "Ensure in-flight messages complete during rolling deployments" }
-
-# Future RabbitMQ configuration (prepared for TAS-40+)
-
-[queues.rabbitmq]
-connection_timeout_seconds = 10
-
-# ============================================================================
-# SHARED MPSC CHANNELS
-# ============================================================================
-
-
-[shared_channels.event_publisher]
-# Internal event publishing queue
-# Previously unbounded! Now bounded to prevent event storm OOM
-# Handles: System-wide event publishing (step completions, state transitions)
-event_queue_buffer_size = 5000
-
-
-[shared_channels.ffi]
-# Ruby FFI event communication channel
-# Previously unbounded! Now bounded to provide backpressure
-# Handles: Rust → Ruby event communication across FFI boundary
-ruby_event_buffer_size = 1000
-
-
-[mpsc_channels.overflow_policy]
-# Overflow policy for channel backpressure (TAS-51)
-# Log warning when channel usage exceeds this threshold (0.0-1.0)
-log_warning_threshold = 0.8
-# Default drop policy: block (provides natural backpressure)
-drop_policy = "block"
-
-
-[mpsc_channels.overflow_policy.metrics]
-# Overflow metrics collection
-enabled = true
-saturation_check_interval_seconds = 60
-
-# ============================================================================
-# CIRCUIT BREAKERS
-# ============================================================================
-
-
-[circuit_breakers]
-# Global circuit breaker enablement
-# Used for database, queue, and API resilience patterns
-enabled = true
-
-
-[circuit_breakers.global_settings]
-# Maximum number of circuit breakers system can create
-max_circuit_breakers = 50
-# Metrics collection interval for monitoring
-metrics_collection_interval_seconds = 30
-# Enable automatic circuit breaker creation for components
-# Minimum time between state transitions to prevent oscillation
-min_state_transition_interval_seconds = 1
-
-
-[circuit_breakers.default_config]
-# Default configuration for new circuit breakers
-failure_threshold = 5
-timeout_seconds = 30
-success_threshold = 2
-
-
-[circuit_breakers.component_configs.pgmq]
-# PGMQ queue operations circuit breaker
-failure_threshold = 3
-timeout_seconds = 15
-success_threshold = 2
-
-
-[circuit_breakers.component_configs.task_readiness]
-# Task readiness event processing circuit breaker
-failure_threshold = 5
-timeout_seconds = 30
-success_threshold = 2
-
-# ============================================================================
-# TELEMETRY CONFIGURATION
-# ============================================================================
-#
-# OpenTelemetry configuration for metrics and tracing
-# Note: Full OpenTelemetry configuration (endpoints, exporters) is managed
-# via OTEL_* environment variables following OpenTelemetry spec
-#
-# ============================================================================
-
-[telemetry]
-# Enable telemetry collection (metrics and tracing)
-enabled = false
-# Service name for telemetry identification
-service_name = "tasker-core"
-# Sampling rate for traces (0.0-1.0, where 1.0 = 100% sampling)
-sample_rate = 1.0
-
-# ============================================================================
-# SYSTEM CONFIGURATION
-# ============================================================================
-#
-# Core system-level settings including dependent system defaults,
-# versioning, and recursion limits.
-#
-# ============================================================================
-
-[system]
-# Default dependent system identifier (used when no specific system specified)
-default_dependent_system = "default"
-# Tasker core version (semantic versioning)
+[common.system]
 version = "0.1.0"
-# Maximum recursion depth for nested workflow operations (prevents stack overflow)
+default_dependent_system = "default"
 max_recursion_depth = 50
 
-# ============================================================================
-# EXECUTION CONFIGURATION
-# ============================================================================
-#
-# Workflow execution parameters including concurrency limits, timeouts,
-# and operational constraints.
-#
-# ============================================================================
+[common.database]
+url = "${DATABASE_URL:-postgresql://localhost/tasker}"
+database = "tasker_development"
+skip_migration_check = false
 
-[execution]
-# CRITICAL: Environment detection (test/development/production)
-environment = "${TASKER_ENV:-development}"
+[common.database.pool]
+max_connections = 25
+min_connections = 5
+acquire_timeout_seconds = 10
+idle_timeout_seconds = 300
+max_lifetime_seconds = 1800
 
-# Maximum number of tasks that can execute concurrently
-max_concurrent_tasks = 100
-# Maximum number of workflow steps that can execute concurrently
-max_concurrent_steps = 1000
+[common.database.variables]
+statement_timeout = 30000
 
-# Default timeout for task operations (seconds)
-default_timeout_seconds = 3600
-# Timeout for individual step execution (seconds)
-step_execution_timeout_seconds = 300
+[common.queues]
+backend = "pgmq"
+orchestration_namespace = "orchestration"
+worker_namespace = "worker"
+default_visibility_timeout_seconds = 30
+default_batch_size = 10
+max_batch_size = 100
+naming_pattern = "{namespace}_{name}_queue"
+health_check_interval = 60
 
-# Maximum attempts to discover ready steps before failure
-max_discovery_attempts = 3
-# Batch size for step discovery operations
-step_batch_size = 10
+[common.queues.orchestration_queues]
+task_requests = "orchestration_task_requests"
+task_finalizations = "orchestration_task_finalizations"
+step_results = "orchestration_step_results"
 
-# Maximum retry attempts for failed steps
+[common.queues.pgmq]
+poll_interval_ms = 500
+shutdown_timeout_seconds = 10
 max_retries = 3
-# Maximum number of steps allowed in a single workflow (prevents runaway expansion)
-max_workflow_steps = 1000
-# Connection timeout for API and database operations (seconds)
-connection_timeout_seconds = 10
 
-# ============================================================================
-# TASK TEMPLATES CONFIGURATION
-# ============================================================================
-#
-# Template discovery paths for task definitions (YAML/JSON workflow files).
-# Supports glob patterns for flexible template organization.
-#
-# ============================================================================
+[common.queues.rabbitmq]
+connection_timeout_seconds = 30
 
-[task_templates]
-# Glob patterns for discovering task template files
-# Example patterns:
-#   - "config/task_templates/*.{yml,yaml}"   - Top-level templates only
-#   - "config/task_templates/**/*.{yml,yaml}" - Recursive search
-#   - Multiple paths for different template categories
-search_paths = [
-    "config/task_templates/*.{yml,yaml}",
-    "config/task_templates/**/*.{yml,yaml}"
-]
-
-# ============================================================================
-# DECISION POINT CONFIGURATION (TAS-53)
-# ============================================================================
-#
-# Configuration for dynamic workflow decision points that enable runtime
-# conditional branching and step creation based on handler outcomes.
-#
-# Decision points allow workflows to:
-# - Make runtime decisions based on step results
-# - Dynamically create workflow branches
-# - Support nested decision points
-# - Maintain DAG integrity with cycle detection
-#
-# ============================================================================
-
-[decision_points]
-# Enable decision point processing
+[common.circuit_breakers]
 enabled = true
 
-# Maximum number of steps that can be created from a single decision
-# Prevents runaway step creation from misconfigured handlers
-max_steps_per_decision = 50
+[common.circuit_breakers.global_settings]
+max_circuit_breakers = 50
+metrics_collection_interval_seconds = 30
+min_state_transition_interval_seconds = 5.0
 
-# Maximum depth of nested decision points
-# Prevents infinite recursion in decision point chains
-max_decision_depth = 10
+[common.circuit_breakers.default_config]
+failure_threshold = 5
+timeout_seconds = 30
+success_threshold = 2
 
-# Warn when decision point creates more than this many steps
-# Helps identify potentially misconfigured decision handlers
-warn_threshold_steps = 20
+[common.circuit_breakers.component_configs.task_readiness]
+failure_threshold = 10
+timeout_seconds = 60
+success_threshold = 3
 
-# Warn when decision depth exceeds this threshold
-# Helps identify overly complex decision chains
-warn_threshold_depth = 5
+[common.circuit_breakers.component_configs.pgmq]
+failure_threshold = 5
+timeout_seconds = 30
+success_threshold = 2
 
-# Enable detailed decision point logging
-enable_detailed_logging = false
+[common.mpsc_channels.event_publisher]
+event_queue_buffer_size = 5000
 
-# Enable decision point metrics collection
-enable_metrics = true
+[common.mpsc_channels.ffi]
+ruby_event_buffer_size = 1000
+
+[common.mpsc_channels.overflow_policy]
+log_warning_threshold = 0.8
+drop_policy = "block"
+
+[common.mpsc_channels.overflow_policy.metrics]
+enabled = true
+saturation_check_interval_seconds = 30
+
+[common.execution]
+max_concurrent_tasks = 100
+max_concurrent_steps = 1000
+default_timeout_seconds = 3600
+step_execution_timeout_seconds = 600
+max_discovery_attempts = 5
+step_batch_size = 50
+max_retries = 3
+max_workflow_steps = 10000
+connection_timeout_seconds = 30
+environment = "development"
+
+[common.backoff]
+default_backoff_seconds = [1, 5, 15, 30, 60]
+max_backoff_seconds = 3600
+backoff_multiplier = 2.0
+jitter_enabled = true
+jitter_max_percentage = 0.15
+
+[common.backoff.reenqueue_delays]
+initializing = 10
+enqueuing_steps = 5
+steps_in_process = 15
+evaluating_results = 10
+waiting_for_dependencies = 60
+waiting_for_retry = 30
+blocked_by_failures = 120
+
+[common.task_templates]
+search_paths = ["config/tasks/**/*.{yml,yaml}"]
+
+[common.telemetry]
+enabled = true
+service_name = "tasker-core"
+sample_rate = 0.1

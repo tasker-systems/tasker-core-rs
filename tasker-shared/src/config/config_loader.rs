@@ -49,7 +49,7 @@ impl ConfigLoader {
         let config_path = std::env::var("TASKER_CONFIG_PATH").map_err(|_| {
             ConfigurationError::validation_error(
                 "TASKER_CONFIG_PATH environment variable not set. \
-                 Set it to the path of your pre-merged configuration file."
+                 Set it to the path of your pre-merged configuration file.",
             )
         })?;
 
@@ -83,9 +83,8 @@ impl ConfigLoader {
         let contents_with_env = Self::substitute_env_vars(&contents);
 
         // 3. Parse TOML
-        let toml_value: toml::Value = toml::from_str(&contents_with_env).map_err(|e| {
-            ConfigurationError::json_serialization_error("TOML parsing", e)
-        })?;
+        let toml_value: toml::Value = toml::from_str(&contents_with_env)
+            .map_err(|e| ConfigurationError::json_serialization_error("TOML parsing", e))?;
 
         // 4. Deserialize to TaskerConfigV2
         let config_v2: TaskerConfigV2 = toml_value.try_into().map_err(|e| {

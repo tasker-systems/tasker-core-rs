@@ -612,7 +612,7 @@ pub async fn handle_config_command(
             // Step 1: Find all *Config struct definitions
             println!("\n[1/4] Finding Config struct definitions...");
             let struct_output = Command::new("rg")
-                .args(&[
+                .args([
                     "pub struct \\w*Config",
                     "--type",
                     "rust",
@@ -660,7 +660,7 @@ pub async fn handle_config_command(
             // Step 2: Find all config field accesses (config.*)
             println!("[2/4] Finding config field accesses in code...");
             let usage_output = Command::new("rg")
-                .args(&[r"config\.\w+", "--type", "rust", "-o", "-n", "--no-heading"])
+                .args([r"config\.\w+", "--type", "rust", "-o", "-n", "--no-heading"])
                 .current_dir(&source_dir)
                 .output()
                 .map_err(|e| {
@@ -685,7 +685,7 @@ pub async fn handle_config_command(
                         if let Some(field_name) = caps.get(1) {
                             field_usage
                                 .entry(field_name.as_str().to_string())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push((file_path.to_string(), line_num));
                         }
                     }
@@ -701,9 +701,9 @@ pub async fn handle_config_command(
             println!("[3/4] Finding struct instantiations and type references...");
             let mut struct_usage: HashMap<String, Vec<(String, usize)>> = HashMap::new();
 
-            for (struct_name, _) in &config_structs {
+            for struct_name in config_structs.keys() {
                 let struct_output = Command::new("rg")
-                    .args(&[struct_name, "--type", "rust", "-n", "--no-heading"])
+                    .args([struct_name, "--type", "rust", "-n", "--no-heading"])
                     .current_dir(&source_dir)
                     .output()
                     .map_err(|e| {
@@ -750,7 +750,7 @@ pub async fn handle_config_command(
             let mut used_structs: Vec<String> = Vec::new();
             let mut unused_structs: Vec<String> = Vec::new();
 
-            for (struct_name, _) in &config_structs {
+            for struct_name in config_structs.keys() {
                 if struct_usage.contains_key(struct_name) {
                     used_structs.push(struct_name.clone());
                 } else {
@@ -849,7 +849,7 @@ pub async fn handle_config_command(
                         for (field, count) in field_usage_vec.iter().take(20) {
                             md.push_str(&format!("| `config.{}` | {} |\n", field, count));
                         }
-                        md.push_str("\n");
+                        md.push('\n');
                     }
 
                     if !unused_structs.is_empty() {
@@ -859,7 +859,7 @@ pub async fn handle_config_command(
                             let (file, line) = config_structs.get(struct_name).unwrap();
                             md.push_str(&format!("- **{}** - `{}:{}`\n", struct_name, file, line));
                         }
-                        md.push_str("\n");
+                        md.push('\n');
                     }
 
                     md
@@ -901,7 +901,7 @@ pub async fn handle_config_command(
                                 count
                             ));
                         }
-                        text.push_str("\n");
+                        text.push('\n');
                     }
 
                     if !unused_structs.is_empty() {
@@ -912,7 +912,7 @@ pub async fn handle_config_command(
                             let (file, line) = config_structs.get(struct_name).unwrap();
                             text.push_str(&format!("  ✗ {:<40} {}:{}\n", struct_name, file, line));
                         }
-                        text.push_str("\n");
+                        text.push('\n');
                         text.push_str("💡 Consider removing or documenting why these exist.\n\n");
                     } else {
                         text.push_str(
@@ -937,7 +937,7 @@ pub async fn handle_config_command(
                                 }
                             }
                         }
-                        text.push_str("\n");
+                        text.push('\n');
                     }
 
                     text

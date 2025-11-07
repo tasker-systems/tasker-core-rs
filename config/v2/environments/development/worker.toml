@@ -1,4 +1,0 @@
-# Development Environment - Worker Configuration Overrides
-
-[worker]
-worker_id = "dev-worker-001"

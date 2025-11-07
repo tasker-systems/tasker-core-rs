@@ -1,0 +1,30 @@
+# Override environment for test
+environment = "test"
+
+[backoff]
+# Faster retries for tests
+default_backoff_seconds = [1, 2, 4]
+max_backoff_seconds = 10
+
+
+[orchestration_system]
+
+
+[orchestration_system.web]
+enabled = true
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
+request_timeout_ms = 5000
+
+# Smaller MPSC channel buffers for tests (TAS-51)
+
+[mpsc_channels.command_processor]
+command_buffer_size = 100
+
+
+[mpsc_channels.event_systems]
+event_channel_buffer_size = 100
+
+
+[mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 500
+

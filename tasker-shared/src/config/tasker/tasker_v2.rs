@@ -1473,6 +1473,128 @@ pub struct WorkerWebConfig {
     pub resilience: Option<ResilienceConfig>,
 }
 
+// ============================================================================
+// Default Implementations for Bridge Compatibility
+// ============================================================================
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            service_name: "tasker-core".to_string(),
+            sample_rate: 1.0,
+        }
+    }
+}
+
+impl Default for DecisionPointsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_steps_per_decision: 50,
+            max_decision_depth: 10,
+            warn_threshold_steps: 20,
+            warn_threshold_depth: 5,
+            enable_detailed_logging: false,
+            enable_metrics: true,
+        }
+    }
+}
+
+impl Default for EventSystemConfig {
+    fn default() -> Self {
+        Self {
+            system_id: "default-event-system".to_string(),
+            deployment_mode: DeploymentMode::Hybrid,
+            timing: EventSystemTimingConfig {
+                health_check_interval_seconds: 30,
+                fallback_polling_interval_seconds: 5,
+                visibility_timeout_seconds: 30,
+                processing_timeout_seconds: 30,
+                claim_timeout_seconds: 300,
+            },
+            processing: EventSystemProcessingConfig {
+                max_concurrent_operations: 10,
+                batch_size: 10,
+                max_retries: 3,
+                backoff: EventSystemBackoffConfig {
+                    initial_delay_ms: 100,
+                    max_delay_ms: 5000,
+                    multiplier: 2.0,
+                    jitter_percent: 0.1,
+                },
+            },
+            health: EventSystemHealthConfig {
+                enabled: true,
+                performance_monitoring_enabled: true,
+                max_consecutive_errors: 10,
+                error_rate_threshold_per_minute: 5,
+            },
+        }
+    }
+}
+
+impl Default for WorkerEventSystemConfig {
+    fn default() -> Self {
+        Self {
+            system_id: "default-worker-event-system".to_string(),
+            deployment_mode: DeploymentMode::Hybrid,
+            timing: EventSystemTimingConfig {
+                health_check_interval_seconds: 30,
+                fallback_polling_interval_seconds: 5,
+                visibility_timeout_seconds: 30,
+                processing_timeout_seconds: 30,
+                claim_timeout_seconds: 300,
+            },
+            processing: EventSystemProcessingConfig {
+                max_concurrent_operations: 10,
+                batch_size: 10,
+                max_retries: 3,
+                backoff: EventSystemBackoffConfig {
+                    initial_delay_ms: 100,
+                    max_delay_ms: 5000,
+                    multiplier: 2.0,
+                    jitter_percent: 0.1,
+                },
+            },
+            health: EventSystemHealthConfig {
+                enabled: true,
+                performance_monitoring_enabled: true,
+                max_consecutive_errors: 10,
+                error_rate_threshold_per_minute: 5,
+            },
+            metadata: WorkerEventSystemMetadata {
+                in_process_events: InProcessEventsConfig {
+                    ffi_integration_enabled: true,
+                    deduplication_cache_size: 1000,
+                },
+                listener: ListenerConfig {
+                    retry_interval_seconds: 5,
+                    max_retry_attempts: 3,
+                    event_timeout_seconds: 30,
+                    batch_processing: true,
+                    connection_timeout_seconds: 10,
+                },
+                fallback_poller: FallbackPollerConfig {
+                    enabled: true,
+                    polling_interval_ms: 500,
+                    batch_size: 10,
+                    age_threshold_seconds: 2,
+                    max_age_hours: 12,
+                    visibility_timeout_seconds: 30,
+                    supported_namespaces: vec![],
+                },
+                resource_limits: ResourceLimitsConfig {
+                    max_memory_mb: 2048,
+                    max_cpu_percent: 80.0,
+                    max_database_connections: 50,
+                    max_queue_connections: 20,
+                },
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1926,128 +2048,6 @@ mod tests {
         match config.validate() {
             Ok(_) => println!("✓ Validation passed for complete-test.toml"),
             Err(e) => panic!("Validation failed: {:?}", e),
-        }
-    }
-}
-
-// ============================================================================
-// Default Implementations for Bridge Compatibility
-// ============================================================================
-
-impl Default for TelemetryConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            service_name: "tasker-core".to_string(),
-            sample_rate: 1.0,
-        }
-    }
-}
-
-impl Default for DecisionPointsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            max_steps_per_decision: 50,
-            max_decision_depth: 10,
-            warn_threshold_steps: 20,
-            warn_threshold_depth: 5,
-            enable_detailed_logging: false,
-            enable_metrics: true,
-        }
-    }
-}
-
-impl Default for EventSystemConfig {
-    fn default() -> Self {
-        Self {
-            system_id: "default-event-system".to_string(),
-            deployment_mode: DeploymentMode::Hybrid,
-            timing: EventSystemTimingConfig {
-                health_check_interval_seconds: 30,
-                fallback_polling_interval_seconds: 5,
-                visibility_timeout_seconds: 30,
-                processing_timeout_seconds: 30,
-                claim_timeout_seconds: 300,
-            },
-            processing: EventSystemProcessingConfig {
-                max_concurrent_operations: 10,
-                batch_size: 10,
-                max_retries: 3,
-                backoff: EventSystemBackoffConfig {
-                    initial_delay_ms: 100,
-                    max_delay_ms: 5000,
-                    multiplier: 2.0,
-                    jitter_percent: 0.1,
-                },
-            },
-            health: EventSystemHealthConfig {
-                enabled: true,
-                performance_monitoring_enabled: true,
-                max_consecutive_errors: 10,
-                error_rate_threshold_per_minute: 5,
-            },
-        }
-    }
-}
-
-impl Default for WorkerEventSystemConfig {
-    fn default() -> Self {
-        Self {
-            system_id: "default-worker-event-system".to_string(),
-            deployment_mode: DeploymentMode::Hybrid,
-            timing: EventSystemTimingConfig {
-                health_check_interval_seconds: 30,
-                fallback_polling_interval_seconds: 5,
-                visibility_timeout_seconds: 30,
-                processing_timeout_seconds: 30,
-                claim_timeout_seconds: 300,
-            },
-            processing: EventSystemProcessingConfig {
-                max_concurrent_operations: 10,
-                batch_size: 10,
-                max_retries: 3,
-                backoff: EventSystemBackoffConfig {
-                    initial_delay_ms: 100,
-                    max_delay_ms: 5000,
-                    multiplier: 2.0,
-                    jitter_percent: 0.1,
-                },
-            },
-            health: EventSystemHealthConfig {
-                enabled: true,
-                performance_monitoring_enabled: true,
-                max_consecutive_errors: 10,
-                error_rate_threshold_per_minute: 5,
-            },
-            metadata: WorkerEventSystemMetadata {
-                in_process_events: InProcessEventsConfig {
-                    ffi_integration_enabled: true,
-                    deduplication_cache_size: 1000,
-                },
-                listener: ListenerConfig {
-                    retry_interval_seconds: 5,
-                    max_retry_attempts: 3,
-                    event_timeout_seconds: 30,
-                    batch_processing: true,
-                    connection_timeout_seconds: 10,
-                },
-                fallback_poller: FallbackPollerConfig {
-                    enabled: true,
-                    polling_interval_ms: 500,
-                    batch_size: 10,
-                    age_threshold_seconds: 2,
-                    max_age_hours: 12,
-                    visibility_timeout_seconds: 30,
-                    supported_namespaces: vec![],
-                },
-                resource_limits: ResourceLimitsConfig {
-                    max_memory_mb: 2048,
-                    max_cpu_percent: 80.0,
-                    max_database_connections: 50,
-                    max_queue_connections: 20,
-                },
-            },
         }
     }
 }

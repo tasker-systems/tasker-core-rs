@@ -68,24 +68,11 @@ impl std::fmt::Debug for SystemContext {
 impl SystemContext {
     /// Create SystemContext for orchestration using single-file configuration (TAS-50 Phase 3)
     ///
-    /// **⚠️ DEPRECATED (TAS-61)**: This method loads legacy v1 configuration.
-    /// Use `new_for_orchestration_v2()` for new v2 context-based configuration.
+    /// This method loads orchestration configuration from context-based TOML files
+    /// specified by the TASKER_CONFIG_PATH environment variable.
     ///
-    /// This method loads orchestration configuration from a single merged TOML file
-    /// specified by the TASKER_CONFIG_PATH environment variable. The file should contain:
-    /// - CommonConfig (database, queues, circuit breakers)
-    /// - OrchestrationConfig (backoff, orchestration system, task readiness)
-    ///
-    /// The configuration file should be generated using the tasker-cli config merge command.
-    ///
-    /// **FAIL LOUDLY**: This method will fail with explicit errors if:
-    /// - TASKER_CONFIG_PATH environment variable is not set
-    /// - Configuration file doesn't exist at the specified path
-    /// - TOML cannot be parsed or deserialized into orchestration config structs
-    ///
-    /// # Deprecation Notice
-    /// This method will be removed in a future version. Migrate to:
-    /// - `SystemContext::new_for_orchestration_v2()` for v2 config loading
+    /// The configuration uses a context-based structure with [common] and [orchestration] sections.
+    /// See config/tasker/orchestration-test.toml for reference.
     ///
     /// # Returns
     /// Fully configured SystemContext for orchestration with validated configuration
@@ -95,31 +82,40 @@ impl SystemContext {
     /// - Environment variable not set
     /// - File not found
     /// - Parse/validation errors
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use tasker_shared::system_context::SystemContext;
+    /// # tokio_test::block_on(async {
+    /// let system_context = SystemContext::new_for_orchestration().await.unwrap();
+    /// # })
+    /// ```
     pub async fn new_for_orchestration() -> TaskerResult<Self> {
-        // TAS-61: Delegate to v2 loading (breaking change - v1 config no longer supported)
-        Self::new_for_orchestration_v2().await
+        info!("Initializing SystemContext for orchestration");
+
+        let environment = crate::config::ConfigLoader::detect_environment();
+        let config_manager = ConfigManager::load_from_env(&environment).map_err(|e| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to load orchestration configuration: {}",
+                e
+            ))
+        })?;
+
+        info!(
+            "Orchestration configuration loaded successfully: environment={}",
+            config_manager.environment()
+        );
+
+        Self::from_config(config_manager).await
     }
 
-    /// Create SystemContext for worker using single-file configuration (TAS-50 Phase 3)
+    /// Create SystemContext for worker using context-based configuration
     ///
-    /// **⚠️ DEPRECATED (TAS-61)**: This method loads legacy v1 configuration.
-    /// Use `new_for_worker_v2()` for new v2 context-based configuration.
+    /// This method loads worker configuration from context-based TOML files
+    /// specified by the TASKER_CONFIG_PATH environment variable.
     ///
-    /// This method loads worker configuration from a single merged TOML file
-    /// specified by the TASKER_CONFIG_PATH environment variable. The file should contain:
-    /// - CommonConfig (database, queues, circuit breakers)
-    /// - WorkerConfig (worker system, step processing, web API)
-    ///
-    /// The configuration file should be generated using the tasker-cli config merge command.
-    ///
-    /// **FAIL LOUDLY**: This method will fail with explicit errors if:
-    /// - TASKER_CONFIG_PATH environment variable is not set
-    /// - Configuration file doesn't exist at the specified path
-    /// - TOML cannot be parsed or deserialized into worker config structs
-    ///
-    /// # Deprecation Notice
-    /// This method will be removed in a future version. Migrate to:
-    /// - `SystemContext::new_for_worker_v2()` for v2 config loading
+    /// The configuration uses a context-based structure with [common] and [worker] sections.
+    /// See config/tasker/worker-test.toml for reference.
     ///
     /// # Returns
     /// Fully configured SystemContext for worker with validated configuration
@@ -129,81 +125,24 @@ impl SystemContext {
     /// - Environment variable not set
     /// - File not found
     /// - Parse/validation errors
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use tasker_shared::system_context::SystemContext;
+    /// # tokio_test::block_on(async {
+    /// let system_context = SystemContext::new_for_worker().await.unwrap();
+    /// # })
+    /// ```
     pub async fn new_for_worker() -> TaskerResult<Self> {
-        // TAS-61: Delegate to v2 loading (breaking change - v1 config no longer supported)
-        Self::new_for_worker_v2().await
-    }
-
-    /// Create SystemContext for orchestration using v2 configuration (TAS-61)
-    ///
-    /// This method loads orchestration configuration from v2 context-based files
-    /// and uses the bridge to convert to legacy format for backward compatibility.
-    ///
-    /// Loads from:
-    /// - `config/v2/base/{common,orchestration}.toml`
-    /// - `config/v2/environments/{env}/{common,orchestration}.toml` (overrides)
-    ///
-    /// # Returns
-    /// Fully configured SystemContext for orchestration using v2 configs
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use tasker_shared::system_context::SystemContext;
-    /// # tokio_test::block_on(async {
-    /// let system_context = SystemContext::new_for_orchestration_v2().await.unwrap();
-    /// # })
-    /// ```
-    pub async fn new_for_orchestration_v2() -> TaskerResult<Self> {
-        info!("Initializing SystemContext for orchestration with v2 configuration (TAS-61)");
+        info!("Initializing SystemContext for worker");
 
         let environment = crate::config::ConfigLoader::detect_environment();
         let config_manager = ConfigManager::load_from_env(&environment).map_err(|e| {
-            TaskerError::ConfigurationError(format!(
-                "Failed to load v2 orchestration configuration: {}",
-                e
-            ))
+            TaskerError::ConfigurationError(format!("Failed to load worker configuration: {}", e))
         })?;
 
         info!(
-            "V2 orchestration configuration loaded successfully: environment={}",
-            config_manager.environment()
-        );
-
-        Self::from_config(config_manager).await
-    }
-
-    /// Create SystemContext for worker using v2 configuration (TAS-61)
-    ///
-    /// This method loads worker configuration from v2 context-based files
-    /// and uses the bridge to convert to legacy format for backward compatibility.
-    ///
-    /// Loads from:
-    /// - `config/v2/base/{common,worker}.toml`
-    /// - `config/v2/environments/{env}/{common,worker}.toml` (overrides)
-    ///
-    /// # Returns
-    /// Fully configured SystemContext for worker using v2 configs
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use tasker_shared::system_context::SystemContext;
-    /// # tokio_test::block_on(async {
-    /// let system_context = SystemContext::new_for_worker_v2().await.unwrap();
-    /// # })
-    /// ```
-    pub async fn new_for_worker_v2() -> TaskerResult<Self> {
-        info!("Initializing SystemContext for worker with v2 configuration (TAS-61)");
-
-        let environment = crate::config::ConfigLoader::detect_environment();
-        let config_manager = ConfigManager::load_from_env(&environment).map_err(|e| {
-            TaskerError::ConfigurationError(format!(
-                "Failed to load v2 worker configuration: {}",
-                e
-            ))
-        })?;
-
-        info!(
-            "V2 worker configuration loaded successfully: environment={}",
+            "Worker configuration loaded successfully: environment={}",
             config_manager.environment()
         );
 

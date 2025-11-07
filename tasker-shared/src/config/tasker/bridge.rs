@@ -385,7 +385,7 @@ impl From<TaskerConfigV2> for TaskerConfig {
         let orchestration = v2
             .orchestration
             .as_ref()
-            .map(|orch| convert_orchestration_config(orch))
+            .map(convert_orchestration_config)
             .unwrap_or_default();
 
         // Extract decision points from orchestration or use default
@@ -665,7 +665,7 @@ fn build_mpsc_channels_config(
                 ruby_event_buffer_size: shared.ffi.ruby_event_buffer_size as usize,
             },
         },
-        orchestration: orchestration_channels.unwrap_or_else(|| OrchestrationChannelsConfig {
+        orchestration: orchestration_channels.unwrap_or(OrchestrationChannelsConfig {
             command_processor: OrchestrationCommandProcessorConfig {
                 command_buffer_size: 5000,
             },
@@ -677,7 +677,7 @@ fn build_mpsc_channels_config(
             },
         }),
         task_readiness: task_readiness_channels,
-        worker: worker_channels.unwrap_or_else(|| WorkerChannelsConfig {
+        worker: worker_channels.unwrap_or(WorkerChannelsConfig {
             command_processor: WorkerCommandProcessorConfig {
                 command_buffer_size: 2000,
             },

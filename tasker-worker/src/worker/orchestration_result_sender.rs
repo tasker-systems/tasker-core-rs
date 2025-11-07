@@ -120,18 +120,3 @@ impl OrchestrationResultSender {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore] // Disabled: Requires TASKER_CONFIG_PATH to be set to pre-merged worker config
-    fn test_orchestration_result_sender_creation() {
-        // Note: This test is disabled because ConfigManager now requires TASKER_CONFIG_PATH
-        // to be set to a pre-merged configuration file.
-        // Queue classifier logic is tested in integration tests with proper config file setup.
-        // See tasker-shared/tests/config_v2_integration_tests.rs
-        println!("✅ Test disabled - see config_v2_integration_tests.rs");
-    }
-}

@@ -1,4 +1,0 @@
-# Development Environment - Orchestration Configuration Overrides
-
-[orchestration]
-enable_performance_logging = true

@@ -1,66 +1,8 @@
-# Override environment for development
+# Development Environment - Common Configuration Overrides
+
+[common.execution]
 environment = "development"
 
-[database]
-# Local development database
-database = "tasker_rust_development"
-url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_development}"
-
-
-[database.pool]
-# Medium pool for local development - comfortable for Docker
-max_connections = 25
-min_connections = 5
-acquire_timeout_seconds = 15
-idle_timeout_seconds = 300
-
-
-[queues]
-# Reasonable batch sizes for local development
-default_batch_size = 10
-
-
-[queues.pgmq]
-max_retries = 3  # Standard retry count
-
-# Medium channel buffers for development (TAS-51)
-
-[shared_channels.event_publisher]
-event_queue_buffer_size = 1000
-
-
-[shared_channels.ffi]
-ruby_event_buffer_size = 500
-
-# Development circuit breaker settings - balanced
-
-[circuit_breakers.global_settings]
-max_circuit_breakers = 50
-metrics_collection_interval_seconds = 30
-
-
-[circuit_breakers.default_config]
-failure_threshold = 5  # Middle ground
-timeout_seconds = 30  # Balanced recovery timeout
-success_threshold = 2  # Two successes to close
-
-# Development telemetry settings
-[telemetry]
+[common.telemetry]
 enabled = true
-
-[telemetry.metrics]
-enabled = true
-collection_interval_seconds = 30  # More frequent for development
-
-# Development system settings
-[system]
-max_memory_mb = 2048  # Default for development
-max_cpu_percent = 80.0
-
-# Development execution settings
-[execution]
-environment = "development"
-
-# Development decision points settings (use defaults from base)
-[decision_points]
-enable_detailed_logging = true  # Enable detailed logging for development debugging
+sample_rate = 1.0
