@@ -1,7 +1,7 @@
 use crate::config::orchestration::step_enqueuer::StepEnqueuerConfig;
 use crate::config::orchestration::step_result_processor::StepResultProcessorConfig;
+// TAS-61 Phase 6C/6D: TaskerConfigV2 is the canonical config
 use crate::config::tasker::TaskerConfigV2;
-use crate::config::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -38,34 +38,7 @@ impl Default for TaskClaimStepEnqueuerConfig {
     }
 }
 
-impl From<&TaskerConfig> for TaskClaimStepEnqueuerConfig {
-    fn from(config: &TaskerConfig) -> TaskClaimStepEnqueuerConfig {
-        TaskClaimStepEnqueuerConfig {
-            batch_size: config.queues.default_batch_size,
-            namespace_filter: None, // No direct mapping in config, keep as runtime parameter
-            enable_performance_logging: config.orchestration.enable_performance_logging,
-            enable_heartbeat: true, // Default value, was config.task_claimer.enable_heartbeat
-            // REMOVED: task_claimer_config for TAS-41
-            step_enqueuer_config: config.into(),
-            step_result_processor_config: config.into(),
-        }
-    }
-}
-
-impl From<Arc<TaskerConfig>> for TaskClaimStepEnqueuerConfig {
-    fn from(config: Arc<TaskerConfig>) -> TaskClaimStepEnqueuerConfig {
-        TaskClaimStepEnqueuerConfig {
-            batch_size: config.queues.default_batch_size,
-            namespace_filter: None, // No direct mapping in config, keep as runtime parameter
-            enable_performance_logging: config.orchestration.enable_performance_logging,
-            enable_heartbeat: true,
-            step_enqueuer_config: config.clone().into(),
-            step_result_processor_config: config.clone().into(),
-        }
-    }
-}
-
-// TAS-61 Phase 6B: V2 configuration support
+// TAS-61 Phase 6C/6D: V2 configuration is canonical
 impl From<&TaskerConfigV2> for TaskClaimStepEnqueuerConfig {
     fn from(config: &TaskerConfigV2) -> TaskClaimStepEnqueuerConfig {
         TaskClaimStepEnqueuerConfig {

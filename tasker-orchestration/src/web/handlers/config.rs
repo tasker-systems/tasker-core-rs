@@ -46,14 +46,15 @@ pub async fn get_config(
 
     let tasker_config = &state.orchestration_core.context.tasker_config;
 
+    // TAS-61 Phase 6C/6D: V2 configuration field access
     // Build common config JSON
     let common_json = serde_json::json!({
-        "database": tasker_config.database,
-        "circuit_breakers": tasker_config.circuit_breakers,
-        "telemetry": tasker_config.telemetry,
-        "system": tasker_config.system,
-        "backoff": tasker_config.backoff,
-        "task_templates": tasker_config.task_templates,
+        "database": tasker_config.common.database,
+        "circuit_breakers": tasker_config.common.circuit_breakers,
+        "telemetry": tasker_config.common.telemetry,
+        "system": tasker_config.common.system,
+        "backoff": tasker_config.common.backoff,
+        "task_templates": tasker_config.common.task_templates,
     });
 
     // Get orchestration-specific config
@@ -70,7 +71,8 @@ pub async fn get_config(
     redacted_fields.extend(orchestration_fields);
 
     let response = OrchestrationConfigResponse {
-        environment: tasker_config.environment().to_string(),
+        // TAS-61 Phase 6C/6D: Environment from common.execution
+        environment: tasker_config.common.execution.environment.clone(),
         common: redacted_common,
         orchestration: redacted_orchestration,
         metadata: ConfigMetadata {

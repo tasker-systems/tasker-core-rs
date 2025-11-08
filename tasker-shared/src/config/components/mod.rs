@@ -23,9 +23,9 @@ pub use database::{DatabaseConfig, DatabasePoolConfig};
 pub use dlq::{
     DlqConfig, DlqReasons, StalenessActions, StalenessDetectionConfig, StalenessThresholds,
 };
+// TAS-61 Phase 6C/6D: EventSystemsConfig removed - use V2 configs directly
 pub use event_systems::{
-    EventSystemsConfig, OrchestrationEventSystemConfig, TaskReadinessEventSystemConfig,
-    WorkerEventSystemConfig,
+    OrchestrationEventSystemConfig, TaskReadinessEventSystemConfig, WorkerEventSystemConfig,
 };
 pub use mpsc_channels::{
     MpscChannelsConfig, OrchestrationChannelsConfig, SharedChannelsConfig, WorkerChannelsConfig,

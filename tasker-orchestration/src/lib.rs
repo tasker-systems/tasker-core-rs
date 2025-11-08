@@ -54,14 +54,19 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust
-//! use tasker_shared::config::TaskerConfig;
+//! ```rust,no_run
+//! use tasker_shared::config::tasker::tasker_v2::TaskerConfig;
 //!
-//! // Initialize configuration for tasker-core
-//! let config = TaskerConfig::default();
+//! // Configuration is loaded from TOML files via SystemContext
+//! // See tasker-shared/src/system_context.rs for initialization patterns
+//! // This example shows the V2 configuration structure:
+//! # async {
+//! let context = tasker_shared::system_context::SystemContext::new_for_orchestration().await.unwrap();
+//! let config = &context.tasker_config;
 //!
 //! // Configuration provides database settings
-//! assert_eq!(config.execution.max_concurrent_tasks, 100);
+//! assert_eq!(config.common.execution.max_concurrent_tasks, 100);
+//! # };
 //!
 //! // For complete database integration examples, see tests/models/ directory
 //! ```

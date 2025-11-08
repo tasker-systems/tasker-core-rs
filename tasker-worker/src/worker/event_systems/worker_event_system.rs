@@ -207,13 +207,14 @@ impl WorkerEventSystem {
 
                 // Create a notification sender - we'll convert notifications to commands
                 // TAS-51: Use configured buffer size for notification channel
+                // TAS-61 Phase 6D: Worker-specific mpsc channels are in worker.mpsc_channels
                 let buffer_size = self
                     .context
                     .tasker_config
-                    .mpsc_channels
                     .worker
-                    .event_systems
-                    .event_channel_buffer_size;
+                    .as_ref()
+                    .map(|w| w.mpsc_channels.event_systems.event_channel_buffer_size as usize)
+                    .expect("Worker configuration required for event channel buffer size");
                 let (notification_sender, mut notification_receiver) =
                     mpsc::channel::<WorkerNotification>(buffer_size);
 

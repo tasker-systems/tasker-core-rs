@@ -26,7 +26,6 @@ use crate::{
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
 use tasker_shared::{
     config::tasker::TaskerConfigV2,
-    config::TaskerConfig,
     errors::{TaskerError, TaskerResult},
     system_context::SystemContext,
 };
@@ -97,7 +96,7 @@ impl WorkerSystemHandle {
         let worker_core = self.worker_core.lock().await;
         let status = WorkerSystemStatus {
             running: self.is_running(),
-            environment: worker_core.context.tasker_config.environment().to_string(),
+            environment: worker_core.context.tasker_config.common.execution.environment.clone(),
             worker_core_status: worker_core.status().clone(),
             web_api_enabled: self.worker_config.web_config.enabled,
             supported_namespaces: worker_core
@@ -109,6 +108,7 @@ impl WorkerSystemHandle {
             database_url_preview: worker_core
                 .context
                 .tasker_config
+                .common
                 .database_url()
                 .chars()
                 .take(30)
@@ -173,46 +173,37 @@ impl Default for WorkerBootstrapConfig {
     }
 }
 
-impl From<&TaskerConfig> for WorkerBootstrapConfig {
-    fn from(config: &TaskerConfig) -> WorkerBootstrapConfig {
-        WorkerBootstrapConfig {
-            worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
-            enable_web_api: config
-                .worker
-                .as_ref()
-                .map(|w| w.web.enabled)
-                .unwrap_or(true), // TAS-43: Load from worker web configuration or default to true
-            web_config: WorkerWebConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
-            orchestration_api_config: OrchestrationApiConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
-            environment_override: Some(config.environment().to_string()),
-            event_driven_enabled: config
-                .event_systems
-                .worker
-                .deployment_mode
-                .has_event_driven(),
-            deployment_mode_hint: Some(config.event_systems.worker.deployment_mode.to_string()),
-        }
-    }
-}
-
-// TAS-61 Phase 6B: V2 configuration support
+// TAS-61 Phase 6D: V2 configuration support (V1 impl removed)
 impl From<&TaskerConfigV2> for WorkerBootstrapConfig {
     fn from(config: &TaskerConfigV2) -> WorkerBootstrapConfig {
+        // Extract worker config for easier access
+        let worker_config = config.worker.as_ref();
+
+        // Extract deployment mode and event-driven status from worker event systems
+        let (event_driven_enabled, deployment_mode_hint) = worker_config
+            .map(|w| {
+                let mode = w.event_systems.worker.deployment_mode;
+                let event_driven = matches!(
+                    mode,
+                    tasker_shared::config::tasker::tasker_v2::DeploymentMode::EventDrivenOnly
+                        | tasker_shared::config::tasker::tasker_v2::DeploymentMode::Hybrid
+                );
+                (event_driven, Some(mode.to_string()))
+            })
+            .unwrap_or((true, Some("Hybrid".to_string()))); // Default to Hybrid if worker config not present
+
         WorkerBootstrapConfig {
             worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
-            enable_web_api: config
-                .worker
-                .as_ref()
+            enable_web_api: worker_config
                 .and_then(|w| w.web.as_ref())
                 .map(|web| web.enabled)
                 .unwrap_or(true),
-            // TAS-61 Phase 6B: Use default configs for now (helper methods will be migrated in Phase 6C)
+            // TAS-61 Phase 6C: Use default configs for now (helper methods will be migrated later)
             web_config: WorkerWebConfig::default(),
             orchestration_api_config: OrchestrationApiConfig::default(),
             environment_override: Some(config.common.execution.environment.clone()),
-            // TAS-61 Phase 6B: Default to event-driven mode (will be properly migrated in Phase 6C)
-            event_driven_enabled: true,
-            deployment_mode_hint: Some("Hybrid".to_string()),
+            event_driven_enabled,
+            deployment_mode_hint,
         }
     }
 }
@@ -260,7 +251,7 @@ impl WorkerBootstrap {
 
         info!(
             "Worker context loaded successfully for environment: {}",
-            system_context.tasker_config.environment()
+            system_context.tasker_config.common.execution.environment
         );
 
         let config: WorkerBootstrapConfig = system_context.tasker_config.as_ref().into();

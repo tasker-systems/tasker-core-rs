@@ -47,7 +47,7 @@ impl OrchestrationResultProcessor {
         context: Arc<SystemContext>,
         decision_point_actor: Arc<DecisionPointActor>,
     ) -> Self {
-        // Create backoff calculator
+        // Create backoff calculator (V2 config is canonical)
         let backoff_config: BackoffCalculatorConfig = context.tasker_config.clone().into();
         let backoff_calculator =
             BackoffCalculator::new(backoff_config, context.database_pool().clone());

@@ -51,10 +51,10 @@ fn test_config_generation_and_loading() {
 
     // 4. Verify config loaded correctly
     assert_eq!(
-        config.database.database,
-        Some("tasker_rust_test".to_string())
+        config.common.database.database,
+        "tasker_rust_test"
     );
-    assert_eq!(config.execution.environment, "test");
+    assert_eq!(config.common.execution.environment, "test");
 
     // Cleanup
     std::fs::remove_file(temp_file).ok();
@@ -180,8 +180,8 @@ fn test_env_var_substitution() {
     let config = ConfigLoader::load_from_path(&temp_file).expect("Failed to load config");
 
     assert_eq!(
-        config.database.url,
-        Some("postgresql://test:test@localhost/testdb".to_string())
+        config.common.database.url,
+        "postgresql://test:test@localhost/testdb"
     );
 
     // Cleanup

@@ -76,19 +76,47 @@ impl UnifiedCoordinatorConfig {
     pub fn from_config_manager(
         config_manager: &tasker_shared::config::ConfigManager,
     ) -> TaskerResult<Self> {
-        let config = config_manager.config();
+        let config = config_manager.config_v2();
 
-        // Access task readiness configuration from unified event systems configuration
-        let task_readiness_config = config.event_systems.task_readiness.clone();
+        // Access event systems configuration from orchestration context
+        let event_systems = config
+            .orchestration
+            .as_ref()
+            .map(|o| o.event_systems.clone())
+            .unwrap_or_default();
 
-        // Access orchestration configuration from unified event systems configuration
-        let orchestration_config = config.event_systems.orchestration.clone();
+        let task_readiness_v2 = event_systems.task_readiness.clone();
+        let orchestration_v2 = event_systems.orchestration.clone();
 
         info!(
-            orchestration_deployment_mode = %orchestration_config.deployment_mode,
-            task_readiness_deployment_mode = %task_readiness_config.deployment_mode,
+            orchestration_deployment_mode = %orchestration_v2.deployment_mode,
+            task_readiness_deployment_mode = %task_readiness_v2.deployment_mode,
             "Loading UnifiedCoordinatorConfig from configuration"
         );
+
+        // Convert V2 configs to legacy EventSystemConfig types
+        use tasker_shared::config::event_systems::{
+            EventSystemConfig, EventSystemProcessingConfig, EventSystemHealthConfig,
+            OrchestrationEventSystemMetadata, TaskReadinessEventSystemMetadata
+        };
+
+        let orchestration_config = EventSystemConfig::<OrchestrationEventSystemMetadata> {
+            system_id: orchestration_v2.system_id,
+            deployment_mode: orchestration_v2.deployment_mode.into(),
+            timing: orchestration_v2.timing.into(),
+            processing: EventSystemProcessingConfig::default(),
+            health: EventSystemHealthConfig::default(),
+            metadata: OrchestrationEventSystemMetadata { _reserved: None },
+        };
+
+        let task_readiness_config = EventSystemConfig::<TaskReadinessEventSystemMetadata> {
+            system_id: task_readiness_v2.system_id,
+            deployment_mode: task_readiness_v2.deployment_mode.into(),
+            timing: task_readiness_v2.timing.into(),
+            processing: EventSystemProcessingConfig::default(),
+            health: EventSystemHealthConfig::default(),
+            metadata: TaskReadinessEventSystemMetadata { _reserved: None },
+        };
 
         Ok(Self {
             coordinator_id: "unified-event-coordinator".to_string(),

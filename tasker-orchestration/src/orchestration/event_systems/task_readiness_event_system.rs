@@ -49,17 +49,22 @@ impl TaskReadinessEventSystem {
                     enabled: self
                         .context
                         .tasker_config
-                        .event_systems
-                        .task_readiness
-                        .deployment_mode
-                        .has_polling(),
+                        .orchestration
+                        .as_ref()
+                        .map(|o| {
+                            // Convert V2 DeploymentMode to legacy to access has_polling()
+                            let legacy_mode: tasker_shared::event_system::DeploymentMode =
+                                o.event_systems.task_readiness.deployment_mode.into();
+                            legacy_mode.has_polling()
+                        })
+                        .unwrap_or(true),
                     polling_interval: Duration::from_secs(
                         self.context
                             .tasker_config
-                            .event_systems
-                            .task_readiness
-                            .timing
-                            .fallback_polling_interval_seconds,
+                            .orchestration
+                            .as_ref()
+                            .and_then(|o| Some(o.event_systems.task_readiness.timing.fallback_polling_interval_seconds as u64))
+                            .unwrap_or(30),
                     ),
                 }
             }

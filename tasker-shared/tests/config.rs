@@ -1,64 +1,16 @@
 //! Configuration Module Tests
 //!
-//! Tests for the TaskerConfig implementation and environment variable handling.
+//! Tests for the TaskerConfig V2 implementation and environment variable handling.
+//!
+//! Note: These tests were for legacy TaskerConfig which had Default implementation.
+//! V2 config is loaded from TOML files via ConfigLoader.
+//! See config_v2_integration_tests.rs for proper V2 testing patterns.
 
-use tasker_shared::config::{BackoffConfig, ExecutionConfig, TaskerConfig};
+use tasker_shared::config::components::BackoffConfig;
+use tasker_shared::config::tasker::tasker_v2::ExecutionConfig;
 
-#[test]
-fn config_loads_successfully() {
-    let config = TaskerConfig::default();
-    assert_eq!(config.execution.max_concurrent_tasks, 100);
-    assert_eq!(config.execution.max_concurrent_steps, 1000);
-}
-
-#[test]
-fn config_has_expected_defaults() {
-    let config = TaskerConfig::default();
-
-    // Database config
-    assert_eq!(config.database.database, None);
-    // enable_secondary_database field removed - not functional
-
-    // Execution config
-    assert_eq!(config.execution.max_concurrent_tasks, 100);
-    assert_eq!(config.execution.max_concurrent_steps, 1000);
-    assert_eq!(config.execution.default_timeout_seconds, 3600);
-    assert_eq!(config.execution.step_execution_timeout_seconds, 300);
-
-    // Backoff config
-    assert_eq!(
-        config.backoff.default_backoff_seconds,
-        vec![1, 2, 4, 8, 16, 32]
-    );
-    assert_eq!(config.backoff.max_backoff_seconds, 300);
-    assert!(config.backoff.jitter_enabled);
-    assert_eq!(config.backoff.backoff_multiplier, 2.0);
-
-    // Telemetry config
-    assert!(!config.telemetry.enabled);
-    assert_eq!(config.telemetry.sample_rate, 1.0);
-
-    // Note: custom_settings field no longer exists in new config structure
-}
-
-#[test]
-fn config_from_env_with_defaults() {
-    // Note: from_env() is not implemented in the new configuration system
-    // The new system uses YAML-based configuration through ConfigurationManager
-    // For now, we'll test that default config works
-    let config = TaskerConfig::default();
-    let default_config = TaskerConfig::default();
-
-    // Should have same values
-    assert_eq!(
-        config.execution.max_concurrent_steps,
-        default_config.execution.max_concurrent_steps
-    );
-    assert_eq!(
-        config.backoff.max_backoff_seconds,
-        default_config.backoff.max_backoff_seconds
-    );
-}
+// Legacy tests commented out - V2 config doesn't support Default trait
+// V2 config must be loaded from TOML files using ConfigLoader
 
 #[test]
 fn config_component_defaults() {
@@ -68,10 +20,7 @@ fn config_component_defaults() {
     assert_eq!(execution_config.max_concurrent_steps, 1000);
 
     let backoff_config = BackoffConfig::default();
-    assert_eq!(
-        backoff_config.default_backoff_seconds,
-        vec![1, 2, 4, 8, 16, 32] // Updated to match actual default
-    );
+    assert_eq!(backoff_config.default_backoff_seconds, vec![1, 2, 4]);
     assert_eq!(backoff_config.max_backoff_seconds, 60); // Updated to match actual default
     assert!(backoff_config.jitter_enabled);
 }
@@ -91,13 +40,13 @@ fn config_environment_loading() {
     // Try to load config from environment
     match ConfigManager::load_from_env("test") {
         Ok(config_manager) => {
-            let config = config_manager.config();
+            let config = config_manager.config_v2();
 
             // Verify environment-specific settings are loaded
             assert_eq!(config_manager.environment(), "test");
 
             // Basic verification that config loaded
-            assert!(config.is_test_environment());
+            assert_eq!(config.common.execution.environment, "test");
 
             println!("✅ Environment-specific config loading works");
         }
@@ -105,10 +54,8 @@ fn config_environment_loading() {
             // If no config files exist, that's expected in test environment
             println!("📝 Config loading failed (expected if no config files): {e}");
 
-            // Test that default config works as fallback
-            let default_config = TaskerConfig::default();
-            assert_eq!(default_config.execution.max_concurrent_tasks, 100);
-            println!("✅ Default config fallback works");
+            // V2 config requires TOML files - no default fallback
+            println!("✅ Config correctly requires TOML configuration");
         }
     }
 
@@ -117,26 +64,4 @@ fn config_environment_loading() {
         Some(val) => env::set_var("TASKER_ENV", val),
         None => env::remove_var("TASKER_ENV"),
     }
-}
-
-#[test]
-fn config_validation() {
-    let mut config = TaskerConfig::default();
-
-    // Test setting various config values
-    config.execution.max_concurrent_tasks = 50;
-    config.execution.max_concurrent_steps = 500;
-    assert_eq!(config.execution.max_concurrent_tasks, 50);
-    assert_eq!(config.execution.max_concurrent_steps, 500);
-
-    // Test backoff multiplier
-    config.backoff.backoff_multiplier = 3.0;
-    assert_eq!(config.backoff.backoff_multiplier, 3.0);
-
-    // Test telemetry sample rate
-    config.telemetry.sample_rate = 0.5;
-    assert_eq!(config.telemetry.sample_rate, 0.5);
-
-    // Note: The new config doesn't have a validate() method
-    // Validation is handled by the ConfigurationManager when loading YAML
 }

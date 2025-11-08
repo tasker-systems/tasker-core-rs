@@ -106,16 +106,17 @@ impl OrchestrationCore {
 
         // Create OrchestrationProcessor with actor registry (TAS-46)
         // TAS-51: Use configured buffer size for command processor
+        // TAS-61 V2: Access mpsc_channels from orchestration context
         let command_buffer_size = context
             .tasker_config
-            .mpsc_channels
             .orchestration
-            .command_processor
-            .command_buffer_size;
+            .as_ref()
+            .and_then(|o| Some(o.mpsc_channels.command_processor.command_buffer_size))
+            .unwrap_or(5000);
 
         // TAS-51: Initialize channel monitor for observability
         let channel_monitor =
-            ChannelMonitor::new("orchestration_command_channel", command_buffer_size);
+            ChannelMonitor::new("orchestration_command_channel", command_buffer_size as usize);
 
         let (mut processor, command_sender) = OrchestrationProcessor::new(
             context.clone(),
@@ -124,7 +125,7 @@ impl OrchestrationCore {
             // result_processor,
             // task_claim_step_enqueuer,
             context.message_client(),
-            command_buffer_size,
+            command_buffer_size as usize,
             channel_monitor.clone(), // Pass clone to processor
         );
 

@@ -58,6 +58,7 @@ tracing-subscriber = { workspace = true }
 # Other utilities
 regex = { workspace = true }
 uuid = { workspace = true }
+validator = { workspace = true }
 workspace_tools = { workspace = true }
 
 [dev-dependencies]

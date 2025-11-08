@@ -1,5 +1,6 @@
-use crate::config::tasker::TaskerConfigV2;
-use crate::config::{ConfigManager, TaskerConfig};
+// TAS-61 Phase 6C/6D: V2 config is now canonical
+use crate::config::tasker::TaskerConfigV2 as TaskerConfig;
+use crate::config::ConfigManager;
 use crate::events::EventPublisher;
 use crate::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use crate::registry::TaskHandlerRegistry;
@@ -21,28 +22,24 @@ use uuid::Uuid;
 /// - Circuit breaker management
 /// - Operational state management
 ///
-/// ## TAS-61 Phase 6A: Parallel Config Support
+/// ## TAS-61 Phase 6C/6D: V2 Configuration (Canonical)
 ///
-/// During Phase 6A-6C migration, both legacy and V2 configs are available:
-/// - `tasker_config`: Legacy monolithic config (via bridge conversion)
-/// - `tasker_config_v2`: Context-based configuration (primary going forward)
-///
-/// The legacy config will be removed in Phase 6D once all consumers migrate to V2.
+/// Uses context-based configuration with optional orchestration and worker contexts.
+/// Configuration structure supports three deployment modes:
+/// - Orchestration-only: common + orchestration contexts
+/// - Worker-only: common + worker contexts
+/// - Full: common + orchestration + worker contexts
 pub struct SystemContext {
     /// System instance ID
     pub processor_uuid: Uuid,
 
-    /// Legacy Tasker Config (TAS-61 Phase 6: will be removed in Phase 6D)
+    /// Context-based Tasker Config (TAS-61 Phase 6C/6D: canonical config)
     ///
-    /// This is populated via bridge conversion from `tasker_config_v2` for backward compatibility.
-    /// All new code should use `tasker_config_v2` directly.
+    /// Source of truth for all configuration. Contains:
+    /// - `common`: Always-present shared configuration
+    /// - `orchestration`: Optional orchestration-specific configuration
+    /// - `worker`: Optional worker-specific configuration
     pub tasker_config: Arc<TaskerConfig>,
-
-    /// Context-based Tasker Config (TAS-61 Phase 6: primary config)
-    ///
-    /// This is the source of truth for configuration. Use this for all new code.
-    /// Contains optional orchestration and worker contexts.
-    pub tasker_config_v2: Arc<TaskerConfigV2>,
 
     /// Unified message queue client (PGMQ/RabbitMQ abstraction)
     pub message_client: Arc<UnifiedPgmqClient>,
@@ -64,8 +61,7 @@ impl std::fmt::Debug for SystemContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SystemContext")
             .field("processor_uuid", &self.processor_uuid)
-            .field("tasker_config", &"Arc<TaskerConfig>")
-            .field("tasker_config_v2", &"Arc<TaskerConfigV2>")
+            .field("tasker_config", &"Arc<TaskerConfigV2>")
             .field("message_client", &"Arc<UnifiedMessageClient>")
             .field(
                 "database_pool",
@@ -181,14 +177,15 @@ impl SystemContext {
     pub async fn from_config(config_manager: Arc<ConfigManager>) -> TaskerResult<Self> {
         info!("Initializing SystemContext from configuration (environment-aware)");
 
-        let config = config_manager.config();
+        // TAS-61 Phase 6C/6D: Use V2 config directly
+        let config = config_manager.config_v2();
 
         // Extract database connection settings from configuration
-        let database_url = config.database_url();
+        let database_url = config.common.database_url();
         info!(
-            "Database URL derived from config: {} (pool options: {:?})",
+            "Database URL derived from V2 config: {} (pool options: {:?})",
             database_url.chars().take(30).collect::<String>(),
-            config.database.pool
+            config.common.database.pool
         );
 
         // Create database connection pool with configuration
@@ -208,17 +205,19 @@ impl SystemContext {
     }
 
     fn get_pg_pool_options(config: &TaskerConfig) -> sqlx::postgres::PgPoolOptions {
+        // TAS-61 Phase 6C/6D: Use V2 config structure (common.database.pool)
+        let pool_config = &config.common.database.pool;
         sqlx::postgres::PgPoolOptions::new()
-            .max_connections(config.database.pool.max_connections)
-            .min_connections(config.database.pool.min_connections)
+            .max_connections(pool_config.max_connections)
+            .min_connections(pool_config.min_connections)
             .acquire_timeout(std::time::Duration::from_secs(
-                config.database.pool.acquire_timeout_seconds,
+                pool_config.acquire_timeout_seconds as u64,
             ))
             .idle_timeout(Some(std::time::Duration::from_secs(
-                config.database.pool.idle_timeout_seconds,
+                pool_config.idle_timeout_seconds as u64,
             )))
             .max_lifetime(Some(std::time::Duration::from_secs(
-                config.database.pool.max_lifetime_seconds,
+                pool_config.max_lifetime_seconds as u64,
             )))
     }
 
@@ -226,10 +225,10 @@ impl SystemContext {
         config: &TaskerConfig,
         database_pool: PgPool,
     ) -> (Option<Arc<CircuitBreakerManager>>, Arc<UnifiedPgmqClient>) {
-        // Circuit breaker configuration
-        let circuit_breaker_config = if config.circuit_breakers.enabled {
+        // TAS-61 Phase 6C/6D: Use V2 config structure (common.circuit_breakers)
+        let circuit_breaker_config = if config.common.circuit_breakers.enabled {
             info!("Circuit breakers enabled in configuration");
-            Some(config.circuit_breakers.clone())
+            Some(config.common.circuit_breakers.clone())
         } else {
             info!("📤 Circuit breakers disabled in configuration");
             None
@@ -238,7 +237,7 @@ impl SystemContext {
         // Create circuit breaker manager if enabled (deprecated - circuit breakers are now redundant with sqlx)
         let circuit_breaker_manager = if let Some(cb_config) = circuit_breaker_config {
             info!("Circuit breaker configuration found but ignored - sqlx provides this functionality");
-            Some(Arc::new(CircuitBreakerManager::from_config(&cb_config)))
+            Some(Arc::new(CircuitBreakerManager::from_v2_config(&cb_config)))
         } else {
             info!("📤 Using standard PgmqClient with sqlx connection pooling");
             None
@@ -255,27 +254,22 @@ impl SystemContext {
     /// This method contains the unified bootstrap logic that creates all shared system
     /// components with proper configuration passed to each component.
     ///
-    /// ## TAS-61 Phase 6A: Parallel Config Support
+    /// ## TAS-61 Phase 6C/6D: V2 Configuration (Canonical)
     ///
-    /// Populates BOTH `tasker_config` (legacy) and `tasker_config_v2` (primary):
-    /// - `tasker_config_v2`: Source of truth from ConfigManager
-    /// - `tasker_config`: Generated via bridge conversion for backward compatibility
+    /// Uses V2 config directly as the single source of truth.
+    /// No bridge conversion - all components use V2 config structure.
     async fn from_pool_and_config(
         database_pool: PgPool,
         config_manager: Arc<ConfigManager>,
     ) -> TaskerResult<Self> {
-        info!("Creating system components with unified configuration (TAS-61 Phase 6A: parallel config support)");
+        info!("Creating system components with V2 configuration (TAS-61 Phase 6C/6D: canonical config)");
 
-        // TAS-61 Phase 6A: Get V2 config (source of truth)
+        // TAS-61 Phase 6C/6D: V2 config is the single source of truth
         let config_v2 = config_manager.config_v2();
-        let tasker_config_v2 = Arc::new(config_v2.clone());
-
-        // TAS-61 Phase 6A: Generate legacy config via bridge for backward compatibility
-        let config_legacy = config_manager.config(); // Already converted via bridge in ConfigManager
-        let tasker_config = Arc::new(config_legacy.clone());
+        let tasker_config = Arc::new(config_v2.clone());
 
         let (circuit_breaker_manager, message_client) =
-            Self::get_circuit_breaker_and_queue_client(config_legacy, database_pool.clone()).await;
+            Self::get_circuit_breaker_and_queue_client(&tasker_config, database_pool.clone()).await;
 
         // Create task handler registry with configuration
         let task_handler_registry = Arc::new(TaskHandlerRegistry::new(database_pool.clone()));
@@ -284,19 +278,18 @@ impl SystemContext {
         let system_id = Uuid::now_v7();
 
         // Create event publisher with bounded channel (TAS-51)
-        let event_publisher_buffer_size = config_legacy
+        let event_publisher_buffer_size = tasker_config
+            .common
             .mpsc_channels
-            .shared
             .event_publisher
-            .event_queue_buffer_size;
+            .event_queue_buffer_size as usize;
         let event_publisher = Arc::new(EventPublisher::with_capacity(event_publisher_buffer_size));
 
-        info!("SystemContext components created successfully (both configs available)");
+        info!("SystemContext components created successfully with V2 config");
 
         Ok(Self {
             processor_uuid: system_id,
             tasker_config,
-            tasker_config_v2,
             message_client,
             database_pool,
             task_handler_registry,
@@ -324,8 +317,8 @@ impl SystemContext {
     pub async fn initialize_orchestration_owned_queues(&self) -> TaskerResult<()> {
         info!("Initializing owned queues");
 
-        // TAS-61 Phase 6C: Use V2 config
-        let queue_config = self.tasker_config_v2.common.queues.clone();
+        // TAS-61 Phase 6C/6D: Use V2 config (now canonical)
+        let queue_config = self.tasker_config.common.queues.clone();
 
         let orchestration_owned_queues = vec![
             queue_config.orchestration_queues.step_results.as_str(),
@@ -378,9 +371,9 @@ impl SystemContext {
     /// This bypasses full configuration loading and creates a basic context
     /// suitable for unit tests that need database access.
     ///
-    /// ## TAS-61 Phase 6A: Parallel Config Support
+    /// ## TAS-61 Phase 6C/6D: V2 Configuration (Canonical)
     ///
-    /// Populates BOTH configs for test compatibility during migration.
+    /// Uses V2 config directly as the single source of truth.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn with_pool(database_pool: sqlx::PgPool) -> TaskerResult<Self> {
         let system_id = Uuid::new_v4();
@@ -395,12 +388,9 @@ impl SystemContext {
             ))
         })?;
 
-        // TAS-61 Phase 6A: Get both configs
+        // TAS-61 Phase 6C/6D: V2 config is the single source of truth
         let config_v2 = config_manager.config_v2();
-        let tasker_config_v2 = Arc::new(config_v2.clone());
-
-        let config_legacy = config_manager.config();
-        let tasker_config = Arc::new(config_legacy.clone());
+        let tasker_config = Arc::new(config_v2.clone());
 
         // Create standard PGMQ client (no circuit breaker for simplicity)
         let message_client = Arc::new(UnifiedPgmqClient::new_standard(
@@ -412,16 +402,15 @@ impl SystemContext {
 
         // Create event publisher with bounded channel (TAS-51)
         let event_publisher_buffer_size = tasker_config
+            .common
             .mpsc_channels
-            .shared
             .event_publisher
-            .event_queue_buffer_size;
+            .event_queue_buffer_size as usize;
         let event_publisher = Arc::new(EventPublisher::with_capacity(event_publisher_buffer_size));
 
         Ok(Self {
             processor_uuid: system_id,
             tasker_config,
-            tasker_config_v2,
             message_client,
             database_pool,
             task_handler_registry,

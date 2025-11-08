@@ -45,14 +45,14 @@ pub async fn get_config(
 
     let system_config = &state.system_config;
 
-    // Build common config JSON
+    // Build common config JSON (TAS-61 Phase 6D: V2 config structure)
     let common_json = serde_json::json!({
-        "database": system_config.database,
-        "circuit_breakers": system_config.circuit_breakers,
-        "telemetry": system_config.telemetry,
-        "system": system_config.system,
-        "backoff": system_config.backoff,
-        "task_templates": system_config.task_templates,
+        "database": system_config.common.database,
+        "circuit_breakers": system_config.common.circuit_breakers,
+        "telemetry": system_config.common.telemetry,
+        "system": system_config.common.system,
+        "backoff": system_config.common.backoff,
+        "task_templates": system_config.common.task_templates,
     });
 
     // Get worker-specific configuration
@@ -70,7 +70,7 @@ pub async fn get_config(
     redacted_fields.extend(worker_fields);
 
     let response = WorkerConfigResponse {
-        environment: system_config.environment().to_string(),
+        environment: system_config.common.execution.environment.clone(),
         common: redacted_common,
         worker: redacted_worker,
         metadata: ConfigMetadata {

@@ -111,6 +111,7 @@ impl StepEnqueuer {
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
         let viable_step_discovery = ViableStepDiscovery::new(context.clone());
         let state_manager = StateManager::new(context.clone());
+        // Use From<Arc<TaskerConfigV2>> implementation (V2 config is canonical)
         let config: StepEnqueuerConfig = context.tasker_config.clone().into();
         Ok(Self {
             viable_step_discovery,

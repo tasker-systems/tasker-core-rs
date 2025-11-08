@@ -1,5 +1,5 @@
+// TAS-61 Phase 6C/6D: TaskerConfigV2 is the canonical config
 use crate::config::tasker::TaskerConfigV2;
-use crate::config::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -30,35 +30,7 @@ impl Default for StepResultProcessorConfig {
     }
 }
 
-impl From<&TaskerConfig> for StepResultProcessorConfig {
-    fn from(config: &TaskerConfig) -> StepResultProcessorConfig {
-        StepResultProcessorConfig {
-            // Use the new queues config for step results queue name
-            step_results_queue_name: config.queues.step_results_queue_name(),
-            // Use queues config for all queue-related settings
-            batch_size: config.queues.default_batch_size as i32,
-            visibility_timeout_seconds: config.queues.default_visibility_timeout_seconds as i32,
-            polling_interval_seconds: config.queues.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
-            max_processing_attempts: config.queues.pgmq.max_retries as i32,
-        }
-    }
-}
-
-impl From<Arc<TaskerConfig>> for StepResultProcessorConfig {
-    fn from(config: Arc<TaskerConfig>) -> StepResultProcessorConfig {
-        StepResultProcessorConfig {
-            // Use the new queues config for step results queue name
-            step_results_queue_name: config.queues.step_results_queue_name(),
-            // Use queues config for all queue-related settings
-            batch_size: config.queues.default_batch_size as i32,
-            visibility_timeout_seconds: config.queues.default_visibility_timeout_seconds as i32,
-            polling_interval_seconds: config.queues.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
-            max_processing_attempts: config.queues.pgmq.max_retries as i32,
-        }
-    }
-}
-
-// TAS-61 Phase 6B: V2 configuration support
+// TAS-61 Phase 6C/6D: V2 configuration is canonical
 impl From<&TaskerConfigV2> for StepResultProcessorConfig {
     fn from(config: &TaskerConfigV2) -> StepResultProcessorConfig {
         // Build queue name from pattern: {orchestration_namespace}_{step_results}_queue

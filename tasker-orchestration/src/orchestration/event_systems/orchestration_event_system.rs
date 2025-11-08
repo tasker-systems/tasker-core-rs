@@ -380,15 +380,15 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 let buffer_size = self
                     .context
                     .tasker_config
-                    .mpsc_channels
                     .orchestration
-                    .event_systems
-                    .event_channel_buffer_size;
-                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size);
+                    .as_ref()
+                    .and_then(|o| Some(o.mpsc_channels.event_systems.event_channel_buffer_size))
+                    .unwrap_or(10000);
+                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
 
                 // TAS-51: Initialize channel monitor for observability
                 let channel_monitor =
-                    ChannelMonitor::new("orchestration_hybrid_event_channel", buffer_size);
+                    ChannelMonitor::new("orchestration_hybrid_event_channel", buffer_size as usize);
 
                 let mut queue_listener = OrchestrationQueueListener::new(
                     listener_config,
@@ -445,15 +445,15 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 let buffer_size = self
                     .context
                     .tasker_config
-                    .mpsc_channels
                     .orchestration
-                    .event_systems
-                    .event_channel_buffer_size;
-                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size);
+                    .as_ref()
+                    .and_then(|o| Some(o.mpsc_channels.event_systems.event_channel_buffer_size))
+                    .unwrap_or(10000);
+                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
 
                 // TAS-51: Initialize channel monitor for observability
                 let channel_monitor =
-                    ChannelMonitor::new("orchestration_event_driven_event_channel", buffer_size);
+                    ChannelMonitor::new("orchestration_event_driven_event_channel", buffer_size as usize);
 
                 let mut queue_listener = OrchestrationQueueListener::new(
                     listener_config,

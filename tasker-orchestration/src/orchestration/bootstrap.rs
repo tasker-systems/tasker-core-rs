@@ -22,8 +22,8 @@ use crate::orchestration::{
 use crate::web;
 use crate::web::state::AppState;
 use std::sync::Arc;
+// TAS-61 Phase 6C/6D: V2 configuration is canonical
 use tasker_shared::config::tasker::TaskerConfigV2;
-use tasker_shared::config::TaskerConfig;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 use tokio::sync::oneshot;
@@ -42,7 +42,7 @@ pub struct OrchestrationSystemHandle {
     /// Runtime handle for async operations
     pub runtime_handle: tokio::runtime::Handle,
     /// System configuration manager
-    pub tasker_config: Arc<TaskerConfig>,
+    pub tasker_config: Arc<TaskerConfigV2>,
     /// Bootstrap configuration
     pub bootstrap_config: BootstrapConfig,
 }
@@ -70,7 +70,7 @@ impl OrchestrationSystemHandle {
         web_state: Option<Arc<AppState>>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
-        tasker_config: Arc<TaskerConfig>,
+        tasker_config: Arc<TaskerConfigV2>,
         bootstrap_config: BootstrapConfig,
     ) -> Self {
         Self {
@@ -122,12 +122,13 @@ impl OrchestrationSystemHandle {
     pub fn status(&self) -> SystemStatus {
         SystemStatus {
             running: self.is_running(),
-            environment: self.tasker_config.environment().to_string(),
+            environment: self.tasker_config.common.execution.environment.clone(),
             circuit_breakers_enabled: self.orchestration_core.context.circuit_breakers_enabled(),
             database_pool_size: self.orchestration_core.context.database_pool().size(),
             database_pool_idle: self.orchestration_core.context.database_pool().num_idle(),
             database_url_preview: self
                 .tasker_config
+                .common
                 .database_url()
                 .chars()
                 .take(30)
@@ -169,22 +170,14 @@ impl Default for BootstrapConfig {
     }
 }
 
-impl From<&TaskerConfig> for BootstrapConfig {
-    fn from(config: &TaskerConfig) -> BootstrapConfig {
-        BootstrapConfig {
-            namespaces: vec![config.queues.orchestration_namespace.clone()],
-            environment_override: Some(config.environment().to_string()),
-            enable_web_api: config.orchestration.web_enabled(),
-        }
-    }
-}
-
-// TAS-61 Phase 6B: V2 configuration support
 impl From<&TaskerConfigV2> for BootstrapConfig {
     fn from(config: &TaskerConfigV2) -> BootstrapConfig {
         BootstrapConfig {
+            // TAS-61 V2: Access queues from common config
             namespaces: vec![config.common.queues.orchestration_namespace.clone()],
+            // TAS-61 V2: Access environment from common.execution
             environment_override: Some(config.common.execution.environment.clone()),
+            // TAS-61 V2: Access web config from orchestration context (optional)
             enable_web_api: config
                 .orchestration
                 .as_ref()
@@ -219,9 +212,10 @@ impl OrchestrationBootstrap {
         // This loads only CommonConfig + OrchestrationConfig from context TOML files
         let system_context = Arc::new(SystemContext::new_for_orchestration().await?);
 
+        // TAS-61 V2: Access environment from common.execution
         info!(
             "Orchestration context loaded successfully for environment: {}",
-            system_context.tasker_config.environment()
+            system_context.tasker_config.common.execution.environment
         );
 
         // Initialize OrchestrationCore with orchestration-specific configuration
@@ -252,23 +246,32 @@ impl OrchestrationBootstrap {
         let web_state: Option<Arc<AppState>> = if config.enable_web_api {
             info!("Creating orchestration web API state");
 
-            let web_config = tasker_config.orchestration.web.clone();
+            // TAS-61 V2: Access web config from orchestration context (optional)
+            let web_config_opt = tasker_config
+                .orchestration
+                .as_ref()
+                .and_then(|o| o.web.as_ref());
 
-            if web_config.enabled {
-                let app_state = Arc::new(
-                    AppState::from_orchestration_core(orchestration_core.clone())
-                        .await
-                        .map_err(|e| {
-                            TaskerError::ConfigurationError(format!(
-                                "Failed to create AppState: {e}"
-                            ))
-                        })?,
-                );
+            if let Some(web_config) = web_config_opt {
+                if web_config.enabled {
+                    let app_state = Arc::new(
+                        AppState::from_orchestration_core(orchestration_core.clone())
+                            .await
+                            .map_err(|e| {
+                                TaskerError::ConfigurationError(format!(
+                                    "Failed to create AppState: {e}"
+                                ))
+                            })?,
+                    );
 
-                info!("Orchestration web API state created successfully");
-                Some(app_state)
+                    info!("Orchestration web API state created successfully");
+                    Some(app_state)
+                } else {
+                    info!("Orchestration web API state disabled");
+                    None
+                }
             } else {
-                info!("Orchestration web API state disabled");
+                info!("Orchestration web config not present");
                 None
             }
         } else {
@@ -277,18 +280,45 @@ impl OrchestrationBootstrap {
         };
 
         let coordinator_config: UnifiedCoordinatorConfig = {
-            // Access task readiness configuration from unified event systems configuration
-            // TAS-61 Phase 6C: Using legacy config as bridge already handles V2 → legacy conversion
-            let task_readiness_config = tasker_config.event_systems.task_readiness.clone();
+            // TAS-61 V2: Access event_systems from orchestration context
+            let event_systems = tasker_config
+                .orchestration
+                .as_ref()
+                .map(|o| o.event_systems.clone())
+                .unwrap_or_default();
 
-            // Access orchestration configuration from unified event systems configuration
-            let orchestration_config = tasker_config.event_systems.orchestration.clone();
+            let task_readiness_v2 = event_systems.task_readiness.clone();
+            let orchestration_v2 = event_systems.orchestration.clone();
 
             info!(
-                orchestration_deployment_mode = %orchestration_config.deployment_mode,
-                task_readiness_deployment_mode = %task_readiness_config.deployment_mode,
-                "Loading UnifiedCoordinatorConfig from configuration"
+                orchestration_deployment_mode = %orchestration_v2.deployment_mode,
+                task_readiness_deployment_mode = %task_readiness_v2.deployment_mode,
+                "Loading UnifiedCoordinatorConfig from V2 configuration"
             );
+
+            // Convert V2 configs to legacy EventSystemConfig types
+            use tasker_shared::config::event_systems::{
+                EventSystemConfig, EventSystemProcessingConfig, EventSystemHealthConfig,
+                OrchestrationEventSystemMetadata, TaskReadinessEventSystemMetadata
+            };
+
+            let orchestration_config = EventSystemConfig::<OrchestrationEventSystemMetadata> {
+                system_id: orchestration_v2.system_id,
+                deployment_mode: orchestration_v2.deployment_mode.into(),
+                timing: orchestration_v2.timing.into(),
+                processing: EventSystemProcessingConfig::default(),
+                health: EventSystemHealthConfig::default(),
+                metadata: OrchestrationEventSystemMetadata { _reserved: None },
+            };
+
+            let task_readiness_config = EventSystemConfig::<TaskReadinessEventSystemMetadata> {
+                system_id: task_readiness_v2.system_id,
+                deployment_mode: task_readiness_v2.deployment_mode.into(),
+                timing: task_readiness_v2.timing.into(),
+                processing: EventSystemProcessingConfig::default(),
+                health: EventSystemHealthConfig::default(),
+                metadata: TaskReadinessEventSystemMetadata { _reserved: None },
+            };
 
             UnifiedCoordinatorConfig {
                 coordinator_id: "unified-event-coordinator".to_string(),

@@ -94,6 +94,7 @@ impl StepResultProcessor {
     ///
     /// TAS-53 Phase 6: Now creates DecisionPointActor for dynamic workflow step creation
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
+        // Use From<Arc<TaskerConfigV2>> implementation (V2 config is canonical)
         let config: StepResultProcessorConfig = context.tasker_config.clone().into();
         // Create orchestration result processor with required dependencies
 

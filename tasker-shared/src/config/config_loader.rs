@@ -6,13 +6,12 @@
 //! 2. Deserializes to TaskerConfigV2
 //! 3. Performs environment variable substitution
 //! 4. Validates with validator library
-//! 5. Converts to legacy TaskerConfig via bridge
 //!
 //! No component merging, no complex path resolution, no fallbacks.
 //! The CLI generates merged configs, we just load them.
 
 use super::error::{ConfigResult, ConfigurationError};
-use super::tasker::{TaskerConfig, TaskerConfigV2};
+use super::tasker::TaskerConfigV2;
 use std::path::PathBuf;
 use validator::Validate;
 
@@ -34,14 +33,14 @@ impl ConfigLoader {
     /// Automatically loads .env file if present before reading configuration.
     ///
     /// # Returns
-    /// Legacy TaskerConfig (converted from V2)
+    /// TaskerConfigV2 (canonical configuration)
     ///
     /// # Errors
     /// - TASKER_CONFIG_PATH not set
     /// - File not found or cannot be read
     /// - TOML parse errors
     /// - Validation errors
-    pub fn load_from_env() -> ConfigResult<TaskerConfig> {
+    pub fn load_from_env() -> ConfigResult<TaskerConfigV2> {
         // Load .env file if present (silently ignore if not found)
         dotenvy::dotenv().ok();
 
@@ -68,8 +67,8 @@ impl ConfigLoader {
     /// * `path` - Path to pre-merged TOML configuration file
     ///
     /// # Returns
-    /// Legacy TaskerConfig (converted from V2)
-    pub fn load_from_path(path: &PathBuf) -> ConfigResult<TaskerConfig> {
+    /// TaskerConfigV2 (canonical configuration)
+    pub fn load_from_path(path: &PathBuf) -> ConfigResult<TaskerConfigV2> {
         // 1. Read file
         let contents = std::fs::read_to_string(path).map_err(|e| {
             ConfigurationError::validation_error(format!(
@@ -103,13 +102,9 @@ impl ConfigLoader {
         })?;
 
         tracing::debug!("Successfully loaded and validated TaskerConfigV2");
-
-        // 6. Convert to legacy via bridge
-        let legacy_config: TaskerConfig = config_v2.into();
-
         tracing::info!("Configuration loaded successfully from {}", path.display());
 
-        Ok(legacy_config)
+        Ok(config_v2)
     }
 
     /// Substitute environment variables in configuration content
@@ -141,20 +136,17 @@ impl ConfigLoader {
     }
 }
 
-/// Configuration Manager with parallel config support
+/// Configuration Manager with V2 configuration only
 ///
-/// ## TAS-61 Phase 6A: Parallel Config Support
+/// ## TAS-61 Phase 6C/6D: V2 Only
 ///
-/// Holds BOTH legacy and V2 configs during migration:
-/// - `config_v2`: Source of truth (TaskerConfigV2)
-/// - `config`: Legacy (TaskerConfig via bridge)
+/// Holds only V2 configuration as the source of truth:
+/// - `config_v2`: TaskerConfigV2 (canonical configuration)
 ///
-/// This enables incremental migration from legacy to V2.
+/// Legacy config access has been removed.
 #[derive(Debug, Clone)]
 pub struct ConfigManager {
-    /// Legacy configuration (via bridge) - will be removed in Phase 6D
-    config: TaskerConfig,
-    /// V2 configuration (source of truth) - primary going forward
+    /// V2 configuration (source of truth and only configuration)
     config_v2: TaskerConfigV2,
     environment: String,
 }
@@ -162,11 +154,9 @@ pub struct ConfigManager {
 impl ConfigManager {
     /// Load configuration from TASKER_CONFIG_PATH environment variable
     ///
-    /// ## TAS-61 Phase 6A: Parallel Config Support
+    /// ## TAS-61 Phase 6C/6D: V2 Only
     ///
-    /// Loads V2 config and populates BOTH fields:
-    /// - `config_v2`: Direct from file
-    /// - `config`: Converted via bridge
+    /// Loads V2 config only - no legacy conversion
     pub fn load_from_env(environment: &str) -> ConfigResult<std::sync::Arc<ConfigManager>> {
         // Load .env file if present (silently ignore if not found)
         dotenvy::dotenv().ok();
@@ -179,19 +169,15 @@ impl ConfigManager {
         })?;
 
         tracing::info!(
-            "Loading configuration from TASKER_CONFIG_PATH: {} (environment: {}) [TAS-61 Phase 6A: parallel config]",
+            "Loading configuration from TASKER_CONFIG_PATH: {} (environment: {}) [TAS-61 Phase 6C/6D: V2 only]",
             config_path,
             environment
         );
 
-        // TAS-61 Phase 6A: Load V2 config (source of truth)
+        // TAS-61 Phase 6C/6D: Load V2 config (source of truth and only config)
         let config_v2 = Self::load_v2_from_path(&PathBuf::from(&config_path))?;
 
-        // TAS-61 Phase 6A: Convert to legacy via bridge
-        let config: TaskerConfig = config_v2.clone().into();
-
         Ok(std::sync::Arc::new(ConfigManager {
-            config,
             config_v2,
             environment: environment.to_string(),
         }))
@@ -238,18 +224,10 @@ impl ConfigManager {
         Ok(config_v2)
     }
 
-    /// Get reference to the legacy configuration
-    ///
-    /// TAS-61 Phase 6: This will be removed in Phase 6D.
-    /// New code should use `config_v2()` instead.
-    pub fn config(&self) -> &TaskerConfig {
-        &self.config
-    }
-
     /// Get reference to the V2 configuration
     ///
-    /// TAS-61 Phase 6: This is the source of truth.
-    /// All new code should use this method.
+    /// TAS-61 Phase 6C/6D: This is the only configuration method.
+    /// Returns the canonical TaskerConfigV2.
     pub fn config_v2(&self) -> &TaskerConfigV2 {
         &self.config_v2
     }
@@ -259,42 +237,14 @@ impl ConfigManager {
         &self.environment
     }
 
-    /// Create ConfigManager from existing TaskerConfig
+    /// Create ConfigManager from existing TaskerConfigV2
     ///
-    /// TAS-61 Phase 6: This is for test compatibility only.
-    /// Will be removed in Phase 6D.
+    /// TAS-61 Phase 6C/6D: Direct V2 construction for tests
     ///
-    /// **Warning**: This method cannot properly reconstruct V2 config from legacy config.
-    /// It will load V2 config from TASKER_CONFIG_PATH if available, otherwise panic.
-    /// Only use in tests where TASKER_CONFIG_PATH is properly set.
-    #[deprecated(since = "0.1.0", note = "TAS-61 Phase 6: Use load_from_env instead")]
-    pub fn from_tasker_config(config: TaskerConfig, environment: String) -> Self {
-        tracing::warn!(
-            "ConfigManager::from_tasker_config is deprecated (TAS-61 Phase 6). \
-             Loading V2 config from TASKER_CONFIG_PATH instead."
-        );
-
-        // Load V2 config from environment if possible
-        let config_v2 = match std::env::var("TASKER_CONFIG_PATH") {
-            Ok(path) => {
-                match Self::load_v2_from_path(&PathBuf::from(&path)) {
-                    Ok(cfg) => cfg,
-                    Err(e) => {
-                        tracing::error!("Failed to load V2 config: {}. Tests may fail.", e);
-                        panic!("ConfigManager::from_tasker_config cannot load V2 config: {}", e);
-                    }
-                }
-            }
-            Err(_) => {
-                panic!(
-                    "ConfigManager::from_tasker_config requires TASKER_CONFIG_PATH to be set \
-                     (TAS-61 Phase 6: cannot reverse-convert legacy → V2)"
-                );
-            }
-        };
-
+    /// This is primarily for test compatibility where you have a V2 config
+    /// constructed directly. For production use, prefer `load_from_env()`.
+    pub fn from_config_v2(config_v2: TaskerConfigV2, environment: String) -> Self {
         Self {
-            config,
             config_v2,
             environment,
         }

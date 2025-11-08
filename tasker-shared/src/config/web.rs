@@ -331,3 +331,62 @@ impl Default for WebResilienceConfig {
         }
     }
 }
+
+// TAS-61 Phase 6C/6D: Conversion from V2 AuthConfig to legacy WebAuthConfig
+impl From<crate::config::tasker::tasker_v2::AuthConfig> for WebAuthConfig {
+    fn from(v2: crate::config::tasker::tasker_v2::AuthConfig) -> Self {
+        Self {
+            enabled: v2.enabled,
+            jwt_issuer: v2.jwt_issuer,
+            jwt_audience: v2.jwt_audience,
+            jwt_token_expiry_hours: v2.jwt_token_expiry_hours as u64,
+            jwt_private_key: v2.jwt_private_key,
+            jwt_public_key: v2.jwt_public_key,
+            api_key: v2.api_key,
+            api_key_header: v2.api_key_header,
+            protected_routes: std::collections::HashMap::new(), // V2 doesn't have protected_routes yet
+        }
+    }
+}
+
+// TAS-61 Phase 6C/6D: Conversion from V2 OrchestrationWebConfig to legacy WebConfig
+impl From<crate::config::tasker::tasker_v2::OrchestrationWebConfig> for WebConfig {
+    fn from(v2: crate::config::tasker::tasker_v2::OrchestrationWebConfig) -> Self {
+        Self {
+            enabled: v2.enabled,
+            bind_address: v2.bind_address,
+            request_timeout_ms: v2.request_timeout_ms as u64,
+            tls: v2.tls.map(|t| WebTlsConfig {
+                enabled: t.enabled,
+                cert_path: t.cert_path,
+                key_path: t.key_path,
+            }).unwrap_or_default(),
+            database_pools: WebDatabasePoolsConfig {
+                web_api_pool_size: v2.database_pools.web_api_pool_size,
+                web_api_max_connections: v2.database_pools.web_api_max_connections,
+                web_api_connection_timeout_seconds: v2.database_pools.web_api_connection_timeout_seconds as u64,
+                web_api_idle_timeout_seconds: v2.database_pools.web_api_idle_timeout_seconds as u64,
+                max_total_connections_hint: v2.database_pools.max_total_connections_hint,
+            },
+            cors: v2.cors.map(|c| WebCorsConfig {
+                enabled: c.enabled,
+                allowed_origins: c.allowed_origins,
+                allowed_methods: c.allowed_methods,
+                allowed_headers: c.allowed_headers,
+                max_age_seconds: c.max_age_seconds as u64,
+            }).unwrap_or_default(),
+            auth: v2.auth.map(|a| a.into()).unwrap_or_else(|| WebAuthConfig::default()),
+            rate_limiting: v2.rate_limiting.map(|r| WebRateLimitConfig {
+                enabled: r.enabled,
+                requests_per_minute: r.requests_per_minute,
+                burst_size: r.burst_size,
+                per_client_limit: r.per_client_limit,
+            }).unwrap_or_default(),
+            resilience: v2.resilience.map(|r| WebResilienceConfig {
+                circuit_breaker_enabled: r.circuit_breaker_enabled,
+                request_timeout_seconds: r.request_timeout_seconds as u64,
+                max_concurrent_requests: r.max_concurrent_requests,
+            }).unwrap_or_default(),
+        }
+    }
+}

@@ -4,7 +4,7 @@
 //! orchestration, task readiness, and worker components. This eliminates configuration
 //! drift and provides consistent naming and structure.
 
-use crate::config::TaskerConfig;
+// TAS-61 Phase 6C/6D: TaskerConfig deleted, use TaskerConfigV2
 use crate::event_system::DeploymentMode;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -191,11 +191,8 @@ pub type TaskReadinessEventSystemConfig = EventSystemConfig<TaskReadinessEventSy
 pub type WorkerEventSystemConfig = EventSystemConfig<WorkerEventSystemMetadata>;
 
 impl WorkerEventSystemConfig {
-    /// Create WorkerEventSystemConfig from TaskerConfig using unified configuration
-    pub fn from_tasker_config(config: &TaskerConfig) -> Self {
-        // Use the unified worker event system config from the centralized loader
-        config.event_systems.worker.clone()
-    }
+    // TAS-61 Phase 6C/6D: from_tasker_config method deleted - not used and incompatible with V2 structure
+    // Use V2 config directly: config.worker.map(|w| w.event_systems.worker)
 
     /// Get fallback polling interval as Duration
     pub fn fallback_polling_interval(&self) -> Duration {
@@ -434,5 +431,64 @@ mod tests {
 
         assert_eq!(config.system_id, deserialized.system_id);
         assert_eq!(config.deployment_mode, deserialized.deployment_mode);
+    }
+}
+
+// TAS-61 Phase 6C/6D: From implementations to convert V2 to legacy types
+
+// Convert V2 DeploymentMode to legacy deployment::DeploymentMode
+impl From<crate::config::tasker::tasker_v2::DeploymentMode> for DeploymentMode {
+    fn from(v2: crate::config::tasker::tasker_v2::DeploymentMode) -> Self {
+        use crate::config::tasker::tasker_v2::DeploymentMode as V2Mode;
+        match v2 {
+            V2Mode::EventDrivenOnly => DeploymentMode::EventDrivenOnly,
+            V2Mode::PollingOnly => DeploymentMode::PollingOnly,
+            V2Mode::Hybrid => DeploymentMode::Hybrid,
+        }
+    }
+}
+
+impl From<crate::config::tasker::tasker_v2::EventSystemTimingConfig> for EventSystemTimingConfig {
+    fn from(v2: crate::config::tasker::tasker_v2::EventSystemTimingConfig) -> Self {
+        Self {
+            health_check_interval_seconds: v2.health_check_interval_seconds as u64,
+            fallback_polling_interval_seconds: v2.fallback_polling_interval_seconds as u64,
+            visibility_timeout_seconds: v2.visibility_timeout_seconds as u64,
+            processing_timeout_seconds: v2.processing_timeout_seconds as u64,
+            claim_timeout_seconds: v2.claim_timeout_seconds as u64,
+        }
+    }
+}
+
+impl From<crate::config::tasker::tasker_v2::EventSystemBackoffConfig> for BackoffConfig {
+    fn from(v2: crate::config::tasker::tasker_v2::EventSystemBackoffConfig) -> Self {
+        Self {
+            initial_delay_ms: v2.initial_delay_ms as u64,
+            max_delay_ms: v2.max_delay_ms as u64,
+            multiplier: v2.multiplier,
+            jitter_percent: v2.jitter_percent,
+        }
+    }
+}
+
+impl From<crate::config::tasker::tasker_v2::EventSystemProcessingConfig> for EventSystemProcessingConfig {
+    fn from(v2: crate::config::tasker::tasker_v2::EventSystemProcessingConfig) -> Self {
+        Self {
+            max_concurrent_operations: v2.max_concurrent_operations as usize,
+            batch_size: v2.batch_size,
+            max_retries: v2.max_retries,
+            backoff: v2.backoff.into(),
+        }
+    }
+}
+
+impl From<crate::config::tasker::tasker_v2::EventSystemHealthConfig> for EventSystemHealthConfig {
+    fn from(v2: crate::config::tasker::tasker_v2::EventSystemHealthConfig) -> Self {
+        Self {
+            enabled: v2.enabled,
+            performance_monitoring_enabled: v2.performance_monitoring_enabled,
+            max_consecutive_errors: v2.max_consecutive_errors,
+            error_rate_threshold_per_minute: v2.error_rate_threshold_per_minute,
+        }
     }
 }

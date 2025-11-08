@@ -1039,34 +1039,86 @@ pub struct EventSystemHealthConfig {
 impl_builder_default!(EventSystemHealthConfig);
 
 /// Decision points configuration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display, Builder)]
 #[serde(rename_all = "snake_case")]
+#[display(
+    "DecisionPointsConfig(enabled: {}, max_steps: {}, max_depth: {})",
+    enabled,
+    max_steps_per_decision,
+    max_decision_depth
+)]
 pub struct DecisionPointsConfig {
     /// Enable decision points
+    #[builder(default = true)]
     pub enabled: bool,
 
     /// Maximum steps per decision
     #[validate(range(min = 1, max = 1000))]
+    #[builder(default = 50)]
     pub max_steps_per_decision: u32,
 
     /// Maximum decision depth
     #[validate(range(min = 1, max = 100))]
+    #[builder(default = 10)]
     pub max_decision_depth: u32,
 
     /// Warning threshold for steps
     #[validate(range(min = 1, max = 1000))]
+    #[builder(default = 20)]
     pub warn_threshold_steps: u32,
 
     /// Warning threshold for depth
     #[validate(range(min = 1, max = 100))]
+    #[builder(default = 5)]
     pub warn_threshold_depth: u32,
 
     /// Enable detailed logging
+    #[builder(default = false)]
     pub enable_detailed_logging: bool,
 
     /// Enable metrics
+    #[builder(default = true)]
     pub enable_metrics: bool,
 }
+
+impl DecisionPointsConfig {
+    /// Check if decision points are enabled
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Check if a step count exceeds the maximum
+    pub fn exceeds_max_steps(&self, count: usize) -> bool {
+        count > self.max_steps_per_decision as usize
+    }
+
+    /// Check if a step count should trigger a warning
+    pub fn should_warn_steps(&self, count: usize) -> bool {
+        count > self.warn_threshold_steps as usize
+    }
+
+    /// Check if a decision depth exceeds the maximum
+    pub fn exceeds_max_depth(&self, depth: usize) -> bool {
+        depth > self.max_decision_depth as usize
+    }
+
+    /// Check if a decision depth should trigger a warning
+    pub fn should_warn_depth(&self, depth: usize) -> bool {
+        depth > self.warn_threshold_depth as usize
+    }
+
+    /// Get the maximum steps per decision
+    pub fn max_steps(&self) -> usize {
+        self.max_steps_per_decision as usize
+    }
+
+    /// Get the maximum decision depth
+    pub fn max_depth(&self) -> usize {
+        self.max_decision_depth as usize
+    }
+}
+
+impl_builder_default!(DecisionPointsConfig);
 
 /// Orchestration MPSC channel configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -1861,19 +1913,7 @@ impl Default for TelemetryConfig {
     }
 }
 
-impl Default for DecisionPointsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            max_steps_per_decision: 50,
-            max_decision_depth: 10,
-            warn_threshold_steps: 20,
-            warn_threshold_depth: 5,
-            enable_detailed_logging: false,
-            enable_metrics: true,
-        }
-    }
-}
+// DecisionPointsConfig Default implementation via impl_builder_default! macro (see struct definition above)
 
 impl Default for EventSystemConfig {
     fn default() -> Self {

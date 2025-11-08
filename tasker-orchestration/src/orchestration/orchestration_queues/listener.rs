@@ -170,17 +170,18 @@ impl OrchestrationQueueListener {
             .with_default_namespace(&self.config.namespace);
 
         // Create pgmq-notify listener with bounded channel (TAS-51)
+        // TAS-61 V2: Access mpsc_channels from orchestration context
         let buffer_size = self
             .context
             .tasker_config
-            .mpsc_channels
             .orchestration
-            .event_listeners
-            .pgmq_event_buffer_size;
+            .as_ref()
+            .and_then(|o| Some(o.mpsc_channels.event_listeners.pgmq_event_buffer_size))
+            .unwrap_or(10000);
         let mut listener = PgmqNotifyListener::new(
             self.context.database_pool().clone(),
             pgmq_config,
-            buffer_size,
+            buffer_size as usize,
         )
         .await
         .map_err(|e| {
@@ -350,9 +351,10 @@ impl OrchestrationEventHandler {
         listener_id: Uuid,
         stats: Arc<OrchestrationListenerStats>,
     ) -> Self {
-        let queue_config = context.tasker_config.queues.clone();
+        // TAS-61 V2: Access queues from common config
+        let queue_config = context.tasker_config.common.queues.clone();
         let queue_classifier =
-            tasker_shared::config::QueueClassifier::from_queues_config(&queue_config);
+            tasker_shared::config::QueueClassifier::from_queues_config_v2(&queue_config);
 
         Self {
             config,

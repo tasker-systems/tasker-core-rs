@@ -27,8 +27,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
+// TAS-61 Phase 6C/6D: V2 configuration is canonical
 use tasker_shared::config::tasker::TaskerConfigV2;
-use tasker_shared::config::TaskerConfig;
 use uuid::Uuid;
 
 /// Configuration for backoff calculation behavior
@@ -58,49 +58,8 @@ impl Default for BackoffCalculatorConfig {
     }
 }
 
-impl From<Arc<TaskerConfig>> for BackoffCalculatorConfig {
-    fn from(config: Arc<TaskerConfig>) -> BackoffCalculatorConfig {
-        // Use the first default backoff value as base delay, or fallback to 1 second
-        let base_delay_seconds = config
-            .backoff
-            .default_backoff_seconds
-            .first()
-            .copied()
-            .unwrap_or(1) as u32;
-
-        BackoffCalculatorConfig {
-            base_delay_seconds,
-            max_delay_seconds: config.backoff.max_backoff_seconds as u32,
-            multiplier: config.backoff.backoff_multiplier,
-            jitter_enabled: config.backoff.jitter_enabled,
-            max_jitter: config.backoff.jitter_max_percentage,
-        }
-    }
-}
-
-impl From<&TaskerConfig> for BackoffCalculatorConfig {
-    fn from(config: &TaskerConfig) -> BackoffCalculatorConfig {
-        // Use the first default backoff value as base delay, or fallback to 1 second
-        let base_delay_seconds = config
-            .backoff
-            .default_backoff_seconds
-            .first()
-            .copied()
-            .unwrap_or(1) as u32;
-
-        BackoffCalculatorConfig {
-            base_delay_seconds,
-            max_delay_seconds: config.backoff.max_backoff_seconds as u32,
-            multiplier: config.backoff.backoff_multiplier,
-            jitter_enabled: config.backoff.jitter_enabled,
-            max_jitter: config.backoff.jitter_max_percentage,
-        }
-    }
-}
-
-// TAS-61 Phase 6B: V2 configuration support
-impl From<&TaskerConfigV2> for BackoffCalculatorConfig {
-    fn from(config: &TaskerConfigV2) -> BackoffCalculatorConfig {
+impl From<Arc<TaskerConfigV2>> for BackoffCalculatorConfig {
+    fn from(config: Arc<TaskerConfigV2>) -> BackoffCalculatorConfig {
         // Use the first default backoff value as base delay, or fallback to 1 second
         let base_delay_seconds = config
             .common
@@ -120,8 +79,8 @@ impl From<&TaskerConfigV2> for BackoffCalculatorConfig {
     }
 }
 
-impl From<Arc<TaskerConfigV2>> for BackoffCalculatorConfig {
-    fn from(config: Arc<TaskerConfigV2>) -> BackoffCalculatorConfig {
+impl From<&TaskerConfigV2> for BackoffCalculatorConfig {
+    fn from(config: &TaskerConfigV2) -> BackoffCalculatorConfig {
         // Use the first default backoff value as base delay, or fallback to 1 second
         let base_delay_seconds = config
             .common

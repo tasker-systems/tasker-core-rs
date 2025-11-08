@@ -3,7 +3,7 @@
 use chrono::Utc;
 use regex::Regex;
 use tasker_client::{ClientConfig, ClientResult};
-use tasker_shared::config::{ConfigMerger, ConfigurationContext, TaskerConfig};
+use tasker_shared::config::{ConfigMerger, tasker::TaskerConfigV2};
 
 use crate::ConfigCommands;
 
@@ -110,63 +110,57 @@ pub async fn handle_config_command(
                     ))
                 })?;
 
-                // Validate based on context
+                // TAS-61 Phase 6D: V2 config validation (all contexts use TaskerConfigV2)
+                // Context determines which optional sections should be present
+                let config: TaskerConfigV2 = toml_value.clone().try_into().map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Failed to deserialize TaskerConfigV2: {}",
+                        e
+                    ))
+                })?;
+
+                // Validate configuration structure
+                use validator::Validate;
+                config.validate().map_err(|e| {
+                    tasker_client::ClientError::ConfigError(format!(
+                        "Validation failed: {:?}",
+                        e
+                    ))
+                })?;
+
+                // Verify context-specific requirements
                 match context.as_str() {
                     "common" => {
-                        use tasker_shared::config::contexts::CommonConfig;
-                        let config: CommonConfig = toml_value.clone().try_into().map_err(|e| {
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Failed to deserialize CommonConfig: {}",
-                                e
-                            ))
-                        })?;
-                        config.validate().map_err(|errors| {
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Validation failed: {:?}",
-                                errors
-                            ))
-                        })?;
+                        // Common context should have no orchestration or worker sections
+                        if config.orchestration.is_some() || config.worker.is_some() {
+                            return Err(tasker_client::ClientError::ConfigError(
+                                "Common context should not contain orchestration or worker sections".to_string()
+                            ));
+                        }
                     }
                     "orchestration" => {
-                        use tasker_shared::config::contexts::OrchestrationConfig;
-                        let config: OrchestrationConfig =
-                            toml_value.clone().try_into().map_err(|e| {
-                                tasker_client::ClientError::ConfigError(format!(
-                                    "Failed to deserialize OrchestrationConfig: {}",
-                                    e
-                                ))
-                            })?;
-                        config.validate().map_err(|errors| {
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Validation failed: {:?}",
-                                errors
-                            ))
-                        })?;
+                        // Orchestration context should have orchestration section
+                        if config.orchestration.is_none() {
+                            return Err(tasker_client::ClientError::ConfigError(
+                                "Orchestration context missing [orchestration] section".to_string()
+                            ));
+                        }
                     }
                     "worker" => {
-                        use tasker_shared::config::contexts::WorkerConfig;
-                        let config: WorkerConfig = toml_value.clone().try_into().map_err(|e| {
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Failed to deserialize WorkerConfig: {}",
-                                e
-                            ))
-                        })?;
-                        config.validate().map_err(|errors| {
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Validation failed: {:?}",
-                                errors
-                            ))
-                        })?;
+                        // Worker context should have worker section
+                        if config.worker.is_none() {
+                            return Err(tasker_client::ClientError::ConfigError(
+                                "Worker context missing [worker] section".to_string()
+                            ));
+                        }
                     }
                     "complete" => {
-                        let _config: TaskerConfig = toml_value.clone().try_into().map_err(|e| {
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Failed to deserialize TaskerConfig (complete context): {}",
-                                e
-                            ))
-                        })?;
-                        // TaskerConfig doesn't have a validate method, so just check deserialization succeeded
-                        println!("  Note: Complete context contains all sections (common + orchestration + worker)");
+                        // Complete context should have all sections
+                        if !config.is_complete() {
+                            return Err(tasker_client::ClientError::ConfigError(
+                                "Complete context missing orchestration or worker sections".to_string()
+                            ));
+                        }
                     }
                     _ => {
                         return Err(tasker_client::ClientError::InvalidInput(format!(
@@ -210,137 +204,86 @@ pub async fn handle_config_command(
                 tasker_client::ClientError::ConfigError(format!("Invalid TOML syntax: {}", e))
             })?;
 
-            // Validate based on context
+            // TAS-61 Phase 6D: V2 config validation
             println!("\nValidating {} configuration...", context);
 
+            let config: TaskerConfigV2 = toml_value.clone().try_into().map_err(|e| {
+                if explain_errors {
+                    eprintln!("\n❌ Configuration structure error:");
+                    eprintln!("  {}", e);
+                    eprintln!("\nExpected TaskerConfigV2 structure:");
+                    eprintln!("  [common] - Always required");
+                    eprintln!("  [orchestration] - Required for orchestration/complete contexts");
+                    eprintln!("  [worker] - Required for worker/complete contexts");
+                }
+                tasker_client::ClientError::ConfigError(format!(
+                    "Failed to deserialize TaskerConfigV2: {}",
+                    e
+                ))
+            })?;
+
+            // Run validation
+            use validator::Validate;
+            config.validate().map_err(|errors| {
+                if explain_errors {
+                    eprintln!("\n❌ Validation errors:");
+                    eprintln!("  {}", errors);
+                }
+                tasker_client::ClientError::ConfigError(format!(
+                    "TaskerConfigV2 validation failed: {:?}",
+                    errors
+                ))
+            })?;
+
+            // Verify context-specific requirements
             match context.as_str() {
                 "common" => {
-                    use tasker_shared::config::contexts::CommonConfig;
-
-                    let common_config: CommonConfig =
-                        toml_value.clone().try_into().map_err(|e| {
-                            if explain_errors {
-                                eprintln!("\n❌ Configuration structure error:");
-                                eprintln!("  {}", e);
-                                eprintln!("\nExpected CommonConfig structure with sections:");
-                                eprintln!("  - database");
-                                eprintln!("  - circuit_breakers");
-                                eprintln!("  - engine (optional)");
-                            }
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Failed to deserialize CommonConfig: {}",
-                                e
-                            ))
-                        })?;
-
-                    // Run validation
-                    common_config.validate().map_err(|errors| {
+                    if config.orchestration.is_some() || config.worker.is_some() {
                         if explain_errors {
-                            eprintln!("\n❌ Validation errors:");
-                            for error in &errors {
-                                eprintln!("  - {}", error);
-                            }
+                            eprintln!("\n❌ Context validation error:");
+                            eprintln!("  Common context should not contain orchestration or worker sections");
                         }
-                        tasker_client::ClientError::ConfigError(format!(
-                            "CommonConfig validation failed: {:?}",
-                            errors
-                        ))
-                    })?;
-
+                        return Err(tasker_client::ClientError::ConfigError(
+                            "Common context should not contain orchestration or worker sections".to_string()
+                        ));
+                    }
                     println!("✓ CommonConfig validation passed");
                 }
                 "orchestration" => {
-                    use tasker_shared::config::contexts::OrchestrationConfig;
-
-                    let orch_config: OrchestrationConfig =
-                        toml_value.clone().try_into().map_err(|e| {
-                            if explain_errors {
-                                eprintln!("\n❌ Configuration structure error:");
-                                eprintln!("  {}", e);
-                                eprintln!(
-                                    "\nExpected OrchestrationConfig structure with sections:"
-                                );
-                                eprintln!("  - backoff");
-                                eprintln!("  - event_systems");
-                                eprintln!("  - mpsc_channels");
-                            }
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Failed to deserialize OrchestrationConfig: {}",
-                                e
-                            ))
-                        })?;
-
-                    // Run validation
-                    orch_config.validate().map_err(|errors| {
+                    if config.orchestration.is_none() {
                         if explain_errors {
-                            eprintln!("\n❌ Validation errors:");
-                            for error in &errors {
-                                eprintln!("  - {}", error);
-                            }
+                            eprintln!("\n❌ Context validation error:");
+                            eprintln!("  Orchestration context missing [orchestration] section");
                         }
-                        tasker_client::ClientError::ConfigError(format!(
-                            "OrchestrationConfig validation failed: {:?}",
-                            errors
-                        ))
-                    })?;
-
+                        return Err(tasker_client::ClientError::ConfigError(
+                            "Orchestration context missing [orchestration] section".to_string()
+                        ));
+                    }
                     println!("✓ OrchestrationConfig validation passed");
                 }
                 "worker" => {
-                    use tasker_shared::config::contexts::WorkerConfig;
-
-                    let worker_config: WorkerConfig =
-                        toml_value.clone().try_into().map_err(|e| {
-                            if explain_errors {
-                                eprintln!("\n❌ Configuration structure error:");
-                                eprintln!("  {}", e);
-                                eprintln!("\nExpected WorkerConfig structure with sections:");
-                                eprintln!("  - event_systems");
-                                eprintln!("  - mpsc_channels");
-                                eprintln!("  - health_monitoring (optional)");
-                            }
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Failed to deserialize WorkerConfig: {}",
-                                e
-                            ))
-                        })?;
-
-                    // Run validation
-                    worker_config.validate().map_err(|errors| {
+                    if config.worker.is_none() {
                         if explain_errors {
-                            eprintln!("\n❌ Validation errors:");
-                            for error in &errors {
-                                eprintln!("  - {}", error);
-                            }
+                            eprintln!("\n❌ Context validation error:");
+                            eprintln!("  Worker context missing [worker] section");
                         }
-                        tasker_client::ClientError::ConfigError(format!(
-                            "WorkerConfig validation failed: {:?}",
-                            errors
-                        ))
-                    })?;
-
+                        return Err(tasker_client::ClientError::ConfigError(
+                            "Worker context missing [worker] section".to_string()
+                        ));
+                    }
                     println!("✓ WorkerConfig validation passed");
                 }
                 "complete" => {
-                    let _tasker_config: TaskerConfig =
-                        toml_value.clone().try_into().map_err(|e| {
-                            if explain_errors {
-                                eprintln!("\n❌ Configuration structure error:");
-                                eprintln!("  {}", e);
-                                eprintln!("\nExpected TaskerConfig structure with sections:");
-                                eprintln!("  - database (common)");
-                                eprintln!("  - circuit_breakers (common)");
-                                eprintln!("  - orchestration (orchestration context)");
-                                eprintln!("  - worker (worker context)");
-                            }
-                            tasker_client::ClientError::ConfigError(format!(
-                                "Failed to deserialize TaskerConfig (complete context): {}",
-                                e
-                            ))
-                        })?;
-
-                    // TaskerConfig doesn't have a validate method
-                    println!("✓ TaskerConfig (complete) validation passed");
+                    if !config.is_complete() {
+                        if explain_errors {
+                            eprintln!("\n❌ Context validation error:");
+                            eprintln!("  Complete context missing orchestration or worker sections");
+                        }
+                        return Err(tasker_client::ClientError::ConfigError(
+                            "Complete context missing orchestration or worker sections".to_string()
+                        ));
+                    }
+                    println!("✓ TaskerConfigV2 (complete) validation passed");
                     println!("  Note: Complete context contains all sections");
                 }
                 _ => {
@@ -965,7 +908,7 @@ pub async fn handle_config_command(
             path,
         } => {
             // Check if --path was provided (legacy single-file mode)
-            let tasker_config: TaskerConfig = if let Some(config_path) = path {
+            let tasker_config: TaskerConfigV2 = if let Some(config_path) = path {
                 // Load directly from path using simple V2 loader
                 let path_buf = std::path::PathBuf::from(&config_path);
                 tasker_shared::config::ConfigLoader::load_from_path(&path_buf).map_err(|e| {
@@ -1014,10 +957,10 @@ pub async fn handle_config_command(
                     ))
                 })?;
 
-                // Hydrate full TaskerConfig from merged TOML
+                // Hydrate full TaskerConfigV2 from merged TOML
                 toml_value.try_into().map_err(|e: toml::de::Error| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to hydrate TaskerConfig from merged TOML: {}",
+                        "Failed to hydrate TaskerConfigV2 from merged TOML: {}",
                         e
                     ))
                 })?
@@ -1027,19 +970,19 @@ pub async fn handle_config_command(
             let output = match format.as_str() {
                 "json" => serde_json::to_string_pretty(&tasker_config).map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to serialize TaskerConfig to JSON: {}",
+                        "Failed to serialize TaskerConfigV2 to JSON: {}",
                         e
                     ))
                 })?,
                 "yaml" => serde_yaml::to_string(&tasker_config).map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to serialize TaskerConfig to YAML: {}",
+                        "Failed to serialize TaskerConfigV2 to YAML: {}",
                         e
                     ))
                 })?,
                 "toml" => toml::to_string_pretty(&tasker_config).map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to serialize TaskerConfig to TOML: {}",
+                        "Failed to serialize TaskerConfigV2 to TOML: {}",
                         e
                     ))
                 })?,

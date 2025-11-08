@@ -1,10 +1,10 @@
-//! # TaskerCore Configuration System (TAS-61 V2 Simple Loader)
+//! # TaskerCore Configuration System (TAS-61 Phase 6C/6D V2 Canonical)
 //!
 //! Dead-simple configuration loading:
 //! 1. Read pre-merged TOML from TASKER_CONFIG_PATH
 //! 2. Deserialize to TaskerConfigV2
 //! 3. Validate
-//! 4. Convert to legacy TaskerConfig via bridge
+//! 4. Return V2 directly (no bridge conversion - V2 is canonical)
 //!
 //! ## Usage
 //!
@@ -12,11 +12,12 @@
 //! use tasker_shared::config::ConfigLoader;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // TAS-61 Phase 6C/6D: ConfigLoader returns V2 configuration directly
 //! // Load configuration from TASKER_CONFIG_PATH
 //! let config = ConfigLoader::load_from_env()?;
 //!
-//! // Access configuration values
-//! let database_url = config.database_url();
+//! // Access configuration values via common config
+//! let database_url = &config.common.database.url;
 //! # Ok(())
 //! # }
 //! ```
@@ -56,9 +57,11 @@ pub use event_systems::{
     WorkerEventSystemConfig as UnifiedWorkerEventSystemConfig,
 };
 pub use orchestration::{
-    event_systems::OrchestrationEventSystemConfig, DecisionPointsConfig, ExecutorConfig,
+    event_systems::OrchestrationEventSystemConfig, ExecutorConfig,
     ExecutorType, OrchestrationConfig, OrchestrationSystemConfig,
 };
+// TAS-61 Phase 6C/6D: DecisionPointsConfig now in V2
+pub use tasker::tasker_v2::DecisionPointsConfig;
 pub use queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
 };
@@ -85,21 +88,11 @@ pub use mpsc_channels::{
     WorkerInProcessEventsConfig,
 };
 
-// ConfigManager now exported from config_loader above
-pub use tasker::{
-    BackoffConfig, DatabaseConfig, DatabasePoolConfig, EngineConfig, EventSystemsConfig,
-    ExecutionConfig, ReenqueueDelays, SystemConfig, TaskTemplatesConfig, TaskerConfig,
-    TelemetryConfig,
-};
+// TAS-61 Phase 6C/6D: V2 is the canonical configuration
+// All legacy TaskerConfig references removed - use TaskerConfigV2
+pub use tasker::TaskerConfigV2;
 
 // TAS-50: Context-specific configuration system (Phase 1)
-// Non-breaking addition of context-specific configuration structs
+// Component-based configuration for V2 architecture
 pub mod components;
-pub mod contexts;
-
-// Phase 1: New modules for context-specific configuration
-// These are additive and maintain 100% backward compatibility
-pub use contexts::{
-    CommonConfig, ConfigContext, ConfigurationContext,
-    OrchestrationConfig as ContextOrchestrationConfig, WorkerConfig as ContextWorkerConfig,
-};
+// TAS-61 Phase 6C/6D: contexts/ layer deleted - use V2 config directly

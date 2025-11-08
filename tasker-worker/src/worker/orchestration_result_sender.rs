@@ -9,7 +9,7 @@ use std::time::Instant;
 use tracing::debug;
 use uuid::Uuid;
 
-use tasker_shared::config::{QueueClassifier, QueuesConfig};
+use tasker_shared::config::QueueClassifier;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::metrics::worker::*;
@@ -25,9 +25,13 @@ pub(crate) struct OrchestrationResultSender {
 
 impl OrchestrationResultSender {
     /// Create new sender with PGMQ client and queue configuration
-    pub fn new(pgmq_client: Arc<UnifiedPgmqClient>, queues_config: &QueuesConfig) -> Self {
-        // Create queue classifier for config-driven queue naming using the new config
-        let queue_classifier = QueueClassifier::from_queues_config(queues_config);
+    /// TAS-61 Phase 6C/6D: Accept V2 QueuesConfig
+    pub fn new(
+        pgmq_client: Arc<UnifiedPgmqClient>,
+        queues_config: &tasker_shared::config::tasker::tasker_v2::QueuesConfig,
+    ) -> Self {
+        // Create queue classifier for config-driven queue naming using V2 config
+        let queue_classifier = QueueClassifier::from_queues_config_v2(queues_config);
 
         Self {
             pgmq_client,

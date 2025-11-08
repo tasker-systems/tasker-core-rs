@@ -10,6 +10,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+// V2 config types (TAS-61 Phase 6C/6D)
+use crate::config::tasker::tasker_v2::CircuitBreakerConfig as CircuitBreakerConfigV2;
+
 /// Manager for multiple circuit breakers across system components
 #[derive(Debug)]
 pub struct CircuitBreakerManager {
@@ -21,13 +24,74 @@ pub struct CircuitBreakerManager {
 }
 
 impl CircuitBreakerManager {
-    /// Create new circuit breaker manager from configuration
+    /// Create new circuit breaker manager from legacy configuration
     pub fn from_config(config: &CircuitBreakerConfig) -> Self {
-        info!("Initializing circuit breaker manager from configuration");
+        info!("Initializing circuit breaker manager from legacy configuration");
 
         Self {
             circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
             config: config.clone(),
+        }
+    }
+
+    /// Create new circuit breaker manager from V2 configuration (TAS-61 Phase 6C/6D)
+    ///
+    /// Converts V2 config structure to legacy format for backward compatibility.
+    /// This allows gradual migration while maintaining existing CircuitBreakerManager API.
+    pub fn from_v2_config(config_v2: &CircuitBreakerConfigV2) -> Self {
+        info!("Initializing circuit breaker manager from V2 configuration");
+
+        // Convert V2 config to legacy format
+        let legacy_config = Self::convert_v2_to_legacy(config_v2);
+
+        Self {
+            circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
+            config: legacy_config,
+        }
+    }
+
+    /// Convert V2 CircuitBreakerConfig to legacy format
+    fn convert_v2_to_legacy(v2: &CircuitBreakerConfigV2) -> CircuitBreakerConfig {
+        use crate::config::CircuitBreakerGlobalSettings;
+
+        // Convert global settings
+        let global_settings = CircuitBreakerGlobalSettings {
+            max_circuit_breakers: v2.global_settings.max_circuit_breakers as usize,
+            metrics_collection_interval_seconds: v2.global_settings.metrics_collection_interval_seconds as u64,
+            min_state_transition_interval_seconds: v2.global_settings.min_state_transition_interval_seconds,
+        };
+
+        // Convert default config
+        let default_config = CircuitBreakerComponentConfig {
+            failure_threshold: v2.default_config.failure_threshold,
+            timeout_seconds: v2.default_config.timeout_seconds as u64,
+            success_threshold: v2.default_config.success_threshold,
+        };
+
+        // Convert component configs from V2 struct to HashMap
+        let mut component_configs = HashMap::new();
+        component_configs.insert(
+            "task_readiness".to_string(),
+            CircuitBreakerComponentConfig {
+                failure_threshold: v2.component_configs.task_readiness.failure_threshold,
+                timeout_seconds: v2.component_configs.task_readiness.timeout_seconds as u64,
+                success_threshold: v2.component_configs.task_readiness.success_threshold,
+            },
+        );
+        component_configs.insert(
+            "pgmq".to_string(),
+            CircuitBreakerComponentConfig {
+                failure_threshold: v2.component_configs.pgmq.failure_threshold,
+                timeout_seconds: v2.component_configs.pgmq.timeout_seconds as u64,
+                success_threshold: v2.component_configs.pgmq.success_threshold,
+            },
+        );
+
+        CircuitBreakerConfig {
+            enabled: v2.enabled,
+            global_settings,
+            default_config,
+            component_configs,
         }
     }
 

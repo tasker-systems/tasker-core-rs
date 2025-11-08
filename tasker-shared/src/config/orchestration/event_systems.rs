@@ -1,4 +1,5 @@
-use crate::config::{ConfigManager, TaskerConfig};
+// TAS-61 Phase 6C/6D: TaskerConfigV2 is the canonical config
+use crate::config::{ConfigManager, tasker::TaskerConfigV2};
 use std::time::Duration;
 
 // Re-export and use the unified event system configuration
@@ -12,14 +13,30 @@ impl OrchestrationEventSystemConfig {
     ///
     /// Uses the unified event systems configuration from the centralized loader
     pub fn from_config_manager(config_manager: &ConfigManager) -> Self {
-        let config = config_manager.config();
+        // TAS-61 Phase 6C/6D: Use V2 config
+        let config = config_manager.config_v2();
         Self::from_tasker_config(config)
     }
 
-    /// Create from TaskerConfig directly using unified event systems configuration
-    pub fn from_tasker_config(config: &TaskerConfig) -> Self {
-        // Use the unified orchestration event system config from the centralized loader
-        config.event_systems.orchestration.clone()
+    /// Create from TaskerConfigV2 directly using unified event systems configuration
+    pub fn from_tasker_config(config: &TaskerConfigV2) -> Self {
+        // TAS-61 Phase 6C/6D: Use V2 config structure
+        // Convert V2 EventSystemConfig to legacy EventSystemConfig<OrchestrationEventSystemMetadata>
+        let v2_config = config
+            .orchestration
+            .as_ref()
+            .map(|o| o.event_systems.orchestration.clone())
+            .unwrap_or_default();
+
+        // Convert from V2 to legacy generic type using From implementations
+        EventSystemConfig {
+            system_id: v2_config.system_id,
+            deployment_mode: v2_config.deployment_mode.into(),
+            timing: v2_config.timing.into(),
+            processing: v2_config.processing.into(),
+            health: v2_config.health.into(),
+            metadata: OrchestrationEventSystemMetadata::default(),
+        }
     }
 }
 
