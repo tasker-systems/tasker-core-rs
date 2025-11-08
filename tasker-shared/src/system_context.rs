@@ -324,7 +324,8 @@ impl SystemContext {
     pub async fn initialize_orchestration_owned_queues(&self) -> TaskerResult<()> {
         info!("Initializing owned queues");
 
-        let queue_config = self.tasker_config.queues.clone();
+        // TAS-61 Phase 6C: Use V2 config
+        let queue_config = self.tasker_config_v2.common.queues.clone();
 
         let orchestration_owned_queues = vec![
             queue_config.orchestration_queues.step_results.as_str(),

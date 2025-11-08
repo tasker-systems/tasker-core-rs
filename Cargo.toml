@@ -30,6 +30,8 @@ async-trait = "0.1"
 axum = "0.7"
 axum-extra = { version = "0.9", features = ["typed-header"] }
 bigdecimal = { version = "0.4", features = ["serde"] }
+# Builder pattern with inline defaults for configuration structs
+bon = "3.8"
 # Coverage tools (used in CI)
 cargo-llvm-cov = "0.6"
 # Time and date handling
@@ -41,6 +43,8 @@ config = "0.15"
 criterion = { version = "0.5.1" }
 # dashmap = "6.1"
 crossbeam = "0.8"
+# Derive macros for common traits (Display, Default, From, etc.)
+derive_more = { version = "2.0.1", default-features = false, features = ["display", "from", "as_ref"] }
 dotenvy = "0.15"  # For loading .env files
 # Random number generation
 fastrand = "2.0"

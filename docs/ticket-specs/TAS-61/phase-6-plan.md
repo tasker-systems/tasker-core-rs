@@ -1,8 +1,9 @@
 # TAS-61 Phase 6: TaskerConfigV2 Direct Usage Migration
 
-**Status**: In Progress - Phase 6B
+**Status**: In Progress - Phase 6C
 **Started**: 2025-11-07
 **Phase 6A Completed**: 2025-11-07
+**Phase 6B Completed**: 2025-11-07
 **Target Completion**: 5 weeks (through Phase 6D)
 
 ---

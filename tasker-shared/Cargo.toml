@@ -29,6 +29,7 @@ async-trait = { workspace = true }
 axum = { workspace = true, optional = true }
 axum-extra = { workspace = true, optional = true }
 bigdecimal = { workspace = true }
+bon = { workspace = true }
 # Time and date handling
 chrono = { workspace = true }
 # Configuration
@@ -37,6 +38,7 @@ config = { workspace = true }
 criterion = { workspace = true, optional = true }
 # dashmap = { workspace = true }
 crossbeam = { workspace = true }
+derive_more = { workspace = true }
 dotenvy = { workspace = true }  # For loading .env files
 # Random number generation
 fastrand = { workspace = true }

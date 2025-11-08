@@ -22,6 +22,7 @@ use crate::orchestration::{
 use crate::web;
 use crate::web::state::AppState;
 use std::sync::Arc;
+use tasker_shared::config::tasker::TaskerConfigV2;
 use tasker_shared::config::TaskerConfig;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
@@ -178,6 +179,22 @@ impl From<&TaskerConfig> for BootstrapConfig {
     }
 }
 
+// TAS-61 Phase 6B: V2 configuration support
+impl From<&TaskerConfigV2> for BootstrapConfig {
+    fn from(config: &TaskerConfigV2) -> BootstrapConfig {
+        BootstrapConfig {
+            namespaces: vec![config.common.queues.orchestration_namespace.clone()],
+            environment_override: Some(config.common.execution.environment.clone()),
+            enable_web_api: config
+                .orchestration
+                .as_ref()
+                .and_then(|o| o.web.as_ref())
+                .map(|web| web.enabled)
+                .unwrap_or(true),
+        }
+    }
+}
+
 /// Unified bootstrap system for orchestration
 #[derive(Debug)]
 pub struct OrchestrationBootstrap;
@@ -261,6 +278,7 @@ impl OrchestrationBootstrap {
 
         let coordinator_config: UnifiedCoordinatorConfig = {
             // Access task readiness configuration from unified event systems configuration
+            // TAS-61 Phase 6C: Using legacy config as bridge already handles V2 → legacy conversion
             let task_readiness_config = tasker_config.event_systems.task_readiness.clone();
 
             // Access orchestration configuration from unified event systems configuration

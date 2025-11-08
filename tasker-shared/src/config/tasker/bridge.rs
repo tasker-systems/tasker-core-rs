@@ -33,20 +33,6 @@
 //! **MPSC Channels** (merged from all contexts):
 //! - `common.mpsc_channels.*` + `orchestration.mpsc_channels.*` + `worker.mpsc_channels.*` → `mpsc_channels`
 //!
-//! ## Example
-//!
-//! ```rust,ignore
-//! use tasker_shared::config::{UnifiedConfigLoader, TaskerConfig};
-//!
-//! let mut loader = UnifiedConfigLoader::new("test")?;
-//! let config_v2 = loader.load_tasker_config_v2()?;
-//!
-//! // Bridge conversion
-//! let legacy_config: TaskerConfig = config_v2.into();
-//!
-//! // Now use with existing systems
-//! let orchestration_core = OrchestrationCore::new(legacy_config)?;
-//! ```
 
 use super::tasker::{
     BackoffConfig, CircuitBreakerConfig, DatabaseConfig, DatabasePoolConfig, DatabaseVariables,
