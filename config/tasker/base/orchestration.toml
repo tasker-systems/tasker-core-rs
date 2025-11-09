@@ -70,6 +70,38 @@ warn_threshold_depth = 10
 enable_detailed_logging = false
 enable_metrics = true
 
+# TAS-49: DLQ (Dead Letter Queue) Configuration
+[orchestration.dlq]
+enabled = true
+auto_dlq_on_staleness = true
+include_full_task_snapshot = true
+max_pending_age_hours = 168  # 1 week
+
+[orchestration.dlq.reasons]
+staleness_timeout = true
+max_retries_exceeded = true
+worker_unavailable = true
+dependency_cycle_detected = true
+manual_dlq = true
+
+[orchestration.dlq.staleness_detection]
+enabled = true
+detection_interval_seconds = 300  # 5 minutes
+batch_size = 100
+dry_run = false
+
+[orchestration.dlq.staleness_detection.thresholds]
+waiting_for_dependencies_minutes = 60  # TAS-48 consolidation
+waiting_for_retry_minutes = 30         # TAS-48 consolidation
+steps_in_process_minutes = 30
+task_max_lifetime_hours = 24
+
+[orchestration.dlq.staleness_detection.actions]
+auto_transition_to_error = true
+auto_move_to_dlq = true
+emit_events = true
+event_channel = "task_staleness_detected"
+
 [orchestration.mpsc_channels.command_processor]
 command_buffer_size = 5000
 

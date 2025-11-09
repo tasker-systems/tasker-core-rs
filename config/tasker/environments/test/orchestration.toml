@@ -19,3 +19,15 @@ request_timeout_ms = 5000
 web_api_pool_size = 10
 web_api_max_connections = 15
 max_total_connections_hint = 30
+
+# TAS-49: DLQ Configuration Overrides for Test Environment
+[orchestration.dlq.staleness_detection]
+detection_interval_seconds = 60  # Faster detection for tests (1 minute)
+batch_size = 10                  # Smaller batch for test
+dry_run = false                  # Actually transition in tests
+
+[orchestration.dlq.staleness_detection.thresholds]
+waiting_for_dependencies_minutes = 5  # Short timeout for tests
+waiting_for_retry_minutes = 2         # Short timeout for tests
+steps_in_process_minutes = 5
+task_max_lifetime_hours = 1

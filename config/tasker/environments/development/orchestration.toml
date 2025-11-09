@@ -2,3 +2,15 @@
 
 [orchestration]
 enable_performance_logging = true
+
+# TAS-49: DLQ Configuration Overrides for Development Environment
+[orchestration.dlq.staleness_detection]
+detection_interval_seconds = 120  # More frequent detection for dev (2 minutes)
+batch_size = 50
+dry_run = false
+
+[orchestration.dlq.staleness_detection.thresholds]
+waiting_for_dependencies_minutes = 15  # Shorter for dev iteration
+waiting_for_retry_minutes = 10
+steps_in_process_minutes = 15
+task_max_lifetime_hours = 4

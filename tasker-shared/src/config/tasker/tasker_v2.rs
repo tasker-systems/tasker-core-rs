@@ -832,6 +832,11 @@ pub struct OrchestrationConfig {
     #[builder(default)]
     pub mpsc_channels: OrchestrationMpscChannelsConfig,
 
+    /// DLQ (Dead Letter Queue) configuration (TAS-49)
+    #[validate(nested)]
+    #[builder(default)]
+    pub dlq: DlqOperationsConfig,
+
     /// Web API configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
@@ -1477,6 +1482,171 @@ pub struct ResilienceConfig {
 }
 
 impl_builder_default!(ResilienceConfig);
+
+// ============================================================================
+// DLQ (DEAD LETTER QUEUE) CONFIGURATION (TAS-49)
+// ============================================================================
+
+/// Staleness Detection Configuration
+///
+/// Controls automatic detection and transition of stale tasks to DLQ.
+/// Consolidates TAS-48 hardcoded thresholds into configurable system.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct StalenessDetectionConfig {
+    /// Enable staleness detection background service
+    #[builder(default = true)]
+    pub enabled: bool,
+
+    /// Interval between staleness detection runs (seconds)
+    #[validate(range(min = 30, max = 3600))]
+    #[builder(default = 300)]
+    pub detection_interval_seconds: u32,
+
+    /// Maximum number of stale tasks to process per detection run
+    #[validate(range(min = 1, max = 10000))]
+    #[builder(default = 100)]
+    pub batch_size: u32,
+
+    /// Dry-run mode: detect but don't transition (for validation)
+    #[builder(default = false)]
+    pub dry_run: bool,
+
+    /// Staleness thresholds by task state
+    #[validate(nested)]
+    #[builder(default)]
+    pub thresholds: StalenessThresholds,
+
+    /// Actions to take when staleness detected
+    #[validate(nested)]
+    #[builder(default)]
+    pub actions: StalenessActions,
+}
+
+impl_builder_default!(StalenessDetectionConfig);
+
+/// Staleness Thresholds
+///
+/// Time limits before tasks are considered stale. Per-template lifecycle
+/// configuration in TaskTemplate YAML takes precedence over these defaults.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct StalenessThresholds {
+    /// Max time in waiting_for_dependencies state (minutes)
+    /// TAS-48 consolidation: was hardcoded as 60 in SQL
+    #[validate(range(min = 1, max = 1440))]
+    #[builder(default = 60)]
+    pub waiting_for_dependencies_minutes: u32,
+
+    /// Max time in waiting_for_retry state (minutes)
+    /// TAS-48 consolidation: was hardcoded as 30 in SQL
+    #[validate(range(min = 1, max = 1440))]
+    #[builder(default = 30)]
+    pub waiting_for_retry_minutes: u32,
+
+    /// Max time in steps_in_process state (minutes)
+    #[validate(range(min = 1, max = 1440))]
+    #[builder(default = 30)]
+    pub steps_in_process_minutes: u32,
+
+    /// Max total task lifetime (hours)
+    #[validate(range(min = 1, max = 168))]
+    #[builder(default = 24)]
+    pub task_max_lifetime_hours: u32,
+}
+
+impl_builder_default!(StalenessThresholds);
+
+/// Staleness Actions
+///
+/// Controls what happens when staleness is detected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct StalenessActions {
+    /// Automatically transition stale tasks to Error state
+    #[builder(default = true)]
+    pub auto_transition_to_error: bool,
+
+    /// Automatically create DLQ investigation entry
+    #[builder(default = true)]
+    pub auto_move_to_dlq: bool,
+
+    /// Emit staleness events for monitoring
+    #[builder(default = true)]
+    pub emit_events: bool,
+
+    /// Event channel name for staleness notifications
+    #[validate(length(min = 1, max = 255))]
+    #[builder(default = "task_staleness_detected".to_string())]
+    pub event_channel: String,
+}
+
+impl_builder_default!(StalenessActions);
+
+/// DLQ Operations Configuration
+///
+/// Controls Dead Letter Queue investigation tracking behavior.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct DlqOperationsConfig {
+    /// Enable DLQ investigation tracking
+    #[builder(default = true)]
+    pub enabled: bool,
+
+    /// Automatically create DLQ entries when staleness detected
+    #[builder(default = true)]
+    pub auto_dlq_on_staleness: bool,
+
+    /// Include full task+steps state in DLQ snapshot JSONB
+    #[builder(default = true)]
+    pub include_full_task_snapshot: bool,
+
+    /// Alert if investigation pending longer than this (hours)
+    #[validate(range(min = 1, max = 720))]
+    #[builder(default = 168)]
+    pub max_pending_age_hours: u32,
+
+    /// DLQ reasons configuration
+    #[validate(nested)]
+    #[builder(default)]
+    pub reasons: DlqReasons,
+
+    /// Staleness detection configuration
+    #[validate(nested)]
+    #[builder(default)]
+    pub staleness_detection: StalenessDetectionConfig,
+}
+
+impl_builder_default!(DlqOperationsConfig);
+
+/// DLQ Reasons Configuration
+///
+/// Controls which conditions trigger DLQ entry creation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct DlqReasons {
+    /// Tasks exceeding state timeout thresholds
+    #[builder(default = true)]
+    pub staleness_timeout: bool,
+
+    /// TAS-42 retry limit hit
+    #[builder(default = true)]
+    pub max_retries_exceeded: bool,
+
+    /// No worker available for extended period
+    #[builder(default = true)]
+    pub worker_unavailable: bool,
+
+    /// Circular dependency discovered
+    #[builder(default = true)]
+    pub dependency_cycle_detected: bool,
+
+    /// Operator manually sent to DLQ
+    #[builder(default = true)]
+    pub manual_dlq: bool,
+}
+
+impl_builder_default!(DlqReasons);
 
 // ============================================================================
 // WORKER CONFIGURATION (Worker-specific)
@@ -2217,6 +2387,7 @@ mod tests {
                 },
             },
             web: None,
+            dlq: DlqOperationsConfig::default(),
         }
     }
 

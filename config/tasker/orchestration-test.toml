@@ -1,7 +1,7 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2025-11-07T02:03:44.434120+00:00
-# Source: config/v2
+# Generated: 2025-11-09T00:17:59.478701+00:00
+# Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
 # DO NOT EDIT manually - regenerate using: tasker-cli config generate
@@ -144,6 +144,37 @@ max_decision_depth = 20
 max_steps_per_decision = 100
 warn_threshold_depth = 10
 warn_threshold_steps = 50
+
+[orchestration.dlq]
+auto_dlq_on_staleness = true
+enabled = true
+include_full_task_snapshot = true
+max_pending_age_hours = 168
+
+[orchestration.dlq.reasons]
+dependency_cycle_detected = true
+manual_dlq = true
+max_retries_exceeded = true
+staleness_timeout = true
+worker_unavailable = true
+
+[orchestration.dlq.staleness_detection]
+batch_size = 10
+detection_interval_seconds = 60
+dry_run = false
+enabled = true
+
+[orchestration.dlq.staleness_detection.actions]
+auto_move_to_dlq = true
+auto_transition_to_error = true
+emit_events = true
+event_channel = "task_staleness_detected"
+
+[orchestration.dlq.staleness_detection.thresholds]
+steps_in_process_minutes = 5
+task_max_lifetime_hours = 1
+waiting_for_dependencies_minutes = 5
+waiting_for_retry_minutes = 2
 
 [orchestration.event_systems.orchestration]
 deployment_mode = "Hybrid"

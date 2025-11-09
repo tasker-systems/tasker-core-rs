@@ -145,7 +145,7 @@ impl StalenessDetector {
     /// Non-critical errors (e.g., single detection cycle failure) are logged but
     /// don't stop the loop.
     pub async fn run(&self) -> TaskerResult<()> {
-        let interval_duration = Duration::from_secs(self.config.detection_interval_seconds);
+        let interval_duration = Duration::from_secs(self.config.detection_interval_seconds as u64);
         let mut interval_timer = interval(interval_duration);
 
         info!(
@@ -230,11 +230,11 @@ impl StalenessDetector {
             .executor
             .detect_and_transition_stale_tasks(
                 dry_run,
-                batch_size,
-                waiting_deps_threshold,
-                waiting_retry_threshold,
-                steps_in_process_threshold,
-                max_lifetime_hours,
+                batch_size as i32,
+                waiting_deps_threshold as i32,
+                waiting_retry_threshold as i32,
+                steps_in_process_threshold as i32,
+                max_lifetime_hours as i32,
             )
             .await?;
 

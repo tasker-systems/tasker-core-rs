@@ -11,3 +11,15 @@ event_channel_buffer_size = 20000
 
 [orchestration.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 100000
+
+# TAS-49: DLQ Configuration Overrides for Production Environment
+[orchestration.dlq.staleness_detection]
+detection_interval_seconds = 600  # Less frequent in production (10 minutes)
+batch_size = 200                  # Larger batch for production scale
+dry_run = false
+
+[orchestration.dlq.staleness_detection.thresholds]
+waiting_for_dependencies_minutes = 120  # More conservative in production (2 hours)
+waiting_for_retry_minutes = 60          # More conservative in production (1 hour)
+steps_in_process_minutes = 60
+task_max_lifetime_hours = 48
