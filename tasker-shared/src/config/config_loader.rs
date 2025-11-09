@@ -86,12 +86,12 @@ impl ConfigLoader {
             .map_err(|e| ConfigurationError::json_serialization_error("TOML parsing", e))?;
 
         // 4. Deserialize to TaskerConfig
-        let config_v2: TaskerConfig = toml_value.try_into().map_err(|e| {
+        let config: TaskerConfig = toml_value.try_into().map_err(|e| {
             ConfigurationError::json_serialization_error("TOML to TaskerConfig deserialization", e)
         })?;
 
         // 5. Validate
-        config_v2.validate().map_err(|errors| {
+        config.validate().map_err(|errors| {
             ConfigurationError::validation_error(format!(
                 "Configuration validation failed: {:?}",
                 errors
@@ -101,7 +101,7 @@ impl ConfigLoader {
         tracing::debug!("Successfully loaded and validated TaskerConfig");
         tracing::info!("Configuration loaded successfully from {}", path.display());
 
-        Ok(config_v2)
+        Ok(config)
     }
 
     /// Substitute environment variables in configuration content
@@ -201,12 +201,12 @@ impl ConfigManager {
             .map_err(|e| ConfigurationError::json_serialization_error("TOML parsing", e))?;
 
         // 4. Deserialize to TaskerConfig
-        let config_v2: TaskerConfig = toml_value.try_into().map_err(|e| {
+        let config: TaskerConfig = toml_value.try_into().map_err(|e| {
             ConfigurationError::json_serialization_error("TOML to TaskerConfig deserialization", e)
         })?;
 
         // 5. Validate
-        config_v2.validate().map_err(|errors| {
+        config.validate().map_err(|errors| {
             ConfigurationError::validation_error(format!(
                 "Configuration validation failed: {:?}",
                 errors
@@ -215,14 +215,14 @@ impl ConfigManager {
 
         tracing::debug!("Successfully loaded and validated TaskerConfig");
 
-        Ok(config_v2)
+        Ok(config)
     }
 
     /// Get reference to the V2 configuration
     ///
     /// TAS-61 Phase 6C/6D: This is the only configuration method.
     /// Returns the canonical TaskerConfig.
-    pub fn config_v2(&self) -> &TaskerConfig {
+    pub fn config(&self) -> &TaskerConfig {
         &self.config
     }
 
@@ -237,9 +237,9 @@ impl ConfigManager {
     ///
     /// This is primarily for test compatibility where you have a V2 config
     /// constructed directly. For production use, prefer `load_from_env()`.
-    pub fn from_config_v2(config_v2: TaskerConfig, environment: String) -> Self {
+    pub fn from_tasker_config(config: TaskerConfig, environment: String) -> Self {
         Self {
-            config: config_v2,
+            config,
             environment,
         }
     }

@@ -69,9 +69,9 @@ pub struct MpscChannelsConfig {
 }
 
 // ============================================================================
-// ORCHESTRATION, WORKER, SHARED CHANNELS - Now imported from V2
+// ORCHESTRATION, WORKER, SHARED CHANNELS - Now imported from tasker.rs
 // ============================================================================
-// All channel configuration structs are now imported from tasker_v2.rs
+// All channel configuration structs are now imported from tasker.rs
 // See type aliases at the top of this file for backward compatibility mapping
 
 // ============================================================================

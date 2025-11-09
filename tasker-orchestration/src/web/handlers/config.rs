@@ -47,7 +47,7 @@ pub async fn get_config(
     let tasker_config = &state.orchestration_core.context.tasker_config;
 
     // TAS-61 Phase 6C/6D: V2 configuration field access
-    // Build common config JSON
+    // Build common config JSON with all CommonConfig fields
     let common_json = serde_json::json!({
         "database": tasker_config.common.database,
         "circuit_breakers": tasker_config.common.circuit_breakers,
@@ -55,6 +55,9 @@ pub async fn get_config(
         "system": tasker_config.common.system,
         "backoff": tasker_config.common.backoff,
         "task_templates": tasker_config.common.task_templates,
+        "queues": tasker_config.common.queues,
+        "mpsc_channels": tasker_config.common.mpsc_channels,
+        "execution": tasker_config.common.execution,
     });
 
     // Get orchestration-specific config

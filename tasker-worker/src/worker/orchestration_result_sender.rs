@@ -31,7 +31,7 @@ impl OrchestrationResultSender {
         queues_config: &tasker_shared::config::tasker::QueuesConfig,
     ) -> Self {
         // Create queue classifier for config-driven queue naming using V2 config
-        let queue_classifier = QueueClassifier::from_queues_config_v2(queues_config);
+        let queue_classifier = QueueClassifier::from_queues_config(queues_config);
 
         Self {
             pgmq_client,

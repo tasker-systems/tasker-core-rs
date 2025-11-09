@@ -40,7 +40,7 @@ fn config_environment_loading() {
     // Try to load config from environment
     match ConfigManager::load_from_env("test") {
         Ok(config_manager) => {
-            let config = config_manager.config_v2();
+            let config = config_manager.config();
 
             // Verify environment-specific settings are loaded
             assert_eq!(config_manager.environment(), "test");

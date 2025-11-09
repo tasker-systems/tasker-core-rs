@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-// TAS-61 Phase 6C: decision_points moved to tasker_v2::DecisionPointsConfig
+// TAS-61 Phase 6C: decision_points moved to tasker::DecisionPointsConfig
 pub mod task_claim_step_enqueuer;
 pub use task_claim_step_enqueuer::TaskClaimStepEnqueuerConfig;
 pub mod step_enqueuer;
@@ -80,9 +80,7 @@ impl OrchestrationSystemConfig {
     /// Create OrchestrationSystemConfig from ConfigManager
     pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
         use std::time::SystemTime;
-
-        // TAS-61 V2: Use config_v2() instead of config()
-        let config = config_manager.config_v2();
+        let config = config_manager.config();
 
         // Generate a simple orchestrator ID using timestamp
         let timestamp = SystemTime::now()

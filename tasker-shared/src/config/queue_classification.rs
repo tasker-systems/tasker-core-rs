@@ -59,21 +59,6 @@ impl QueueClassifier {
         }
     }
 
-    /// TAS-61 Phase 6C/6D: Create from V2 QueuesConfig
-    pub fn from_queues_config_v2(config: &crate::config::tasker::QueuesConfig) -> Self {
-        let orchestration_owned = OrchestrationOwnedQueues {
-            step_results: config.orchestration_queues.step_results.clone(),
-            task_requests: config.orchestration_queues.task_requests.clone(),
-            task_finalizations: config.orchestration_queues.task_finalizations.clone(),
-        };
-
-        Self {
-            orchestration_owned,
-            orchestration_namespace: config.orchestration_namespace.clone(),
-            worker_namespace: config.worker_namespace.clone(),
-        }
-    }
-
     /// Classify a queue name based on configuration instead of hardcoded patterns
     ///
     /// This method provides exhaustive pattern matching grounded in configuration

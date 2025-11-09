@@ -178,7 +178,7 @@ impl SystemContext {
         info!("Initializing SystemContext from configuration (environment-aware)");
 
         // TAS-61 Phase 6C/6D: Use V2 config directly
-        let config = config_manager.config_v2();
+        let config = config_manager.config();
 
         // Extract database connection settings from configuration
         let database_url = config.common.database_url();
@@ -265,8 +265,8 @@ impl SystemContext {
         info!("Creating system components with V2 configuration (TAS-61 Phase 6C/6D: canonical config)");
 
         // TAS-61 Phase 6C/6D: V2 config is the single source of truth
-        let config_v2 = config_manager.config_v2();
-        let tasker_config = Arc::new(config_v2.clone());
+        let config = config_manager.config();
+        let tasker_config = Arc::new(config.clone());
 
         let (circuit_breaker_manager, message_client) =
             Self::get_circuit_breaker_and_queue_client(&tasker_config, database_pool.clone()).await;
@@ -389,8 +389,8 @@ impl SystemContext {
         })?;
 
         // TAS-61 Phase 6C/6D: V2 config is the single source of truth
-        let config_v2 = config_manager.config_v2();
-        let tasker_config = Arc::new(config_v2.clone());
+        let config = config_manager.config();
+        let tasker_config = Arc::new(config.clone());
 
         // Create standard PGMQ client (no circuit breaker for simplicity)
         let message_client = Arc::new(UnifiedPgmqClient::new_standard(

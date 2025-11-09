@@ -4,7 +4,7 @@
 //!
 //! ## Type Adapter Pattern
 //!
-//! V2 configuration (tasker_v2.rs) uses storage-optimized types for TOML efficiency:
+//! V2 configuration (tasker.rs) uses storage-optimized types for TOML efficiency:
 //! - `u32` for numeric fields (claim_timeout_seconds, health_check_interval_seconds, etc.)
 //!
 //! These adapters convert to runtime-optimized types for performance:

@@ -239,8 +239,7 @@ impl OrchestrationFallbackPoller {
         };
         // TAS-61 V2: Access queues from common config
         let queue_config = self.context.tasker_config.common.queues.clone();
-        let classifier =
-            tasker_shared::config::QueueClassifier::from_queues_config_v2(&queue_config);
+        let classifier = tasker_shared::config::QueueClassifier::from_queues_config(&queue_config);
 
         tokio::spawn(async move {
             info!(

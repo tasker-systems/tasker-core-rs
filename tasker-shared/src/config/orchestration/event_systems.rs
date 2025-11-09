@@ -2,7 +2,7 @@
 use crate::config::{tasker::TaskerConfig, ConfigManager};
 use std::time::Duration;
 
-// TAS-61 Phase 6C/6D: Import from V2 (types moved to tasker_v2.rs)
+// TAS-61 Phase 6C/6D: Import from V2 (types moved to tasker.rs)
 pub use crate::config::tasker::{
     EventSystemConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
     EventSystemTimingConfig, OrchestrationEventSystemConfig, OrchestrationEventSystemMetadata,
@@ -14,7 +14,7 @@ impl OrchestrationEventSystemConfig {
     /// Uses the unified event systems configuration from the centralized loader
     pub fn from_config_manager(config_manager: &ConfigManager) -> Self {
         // TAS-61 Phase 6C/6D: Use V2 config
-        let config = config_manager.config_v2();
+        let config = config_manager.config();
         Self::from_tasker_config(config)
     }
 
