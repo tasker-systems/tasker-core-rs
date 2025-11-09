@@ -75,6 +75,18 @@ impl Default for OrchestrationApiConfig {
     }
 }
 
+// TAS-61 Phase 6D: Convert from canonical worker.orchestration_client config
+impl From<&tasker_shared::config::tasker::OrchestrationClientConfig> for OrchestrationApiConfig {
+    fn from(config: &tasker_shared::config::tasker::OrchestrationClientConfig) -> Self {
+        Self {
+            base_url: config.base_url.clone(),
+            timeout_ms: config.timeout_ms as u64,
+            max_retries: config.max_retries,
+            auth: config.auth.clone().map(|a| a.into()),
+        }
+    }
+}
+
 impl OrchestrationApiConfig {
     /// Create `OrchestrationApiConfig` from `TaskerConfig` with proper configuration loading
     ///

@@ -181,11 +181,10 @@ impl WorkerCore {
                 .tasker_config
                 .worker
                 .as_ref()
-                .map(|w| w.event_systems.worker.deployment_mode.clone())
+                .map(|w| w.event_systems.worker.deployment_mode)
                 .unwrap_or_else(|| {
                     panic!("Worker configuration required for event-driven processing")
-                })
-                .into(),
+                }),
         };
 
         let event_driven_processor = EventDrivenMessageProcessor::new(

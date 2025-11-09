@@ -104,7 +104,7 @@ impl OrchestrationCore {
             .tasker_config
             .orchestration
             .as_ref()
-            .and_then(|o| Some(o.mpsc_channels.command_processor.command_buffer_size))
+            .map(|o| o.mpsc_channels.command_processor.command_buffer_size)
             .unwrap_or(5000);
 
         // TAS-51: Initialize channel monitor for observability

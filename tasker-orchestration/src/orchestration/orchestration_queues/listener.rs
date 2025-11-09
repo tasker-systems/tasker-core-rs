@@ -176,7 +176,7 @@ impl OrchestrationQueueListener {
             .tasker_config
             .orchestration
             .as_ref()
-            .and_then(|o| Some(o.mpsc_channels.event_listeners.pgmq_event_buffer_size))
+            .map(|o| o.mpsc_channels.event_listeners.pgmq_event_buffer_size)
             .unwrap_or(10000);
         let mut listener = PgmqNotifyListener::new(
             self.context.database_pool().clone(),

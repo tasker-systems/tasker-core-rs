@@ -22,6 +22,9 @@ use crate::orchestration::{
 use crate::web;
 use crate::web::state::AppState;
 use std::sync::Arc;
+use tasker_shared::config::event_systems::{
+    EventSystemConfig, OrchestrationEventSystemMetadata, TaskReadinessEventSystemMetadata,
+};
 // TAS-61 Phase 6C/6D: V2 configuration is canonical
 use tasker_shared::config::tasker::TaskerConfig;
 use tasker_shared::system_context::SystemContext;
@@ -287,36 +290,31 @@ impl OrchestrationBootstrap {
                 .map(|o| o.event_systems.clone())
                 .unwrap_or_default();
 
-            let task_readiness_v2 = event_systems.task_readiness.clone();
-            let orchestration_v2 = event_systems.orchestration.clone();
+            let task_readiness_event_system = event_systems.task_readiness.clone();
+            let orchestration_event_system = event_systems.orchestration.clone();
 
             info!(
-                orchestration_deployment_mode = %orchestration_v2.deployment_mode,
-                task_readiness_deployment_mode = %task_readiness_v2.deployment_mode,
-                "Loading UnifiedCoordinatorConfig from V2 configuration"
+                orchestration_deployment_mode = %orchestration_event_system.deployment_mode,
+                task_readiness_deployment_mode = %task_readiness_event_system.deployment_mode,
+                "Loading UnifiedCoordinatorConfig from configuration"
             );
 
             // Convert V2 configs to legacy EventSystemConfig types
-            use tasker_shared::config::event_systems::{
-                EventSystemConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
-                OrchestrationEventSystemMetadata, TaskReadinessEventSystemMetadata,
-            };
-
             let orchestration_config = EventSystemConfig::<OrchestrationEventSystemMetadata> {
-                system_id: orchestration_v2.system_id,
-                deployment_mode: orchestration_v2.deployment_mode.into(),
-                timing: orchestration_v2.timing.into(),
-                processing: EventSystemProcessingConfig::default(),
-                health: EventSystemHealthConfig::default(),
+                system_id: orchestration_event_system.system_id,
+                deployment_mode: orchestration_event_system.deployment_mode,
+                timing: orchestration_event_system.timing,
+                processing: orchestration_event_system.processing,
+                health: orchestration_event_system.health,
                 metadata: OrchestrationEventSystemMetadata { _reserved: None },
             };
 
             let task_readiness_config = EventSystemConfig::<TaskReadinessEventSystemMetadata> {
-                system_id: task_readiness_v2.system_id,
-                deployment_mode: task_readiness_v2.deployment_mode.into(),
-                timing: task_readiness_v2.timing.into(),
-                processing: EventSystemProcessingConfig::default(),
-                health: EventSystemHealthConfig::default(),
+                system_id: task_readiness_event_system.system_id,
+                deployment_mode: task_readiness_event_system.deployment_mode,
+                timing: task_readiness_event_system.timing,
+                processing: task_readiness_event_system.processing,
+                health: task_readiness_event_system.health,
                 metadata: TaskReadinessEventSystemMetadata { _reserved: None },
             };
 

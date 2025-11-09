@@ -6,6 +6,10 @@ worker_id = "prod-worker-001"
 [worker.step_processing]
 max_concurrent_steps = 100
 
+# Production orchestration client - points to orchestration service
+[worker.orchestration_client]
+base_url = "http://orchestration:8080"
+
 [worker.mpsc_channels.command_processor]
 command_buffer_size = 5000
 

@@ -102,8 +102,8 @@ impl UnifiedCoordinatorConfig {
 
         let orchestration_config = EventSystemConfig::<OrchestrationEventSystemMetadata> {
             system_id: orchestration_v2.system_id,
-            deployment_mode: orchestration_v2.deployment_mode.into(),
-            timing: orchestration_v2.timing.into(),
+            deployment_mode: orchestration_v2.deployment_mode,
+            timing: orchestration_v2.timing,
             processing: EventSystemProcessingConfig::default(),
             health: EventSystemHealthConfig::default(),
             metadata: OrchestrationEventSystemMetadata { _reserved: None },
@@ -111,8 +111,8 @@ impl UnifiedCoordinatorConfig {
 
         let task_readiness_config = EventSystemConfig::<TaskReadinessEventSystemMetadata> {
             system_id: task_readiness_v2.system_id,
-            deployment_mode: task_readiness_v2.deployment_mode.into(),
-            timing: task_readiness_v2.timing.into(),
+            deployment_mode: task_readiness_v2.deployment_mode,
+            timing: task_readiness_v2.timing,
             processing: EventSystemProcessingConfig::default(),
             health: EventSystemHealthConfig::default(),
             metadata: TaskReadinessEventSystemMetadata { _reserved: None },

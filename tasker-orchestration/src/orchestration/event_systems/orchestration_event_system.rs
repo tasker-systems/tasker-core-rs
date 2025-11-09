@@ -241,7 +241,7 @@ impl OrchestrationEventSystem {
 
         Ok(Self {
             system_id: config.system_id.clone(),
-            deployment_mode: config.deployment_mode.clone(),
+            deployment_mode: config.deployment_mode,
             queue_listener: None,
             fallback_poller: None,
             context,
@@ -314,7 +314,7 @@ impl OrchestrationEventSystem {
             fallback_poller_stats,
             queue_listener_stats,
             system_uptime: self.started_at.map(|start| start.elapsed()),
-            deployment_mode: self.deployment_mode.clone(),
+            deployment_mode: self.deployment_mode,
         }
     }
 
@@ -336,7 +336,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
     }
 
     fn deployment_mode(&self) -> DeploymentMode {
-        self.deployment_mode.clone()
+        self.deployment_mode
     }
 
     fn is_running(&self) -> bool {
@@ -382,7 +382,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     .tasker_config
                     .orchestration
                     .as_ref()
-                    .and_then(|o| Some(o.mpsc_channels.event_systems.event_channel_buffer_size))
+                    .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
                     .unwrap_or(10000);
                 let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
 
@@ -447,7 +447,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     .tasker_config
                     .orchestration
                     .as_ref()
-                    .and_then(|o| Some(o.mpsc_channels.event_systems.event_channel_buffer_size))
+                    .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
                     .unwrap_or(10000);
                 let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
 

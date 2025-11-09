@@ -204,9 +204,14 @@ impl From<&TaskerConfig> for WorkerBootstrapConfig {
                 .and_then(|w| w.web.as_ref())
                 .map(|web| web.enabled)
                 .unwrap_or(true),
-            // TAS-61 Phase 6C: Use default configs for now (helper methods will be migrated later)
-            web_config: WorkerWebConfig::default(),
-            orchestration_api_config: OrchestrationApiConfig::default(),
+            // TAS-61 Phase 6D: Convert from canonical TOML config
+            web_config: worker_config
+                .map(WorkerWebConfig::from)
+                .unwrap_or_default(),
+            orchestration_api_config: worker_config
+                .and_then(|w| w.orchestration_client.as_ref())
+                .map(OrchestrationApiConfig::from)
+                .unwrap_or_default(),
             environment_override: Some(config.common.execution.environment.clone()),
             event_driven_enabled,
             deployment_mode_hint,

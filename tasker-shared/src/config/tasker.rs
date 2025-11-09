@@ -1710,6 +1710,14 @@ pub struct WorkerConfig {
     #[builder(default)]
     pub mpsc_channels: WorkerMpscChannelsConfig,
 
+    /// Orchestration client configuration (optional)
+    ///
+    /// Configures how the worker connects to the orchestration API.
+    /// Separate from orchestration.web (which configures how orchestration hosts its API).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub orchestration_client: Option<OrchestrationClientConfig>,
+
     /// Web API configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
@@ -2096,6 +2104,53 @@ pub struct WorkerWebConfig {
 
 impl_builder_default!(WorkerWebConfig);
 
+/// Worker orchestration client configuration
+///
+/// Configures how the worker connects to the orchestration API as a client.
+/// This is separate from `orchestration.web` which defines how orchestration
+/// hosts its API. These configs should match in production but are validated
+/// separately to support different deployment topologies.
+///
+/// ## Example TOML
+///
+/// ```toml
+/// [worker.orchestration_client]
+/// base_url = "http://orchestration:8080"
+/// timeout_ms = 30000
+/// max_retries = 3
+///
+/// [worker.orchestration_client.auth]
+/// type = "bearer"
+/// token = "${ORCHESTRATION_API_TOKEN}"
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct OrchestrationClientConfig {
+    /// Base URL for the orchestration API
+    ///
+    /// Examples: "http://localhost:8080", "http://orchestration:8080"
+    #[validate(length(min = 1))]
+    #[builder(default = "http://localhost:8080".to_string())]
+    pub base_url: String,
+
+    /// Request timeout (milliseconds)
+    #[validate(range(min = 100, max = 300000))]
+    #[builder(default = 30000)]
+    pub timeout_ms: u32,
+
+    /// Maximum number of retry attempts
+    #[validate(range(min = 0, max = 10))]
+    #[builder(default = 3)]
+    pub max_retries: u32,
+
+    /// Authentication configuration (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub auth: Option<AuthConfig>,
+}
+
+impl_builder_default!(OrchestrationClientConfig);
+
 // ============================================================================
 // Default Implementations for Bridge Compatibility
 // ============================================================================
@@ -2443,6 +2498,7 @@ mod tests {
                 },
             },
             web: None,
+            orchestration_client: Some(OrchestrationClientConfig::default()),
         }
     }
 

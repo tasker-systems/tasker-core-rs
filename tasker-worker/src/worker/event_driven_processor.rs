@@ -134,7 +134,7 @@ impl EventDrivenMessageProcessor {
         supported_namespaces: &[String],
         processor_id: Uuid,
     ) -> WorkerEventSystemConfig {
-        let deployment_mode = edd_config.deployment_mode.clone();
+        let deployment_mode = edd_config.deployment_mode;
 
         WorkerEventSystemConfig {
             system_id: format!("legacy-event-driven-{}", processor_id),
@@ -257,7 +257,7 @@ impl EventDrivenMessageProcessor {
             EventDrivenStats {
                 processor_id: self.processor_id,
                 supported_namespaces: self.supported_namespaces.clone(),
-                deployment_mode: self.config.deployment_mode.clone(),
+                deployment_mode: self.config.deployment_mode,
                 listener_connected: self.is_running, // Use running state as health indicator
                 messages_processed: new_stats.events_processed,
                 events_received: new_stats.events_processed, // Map to same field for simplicity
@@ -267,7 +267,7 @@ impl EventDrivenMessageProcessor {
             EventDrivenStats {
                 processor_id: self.processor_id,
                 supported_namespaces: self.supported_namespaces.clone(),
-                deployment_mode: self.config.deployment_mode.clone(),
+                deployment_mode: self.config.deployment_mode,
                 listener_connected: false,
                 messages_processed: 0,
                 events_received: 0,

@@ -162,7 +162,7 @@ impl WorkerEventSystem {
         supported_namespaces: Vec<String>,
     ) -> Self {
         let system_id = config.system_id.clone();
-        let deployment_mode = config.deployment_mode.clone();
+        let deployment_mode = config.deployment_mode;
 
         info!(
             system_id = %system_id,
@@ -352,7 +352,7 @@ impl EventDrivenSystem for WorkerEventSystem {
     }
 
     fn deployment_mode(&self) -> DeploymentMode {
-        self.deployment_mode.clone()
+        self.deployment_mode
     }
 
     fn is_running(&self) -> bool {

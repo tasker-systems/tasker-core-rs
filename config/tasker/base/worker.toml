@@ -85,6 +85,13 @@ broadcast_buffer_size = 2000
 [worker.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 10000
 
+# Orchestration Client Configuration
+# How the worker connects to the orchestration API
+[worker.orchestration_client]
+base_url = "http://localhost:8080"
+timeout_ms = 30000
+max_retries = 3
+
 [worker.web]
 enabled = true
 bind_address = "0.0.0.0:8081"

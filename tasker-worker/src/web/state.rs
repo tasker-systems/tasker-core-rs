@@ -39,8 +39,28 @@ impl Default for WorkerWebConfig {
     }
 }
 
-// TAS-61 Phase 6D: Removed from_tasker_config (V1) - no longer used
-// Configuration is now loaded via WorkerBootstrapConfig::from(&TaskerConfig)
+// TAS-61 Phase 6D: Convert from canonical TaskerConfig
+impl From<&tasker_shared::config::tasker::WorkerConfig> for WorkerWebConfig {
+    fn from(worker_config: &tasker_shared::config::tasker::WorkerConfig) -> Self {
+        // Use default if web config not present
+        let web = match &worker_config.web {
+            Some(w) => w,
+            None => return Self::default(),
+        };
+
+        let health = &worker_config.health_monitoring;
+
+        Self {
+            enabled: web.enabled,
+            bind_address: web.bind_address.clone(),
+            request_timeout_ms: web.request_timeout_ms as u64,
+            authentication_enabled: web.auth.is_some(),
+            cors_enabled: web.cors.is_some(),
+            metrics_enabled: health.performance_monitoring_enabled,
+            health_check_interval_seconds: health.health_check_interval_seconds as u64,
+        }
+    }
+}
 
 /// Shared state for the worker web application
 #[derive(Clone, Debug)]

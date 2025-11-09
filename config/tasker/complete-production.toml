@@ -1,6 +1,6 @@
-# Tasker Configuration - worker Context
+# Tasker Configuration - complete Context
 # Environment: production
-# Generated: 2025-11-09T18:34:56.429253+00:00
+# Generated: 2025-11-09T18:35:16.291538+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -133,6 +133,192 @@ search_paths = ["config/tasks/**/*.{yml,yaml}"]
 enabled = true
 sample_rate = 0.01
 service_name = "tasker-core"
+
+[orchestration]
+enable_performance_logging = true
+mode = "standalone"
+
+[orchestration.decision_points]
+enable_detailed_logging = false
+enable_metrics = true
+enabled = true
+max_decision_depth = 20
+max_steps_per_decision = 100
+warn_threshold_depth = 10
+warn_threshold_steps = 50
+
+[orchestration.dlq]
+auto_dlq_on_staleness = true
+enabled = true
+include_full_task_snapshot = true
+max_pending_age_hours = 168
+
+[orchestration.dlq.reasons]
+dependency_cycle_detected = true
+manual_dlq = true
+max_retries_exceeded = true
+staleness_timeout = true
+worker_unavailable = true
+
+[orchestration.dlq.staleness_detection]
+batch_size = 200
+detection_interval_seconds = 600
+dry_run = false
+enabled = true
+
+[orchestration.dlq.staleness_detection.actions]
+auto_move_to_dlq = true
+auto_transition_to_error = true
+emit_events = true
+event_channel = "task_staleness_detected"
+
+[orchestration.dlq.staleness_detection.thresholds]
+steps_in_process_minutes = 60
+task_max_lifetime_hours = 48
+waiting_for_dependencies_minutes = 120
+waiting_for_retry_minutes = 60
+
+[orchestration.event_systems.orchestration]
+deployment_mode = "Hybrid"
+system_id = "orchestration-event-system"
+
+[orchestration.event_systems.orchestration.health]
+enabled = true
+error_rate_threshold_per_minute = 20
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[orchestration.event_systems.orchestration.processing]
+batch_size = 20
+max_concurrent_operations = 50
+max_retries = 3
+
+[orchestration.event_systems.orchestration.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 10000
+multiplier = 2.0
+
+[orchestration.event_systems.orchestration.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 5
+health_check_interval_seconds = 30
+processing_timeout_seconds = 60
+visibility_timeout_seconds = 30
+
+[orchestration.event_systems.task_readiness]
+deployment_mode = "Hybrid"
+system_id = "task-readiness-event-system"
+
+[orchestration.event_systems.task_readiness.health]
+enabled = true
+error_rate_threshold_per_minute = 20
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[orchestration.event_systems.task_readiness.processing]
+batch_size = 50
+max_concurrent_operations = 100
+max_retries = 3
+
+[orchestration.event_systems.task_readiness.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 10000
+multiplier = 2.0
+
+[orchestration.event_systems.task_readiness.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 5
+health_check_interval_seconds = 30
+processing_timeout_seconds = 60
+visibility_timeout_seconds = 30
+
+[orchestration.mpsc_channels.command_processor]
+command_buffer_size = 10000
+
+[orchestration.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 100000
+
+[orchestration.mpsc_channels.event_systems]
+event_channel_buffer_size = 20000
+
+[orchestration.web]
+bind_address = "0.0.0.0:8080"
+enabled = true
+request_timeout_ms = 30000
+
+[orchestration.web.auth]
+api_key = ""
+api_key_header = "X-API-Key"
+enabled = false
+jwt_audience = "tasker-api"
+jwt_issuer = "tasker-core"
+jwt_private_key = ""
+jwt_public_key = ""
+jwt_token_expiry_hours = 24
+
+[[orchestration.web.auth.protected_routes]]
+auth_type = "bearer"
+method = "POST"
+path = "/v1/tasks"
+required = false
+
+[[orchestration.web.auth.protected_routes]]
+auth_type = "bearer"
+method = "DELETE"
+path = "/v1/tasks/{task_uuid}"
+required = true
+
+[[orchestration.web.auth.protected_routes]]
+auth_type = "bearer"
+method = "PATCH"
+path = "/v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"
+required = true
+
+[[orchestration.web.auth.protected_routes]]
+auth_type = "bearer"
+method = "GET"
+path = "/v1/analytics/performance"
+required = false
+
+[[orchestration.web.auth.protected_routes]]
+auth_type = "bearer"
+method = "GET"
+path = "/v1/analytics/bottlenecks"
+required = false
+
+[orchestration.web.cors]
+allowed_headers = ["*"]
+allowed_methods = [
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "PATCH",
+    "OPTIONS",
+]
+allowed_origins = ["*"]
+enabled = true
+max_age_seconds = 86400
+
+[orchestration.web.database_pools]
+max_total_connections_hint = 50
+web_api_connection_timeout_seconds = 30
+web_api_idle_timeout_seconds = 600
+web_api_max_connections = 30
+web_api_pool_size = 20
+
+[orchestration.web.rate_limiting]
+burst_size = 100
+enabled = false
+per_client_limit = true
+requests_per_minute = 1000
+
+[orchestration.web.resilience]
+circuit_breaker_enabled = true
+max_concurrent_requests = 200
+request_timeout_seconds = 30
 
 [worker]
 worker_id = "prod-worker-001"

@@ -138,13 +138,13 @@ impl ConfigLoader {
 /// ## TAS-61 Phase 6C/6D: V2 Only
 ///
 /// Holds only V2 configuration as the source of truth:
-/// - `config_v2`: TaskerConfig (canonical configuration)
+/// - `config`: TaskerConfig (canonical configuration)
 ///
 /// Legacy config access has been removed.
 #[derive(Debug, Clone)]
 pub struct ConfigManager {
     /// V2 configuration (source of truth and only configuration)
-    config_v2: TaskerConfig,
+    config: TaskerConfig,
     environment: String,
 }
 
@@ -166,16 +166,16 @@ impl ConfigManager {
         })?;
 
         tracing::info!(
-            "Loading configuration from TASKER_CONFIG_PATH: {} (environment: {}) [TAS-61 Phase 6C/6D: V2 only]",
+            "Loading configuration from TASKER_CONFIG_PATH: {} (environment: {})",
             config_path,
             environment
         );
 
         // TAS-61 Phase 6C/6D: Load V2 config (source of truth and only config)
-        let config_v2 = Self::load_v2_from_path(&PathBuf::from(&config_path))?;
+        let config = Self::load_from_path(&PathBuf::from(&config_path))?;
 
         Ok(std::sync::Arc::new(ConfigManager {
-            config_v2,
+            config,
             environment: environment.to_string(),
         }))
     }
@@ -183,7 +183,7 @@ impl ConfigManager {
     /// Load TaskerConfig from file path (internal helper)
     ///
     /// This is the V2 loading logic extracted for reuse.
-    fn load_v2_from_path(path: &PathBuf) -> ConfigResult<TaskerConfig> {
+    fn load_from_path(path: &PathBuf) -> ConfigResult<TaskerConfig> {
         // 1. Read file
         let contents = std::fs::read_to_string(path).map_err(|e| {
             ConfigurationError::validation_error(format!(
@@ -223,7 +223,7 @@ impl ConfigManager {
     /// TAS-61 Phase 6C/6D: This is the only configuration method.
     /// Returns the canonical TaskerConfig.
     pub fn config_v2(&self) -> &TaskerConfig {
-        &self.config_v2
+        &self.config
     }
 
     /// Get the environment name
@@ -239,7 +239,7 @@ impl ConfigManager {
     /// constructed directly. For production use, prefer `load_from_env()`.
     pub fn from_config_v2(config_v2: TaskerConfig, environment: String) -> Self {
         Self {
-            config_v2,
+            config: config_v2,
             environment,
         }
     }
