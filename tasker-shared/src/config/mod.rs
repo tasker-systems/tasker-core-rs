@@ -27,7 +27,6 @@ pub mod config_loader;
 pub mod documentation;
 pub mod error;
 pub mod event_systems;
-pub mod executor;
 pub mod merge;
 pub mod merger;
 pub mod mpsc_channels;
@@ -57,14 +56,13 @@ pub use event_systems::{
     WorkerEventSystemConfig as UnifiedWorkerEventSystemConfig,
 };
 pub use orchestration::{
-    event_systems::OrchestrationEventSystemConfig, ExecutorConfig,
-    ExecutorType, OrchestrationConfig, OrchestrationSystemConfig,
+    event_systems::OrchestrationEventSystemConfig, OrchestrationConfig, OrchestrationSystemConfig,
 };
 // TAS-61 Phase 6C/6D: DecisionPointsConfig now in V2
-pub use tasker::tasker_v2::DecisionPointsConfig;
 pub use queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
 };
+pub use tasker::tasker_v2::DecisionPointsConfig;
 
 pub mod queue_classification;
 pub use queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};

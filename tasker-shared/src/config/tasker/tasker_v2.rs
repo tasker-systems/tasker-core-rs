@@ -782,18 +782,21 @@ pub struct TaskTemplatesConfig {
 impl_builder_default!(TaskTemplatesConfig);
 
 /// Telemetry configuration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 #[serde(rename_all = "snake_case")]
 pub struct TelemetryConfig {
     /// Enable telemetry
+    #[builder(default = false)]
     pub enabled: bool,
 
     /// Service name
     #[validate(length(min = 1))]
+    #[builder(default = "tasker-core".to_string())]
     pub service_name: String,
 
     /// Sample rate (0.0-1.0)
     #[validate(range(min = 0.0, max = 1.0))]
+    #[builder(default = 1.0)]
     pub sample_rate: f64,
 }
 
@@ -881,32 +884,34 @@ pub struct OrchestrationEventSystemsConfig {
 impl_builder_default!(OrchestrationEventSystemsConfig);
 
 /// Generic event system configuration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display, Builder)]
 #[serde(rename_all = "snake_case")]
 #[display("EventSystemConfig(id: {}, mode: {})", system_id, deployment_mode)]
 pub struct EventSystemConfig {
     /// System identifier
     #[validate(length(min = 1))]
+    #[builder(default = "default-event-system".to_string())]
     pub system_id: String,
 
     /// Deployment mode
+    #[builder(default = DeploymentMode::Hybrid)]
     pub deployment_mode: DeploymentMode,
 
     /// Timing configuration
     #[validate(nested)]
+    #[builder(default)]
     pub timing: EventSystemTimingConfig,
 
     /// Processing configuration
     #[validate(nested)]
+    #[builder(default)]
     pub processing: EventSystemProcessingConfig,
 
     /// Health configuration
     #[validate(nested)]
+    #[builder(default)]
     pub health: EventSystemHealthConfig,
 }
-
-// Note: Default implementation exists later in the file (line ~1584)
-// Will be replaced with derive_default proc macro in future
 
 /// Event system timing configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display, Builder)]
@@ -1710,30 +1715,36 @@ pub struct WorkerEventSystemsConfig {
 impl_builder_default!(WorkerEventSystemsConfig);
 
 /// Worker-specific event system configuration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 #[serde(rename_all = "snake_case")]
 pub struct WorkerEventSystemConfig {
     /// System identifier
     #[validate(length(min = 1))]
+    #[builder(default = "default-worker-event-system".to_string())]
     pub system_id: String,
 
     /// Deployment mode
+    #[builder(default = DeploymentMode::Hybrid)]
     pub deployment_mode: DeploymentMode,
 
     /// Timing configuration
     #[validate(nested)]
+    #[builder(default)]
     pub timing: EventSystemTimingConfig,
 
     /// Processing configuration
     #[validate(nested)]
+    #[builder(default)]
     pub processing: EventSystemProcessingConfig,
 
     /// Health configuration
     #[validate(nested)]
+    #[builder(default)]
     pub health: EventSystemHealthConfig,
 
     /// Worker-specific metadata
     #[validate(nested)]
+    #[builder(default)]
     pub metadata: WorkerEventSystemMetadata,
 }
 
@@ -2073,111 +2084,13 @@ impl_builder_default!(WorkerWebConfig);
 // Default Implementations for Bridge Compatibility
 // ============================================================================
 
-impl Default for TelemetryConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            service_name: "tasker-core".to_string(),
-            sample_rate: 1.0,
-        }
-    }
-}
+impl_builder_default!(TelemetryConfig);
 
 // DecisionPointsConfig Default implementation via impl_builder_default! macro (see struct definition above)
 
-impl Default for EventSystemConfig {
-    fn default() -> Self {
-        Self {
-            system_id: "default-event-system".to_string(),
-            deployment_mode: DeploymentMode::Hybrid,
-            timing: EventSystemTimingConfig {
-                health_check_interval_seconds: 30,
-                fallback_polling_interval_seconds: 5,
-                visibility_timeout_seconds: 30,
-                processing_timeout_seconds: 30,
-                claim_timeout_seconds: 300,
-            },
-            processing: EventSystemProcessingConfig {
-                max_concurrent_operations: 10,
-                batch_size: 10,
-                max_retries: 3,
-                backoff: EventSystemBackoffConfig {
-                    initial_delay_ms: 100,
-                    max_delay_ms: 5000,
-                    multiplier: 2.0,
-                    jitter_percent: 0.1,
-                },
-            },
-            health: EventSystemHealthConfig {
-                enabled: true,
-                performance_monitoring_enabled: true,
-                max_consecutive_errors: 10,
-                error_rate_threshold_per_minute: 5,
-            },
-        }
-    }
-}
+impl_builder_default!(EventSystemConfig);
 
-impl Default for WorkerEventSystemConfig {
-    fn default() -> Self {
-        Self {
-            system_id: "default-worker-event-system".to_string(),
-            deployment_mode: DeploymentMode::Hybrid,
-            timing: EventSystemTimingConfig {
-                health_check_interval_seconds: 30,
-                fallback_polling_interval_seconds: 5,
-                visibility_timeout_seconds: 30,
-                processing_timeout_seconds: 30,
-                claim_timeout_seconds: 300,
-            },
-            processing: EventSystemProcessingConfig {
-                max_concurrent_operations: 10,
-                batch_size: 10,
-                max_retries: 3,
-                backoff: EventSystemBackoffConfig {
-                    initial_delay_ms: 100,
-                    max_delay_ms: 5000,
-                    multiplier: 2.0,
-                    jitter_percent: 0.1,
-                },
-            },
-            health: EventSystemHealthConfig {
-                enabled: true,
-                performance_monitoring_enabled: true,
-                max_consecutive_errors: 10,
-                error_rate_threshold_per_minute: 5,
-            },
-            metadata: WorkerEventSystemMetadata {
-                in_process_events: InProcessEventsConfig {
-                    ffi_integration_enabled: true,
-                    deduplication_cache_size: 1000,
-                },
-                listener: ListenerConfig {
-                    retry_interval_seconds: 5,
-                    max_retry_attempts: 3,
-                    event_timeout_seconds: 30,
-                    batch_processing: true,
-                    connection_timeout_seconds: 10,
-                },
-                fallback_poller: FallbackPollerConfig {
-                    enabled: true,
-                    polling_interval_ms: 500,
-                    batch_size: 10,
-                    age_threshold_seconds: 2,
-                    max_age_hours: 12,
-                    visibility_timeout_seconds: 30,
-                    supported_namespaces: vec![],
-                },
-                resource_limits: ResourceLimitsConfig {
-                    max_memory_mb: 2048,
-                    max_cpu_percent: 80.0,
-                    max_database_connections: 50,
-                    max_queue_connections: 20,
-                },
-            },
-        }
-    }
-}
+impl_builder_default!(WorkerEventSystemConfig);
 
 #[cfg(test)]
 mod tests {

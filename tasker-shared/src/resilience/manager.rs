@@ -52,19 +52,13 @@ impl CircuitBreakerManager {
 
     /// Convert V2 CircuitBreakerConfig to legacy format
     fn convert_v2_to_legacy(v2: &CircuitBreakerConfigV2) -> CircuitBreakerConfig {
-        use crate::config::CircuitBreakerGlobalSettings;
+        // Convert global settings (now using V2 type directly via type alias)
+        let global_settings = v2.global_settings.clone();
 
-        // Convert global settings
-        let global_settings = CircuitBreakerGlobalSettings {
-            max_circuit_breakers: v2.global_settings.max_circuit_breakers as usize,
-            metrics_collection_interval_seconds: v2.global_settings.metrics_collection_interval_seconds as u64,
-            min_state_transition_interval_seconds: v2.global_settings.min_state_transition_interval_seconds,
-        };
-
-        // Convert default config
+        // Convert default config from V2's CircuitBreakerDefaultConfig to CircuitBreakerComponentConfig
         let default_config = CircuitBreakerComponentConfig {
             failure_threshold: v2.default_config.failure_threshold,
-            timeout_seconds: v2.default_config.timeout_seconds as u64,
+            timeout_seconds: v2.default_config.timeout_seconds,
             success_threshold: v2.default_config.success_threshold,
         };
 
@@ -72,19 +66,11 @@ impl CircuitBreakerManager {
         let mut component_configs = HashMap::new();
         component_configs.insert(
             "task_readiness".to_string(),
-            CircuitBreakerComponentConfig {
-                failure_threshold: v2.component_configs.task_readiness.failure_threshold,
-                timeout_seconds: v2.component_configs.task_readiness.timeout_seconds as u64,
-                success_threshold: v2.component_configs.task_readiness.success_threshold,
-            },
+            v2.component_configs.task_readiness.clone(),
         );
         component_configs.insert(
             "pgmq".to_string(),
-            CircuitBreakerComponentConfig {
-                failure_threshold: v2.component_configs.pgmq.failure_threshold,
-                timeout_seconds: v2.component_configs.pgmq.timeout_seconds as u64,
-                success_threshold: v2.component_configs.pgmq.success_threshold,
-            },
+            v2.component_configs.pgmq.clone(),
         );
 
         CircuitBreakerConfig {
@@ -113,8 +99,8 @@ impl CircuitBreakerManager {
             return Arc::clone(breaker);
         }
 
-        // Check limits
-        if breakers.len() >= self.config.global_settings.max_circuit_breakers {
+        // Check limits (V2 config uses u32, cast to usize for comparison)
+        if breakers.len() >= self.config.global_settings.max_circuit_breakers as usize {
             warn!(
                 component = component_name,
                 current_count = breakers.len(),

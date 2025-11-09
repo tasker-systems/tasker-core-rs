@@ -44,8 +44,8 @@ use state::AppState;
 /// # Returns
 /// * `Router` - Configured Axum router ready for serving
 pub fn create_app(app_state: AppState) -> Router {
-    // Extract timeout from configuration
-    let request_timeout = std::time::Duration::from_millis(app_state.config.request_timeout_ms);
+    // TAS-61: V2 uses u32 for request_timeout_ms, cast to u64 for Duration::from_millis
+    let request_timeout = std::time::Duration::from_millis(app_state.config.request_timeout_ms as u64);
 
     let router = Router::new()
         // API v1 routes - versioned endpoints
@@ -85,8 +85,9 @@ pub fn create_app(app_state: AppState) -> Router {
 /// - Additional debugging middleware
 #[cfg(feature = "test-utils")]
 pub fn create_test_app(app_state: AppState) -> Router {
+    // TAS-61: V2 uses u32 for request_timeout_ms, cast to u64 for Duration::from_millis
     // Use longer timeout for tests (configured value + 90 seconds buffer)
-    let test_timeout = std::time::Duration::from_millis(app_state.config.request_timeout_ms)
+    let test_timeout = std::time::Duration::from_millis(app_state.config.request_timeout_ms as u64)
         + std::time::Duration::from_secs(90);
 
     let mut router = Router::new()

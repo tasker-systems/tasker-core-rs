@@ -1,58 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-/// Queue configuration with backend abstraction
-/// Prepares for RabbitMQ integration while maintaining PGMQ functionality
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct QueuesConfig {
-    /// Backend selection (aligns with UnifiedMessageClient)
-    /// Options: "pgmq", "rabbitmq", "redis", etc.
-    pub backend: String,
+// Import queue config structs from V2
+pub use crate::config::tasker::tasker_v2::{
+    OrchestrationQueuesConfig, PgmqConfig, QueuesConfig, RabbitmqConfig,
+};
 
-    /// Orchestration namespace for orchestration-owned queues
-    pub orchestration_namespace: String,
-
-    /// Worker namespace for worker queues
-    pub worker_namespace: String,
-
-    /// Universal queue configuration (backend-agnostic)
-    pub default_visibility_timeout_seconds: u32,
-    pub default_batch_size: u32,
-    pub max_batch_size: u32,
-    pub naming_pattern: String,
-    pub health_check_interval: u64,
-
-    /// Queue type definitions for orchestration system
-    pub orchestration_queues: OrchestrationQueuesConfig,
-
-    /// Backend-specific configuration for PGMQ
-    pub pgmq: PgmqBackendConfig,
-
-    /// Future RabbitMQ configuration (prepared for TAS-40+)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rabbitmq: Option<RabbitMqBackendConfig>,
-}
-
-/// Orchestration queue definitions
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OrchestrationQueuesConfig {
-    pub task_requests: String,
-    pub task_finalizations: String,
-    pub step_results: String,
-}
-
-/// Backend-specific configuration for PGMQ
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PgmqBackendConfig {
-    pub poll_interval_ms: u64,
-    pub shutdown_timeout_seconds: u64,
-    pub max_retries: u32,
-}
-
-/// Backend-specific configuration for RabbitMQ (future)
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct RabbitMqBackendConfig {
-    pub connection_timeout_seconds: u64,
-}
+// Type aliases for backward compatibility (legacy names → V2 names)
+pub type PgmqBackendConfig = PgmqConfig;
+pub type RabbitMqBackendConfig = RabbitmqConfig;
 
 /// Configuration for orchestration-owned queues used in message classification
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -118,33 +73,7 @@ impl QueuesConfig {
     }
 }
 
-impl Default for QueuesConfig {
-    fn default() -> Self {
-        Self {
-            backend: "pgmq".to_string(),
-            orchestration_namespace: "orchestration".to_string(),
-            worker_namespace: "worker".to_string(),
-            default_visibility_timeout_seconds: 30,
-            default_batch_size: 10,
-            max_batch_size: 100,
-            health_check_interval: 60,
-            naming_pattern: "{namespace}_{name}_queue".to_string(),
-            orchestration_queues: OrchestrationQueuesConfig {
-                task_requests: "orchestration_task_requests_queue".to_string(),
-                task_finalizations: "orchestration_task_finalizations_queue".to_string(),
-                step_results: "orchestration_step_results_queue".to_string(),
-            },
-            pgmq: PgmqBackendConfig {
-                poll_interval_ms: 250,
-                shutdown_timeout_seconds: 5,
-                max_retries: 3,
-            },
-            rabbitmq: Some(RabbitMqBackendConfig {
-                connection_timeout_seconds: 10,
-            }),
-        }
-    }
-}
+// Default implementation now comes from V2 via impl_builder_default!
 
 #[cfg(test)]
 mod tests {

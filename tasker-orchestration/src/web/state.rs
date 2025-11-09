@@ -45,8 +45,12 @@ pub struct OrchestrationStatus {
 /// - Configuration and orchestration status
 #[derive(Clone, Debug)]
 pub struct AppState {
-    /// Web server configuration
+    /// Web server configuration (V2 OrchestrationWebConfig)
     pub config: Arc<WebConfig>,
+
+    /// Authentication configuration (converted from V2's Option<AuthConfig> to WebAuthConfig adapter)
+    /// This provides route matching methods needed by the auth middleware
+    pub auth_config: Option<Arc<tasker_shared::config::WebAuthConfig>>,
 
     /// Dedicated database pool for web API operations
     pub web_db_pool: PgPool,
@@ -185,11 +189,15 @@ impl AppState {
             "Web API application state created successfully"
         );
 
-        // Convert OrchestrationWebConfig to WebConfig for AppState
-        let web_config_for_state: tasker_shared::config::web::WebConfig = web_config.into();
+        // TAS-61: Convert V2's Option<AuthConfig> to WebAuthConfig adapter for route matching
+        let auth_config = web_config
+            .auth
+            .as_ref()
+            .map(|auth| Arc::new(tasker_shared::config::WebAuthConfig::from(auth.clone())));
 
         Ok(Self {
-            config: Arc::new(web_config_for_state),
+            config: Arc::new(web_config),
+            auth_config,
             web_db_pool: web_db_pool.clone(),
             orchestration_db_pool: orchestration_core.context.database_pool().clone(),
             web_db_circuit_breaker: circuit_breaker,

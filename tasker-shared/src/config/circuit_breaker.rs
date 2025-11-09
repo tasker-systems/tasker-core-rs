@@ -2,46 +2,34 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// Circuit breaker configuration integrated with YAML config
+// Import component types from V2
+pub use crate::config::tasker::tasker_v2::{
+    CircuitBreakerComponentConfig, GlobalCircuitBreakerSettings,
+};
+
+// Type alias for backward compatibility (legacy name vs V2 name)
+pub type CircuitBreakerGlobalSettings = GlobalCircuitBreakerSettings;
+
+/// Circuit breaker configuration with HashMap-based component flexibility
+///
+/// This is an adapter over V2's structured CircuitBreakerConfig. While V2 uses
+/// a fixed struct (ComponentCircuitBreakerConfigs) with named fields, this version
+/// provides HashMap flexibility for dynamic component configuration.
+///
+/// **Pattern**: HashMap adapter (runtime) over V2 structured config (TOML)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CircuitBreakerConfig {
     /// Whether circuit breakers are enabled globally
     pub enabled: bool,
 
     /// Global circuit breaker settings
-    pub global_settings: CircuitBreakerGlobalSettings,
+    pub global_settings: GlobalCircuitBreakerSettings,
 
     /// Default configuration for new circuit breakers
     pub default_config: CircuitBreakerComponentConfig,
 
-    /// Specific configurations for named components
+    /// Specific configurations for named components (HashMap for flexibility)
     pub component_configs: HashMap<String, CircuitBreakerComponentConfig>,
-}
-
-/// Global circuit breaker settings from YAML
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CircuitBreakerGlobalSettings {
-    /// Maximum number of circuit breakers allowed
-    pub max_circuit_breakers: usize,
-
-    /// Interval for metrics collection and reporting in seconds
-    pub metrics_collection_interval_seconds: u64,
-
-    /// Minimum interval between state transitions in seconds (prevents oscillation)
-    pub min_state_transition_interval_seconds: f64,
-}
-
-/// Circuit breaker configuration for a specific component from YAML
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CircuitBreakerComponentConfig {
-    /// Number of consecutive failures before opening circuit
-    pub failure_threshold: u32,
-
-    /// Time to wait in open state before attempting recovery (in seconds)
-    pub timeout_seconds: u64,
-
-    /// Number of successful calls in half-open state to close circuit
-    pub success_threshold: u32,
 }
 
 impl CircuitBreakerConfig {
@@ -56,22 +44,26 @@ impl CircuitBreakerConfig {
 
 impl CircuitBreakerComponentConfig {
     /// Convert to resilience module's format
+    ///
+    /// Note: V2 uses u32 for timeout_seconds, resilience module expects u64
     pub fn to_resilience_config(&self) -> crate::resilience::config::CircuitBreakerConfig {
         crate::resilience::config::CircuitBreakerConfig {
             failure_threshold: self.failure_threshold,
-            timeout: Duration::from_secs(self.timeout_seconds),
+            timeout: Duration::from_secs(self.timeout_seconds as u64),
             success_threshold: self.success_threshold,
         }
     }
 }
 
-impl CircuitBreakerGlobalSettings {
+impl GlobalCircuitBreakerSettings {
     /// Convert to resilience module's format
+    ///
+    /// Note: V2 uses u32 types, resilience module expects usize/u64
     pub fn to_resilience_config(&self) -> crate::resilience::config::GlobalCircuitBreakerSettings {
         crate::resilience::config::GlobalCircuitBreakerSettings {
-            max_circuit_breakers: self.max_circuit_breakers,
+            max_circuit_breakers: self.max_circuit_breakers as usize,
             metrics_collection_interval: Duration::from_secs(
-                self.metrics_collection_interval_seconds,
+                self.metrics_collection_interval_seconds as u64,
             ),
             min_state_transition_interval: Duration::from_secs_f64(
                 self.min_state_transition_interval_seconds,

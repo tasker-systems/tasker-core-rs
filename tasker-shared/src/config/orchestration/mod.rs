@@ -6,7 +6,6 @@ pub use task_claim_step_enqueuer::TaskClaimStepEnqueuerConfig;
 pub mod step_enqueuer;
 pub use step_enqueuer::StepEnqueuerConfig;
 pub mod step_result_processor;
-pub use crate::config::executor::{ExecutorConfig, ExecutorType};
 pub use step_result_processor::StepResultProcessorConfig;
 pub mod event_systems;
 pub use crate::config::web::WebConfig;

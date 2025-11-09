@@ -9,7 +9,7 @@
 //! configuration-driven approach.
 //!
 //! ### Configuration migrated from event_systems.toml (TAS-51):
-//! - `task_readiness.event_channel` (buffer_size, send_timeout_ms)
+//! - `task_readiness.event_channel` (buffer_size, send_timeout_ms) - **REMOVED (zero runtime usage)**
 //! - `worker.in_process_events.broadcast_buffer_size`
 //!
 //! ### Key principles:
@@ -21,60 +21,58 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+// Import MPSC channel config structs from V2
+pub use crate::config::tasker::tasker_v2::{
+    CommandProcessorChannels, EventListenerChannels, EventPublisherChannels,
+    EventSystemChannels, FfiChannels, OrchestrationMpscChannelsConfig, OverflowMetricsConfig,
+    OverflowPolicyConfig, SharedMpscChannelsConfig, WorkerCommandProcessorChannels,
+    WorkerEventListenerChannels, WorkerEventSubscriberChannels, WorkerEventSystemChannels,
+    WorkerInProcessEventChannels, WorkerMpscChannelsConfig,
+};
+
+// Type aliases for backward compatibility (legacy names → V2 names)
+pub type OrchestrationChannelsConfig = OrchestrationMpscChannelsConfig;
+pub type OrchestrationCommandProcessorConfig = CommandProcessorChannels;
+pub type OrchestrationEventSystemsConfig = EventSystemChannels;
+pub type OrchestrationEventListenersConfig = EventListenerChannels;
+
+pub type WorkerChannelsConfig = WorkerMpscChannelsConfig;
+pub type WorkerCommandProcessorConfig = WorkerCommandProcessorChannels;
+pub type WorkerEventSystemsConfig = WorkerEventSystemChannels;
+pub type WorkerEventSubscribersConfig = WorkerEventSubscriberChannels;
+pub type WorkerInProcessEventsConfig = WorkerInProcessEventChannels;
+pub type WorkerEventListenersConfig = WorkerEventListenerChannels;
+
+pub type SharedChannelsConfig = SharedMpscChannelsConfig;
+pub type SharedEventPublisherConfig = EventPublisherChannels;
+pub type SharedFfiConfig = FfiChannels;
+
 /// Root MPSC channels configuration
+///
+/// This is an adapter over V2's context-specific channel configs. While V2 embeds
+/// channel configs into SharedConfig, OrchestrationConfig, and WorkerConfig, this
+/// provides a unified root configuration for backward compatibility.
+///
+/// **Pattern**: Adapter aggregating V2 context-specific configs
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MpscChannelsConfig {
-    /// Orchestration subsystem channels
+    /// Orchestration subsystem channels (from V2 OrchestrationMpscChannelsConfig)
     pub orchestration: OrchestrationChannelsConfig,
-    /// Task readiness subsystem channels
+    /// Task readiness subsystem channels (DEPRECATED: zero runtime usage, kept for compatibility)
     pub task_readiness: TaskReadinessChannelsConfig,
-    /// Worker subsystem channels
+    /// Worker subsystem channels (from V2 WorkerMpscChannelsConfig)
     pub worker: WorkerChannelsConfig,
-    /// Shared/cross-cutting channels
+    /// Shared/cross-cutting channels (from V2 SharedMpscChannelsConfig)
     pub shared: SharedChannelsConfig,
-    /// Overflow policy configuration
+    /// Overflow policy configuration (from V2)
     pub overflow_policy: OverflowPolicyConfig,
 }
 
 // ============================================================================
-// ORCHESTRATION CHANNELS
+// ORCHESTRATION, WORKER, SHARED CHANNELS - Now imported from V2
 // ============================================================================
-
-/// Orchestration subsystem channels configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OrchestrationChannelsConfig {
-    /// Command processor channel configuration
-    pub command_processor: OrchestrationCommandProcessorConfig,
-    /// Event systems channel configuration
-    pub event_systems: OrchestrationEventSystemsConfig,
-    /// Event listeners channel configuration
-    pub event_listeners: OrchestrationEventListenersConfig,
-}
-
-/// Orchestration command processor configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OrchestrationCommandProcessorConfig {
-    /// Command channel buffer size
-    /// Handles: InitializeTask, ProcessStepResult, FinalizeTask commands
-    pub command_buffer_size: usize,
-}
-
-/// Orchestration event systems configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OrchestrationEventSystemsConfig {
-    /// Event channel buffer size
-    /// Handles: PGMQ message ready events, internal coordination events
-    pub event_channel_buffer_size: usize,
-}
-
-/// Orchestration event listeners configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OrchestrationEventListenersConfig {
-    /// PGMQ event buffer size
-    /// Handles: PostgreSQL LISTEN/NOTIFY events for orchestration_* queues
-    /// Previously unbounded! Now bounded to prevent OOM during notification bursts
-    pub pgmq_event_buffer_size: usize,
-}
+// All channel configuration structs are now imported from tasker_v2.rs
+// See type aliases at the top of this file for backward compatibility mapping
 
 // ============================================================================
 // TASK READINESS CHANNELS
@@ -106,133 +104,10 @@ impl TaskReadinessEventChannelConfig {
 }
 
 // ============================================================================
-// WORKER CHANNELS
+// OVERFLOW POLICIES - Keep DropPolicy enum for type safety
 // ============================================================================
-
-/// Worker subsystem channels configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkerChannelsConfig {
-    /// Command processor channel configuration
-    pub command_processor: WorkerCommandProcessorConfig,
-    /// Event systems channel configuration
-    pub event_systems: WorkerEventSystemsConfig,
-    /// Event subscribers channel configuration
-    pub event_subscribers: WorkerEventSubscribersConfig,
-    /// In-process events channel configuration
-    pub in_process_events: WorkerInProcessEventsConfig,
-    /// Event listeners channel configuration
-    pub event_listeners: WorkerEventListenersConfig,
-}
-
-/// Worker command processor configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkerCommandProcessorConfig {
-    /// Command channel buffer size
-    /// Handles: ExecuteStep, SendStepResult, ProcessStepCompletion commands
-    pub command_buffer_size: usize,
-}
-
-/// Worker event systems configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkerEventSystemsConfig {
-    /// Event channel buffer size
-    /// Handles: PGMQ message ready events for namespace queues
-    pub event_channel_buffer_size: usize,
-}
-
-/// Worker event subscribers configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkerEventSubscribersConfig {
-    /// Completion channel buffer size
-    /// Handles: Step execution completion notifications
-    pub completion_buffer_size: usize,
-    /// Result channel buffer size
-    /// Handles: Step result processing
-    pub result_buffer_size: usize,
-}
-
-/// Worker in-process events configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkerInProcessEventsConfig {
-    /// Broadcast channel buffer size
-    /// MIGRATED from event_systems.toml
-    /// Handles: Rust → Ruby event broadcasts across FFI boundary
-    pub broadcast_buffer_size: usize,
-}
-
-/// Worker event listeners configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkerEventListenersConfig {
-    /// PGMQ event buffer size
-    /// Handles: PostgreSQL LISTEN/NOTIFY events for {namespace}_queue
-    pub pgmq_event_buffer_size: usize,
-}
-
-// ============================================================================
-// SHARED/CROSS-CUTTING CHANNELS
-// ============================================================================
-
-/// Shared/cross-cutting channels configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SharedChannelsConfig {
-    /// Event publisher configuration
-    pub event_publisher: SharedEventPublisherConfig,
-    /// FFI configuration
-    pub ffi: SharedFfiConfig,
-}
-
-/// Shared event publisher configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SharedEventPublisherConfig {
-    /// Event queue buffer size
-    /// Previously unbounded! Now bounded to prevent event storm OOM
-    /// Handles: System-wide event publishing (step completions, state transitions)
-    pub event_queue_buffer_size: usize,
-}
-
-/// Shared FFI configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SharedFfiConfig {
-    /// Ruby event buffer size
-    /// Previously unbounded! Now bounded to provide backpressure
-    /// Handles: Rust → Ruby event communication across FFI boundary
-    pub ruby_event_buffer_size: usize,
-}
-
-// ============================================================================
-// OVERFLOW POLICIES
-// ============================================================================
-
-/// Overflow policy configuration for channel backpressure
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OverflowPolicyConfig {
-    /// Threshold for logging warnings (0.0-1.0)
-    /// Log warning when channel usage exceeds this threshold
-    pub log_warning_threshold: f64,
-
-    /// Drop policy when channel is full
-    #[serde(default = "default_drop_policy")]
-    pub drop_policy: DropPolicy,
-
-    /// Metrics configuration
-    pub metrics: OverflowMetricsConfig,
-}
-
-/// Overflow metrics configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OverflowMetricsConfig {
-    /// Whether to enable overflow metrics collection
-    pub enabled: bool,
-    /// Interval for checking channel saturation in seconds
-    pub saturation_check_interval_seconds: u64,
-}
-
-impl OverflowMetricsConfig {
-    /// Get saturation check interval as Duration
-    pub fn saturation_check_interval(&self) -> Duration {
-        Duration::from_secs(self.saturation_check_interval_seconds)
-    }
-}
+// Note: V2's OverflowPolicyConfig uses String for drop_policy, but we keep
+// the DropPolicy enum for type safety and provide conversion methods
 
 /// Drop policy for channel overflow
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -249,29 +124,24 @@ pub enum DropPolicy {
     DropNewest,
 }
 
-fn default_drop_policy() -> DropPolicy {
-    DropPolicy::Block
+// ============================================================================
+// HELPER METHODS
+// ============================================================================
+
+impl OverflowMetricsConfig {
+    /// Get saturation check interval as Duration
+    ///
+    /// Note: V2 uses u32 for saturation_check_interval_seconds, cast to u64 for Duration
+    pub fn saturation_check_interval(&self) -> Duration {
+        Duration::from_secs(self.saturation_check_interval_seconds as u64)
+    }
 }
 
 // ============================================================================
 // DEFAULT IMPLEMENTATIONS
 // ============================================================================
-
-impl Default for OrchestrationChannelsConfig {
-    fn default() -> Self {
-        Self {
-            command_processor: OrchestrationCommandProcessorConfig {
-                command_buffer_size: 1000,
-            },
-            event_systems: OrchestrationEventSystemsConfig {
-                event_channel_buffer_size: 1000,
-            },
-            event_listeners: OrchestrationEventListenersConfig {
-                pgmq_event_buffer_size: 10000,
-            },
-        }
-    }
-}
+// Note: Default implementations for V2-imported types come from V2's impl_builder_default!
+// Only need Default for adapter types and deprecated types
 
 impl Default for TaskReadinessChannelsConfig {
     fn default() -> Self {
@@ -279,55 +149,6 @@ impl Default for TaskReadinessChannelsConfig {
             event_channel: TaskReadinessEventChannelConfig {
                 buffer_size: 1000,
                 send_timeout_ms: 1000,
-            },
-        }
-    }
-}
-
-impl Default for WorkerChannelsConfig {
-    fn default() -> Self {
-        Self {
-            command_processor: WorkerCommandProcessorConfig {
-                command_buffer_size: 1000,
-            },
-            event_systems: WorkerEventSystemsConfig {
-                event_channel_buffer_size: 1000,
-            },
-            event_subscribers: WorkerEventSubscribersConfig {
-                completion_buffer_size: 1000,
-                result_buffer_size: 1000,
-            },
-            in_process_events: WorkerInProcessEventsConfig {
-                broadcast_buffer_size: 1000,
-            },
-            event_listeners: WorkerEventListenersConfig {
-                pgmq_event_buffer_size: 1000,
-            },
-        }
-    }
-}
-
-impl Default for SharedChannelsConfig {
-    fn default() -> Self {
-        Self {
-            event_publisher: SharedEventPublisherConfig {
-                event_queue_buffer_size: 5000,
-            },
-            ffi: SharedFfiConfig {
-                ruby_event_buffer_size: 1000,
-            },
-        }
-    }
-}
-
-impl Default for OverflowPolicyConfig {
-    fn default() -> Self {
-        Self {
-            log_warning_threshold: 0.8,
-            drop_policy: DropPolicy::Block,
-            metrics: OverflowMetricsConfig {
-                enabled: true,
-                saturation_check_interval_seconds: 10,
             },
         }
     }
@@ -345,29 +166,29 @@ mod tests {
     fn test_default_config_creation() {
         let config = MpscChannelsConfig::default();
 
-        // Test orchestration defaults
+        // Test orchestration defaults (V2 types use u32)
         assert_eq!(
             config.orchestration.command_processor.command_buffer_size,
-            1000
+            5000 // V2 default
         );
         assert_eq!(
             config.orchestration.event_listeners.pgmq_event_buffer_size,
-            10000
+            5000 // V2 default
         );
 
-        // TAS-61: task_readiness removed (zero runtime usage)
+        // TAS-61: task_readiness deprecated (zero runtime usage)
+        assert_eq!(config.task_readiness.event_channel.buffer_size, 1000);
 
-        // Test worker defaults
-        assert_eq!(config.worker.command_processor.command_buffer_size, 1000);
+        // Test worker defaults (V2 types use u32)
+        assert_eq!(config.worker.command_processor.command_buffer_size, 2000); // V2 default
         assert_eq!(config.worker.in_process_events.broadcast_buffer_size, 1000);
 
-        // Test shared defaults
+        // Test shared defaults (V2 types use u32)
         assert_eq!(config.shared.event_publisher.event_queue_buffer_size, 5000);
         assert_eq!(config.shared.ffi.ruby_event_buffer_size, 1000);
 
-        // Test overflow policy defaults
+        // Test overflow policy defaults (V2 OverflowPolicyConfig)
         assert_eq!(config.overflow_policy.log_warning_threshold, 0.8);
-        assert_eq!(config.overflow_policy.drop_policy, DropPolicy::Block);
         assert!(config.overflow_policy.metrics.enabled);
     }
 
@@ -382,22 +203,34 @@ mod tests {
 
     #[test]
     fn test_saturation_check_interval_conversion() {
+        // V2 uses u32 for saturation_check_interval_seconds
         let config = OverflowMetricsConfig {
             enabled: true,
-            saturation_check_interval_seconds: 30,
+            saturation_check_interval_seconds: 30, // u32 in V2
         };
         assert_eq!(config.saturation_check_interval(), Duration::from_secs(30));
     }
 
     #[test]
-    fn test_drop_policy_serialization() {
-        // Test default
-        let policy = default_drop_policy();
-        assert_eq!(policy, DropPolicy::Block);
-
-        // Test equality
+    fn test_drop_policy_equality() {
+        // Test equality - DropPolicy enum kept for type safety (V2 uses String)
         assert_eq!(DropPolicy::Block, DropPolicy::Block);
         assert_ne!(DropPolicy::Block, DropPolicy::DropOldest);
+        assert_ne!(DropPolicy::DropOldest, DropPolicy::DropNewest);
+    }
+
+    #[test]
+    fn test_type_alias_compatibility() {
+        // Verify type aliases work correctly
+        let orchestration: OrchestrationChannelsConfig =
+            OrchestrationMpscChannelsConfig::default();
+        let worker: WorkerChannelsConfig = WorkerMpscChannelsConfig::default();
+        let shared: SharedChannelsConfig = SharedMpscChannelsConfig::default();
+
+        // Verify V2 types use u32
+        assert_eq!(orchestration.command_processor.command_buffer_size, 5000);
+        assert_eq!(worker.command_processor.command_buffer_size, 2000);
+        assert_eq!(shared.event_publisher.event_queue_buffer_size, 5000);
     }
 
     #[test]
@@ -412,7 +245,7 @@ mod tests {
         let deserialized: MpscChannelsConfig =
             toml::from_str(&serialized).expect("Failed to deserialize");
 
-        // Verify key values match
+        // Verify key values match (using V2 types with u32)
         assert_eq!(
             config.orchestration.command_processor.command_buffer_size,
             deserialized
@@ -420,6 +253,11 @@ mod tests {
                 .command_processor
                 .command_buffer_size
         );
+        assert_eq!(
+            config.overflow_policy.log_warning_threshold,
+            deserialized.overflow_policy.log_warning_threshold
+        );
+        // V2's OverflowPolicyConfig.drop_policy is String, not enum
         assert_eq!(
             config.overflow_policy.drop_policy,
             deserialized.overflow_policy.drop_policy
