@@ -1,46 +1,17 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+//! # Circuit Breaker Configuration Adapters
+//!
+//! Provides conversion methods from canonical config (tasker.rs) to resilience module types.
+//! TAS-61: All TOML configs now in tasker.rs - this module only provides type conversions.
+
 use std::time::Duration;
 
-// Import component types from V2
-pub use crate::config::tasker::tasker_v2::{
-    CircuitBreakerComponentConfig, GlobalCircuitBreakerSettings,
+// Re-export canonical types
+pub use crate::config::tasker::{
+    CircuitBreakerComponentConfig, CircuitBreakerConfig, GlobalCircuitBreakerSettings,
 };
 
-// Type alias for backward compatibility (legacy name vs V2 name)
+// Type alias for backward compatibility (legacy name)
 pub type CircuitBreakerGlobalSettings = GlobalCircuitBreakerSettings;
-
-/// Circuit breaker configuration with HashMap-based component flexibility
-///
-/// This is an adapter over V2's structured CircuitBreakerConfig. While V2 uses
-/// a fixed struct (ComponentCircuitBreakerConfigs) with named fields, this version
-/// provides HashMap flexibility for dynamic component configuration.
-///
-/// **Pattern**: HashMap adapter (runtime) over V2 structured config (TOML)
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CircuitBreakerConfig {
-    /// Whether circuit breakers are enabled globally
-    pub enabled: bool,
-
-    /// Global circuit breaker settings
-    pub global_settings: GlobalCircuitBreakerSettings,
-
-    /// Default configuration for new circuit breakers
-    pub default_config: CircuitBreakerComponentConfig,
-
-    /// Specific configurations for named components (HashMap for flexibility)
-    pub component_configs: HashMap<String, CircuitBreakerComponentConfig>,
-}
-
-impl CircuitBreakerConfig {
-    /// Get configuration for a specific component
-    pub fn config_for_component(&self, component_name: &str) -> CircuitBreakerComponentConfig {
-        self.component_configs
-            .get(component_name)
-            .cloned()
-            .unwrap_or_else(|| self.default_config.clone())
-    }
-}
 
 impl CircuitBreakerComponentConfig {
     /// Convert to resilience module's format

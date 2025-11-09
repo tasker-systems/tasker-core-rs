@@ -144,7 +144,14 @@ impl TaskHandlerRegistry {
             db_pool: context.database_pool().clone(),
             event_publisher: Some(context.event_publisher.clone()),
             // TAS-61 Phase 6C/6D: Use V2 config structure (common.task_templates)
-            search_paths: Some(context.tasker_config.common.task_templates.search_paths.clone()),
+            search_paths: Some(
+                context
+                    .tasker_config
+                    .common
+                    .task_templates
+                    .search_paths
+                    .clone(),
+            ),
         }
     }
 

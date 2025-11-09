@@ -47,7 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     info!(
         "   Environment: {}",
-        orchestration_handle.tasker_config.common.execution.environment
+        orchestration_handle
+            .tasker_config
+            .common
+            .execution
+            .environment
     );
     info!("   Press Ctrl+C to shutdown gracefully");
 

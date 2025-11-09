@@ -452,8 +452,10 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
 
                 // TAS-51: Initialize channel monitor for observability
-                let channel_monitor =
-                    ChannelMonitor::new("orchestration_event_driven_event_channel", buffer_size as usize);
+                let channel_monitor = ChannelMonitor::new(
+                    "orchestration_event_driven_event_channel",
+                    buffer_size as usize,
+                );
 
                 let mut queue_listener = OrchestrationQueueListener::new(
                     listener_config,

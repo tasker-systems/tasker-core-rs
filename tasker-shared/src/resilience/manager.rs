@@ -3,15 +3,12 @@
 //! Manages multiple circuit breakers for different system components.
 //! Provides centralized control and metrics aggregation.
 
-use crate::config::{CircuitBreakerComponentConfig, CircuitBreakerConfig};
+use crate::config::tasker::CircuitBreakerConfig;
 use crate::resilience::{CircuitBreaker, CircuitBreakerMetrics, SystemCircuitBreakerMetrics};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
-
-// V2 config types (TAS-61 Phase 6C/6D)
-use crate::config::tasker::tasker_v2::CircuitBreakerConfig as CircuitBreakerConfigV2;
 
 /// Manager for multiple circuit breakers across system components
 #[derive(Debug)]
@@ -31,53 +28,6 @@ impl CircuitBreakerManager {
         Self {
             circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
             config: config.clone(),
-        }
-    }
-
-    /// Create new circuit breaker manager from V2 configuration (TAS-61 Phase 6C/6D)
-    ///
-    /// Converts V2 config structure to legacy format for backward compatibility.
-    /// This allows gradual migration while maintaining existing CircuitBreakerManager API.
-    pub fn from_v2_config(config_v2: &CircuitBreakerConfigV2) -> Self {
-        info!("Initializing circuit breaker manager from V2 configuration");
-
-        // Convert V2 config to legacy format
-        let legacy_config = Self::convert_v2_to_legacy(config_v2);
-
-        Self {
-            circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
-            config: legacy_config,
-        }
-    }
-
-    /// Convert V2 CircuitBreakerConfig to legacy format
-    fn convert_v2_to_legacy(v2: &CircuitBreakerConfigV2) -> CircuitBreakerConfig {
-        // Convert global settings (now using V2 type directly via type alias)
-        let global_settings = v2.global_settings.clone();
-
-        // Convert default config from V2's CircuitBreakerDefaultConfig to CircuitBreakerComponentConfig
-        let default_config = CircuitBreakerComponentConfig {
-            failure_threshold: v2.default_config.failure_threshold,
-            timeout_seconds: v2.default_config.timeout_seconds,
-            success_threshold: v2.default_config.success_threshold,
-        };
-
-        // Convert component configs from V2 struct to HashMap
-        let mut component_configs = HashMap::new();
-        component_configs.insert(
-            "task_readiness".to_string(),
-            v2.component_configs.task_readiness.clone(),
-        );
-        component_configs.insert(
-            "pgmq".to_string(),
-            v2.component_configs.pgmq.clone(),
-        );
-
-        CircuitBreakerConfig {
-            enabled: v2.enabled,
-            global_settings,
-            default_config,
-            component_configs,
         }
     }
 
@@ -212,24 +162,6 @@ impl CircuitBreakerManager {
         let system_metrics = self.get_system_metrics().await;
         system_metrics.health_score()
     }
-
-    /// Update configuration for a specific component
-    pub async fn update_component_config(
-        &mut self,
-        component_name: &str,
-        config: CircuitBreakerComponentConfig,
-    ) {
-        self.config
-            .component_configs
-            .insert(component_name.to_string(), config);
-
-        // If circuit breaker already exists, we could recreate it with new config
-        // For now, just log that config was updated (will apply to new instances)
-        info!(
-            component = component_name,
-            "⚙Updated circuit breaker configuration (applies to new instances)"
-        );
-    }
 }
 
 impl Clone for CircuitBreakerManager {
@@ -246,22 +178,35 @@ mod tests {
     use super::*;
 
     fn create_test_config() -> CircuitBreakerConfig {
-        use crate::config::CircuitBreakerGlobalSettings;
+        use crate::config::tasker::{
+            CircuitBreakerComponentConfig, CircuitBreakerDefaultConfig,
+            ComponentCircuitBreakerConfigs, GlobalCircuitBreakerSettings,
+        };
 
         CircuitBreakerConfig {
             enabled: true,
-            global_settings: CircuitBreakerGlobalSettings {
+            global_settings: GlobalCircuitBreakerSettings {
                 max_circuit_breakers: 50,
                 metrics_collection_interval_seconds: 30,
-                // auto_create_enabled removed - hardcoded to true in conversion
                 min_state_transition_interval_seconds: 1.0,
             },
-            default_config: CircuitBreakerComponentConfig {
+            default_config: CircuitBreakerDefaultConfig {
                 failure_threshold: 5,
                 timeout_seconds: 30,
                 success_threshold: 2,
             },
-            component_configs: HashMap::new(),
+            component_configs: ComponentCircuitBreakerConfigs {
+                task_readiness: CircuitBreakerComponentConfig {
+                    failure_threshold: 5,
+                    timeout_seconds: 30,
+                    success_threshold: 2,
+                },
+                pgmq: CircuitBreakerComponentConfig {
+                    failure_threshold: 5,
+                    timeout_seconds: 30,
+                    success_threshold: 2,
+                },
+            },
         }
     }
 

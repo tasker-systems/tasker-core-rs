@@ -16,61 +16,29 @@
 //! - **Context Agnostic**: Same patterns work for orchestration and worker systems
 //! - **Health Monitoring**: Built-in rollback detection and automatic fallback
 
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
-/// Deployment mode for event-driven systems
+/// Deployment mode for event systems
 ///
-/// Defines the operational mode for event-driven coordination, supporting
-/// gradual rollout and reliable fallback mechanisms.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// Enum deserialization will fail if TOML contains invalid value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Display)]
+#[serde(rename_all = "PascalCase")]
 pub enum DeploymentMode {
-    /// Pure polling approach (maximum reliability)
-    ///
-    /// Uses traditional polling mechanisms without event-driven coordination.
-    /// Recommended for:
-    /// - Initial deployments where event infrastructure is not yet proven
-    /// - Fallback mode when event-driven systems experience issues
-    /// - Environments with strict reliability requirements
+    /// Pure event-driven using PostgreSQL LISTEN/NOTIFY
+    #[display("EventDrivenOnly")]
+    EventDrivenOnly,
+    /// Traditional polling-based coordination
+    #[display("PollingOnly")]
     PollingOnly,
-
-    /// Event-driven with polling fallback (optimal balance)
-    ///
-    /// Primary event-driven coordination with polling as a safety net.
-    /// Recommended for:
-    /// - Production deployments (optimal reliability + performance)
-    /// - Gradual rollout of event-driven features
-    /// - Systems requiring zero missed events guarantee
+    /// Event-driven with polling fallback (recommended)
     #[default]
+    #[display("Hybrid")]
     Hybrid,
 
-    /// Pure event-driven approach (maximum performance)
-    ///
-    /// Event-driven coordination without polling fallback.
-    /// Recommended for:
-    /// - High-performance environments with proven event infrastructure
-    /// - Systems optimizing for <10ms latency requirements
-    /// - Mature deployments with comprehensive monitoring
-    EventDrivenOnly,
-
-    /// Disabled event-driven coordination (no polling fallback)
-    ///
-    /// Disabled coordination without polling fallback.
-    /// Recommended for:
-    /// - Environments where event-driven coordination is not required
-    /// - Systems with no event infrastructure or monitoring
+    /// Disabled
+    #[display("Disabled")]
     Disabled,
-}
-
-impl fmt::Display for DeploymentMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DeploymentMode::PollingOnly => write!(f, "PollingOnly"),
-            DeploymentMode::Hybrid => write!(f, "Hybrid"),
-            DeploymentMode::EventDrivenOnly => write!(f, "EventDrivenOnly"),
-            DeploymentMode::Disabled => write!(f, "Disabled"),
-        }
-    }
 }
 
 impl DeploymentMode {
@@ -99,27 +67,20 @@ impl DeploymentMode {
 }
 
 /// Health status for deployment mode assessment
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Display)]
 pub enum DeploymentModeHealthStatus {
     /// System is operating normally within expected parameters
+    #[display("Healthy")]
     Healthy,
     /// System is experiencing minor issues but still functional
+    #[display("Degraded")]
     Degraded,
     /// System is experiencing significant issues requiring attention
+    #[display("Warning")]
     Warning,
     /// System is failing and requires immediate rollback
+    #[display("Critical")]
     Critical,
-}
-
-impl fmt::Display for DeploymentModeHealthStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DeploymentModeHealthStatus::Healthy => write!(f, "Healthy"),
-            DeploymentModeHealthStatus::Degraded => write!(f, "Degraded"),
-            DeploymentModeHealthStatus::Warning => write!(f, "Warning"),
-            DeploymentModeHealthStatus::Critical => write!(f, "Critical"),
-        }
-    }
 }
 
 /// Error types for deployment mode operations

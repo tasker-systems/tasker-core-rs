@@ -48,6 +48,7 @@
 //! - Enum deserialization handles invalid variants (no custom validator needed)
 //! - TODO(TAS-61): Custom validators for domain-specific logic (e.g., PostgreSQL URLs)
 
+pub use crate::event_system::DeploymentMode;
 use bon::Builder;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
@@ -149,6 +150,17 @@ impl TaskerConfig {
     /// Check if this is a complete configuration (both contexts)
     pub fn is_complete(&self) -> bool {
         self.orchestration.is_some() && self.worker.is_some()
+    }
+
+    /// Get staleness detection configuration
+    ///
+    /// Returns the staleness detection configuration from orchestration.dlq.staleness_detection,
+    /// or a default configuration if orchestration is not configured.
+    pub fn staleness_detection_config(&self) -> StalenessDetectionConfig {
+        self.orchestration
+            .as_ref()
+            .map(|o| o.dlq.staleness_detection.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -463,6 +475,24 @@ pub struct CircuitBreakerConfig {
     #[validate(nested)]
     #[builder(default)]
     pub component_configs: ComponentCircuitBreakerConfigs,
+}
+
+impl CircuitBreakerConfig {
+    /// Get configuration for a specific component by name
+    ///
+    /// Provides HashMap-style lookup over structured config for runtime flexibility.
+    /// Returns the default config if component not found.
+    pub fn config_for_component(&self, component_name: &str) -> CircuitBreakerComponentConfig {
+        match component_name {
+            "task_readiness" => self.component_configs.task_readiness.clone(),
+            "pgmq" => self.component_configs.pgmq.clone(),
+            _ => CircuitBreakerComponentConfig {
+                failure_threshold: self.default_config.failure_threshold,
+                timeout_seconds: self.default_config.timeout_seconds,
+                success_threshold: self.default_config.success_threshold,
+            },
+        }
+    }
 }
 
 impl_builder_default!(CircuitBreakerConfig);
@@ -848,24 +878,6 @@ pub struct OrchestrationConfig {
 
 impl_builder_default!(OrchestrationConfig);
 
-/// Deployment mode for event systems
-///
-/// Enum deserialization will fail if TOML contains invalid value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Display)]
-#[serde(rename_all = "PascalCase")]
-pub enum DeploymentMode {
-    /// Pure event-driven using PostgreSQL LISTEN/NOTIFY
-    #[display("EventDrivenOnly")]
-    EventDrivenOnly,
-    /// Traditional polling-based coordination
-    #[display("PollingOnly")]
-    PollingOnly,
-    /// Event-driven with polling fallback (recommended)
-    #[default]
-    #[display("Hybrid")]
-    Hybrid,
-}
-
 /// Orchestration event systems configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 #[serde(rename_all = "snake_case")]
@@ -887,7 +899,7 @@ impl_builder_default!(OrchestrationEventSystemsConfig);
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display, Builder)]
 #[serde(rename_all = "snake_case")]
 #[display("EventSystemConfig(id: {}, mode: {})", system_id, deployment_mode)]
-pub struct EventSystemConfig {
+pub struct EventSystemConfig<T = ()> {
     /// System identifier
     #[validate(length(min = 1))]
     #[builder(default = "default-event-system".to_string())]
@@ -911,6 +923,10 @@ pub struct EventSystemConfig {
     #[validate(nested)]
     #[builder(default)]
     pub health: EventSystemHealthConfig,
+
+    /// System-specific metadata and configuration
+    #[serde(default)]
+    pub metadata: T,
 }
 
 /// Event system timing configuration
@@ -1720,7 +1736,7 @@ impl_builder_default!(WorkerEventSystemsConfig);
 pub struct WorkerEventSystemConfig {
     /// System identifier
     #[validate(length(min = 1))]
-    #[builder(default = "default-worker-event-system".to_string())]
+    #[builder(default = "worker-event-system".to_string())]
     pub system_id: String,
 
     /// Deployment mode
@@ -2088,9 +2104,62 @@ impl_builder_default!(TelemetryConfig);
 
 // DecisionPointsConfig Default implementation via impl_builder_default! macro (see struct definition above)
 
-impl_builder_default!(EventSystemConfig);
-
 impl_builder_default!(WorkerEventSystemConfig);
+
+/// Orchestration-specific event system metadata
+///
+/// TAS-50: All metadata configuration consolidated to respective component configs.
+/// This type kept for backward compatibility but no longer holds configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OrchestrationEventSystemMetadata {
+    /// Placeholder to maintain type compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub _reserved: Option<()>,
+}
+
+/// Task readiness-specific event system metadata
+///
+/// TAS-50: Metadata configuration consolidated to task_readiness.rs
+/// This type kept for backward compatibility but no longer holds configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TaskReadinessEventSystemMetadata {
+    /// Placeholder to maintain type compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub _reserved: Option<()>,
+}
+
+// TAS-50: Task Readiness specific configurations removed
+// These types have been consolidated into tasker-shared/src/config/task_readiness.rs
+// which is the authoritative source for task readiness configuration
+
+// Type aliases for convenience
+pub type OrchestrationEventSystemConfig = EventSystemConfig<OrchestrationEventSystemMetadata>;
+pub type TaskReadinessEventSystemConfig = EventSystemConfig<TaskReadinessEventSystemMetadata>;
+
+// Specific Default implementations for type aliases with correct system IDs
+impl Default for EventSystemConfig<()> {
+    fn default() -> Self {
+        EventSystemConfig::builder().metadata(()).build()
+    }
+}
+
+impl Default for OrchestrationEventSystemConfig {
+    fn default() -> Self {
+        EventSystemConfig::builder()
+            .system_id("orchestration-event-system".to_string())
+            .metadata(OrchestrationEventSystemMetadata::default())
+            .build()
+    }
+}
+
+impl Default for TaskReadinessEventSystemConfig {
+    fn default() -> Self {
+        EventSystemConfig::builder()
+            .system_id("task-readiness-event-system".to_string())
+            .metadata(TaskReadinessEventSystemMetadata::default())
+            .build()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -2377,13 +2446,14 @@ mod tests {
         }
     }
 
-    fn create_test_event_system_config(system_id: &str) -> EventSystemConfig {
+    fn create_test_event_system_config(system_id: &str) -> EventSystemConfig<()> {
         EventSystemConfig {
             system_id: system_id.to_string(),
             deployment_mode: DeploymentMode::Hybrid,
             timing: create_test_timing_config(),
             processing: create_test_processing_config(),
             health: create_test_health_config(),
+            metadata: (),
         }
     }
 
@@ -2615,6 +2685,7 @@ mod tests {
             timing: timing.clone(),
             processing: processing.clone(),
             health: health.clone(),
+            metadata: (),
         };
 
         let _backoff_str = requires_display(&backoff_default);

@@ -1,5 +1,5 @@
 // TAS-61 Phase 6C/6D: V2 config is now canonical
-use crate::config::tasker::TaskerConfigV2 as TaskerConfig;
+use crate::config::tasker::TaskerConfig;
 use crate::config::ConfigManager;
 use crate::events::EventPublisher;
 use crate::messaging::{PgmqClientTrait, UnifiedPgmqClient};
@@ -61,7 +61,7 @@ impl std::fmt::Debug for SystemContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SystemContext")
             .field("processor_uuid", &self.processor_uuid)
-            .field("tasker_config", &"Arc<TaskerConfigV2>")
+            .field("tasker_config", &"Arc<TaskerConfig>")
             .field("message_client", &"Arc<UnifiedMessageClient>")
             .field(
                 "database_pool",
@@ -86,7 +86,7 @@ impl SystemContext {
     /// This method loads orchestration configuration from context-based TOML files
     /// specified by the TASKER_CONFIG_PATH environment variable.
     ///
-    /// The configuration uses a context-based structure with [common] and [orchestration] sections.
+    /// The configuration uses a context-based structure with \[common\] and \[orchestration\] sections.
     /// See config/tasker/orchestration-test.toml for reference.
     ///
     /// # Returns
@@ -237,7 +237,7 @@ impl SystemContext {
         // Create circuit breaker manager if enabled (deprecated - circuit breakers are now redundant with sqlx)
         let circuit_breaker_manager = if let Some(cb_config) = circuit_breaker_config {
             info!("Circuit breaker configuration found but ignored - sqlx provides this functionality");
-            Some(Arc::new(CircuitBreakerManager::from_v2_config(&cb_config)))
+            Some(Arc::new(CircuitBreakerManager::from_config(&cb_config)))
         } else {
             info!("📤 Using standard PgmqClient with sqlx connection pooling");
             None

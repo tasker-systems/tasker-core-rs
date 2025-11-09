@@ -6,8 +6,8 @@
 //! V2 config is loaded from TOML files via ConfigLoader.
 //! See config_v2_integration_tests.rs for proper V2 testing patterns.
 
-use tasker_shared::config::components::BackoffConfig;
-use tasker_shared::config::tasker::tasker_v2::ExecutionConfig;
+use tasker_shared::config::tasker::BackoffConfig;
+use tasker_shared::config::tasker::ExecutionConfig;
 
 // Legacy tests commented out - V2 config doesn't support Default trait
 // V2 config must be loaded from TOML files using ConfigLoader

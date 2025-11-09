@@ -1,7 +1,7 @@
 use crate::config::orchestration::step_enqueuer::StepEnqueuerConfig;
 use crate::config::orchestration::step_result_processor::StepResultProcessorConfig;
-// TAS-61 Phase 6C/6D: TaskerConfigV2 is the canonical config
-use crate::config::tasker::TaskerConfigV2;
+// TAS-61 Phase 6C/6D: TaskerConfig is the canonical config
+use crate::config::tasker::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -39,8 +39,8 @@ impl Default for TaskClaimStepEnqueuerConfig {
 }
 
 // TAS-61 Phase 6C/6D: V2 configuration is canonical
-impl From<&TaskerConfigV2> for TaskClaimStepEnqueuerConfig {
-    fn from(config: &TaskerConfigV2) -> TaskClaimStepEnqueuerConfig {
+impl From<&TaskerConfig> for TaskClaimStepEnqueuerConfig {
+    fn from(config: &TaskerConfig) -> TaskClaimStepEnqueuerConfig {
         TaskClaimStepEnqueuerConfig {
             batch_size: config.common.queues.default_batch_size,
             namespace_filter: None,
@@ -56,8 +56,8 @@ impl From<&TaskerConfigV2> for TaskClaimStepEnqueuerConfig {
     }
 }
 
-impl From<Arc<TaskerConfigV2>> for TaskClaimStepEnqueuerConfig {
-    fn from(config: Arc<TaskerConfigV2>) -> TaskClaimStepEnqueuerConfig {
+impl From<Arc<TaskerConfig>> for TaskClaimStepEnqueuerConfig {
+    fn from(config: Arc<TaskerConfig>) -> TaskClaimStepEnqueuerConfig {
         TaskClaimStepEnqueuerConfig {
             batch_size: config.common.queues.default_batch_size,
             namespace_filter: None,

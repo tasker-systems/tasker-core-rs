@@ -3,7 +3,7 @@
 use chrono::Utc;
 use regex::Regex;
 use tasker_client::{ClientConfig, ClientResult};
-use tasker_shared::config::{ConfigMerger, tasker::TaskerConfigV2};
+use tasker_shared::config::{tasker::TaskerConfig, ConfigMerger};
 
 use crate::ConfigCommands;
 
@@ -110,11 +110,11 @@ pub async fn handle_config_command(
                     ))
                 })?;
 
-                // TAS-61 Phase 6D: V2 config validation (all contexts use TaskerConfigV2)
+                // TAS-61 Phase 6D: V2 config validation (all contexts use TaskerConfig)
                 // Context determines which optional sections should be present
-                let config: TaskerConfigV2 = toml_value.clone().try_into().map_err(|e| {
+                let config: TaskerConfig = toml_value.clone().try_into().map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to deserialize TaskerConfigV2: {}",
+                        "Failed to deserialize TaskerConfig: {}",
                         e
                     ))
                 })?;
@@ -122,10 +122,7 @@ pub async fn handle_config_command(
                 // Validate configuration structure
                 use validator::Validate;
                 config.validate().map_err(|e| {
-                    tasker_client::ClientError::ConfigError(format!(
-                        "Validation failed: {:?}",
-                        e
-                    ))
+                    tasker_client::ClientError::ConfigError(format!("Validation failed: {:?}", e))
                 })?;
 
                 // Verify context-specific requirements
@@ -142,7 +139,7 @@ pub async fn handle_config_command(
                         // Orchestration context should have orchestration section
                         if config.orchestration.is_none() {
                             return Err(tasker_client::ClientError::ConfigError(
-                                "Orchestration context missing [orchestration] section".to_string()
+                                "Orchestration context missing [orchestration] section".to_string(),
                             ));
                         }
                     }
@@ -150,7 +147,7 @@ pub async fn handle_config_command(
                         // Worker context should have worker section
                         if config.worker.is_none() {
                             return Err(tasker_client::ClientError::ConfigError(
-                                "Worker context missing [worker] section".to_string()
+                                "Worker context missing [worker] section".to_string(),
                             ));
                         }
                     }
@@ -158,7 +155,8 @@ pub async fn handle_config_command(
                         // Complete context should have all sections
                         if !config.is_complete() {
                             return Err(tasker_client::ClientError::ConfigError(
-                                "Complete context missing orchestration or worker sections".to_string()
+                                "Complete context missing orchestration or worker sections"
+                                    .to_string(),
                             ));
                         }
                     }
@@ -207,17 +205,17 @@ pub async fn handle_config_command(
             // TAS-61 Phase 6D: V2 config validation
             println!("\nValidating {} configuration...", context);
 
-            let config: TaskerConfigV2 = toml_value.clone().try_into().map_err(|e| {
+            let config: TaskerConfig = toml_value.clone().try_into().map_err(|e| {
                 if explain_errors {
                     eprintln!("\n❌ Configuration structure error:");
                     eprintln!("  {}", e);
-                    eprintln!("\nExpected TaskerConfigV2 structure:");
+                    eprintln!("\nExpected TaskerConfig structure:");
                     eprintln!("  [common] - Always required");
                     eprintln!("  [orchestration] - Required for orchestration/complete contexts");
                     eprintln!("  [worker] - Required for worker/complete contexts");
                 }
                 tasker_client::ClientError::ConfigError(format!(
-                    "Failed to deserialize TaskerConfigV2: {}",
+                    "Failed to deserialize TaskerConfig: {}",
                     e
                 ))
             })?;
@@ -230,7 +228,7 @@ pub async fn handle_config_command(
                     eprintln!("  {}", errors);
                 }
                 tasker_client::ClientError::ConfigError(format!(
-                    "TaskerConfigV2 validation failed: {:?}",
+                    "TaskerConfig validation failed: {:?}",
                     errors
                 ))
             })?;
@@ -244,7 +242,8 @@ pub async fn handle_config_command(
                             eprintln!("  Common context should not contain orchestration or worker sections");
                         }
                         return Err(tasker_client::ClientError::ConfigError(
-                            "Common context should not contain orchestration or worker sections".to_string()
+                            "Common context should not contain orchestration or worker sections"
+                                .to_string(),
                         ));
                     }
                     println!("✓ CommonConfig validation passed");
@@ -256,7 +255,7 @@ pub async fn handle_config_command(
                             eprintln!("  Orchestration context missing [orchestration] section");
                         }
                         return Err(tasker_client::ClientError::ConfigError(
-                            "Orchestration context missing [orchestration] section".to_string()
+                            "Orchestration context missing [orchestration] section".to_string(),
                         ));
                     }
                     println!("✓ OrchestrationConfig validation passed");
@@ -268,7 +267,7 @@ pub async fn handle_config_command(
                             eprintln!("  Worker context missing [worker] section");
                         }
                         return Err(tasker_client::ClientError::ConfigError(
-                            "Worker context missing [worker] section".to_string()
+                            "Worker context missing [worker] section".to_string(),
                         ));
                     }
                     println!("✓ WorkerConfig validation passed");
@@ -277,13 +276,15 @@ pub async fn handle_config_command(
                     if !config.is_complete() {
                         if explain_errors {
                             eprintln!("\n❌ Context validation error:");
-                            eprintln!("  Complete context missing orchestration or worker sections");
+                            eprintln!(
+                                "  Complete context missing orchestration or worker sections"
+                            );
                         }
                         return Err(tasker_client::ClientError::ConfigError(
-                            "Complete context missing orchestration or worker sections".to_string()
+                            "Complete context missing orchestration or worker sections".to_string(),
                         ));
                     }
-                    println!("✓ TaskerConfigV2 (complete) validation passed");
+                    println!("✓ TaskerConfig (complete) validation passed");
                     println!("  Note: Complete context contains all sections");
                 }
                 _ => {
@@ -908,7 +909,7 @@ pub async fn handle_config_command(
             path,
         } => {
             // Check if --path was provided (legacy single-file mode)
-            let tasker_config: TaskerConfigV2 = if let Some(config_path) = path {
+            let tasker_config: TaskerConfig = if let Some(config_path) = path {
                 // Load directly from path using simple V2 loader
                 let path_buf = std::path::PathBuf::from(&config_path);
                 tasker_shared::config::ConfigLoader::load_from_path(&path_buf).map_err(|e| {
@@ -957,10 +958,10 @@ pub async fn handle_config_command(
                     ))
                 })?;
 
-                // Hydrate full TaskerConfigV2 from merged TOML
+                // Hydrate full TaskerConfig from merged TOML
                 toml_value.try_into().map_err(|e: toml::de::Error| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to hydrate TaskerConfigV2 from merged TOML: {}",
+                        "Failed to hydrate TaskerConfig from merged TOML: {}",
                         e
                     ))
                 })?
@@ -970,19 +971,19 @@ pub async fn handle_config_command(
             let output = match format.as_str() {
                 "json" => serde_json::to_string_pretty(&tasker_config).map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to serialize TaskerConfigV2 to JSON: {}",
+                        "Failed to serialize TaskerConfig to JSON: {}",
                         e
                     ))
                 })?,
                 "yaml" => serde_yaml::to_string(&tasker_config).map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to serialize TaskerConfigV2 to YAML: {}",
+                        "Failed to serialize TaskerConfig to YAML: {}",
                         e
                     ))
                 })?,
                 "toml" => toml::to_string_pretty(&tasker_config).map_err(|e| {
                     tasker_client::ClientError::ConfigError(format!(
-                        "Failed to serialize TaskerConfigV2 to TOML: {}",
+                        "Failed to serialize TaskerConfig to TOML: {}",
                         e
                     ))
                 })?,

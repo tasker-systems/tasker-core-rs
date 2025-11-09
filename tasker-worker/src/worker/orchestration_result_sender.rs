@@ -28,7 +28,7 @@ impl OrchestrationResultSender {
     /// TAS-61 Phase 6C/6D: Accept V2 QueuesConfig
     pub fn new(
         pgmq_client: Arc<UnifiedPgmqClient>,
-        queues_config: &tasker_shared::config::tasker::tasker_v2::QueuesConfig,
+        queues_config: &tasker_shared::config::tasker::QueuesConfig,
     ) -> Self {
         // Create queue classifier for config-driven queue naming using V2 config
         let queue_classifier = QueueClassifier::from_queues_config_v2(queues_config);

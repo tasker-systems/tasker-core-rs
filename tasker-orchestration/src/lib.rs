@@ -55,7 +55,7 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use tasker_shared::config::tasker::tasker_v2::TaskerConfig;
+//! use tasker_shared::config::tasker::TaskerConfig;
 //!
 //! // Configuration is loaded from TOML files via SystemContext
 //! // See tasker-shared/src/system_context.rs for initialization patterns

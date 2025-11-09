@@ -172,7 +172,8 @@ pub use staleness_detector::{StalenessDetector, StalenessResult};
 
 // Orchestration Configuration
 pub use config::{
-    BackoffConfig, DatabaseConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig, TelemetryConfig,
+    BackoffConfig, DatabaseConfig, ExecutionConfig, ReenqueueDelaysConfig, TaskerConfig,
+    TelemetryConfig,
 };
 
 // Shared Configuration (from tasker-shared)

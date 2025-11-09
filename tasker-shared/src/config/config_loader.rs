@@ -3,7 +3,7 @@
 //! Dead-simple config loader that:
 //! 0. Automatically loads .env file if present (via dotenvy)
 //! 1. Reads a single pre-merged TOML file from TASKER_CONFIG_PATH
-//! 2. Deserializes to TaskerConfigV2
+//! 2. Deserializes to TaskerConfig
 //! 3. Performs environment variable substitution
 //! 4. Validates with validator library
 //!
@@ -11,7 +11,7 @@
 //! The CLI generates merged configs, we just load them.
 
 use super::error::{ConfigResult, ConfigurationError};
-use super::tasker::TaskerConfigV2;
+use super::tasker::TaskerConfig;
 use std::path::PathBuf;
 use validator::Validate;
 
@@ -33,14 +33,14 @@ impl ConfigLoader {
     /// Automatically loads .env file if present before reading configuration.
     ///
     /// # Returns
-    /// TaskerConfigV2 (canonical configuration)
+    /// TaskerConfig (canonical configuration)
     ///
     /// # Errors
     /// - TASKER_CONFIG_PATH not set
     /// - File not found or cannot be read
     /// - TOML parse errors
     /// - Validation errors
-    pub fn load_from_env() -> ConfigResult<TaskerConfigV2> {
+    pub fn load_from_env() -> ConfigResult<TaskerConfig> {
         // Load .env file if present (silently ignore if not found)
         dotenvy::dotenv().ok();
 
@@ -67,8 +67,8 @@ impl ConfigLoader {
     /// * `path` - Path to pre-merged TOML configuration file
     ///
     /// # Returns
-    /// TaskerConfigV2 (canonical configuration)
-    pub fn load_from_path(path: &PathBuf) -> ConfigResult<TaskerConfigV2> {
+    /// TaskerConfig (canonical configuration)
+    pub fn load_from_path(path: &PathBuf) -> ConfigResult<TaskerConfig> {
         // 1. Read file
         let contents = std::fs::read_to_string(path).map_err(|e| {
             ConfigurationError::validation_error(format!(
@@ -85,12 +85,9 @@ impl ConfigLoader {
         let toml_value: toml::Value = toml::from_str(&contents_with_env)
             .map_err(|e| ConfigurationError::json_serialization_error("TOML parsing", e))?;
 
-        // 4. Deserialize to TaskerConfigV2
-        let config_v2: TaskerConfigV2 = toml_value.try_into().map_err(|e| {
-            ConfigurationError::json_serialization_error(
-                "TOML to TaskerConfigV2 deserialization",
-                e,
-            )
+        // 4. Deserialize to TaskerConfig
+        let config_v2: TaskerConfig = toml_value.try_into().map_err(|e| {
+            ConfigurationError::json_serialization_error("TOML to TaskerConfig deserialization", e)
         })?;
 
         // 5. Validate
@@ -101,7 +98,7 @@ impl ConfigLoader {
             ))
         })?;
 
-        tracing::debug!("Successfully loaded and validated TaskerConfigV2");
+        tracing::debug!("Successfully loaded and validated TaskerConfig");
         tracing::info!("Configuration loaded successfully from {}", path.display());
 
         Ok(config_v2)
@@ -141,13 +138,13 @@ impl ConfigLoader {
 /// ## TAS-61 Phase 6C/6D: V2 Only
 ///
 /// Holds only V2 configuration as the source of truth:
-/// - `config_v2`: TaskerConfigV2 (canonical configuration)
+/// - `config_v2`: TaskerConfig (canonical configuration)
 ///
 /// Legacy config access has been removed.
 #[derive(Debug, Clone)]
 pub struct ConfigManager {
     /// V2 configuration (source of truth and only configuration)
-    config_v2: TaskerConfigV2,
+    config_v2: TaskerConfig,
     environment: String,
 }
 
@@ -183,10 +180,10 @@ impl ConfigManager {
         }))
     }
 
-    /// Load TaskerConfigV2 from file path (internal helper)
+    /// Load TaskerConfig from file path (internal helper)
     ///
     /// This is the V2 loading logic extracted for reuse.
-    fn load_v2_from_path(path: &PathBuf) -> ConfigResult<TaskerConfigV2> {
+    fn load_v2_from_path(path: &PathBuf) -> ConfigResult<TaskerConfig> {
         // 1. Read file
         let contents = std::fs::read_to_string(path).map_err(|e| {
             ConfigurationError::validation_error(format!(
@@ -203,12 +200,9 @@ impl ConfigManager {
         let toml_value: toml::Value = toml::from_str(&contents_with_env)
             .map_err(|e| ConfigurationError::json_serialization_error("TOML parsing", e))?;
 
-        // 4. Deserialize to TaskerConfigV2
-        let config_v2: TaskerConfigV2 = toml_value.try_into().map_err(|e| {
-            ConfigurationError::json_serialization_error(
-                "TOML to TaskerConfigV2 deserialization",
-                e,
-            )
+        // 4. Deserialize to TaskerConfig
+        let config_v2: TaskerConfig = toml_value.try_into().map_err(|e| {
+            ConfigurationError::json_serialization_error("TOML to TaskerConfig deserialization", e)
         })?;
 
         // 5. Validate
@@ -219,7 +213,7 @@ impl ConfigManager {
             ))
         })?;
 
-        tracing::debug!("Successfully loaded and validated TaskerConfigV2");
+        tracing::debug!("Successfully loaded and validated TaskerConfig");
 
         Ok(config_v2)
     }
@@ -227,8 +221,8 @@ impl ConfigManager {
     /// Get reference to the V2 configuration
     ///
     /// TAS-61 Phase 6C/6D: This is the only configuration method.
-    /// Returns the canonical TaskerConfigV2.
-    pub fn config_v2(&self) -> &TaskerConfigV2 {
+    /// Returns the canonical TaskerConfig.
+    pub fn config_v2(&self) -> &TaskerConfig {
         &self.config_v2
     }
 
@@ -237,13 +231,13 @@ impl ConfigManager {
         &self.environment
     }
 
-    /// Create ConfigManager from existing TaskerConfigV2
+    /// Create ConfigManager from existing TaskerConfig
     ///
     /// TAS-61 Phase 6C/6D: Direct V2 construction for tests
     ///
     /// This is primarily for test compatibility where you have a V2 config
     /// constructed directly. For production use, prefer `load_from_env()`.
-    pub fn from_config_v2(config_v2: TaskerConfigV2, environment: String) -> Self {
+    pub fn from_config_v2(config_v2: TaskerConfig, environment: String) -> Self {
         Self {
             config_v2,
             environment,

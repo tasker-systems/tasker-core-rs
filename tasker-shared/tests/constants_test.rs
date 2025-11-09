@@ -3,10 +3,7 @@
 use tasker_shared::constants::*;
 use tasker_shared::state_machine::{TaskState, WorkflowStepState};
 use tasker_shared::{
-    config::{
-        components::{backoff::ReenqueueDelays, BackoffConfig},
-        tasker::tasker_v2::ExecutionConfig,
-    },
+    config::tasker::{BackoffConfig, ExecutionConfig, ReenqueueDelaysConfig},
     system_events,
 };
 
@@ -31,7 +28,7 @@ fn test_backoff_config_defaults() {
 
 #[test]
 fn test_reenqueue_delays_defaults() {
-    let delays = ReenqueueDelays::default();
+    let delays = ReenqueueDelaysConfig::default();
     assert_eq!(delays.initializing, 5);
     assert_eq!(delays.enqueuing_steps, 0);
     assert_eq!(delays.evaluating_results, 5);

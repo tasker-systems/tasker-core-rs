@@ -54,7 +54,7 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use tasker_shared::config::{ConfigLoader, tasker::TaskerConfigV2};
+//! use tasker_shared::config::{ConfigLoader, tasker::TaskerConfig};
 //!
 //! // TAS-61 Phase 6C/6D: V2 configuration is canonical
 //! // Load configuration from environment

@@ -60,7 +60,7 @@ impl QueueClassifier {
     }
 
     /// TAS-61 Phase 6C/6D: Create from V2 QueuesConfig
-    pub fn from_queues_config_v2(config: &crate::config::tasker::tasker_v2::QueuesConfig) -> Self {
+    pub fn from_queues_config_v2(config: &crate::config::tasker::QueuesConfig) -> Self {
         let orchestration_owned = OrchestrationOwnedQueues {
             step_results: config.orchestration_queues.step_results.clone(),
             task_requests: config.orchestration_queues.task_requests.clone(),

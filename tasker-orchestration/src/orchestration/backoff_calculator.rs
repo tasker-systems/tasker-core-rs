@@ -28,7 +28,7 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 // TAS-61 Phase 6C/6D: V2 configuration is canonical
-use tasker_shared::config::tasker::TaskerConfigV2;
+use tasker_shared::config::tasker::TaskerConfig;
 use uuid::Uuid;
 
 /// Configuration for backoff calculation behavior
@@ -58,8 +58,8 @@ impl Default for BackoffCalculatorConfig {
     }
 }
 
-impl From<Arc<TaskerConfigV2>> for BackoffCalculatorConfig {
-    fn from(config: Arc<TaskerConfigV2>) -> BackoffCalculatorConfig {
+impl From<Arc<TaskerConfig>> for BackoffCalculatorConfig {
+    fn from(config: Arc<TaskerConfig>) -> BackoffCalculatorConfig {
         // Use the first default backoff value as base delay, or fallback to 1 second
         let base_delay_seconds = config
             .common
@@ -79,8 +79,8 @@ impl From<Arc<TaskerConfigV2>> for BackoffCalculatorConfig {
     }
 }
 
-impl From<&TaskerConfigV2> for BackoffCalculatorConfig {
-    fn from(config: &TaskerConfigV2) -> BackoffCalculatorConfig {
+impl From<&TaskerConfig> for BackoffCalculatorConfig {
+    fn from(config: &TaskerConfig) -> BackoffCalculatorConfig {
         // Use the first default backoff value as base delay, or fallback to 1 second
         let base_delay_seconds = config
             .common

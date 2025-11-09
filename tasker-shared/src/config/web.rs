@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // Import web config structs from V2
-pub use crate::config::tasker::tasker_v2::{
-    CorsConfig, OrchestrationWebConfig, RateLimitingConfig, ResilienceConfig,
-    RouteAuthConfig, TlsConfig, WebDatabasePoolsConfig,
+pub use crate::config::tasker::{
+    CorsConfig, OrchestrationWebConfig, RateLimitingConfig, ResilienceConfig, RouteAuthConfig,
+    TlsConfig, WebDatabasePoolsConfig,
 };
 
 // Type aliases for backward compatibility (legacy names → V2 names)
@@ -158,8 +158,8 @@ impl Default for WebAuthConfig {
 }
 
 // TAS-61 Phase 6C/6D: Conversion from V2 AuthConfig to legacy WebAuthConfig
-impl From<crate::config::tasker::tasker_v2::AuthConfig> for WebAuthConfig {
-    fn from(v2: crate::config::tasker::tasker_v2::AuthConfig) -> Self {
+impl From<crate::config::tasker::AuthConfig> for WebAuthConfig {
+    fn from(v2: crate::config::tasker::AuthConfig) -> Self {
         // Convert Vec<ProtectedRouteConfig> to HashMap<String, RouteAuthConfig>
         let protected_routes = v2.routes_map();
 

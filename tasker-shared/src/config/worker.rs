@@ -1,109 +1,59 @@
-//! # Worker Configuration
+//! # Worker Configuration Adapters
 //!
-//! Configuration for worker processes implementing the command pattern architecture.
-//! Replaces the old polling-based executor pools with event-driven step processing.
+//! TAS-61 Phase 6C/6D: This module provides **type adapters** over V2's storage-optimized configuration.
+//!
+//! ## Type Adapter Pattern
+//!
+//! V2 configuration (tasker_v2.rs) uses storage-optimized types for TOML efficiency:
+//! - `u32` for numeric fields (claim_timeout_seconds, health_check_interval_seconds, etc.)
+//!
+//! These adapters convert to runtime-optimized types for performance:
+//! - `u64` for time values (prevents overflow, matches std::time::Duration)
+//! - `usize` for concurrency limits (matches Rust collection/threading APIs)
+//!
+//! ## Type Mappings
+//!
+//! - `StepProcessingConfig` → Adapter (u32 → u64/usize conversion)
+//!   - claim_timeout_seconds: u32 → u64
+//!   - max_concurrent_steps: u32 → usize
+//! - `HealthMonitoringConfig` → Adapter (u32 → u64 conversion)
+//!   - health_check_interval_seconds: u32 → u64
+//!
+//! ## Usage Pattern
+//!
+//! ```rust,ignore
+//! // V2 config loaded from TOML
+//! let config: TaskerConfig = load_from_toml();
+//!
+//! // Convert to runtime adapter types
+//! let step_config: StepProcessingConfig = config.worker.unwrap().step_processing.into();
+//! // Now: claim_timeout_seconds is u64 (was u32)
+//! //      max_concurrent_steps is usize (was u32)
+//! ```
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{QueuesConfig, WebConfig};
-
-/// Worker configuration for TAS-40 command pattern architecture
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkerConfig {
-    /// Worker system identification
-    pub worker_id: String,
-    pub worker_type: String,
-
-    /// Step processing configuration (command pattern)
-    pub step_processing: StepProcessingConfig,
-
-    /// Worker health monitoring
-    pub health_monitoring: HealthMonitoringConfig,
-
-    // Note: Event system configuration moved to unified TaskerConfig.event_systems.worker
-    /// Queue configuration for message consumption
-    /// Note: This field is populated from the main queues configuration, not from TOML
-    #[serde(skip)]
-    pub queues: QueuesConfig,
-
-    pub web: WebConfig,
-}
-
-/// Step processing configuration for command pattern architecture
+/// Step processing configuration adapter (u32 → u64/usize)
+///
+/// Converts V2's storage-optimized types to runtime performance types.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StepProcessingConfig {
-    /// Timeout for claiming a step (seconds)
+    /// Timeout for claiming a step (seconds) - u64 for Duration compatibility
     pub claim_timeout_seconds: u64,
 
     /// Maximum retries for failed steps
     pub max_retries: u32,
 
-    /// Maximum concurrent steps this worker can process
+    /// Maximum concurrent steps - usize for threading/collection APIs
     pub max_concurrent_steps: usize,
 }
 
-/// Event system configuration for command pattern
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct EventSystemConfig {
-    /// Event publisher configuration
-    pub publisher: EventPublisherConfig,
-
-    /// Event subscriber configuration
-    pub subscriber: EventSubscriberConfig,
-
-    /// Event processing configuration
-    pub processing: EventProcessingConfig,
-}
-
-/// Event publisher configuration for sending results back to orchestration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct EventPublisherConfig {
-    /// Publisher endpoint or connection string
-    pub endpoint: String,
-
-    /// Batch size for publishing events
-    pub batch_size: usize,
-
-    /// Timeout for publishing events (ms)
-    pub timeout_ms: u64,
-
-    /// Maximum retries for publishing
-    pub max_retries: u32,
-}
-
-/// Event subscriber configuration for receiving step execution requests
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct EventSubscriberConfig {
-    /// Subscriber endpoint or connection string
-    pub endpoint: String,
-
-    /// Queue names to subscribe to
-    pub queue_names: Vec<String>,
-
-    /// Message prefetch count
-    pub prefetch_count: usize,
-
-    /// Acknowledgment timeout (seconds)
-    pub ack_timeout_seconds: u64,
-}
-
-/// Event processing configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct EventProcessingConfig {
-    /// Event processing timeout (ms)
-    pub processing_timeout_ms: u64,
-
-    /// Enable event deduplication
-    pub deduplication_enabled: bool,
-
-    /// Deduplication cache size
-    pub deduplication_cache_size: usize,
-}
-
-/// Worker health monitoring configuration
+/// Worker health monitoring configuration adapter (u32 → u64)
+///
+/// Converts V2's storage-optimized types to runtime performance types.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HealthMonitoringConfig {
-    /// Health check interval (seconds)
+    /// Health check interval (seconds) - u64 for Duration compatibility
     pub health_check_interval_seconds: u64,
 
     /// Enable performance monitoring
@@ -113,19 +63,29 @@ pub struct HealthMonitoringConfig {
     pub error_rate_threshold: f64,
 }
 
-impl Default for WorkerConfig {
-    fn default() -> Self {
+// TAS-61 Phase 6C/6D: From implementations to convert V2 → adapter types
+
+impl From<crate::config::tasker::StepProcessingConfig> for StepProcessingConfig {
+    fn from(v2: crate::config::tasker::StepProcessingConfig) -> Self {
         Self {
-            worker_id: "worker-001".to_string(),
-            worker_type: "general".to_string(),
-            step_processing: StepProcessingConfig::default(),
-            // Event system configuration now comes from unified TaskerConfig.event_systems.worker
-            health_monitoring: HealthMonitoringConfig::default(),
-            queues: QueuesConfig::default(),
-            web: WebConfig::default(),
+            claim_timeout_seconds: v2.claim_timeout_seconds as u64,
+            max_retries: v2.max_retries,
+            max_concurrent_steps: v2.max_concurrent_steps as usize,
         }
     }
 }
+
+impl From<crate::config::tasker::HealthMonitoringConfig> for HealthMonitoringConfig {
+    fn from(v2: crate::config::tasker::HealthMonitoringConfig) -> Self {
+        Self {
+            health_check_interval_seconds: v2.health_check_interval_seconds as u64,
+            performance_monitoring_enabled: v2.performance_monitoring_enabled,
+            error_rate_threshold: v2.error_rate_threshold,
+        }
+    }
+}
+
+// Default implementations for adapter types (mirror V2 defaults)
 
 impl Default for StepProcessingConfig {
     fn default() -> Self {
@@ -133,38 +93,6 @@ impl Default for StepProcessingConfig {
             claim_timeout_seconds: 300,
             max_retries: 3,
             max_concurrent_steps: 100,
-        }
-    }
-}
-
-impl Default for EventPublisherConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: "tcp://localhost:5555".to_string(),
-            batch_size: 10,
-            timeout_ms: 5000,
-            max_retries: 3,
-        }
-    }
-}
-
-impl Default for EventSubscriberConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: "tcp://localhost:5556".to_string(),
-            queue_names: vec!["worker_queue".to_string()],
-            prefetch_count: 10,
-            ack_timeout_seconds: 30,
-        }
-    }
-}
-
-impl Default for EventProcessingConfig {
-    fn default() -> Self {
-        Self {
-            processing_timeout_ms: 30000,
-            deduplication_enabled: true,
-            deduplication_cache_size: 1000,
         }
     }
 }
@@ -179,36 +107,52 @@ impl Default for HealthMonitoringConfig {
     }
 }
 
-impl WorkerConfig {
-    /// Validate worker configuration
-    pub fn validate(&self) -> Result<(), String> {
-        if self.worker_id.is_empty() {
-            return Err("worker_id cannot be empty".to_string());
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        if self.worker_type.is_empty() {
-            return Err("worker_type cannot be empty".to_string());
-        }
+    #[test]
+    fn test_step_processing_config_from_v2() {
+        // Use V2 default and manually construct for testing
+        let v2 = crate::config::tasker::StepProcessingConfig {
+            claim_timeout_seconds: 600,
+            max_retries: 5,
+            max_concurrent_steps: 50,
+        };
 
-        if self.step_processing.max_concurrent_steps == 0 {
-            return Err("max_concurrent_steps must be greater than 0".to_string());
-        }
+        let adapter: StepProcessingConfig = v2.into();
 
-        Ok(())
+        assert_eq!(adapter.claim_timeout_seconds, 600u64);
+        assert_eq!(adapter.max_retries, 5);
+        assert_eq!(adapter.max_concurrent_steps, 50usize);
     }
 
-    /// Get step processing concurrency limit
-    pub fn max_concurrent_steps(&self) -> usize {
-        self.step_processing.max_concurrent_steps
+    #[test]
+    fn test_health_monitoring_config_from_v2() {
+        // Use V2 default and manually construct for testing
+        let v2 = crate::config::tasker::HealthMonitoringConfig {
+            health_check_interval_seconds: 60,
+            performance_monitoring_enabled: false,
+            error_rate_threshold: 0.10,
+        };
+
+        let adapter: HealthMonitoringConfig = v2.into();
+
+        assert_eq!(adapter.health_check_interval_seconds, 60u64);
+        assert!(!adapter.performance_monitoring_enabled);
+        assert_eq!(adapter.error_rate_threshold, 0.10);
     }
 
-    /// Get web configuration with fallback to defaults
-    pub fn web_config(&self) -> WebConfig {
-        self.web.clone()
-    }
+    #[test]
+    fn test_default_values() {
+        let step_config = StepProcessingConfig::default();
+        assert_eq!(step_config.claim_timeout_seconds, 300);
+        assert_eq!(step_config.max_retries, 3);
+        assert_eq!(step_config.max_concurrent_steps, 100);
 
-    /// Check if web API is enabled
-    pub fn web_enabled(&self) -> bool {
-        self.web.enabled
+        let health_config = HealthMonitoringConfig::default();
+        assert_eq!(health_config.health_check_interval_seconds, 10);
+        assert!(health_config.performance_monitoring_enabled);
+        assert_eq!(health_config.error_rate_threshold, 0.05);
     }
 }

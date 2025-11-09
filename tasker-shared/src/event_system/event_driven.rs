@@ -276,7 +276,7 @@ mod tests {
         }
 
         fn deployment_mode(&self) -> DeploymentMode {
-            self.deployment_mode.clone()
+            self.deployment_mode
         }
 
         fn is_running(&self) -> bool {

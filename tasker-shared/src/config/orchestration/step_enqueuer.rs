@@ -1,5 +1,5 @@
-// TAS-61 Phase 6C/6D: TaskerConfigV2 is the canonical config
-use crate::config::tasker::TaskerConfigV2;
+// TAS-61 Phase 6C/6D: TaskerConfig is the canonical config
+use crate::config::tasker::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -28,8 +28,8 @@ impl Default for StepEnqueuerConfig {
 }
 
 // TAS-61 Phase 6C/6D: V2 configuration is canonical
-impl From<&TaskerConfigV2> for StepEnqueuerConfig {
-    fn from(config: &TaskerConfigV2) -> StepEnqueuerConfig {
+impl From<&TaskerConfig> for StepEnqueuerConfig {
+    fn from(config: &TaskerConfig) -> StepEnqueuerConfig {
         StepEnqueuerConfig {
             max_steps_per_task: config.common.execution.step_batch_size as usize,
             enqueue_delay_seconds: 0, // No direct mapping, keep default
@@ -43,8 +43,8 @@ impl From<&TaskerConfigV2> for StepEnqueuerConfig {
     }
 }
 
-impl From<Arc<TaskerConfigV2>> for StepEnqueuerConfig {
-    fn from(config: Arc<TaskerConfigV2>) -> StepEnqueuerConfig {
+impl From<Arc<TaskerConfig>> for StepEnqueuerConfig {
+    fn from(config: Arc<TaskerConfig>) -> StepEnqueuerConfig {
         StepEnqueuerConfig {
             max_steps_per_task: config.common.execution.step_batch_size as usize,
             enqueue_delay_seconds: 0, // No direct mapping, keep default

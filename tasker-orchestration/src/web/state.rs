@@ -48,7 +48,7 @@ pub struct AppState {
     /// Web server configuration (V2 OrchestrationWebConfig)
     pub config: Arc<WebConfig>,
 
-    /// Authentication configuration (converted from V2's Option<AuthConfig> to WebAuthConfig adapter)
+    /// Authentication configuration (converted from V2's `Option<AuthConfig>` to WebAuthConfig adapter)
     /// This provides route matching methods needed by the auth middleware
     pub auth_config: Option<Arc<tasker_shared::config::WebAuthConfig>>,
 
@@ -88,12 +88,18 @@ impl AppState {
             .as_ref()
             .and_then(|o| o.web.as_ref())
             .ok_or_else(|| {
-                ApiError::internal_server_error("Web configuration not present in orchestration context")
+                ApiError::internal_server_error(
+                    "Web configuration not present in orchestration context",
+                )
             })?
             .clone();
 
         // TAS-61 V2: Extract database URL from common configuration
-        let database_url = orchestration_core.context.tasker_config.common.database_url();
+        let database_url = orchestration_core
+            .context
+            .tasker_config
+            .common
+            .database_url();
         let pool_config = &web_config.database_pools;
 
         debug!(

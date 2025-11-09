@@ -79,8 +79,11 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
     // TAS-61 Phase 6C/6D: Access mpsc_channels from common config
     // Create Ruby event handler with bounded channel (TAS-51)
     let buffer_size = config.common.mpsc_channels.ffi.ruby_event_buffer_size;
-    let (ruby_event_handler, event_receiver) =
-        RubyEventHandler::new(event_system.clone(), worker_id_str.clone(), buffer_size as usize);
+    let (ruby_event_handler, event_receiver) = RubyEventHandler::new(
+        event_system.clone(),
+        worker_id_str.clone(),
+        buffer_size as usize,
+    );
     let ruby_event_handler = Arc::new(ruby_event_handler);
 
     // Bootstrap within runtime context

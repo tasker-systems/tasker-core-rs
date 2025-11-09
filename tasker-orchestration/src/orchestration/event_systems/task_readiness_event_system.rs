@@ -63,7 +63,15 @@ impl TaskReadinessEventSystem {
                             .tasker_config
                             .orchestration
                             .as_ref()
-                            .and_then(|o| Some(o.event_systems.task_readiness.timing.fallback_polling_interval_seconds as u64))
+                            .and_then(|o| {
+                                Some(
+                                    o.event_systems
+                                        .task_readiness
+                                        .timing
+                                        .fallback_polling_interval_seconds
+                                        as u64,
+                                )
+                            })
                             .unwrap_or(30),
                     ),
                 }

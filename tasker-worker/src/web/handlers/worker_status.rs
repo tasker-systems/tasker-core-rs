@@ -100,7 +100,7 @@ pub async fn namespace_health(
 // Helper functions for status creation
 
 async fn create_configuration_status(state: &WorkerWebState) -> WorkerConfigurationStatus {
-    use tasker_shared::config::tasker::tasker_v2::DeploymentMode;
+    use tasker_shared::config::tasker::DeploymentMode;
 
     WorkerConfigurationStatus {
         environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
@@ -109,7 +109,12 @@ async fn create_configuration_status(state: &WorkerWebState) -> WorkerConfigurat
             .system_config
             .worker
             .as_ref()
-            .map(|w| matches!(w.event_systems.worker.deployment_mode, DeploymentMode::EventDrivenOnly | DeploymentMode::Hybrid))
+            .map(|w| {
+                matches!(
+                    w.event_systems.worker.deployment_mode,
+                    DeploymentMode::EventDrivenOnly | DeploymentMode::Hybrid
+                )
+            })
             .unwrap_or(false),
         supported_namespaces: state.supported_namespaces().await,
     }

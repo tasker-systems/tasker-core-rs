@@ -22,12 +22,12 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 // Import MPSC channel config structs from V2
-pub use crate::config::tasker::tasker_v2::{
-    CommandProcessorChannels, EventListenerChannels, EventPublisherChannels,
-    EventSystemChannels, FfiChannels, OrchestrationMpscChannelsConfig, OverflowMetricsConfig,
-    OverflowPolicyConfig, SharedMpscChannelsConfig, WorkerCommandProcessorChannels,
-    WorkerEventListenerChannels, WorkerEventSubscriberChannels, WorkerEventSystemChannels,
-    WorkerInProcessEventChannels, WorkerMpscChannelsConfig,
+pub use crate::config::tasker::{
+    CommandProcessorChannels, EventListenerChannels, EventPublisherChannels, EventSystemChannels,
+    FfiChannels, OrchestrationMpscChannelsConfig, OverflowMetricsConfig, OverflowPolicyConfig,
+    SharedMpscChannelsConfig, WorkerCommandProcessorChannels, WorkerEventListenerChannels,
+    WorkerEventSubscriberChannels, WorkerEventSystemChannels, WorkerInProcessEventChannels,
+    WorkerMpscChannelsConfig,
 };
 
 // Type aliases for backward compatibility (legacy names → V2 names)
@@ -222,8 +222,7 @@ mod tests {
     #[test]
     fn test_type_alias_compatibility() {
         // Verify type aliases work correctly
-        let orchestration: OrchestrationChannelsConfig =
-            OrchestrationMpscChannelsConfig::default();
+        let orchestration: OrchestrationChannelsConfig = OrchestrationMpscChannelsConfig::default();
         let worker: WorkerChannelsConfig = WorkerMpscChannelsConfig::default();
         let shared: SharedChannelsConfig = SharedMpscChannelsConfig::default();
 

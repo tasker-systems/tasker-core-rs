@@ -441,7 +441,7 @@ max_retries = 3
     let toml_value: toml::Value = toml::from_str(&content).unwrap();
 
     // This should fail because database is required
-    use tasker_shared::config::tasker::tasker_v2::CommonConfig;
+    use tasker_shared::config::tasker::CommonConfig;
     let result = toml_value.try_into::<CommonConfig>();
 
     assert!(result.is_err());
@@ -489,7 +489,7 @@ timeout_seconds = 5
     // TOML parsing might succeed (it just parses to -5 as integer)
     // But deserialization should fail if pool_size is defined as u32
     if let Ok(toml_value) = result {
-        use tasker_shared::config::tasker::tasker_v2::CommonConfig;
+        use tasker_shared::config::tasker::CommonConfig;
         let deserialize_result = toml_value.try_into::<CommonConfig>();
         // This should fail due to type mismatch (negative value for unsigned type)
         assert!(deserialize_result.is_err());

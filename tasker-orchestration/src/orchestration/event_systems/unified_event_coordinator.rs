@@ -96,8 +96,8 @@ impl UnifiedCoordinatorConfig {
 
         // Convert V2 configs to legacy EventSystemConfig types
         use tasker_shared::config::event_systems::{
-            EventSystemConfig, EventSystemProcessingConfig, EventSystemHealthConfig,
-            OrchestrationEventSystemMetadata, TaskReadinessEventSystemMetadata
+            EventSystemConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
+            OrchestrationEventSystemMetadata, TaskReadinessEventSystemMetadata,
         };
 
         let orchestration_config = EventSystemConfig::<OrchestrationEventSystemMetadata> {

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 // Import queue config structs from V2
-pub use crate::config::tasker::tasker_v2::{
+pub use crate::config::tasker::{
     OrchestrationQueuesConfig, PgmqConfig, QueuesConfig, RabbitmqConfig,
 };
 

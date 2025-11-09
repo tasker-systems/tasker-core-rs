@@ -25,7 +25,7 @@ use crate::{
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
 use tasker_shared::{
-    config::tasker::TaskerConfigV2,
+    config::tasker::TaskerConfig,
     errors::{TaskerError, TaskerResult},
     system_context::SystemContext,
 };
@@ -96,7 +96,13 @@ impl WorkerSystemHandle {
         let worker_core = self.worker_core.lock().await;
         let status = WorkerSystemStatus {
             running: self.is_running(),
-            environment: worker_core.context.tasker_config.common.execution.environment.clone(),
+            environment: worker_core
+                .context
+                .tasker_config
+                .common
+                .execution
+                .environment
+                .clone(),
             worker_core_status: worker_core.status().clone(),
             web_api_enabled: self.worker_config.web_config.enabled,
             supported_namespaces: worker_core
@@ -174,8 +180,8 @@ impl Default for WorkerBootstrapConfig {
 }
 
 // TAS-61 Phase 6D: V2 configuration support (V1 impl removed)
-impl From<&TaskerConfigV2> for WorkerBootstrapConfig {
-    fn from(config: &TaskerConfigV2) -> WorkerBootstrapConfig {
+impl From<&TaskerConfig> for WorkerBootstrapConfig {
+    fn from(config: &TaskerConfig) -> WorkerBootstrapConfig {
         // Extract worker config for easier access
         let worker_config = config.worker.as_ref();
 
@@ -185,8 +191,8 @@ impl From<&TaskerConfigV2> for WorkerBootstrapConfig {
                 let mode = w.event_systems.worker.deployment_mode;
                 let event_driven = matches!(
                     mode,
-                    tasker_shared::config::tasker::tasker_v2::DeploymentMode::EventDrivenOnly
-                        | tasker_shared::config::tasker::tasker_v2::DeploymentMode::Hybrid
+                    tasker_shared::config::tasker::DeploymentMode::EventDrivenOnly
+                        | tasker_shared::config::tasker::DeploymentMode::Hybrid
                 );
                 (event_driven, Some(mode.to_string()))
             })

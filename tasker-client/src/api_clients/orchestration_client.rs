@@ -98,7 +98,7 @@ impl OrchestrationApiConfig {
     /// assert!(client_config.base_url.starts_with("http://"));
     /// ```
     #[must_use]
-    pub fn from_tasker_config(config: &tasker_shared::config::tasker::TaskerConfigV2) -> Self {
+    pub fn from_tasker_config(config: &tasker_shared::config::tasker::TaskerConfig) -> Self {
         // TAS-61 Phase 6C/6D: V2 configuration access
         // Handle optional web configuration with sensible defaults
         let orchestration_web_config = config

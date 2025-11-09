@@ -2,7 +2,7 @@
 //!
 //! Dead-simple configuration loading:
 //! 1. Read pre-merged TOML from TASKER_CONFIG_PATH
-//! 2. Deserialize to TaskerConfigV2
+//! 2. Deserialize to TaskerConfig
 //! 3. Validate
 //! 4. Return V2 directly (no bridge conversion - V2 is canonical)
 //!
@@ -49,8 +49,7 @@ pub use circuit_breaker::{
 };
 pub use error::{ConfigResult, ConfigurationError};
 pub use event_systems::{
-    EventSystemConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
-    EventSystemTimingConfig,
+    EventSystemHealthConfig, EventSystemProcessingConfig, EventSystemTimingConfig,
     OrchestrationEventSystemConfig as UnifiedOrchestrationEventSystemConfig,
     TaskReadinessEventSystemConfig as UnifiedTaskReadinessEventSystemConfig,
     WorkerEventSystemConfig as UnifiedWorkerEventSystemConfig,
@@ -62,14 +61,12 @@ pub use orchestration::{
 pub use queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
 };
-pub use tasker::tasker_v2::DecisionPointsConfig;
+pub use tasker::DecisionPointsConfig;
 
 pub mod queue_classification;
 pub use queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};
-pub use worker::{
-    EventSystemConfig as WorkerLegacyEventSystemConfig, HealthMonitoringConfig,
-    StepProcessingConfig, WorkerConfig,
-};
+// TAS-61 Phase 6C/6D: Worker configuration type adapters (u32 → u64/usize)
+pub use worker::{HealthMonitoringConfig, StepProcessingConfig};
 
 pub use web::*;
 
@@ -87,10 +84,5 @@ pub use mpsc_channels::{
 };
 
 // TAS-61 Phase 6C/6D: V2 is the canonical configuration
-// All legacy TaskerConfig references removed - use TaskerConfigV2
-pub use tasker::TaskerConfigV2;
-
-// TAS-50: Context-specific configuration system (Phase 1)
-// Component-based configuration for V2 architecture
-pub mod components;
-// TAS-61 Phase 6C/6D: contexts/ layer deleted - use V2 config directly
+// All legacy TaskerConfig references removed - use TaskerConfig
+pub use tasker::TaskerConfig;

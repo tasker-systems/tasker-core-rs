@@ -34,7 +34,7 @@ use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use tasker_shared::config::components::StalenessDetectionConfig;
+use tasker_shared::config::tasker::StalenessDetectionConfig;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::errors::TaskerResult;
 use tasker_shared::metrics::orchestration;

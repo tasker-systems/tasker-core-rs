@@ -50,10 +50,7 @@ fn test_config_generation_and_loading() {
     let config = ConfigLoader::load_from_env().expect("Failed to load config");
 
     // 4. Verify config loaded correctly
-    assert_eq!(
-        config.common.database.database,
-        "tasker_rust_test"
-    );
+    assert_eq!(config.common.database.database, "tasker_rust_test");
     assert_eq!(config.common.execution.environment, "test");
 
     // Cleanup
@@ -306,23 +303,23 @@ fn test_dlq_configuration_loading() {
     );
 
     // Verify staleness actions
-    assert!(orchestration
-        .dlq
-        .staleness_detection
-        .actions
-        .auto_transition_to_error);
-    assert!(orchestration
-        .dlq
-        .staleness_detection
-        .actions
-        .auto_move_to_dlq);
-    assert!(orchestration.dlq.staleness_detection.actions.emit_events);
-    assert_eq!(
+    assert!(
         orchestration
             .dlq
             .staleness_detection
             .actions
-            .event_channel,
+            .auto_transition_to_error
+    );
+    assert!(
+        orchestration
+            .dlq
+            .staleness_detection
+            .actions
+            .auto_move_to_dlq
+    );
+    assert!(orchestration.dlq.staleness_detection.actions.emit_events);
+    assert_eq!(
+        orchestration.dlq.staleness_detection.actions.event_channel,
         "task_staleness_detected"
     );
 

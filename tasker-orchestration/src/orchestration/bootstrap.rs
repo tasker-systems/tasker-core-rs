@@ -23,7 +23,7 @@ use crate::web;
 use crate::web::state::AppState;
 use std::sync::Arc;
 // TAS-61 Phase 6C/6D: V2 configuration is canonical
-use tasker_shared::config::tasker::TaskerConfigV2;
+use tasker_shared::config::tasker::TaskerConfig;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 use tokio::sync::oneshot;
@@ -42,7 +42,7 @@ pub struct OrchestrationSystemHandle {
     /// Runtime handle for async operations
     pub runtime_handle: tokio::runtime::Handle,
     /// System configuration manager
-    pub tasker_config: Arc<TaskerConfigV2>,
+    pub tasker_config: Arc<TaskerConfig>,
     /// Bootstrap configuration
     pub bootstrap_config: BootstrapConfig,
 }
@@ -70,7 +70,7 @@ impl OrchestrationSystemHandle {
         web_state: Option<Arc<AppState>>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
-        tasker_config: Arc<TaskerConfigV2>,
+        tasker_config: Arc<TaskerConfig>,
         bootstrap_config: BootstrapConfig,
     ) -> Self {
         Self {
@@ -170,8 +170,8 @@ impl Default for BootstrapConfig {
     }
 }
 
-impl From<&TaskerConfigV2> for BootstrapConfig {
-    fn from(config: &TaskerConfigV2) -> BootstrapConfig {
+impl From<&TaskerConfig> for BootstrapConfig {
+    fn from(config: &TaskerConfig) -> BootstrapConfig {
         BootstrapConfig {
             // TAS-61 V2: Access queues from common config
             namespaces: vec![config.common.queues.orchestration_namespace.clone()],
@@ -298,8 +298,8 @@ impl OrchestrationBootstrap {
 
             // Convert V2 configs to legacy EventSystemConfig types
             use tasker_shared::config::event_systems::{
-                EventSystemConfig, EventSystemProcessingConfig, EventSystemHealthConfig,
-                OrchestrationEventSystemMetadata, TaskReadinessEventSystemMetadata
+                EventSystemConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
+                OrchestrationEventSystemMetadata, TaskReadinessEventSystemMetadata,
             };
 
             let orchestration_config = EventSystemConfig::<OrchestrationEventSystemMetadata> {

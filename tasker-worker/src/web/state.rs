@@ -8,7 +8,7 @@ use serde::Serialize;
 use sqlx::PgPool;
 use std::{sync::Arc, time::Instant};
 use tasker_shared::{
-    config::tasker::TaskerConfigV2, errors::TaskerResult, messaging::clients::UnifiedMessageClient,
+    config::tasker::TaskerConfig, errors::TaskerResult, messaging::clients::UnifiedMessageClient,
     types::base::CacheStats,
 };
 use tracing::info;
@@ -40,7 +40,7 @@ impl Default for WorkerWebConfig {
 }
 
 // TAS-61 Phase 6D: Removed from_tasker_config (V1) - no longer used
-// Configuration is now loaded via WorkerBootstrapConfig::from(&TaskerConfigV2)
+// Configuration is now loaded via WorkerBootstrapConfig::from(&TaskerConfig)
 
 /// Shared state for the worker web application
 #[derive(Clone, Debug)]
@@ -65,7 +65,7 @@ pub struct WorkerWebState {
     pub start_time: Instant,
 
     /// Worker system configuration
-    pub system_config: TaskerConfigV2,
+    pub system_config: TaskerConfig,
 
     /// Cached worker ID (to avoid locking mutex on every status check)
     worker_id: String,
@@ -77,7 +77,7 @@ impl WorkerWebState {
         config: WorkerWebConfig,
         worker_core: Arc<tokio::sync::Mutex<crate::worker::core::WorkerCore>>,
         database_pool: Arc<PgPool>,
-        system_config: TaskerConfigV2,
+        system_config: TaskerConfig,
     ) -> TaskerResult<Self> {
         info!(
             enabled = config.enabled,

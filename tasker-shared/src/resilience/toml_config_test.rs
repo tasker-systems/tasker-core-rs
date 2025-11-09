@@ -2,51 +2,37 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::config::{
-        CircuitBreakerComponentConfig, CircuitBreakerConfig, CircuitBreakerGlobalSettings,
+    use crate::config::tasker::{
+        CircuitBreakerComponentConfig, CircuitBreakerConfig, CircuitBreakerDefaultConfig,
+        ComponentCircuitBreakerConfigs, GlobalCircuitBreakerSettings,
     };
     use crate::resilience::CircuitBreakerManager;
-    use std::collections::HashMap;
 
     /// Test that the new TOML-based configuration works correctly
     #[tokio::test]
     async fn test_toml_based_circuit_breaker_configuration() {
-        // Create a TOML-compatible configuration structure
-        let mut component_configs = HashMap::new();
-        component_configs.insert(
-            "database".to_string(),
-            CircuitBreakerComponentConfig {
+        // Create a TOML-compatible configuration structure using V2 canonical types
+        let component_configs = ComponentCircuitBreakerConfigs {
+            task_readiness: CircuitBreakerComponentConfig {
                 failure_threshold: 3,
                 timeout_seconds: 45,
                 success_threshold: 2,
             },
-        );
-        component_configs.insert(
-            "pgmq".to_string(),
-            CircuitBreakerComponentConfig {
+            pgmq: CircuitBreakerComponentConfig {
                 failure_threshold: 2,
                 timeout_seconds: 10,
                 success_threshold: 1,
             },
-        );
-        component_configs.insert(
-            "external_api".to_string(),
-            CircuitBreakerComponentConfig {
-                failure_threshold: 4,
-                timeout_seconds: 30,
-                success_threshold: 2,
-            },
-        );
+        };
 
         let toml_config = CircuitBreakerConfig {
             enabled: true,
-            global_settings: CircuitBreakerGlobalSettings {
+            global_settings: GlobalCircuitBreakerSettings {
                 max_circuit_breakers: 25,
                 metrics_collection_interval_seconds: 15,
-                // auto_create_enabled removed - hardcoded to true in conversion
                 min_state_transition_interval_seconds: 0.5,
             },
-            default_config: CircuitBreakerComponentConfig {
+            default_config: CircuitBreakerDefaultConfig {
                 failure_threshold: 4,
                 timeout_seconds: 20,
                 success_threshold: 2,
@@ -58,23 +44,20 @@ mod tests {
         let manager = CircuitBreakerManager::from_config(&toml_config);
 
         // Test that we can create circuit breakers with the configuration
-        let db_breaker = manager.get_circuit_breaker("database").await;
+        let task_readiness_breaker = manager.get_circuit_breaker("task_readiness").await;
         let pgmq_breaker = manager.get_circuit_breaker("pgmq").await;
-        let api_breaker = manager.get_circuit_breaker("external_api").await;
         let unknown_breaker = manager.get_circuit_breaker("unknown_component").await;
 
         // Verify circuit breakers were created
-        assert_eq!(db_breaker.name(), "database");
+        assert_eq!(task_readiness_breaker.name(), "task_readiness");
         assert_eq!(pgmq_breaker.name(), "pgmq");
-        assert_eq!(api_breaker.name(), "external_api");
         assert_eq!(unknown_breaker.name(), "unknown_component");
 
         // Verify we have the expected number of components
         let components = manager.list_components().await;
-        assert_eq!(components.len(), 4);
-        assert!(components.contains(&"database".to_string()));
+        assert_eq!(components.len(), 3);
+        assert!(components.contains(&"task_readiness".to_string()));
         assert!(components.contains(&"pgmq".to_string()));
-        assert!(components.contains(&"external_api".to_string()));
         assert!(components.contains(&"unknown_component".to_string()));
 
         // Test system health
@@ -86,20 +69,32 @@ mod tests {
     #[tokio::test]
     async fn test_environment_specific_toml_configuration() {
         // Simulate test environment configuration with faster timeouts
+        let component_configs = ComponentCircuitBreakerConfigs {
+            task_readiness: CircuitBreakerComponentConfig {
+                failure_threshold: 1,
+                timeout_seconds: 1,
+                success_threshold: 1,
+            },
+            pgmq: CircuitBreakerComponentConfig {
+                failure_threshold: 1,
+                timeout_seconds: 1,
+                success_threshold: 1,
+            },
+        };
+
         let toml_config = CircuitBreakerConfig {
             enabled: true,
-            global_settings: CircuitBreakerGlobalSettings {
+            global_settings: GlobalCircuitBreakerSettings {
                 max_circuit_breakers: 10,
                 metrics_collection_interval_seconds: 1, // Fast metrics in test
-                // auto_create_enabled removed - hardcoded to true in conversion
                 min_state_transition_interval_seconds: 0.01, // Very fast transitions
             },
-            default_config: CircuitBreakerComponentConfig {
+            default_config: CircuitBreakerDefaultConfig {
                 failure_threshold: 1, // Fail fast in tests
                 timeout_seconds: 1,   // Short timeout in tests
                 success_threshold: 1, // Quick recovery in tests
             },
-            component_configs: HashMap::new(),
+            component_configs,
         };
 
         let manager = CircuitBreakerManager::from_config(&toml_config);

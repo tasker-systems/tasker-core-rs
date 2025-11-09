@@ -27,7 +27,7 @@ pub struct StepEnqueuerService {
 impl StepEnqueuerService {
     /// Create a new orchestration loop
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
-        // Use From<Arc<TaskerConfigV2>> implementation (V2 config is canonical)
+        // Use From<Arc<TaskerConfig>> implementation (V2 config is canonical)
         let config: TaskClaimStepEnqueuerConfig = context.tasker_config.clone().into();
         let step_enqueuer = Arc::new(StepEnqueuer::new(context.clone()).await?);
 

@@ -11,15 +11,12 @@ pub use tasker_shared::config::orchestration::{
 
 // TAS-61 Phase 6C/6D: Re-export V2 config types
 pub use tasker_shared::config::orchestration::OrchestrationConfig;
-pub use tasker_shared::config::ConfigManager;
-pub use tasker_shared::config::components::{BackoffConfig, DatabaseConfig, DatabasePoolConfig};
-pub use tasker_shared::config::components::backoff::ReenqueueDelays;
-pub use tasker_shared::config::tasker::tasker_v2::{
-    ExecutionConfig, SystemConfig, TaskTemplatesConfig,
-    TaskerConfig as TaskerConfigV2, TelemetryConfig,
+pub use tasker_shared::config::tasker::{BackoffConfig, DatabaseConfig, ReenqueueDelaysConfig};
+pub use tasker_shared::config::tasker::{
+    ExecutionConfig, SystemConfig, TaskTemplatesConfig, TaskerConfig, TelemetryConfig,
 };
-// Alias TaskerConfigV2 as TaskerConfig for backward compatibility in this module
-pub use TaskerConfigV2 as TaskerConfig;
+pub use tasker_shared::config::ConfigManager;
+
 // Use canonical TaskTemplate from models instead of legacy config types
 pub use tasker_shared::errors::{OrchestrationError, OrchestrationResult};
 pub use tasker_shared::models::core::task_template::{StepDefinition, TaskTemplate};
