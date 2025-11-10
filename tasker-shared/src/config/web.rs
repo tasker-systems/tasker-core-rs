@@ -3,15 +3,14 @@ use std::collections::HashMap;
 
 // Import web config structs from V2
 pub use crate::config::tasker::{
-    CorsConfig, OrchestrationWebConfig, RateLimitingConfig, ResilienceConfig, RouteAuthConfig,
-    TlsConfig, WebDatabasePoolsConfig,
+    OrchestrationWebConfig, ResilienceConfig, RouteAuthConfig, TlsConfig, WebDatabasePoolsConfig,
 };
 
 // Type aliases for backward compatibility (legacy names → V2 names)
 pub type WebConfig = OrchestrationWebConfig;
 pub type WebTlsConfig = TlsConfig;
-pub type WebCorsConfig = CorsConfig;
-pub type WebRateLimitConfig = RateLimitingConfig;
+// TAS-61: Removed WebCorsConfig - CORS uses hardcoded values in middleware
+// TAS-61: Removed WebRateLimitConfig - no rate limiting middleware implemented
 pub type WebResilienceConfig = ResilienceConfig;
 
 /// Web API authentication configuration

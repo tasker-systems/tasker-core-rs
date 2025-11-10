@@ -325,7 +325,8 @@ pub struct UnifiedHealthReport {
 #[cfg(test)]
 mod tests {
     use tasker_shared::config::tasker::{
-        EventSystemBackoffConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
+        // TAS-61: EventSystemBackoffConfig import removed - no longer used in tests
+        EventSystemHealthConfig, EventSystemProcessingConfig,
         EventSystemTimingConfig,
     };
     use tasker_shared::config::event_systems::{
@@ -345,12 +346,13 @@ mod tests {
             batch_size: 75, // Non-default
             max_concurrent_operations: 150, // Non-default
             max_retries: 5, // Non-default
-            backoff: EventSystemBackoffConfig {
-                initial_delay_ms: 250,
-                max_delay_ms: 15000,
-                multiplier: 3.0,
-                jitter_percent: 0.2,
-            },
+            // TAS-61: Commented out during investigation - backoff field removed
+            // backoff: EventSystemBackoffConfig {
+            //     initial_delay_ms: 250,
+            //     max_delay_ms: 15000,
+            //     multiplier: 3.0,
+            //     jitter_percent: 0.2,
+            // },
         };
 
         let custom_health = EventSystemHealthConfig {
@@ -421,10 +423,11 @@ mod tests {
             orchestration_config.processing.max_retries, 5,
             "Processing max_retries should use custom config value"
         );
-        assert_eq!(
-            orchestration_config.processing.backoff.initial_delay_ms, 250,
-            "Backoff initial_delay_ms should use custom config value"
-        );
+        // TAS-61: Commented out during investigation - backoff field removed
+        // assert_eq!(
+        //     orchestration_config.processing.backoff.initial_delay_ms, 250,
+        //     "Backoff initial_delay_ms should use custom config value"
+        // );
 
         assert!(
             !orchestration_config.health.enabled,
@@ -538,7 +541,8 @@ mod tests {
             batch_size: 200,
             max_concurrent_operations: 300,
             max_retries: 7,
-            backoff: EventSystemBackoffConfig::default(),
+            // TAS-61: Commented out during investigation - backoff field removed
+            // backoff: EventSystemBackoffConfig::default(),
         };
 
         // If this were using defaults, batch_size would be 100 (not 200)

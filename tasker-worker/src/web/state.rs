@@ -55,7 +55,8 @@ impl From<&tasker_shared::config::tasker::WorkerConfig> for WorkerWebConfig {
             bind_address: web.bind_address.clone(),
             request_timeout_ms: web.request_timeout_ms as u64,
             authentication_enabled: web.auth.is_some(),
-            cors_enabled: web.cors.is_some(),
+            // TAS-61: CORS always enabled via hardcoded tower_http::cors::Any
+            cors_enabled: true,
             metrics_enabled: health.performance_monitoring_enabled,
             health_check_interval_seconds: health.health_check_interval_seconds as u64,
         }

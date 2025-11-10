@@ -989,10 +989,9 @@ pub struct EventSystemProcessingConfig {
     #[builder(default = 3)]
     pub max_retries: u32,
 
-    /// Backoff configuration
-    #[validate(nested)]
-    #[builder(default)]
-    pub backoff: EventSystemBackoffConfig,
+    // TAS-61: Removed backoff field - never accessed at runtime
+    // Actual backoff logic uses config.common.backoff instead
+    // See: tasker-orchestration/src/orchestration/backoff_calculator.rs:74-77
 }
 
 impl_builder_default!(EventSystemProcessingConfig);
@@ -1232,20 +1231,16 @@ pub struct OrchestrationWebConfig {
     #[builder(default)]
     pub database_pools: WebDatabasePoolsConfig,
 
-    /// CORS configuration (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[validate(nested)]
-    pub cors: Option<CorsConfig>,
+    // TAS-61: Removed cors field - middleware uses hardcoded tower_http::cors::Any
+    // See: tasker-orchestration/src/web/middleware/mod.rs:create_cors_layer()
 
     /// Authentication configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub auth: Option<AuthConfig>,
 
-    /// Rate limiting configuration (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[validate(nested)]
-    pub rate_limiting: Option<RateLimitingConfig>,
+    // TAS-61: Removed rate_limiting field - no rate limiting middleware implemented
+    // If rate limiting needed in future, consider tower-governor or similar
 
     /// Resilience configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1308,36 +1303,9 @@ pub struct WebDatabasePoolsConfig {
 
 impl_builder_default!(WebDatabasePoolsConfig);
 
-/// CORS configuration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
-#[serde(rename_all = "snake_case")]
-pub struct CorsConfig {
-    /// Enable CORS
-    #[builder(default = true)]
-    pub enabled: bool,
-
-    /// Allowed origins
-    #[validate(length(min = 1))]
-    #[builder(default = vec!["*".to_string()])]
-    pub allowed_origins: Vec<String>,
-
-    /// Allowed methods
-    #[validate(length(min = 1))]
-    #[builder(default = vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string()])]
-    pub allowed_methods: Vec<String>,
-
-    /// Allowed headers
-    #[validate(length(min = 1))]
-    #[builder(default = vec!["*".to_string()])]
-    pub allowed_headers: Vec<String>,
-
-    /// Max age (seconds)
-    #[validate(range(min = 1, max = 86400))]
-    #[builder(default = 3600)]
-    pub max_age_seconds: u32,
-}
-
-impl_builder_default!(CorsConfig);
+// TAS-61: Removed CorsConfig struct - middleware uses hardcoded tower_http::cors::Any
+// See: tasker-orchestration/src/web/middleware/mod.rs:create_cors_layer()
+// If CORS configuration is needed in future, restore from git history
 
 /// Authentication configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -1458,30 +1426,9 @@ pub struct RouteAuthConfig {
     pub required: bool,
 }
 
-/// Rate limiting configuration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
-#[serde(rename_all = "snake_case")]
-pub struct RateLimitingConfig {
-    /// Enable rate limiting
-    #[builder(default = true)]
-    pub enabled: bool,
-
-    /// Requests per minute
-    #[validate(range(min = 1, max = 1000000))]
-    #[builder(default = 1000)]
-    pub requests_per_minute: u32,
-
-    /// Burst size
-    #[validate(range(min = 1, max = 10000))]
-    #[builder(default = 100)]
-    pub burst_size: u32,
-
-    /// Per-client limit
-    #[builder(default = true)]
-    pub per_client_limit: bool,
-}
-
-impl_builder_default!(RateLimitingConfig);
+// TAS-61: Removed RateLimitingConfig - no rate limiting middleware implemented
+// If rate limiting needed in future, consider tower-governor or similar
+// Note: ErrorCategory::RateLimit and BackoffHintType::RateLimit are different and still used
 
 /// Resilience configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -2081,20 +2028,16 @@ pub struct WorkerWebConfig {
     #[builder(default)]
     pub database_pools: WebDatabasePoolsConfig,
 
-    /// CORS configuration (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[validate(nested)]
-    pub cors: Option<CorsConfig>,
+    // TAS-61: Removed cors field - middleware uses hardcoded tower_http::cors::Any
+    // See: tasker-orchestration/src/web/middleware/mod.rs:create_cors_layer()
 
     /// Authentication configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub auth: Option<AuthConfig>,
 
-    /// Rate limiting configuration (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[validate(nested)]
-    pub rate_limiting: Option<RateLimitingConfig>,
+    // TAS-61: Removed rate_limiting field - no rate limiting middleware implemented
+    // If rate limiting needed in future, consider tower-governor or similar
 
     /// Resilience configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2528,12 +2471,7 @@ mod tests {
             max_concurrent_operations: 10,
             batch_size: 10,
             max_retries: 3,
-            backoff: EventSystemBackoffConfig {
-                initial_delay_ms: 100,
-                max_delay_ms: 5000,
-                multiplier: 2.0,
-                jitter_percent: 0.1,
-            },
+            // TAS-61: backoff field removed - uses config.common.backoff instead
         }
     }
 
@@ -2725,7 +2663,7 @@ mod tests {
         );
         assert_eq!(processing.max_concurrent_operations, 200);
         assert_eq!(processing.batch_size, 50); // Default
-        assert_eq!(processing.backoff.initial_delay_ms, 100); // Nested default
+        // TAS-61: backoff field removed - uses config.common.backoff instead
 
         // Test all config types for Display trait
         println!("\n=== Testing Display Trait ===");

@@ -9,7 +9,8 @@ use tokio::sync::mpsc;
 use pgmq_notify::MessageReadyEvent;
 use tasker_shared::{
     config::event_systems::{
-        BackoffConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
+        // TAS-61: BackoffConfig import removed - no longer used in tests
+        EventSystemHealthConfig, EventSystemProcessingConfig,
         EventSystemTimingConfig, FallbackPollerConfig, InProcessEventsConfig,
         ListenerConfig as UnifiedWorkerListenerConfig, ResourceLimitsConfig,
         WorkerEventSystemMetadata,
@@ -37,12 +38,13 @@ fn create_default_config() -> WorkerEventSystemConfig {
             max_concurrent_operations: 10,
             batch_size: 10,
             max_retries: 3,
-            backoff: BackoffConfig {
-                initial_delay_ms: 1000,
-                max_delay_ms: 30000,
-                multiplier: 2.0,
-                jitter_percent: 0.1,
-            },
+            // TAS-61: Commented out during investigation - backoff field removed
+            // backoff: BackoffConfig {
+            //     initial_delay_ms: 1000,
+            //     max_delay_ms: 30000,
+            //     multiplier: 2.0,
+            //     jitter_percent: 0.1,
+            // },
         },
         health: EventSystemHealthConfig {
             enabled: true,
@@ -348,12 +350,13 @@ async fn test_complete_tas43_integration() {
             max_concurrent_operations: 10,
             batch_size: 10,
             max_retries: 3,
-            backoff: BackoffConfig {
-                initial_delay_ms: 100,
-                max_delay_ms: 10000,
-                multiplier: 2.0,
-                jitter_percent: 0.1,
-            },
+            // TAS-61: Commented out during investigation - backoff field removed
+            // backoff: BackoffConfig {
+            //     initial_delay_ms: 100,
+            //     max_delay_ms: 10000,
+            //     multiplier: 2.0,
+            //     jitter_percent: 0.1,
+            // },
         },
         health: EventSystemHealthConfig {
             enabled: true,

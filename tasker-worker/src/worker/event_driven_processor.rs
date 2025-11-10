@@ -19,7 +19,8 @@ use uuid::Uuid;
 
 use tasker_shared::{
     config::event_systems::{
-        BackoffConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
+        // TAS-61: BackoffConfig import removed - field no longer in EventSystemProcessingConfig
+        EventSystemHealthConfig, EventSystemProcessingConfig,
         EventSystemTimingConfig, FallbackPollerConfig, InProcessEventsConfig,
         ListenerConfig as UnifiedWorkerListenerConfig, ResourceLimitsConfig,
         WorkerEventSystemMetadata,
@@ -151,12 +152,13 @@ impl EventDrivenMessageProcessor {
                 max_concurrent_operations: edd_config.batch_size,
                 batch_size: edd_config.batch_size,
                 max_retries: 3,
-                backoff: BackoffConfig {
-                    initial_delay_ms: 1000,
-                    max_delay_ms: 60000,
-                    multiplier: 2.0,
-                    jitter_percent: 0.1,
-                },
+                // TAS-61: Commented out during investigation - backoff field removed
+                // backoff: BackoffConfig {
+                //     initial_delay_ms: 1000,
+                //     max_delay_ms: 60000,
+                //     multiplier: 2.0,
+                //     jitter_percent: 0.1,
+                // },
             },
             health: EventSystemHealthConfig {
                 enabled: true,
