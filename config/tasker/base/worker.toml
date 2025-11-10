@@ -104,12 +104,7 @@ web_api_connection_timeout_seconds = 30
 web_api_idle_timeout_seconds = 600
 max_total_connections_hint = 25
 
-[worker.web.cors]
-enabled = true
-allowed_origins = ["*"]
-allowed_methods = ["GET", "POST", "DELETE", "OPTIONS"]
-allowed_headers = ["*"]
-max_age_seconds = 86400
+# TAS-61: Removed [worker.web.cors] - CORS uses hardcoded tower_http::cors::Any in middleware
 
 [worker.web.auth]
 enabled = false
@@ -151,13 +146,9 @@ path = "/templates/{namespace}/{name}/{version}/refresh"
 auth_type = "bearer"
 required = true
 
-[worker.web.rate_limiting]
-enabled = false
-requests_per_minute = 500
-burst_size = 50
-per_client_limit = true
+# TAS-61: Removed [worker.web.rate_limiting] - no rate limiting middleware implemented
 
 [worker.web.resilience]
 circuit_breaker_enabled = true
-request_timeout_seconds = 30
-max_concurrent_requests = 100
+# TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
+# TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented

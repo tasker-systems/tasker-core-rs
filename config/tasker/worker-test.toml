@@ -1,6 +1,6 @@
 # Tasker Configuration - worker Context
 # Environment: test
-# Generated: 2025-11-09T18:34:46.729299+00:00
+# Generated: 2025-11-10T12:14:52.251672+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -266,18 +266,6 @@ method = "POST"
 path = "/templates/{namespace}/{name}/{version}/refresh"
 required = true
 
-[worker.web.cors]
-allowed_headers = ["*"]
-allowed_methods = [
-    "GET",
-    "POST",
-    "DELETE",
-    "OPTIONS",
-]
-allowed_origins = ["*"]
-enabled = true
-max_age_seconds = 86400
-
 [worker.web.database_pools]
 max_total_connections_hint = 15
 web_api_connection_timeout_seconds = 15
@@ -285,13 +273,5 @@ web_api_idle_timeout_seconds = 300
 web_api_max_connections = 10
 web_api_pool_size = 5
 
-[worker.web.rate_limiting]
-burst_size = 50
-enabled = false
-per_client_limit = true
-requests_per_minute = 500
-
 [worker.web.resilience]
 circuit_breaker_enabled = true
-max_concurrent_requests = 100
-request_timeout_seconds = 30

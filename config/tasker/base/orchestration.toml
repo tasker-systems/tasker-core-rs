@@ -123,12 +123,8 @@ web_api_connection_timeout_seconds = 30
 web_api_idle_timeout_seconds = 600
 max_total_connections_hint = 50
 
-[orchestration.web.cors]
-enabled = true
-allowed_origins = ["*"]
-allowed_methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
-allowed_headers = ["*"]
-max_age_seconds = 86400
+# TAS-61: Removed [orchestration.web.cors] - CORS uses hardcoded tower_http::cors::Any in middleware
+# See: tasker-orchestration/src/web/middleware/mod.rs:create_cors_layer()
 
 [orchestration.web.auth]
 enabled = false
@@ -170,13 +166,9 @@ path = "/v1/analytics/bottlenecks"
 auth_type = "bearer"
 required = false
 
-[orchestration.web.rate_limiting]
-enabled = false
-requests_per_minute = 1000
-burst_size = 100
-per_client_limit = true
+# TAS-61: Removed [orchestration.web.rate_limiting] - no rate limiting middleware implemented
 
 [orchestration.web.resilience]
 circuit_breaker_enabled = true
-request_timeout_seconds = 30
-max_concurrent_requests = 200
+# TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
+# TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented

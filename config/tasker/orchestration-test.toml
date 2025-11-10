@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2025-11-09T00:17:59.478701+00:00
+# Generated: 2025-11-10T12:14:49.531602+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -286,20 +286,6 @@ method = "GET"
 path = "/v1/analytics/bottlenecks"
 required = false
 
-[orchestration.web.cors]
-allowed_headers = ["*"]
-allowed_methods = [
-    "GET",
-    "POST",
-    "PUT",
-    "DELETE",
-    "PATCH",
-    "OPTIONS",
-]
-allowed_origins = ["*"]
-enabled = true
-max_age_seconds = 86400
-
 [orchestration.web.database_pools]
 max_total_connections_hint = 30
 web_api_connection_timeout_seconds = 30
@@ -307,13 +293,5 @@ web_api_idle_timeout_seconds = 600
 web_api_max_connections = 15
 web_api_pool_size = 10
 
-[orchestration.web.rate_limiting]
-burst_size = 100
-enabled = false
-per_client_limit = true
-requests_per_minute = 1000
-
 [orchestration.web.resilience]
 circuit_breaker_enabled = true
-max_concurrent_requests = 200
-request_timeout_seconds = 30
