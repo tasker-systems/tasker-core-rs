@@ -376,8 +376,8 @@ impl AuthConfig {
 #[derive(Debug, Clone)]
 pub struct ResilienceConfig {
     pub circuit_breaker_enabled: bool,
-    pub request_timeout_seconds: u64,
-    pub max_concurrent_requests: u32,
+    // TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
+    // TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented
 }
 
 #[derive(Debug, Clone, PartialEq)]

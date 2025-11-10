@@ -442,6 +442,15 @@ pub struct PgmqConfig {
 impl_builder_default!(PgmqConfig);
 
 /// RabbitMQ-specific configuration
+///
+/// **TODO (TAS-35)**: RabbitMQ multi-backend support is planned but not yet implemented.
+/// Currently all production configs use `backend = "pgmq"` and RabbitMQ client returns
+/// "RabbitMQ client not yet implemented" error.
+///
+/// When implemented, this will enable queue backend selection between PGMQ and RabbitMQ
+/// for multi-backend queue support. Keep this configuration for future roadmap.
+///
+/// See: `tasker-shared/src/messaging/clients/unified_client.rs` for placeholder stub
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 #[serde(rename_all = "snake_case")]
 pub struct RabbitmqConfig {
@@ -812,6 +821,16 @@ pub struct TaskTemplatesConfig {
 impl_builder_default!(TaskTemplatesConfig);
 
 /// Telemetry configuration
+///
+/// **Important**: This TOML configuration is loaded for config endpoint observability,
+/// but runtime telemetry behavior is controlled by environment variables:
+///
+/// - `TELEMETRY_ENABLED` - Enable/disable telemetry (overrides `enabled` field)
+/// - `OTEL_EXPORTER_OTLP_ENDPOINT` - OpenTelemetry collector endpoint
+/// - `OTEL_SERVICE_NAME` - Service name for traces (overrides `service_name` field)
+///
+/// The TOML values serve as defaults but environment variables take precedence at runtime.
+/// See `tasker-shared/src/logging.rs` for actual telemetry initialization logic.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 #[serde(rename_all = "snake_case")]
 pub struct TelemetryConfig {
@@ -1221,10 +1240,8 @@ pub struct OrchestrationWebConfig {
     #[builder(default = 30000)]
     pub request_timeout_ms: u32,
 
-    /// TLS configuration (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[validate(nested)]
-    pub tls: Option<TlsConfig>,
+    // TAS-61: Removed tls field - web servers run plain HTTP only (ports 8080, 8081)
+    // No rustls or TLS acceptor implementation exists
 
     /// Database pool configuration
     #[validate(nested)]
@@ -1250,26 +1267,9 @@ pub struct OrchestrationWebConfig {
 
 impl_builder_default!(OrchestrationWebConfig);
 
-/// TLS configuration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
-#[serde(rename_all = "snake_case")]
-pub struct TlsConfig {
-    /// Enable TLS
-    #[builder(default = false)]
-    pub enabled: bool,
-
-    /// Certificate path
-    #[validate(length(min = 1))]
-    #[builder(default = "/path/to/cert.pem".to_string())]
-    pub cert_path: String,
-
-    /// Key path
-    #[validate(length(min = 1))]
-    #[builder(default = "/path/to/key.pem".to_string())]
-    pub key_path: String,
-}
-
-impl_builder_default!(TlsConfig);
+// TAS-61: Removed TlsConfig - web servers run plain HTTP only (ports 8080, 8081)
+// No rustls or TLS acceptor implementation exists
+// If TLS needed in future, restore from git history and implement with rustls
 
 /// Web API database pool configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -1438,15 +1438,8 @@ pub struct ResilienceConfig {
     #[builder(default = true)]
     pub circuit_breaker_enabled: bool,
 
-    /// Request timeout (seconds)
-    #[validate(range(min = 1, max = 300))]
-    #[builder(default = 30)]
-    pub request_timeout_seconds: u32,
-
-    /// Maximum concurrent requests
-    #[validate(range(min = 1, max = 100000))]
-    #[builder(default = 10000)]
-    pub max_concurrent_requests: u32,
+    // TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
+    // TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented
 }
 
 impl_builder_default!(ResilienceConfig);
@@ -2018,10 +2011,8 @@ pub struct WorkerWebConfig {
     #[builder(default = 30000)]
     pub request_timeout_ms: u32,
 
-    /// TLS configuration (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[validate(nested)]
-    pub tls: Option<TlsConfig>,
+    // TAS-61: Removed tls field - web servers run plain HTTP only (ports 8080, 8081)
+    // No rustls or TLS acceptor implementation exists
 
     /// Database pool configuration
     #[validate(nested)]
