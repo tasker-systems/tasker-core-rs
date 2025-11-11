@@ -223,7 +223,7 @@ max_concurrent_steps = 10
 max_retries = 3
 
 [worker.web]
-bind_address = "0.0.0.0:8081"
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
 enabled = true
 request_timeout_ms = 30000
 
