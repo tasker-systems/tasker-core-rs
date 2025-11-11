@@ -252,6 +252,13 @@ impl ConfigLoader {
                 // Try to get the environment variable
                 let replacement = match std::env::var(var_name) {
                     Ok(var_value) => {
+                        // Debug: Log environment variable substitution
+                        tracing::info!(
+                            "Config loader: Substituting {}={} (found in environment)",
+                            var_name,
+                            var_value
+                        );
+
                         // Security: Validate against allowlist and format rules
                         Self::validate_env_var(var_name, &var_value).unwrap_or_else(|e| {
                             panic!("Environment variable validation failed: {}", e);
@@ -262,6 +269,13 @@ impl ConfigLoader {
                     }
                     Err(_) => {
                         if let Some(default) = default_value {
+                            // Debug: Log default value usage
+                            tracing::info!(
+                                "Config loader: Using default for {}={} (not in environment)",
+                                var_name,
+                                default
+                            );
+
                             // Security: Default values from config are trusted, don't escape
                             // (they're part of the config file, not user input)
                             default.to_string()
