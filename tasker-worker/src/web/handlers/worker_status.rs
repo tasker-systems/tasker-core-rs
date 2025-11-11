@@ -100,15 +100,22 @@ pub async fn namespace_health(
 // Helper functions for status creation
 
 async fn create_configuration_status(state: &WorkerWebState) -> WorkerConfigurationStatus {
+    use tasker_shared::config::tasker::DeploymentMode;
+
     WorkerConfigurationStatus {
         environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
         database_connected: true, // TODO: Check actual database status
         event_system_enabled: state
             .system_config
-            .event_systems
             .worker
-            .deployment_mode
-            .has_event_driven(),
+            .as_ref()
+            .map(|w| {
+                matches!(
+                    w.event_systems.worker.deployment_mode,
+                    DeploymentMode::EventDrivenOnly | DeploymentMode::Hybrid
+                )
+            })
+            .unwrap_or(false),
         supported_namespaces: state.supported_namespaces().await,
     }
 }

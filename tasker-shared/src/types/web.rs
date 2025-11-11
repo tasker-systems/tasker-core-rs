@@ -254,14 +254,8 @@ pub struct DatabasePoolConfig {
     pub web_api_idle_timeout_seconds: u64,
 }
 
-/// CORS configuration
-#[derive(Debug, Clone)]
-pub struct CorsConfig {
-    pub enabled: bool,
-    pub allowed_origins: Vec<String>,
-    pub allowed_methods: Vec<String>,
-    pub allowed_headers: Vec<String>,
-}
+// TAS-61: Removed CorsConfig - middleware uses hardcoded tower_http::cors::Any
+// See: tasker-orchestration/src/web/middleware/mod.rs:create_cors_layer()
 
 /// Authentication configuration
 #[derive(Debug, Clone)]
@@ -375,21 +369,15 @@ impl AuthConfig {
     }
 }
 
-/// Rate limiting configuration
-#[derive(Debug, Clone)]
-pub struct RateLimitConfig {
-    pub enabled: bool,
-    pub requests_per_minute: u32,
-    pub burst_size: u32,
-    pub per_client_limit: bool,
-}
+// TAS-61: Removed RateLimitConfig - no rate limiting middleware implemented
+// Note: ErrorCategory::RateLimit and BackoffHintType::RateLimit are different and still used
 
 /// Resilience configuration
 #[derive(Debug, Clone)]
 pub struct ResilienceConfig {
     pub circuit_breaker_enabled: bool,
-    pub request_timeout_seconds: u64,
-    pub max_concurrent_requests: u32,
+    // TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
+    // TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -45,6 +45,7 @@ reqwest = { workspace = true }
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 # Core tasker dependencies
 tasker-shared = { path = "../tasker-shared" }
 thiserror = { workspace = true }
@@ -57,6 +58,7 @@ tracing-subscriber = { workspace = true }
 # Other utilities
 regex = { workspace = true }
 uuid = { workspace = true }
+validator = { workspace = true }
 workspace_tools = { workspace = true }
 
 [dev-dependencies]

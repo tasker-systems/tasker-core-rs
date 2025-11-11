@@ -19,10 +19,15 @@ use uuid::Uuid;
 
 use tasker_shared::{
     config::event_systems::{
-        BackoffConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
-        EventSystemTimingConfig, InProcessEventConfig, WorkerEventSystemMetadata,
-        WorkerFallbackPollerConfig, WorkerListenerConfig as UnifiedWorkerListenerConfig,
-        WorkerResourceLimits,
+        // TAS-61: BackoffConfig import removed - field no longer in EventSystemProcessingConfig
+        EventSystemHealthConfig,
+        EventSystemProcessingConfig,
+        EventSystemTimingConfig,
+        FallbackPollerConfig,
+        InProcessEventsConfig,
+        ListenerConfig as UnifiedWorkerListenerConfig,
+        ResourceLimitsConfig,
+        WorkerEventSystemMetadata,
     },
     event_system::{deployment::DeploymentMode, event_driven::EventDrivenSystem},
     system_context::SystemContext,
@@ -134,28 +139,30 @@ impl EventDrivenMessageProcessor {
         supported_namespaces: &[String],
         processor_id: Uuid,
     ) -> WorkerEventSystemConfig {
-        let deployment_mode = edd_config.deployment_mode.clone();
+        let deployment_mode = edd_config.deployment_mode;
 
         WorkerEventSystemConfig {
             system_id: format!("legacy-event-driven-{}", processor_id),
             deployment_mode,
             timing: EventSystemTimingConfig {
                 health_check_interval_seconds: 60,
-                fallback_polling_interval_seconds: edd_config.fallback_polling_interval.as_secs(),
-                visibility_timeout_seconds: edd_config.visibility_timeout.as_secs(),
-                processing_timeout_seconds: edd_config.visibility_timeout.as_secs(),
+                fallback_polling_interval_seconds: edd_config.fallback_polling_interval.as_secs()
+                    as u32,
+                visibility_timeout_seconds: edd_config.visibility_timeout.as_secs() as u32,
+                processing_timeout_seconds: edd_config.visibility_timeout.as_secs() as u32,
                 claim_timeout_seconds: 30,
             },
             processing: EventSystemProcessingConfig {
-                max_concurrent_operations: edd_config.batch_size as usize,
+                max_concurrent_operations: edd_config.batch_size,
                 batch_size: edd_config.batch_size,
                 max_retries: 3,
-                backoff: BackoffConfig {
-                    initial_delay_ms: 1000,
-                    max_delay_ms: 60000,
-                    multiplier: 2.0,
-                    jitter_percent: 0.1,
-                },
+                // TAS-61: Commented out during investigation - backoff field removed
+                // backoff: BackoffConfig {
+                //     initial_delay_ms: 1000,
+                //     max_delay_ms: 60000,
+                //     multiplier: 2.0,
+                //     jitter_percent: 0.1,
+                // },
             },
             health: EventSystemHealthConfig {
                 enabled: true,
@@ -164,27 +171,27 @@ impl EventDrivenMessageProcessor {
                 error_rate_threshold_per_minute: 60,
             },
             metadata: WorkerEventSystemMetadata {
-                in_process_events: InProcessEventConfig {
+                in_process_events: InProcessEventsConfig {
                     ffi_integration_enabled: true,
                     deduplication_cache_size: 10000,
                 },
                 listener: UnifiedWorkerListenerConfig {
                     retry_interval_seconds: 5,
                     max_retry_attempts: 3,
-                    event_timeout_seconds: edd_config.visibility_timeout.as_secs(),
+                    event_timeout_seconds: edd_config.visibility_timeout.as_secs() as u32,
                     batch_processing: true,
                     connection_timeout_seconds: 10,
                 },
-                fallback_poller: WorkerFallbackPollerConfig {
+                fallback_poller: FallbackPollerConfig {
                     enabled: true,
-                    polling_interval_ms: edd_config.fallback_polling_interval.as_millis() as u64,
+                    polling_interval_ms: edd_config.fallback_polling_interval.as_millis() as u32,
                     batch_size: edd_config.batch_size,
-                    age_threshold_seconds: 2,
-                    max_age_hours: 12,
-                    visibility_timeout_seconds: edd_config.visibility_timeout.as_secs(),
+                    age_threshold_seconds: 60,
+                    max_age_hours: 24,
+                    visibility_timeout_seconds: edd_config.visibility_timeout.as_secs() as u32,
                     supported_namespaces: supported_namespaces.into(),
                 },
-                resource_limits: WorkerResourceLimits {
+                resource_limits: ResourceLimitsConfig {
                     max_memory_mb: 1024,
                     max_cpu_percent: 80.0,
                     max_database_connections: 10,
@@ -256,7 +263,7 @@ impl EventDrivenMessageProcessor {
             EventDrivenStats {
                 processor_id: self.processor_id,
                 supported_namespaces: self.supported_namespaces.clone(),
-                deployment_mode: self.config.deployment_mode.clone(),
+                deployment_mode: self.config.deployment_mode,
                 listener_connected: self.is_running, // Use running state as health indicator
                 messages_processed: new_stats.events_processed,
                 events_received: new_stats.events_processed, // Map to same field for simplicity
@@ -266,7 +273,7 @@ impl EventDrivenMessageProcessor {
             EventDrivenStats {
                 processor_id: self.processor_id,
                 supported_namespaces: self.supported_namespaces.clone(),
-                deployment_mode: self.config.deployment_mode.clone(),
+                deployment_mode: self.config.deployment_mode,
                 listener_connected: false,
                 messages_processed: 0,
                 events_received: 0,

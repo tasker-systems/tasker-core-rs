@@ -75,6 +75,18 @@ impl Default for OrchestrationApiConfig {
     }
 }
 
+// TAS-61 Phase 6D: Convert from canonical worker.orchestration_client config
+impl From<&tasker_shared::config::tasker::OrchestrationClientConfig> for OrchestrationApiConfig {
+    fn from(config: &tasker_shared::config::tasker::OrchestrationClientConfig) -> Self {
+        Self {
+            base_url: config.base_url.clone(),
+            timeout_ms: config.timeout_ms as u64,
+            max_retries: config.max_retries,
+            auth: config.auth.clone().map(|a| a.into()),
+        }
+    }
+}
+
 impl OrchestrationApiConfig {
     /// Create `OrchestrationApiConfig` from `TaskerConfig` with proper configuration loading
     ///
@@ -98,15 +110,20 @@ impl OrchestrationApiConfig {
     /// assert!(client_config.base_url.starts_with("http://"));
     /// ```
     #[must_use]
-    pub fn from_tasker_config(config: &tasker_shared::config::TaskerConfig) -> Self {
+    pub fn from_tasker_config(config: &tasker_shared::config::tasker::TaskerConfig) -> Self {
+        // TAS-61 Phase 6C/6D: V2 configuration access
         // Handle optional web configuration with sensible defaults
-        let orchestration_web_config = config.orchestration.web_config();
+        let orchestration_web_config = config
+            .orchestration
+            .as_ref()
+            .and_then(|o| o.web.as_ref())
+            .expect("Orchestration web configuration required for client");
 
         Self {
             base_url: format!("http://{}", orchestration_web_config.bind_address.clone()),
-            timeout_ms: orchestration_web_config.request_timeout_ms,
+            timeout_ms: orchestration_web_config.request_timeout_ms as u64,
             max_retries: 3,
-            auth: Some(orchestration_web_config.auth.clone()),
+            auth: orchestration_web_config.auth.clone().map(|a| a.into()),
         }
     }
 }

@@ -8,7 +8,7 @@ use serde::Serialize;
 use sqlx::PgPool;
 use std::{sync::Arc, time::Instant};
 use tasker_shared::{
-    config::TaskerConfig, errors::TaskerResult, messaging::clients::UnifiedMessageClient,
+    config::tasker::TaskerConfig, errors::TaskerResult, messaging::clients::UnifiedMessageClient,
     types::base::CacheStats,
 };
 use tracing::info;
@@ -39,29 +39,26 @@ impl Default for WorkerWebConfig {
     }
 }
 
-impl WorkerWebConfig {
-    /// Create WorkerWebConfig from TaskerConfig with proper configuration loading
-    ///
-    /// TAS-43: This method replaces ::default() usage with configuration-driven setup
-    pub fn from_tasker_config(config: &TaskerConfig) -> Self {
-        // Handle optional web configuration with sensible defaults
-        let worker_config = config.worker.clone();
-        match worker_config {
-            Some(worker_config) => {
-                let web_config = worker_config.web;
-                Self {
-                    enabled: web_config.enabled,
-                    bind_address: web_config.bind_address.clone(),
-                    request_timeout_ms: web_config.request_timeout_ms,
-                    authentication_enabled: web_config.auth.enabled,
-                    cors_enabled: web_config.cors.enabled,
-                    metrics_enabled: true, // TODO: Load from web configuration when available
-                    health_check_interval_seconds: 30, // TODO: Load from web configuration when available
-                }
-            }
-            None => {
-                panic!("Worker web configuration is missing")
-            }
+// TAS-61 Phase 6D: Convert from canonical TaskerConfig
+impl From<&tasker_shared::config::tasker::WorkerConfig> for WorkerWebConfig {
+    fn from(worker_config: &tasker_shared::config::tasker::WorkerConfig) -> Self {
+        // Use default if web config not present
+        let web = match &worker_config.web {
+            Some(w) => w,
+            None => return Self::default(),
+        };
+
+        let health = &worker_config.health_monitoring;
+
+        Self {
+            enabled: web.enabled,
+            bind_address: web.bind_address.clone(),
+            request_timeout_ms: web.request_timeout_ms as u64,
+            authentication_enabled: web.auth.is_some(),
+            // TAS-61: CORS always enabled via hardcoded tower_http::cors::Any
+            cors_enabled: true,
+            metrics_enabled: health.performance_monitoring_enabled,
+            health_check_interval_seconds: health.health_check_interval_seconds as u64,
         }
     }
 }

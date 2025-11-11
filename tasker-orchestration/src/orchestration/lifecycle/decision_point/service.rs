@@ -8,7 +8,8 @@ use sqlx::types::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tasker_shared::config::DecisionPointsConfig;
+// TAS-61 Phase 6C: Use V2 DecisionPointsConfig
+use tasker_shared::config::tasker::DecisionPointsConfig;
 use tasker_shared::messaging::DecisionPointOutcome;
 use tasker_shared::metrics::orchestration::*;
 use tasker_shared::models::core::task_template::{StepDefinition, TaskTemplate};
@@ -66,7 +67,13 @@ impl DecisionPointService {
     /// Create a new DecisionPointService
     pub fn new(context: Arc<SystemContext>) -> Self {
         let step_creator = WorkflowStepCreator::new(context.clone());
-        let config = context.tasker_config.decision_points.clone();
+        // TAS-61 Phase 6C: Use V2 config directly (tasker_config is now TaskerConfig)
+        let config = context
+            .tasker_config
+            .orchestration
+            .as_ref()
+            .map(|o| o.decision_points.clone())
+            .unwrap_or_default();
         Self {
             context,
             step_creator,

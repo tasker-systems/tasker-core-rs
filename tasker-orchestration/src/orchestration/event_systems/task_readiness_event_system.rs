@@ -49,17 +49,26 @@ impl TaskReadinessEventSystem {
                     enabled: self
                         .context
                         .tasker_config
-                        .event_systems
-                        .task_readiness
-                        .deployment_mode
-                        .has_polling(),
+                        .orchestration
+                        .as_ref()
+                        .map(|o| {
+                            // After TAS-61 consolidation, DeploymentMode is unified
+                            o.event_systems.task_readiness.deployment_mode.has_polling()
+                        })
+                        .unwrap_or(true),
                     polling_interval: Duration::from_secs(
                         self.context
                             .tasker_config
-                            .event_systems
-                            .task_readiness
-                            .timing
-                            .fallback_polling_interval_seconds,
+                            .orchestration
+                            .as_ref()
+                            .map(|o| {
+                                o.event_systems
+                                    .task_readiness
+                                    .timing
+                                    .fallback_polling_interval_seconds
+                                    as u64
+                            })
+                            .unwrap_or(30),
                     ),
                 }
             }

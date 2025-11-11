@@ -1,6 +1,7 @@
 use crate::config::orchestration::step_enqueuer::StepEnqueuerConfig;
 use crate::config::orchestration::step_result_processor::StepResultProcessorConfig;
-use crate::config::TaskerConfig;
+// TAS-61 Phase 6C/6D: TaskerConfig is the canonical config
+use crate::config::tasker::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -37,14 +38,18 @@ impl Default for TaskClaimStepEnqueuerConfig {
     }
 }
 
+// TAS-61 Phase 6C/6D: V2 configuration is canonical
 impl From<&TaskerConfig> for TaskClaimStepEnqueuerConfig {
     fn from(config: &TaskerConfig) -> TaskClaimStepEnqueuerConfig {
         TaskClaimStepEnqueuerConfig {
-            batch_size: config.queues.default_batch_size,
-            namespace_filter: None, // No direct mapping in config, keep as runtime parameter
-            enable_performance_logging: config.orchestration.enable_performance_logging,
-            enable_heartbeat: true, // Default value, was config.task_claimer.enable_heartbeat
-            // REMOVED: task_claimer_config for TAS-41
+            batch_size: config.common.queues.default_batch_size,
+            namespace_filter: None,
+            enable_performance_logging: config
+                .orchestration
+                .as_ref()
+                .map(|o| o.enable_performance_logging)
+                .unwrap_or(false),
+            enable_heartbeat: true,
             step_enqueuer_config: config.into(),
             step_result_processor_config: config.into(),
         }
@@ -54,12 +59,16 @@ impl From<&TaskerConfig> for TaskClaimStepEnqueuerConfig {
 impl From<Arc<TaskerConfig>> for TaskClaimStepEnqueuerConfig {
     fn from(config: Arc<TaskerConfig>) -> TaskClaimStepEnqueuerConfig {
         TaskClaimStepEnqueuerConfig {
-            batch_size: config.queues.default_batch_size,
-            namespace_filter: None, // No direct mapping in config, keep as runtime parameter
-            enable_performance_logging: config.orchestration.enable_performance_logging,
+            batch_size: config.common.queues.default_batch_size,
+            namespace_filter: None,
+            enable_performance_logging: config
+                .orchestration
+                .as_ref()
+                .map(|o| o.enable_performance_logging)
+                .unwrap_or(false),
             enable_heartbeat: true,
-            step_enqueuer_config: config.clone().into(),
-            step_result_processor_config: config.clone().into(),
+            step_enqueuer_config: config.as_ref().into(),
+            step_result_processor_config: config.as_ref().into(),
         }
     }
 }

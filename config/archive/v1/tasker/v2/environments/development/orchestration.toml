@@ -1,0 +1,37 @@
+# Override environment for development
+environment = "development"
+
+[backoff]
+# Standard backoff for development
+default_backoff_seconds = [1, 2, 4, 8, 16]
+max_backoff_seconds = 30
+
+
+[orchestration]
+# 2-3 orchestrators to test clustering locally
+enable_performance_logging = false
+
+
+[orchestration.web]
+enabled = true
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
+request_timeout_ms = 30000
+
+
+[orchestration.web.database_pools]
+# Balanced pool for local development
+web_api_pool_size = 10
+web_api_max_connections = 15
+
+# Medium MPSC channel buffers for development (TAS-51)
+
+[orchestration.mpsc_channels.command_processor]
+command_buffer_size = 1000
+
+
+[orchestration.mpsc_channels.event_systems]
+event_channel_buffer_size = 1000
+
+
+[orchestration.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 5000  # Reasonable for local notification bursts

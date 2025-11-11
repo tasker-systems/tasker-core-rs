@@ -6,18 +6,14 @@
 //!
 //! ## Configuration Precedence
 //!
-//! Uses 3-tier precedence (highest to lowest):
+//! Uses 2-tier precedence (highest to lowest):
 //! 1. **Environment Variables** (highest priority)
 //!    - `TASKER_TEST_ORCHESTRATION_URL` - Override orchestration service URL
 //!    - `TASKER_TEST_WORKER_URL` - Override worker service URL
 //!    - `TASKER_TEST_SKIP_HEALTH_CHECK` - Skip health checks
 //!    - `TASKER_TEST_HEALTH_TIMEOUT` - Health check timeout in seconds
 //!    - `TASKER_TEST_HEALTH_RETRY_INTERVAL` - Retry interval in seconds
-//! 2. **Configuration** (middle priority)
-//!    - Reads from `config/tasker/environments/test/{orchestration,worker}.toml`
-//!    - Extracts bind address to determine actual service ports
-//!    - Note: In Docker, internal ports (8081) differ from external ports (8081 Rust, 8082 Ruby)
-//! 3. **Code Defaults** (lowest priority)
+//! 2. **Code Defaults** (lowest priority)
 //!    - Orchestration: `http://localhost:8080`
 //!    - Worker: `http://localhost:8081` (Rust worker default)
 //!
@@ -55,7 +51,6 @@ use tokio::time::sleep;
 use tasker_client::{
     OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig,
 };
-use tasker_shared::config::{contexts::ConfigContext, manager::ConfigManager};
 
 /// Integration test manager for Docker Compose-based testing
 pub struct IntegrationTestManager {
@@ -77,47 +72,14 @@ pub struct IntegrationConfig {
 
 impl Default for IntegrationConfig {
     fn default() -> Self {
-        // 3-tier precedence: ENV VAR → Configuration → Code Default
+        // 2-tier precedence: ENV VAR → Code Default
+        // Configuration loading removed - tests should use environment variables to override defaults
 
-        // Load orchestration configuration to determine bind address
         let orchestration_url = env::var("TASKER_TEST_ORCHESTRATION_URL")
-            .ok()
-            .or_else(|| {
-                // Try to load orchestration config to get bind address
-                ConfigManager::load_context_direct(ConfigContext::Orchestration)
-                    .ok()
-                    .and_then(|config| config.as_tasker_config())
-                    .and_then(|cfg| {
-                        // Extract port from bind_address like "0.0.0.0:8080"
-                        cfg.orchestration
-                            .web
-                            .bind_address
-                            .split(':')
-                            .nth(1)
-                            .map(|port| format!("http://localhost:{}", port))
-                    })
-            })
-            .unwrap_or_else(|| "http://localhost:8080".to_string());
+            .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
-        // Load worker configuration to determine bind address
         let worker_url = env::var("TASKER_TEST_WORKER_URL")
             .ok()
-            .or_else(|| {
-                // Try to load worker config to get bind address
-                ConfigManager::load_context_direct(ConfigContext::Worker)
-                    .ok()
-                    .and_then(|config| config.as_tasker_config())
-                    .and_then(|cfg| {
-                        // Extract port from bind_address like "0.0.0.0:8081"
-                        cfg.worker.as_ref().and_then(|w| {
-                            w.web
-                                .bind_address
-                                .split(':')
-                                .nth(1)
-                                .map(|port| format!("http://localhost:{}", port))
-                        })
-                    })
-            })
             .or_else(|| Some("http://localhost:8081".to_string()));
 
         Self {

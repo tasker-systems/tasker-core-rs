@@ -20,8 +20,17 @@ pub async fn require_auth(
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
+    // TAS-61: Use converted WebAuthConfig from AppState
+    let auth_config = match &state.auth_config {
+        Some(config) => config,
+        None => {
+            debug!("Authentication disabled (no auth config) - allowing request");
+            return Ok(next.run(request).await);
+        }
+    };
+
     // Skip auth if disabled in configuration
-    if !state.config.auth.enabled {
+    if !auth_config.enabled {
         debug!("Authentication disabled - allowing request");
         return Ok(next.run(request).await);
     }
@@ -40,7 +49,7 @@ pub async fn require_auth(
     let token = extract_bearer_token(auth_str)?;
 
     // Create authenticator from configuration
-    let authenticator = JwtAuthenticator::from_config(&state.config.auth)
+    let authenticator = JwtAuthenticator::from_config(auth_config)
         .map_err(|e| ApiError::auth_error(format!("Auth configuration error: {e}")))?;
 
     // Validate token and extract claims
@@ -70,15 +79,20 @@ pub async fn optional_auth(
     mut request: Request,
     next: Next,
 ) -> Response {
-    if !state.config.auth.enabled {
-        return next.run(request).await;
-    }
+    // TAS-61: Use converted WebAuthConfig from AppState
+    let auth_config = match &state.auth_config {
+        Some(config) if config.enabled => config,
+        _ => {
+            // Auth disabled or not configured
+            return next.run(request).await;
+        }
+    };
 
     // Try to extract and validate token, but don't fail if missing/invalid
     if let Some(auth_header) = request.headers().get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Ok(token) = extract_bearer_token(auth_str) {
-                if let Ok(authenticator) = JwtAuthenticator::from_config(&state.config.auth) {
+                if let Ok(authenticator) = JwtAuthenticator::from_config(auth_config) {
                     if let Ok(claims) = authenticator.validate_worker_token(token) {
                         debug!(
                             worker_id = %claims.sub,
@@ -120,12 +134,21 @@ pub async fn conditional_auth(
     request: Request,
     next: Next,
 ) -> Response {
+    // TAS-61: Use converted WebAuthConfig from AppState
+    let auth_config = match &state.auth_config {
+        Some(config) => config,
+        None => {
+            // No auth config - allow all requests
+            return next.run(request).await;
+        }
+    };
+
     // Extract method and path from request
     let method = request.method().to_string();
     let path = request.uri().path();
 
     // Check if this route requires authentication according to configuration
-    if !state.config.auth.route_requires_auth(&method, path) {
+    if !auth_config.route_requires_auth(&method, path) {
         // Route doesn't require auth, proceed without authentication
         debug!(
             method = %method,
@@ -139,7 +162,7 @@ pub async fn conditional_auth(
     debug!(
         method = %method,
         path = %path,
-        auth_type = state.config.auth.auth_type_for_route(&method, path).unwrap_or_else(|| "unknown".to_string()),
+        auth_type = auth_config.auth_type_for_route(&method, path).unwrap_or_else(|| "unknown".to_string()),
         "Route requires authentication - applying auth middleware"
     );
 

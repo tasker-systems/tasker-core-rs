@@ -9,10 +9,15 @@ use tokio::sync::mpsc;
 use pgmq_notify::MessageReadyEvent;
 use tasker_shared::{
     config::event_systems::{
-        BackoffConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
-        EventSystemTimingConfig, InProcessEventConfig, WorkerEventSystemMetadata,
-        WorkerFallbackPollerConfig, WorkerListenerConfig as UnifiedWorkerListenerConfig,
-        WorkerResourceLimits,
+        // TAS-61: BackoffConfig import removed - no longer used in tests
+        EventSystemHealthConfig,
+        EventSystemProcessingConfig,
+        EventSystemTimingConfig,
+        FallbackPollerConfig,
+        InProcessEventsConfig,
+        ListenerConfig as UnifiedWorkerListenerConfig,
+        ResourceLimitsConfig,
+        WorkerEventSystemMetadata,
     },
     event_system::{deployment::DeploymentMode, event_driven::EventDrivenSystem},
     system_context::SystemContext,
@@ -37,12 +42,13 @@ fn create_default_config() -> WorkerEventSystemConfig {
             max_concurrent_operations: 10,
             batch_size: 10,
             max_retries: 3,
-            backoff: BackoffConfig {
-                initial_delay_ms: 1000,
-                max_delay_ms: 30000,
-                multiplier: 2.0,
-                jitter_percent: 0.1,
-            },
+            // TAS-61: Commented out during investigation - backoff field removed
+            // backoff: BackoffConfig {
+            //     initial_delay_ms: 1000,
+            //     max_delay_ms: 30000,
+            //     multiplier: 2.0,
+            //     jitter_percent: 0.1,
+            // },
         },
         health: EventSystemHealthConfig {
             enabled: true,
@@ -51,7 +57,7 @@ fn create_default_config() -> WorkerEventSystemConfig {
             error_rate_threshold_per_minute: 60,
         },
         metadata: WorkerEventSystemMetadata {
-            in_process_events: InProcessEventConfig {
+            in_process_events: InProcessEventsConfig {
                 ffi_integration_enabled: true,
                 deduplication_cache_size: 10000,
             },
@@ -62,7 +68,7 @@ fn create_default_config() -> WorkerEventSystemConfig {
                 batch_processing: true,
                 connection_timeout_seconds: 10,
             },
-            fallback_poller: WorkerFallbackPollerConfig {
+            fallback_poller: FallbackPollerConfig {
                 enabled: true,
                 polling_interval_ms: 30000,
                 batch_size: 10,
@@ -71,7 +77,7 @@ fn create_default_config() -> WorkerEventSystemConfig {
                 visibility_timeout_seconds: 30,
                 supported_namespaces: vec!["default".to_string()],
             },
-            resource_limits: WorkerResourceLimits {
+            resource_limits: ResourceLimitsConfig {
                 max_memory_mb: 1024,
                 max_cpu_percent: 80.0,
                 max_database_connections: 10,
@@ -242,7 +248,7 @@ async fn test_deployment_mode_behavior() {
 
     for deployment_mode in test_cases {
         let mut config = create_default_config();
-        config.deployment_mode = deployment_mode.clone();
+        config.deployment_mode = deployment_mode;
         config.system_id = format!("test-{:?}", deployment_mode);
 
         let context = Arc::new(
@@ -348,12 +354,13 @@ async fn test_complete_tas43_integration() {
             max_concurrent_operations: 10,
             batch_size: 10,
             max_retries: 3,
-            backoff: BackoffConfig {
-                initial_delay_ms: 100,
-                max_delay_ms: 10000,
-                multiplier: 2.0,
-                jitter_percent: 0.1,
-            },
+            // TAS-61: Commented out during investigation - backoff field removed
+            // backoff: BackoffConfig {
+            //     initial_delay_ms: 100,
+            //     max_delay_ms: 10000,
+            //     multiplier: 2.0,
+            //     jitter_percent: 0.1,
+            // },
         },
         health: EventSystemHealthConfig {
             enabled: true,
@@ -362,7 +369,7 @@ async fn test_complete_tas43_integration() {
             error_rate_threshold_per_minute: 60,
         },
         metadata: WorkerEventSystemMetadata {
-            in_process_events: InProcessEventConfig {
+            in_process_events: InProcessEventsConfig {
                 ffi_integration_enabled: true,
                 deduplication_cache_size: 10000,
             },
@@ -373,7 +380,7 @@ async fn test_complete_tas43_integration() {
                 batch_processing: true,
                 connection_timeout_seconds: 5,
             },
-            fallback_poller: WorkerFallbackPollerConfig {
+            fallback_poller: FallbackPollerConfig {
                 enabled: true,
                 polling_interval_ms: 500,
                 batch_size: 10,
@@ -385,7 +392,7 @@ async fn test_complete_tas43_integration() {
                     "order_fulfillment".to_string(),
                 ],
             },
-            resource_limits: WorkerResourceLimits {
+            resource_limits: ResourceLimitsConfig {
                 max_memory_mb: 1024,
                 max_cpu_percent: 80.0,
                 max_database_connections: 10,

@@ -1,6 +1,6 @@
 # Tasker Configuration - complete Context
 # Environment: test
-# Generated: 2025-10-31T12:44:46.637142+00:00
+# Generated: 2025-11-09T18:35:06.214911+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -12,21 +12,7 @@
 # - TASKER_WEB_BIND_ADDRESS: Override web bind address (CI/testing port isolation)
 #
 
-environment = "test"
-
-[archive]
-archive_batch_size = 1000
-archive_interval_hours = 24
-enabled = true
-retention_days = 30
-
-[archive.policies]
-archive_cancelled = false
-archive_completed = true
-archive_dlq_resolved = true
-archive_failed = true
-
-[backoff]
+[common.backoff]
 backoff_multiplier = 2.0
 default_backoff_seconds = [
     1,
@@ -34,10 +20,10 @@ default_backoff_seconds = [
     4,
 ]
 jitter_enabled = true
-jitter_max_percentage = 0.1
+jitter_max_percentage = 0.15
 max_backoff_seconds = 10
 
-[backoff.reenqueue_delays]
+[common.backoff.reenqueue_delays]
 blocked_by_failures = 60
 enqueuing_steps = 0
 evaluating_results = 5
@@ -46,136 +32,221 @@ steps_in_process = 10
 waiting_for_dependencies = 45
 waiting_for_retry = 30
 
-[circuit_breakers]
+[common.circuit_breakers]
 enabled = true
 
-[circuit_breakers.component_configs.pgmq]
-failure_threshold = 3
-success_threshold = 2
-timeout_seconds = 15
-
-[circuit_breakers.component_configs.task_readiness]
+[common.circuit_breakers.component_configs.pgmq]
 failure_threshold = 5
 success_threshold = 2
 timeout_seconds = 30
 
-[circuit_breakers.default_config]
-failure_threshold = 3
-success_threshold = 1
-timeout_seconds = 5
+[common.circuit_breakers.component_configs.task_readiness]
+failure_threshold = 10
+success_threshold = 3
+timeout_seconds = 60
 
-[circuit_breakers.global_settings]
+[common.circuit_breakers.default_config]
+failure_threshold = 5
+success_threshold = 2
+timeout_seconds = 30
+
+[common.circuit_breakers.global_settings]
 max_circuit_breakers = 20
 metrics_collection_interval_seconds = 10
-min_state_transition_interval_seconds = 1
+min_state_transition_interval_seconds = 5.0
 
-[database]
+[common.database]
 database = "tasker_rust_test"
+skip_migration_check = false
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 
-[database.pool]
-acquire_timeout_seconds = 5
+[common.database.pool]
+acquire_timeout_seconds = 10
 idle_timeout_seconds = 60
-max_connections = 10
+max_connections = 20
 max_lifetime_seconds = 3600
-min_connections = 2
+min_connections = 1
 
-[database.variables]
+[common.database.variables]
 statement_timeout = 5000
 
-[decision_points]
-enable_detailed_logging = true
-enable_metrics = false
-enabled = true
-max_decision_depth = 5
-max_steps_per_decision = 10
-warn_threshold_depth = 3
-warn_threshold_steps = 5
+[common.execution]
+connection_timeout_seconds = 30
+default_timeout_seconds = 3600
+environment = "test"
+max_concurrent_steps = 1000
+max_concurrent_tasks = 100
+max_discovery_attempts = 5
+max_retries = 3
+max_workflow_steps = 1000
+step_batch_size = 10
+step_execution_timeout_seconds = 600
 
-[dlq]
+[common.mpsc_channels.event_publisher]
+event_queue_buffer_size = 100
+
+[common.mpsc_channels.ffi]
+ruby_event_buffer_size = 100
+
+[common.mpsc_channels.overflow_policy]
+drop_policy = "block"
+log_warning_threshold = 0.8
+
+[common.mpsc_channels.overflow_policy.metrics]
+enabled = true
+saturation_check_interval_seconds = 10
+
+[common.queues]
+backend = "pgmq"
+default_batch_size = 5
+default_visibility_timeout_seconds = 30
+health_check_interval = 60
+max_batch_size = 100
+naming_pattern = "{namespace}_{name}_queue"
+orchestration_namespace = "orchestration"
+worker_namespace = "worker"
+
+[common.queues.orchestration_queues]
+step_results = "orchestration_step_results"
+task_finalizations = "orchestration_task_finalizations"
+task_requests = "orchestration_task_requests"
+
+[common.queues.pgmq]
+max_retries = 1
+poll_interval_ms = 250
+shutdown_timeout_seconds = 5
+
+[common.queues.rabbitmq]
+connection_timeout_seconds = 30
+
+[common.system]
+default_dependent_system = "default"
+max_recursion_depth = 50
+version = "0.1.0"
+
+[common.task_templates]
+search_paths = ["config/task_templates/*.{yml,yaml}"]
+
+[common.telemetry]
+enabled = false
+sample_rate = 0.1
+service_name = "tasker-core"
+
+[orchestration]
+enable_performance_logging = false
+mode = "standalone"
+
+[orchestration.decision_points]
+enable_detailed_logging = false
+enable_metrics = true
+enabled = true
+max_decision_depth = 20
+max_steps_per_decision = 100
+warn_threshold_depth = 10
+warn_threshold_steps = 50
+
+[orchestration.dlq]
 auto_dlq_on_staleness = true
 enabled = true
 include_full_task_snapshot = true
 max_pending_age_hours = 168
 
-[dlq.reasons]
+[orchestration.dlq.reasons]
 dependency_cycle_detected = true
 manual_dlq = true
 max_retries_exceeded = true
 staleness_timeout = true
 worker_unavailable = true
 
-[execution]
-environment = "test"
-
-[execution.timeouts]
-default_operation_timeout_seconds = 10
-shutdown_grace_period_seconds = 10
-
-[mpsc_channels.command_processor]
-command_buffer_size = 100
-
-[mpsc_channels.event_listeners]
-pgmq_event_buffer_size = 100
-
-[mpsc_channels.event_subscribers]
-completion_buffer_size = 100
-result_buffer_size = 100
-
-[mpsc_channels.event_systems]
-event_channel_buffer_size = 100
-
-[mpsc_channels.in_process_events]
-broadcast_buffer_size = 1000
-
-[mpsc_channels.overflow_policy]
-drop_policy = "block"
-log_warning_threshold = 0.8
-
-[mpsc_channels.overflow_policy.metrics]
+[orchestration.dlq.staleness_detection]
+batch_size = 10
+detection_interval_seconds = 60
+dry_run = false
 enabled = true
-saturation_check_interval_seconds = 60
 
-[orchestration_events]
+[orchestration.dlq.staleness_detection.actions]
+auto_move_to_dlq = true
+auto_transition_to_error = true
+emit_events = true
+event_channel = "task_staleness_detected"
+
+[orchestration.dlq.staleness_detection.thresholds]
+steps_in_process_minutes = 5
+task_max_lifetime_hours = 1
+waiting_for_dependencies_minutes = 5
+waiting_for_retry_minutes = 2
+
+[orchestration.event_systems.orchestration]
 deployment_mode = "Hybrid"
 system_id = "orchestration-event-system"
 
-[orchestration_events.health]
+[orchestration.event_systems.orchestration.health]
 enabled = true
-error_rate_threshold_per_minute = 5
+error_rate_threshold_per_minute = 20
 max_consecutive_errors = 10
 performance_monitoring_enabled = true
 
-[orchestration_events.metadata]
-
-[orchestration_events.processing]
-batch_size = 10
-max_concurrent_operations = 10
+[orchestration.event_systems.orchestration.processing]
+batch_size = 20
+max_concurrent_operations = 50
 max_retries = 3
 
-[orchestration_events.processing.backoff]
+[orchestration.event_systems.orchestration.processing.backoff]
 initial_delay_ms = 100
 jitter_percent = 0.1
-max_delay_ms = 5000
+max_delay_ms = 10000
 multiplier = 2.0
 
-[orchestration_events.timing]
+[orchestration.event_systems.orchestration.timing]
 claim_timeout_seconds = 300
 fallback_polling_interval_seconds = 5
 health_check_interval_seconds = 30
-processing_timeout_seconds = 30
+processing_timeout_seconds = 60
 visibility_timeout_seconds = 30
 
-[orchestration_system]
-enable_performance_logging = false
-mode = "standalone"
+[orchestration.event_systems.task_readiness]
+deployment_mode = "Hybrid"
+system_id = "task-readiness-event-system"
 
-[orchestration_system.web]
+[orchestration.event_systems.task_readiness.health]
+enabled = true
+error_rate_threshold_per_minute = 20
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[orchestration.event_systems.task_readiness.processing]
+batch_size = 50
+max_concurrent_operations = 100
+max_retries = 3
+
+[orchestration.event_systems.task_readiness.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 10000
+multiplier = 2.0
+
+[orchestration.event_systems.task_readiness.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 5
+health_check_interval_seconds = 30
+processing_timeout_seconds = 60
+visibility_timeout_seconds = 30
+
+[orchestration.mpsc_channels.command_processor]
+command_buffer_size = 100
+
+[orchestration.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 100
+
+[orchestration.mpsc_channels.event_systems]
+event_channel_buffer_size = 100
+
+[orchestration.web]
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
 enabled = true
 request_timeout_ms = 5000
 
-[orchestration_system.web.auth]
+[orchestration.web.auth]
 api_key = ""
 api_key_header = "X-API-Key"
 enabled = false
@@ -185,27 +256,37 @@ jwt_private_key = ""
 jwt_public_key = ""
 jwt_token_expiry_hours = 24
 
-[orchestration_system.web.auth.protected_routes."DELETE /v1/tasks/{task_uuid}"]
+[[orchestration.web.auth.protected_routes]]
 auth_type = "bearer"
+method = "POST"
+path = "/v1/tasks"
+required = false
+
+[[orchestration.web.auth.protected_routes]]
+auth_type = "bearer"
+method = "DELETE"
+path = "/v1/tasks/{task_uuid}"
 required = true
 
-[orchestration_system.web.auth.protected_routes."GET /v1/analytics/bottlenecks"]
+[[orchestration.web.auth.protected_routes]]
 auth_type = "bearer"
-required = false
-
-[orchestration_system.web.auth.protected_routes."GET /v1/analytics/performance"]
-auth_type = "bearer"
-required = false
-
-[orchestration_system.web.auth.protected_routes."PATCH /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"]
-auth_type = "bearer"
+method = "PATCH"
+path = "/v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"
 required = true
 
-[orchestration_system.web.auth.protected_routes."POST /v1/tasks"]
+[[orchestration.web.auth.protected_routes]]
 auth_type = "bearer"
+method = "GET"
+path = "/v1/analytics/performance"
 required = false
 
-[orchestration_system.web.cors]
+[[orchestration.web.auth.protected_routes]]
+auth_type = "bearer"
+method = "GET"
+path = "/v1/analytics/bottlenecks"
+required = false
+
+[orchestration.web.cors]
 allowed_headers = ["*"]
 allowed_methods = [
     "GET",
@@ -217,240 +298,121 @@ allowed_methods = [
 ]
 allowed_origins = ["*"]
 enabled = true
+max_age_seconds = 86400
 
-[orchestration_system.web.database_pools]
+[orchestration.web.database_pools]
 max_total_connections_hint = 30
 web_api_connection_timeout_seconds = 30
 web_api_idle_timeout_seconds = 600
 web_api_max_connections = 15
 web_api_pool_size = 10
 
-[orchestration_system.web.rate_limiting]
+[orchestration.web.rate_limiting]
 burst_size = 100
 enabled = false
 per_client_limit = true
 requests_per_minute = 1000
 
-[orchestration_system.web.resilience]
+[orchestration.web.resilience]
 circuit_breaker_enabled = true
-max_concurrent_requests = 100
+max_concurrent_requests = 200
 request_timeout_seconds = 30
 
-[orchestration_system.web.tls]
-cert_path = ""
-enabled = false
-key_path = ""
-
-[queues]
-backend = "pgmq"
-default_batch_size = 5
-default_visibility_timeout_seconds = 30
-health_check_interval = 60
-max_batch_size = 100
-naming_pattern = "{namespace}_{name}_queue"
-orchestration_namespace = "orchestration"
-worker_namespace = "worker"
-
-[queues.orchestration_queues]
-step_results = "orchestration_step_results_queue"
-task_finalizations = "orchestration_task_finalizations_queue"
-task_requests = "orchestration_task_requests_queue"
-
-[queues.pgmq]
-max_retries = 1
-poll_interval_ms = 250
-shutdown_timeout_seconds = 5
-
-[queues.rabbitmq]
-connection_timeout_seconds = 10
-
-[shared_channels.event_publisher]
-event_queue_buffer_size = 100
-
-[shared_channels.ffi]
-ruby_event_buffer_size = 100
-
-[staleness_detection]
-batch_size = 100
-detection_interval_seconds = 300
-dry_run = false
-enabled = true
-
-[staleness_detection.actions]
-auto_move_to_dlq = true
-auto_transition_to_error = true
-emit_events = true
-event_channel = "task_staleness_detected"
-
-[staleness_detection.thresholds]
-steps_in_process_minutes = 30
-task_max_lifetime_hours = 24
-waiting_for_dependencies_minutes = 60
-waiting_for_retry_minutes = 30
-
-[system]
-max_cpu_percent = 80.0
-max_memory_mb = 512
-process_name = "tasker"
-
-[task_readiness_events]
-deployment_mode = "Hybrid"
-system_id = "task-readiness-event-system"
-
-[task_readiness_events.health]
-enabled = true
-error_rate_threshold_per_minute = 5
-max_consecutive_errors = 10
-performance_monitoring_enabled = true
-
-[task_readiness_events.processing]
-batch_size = 50
-max_concurrent_operations = 100
-max_retries = 3
-
-[task_readiness_events.processing.backoff]
-initial_delay_ms = 100
-jitter_percent = 0.1
-max_delay_ms = 5000
-multiplier = 2.0
-
-[task_readiness_events.timing]
-claim_timeout_seconds = 300
-fallback_polling_interval_seconds = 5
-health_check_interval_seconds = 30
-processing_timeout_seconds = 30
-visibility_timeout_seconds = 30
-
-[task_templates]
-auto_reload = true
-cache_enabled = true
-reload_interval_seconds = 300
-template_path = "${TASKER_TEMPLATE_PATH:-}"
-
-[telemetry]
-enabled = false
-
-[telemetry.metrics]
-collection_interval_seconds = 60
-enabled = true
-export_endpoint = "${TELEMETRY_ENDPOINT:-}"
-
-[telemetry.tracing]
-enabled = true
-export_endpoint = "${TRACING_ENDPOINT:-}"
-sampling_rate = 1.0
-
-[worker_events]
-deployment_mode = "Hybrid"
-system_id = "worker-event-system"
-
-[worker_events.health]
-enabled = true
-error_rate_threshold_per_minute = 5
-max_consecutive_errors = 10
-performance_monitoring_enabled = true
-
-[worker_events.metadata.fallback_poller]
-age_threshold_seconds = 2
-batch_size = 10
-enabled = true
-max_age_hours = 12
-polling_interval_ms = 500
-visibility_timeout_seconds = 30
-
-[worker_events.metadata.in_process_events]
-deduplication_cache_size = 1000
-ffi_integration_enabled = true
-
-[worker_events.metadata.listener]
-batch_processing = true
-connection_timeout_seconds = 10
-event_timeout_seconds = 30
-max_retry_attempts = 3
-retry_interval_seconds = 5
-
-[worker_events.metadata.resource_limits]
-max_cpu_percent = 80.0
-max_database_connections = 50
-max_memory_mb = 2048
-max_queue_connections = 20
-
-[worker_events.processing]
-batch_size = 10
-max_concurrent_operations = 100
-max_retries = 3
-
-[worker_events.processing.backoff]
-initial_delay_ms = 100
-jitter_percent = 0.1
-max_delay_ms = 5000
-multiplier = 2.0
-
-[worker_events.timing]
-claim_timeout_seconds = 300
-fallback_polling_interval_seconds = 1
-health_check_interval_seconds = 30
-processing_timeout_seconds = 30
-visibility_timeout_seconds = 30
-
-[worker_system]
+[worker]
 worker_id = "test-worker-001"
 worker_type = "general"
 
-[worker_system.event_driven]
+[worker.event_systems.worker]
 deployment_mode = "Hybrid"
-enabled = true
-health_check_interval_seconds = 30
-health_monitoring_enabled = true
+system_id = "worker-event-system"
 
-[worker_system.fallback_poller]
-age_threshold_seconds = 10
-batch_size = 5
+[worker.event_systems.worker.health]
+enabled = true
+error_rate_threshold_per_minute = 20
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[worker.event_systems.worker.metadata.fallback_poller]
+age_threshold_seconds = 2
+batch_size = 20
 enabled = true
 max_age_hours = 12
-polling_interval_ms = 45000
-processable_states = [
-    "pending",
-    "waiting_for_dependencies",
-    "waiting_for_retry",
-]
+polling_interval_ms = 500
+supported_namespaces = []
 visibility_timeout_seconds = 30
 
-[worker_system.health_monitoring]
+[worker.event_systems.worker.metadata.in_process_events]
+deduplication_cache_size = 1000
+ffi_integration_enabled = true
+
+[worker.event_systems.worker.metadata.listener]
+batch_processing = true
+connection_timeout_seconds = 30
+event_timeout_seconds = 60
+max_retry_attempts = 5
+retry_interval_seconds = 5
+
+[worker.event_systems.worker.metadata.resource_limits]
+max_cpu_percent = 80.0
+max_database_connections = 100
+max_memory_mb = 2048
+max_queue_connections = 50
+
+[worker.event_systems.worker.processing]
+batch_size = 20
+max_concurrent_operations = 100
+max_retries = 3
+
+[worker.event_systems.worker.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 10000
+multiplier = 2.0
+
+[worker.event_systems.worker.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 1
+health_check_interval_seconds = 30
+processing_timeout_seconds = 60
+visibility_timeout_seconds = 30
+
+[worker.health_monitoring]
 error_rate_threshold = 0.05
 health_check_interval_seconds = 10
 performance_monitoring_enabled = true
 
-[worker_system.listener]
-batch_processing = true
-connection_timeout_seconds = 10
-event_timeout_seconds = 30
-health_check_interval_seconds = 60
-max_retry_attempts = 3
-retry_interval_seconds = 5
+[worker.mpsc_channels.command_processor]
+command_buffer_size = 100
 
-[worker_system.queue_config]
-batch_size = 10
-polling_interval_ms = 100
-visibility_timeout_seconds = 30
+[worker.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 100
 
-[worker_system.resource_limits]
-max_cpu_percent = 80
-max_database_connections = 10
-max_memory_mb = 512
-max_queue_connections = 20
+[worker.mpsc_channels.event_subscribers]
+completion_buffer_size = 100
+result_buffer_size = 100
 
-[worker_system.step_processing]
+[worker.mpsc_channels.event_systems]
+event_channel_buffer_size = 100
+
+[worker.mpsc_channels.in_process_events]
+broadcast_buffer_size = 1000
+
+[worker.orchestration_client]
+base_url = "http://localhost:8080"
+max_retries = 3
+timeout_ms = 30000
+
+[worker.step_processing]
 claim_timeout_seconds = 300
 max_concurrent_steps = 10
 max_retries = 3
 
-[worker_system.web]
+[worker.web]
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
 enabled = true
 request_timeout_ms = 5000
 
-[worker_system.web.auth]
+[worker.web.auth]
 api_key = ""
 api_key_header = "X-API-Key"
 enabled = false
@@ -460,27 +422,37 @@ jwt_private_key = ""
 jwt_public_key = ""
 jwt_token_expiry_hours = 24
 
-[worker_system.web.auth.protected_routes."DELETE /templates/cache"]
+[[worker.web.auth.protected_routes]]
 auth_type = "bearer"
-required = true
-
-[worker_system.web.auth.protected_routes."GET /handlers"]
-auth_type = "bearer"
+method = "GET"
+path = "/status/detailed"
 required = false
 
-[worker_system.web.auth.protected_routes."GET /status/detailed"]
+[[worker.web.auth.protected_routes]]
 auth_type = "bearer"
+method = "GET"
+path = "/handlers"
 required = false
 
-[worker_system.web.auth.protected_routes."POST /templates/cache/maintain"]
+[[worker.web.auth.protected_routes]]
 auth_type = "bearer"
+method = "DELETE"
+path = "/templates/cache"
 required = true
 
-[worker_system.web.auth.protected_routes."POST /templates/{namespace}/{name}/{version}/refresh"]
+[[worker.web.auth.protected_routes]]
 auth_type = "bearer"
+method = "POST"
+path = "/templates/cache/maintain"
 required = true
 
-[worker_system.web.cors]
+[[worker.web.auth.protected_routes]]
+auth_type = "bearer"
+method = "POST"
+path = "/templates/{namespace}/{name}/{version}/refresh"
+required = true
+
+[worker.web.cors]
 allowed_headers = ["*"]
 allowed_methods = [
     "GET",
@@ -490,26 +462,22 @@ allowed_methods = [
 ]
 allowed_origins = ["*"]
 enabled = true
+max_age_seconds = 86400
 
-[worker_system.web.database_pools]
+[worker.web.database_pools]
 max_total_connections_hint = 15
 web_api_connection_timeout_seconds = 15
 web_api_idle_timeout_seconds = 300
 web_api_max_connections = 10
 web_api_pool_size = 5
 
-[worker_system.web.rate_limiting]
+[worker.web.rate_limiting]
 burst_size = 50
 enabled = false
 per_client_limit = true
 requests_per_minute = 500
 
-[worker_system.web.resilience]
+[worker.web.resilience]
 circuit_breaker_enabled = true
-max_concurrent_requests = 50
+max_concurrent_requests = 100
 request_timeout_seconds = 30
-
-[worker_system.web.tls]
-cert_path = ""
-enabled = false
-key_path = ""

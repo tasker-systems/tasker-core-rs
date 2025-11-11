@@ -6,6 +6,9 @@
 /// Test that resource coordination configuration is loaded correctly
 #[tokio::test]
 async fn test_resource_coordination_configuration() {
+    // Load .env file to get environment variables
+    dotenvy::dotenv().ok();
+
     // This test verifies that our TOML-based configuration includes web resource coordination
     let config_result = std::env::var("DATABASE_URL");
 

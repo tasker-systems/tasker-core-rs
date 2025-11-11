@@ -3,7 +3,7 @@
 //! Manages multiple circuit breakers for different system components.
 //! Provides centralized control and metrics aggregation.
 
-use crate::config::{CircuitBreakerComponentConfig, CircuitBreakerConfig};
+use crate::config::tasker::CircuitBreakerConfig;
 use crate::resilience::{CircuitBreaker, CircuitBreakerMetrics, SystemCircuitBreakerMetrics};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,9 +21,9 @@ pub struct CircuitBreakerManager {
 }
 
 impl CircuitBreakerManager {
-    /// Create new circuit breaker manager from configuration
+    /// Create new circuit breaker manager from legacy configuration
     pub fn from_config(config: &CircuitBreakerConfig) -> Self {
-        info!("Initializing circuit breaker manager from configuration");
+        info!("Initializing circuit breaker manager from legacy configuration");
 
         Self {
             circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
@@ -49,8 +49,8 @@ impl CircuitBreakerManager {
             return Arc::clone(breaker);
         }
 
-        // Check limits
-        if breakers.len() >= self.config.global_settings.max_circuit_breakers {
+        // Check limits (V2 config uses u32, cast to usize for comparison)
+        if breakers.len() >= self.config.global_settings.max_circuit_breakers as usize {
             warn!(
                 component = component_name,
                 current_count = breakers.len(),
@@ -162,24 +162,6 @@ impl CircuitBreakerManager {
         let system_metrics = self.get_system_metrics().await;
         system_metrics.health_score()
     }
-
-    /// Update configuration for a specific component
-    pub async fn update_component_config(
-        &mut self,
-        component_name: &str,
-        config: CircuitBreakerComponentConfig,
-    ) {
-        self.config
-            .component_configs
-            .insert(component_name.to_string(), config);
-
-        // If circuit breaker already exists, we could recreate it with new config
-        // For now, just log that config was updated (will apply to new instances)
-        info!(
-            component = component_name,
-            "⚙Updated circuit breaker configuration (applies to new instances)"
-        );
-    }
 }
 
 impl Clone for CircuitBreakerManager {
@@ -196,22 +178,35 @@ mod tests {
     use super::*;
 
     fn create_test_config() -> CircuitBreakerConfig {
-        use crate::config::CircuitBreakerGlobalSettings;
+        use crate::config::tasker::{
+            CircuitBreakerComponentConfig, CircuitBreakerDefaultConfig,
+            ComponentCircuitBreakerConfigs, GlobalCircuitBreakerSettings,
+        };
 
         CircuitBreakerConfig {
             enabled: true,
-            global_settings: CircuitBreakerGlobalSettings {
+            global_settings: GlobalCircuitBreakerSettings {
                 max_circuit_breakers: 50,
                 metrics_collection_interval_seconds: 30,
-                // auto_create_enabled removed - hardcoded to true in conversion
                 min_state_transition_interval_seconds: 1.0,
             },
-            default_config: CircuitBreakerComponentConfig {
+            default_config: CircuitBreakerDefaultConfig {
                 failure_threshold: 5,
                 timeout_seconds: 30,
                 success_threshold: 2,
             },
-            component_configs: HashMap::new(),
+            component_configs: ComponentCircuitBreakerConfigs {
+                task_readiness: CircuitBreakerComponentConfig {
+                    failure_threshold: 5,
+                    timeout_seconds: 30,
+                    success_threshold: 2,
+                },
+                pgmq: CircuitBreakerComponentConfig {
+                    failure_threshold: 5,
+                    timeout_seconds: 30,
+                    success_threshold: 2,
+                },
+            },
         }
     }
 

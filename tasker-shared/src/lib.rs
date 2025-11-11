@@ -53,15 +53,16 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust
-//! use tasker_shared::config::TaskerConfig;
+//! ```rust,no_run
+//! use tasker_shared::config::{ConfigLoader, tasker::TaskerConfig};
 //!
-//! // Initialize configuration for tasker-core
-//! let config = TaskerConfig::default();
+//! // TAS-61 Phase 6C/6D: V2 configuration is canonical
+//! // Load configuration from environment
+//! let config = ConfigLoader::load_from_env().expect("Failed to load config");
 //!
-//! // Configuration provides database and execution settings
-//! assert!(config.database.pool.max_connections > 0);
-//! assert_eq!(config.execution.max_concurrent_tasks, 100);
+//! // Configuration provides database and execution settings via common config
+//! assert!(config.common.database.pool.max_connections > 0);
+//! assert_eq!(config.common.execution.max_concurrent_tasks, 100);
 //!
 //! // For complete database integration examples, see tests/models/ directory
 //! ```

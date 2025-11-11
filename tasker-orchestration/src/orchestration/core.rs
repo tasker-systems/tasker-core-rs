@@ -25,14 +25,7 @@ use tasker_shared::{TaskerError, TaskerResult};
 use crate::orchestration::command_processor::{
     OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, SystemHealth,
 };
-use crate::orchestration::staleness_detector::StalenessDetector; // TAS-49: Background services
-                                                                 // use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
-                                                                 // use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
-                                                                 // use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
-                                                                 // use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
-                                                                 // use crate::orchestration::lifecycle::task_request_processor::{
-                                                                 //     TaskRequestProcessor, TaskRequestProcessorConfig,
-                                                                 // };
+use crate::orchestration::staleness_detector::StalenessDetector;
 
 /// TAS-40 Command Pattern OrchestrationCore
 ///
@@ -106,16 +99,19 @@ impl OrchestrationCore {
 
         // Create OrchestrationProcessor with actor registry (TAS-46)
         // TAS-51: Use configured buffer size for command processor
+        // TAS-61 V2: Access mpsc_channels from orchestration context
         let command_buffer_size = context
             .tasker_config
-            .mpsc_channels
             .orchestration
-            .command_processor
-            .command_buffer_size;
+            .as_ref()
+            .map(|o| o.mpsc_channels.command_processor.command_buffer_size)
+            .unwrap_or(5000);
 
         // TAS-51: Initialize channel monitor for observability
-        let channel_monitor =
-            ChannelMonitor::new("orchestration_command_channel", command_buffer_size);
+        let channel_monitor = ChannelMonitor::new(
+            "orchestration_command_channel",
+            command_buffer_size as usize,
+        );
 
         let (mut processor, command_sender) = OrchestrationProcessor::new(
             context.clone(),
@@ -124,7 +120,7 @@ impl OrchestrationCore {
             // result_processor,
             // task_claim_step_enqueuer,
             context.message_client(),
-            command_buffer_size,
+            command_buffer_size as usize,
             channel_monitor.clone(), // Pass clone to processor
         );
 
@@ -174,10 +170,8 @@ impl OrchestrationCore {
 
     /// TAS-49: Start background services for staleness detection
     async fn start_background_services(&mut self) -> TaskerResult<()> {
-        // Get TAS-49 DLQ configuration (TODO: Add to TaskerConfig root for easier access)
-        // For now, using defaults from component config
-        let staleness_config =
-            tasker_shared::config::components::StalenessDetectionConfig::default();
+        // Get TAS-49 DLQ staleness detection configuration
+        let staleness_config = self.context.tasker_config.staleness_detection_config();
 
         // Start staleness detector if enabled
         if staleness_config.enabled {

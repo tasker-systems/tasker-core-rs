@@ -1,41 +1,51 @@
-# Override environment for test
-environment = "test"
+# Test Environment - Worker Configuration Overrides
 
-[worker_system]
+[worker]
 worker_id = "test-worker-001"
 
+[worker.event_systems.worker.timing]
+fallback_polling_interval_seconds = 1
 
-[worker_system.step_processing]
+[worker.event_systems.worker.metadata.in_process_events]
+deduplication_cache_size = 1000
+
+[worker.event_systems.worker.metadata.fallback_poller]
+polling_interval_ms = 500
+age_threshold_seconds = 2
+max_age_hours = 12
+
+[worker.event_systems.worker.metadata.resource_limits]
+max_memory_mb = 2048
+
+[worker.step_processing]
 max_concurrent_steps = 10
 
+[worker.health_monitoring]
+health_check_interval_seconds = 10
 
-[worker_system.resource_limits]
-max_memory_mb = 512
-max_database_connections = 10
-
-
-[worker_system.web]
-enabled = true
-bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"  # Worker binds to 8081 internally (Docker maps external ports)
-request_timeout_ms = 5000
-
-# Smaller MPSC channel buffers for tests (TAS-51)
-
-[mpsc_channels.command_processor]
+[worker.mpsc_channels.command_processor]
 command_buffer_size = 100
 
-
-[mpsc_channels.event_systems]
+[worker.mpsc_channels.event_systems]
 event_channel_buffer_size = 100
 
-
-[mpsc_channels.event_subscribers]
+[worker.mpsc_channels.event_subscribers]
 completion_buffer_size = 100
 result_buffer_size = 100
 
+[worker.mpsc_channels.in_process_events]
+broadcast_buffer_size = 1000
 
-[mpsc_channels.in_process_events]
-
-
-[mpsc_channels.event_listeners]
+[worker.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 100
+
+[worker.web]
+# Increased from 5000ms to 30000ms to support complex operations
+request_timeout_ms = 30000
+
+[worker.web.database_pools]
+web_api_pool_size = 5
+web_api_max_connections = 10
+web_api_connection_timeout_seconds = 15
+web_api_idle_timeout_seconds = 300
+max_total_connections_hint = 15

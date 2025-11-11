@@ -1,71 +1,77 @@
-# Override environment for test
-environment = "test"
+# Test Environment - Common Configuration Overrides
 
-[database]
-# Test database connection
-database = "tasker_rust_test"
+# Database overrides - must include ALL top-level database fields for proper merging
+# Note: DATABASE_URL environment variable takes precedence (used in Docker: postgres:5432)
+[common.database]
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
+database = "tasker_rust_test"
+skip_migration_check = false
 
-
-[database.pool]
-# Smaller pool for tests
-max_connections = 10
-min_connections = 2
-acquire_timeout_seconds = 5
+[common.database.pool]
+# Test environment: balanced pool for CI with postgres max_connections=500
+# Allocation:
+# - 3 services (orch/worker/ruby) × 20 main pool = 60
+# - Web API pools (orch 15 + worker 10 + ruby 10) = 35
+# - Parallel tests (4 threads × 20 connections) = 80
+# - Total: ~175 connections, leaves 325 headroom out of 500
+#
+# Bootstrap Strategy:
+# - Start with min_connections=1 for fast, reliable bootstrap
+# - Pool grows to max_connections=20 as needed under load
+# - acquire_timeout_seconds=10 provides buffer for connection establishment
+max_connections = 20
+min_connections = 1
+acquire_timeout_seconds = 10
 idle_timeout_seconds = 60
+max_lifetime_seconds = 3600
 
+[common.database.variables]
+statement_timeout = 5000
 
-[queues]
-# Faster polling for tests
+[common.queues]
 default_batch_size = 5
+health_check_interval = 60
 
+[common.queues.pgmq]
+poll_interval_ms = 250
+shutdown_timeout_seconds = 5
+max_retries = 1
 
-[queues.pgmq]
-max_retries = 1  # Fewer retries in tests
-
-# Smaller channel buffers for tests (TAS-51)
-
-[shared_channels.event_publisher]
-event_queue_buffer_size = 100
-
-
-[shared_channels.ffi]
-ruby_event_buffer_size = 100
-
-# Test circuit breaker settings - faster failure detection
-
-[circuit_breakers.global_settings]
+[common.circuit_breakers.global_settings]
 max_circuit_breakers = 20
 metrics_collection_interval_seconds = 10
 
+[common.mpsc_channels.event_publisher]
+event_queue_buffer_size = 100
 
-[circuit_breakers.default_config]
-failure_threshold = 3  # Fail faster in tests
-timeout_seconds = 5  # Shorter recovery timeout
-success_threshold = 1  # Single success to close
+[common.mpsc_channels.ffi]
+ruby_event_buffer_size = 100
 
-# Test-specific telemetry settings
-[telemetry]
-enabled = false  # Disable telemetry in tests
+[common.mpsc_channels.overflow_policy.metrics]
+saturation_check_interval_seconds = 10
 
-# Test-specific system settings
-[system]
-max_memory_mb = 512  # Lower memory limits for tests
-max_cpu_percent = 80.0
-
-# Test-specific execution settings
-[execution]
+[common.execution]
+max_concurrent_tasks = 100
+max_concurrent_steps = 1000
+step_batch_size = 10
+max_workflow_steps = 1000
 environment = "test"
 
-[execution.timeouts]
-default_operation_timeout_seconds = 10  # Shorter timeouts for tests
-shutdown_grace_period_seconds = 10
+[common.backoff]
+default_backoff_seconds = [1, 2, 4]
+max_backoff_seconds = 10
 
-# Test-specific decision points settings
-[decision_points]
-max_steps_per_decision = 10  # Lower limit for test safety
-max_decision_depth = 5  # Shallow nesting for simple tests
-warn_threshold_steps = 5  # Low threshold to catch issues early
-warn_threshold_depth = 3
-enable_detailed_logging = true  # Detailed logging helps diagnose test failures
-enable_metrics = false  # Metrics add overhead in tests
+[common.backoff.reenqueue_delays]
+initializing = 5
+enqueuing_steps = 0
+steps_in_process = 10
+evaluating_results = 5
+waiting_for_dependencies = 45
+waiting_for_retry = 30
+blocked_by_failures = 60
+
+[common.task_templates]
+search_paths = ["config/task_templates/*.{yml,yaml}"]
+
+[common.telemetry]
+enabled = false

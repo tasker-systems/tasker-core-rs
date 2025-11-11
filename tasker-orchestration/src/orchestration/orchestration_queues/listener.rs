@@ -170,17 +170,18 @@ impl OrchestrationQueueListener {
             .with_default_namespace(&self.config.namespace);
 
         // Create pgmq-notify listener with bounded channel (TAS-51)
+        // TAS-61 V2: Access mpsc_channels from orchestration context
         let buffer_size = self
             .context
             .tasker_config
-            .mpsc_channels
             .orchestration
-            .event_listeners
-            .pgmq_event_buffer_size;
+            .as_ref()
+            .map(|o| o.mpsc_channels.event_listeners.pgmq_event_buffer_size)
+            .unwrap_or(10000);
         let mut listener = PgmqNotifyListener::new(
             self.context.database_pool().clone(),
             pgmq_config,
-            buffer_size,
+            buffer_size as usize,
         )
         .await
         .map_err(|e| {
@@ -350,7 +351,8 @@ impl OrchestrationEventHandler {
         listener_id: Uuid,
         stats: Arc<OrchestrationListenerStats>,
     ) -> Self {
-        let queue_config = context.tasker_config.queues.clone();
+        // TAS-61 V2: Access queues from common config
+        let queue_config = context.tasker_config.common.queues.clone();
         let queue_classifier =
             tasker_shared::config::QueueClassifier::from_queues_config(&queue_config);
 
@@ -370,6 +372,22 @@ impl OrchestrationEventHandler {
 impl PgmqEventHandler for OrchestrationEventHandler {
     async fn handle_event(&self, event: PgmqNotifyEvent) -> pgmq_notify::Result<()> {
         match event {
+            PgmqNotifyEvent::BatchReady(batch_event) => {
+                // Handle batch ready events by logging them
+                // In the future, we could optimize by processing batches directly
+                debug!(
+                    listener_id = %self.listener_id,
+                    queue = %batch_event.queue_name,
+                    msg_count = %batch_event.message_count,
+                    namespace = %batch_event.namespace,
+                    "Received batch ready event with {} messages",
+                    batch_event.message_count
+                );
+
+                // For now, batch ready events are informational only
+                // The individual messages will also trigger MessageReady events
+                // which will be processed normally via the individual message handling path
+            }
             PgmqNotifyEvent::MessageReady(msg_event) => {
                 // Only process messages for our orchestration namespace
                 if msg_event.namespace != self.config.namespace {

@@ -1,8 +1,9 @@
-use crate::config::{ConfigManager, TaskerConfig};
+// TAS-61 Phase 6C/6D: TaskerConfig is the canonical config
+use crate::config::{tasker::TaskerConfig, ConfigManager};
 use std::time::Duration;
 
-// Re-export and use the unified event system configuration
-pub use crate::config::event_systems::{
+// TAS-61 Phase 6C/6D: Import from V2 (types moved to tasker.rs)
+pub use crate::config::tasker::{
     EventSystemConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
     EventSystemTimingConfig, OrchestrationEventSystemConfig, OrchestrationEventSystemMetadata,
 };
@@ -12,14 +13,30 @@ impl OrchestrationEventSystemConfig {
     ///
     /// Uses the unified event systems configuration from the centralized loader
     pub fn from_config_manager(config_manager: &ConfigManager) -> Self {
+        // TAS-61 Phase 6C/6D: Use V2 config
         let config = config_manager.config();
         Self::from_tasker_config(config)
     }
 
     /// Create from TaskerConfig directly using unified event systems configuration
     pub fn from_tasker_config(config: &TaskerConfig) -> Self {
-        // Use the unified orchestration event system config from the centralized loader
-        config.event_systems.orchestration.clone()
+        // TAS-61 Phase 6C/6D: Use V2 config structure
+        // Convert V2 EventSystemConfig to legacy EventSystemConfig<OrchestrationEventSystemMetadata>
+        let event_sys_config = config
+            .orchestration
+            .as_ref()
+            .map(|o| o.event_systems.orchestration.clone())
+            .unwrap_or_default();
+
+        // Convert from V2 to legacy generic type using From implementations
+        EventSystemConfig {
+            system_id: event_sys_config.system_id,
+            deployment_mode: event_sys_config.deployment_mode,
+            timing: event_sys_config.timing,
+            processing: event_sys_config.processing,
+            health: event_sys_config.health,
+            metadata: OrchestrationEventSystemMetadata::default(),
+        }
     }
 }
 

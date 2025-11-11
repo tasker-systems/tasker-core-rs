@@ -1,13 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-pub mod decision_points;
-pub use decision_points::DecisionPointsConfig;
+// TAS-61 Phase 6C: decision_points moved to tasker::DecisionPointsConfig
 pub mod task_claim_step_enqueuer;
 pub use task_claim_step_enqueuer::TaskClaimStepEnqueuerConfig;
 pub mod step_enqueuer;
 pub use step_enqueuer::StepEnqueuerConfig;
 pub mod step_result_processor;
-pub use crate::config::executor::{ExecutorConfig, ExecutorType};
 pub use step_result_processor::StepResultProcessorConfig;
 pub mod event_systems;
 pub use crate::config::web::WebConfig;
@@ -82,7 +80,6 @@ impl OrchestrationSystemConfig {
     /// Create OrchestrationSystemConfig from ConfigManager
     pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
         use std::time::SystemTime;
-
         let config = config_manager.config();
 
         // Generate a simple orchestrator ID using timestamp
@@ -93,7 +90,12 @@ impl OrchestrationSystemConfig {
 
         Self {
             orchestrator_id: format!("orchestrator-{timestamp}"),
-            enable_performance_logging: config.orchestration.enable_performance_logging,
+            // TAS-61 V2: Access orchestration.enable_performance_logging (optional)
+            enable_performance_logging: config
+                .orchestration
+                .as_ref()
+                .map(|o| o.enable_performance_logging)
+                .unwrap_or(false),
         }
     }
 }

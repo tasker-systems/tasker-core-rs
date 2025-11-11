@@ -217,9 +217,9 @@ mod tests {
 
     fn create_test_classifier() -> QueueClassifier {
         let orchestration_owned = OrchestrationOwnedQueues {
-            step_results: "orchestration_step_results_queue".to_string(),
-            task_requests: "orchestration_task_requests_queue".to_string(),
-            task_finalizations: "orchestration_task_finalizations_queue".to_string(),
+            step_results: "orchestration_step_results".to_string(),
+            task_requests: "orchestration_task_requests".to_string(),
+            task_finalizations: "orchestration_task_finalizations".to_string(),
         };
 
         QueueClassifier::new(
@@ -234,7 +234,7 @@ mod tests {
         let classifier = create_test_classifier();
 
         assert_eq!(
-            classifier.classify("orchestration_step_results_queue"),
+            classifier.classify("orchestration_step_results"),
             QueueType::StepResults
         );
     }
@@ -244,7 +244,7 @@ mod tests {
         let classifier = create_test_classifier();
 
         assert_eq!(
-            classifier.classify("orchestration_task_requests_queue"),
+            classifier.classify("orchestration_task_requests"),
             QueueType::TaskRequests
         );
     }
@@ -319,7 +319,7 @@ mod tests {
 
         let classified = ConfigDrivenMessageEvent::classify(
             test_event,
-            "orchestration_step_results_queue",
+            "orchestration_step_results",
             &classifier,
         );
 

@@ -25,7 +25,7 @@ use crate::{
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
 use tasker_shared::{
-    config::TaskerConfig,
+    config::tasker::TaskerConfig,
     errors::{TaskerError, TaskerResult},
     system_context::SystemContext,
 };
@@ -96,7 +96,13 @@ impl WorkerSystemHandle {
         let worker_core = self.worker_core.lock().await;
         let status = WorkerSystemStatus {
             running: self.is_running(),
-            environment: worker_core.context.tasker_config.environment().to_string(),
+            environment: worker_core
+                .context
+                .tasker_config
+                .common
+                .execution
+                .environment
+                .clone(),
             worker_core_status: worker_core.status().clone(),
             web_api_enabled: self.worker_config.web_config.enabled,
             supported_namespaces: worker_core
@@ -108,6 +114,7 @@ impl WorkerSystemHandle {
             database_url_preview: worker_core
                 .context
                 .tasker_config
+                .common
                 .database_url()
                 .chars()
                 .take(30)
@@ -172,24 +179,40 @@ impl Default for WorkerBootstrapConfig {
     }
 }
 
+// TAS-61 Phase 6D: V2 configuration support (V1 impl removed)
 impl From<&TaskerConfig> for WorkerBootstrapConfig {
     fn from(config: &TaskerConfig) -> WorkerBootstrapConfig {
+        // Extract worker config for easier access
+        let worker_config = config.worker.as_ref();
+
+        // Extract deployment mode and event-driven status from worker event systems
+        let (event_driven_enabled, deployment_mode_hint) = worker_config
+            .map(|w| {
+                let mode = w.event_systems.worker.deployment_mode;
+                let event_driven = matches!(
+                    mode,
+                    tasker_shared::config::tasker::DeploymentMode::EventDrivenOnly
+                        | tasker_shared::config::tasker::DeploymentMode::Hybrid
+                );
+                (event_driven, Some(mode.to_string()))
+            })
+            .unwrap_or((true, Some("Hybrid".to_string()))); // Default to Hybrid if worker config not present
+
         WorkerBootstrapConfig {
             worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
-            enable_web_api: config
-                .worker
-                .as_ref()
-                .map(|w| w.web.enabled)
-                .unwrap_or(true), // TAS-43: Load from worker web configuration or default to true
-            web_config: WorkerWebConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
-            orchestration_api_config: OrchestrationApiConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
-            environment_override: Some(config.environment().to_string()),
-            event_driven_enabled: config
-                .event_systems
-                .worker
-                .deployment_mode
-                .has_event_driven(),
-            deployment_mode_hint: Some(config.event_systems.worker.deployment_mode.to_string()),
+            enable_web_api: worker_config
+                .and_then(|w| w.web.as_ref())
+                .map(|web| web.enabled)
+                .unwrap_or(true),
+            // TAS-61 Phase 6D: Convert from canonical TOML config
+            web_config: worker_config.map(WorkerWebConfig::from).unwrap_or_default(),
+            orchestration_api_config: worker_config
+                .and_then(|w| w.orchestration_client.as_ref())
+                .map(OrchestrationApiConfig::from)
+                .unwrap_or_default(),
+            environment_override: Some(config.common.execution.environment.clone()),
+            event_driven_enabled,
+            deployment_mode_hint,
         }
     }
 }
@@ -237,7 +260,7 @@ impl WorkerBootstrap {
 
         info!(
             "Worker context loaded successfully for environment: {}",
-            system_context.tasker_config.environment()
+            system_context.tasker_config.common.execution.environment
         );
 
         let config: WorkerBootstrapConfig = system_context.tasker_config.as_ref().into();

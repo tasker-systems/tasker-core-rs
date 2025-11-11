@@ -1,30 +1,35 @@
-# Override environment for test
-environment = "test"
+# Test Environment - Orchestration Configuration Overrides
 
-[backoff]
-# Faster retries for tests
-default_backoff_seconds = [1, 2, 4]
-max_backoff_seconds = 10
+[orchestration]
+enable_performance_logging = false
 
-
-[orchestration_system]
-
-
-[orchestration_system.web]
-enabled = true
-bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
-request_timeout_ms = 5000
-
-# Smaller MPSC channel buffers for tests (TAS-51)
-
-[mpsc_channels.command_processor]
+[orchestration.mpsc_channels.command_processor]
 command_buffer_size = 100
 
-
-[mpsc_channels.event_systems]
+[orchestration.mpsc_channels.event_systems]
 event_channel_buffer_size = 100
 
+[orchestration.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 100
 
-[mpsc_channels.event_listeners]
-pgmq_event_buffer_size = 500
+[orchestration.web]
+# Increased from 5000ms to 30000ms to support complex task creation operations
+# which can involve template parsing, step creation, DB saves, and PGMQ messaging
+request_timeout_ms = 30000
 
+[orchestration.web.database_pools]
+web_api_pool_size = 10
+web_api_max_connections = 15
+max_total_connections_hint = 30
+
+# TAS-49: DLQ Configuration Overrides for Test Environment
+[orchestration.dlq.staleness_detection]
+detection_interval_seconds = 60  # Faster detection for tests (1 minute)
+batch_size = 10                  # Smaller batch for test
+dry_run = false                  # Actually transition in tests
+
+[orchestration.dlq.staleness_detection.thresholds]
+waiting_for_dependencies_minutes = 5  # Short timeout for tests
+waiting_for_retry_minutes = 2         # Short timeout for tests
+steps_in_process_minutes = 5
+task_max_lifetime_hours = 1

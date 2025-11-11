@@ -198,10 +198,11 @@ impl WorkerProcessor {
             "Creating WorkerProcessor with command channel monitoring"
         );
 
-        let queue_config = context.tasker_config.queues.clone();
+        // TAS-61 Phase 6D: Access queues from common config
+        let queues_config = &context.tasker_config.common.queues;
         // Create OrchestrationResultSender with centralized queues configuration
         let orchestration_result_sender =
-            OrchestrationResultSender::new(context.message_client(), &queue_config);
+            OrchestrationResultSender::new(context.message_client(), queues_config);
 
         let processor = Self {
             worker_id: worker_id.clone(),
@@ -278,14 +279,14 @@ impl WorkerProcessor {
     /// Start processing worker commands with event integration
     pub async fn start_with_events(&mut self) -> TaskerResult<()> {
         // Start completion listener if event subscriber is enabled
-        // TAS-50 Phase 2-3: Pass buffer size from already-loaded config instead of loading at runtime
+        // TAS-61 Phase 6C: Access worker MPSC channel config with Optional handling
         let completion_buffer_size = self
             .context
             .tasker_config
-            .mpsc_channels
             .worker
-            .event_subscribers
-            .completion_buffer_size;
+            .as_ref()
+            .map(|w| w.mpsc_channels.event_subscribers.completion_buffer_size)
+            .unwrap_or(1000) as usize; // Default buffer size if worker config not present
 
         let completion_receiver = self
             .event_subscriber

@@ -1,0 +1,462 @@
+{
+  "database": {
+    "url": "postgresql://tasker:tasker@localhost:5432/tasker_rust_test",
+    "pool": {
+      "max_connections": 10,
+      "min_connections": 2,
+      "acquire_timeout_seconds": 5,
+      "idle_timeout_seconds": 60,
+      "max_lifetime_seconds": 3600
+    },
+    "variables": {
+      "statement_timeout": 5000
+    },
+    "database": "tasker_rust_test",
+    "skip_migration_check": false
+  },
+  "telemetry": {
+    "enabled": false,
+    "service_name": "tasker-core",
+    "sample_rate": 1.0
+  },
+  "task_templates": {
+    "search_paths": [
+      "config/task_templates/*.{yml,yaml}"
+    ]
+  },
+  "system": {
+    "default_dependent_system": "default",
+    "version": "0.1.0",
+    "max_recursion_depth": 50
+  },
+  "backoff": {
+    "default_backoff_seconds": [
+      1,
+      2,
+      4
+    ],
+    "max_backoff_seconds": 10,
+    "backoff_multiplier": 2.0,
+    "jitter_enabled": true,
+    "jitter_max_percentage": 0.1,
+    "reenqueue_delays": {
+      "initializing": 5,
+      "enqueuing_steps": 0,
+      "steps_in_process": 10,
+      "evaluating_results": 5,
+      "waiting_for_dependencies": 45,
+      "waiting_for_retry": 30,
+      "blocked_by_failures": 60
+    }
+  },
+  "execution": {
+    "max_concurrent_tasks": 100,
+    "max_concurrent_steps": 1000,
+    "default_timeout_seconds": 3600,
+    "step_execution_timeout_seconds": 300,
+    "max_discovery_attempts": 3,
+    "step_batch_size": 10,
+    "max_retries": 3,
+    "max_workflow_steps": 1000,
+    "connection_timeout_seconds": 10,
+    "environment": "test"
+  },
+  "queues": {
+    "backend": "pgmq",
+    "orchestration_namespace": "orchestration",
+    "worker_namespace": "worker",
+    "default_visibility_timeout_seconds": 30,
+    "default_batch_size": 5,
+    "max_batch_size": 100,
+    "naming_pattern": "{namespace}_{name}_queue",
+    "health_check_interval": 60,
+    "orchestration_queues": {
+      "task_requests": "orchestration_task_requests_queue",
+      "task_finalizations": "orchestration_task_finalizations_queue",
+      "step_results": "orchestration_step_results_queue"
+    },
+    "pgmq": {
+      "poll_interval_ms": 250,
+      "shutdown_timeout_seconds": 5,
+      "max_retries": 1
+    },
+    "rabbitmq": {
+      "connection_timeout_seconds": 10
+    }
+  },
+  "orchestration": {
+    "mode": "standalone",
+    "enable_performance_logging": false,
+    "web": {
+      "enabled": true,
+      "bind_address": "0.0.0.0:8080",
+      "request_timeout_ms": 5000,
+      "tls": {
+        "enabled": false,
+        "cert_path": "",
+        "key_path": ""
+      },
+      "database_pools": {
+        "web_api_pool_size": 10,
+        "web_api_max_connections": 15,
+        "web_api_connection_timeout_seconds": 30,
+        "web_api_idle_timeout_seconds": 600,
+        "max_total_connections_hint": 30
+      },
+      "cors": {
+        "enabled": true,
+        "allowed_origins": [
+          "*"
+        ],
+        "allowed_methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE",
+          "PATCH",
+          "OPTIONS"
+        ],
+        "allowed_headers": [
+          "*"
+        ],
+        "max_age_seconds": 86400
+      },
+      "auth": {
+        "enabled": false,
+        "jwt_issuer": "tasker-core",
+        "jwt_audience": "tasker-api",
+        "jwt_token_expiry_hours": 24,
+        "jwt_private_key": "",
+        "jwt_public_key": "",
+        "api_key": "",
+        "api_key_header": "X-API-Key",
+        "protected_routes": {
+          "PATCH /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}": {
+            "auth_type": "bearer",
+            "required": true
+          },
+          "POST /v1/tasks": {
+            "auth_type": "bearer",
+            "required": false
+          },
+          "DELETE /v1/tasks/{task_uuid}": {
+            "auth_type": "bearer",
+            "required": true
+          },
+          "GET /v1/analytics/bottlenecks": {
+            "auth_type": "bearer",
+            "required": false
+          },
+          "GET /v1/analytics/performance": {
+            "auth_type": "bearer",
+            "required": false
+          }
+        }
+      },
+      "rate_limiting": {
+        "enabled": false,
+        "requests_per_minute": 1000,
+        "burst_size": 100,
+        "per_client_limit": true
+      },
+      "resilience": {
+        "circuit_breaker_enabled": true,
+        "request_timeout_seconds": 30,
+        "max_concurrent_requests": 100
+      }
+    }
+  },
+  "circuit_breakers": {
+    "enabled": true,
+    "global_settings": {
+      "max_circuit_breakers": 20,
+      "metrics_collection_interval_seconds": 10,
+      "min_state_transition_interval_seconds": 1.0
+    },
+    "default_config": {
+      "failure_threshold": 3,
+      "timeout_seconds": 5,
+      "success_threshold": 1
+    },
+    "component_configs": {
+      "task_readiness": {
+        "failure_threshold": 5,
+        "timeout_seconds": 30,
+        "success_threshold": 2
+      },
+      "pgmq": {
+        "failure_threshold": 3,
+        "timeout_seconds": 15,
+        "success_threshold": 2
+      }
+    }
+  },
+  "event_systems": {
+    "orchestration": {
+      "system_id": "orchestration-event-system",
+      "deployment_mode": "Hybrid",
+      "timing": {
+        "health_check_interval_seconds": 30,
+        "fallback_polling_interval_seconds": 5,
+        "visibility_timeout_seconds": 30,
+        "processing_timeout_seconds": 30,
+        "claim_timeout_seconds": 300
+      },
+      "processing": {
+        "max_concurrent_operations": 10,
+        "batch_size": 10,
+        "max_retries": 3,
+        "backoff": {
+          "initial_delay_ms": 100,
+          "max_delay_ms": 5000,
+          "multiplier": 2.0,
+          "jitter_percent": 0.1
+        }
+      },
+      "health": {
+        "enabled": true,
+        "performance_monitoring_enabled": true,
+        "max_consecutive_errors": 10,
+        "error_rate_threshold_per_minute": 5
+      },
+      "metadata": {}
+    },
+    "task_readiness": {
+      "system_id": "task-readiness-event-system",
+      "deployment_mode": "Hybrid",
+      "timing": {
+        "health_check_interval_seconds": 30,
+        "fallback_polling_interval_seconds": 5,
+        "visibility_timeout_seconds": 30,
+        "processing_timeout_seconds": 30,
+        "claim_timeout_seconds": 300
+      },
+      "processing": {
+        "max_concurrent_operations": 100,
+        "batch_size": 50,
+        "max_retries": 3,
+        "backoff": {
+          "initial_delay_ms": 100,
+          "max_delay_ms": 5000,
+          "multiplier": 2.0,
+          "jitter_percent": 0.1
+        }
+      },
+      "health": {
+        "enabled": true,
+        "performance_monitoring_enabled": true,
+        "max_consecutive_errors": 10,
+        "error_rate_threshold_per_minute": 5
+      },
+      "metadata": {}
+    },
+    "worker": {
+      "system_id": "worker-event-system",
+      "deployment_mode": "Hybrid",
+      "timing": {
+        "health_check_interval_seconds": 30,
+        "fallback_polling_interval_seconds": 1,
+        "visibility_timeout_seconds": 30,
+        "processing_timeout_seconds": 30,
+        "claim_timeout_seconds": 300
+      },
+      "processing": {
+        "max_concurrent_operations": 100,
+        "batch_size": 10,
+        "max_retries": 3,
+        "backoff": {
+          "initial_delay_ms": 100,
+          "max_delay_ms": 5000,
+          "multiplier": 2.0,
+          "jitter_percent": 0.1
+        }
+      },
+      "health": {
+        "enabled": true,
+        "performance_monitoring_enabled": true,
+        "max_consecutive_errors": 10,
+        "error_rate_threshold_per_minute": 5
+      },
+      "metadata": {
+        "in_process_events": {
+          "ffi_integration_enabled": true,
+          "deduplication_cache_size": 1000
+        },
+        "listener": {
+          "retry_interval_seconds": 5,
+          "max_retry_attempts": 3,
+          "event_timeout_seconds": 30,
+          "batch_processing": true,
+          "connection_timeout_seconds": 10
+        },
+        "fallback_poller": {
+          "enabled": true,
+          "polling_interval_ms": 500,
+          "batch_size": 10,
+          "age_threshold_seconds": 2,
+          "max_age_hours": 12,
+          "visibility_timeout_seconds": 30,
+          "supported_namespaces": []
+        },
+        "resource_limits": {
+          "max_memory_mb": 2048,
+          "max_cpu_percent": 80.0,
+          "max_database_connections": 50,
+          "max_queue_connections": 20
+        }
+      }
+    }
+  },
+  "mpsc_channels": {
+    "orchestration": {
+      "command_processor": {
+        "command_buffer_size": 100
+      },
+      "event_systems": {
+        "event_channel_buffer_size": 100
+      },
+      "event_listeners": {
+        "pgmq_event_buffer_size": 100
+      }
+    },
+    "task_readiness": {
+      "event_channel": {
+        "buffer_size": 1000,
+        "send_timeout_ms": 1000
+      }
+    },
+    "worker": {
+      "command_processor": {
+        "command_buffer_size": 100
+      },
+      "event_systems": {
+        "event_channel_buffer_size": 100
+      },
+      "event_subscribers": {
+        "completion_buffer_size": 100,
+        "result_buffer_size": 100
+      },
+      "in_process_events": {
+        "broadcast_buffer_size": 1000
+      },
+      "event_listeners": {
+        "pgmq_event_buffer_size": 100
+      }
+    },
+    "shared": {
+      "event_publisher": {
+        "event_queue_buffer_size": 100
+      },
+      "ffi": {
+        "ruby_event_buffer_size": 100
+      }
+    },
+    "overflow_policy": {
+      "log_warning_threshold": 0.8,
+      "drop_policy": "block",
+      "metrics": {
+        "enabled": true,
+        "saturation_check_interval_seconds": 10
+      }
+    }
+  },
+  "decision_points": {
+    "enabled": true,
+    "max_steps_per_decision": 50,
+    "max_decision_depth": 10,
+    "warn_threshold_steps": 20,
+    "warn_threshold_depth": 5,
+    "enable_detailed_logging": false,
+    "enable_metrics": true
+  },
+  "worker": {
+    "worker_id": "test-worker-001",
+    "worker_type": "general",
+    "step_processing": {
+      "claim_timeout_seconds": 300,
+      "max_retries": 3,
+      "max_concurrent_steps": 10
+    },
+    "health_monitoring": {
+      "health_check_interval_seconds": 10,
+      "performance_monitoring_enabled": true,
+      "error_rate_threshold": 0.05
+    },
+    "web": {
+      "enabled": true,
+      "bind_address": "0.0.0.0:8081",
+      "request_timeout_ms": 5000,
+      "tls": {
+        "enabled": false,
+        "cert_path": "",
+        "key_path": ""
+      },
+      "database_pools": {
+        "web_api_pool_size": 5,
+        "web_api_max_connections": 10,
+        "web_api_connection_timeout_seconds": 15,
+        "web_api_idle_timeout_seconds": 300,
+        "max_total_connections_hint": 15
+      },
+      "cors": {
+        "enabled": true,
+        "allowed_origins": [
+          "*"
+        ],
+        "allowed_methods": [
+          "GET",
+          "POST",
+          "DELETE",
+          "OPTIONS"
+        ],
+        "allowed_headers": [
+          "*"
+        ],
+        "max_age_seconds": 86400
+      },
+      "auth": {
+        "enabled": false,
+        "jwt_issuer": "tasker-worker",
+        "jwt_audience": "worker-api",
+        "jwt_token_expiry_hours": 24,
+        "jwt_private_key": "",
+        "jwt_public_key": "",
+        "api_key": "",
+        "api_key_header": "X-API-Key",
+        "protected_routes": {
+          "POST /templates/cache/maintain": {
+            "auth_type": "bearer",
+            "required": true
+          },
+          "POST /templates/{namespace}/{name}/{version}/refresh": {
+            "auth_type": "bearer",
+            "required": true
+          },
+          "GET /handlers": {
+            "auth_type": "bearer",
+            "required": false
+          },
+          "DELETE /templates/cache": {
+            "auth_type": "bearer",
+            "required": true
+          },
+          "GET /status/detailed": {
+            "auth_type": "bearer",
+            "required": false
+          }
+        }
+      },
+      "rate_limiting": {
+        "enabled": false,
+        "requests_per_minute": 500,
+        "burst_size": 50,
+        "per_client_limit": true
+      },
+      "resilience": {
+        "circuit_breaker_enabled": true,
+        "request_timeout_seconds": 30,
+        "max_concurrent_requests": 50
+      }
+    }
+  }
+}

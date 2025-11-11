@@ -243,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_actor_trait_compilation() {
-        // SystemContext will automatically use complete-test.toml in test builds
+        // ConfigLoader automatically loads .env file
         let context = SystemContext::new_for_orchestration().await.unwrap();
         let actor = TestActor {
             context: Arc::new(context),

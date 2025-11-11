@@ -1,0 +1,169 @@
+# Current environment (overridden by environment-specific config)
+environment = "development"
+
+[worker]
+worker_id = "worker-001"
+worker_type = "general"
+
+[worker.event_systems.worker]
+system_id = "worker-event-system"
+deployment_mode = "Hybrid"
+
+[worker.event_systems.worker.timing]
+health_check_interval_seconds = 30
+fallback_polling_interval_seconds = 1  # Workers need faster polling
+visibility_timeout_seconds = 30
+processing_timeout_seconds = 30
+claim_timeout_seconds = 300
+
+[worker.event_systems.worker.processing]
+max_concurrent_operations = 100  # Workers handle more concurrent operations
+batch_size = 10
+max_retries = 3
+
+[worker.event_systems.worker.processing.backoff]
+initial_delay_ms = 100
+max_delay_ms = 5000
+multiplier = 2.0
+jitter_percent = 0.1
+
+[worker.event_systems.worker.health]
+enabled = true
+performance_monitoring_enabled = true
+max_consecutive_errors = 10
+error_rate_threshold_per_minute = 5
+
+[worker.event_systems.worker.metadata.in_process_events]
+# NOTE: broadcast_buffer_size is in mpsc_channels.toml (TAS-51)
+ffi_integration_enabled = true
+deduplication_cache_size = 1000
+
+[worker.event_systems.worker.metadata.listener]
+retry_interval_seconds = 5
+max_retry_attempts = 3
+event_timeout_seconds = 30
+batch_processing = true
+connection_timeout_seconds = 10
+
+[worker.event_systems.worker.metadata.fallback_poller]
+enabled = true
+polling_interval_ms = 500
+batch_size = 10
+age_threshold_seconds = 2
+max_age_hours = 12
+visibility_timeout_seconds = 30
+
+[worker.event_systems.worker.metadata.resource_limits]
+max_memory_mb = 2048
+max_cpu_percent = 80.0
+max_database_connections = 50
+max_queue_connections = 20
+
+[worker.step_processing]
+claim_timeout_seconds = 300
+max_retries = 3
+max_concurrent_steps = 100
+
+[worker.health_monitoring]
+health_check_interval_seconds = 10
+performance_monitoring_enabled = true
+error_rate_threshold = 0.05
+
+[worker.mpsc_channels.command_processor]
+command_buffer_size = 1000
+
+[worker.mpsc_channels.event_systems]
+event_channel_buffer_size = 1000
+
+[worker.mpsc_channels.event_subscribers]
+completion_buffer_size = 1000
+result_buffer_size = 1000
+
+[worker.mpsc_channels.in_process_events]
+broadcast_buffer_size = 1000
+
+[worker.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 1000
+
+[worker.web]
+enabled = true
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}" # Worker uses port 8081 (orchestration uses 8080)
+request_timeout_ms = 30000
+
+[worker.web.tls]
+enabled = false
+cert_path = ""
+key_path = ""
+# For production, set these via environment variables:
+# WORKER_WEB_TLS_ENABLED=true
+# WORKER_WEB_TLS_CERT_PATH=/path/to/cert.pem
+# WORKER_WEB_TLS_KEY_PATH=/path/to/key.pem
+
+[worker.web.database_pools]
+# Worker Web API dedicated pool configuration
+# Separate from main worker database pool to prevent resource contention
+web_api_pool_size = 5
+web_api_max_connections = 10
+web_api_connection_timeout_seconds = 15
+web_api_idle_timeout_seconds = 300
+max_total_connections_hint = 15
+
+[worker.web.cors]
+enabled = true
+allowed_origins = ["*"]
+allowed_methods = ["GET", "POST", "DELETE", "OPTIONS"]
+allowed_headers = ["*"]
+
+[worker.web.auth]
+enabled = false
+jwt_issuer = "tasker-worker"
+jwt_audience = "worker-api"
+jwt_token_expiry_hours = 24
+# JWT keys should be provided via environment variables for security
+jwt_private_key = ""
+jwt_public_key = ""
+api_key = ""
+api_key_header = "X-API-Key"
+
+# Route-specific authentication configuration for worker endpoints
+# CRITICAL: Array-of-tables syntax (v2)
+[[worker.web.auth.protected_routes]]
+method = "DELETE"
+path = "/templates/cache"
+auth_type = "bearer"
+required = true
+
+[[worker.web.auth.protected_routes]]
+method = "POST"
+path = "/templates/cache/maintain"
+auth_type = "bearer"
+required = true
+
+[[worker.web.auth.protected_routes]]
+method = "POST"
+path = "/templates/{namespace}/{name}/{version}/refresh"
+auth_type = "bearer"
+required = true
+
+[[worker.web.auth.protected_routes]]
+method = "GET"
+path = "/status/detailed"
+auth_type = "bearer"
+required = false
+
+[[worker.web.auth.protected_routes]]
+method = "GET"
+path = "/handlers"
+auth_type = "bearer"
+required = false
+
+[worker.web.rate_limiting]
+enabled = false
+requests_per_minute = 500 # Lower than main API since worker has fewer endpoints
+burst_size = 50
+per_client_limit = true
+
+[worker.web.resilience]
+circuit_breaker_enabled = true
+request_timeout_seconds = 30
+max_concurrent_requests = 50   # Lower than main API for worker-specific load

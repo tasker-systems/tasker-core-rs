@@ -1,0 +1,376 @@
+# Current environment (overridden by environment-specific config)
+environment = "development"
+
+[orchestration]
+mode = "standalone"
+enable_performance_logging = false
+
+# Note: Queue configuration has been moved to common.toml
+# The orchestration system now references the centralized queue configuration
+
+
+# Documentation for orchestration_system parameters
+[orchestration._docs.mode]
+description = "Orchestration deployment mode: 'standalone' for single-instance or 'distributed' for multi-instance coordination"
+type = "String"
+valid_range = "'standalone', 'distributed'"
+default = "standalone"
+system_impact = "Controls whether orchestration uses single-instance processing or distributed coordination with processor ownership. Standalone is simpler but limits horizontal scaling. Distributed enables multiple orchestrators but requires atomic state transitions."
+related = ["orchestration.event_systems.orchestration.deployment_mode"]
+example = """
+# Production distributed orchestration with multiple instances
+[orchestration]
+mode = "distributed"
+enable_performance_logging = true
+"""
+
+[orchestration._docs.mode.recommendations]
+test = { value = "standalone", rationale = "Single orchestrator simplifies test execution and debugging" }
+development = { value = "standalone", rationale = "Local development typically runs one orchestrator instance" }
+production = { value = "distributed", rationale = "Multiple orchestrators for high availability and horizontal scaling" }
+
+
+[orchestration.web]
+enabled = true
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
+request_timeout_ms = 30000
+
+
+[orchestration.web.tls]
+enabled = false
+cert_path = ""
+key_path = ""
+# For production, set these via environment variables:
+# WEB_TLS_ENABLED=true
+# WEB_TLS_CERT_PATH=/path/to/cert.pem
+# WEB_TLS_KEY_PATH=/path/to/key.pem
+
+
+[orchestration.web.database_pools]
+# Web API dedicated pool configuration
+# These pools are separate from orchestration pools to prevent resource contention
+web_api_pool_size = 10
+web_api_max_connections = 15
+web_api_connection_timeout_seconds = 30
+web_api_idle_timeout_seconds = 600
+max_total_connections_hint = 30
+
+
+[orchestration.web.cors]
+enabled = true
+allowed_origins = ["*"]
+allowed_methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+allowed_headers = ["*"]
+
+
+[orchestration.web.auth]
+enabled = false
+jwt_issuer = "tasker-core"
+jwt_audience = "tasker-api"
+jwt_token_expiry_hours = 24
+# JWT keys should be provided via environment variables for security:
+# JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
+# JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
+jwt_private_key = ""
+jwt_public_key = ""
+# API key for testing (use env var API_KEY in production)
+api_key = ""
+api_key_header = "X-API-Key"
+
+# Route-specific authentication configuration
+# Configure which routes require authentication and what type
+
+[[orchestration.web.auth.protected_routes]]
+method = "DELETE"
+path = "/v1/tasks/{task_uuid}"
+auth_type = "bearer"
+required = true
+
+[[orchestration.web.auth.protected_routes]]
+method = "PATCH"
+path = "/v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"
+auth_type = "bearer"
+required = true
+
+[[orchestration.web.auth.protected_routes]]
+method = "POST"
+path = "/v1/tasks"
+auth_type = "bearer"
+required = false
+
+[[orchestration.web.auth.protected_routes]]
+method = "GET"
+path = "/v1/analytics/performance"
+auth_type = "bearer"
+required = false
+
+[[orchestration.web.auth.protected_routes]]
+method = "GET"
+path = "/v1/analytics/bottlenecks"
+auth_type = "bearer"
+required = false
+
+
+[orchestration.web.rate_limiting]
+enabled = false
+requests_per_minute = 1000
+burst_size = 100
+per_client_limit = true
+
+
+[orchestration.web.resilience]
+circuit_breaker_enabled = true
+request_timeout_seconds = 30
+max_concurrent_requests = 100
+
+# ============================================================================
+# ORCHESTRATION EVENT SYSTEM
+# ============================================================================
+
+
+[orchestration.event_systems.orchestration]
+system_id = "orchestration-event-system"
+deployment_mode = "Hybrid"
+
+
+# Documentation for orchestration event system parameters
+[orchestration.event_systems.orchestration._docs.deployment_mode]
+description = "Event system deployment mode controlling how orchestration discovers and processes tasks"
+type = "String"
+valid_range = "'PollingOnly', 'EventDrivenOnly', 'Hybrid'"
+default = "Hybrid"
+system_impact = "Determines coordination mechanism. PollingOnly = reliable but higher latency. EventDrivenOnly = lowest latency but requires stable PostgreSQL LISTEN/NOTIFY. Hybrid = event-driven with polling fallback for best reliability and performance."
+related = ["orchestration.event_systems.orchestration.timing.fallback_polling_interval_seconds", "orchestration.mode"]
+example = """
+# Production hybrid mode with fast fallback polling
+[orchestration.event_systems.orchestration]
+deployment_mode = "Hybrid"
+
+[orchestration.event_systems.orchestration.timing]
+fallback_polling_interval_seconds = 5  # Catch any missed events
+"""
+
+[orchestration.event_systems.orchestration._docs.deployment_mode.recommendations]
+test = { value = "PollingOnly", rationale = "Deterministic polling simplifies test execution and timing" }
+development = { value = "Hybrid", rationale = "Test event-driven behavior with reliable fallback" }
+production = { value = "Hybrid", rationale = "Event-driven performance with polling fallback for reliability" }
+
+# Timing configuration
+
+[orchestration.event_systems.orchestration.timing]
+health_check_interval_seconds = 30
+fallback_polling_interval_seconds = 5
+visibility_timeout_seconds = 30
+processing_timeout_seconds = 30
+claim_timeout_seconds = 300
+
+# Processing and concurrency configuration
+
+[orchestration.event_systems.orchestration.processing]
+max_concurrent_operations = 10
+batch_size = 10
+max_retries = 3
+
+
+# Documentation for orchestration event processing parameters
+[orchestration.event_systems.orchestration.processing._docs.max_concurrent_operations]
+description = "Maximum number of concurrent orchestration operations (task initialization, result processing, finalization)"
+type = "usize"
+valid_range = "1-1000"
+default = "10"
+system_impact = "Controls orchestration concurrency and throughput. Too few = slow task processing and queuing. Too many = database connection exhaustion and CPU contention. Should align with database pool size."
+related = ["common.database.pool.max_connections", "orchestration.event_systems.orchestration.processing.batch_size"]
+example = """
+# High-throughput production orchestration
+[orchestration.event_systems.orchestration.processing]
+max_concurrent_operations = 50
+batch_size = 20
+
+[common.database.pool]
+max_connections = 50  # Match orchestration concurrency
+"""
+
+[orchestration.event_systems.orchestration.processing._docs.max_concurrent_operations.recommendations]
+test = { value = "5", rationale = "Low concurrency for predictable test execution" }
+development = { value = "10", rationale = "Moderate concurrency for local development" }
+production = { value = "20-50", rationale = "Scale based on task volume and database capacity" }
+
+
+[orchestration.event_systems.orchestration.processing.backoff]
+initial_delay_ms = 100
+max_delay_ms = 5000
+multiplier = 2.0
+jitter_percent = 0.1
+
+# Health monitoring configuration
+
+[orchestration.event_systems.orchestration.health]
+enabled = true
+performance_monitoring_enabled = true
+max_consecutive_errors = 10
+error_rate_threshold_per_minute = 5
+
+# Orchestration-specific metadata
+
+[orchestration.event_systems.orchestration.metadata]
+# Note: queues configuration populated at runtime from common.toml
+
+# ============================================================================
+# TASK READINESS EVENT SYSTEM
+# ============================================================================
+
+
+[orchestration.event_systems.task_readiness]
+system_id = "task-readiness-event-system"
+deployment_mode = "Hybrid"
+
+# Timing configuration
+
+[orchestration.event_systems.task_readiness.timing]
+health_check_interval_seconds = 30
+fallback_polling_interval_seconds = 5
+visibility_timeout_seconds = 30
+processing_timeout_seconds = 30
+claim_timeout_seconds = 300
+
+# Processing and concurrency configuration
+
+[orchestration.event_systems.task_readiness.processing]
+max_concurrent_operations = 100
+batch_size = 50
+max_retries = 3
+
+
+[orchestration.event_systems.task_readiness.processing.backoff]
+initial_delay_ms = 100
+max_delay_ms = 5000
+multiplier = 2.0
+jitter_percent = 0.1
+
+# Health monitoring configuration
+
+[orchestration.event_systems.task_readiness.health]
+enabled = true
+performance_monitoring_enabled = true
+max_consecutive_errors = 10
+error_rate_threshold_per_minute = 5
+
+# Task readiness event system uses unified metadata populated at runtime
+# No additional metadata configuration required in TOML
+
+# ============================================================================
+# ORCHESTRATION MPSC CHANNELS
+# ============================================================================
+
+
+[orchestration.mpsc_channels.command_processor]
+# Orchestration command processor channel (TAS-40 pattern)
+# Handles: InitializeTask, ProcessStepResult, FinalizeTask commands
+command_buffer_size = 1000
+
+
+[orchestration.mpsc_channels.event_systems]
+# Orchestration event system notification channels
+# Handles: PGMQ message ready events, internal coordination events
+event_channel_buffer_size = 1000
+
+
+[orchestration.mpsc_channels.event_listeners]
+# PGMQ notification listener for orchestration queue
+# Handles: PostgreSQL LISTEN/NOTIFY events for orchestration_* queues
+pgmq_event_buffer_size = 10000  # Large buffer for notification bursts
+
+# ============================================================================
+# ORCHESTRATION DECISION POINTS
+# ============================================================================
+
+
+[orchestration.decision_points]
+enabled = true
+max_steps_per_decision = 50
+max_decision_depth = 10
+warn_threshold_steps = 20
+warn_threshold_depth = 5
+enable_detailed_logging = false
+enable_metrics = true
+
+# ============================================================================
+# ORCHESTRATION-SPECIFIC CONFIGURATION (non-v2 context fields)
+# ============================================================================
+
+[backoff]
+default_backoff_seconds = [1, 2, 4, 8, 16, 32]
+max_backoff_seconds = 60  # TAS-57: Aligned to balance retry speed and system load
+backoff_multiplier = 2.0
+jitter_enabled = true
+jitter_max_percentage = 0.1
+
+
+[backoff.reenqueue_delays]
+# TAS-41: New state machine states
+initializing = 5
+enqueuing_steps = 0
+steps_in_process = 10
+evaluating_results = 5
+waiting_for_dependencies = 45
+waiting_for_retry = 30
+blocked_by_failures = 60
+
+# ============================================================================
+# TAS-49: DEAD LETTER QUEUE (DLQ) AND LIFECYCLE MANAGEMENT
+# ============================================================================
+
+# Staleness Detection Configuration
+# Consolidates TAS-48 hardcoded thresholds into configurable system
+[staleness_detection]
+enabled = true
+detection_interval_seconds = 300  # Run every 5 minutes
+batch_size = 100                  # Process max 100 stale tasks per run
+dry_run = false                   # Start true for validation, false for production
+
+# Staleness Thresholds
+# Per-template lifecycle config in TaskTemplate YAML takes precedence over these defaults
+[staleness_detection.thresholds]
+waiting_for_dependencies_minutes = 60  # Consolidates TAS-48 hardcoded value
+waiting_for_retry_minutes = 30         # Consolidates TAS-48 hardcoded value
+steps_in_process_minutes = 30
+task_max_lifetime_hours = 24
+
+# Staleness Actions
+[staleness_detection.actions]
+auto_transition_to_error = true    # Automatically move stale tasks to Error state
+auto_move_to_dlq = true            # Automatically create DLQ investigation entry
+emit_events = true                 # Publish staleness events for monitoring
+event_channel = "task_staleness_detected"
+
+# Dead Letter Queue Operations
+[dlq]
+enabled = true
+auto_dlq_on_staleness = true       # Create DLQ entries when staleness detected
+include_full_task_snapshot = true  # Include complete task+steps state in JSONB
+max_pending_age_hours = 168        # Alert if investigation pending > 1 week (7 days)
+
+# DLQ Reasons Configuration
+# Controls which conditions trigger DLQ entry creation
+[dlq.reasons]
+staleness_timeout = true           # Tasks exceeding state timeout thresholds
+max_retries_exceeded = true        # TAS-42 retry limit hit
+worker_unavailable = true          # No worker available for extended period
+dependency_cycle_detected = true   # Circular dependency discovered
+manual_dlq = true                  # Operator manually sent to DLQ
+
+# Archive Configuration
+# Controls automatic archival of completed tasks
+[archive]
+enabled = true
+retention_days = 30                # Archive tasks in terminal states older than 30 days
+archive_batch_size = 1000          # Process max 1000 tasks per archival run
+archive_interval_hours = 24        # Run archival once per day
+
+# Archive Policies
+# Controls which task types are archived
+[archive.policies]
+archive_completed = true           # Archive tasks in Complete state
+archive_failed = true              # Archive tasks in Error state
+archive_cancelled = false          # Keep cancelled tasks for audit
+archive_dlq_resolved = true        # Archive tasks with resolved DLQ entries

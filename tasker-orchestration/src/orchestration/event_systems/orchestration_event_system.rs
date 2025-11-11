@@ -241,7 +241,7 @@ impl OrchestrationEventSystem {
 
         Ok(Self {
             system_id: config.system_id.clone(),
-            deployment_mode: config.deployment_mode.clone(),
+            deployment_mode: config.deployment_mode,
             queue_listener: None,
             fallback_poller: None,
             context,
@@ -257,11 +257,13 @@ impl OrchestrationEventSystem {
 
     /// Convert to OrchestrationListenerConfig for queue listener
     fn listener_config(&self) -> OrchestrationListenerConfig {
+        // Use configured queue names from system context (no hardcoding)
+        let queues = &self.context.tasker_config.common.queues;
         OrchestrationListenerConfig {
             namespace: "orchestration".to_string(),
             monitored_queues: vec![
-                "orchestration_step_results_queue".to_string(),
-                "orchestration_task_requests_queue".to_string(),
+                queues.orchestration_queues.step_results.clone(),
+                queues.orchestration_queues.task_requests.clone(),
             ],
             retry_interval: Duration::from_secs(5),
             max_retry_attempts: 10,
@@ -272,6 +274,8 @@ impl OrchestrationEventSystem {
 
     /// Convert to OrchestrationPollerConfig for fallback poller
     fn poller_config(&self) -> OrchestrationPollerConfig {
+        // Use configured queue names from system context (no hardcoding)
+        let queues = &self.context.tasker_config.common.queues;
         OrchestrationPollerConfig {
             enabled: true, // Always enabled when instantiated
             polling_interval: self.config.fallback_polling_interval(),
@@ -279,8 +283,8 @@ impl OrchestrationEventSystem {
             age_threshold: Duration::from_secs(5), // Only poll messages >5 seconds old
             max_age: Duration::from_secs(24 * 60 * 60), // Don't poll messages >24 hours old
             monitored_queues: vec![
-                "orchestration_step_results_queue".to_string(),
-                "orchestration_task_requests_queue".to_string(),
+                queues.orchestration_queues.step_results.clone(),
+                queues.orchestration_queues.task_requests.clone(),
             ],
             namespace: "orchestration".to_string(),
             visibility_timeout: self.config.visibility_timeout(),
@@ -314,7 +318,7 @@ impl OrchestrationEventSystem {
             fallback_poller_stats,
             queue_listener_stats,
             system_uptime: self.started_at.map(|start| start.elapsed()),
-            deployment_mode: self.deployment_mode.clone(),
+            deployment_mode: self.deployment_mode,
         }
     }
 
@@ -336,7 +340,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
     }
 
     fn deployment_mode(&self) -> DeploymentMode {
-        self.deployment_mode.clone()
+        self.deployment_mode
     }
 
     fn is_running(&self) -> bool {
@@ -380,15 +384,15 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 let buffer_size = self
                     .context
                     .tasker_config
-                    .mpsc_channels
                     .orchestration
-                    .event_systems
-                    .event_channel_buffer_size;
-                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size);
+                    .as_ref()
+                    .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
+                    .unwrap_or(10000);
+                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
 
                 // TAS-51: Initialize channel monitor for observability
                 let channel_monitor =
-                    ChannelMonitor::new("orchestration_hybrid_event_channel", buffer_size);
+                    ChannelMonitor::new("orchestration_hybrid_event_channel", buffer_size as usize);
 
                 let mut queue_listener = OrchestrationQueueListener::new(
                     listener_config,
@@ -445,15 +449,17 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 let buffer_size = self
                     .context
                     .tasker_config
-                    .mpsc_channels
                     .orchestration
-                    .event_systems
-                    .event_channel_buffer_size;
-                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size);
+                    .as_ref()
+                    .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
+                    .unwrap_or(10000);
+                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
 
                 // TAS-51: Initialize channel monitor for observability
-                let channel_monitor =
-                    ChannelMonitor::new("orchestration_event_driven_event_channel", buffer_size);
+                let channel_monitor = ChannelMonitor::new(
+                    "orchestration_event_driven_event_channel",
+                    buffer_size as usize,
+                );
 
                 let mut queue_listener = OrchestrationQueueListener::new(
                     listener_config,

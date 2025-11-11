@@ -138,12 +138,13 @@ impl WorkerCore {
         );
 
         // TAS-51: Use configured buffer size for worker command processor
+        // TAS-61 Phase 6D: Worker-specific mpsc channels are in worker.mpsc_channels
         let command_buffer_size = context
             .tasker_config
-            .mpsc_channels
             .worker
-            .command_processor
-            .command_buffer_size;
+            .as_ref()
+            .map(|w| w.mpsc_channels.command_processor.command_buffer_size as usize)
+            .expect("Worker configuration required for command processor buffer size");
 
         // TAS-51: Initialize channel monitor for observability
         let command_channel_monitor = tasker_shared::monitoring::ChannelMonitor::new(
@@ -175,12 +176,15 @@ impl WorkerCore {
             fallback_polling_interval: Duration::from_millis(500),
             batch_size: 10,
             visibility_timeout: Duration::from_secs(30),
+            // TAS-61 Phase 6C/6D: Convert V2 DeploymentMode to legacy
             deployment_mode: context
                 .tasker_config
-                .event_systems
                 .worker
-                .deployment_mode
-                .clone(),
+                .as_ref()
+                .map(|w| w.event_systems.worker.deployment_mode)
+                .unwrap_or_else(|| {
+                    panic!("Worker configuration required for event-driven processing")
+                }),
         };
 
         let event_driven_processor = EventDrivenMessageProcessor::new(

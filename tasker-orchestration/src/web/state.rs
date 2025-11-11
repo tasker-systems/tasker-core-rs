@@ -45,8 +45,12 @@ pub struct OrchestrationStatus {
 /// - Configuration and orchestration status
 #[derive(Clone, Debug)]
 pub struct AppState {
-    /// Web server configuration
+    /// Web server configuration (V2 OrchestrationWebConfig)
     pub config: Arc<WebConfig>,
+
+    /// Authentication configuration (converted from V2's `Option<AuthConfig>` to WebAuthConfig adapter)
+    /// This provides route matching methods needed by the auth middleware
+    pub auth_config: Option<Arc<tasker_shared::config::WebAuthConfig>>,
 
     /// Dedicated database pool for web API operations
     pub web_db_pool: PgPool,
@@ -76,14 +80,26 @@ impl AppState {
     ) -> ApiResult<Self> {
         info!("Creating web API application state with dedicated database pool");
 
+        // TAS-61 V2: Access web config from orchestration context (must be present for web API)
         let web_config = orchestration_core
             .context
             .tasker_config
             .orchestration
-            .web
+            .as_ref()
+            .and_then(|o| o.web.as_ref())
+            .ok_or_else(|| {
+                ApiError::internal_server_error(
+                    "Web configuration not present in orchestration context",
+                )
+            })?
             .clone();
-        // Extract database URL from orchestration configuration
-        let database_url = orchestration_core.context.tasker_config.database_url();
+
+        // TAS-61 V2: Extract database URL from common configuration
+        let database_url = orchestration_core
+            .context
+            .tasker_config
+            .common
+            .database_url();
         let pool_config = &web_config.database_pools;
 
         debug!(
@@ -98,10 +114,10 @@ impl AppState {
             .max_connections(pool_config.web_api_max_connections)
             .min_connections(pool_config.web_api_pool_size / 2)
             .acquire_timeout(Duration::from_secs(
-                pool_config.web_api_connection_timeout_seconds,
+                pool_config.web_api_connection_timeout_seconds as u64,
             ))
             .idle_timeout(Duration::from_secs(
-                pool_config.web_api_idle_timeout_seconds,
+                pool_config.web_api_idle_timeout_seconds as u64,
             ))
             .test_before_acquire(true)
             .connect(&database_url)
@@ -111,7 +127,12 @@ impl AppState {
             })?;
 
         // Create circuit breaker for web database health
-        let circuit_breaker = if web_config.resilience.circuit_breaker_enabled {
+        let circuit_breaker = if web_config
+            .resilience
+            .as_ref()
+            .map(|r| r.circuit_breaker_enabled)
+            .unwrap_or(false)
+        {
             WebDatabaseCircuitBreaker::new(
                 5,                       // failure_threshold
                 Duration::from_secs(30), // recovery_timeout
@@ -124,11 +145,14 @@ impl AppState {
 
         // Extract orchestration status from OrchestrationCore (TAS-40 simplified)
         let database_pool_size = orchestration_core.context.database_pool().size();
+        // TAS-61 V2: Access environment from common.execution
         let environment = orchestration_core
             .context
             .tasker_config
-            .environment()
-            .to_string();
+            .common
+            .execution
+            .environment
+            .clone();
         let core_status = orchestration_core.status();
 
         // Convert OrchestrationCoreStatus to SystemOperationalState
@@ -165,14 +189,21 @@ impl AppState {
         info!(
             web_pool_size = pool_config.web_api_max_connections,
             orchestration_pool_size = database_pool_size,
-            circuit_breaker_enabled = web_config.resilience.circuit_breaker_enabled,
+            circuit_breaker_enabled = web_config.resilience.as_ref().map(|r| r.circuit_breaker_enabled).unwrap_or(false),
             environment = %environment,
             orchestration_status = ?orchestration_status,
             "Web API application state created successfully"
         );
 
+        // TAS-61: Convert V2's Option<AuthConfig> to WebAuthConfig adapter for route matching
+        let auth_config = web_config
+            .auth
+            .as_ref()
+            .map(|auth| Arc::new(tasker_shared::config::WebAuthConfig::from(auth.clone())));
+
         Ok(Self {
             config: Arc::new(web_config),
+            auth_config,
             web_db_pool: web_db_pool.clone(),
             orchestration_db_pool: orchestration_core.context.database_pool().clone(),
             web_db_circuit_breaker: circuit_breaker,

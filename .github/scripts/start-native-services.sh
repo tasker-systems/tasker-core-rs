@@ -42,12 +42,17 @@ echo "Worker PID: $WORKER_PID"
 
 # 4. Start Ruby FFI worker in background
 echo "💎 Starting Ruby FFI worker on port $RUBY_WORKER_PORT..."
+echo "   WORKER_CONFIG=$WORKER_CONFIG"
+echo "   TASKER_WEB_BIND_ADDRESS=0.0.0.0:$RUBY_WORKER_PORT"
+echo "   Checking worker config file bind_address:"
+grep -A 1 "\[worker.web\]" "$WORKER_CONFIG" | grep bind_address || echo "   bind_address not found in config"
 cd workers/ruby
 TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
   TASKER_ENV=test \
   TASKER_TEMPLATE_PATH="$RUBY_TEMPLATE_PATH" \
   TASKER_WEB_BIND_ADDRESS="0.0.0.0:$RUBY_WORKER_PORT" \
+  RUST_LOG=info \
   bundle exec bin/server.rb \
   > ../../ruby-worker.log 2>&1 &
 RUBY_WORKER_PID=$!

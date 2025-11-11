@@ -162,7 +162,7 @@ impl WorkerEventSystem {
         supported_namespaces: Vec<String>,
     ) -> Self {
         let system_id = config.system_id.clone();
-        let deployment_mode = config.deployment_mode.clone();
+        let deployment_mode = config.deployment_mode;
 
         info!(
             system_id = %system_id,
@@ -191,15 +191,19 @@ impl WorkerEventSystem {
                 // Convert unified config to listener config format
                 let listener_config = WorkerListenerConfig {
                     retry_interval: std::time::Duration::from_secs(
-                        self.config.metadata.listener.retry_interval_seconds,
+                        self.config.metadata.listener.retry_interval_seconds.into(),
                     ),
                     max_retry_attempts: self.config.metadata.listener.max_retry_attempts,
                     event_timeout: std::time::Duration::from_secs(
-                        self.config.metadata.listener.event_timeout_seconds,
+                        self.config.metadata.listener.event_timeout_seconds.into(),
                     ),
                     batch_processing: self.config.metadata.listener.batch_processing,
                     connection_timeout: std::time::Duration::from_secs(
-                        self.config.metadata.listener.connection_timeout_seconds,
+                        self.config
+                            .metadata
+                            .listener
+                            .connection_timeout_seconds
+                            .into(),
                     ),
                     health_check_interval: std::time::Duration::from_secs(60), // Default from WorkerListenerConfig
                     supported_namespaces: self.supported_namespaces.clone(),
@@ -207,13 +211,14 @@ impl WorkerEventSystem {
 
                 // Create a notification sender - we'll convert notifications to commands
                 // TAS-51: Use configured buffer size for notification channel
+                // TAS-61 Phase 6D: Worker-specific mpsc channels are in worker.mpsc_channels
                 let buffer_size = self
                     .context
                     .tasker_config
-                    .mpsc_channels
                     .worker
-                    .event_systems
-                    .event_channel_buffer_size;
+                    .as_ref()
+                    .map(|w| w.mpsc_channels.event_systems.event_channel_buffer_size as usize)
+                    .expect("Worker configuration required for event channel buffer size");
                 let (notification_sender, mut notification_receiver) =
                     mpsc::channel::<WorkerNotification>(buffer_size);
 
@@ -286,20 +291,29 @@ impl WorkerEventSystem {
                 let poller_config = WorkerPollerConfig {
                     enabled: self.config.metadata.fallback_poller.enabled,
                     polling_interval: std::time::Duration::from_millis(
-                        self.config.metadata.fallback_poller.polling_interval_ms,
+                        self.config
+                            .metadata
+                            .fallback_poller
+                            .polling_interval_ms
+                            .into(),
                     ),
                     batch_size: self.config.metadata.fallback_poller.batch_size,
                     age_threshold: std::time::Duration::from_secs(
-                        self.config.metadata.fallback_poller.age_threshold_seconds,
+                        self.config
+                            .metadata
+                            .fallback_poller
+                            .age_threshold_seconds
+                            .into(),
                     ),
                     max_age: std::time::Duration::from_secs(
-                        self.config.metadata.fallback_poller.max_age_hours * 3600,
+                        (self.config.metadata.fallback_poller.max_age_hours * 3600).into(),
                     ),
                     visibility_timeout: std::time::Duration::from_secs(
                         self.config
                             .metadata
                             .fallback_poller
-                            .visibility_timeout_seconds,
+                            .visibility_timeout_seconds
+                            .into(),
                     ),
                     supported_namespaces: self.supported_namespaces.clone(),
                 };
@@ -338,7 +352,7 @@ impl EventDrivenSystem for WorkerEventSystem {
     }
 
     fn deployment_mode(&self) -> DeploymentMode {
-        self.deployment_mode.clone()
+        self.deployment_mode
     }
 
     fn is_running(&self) -> bool {

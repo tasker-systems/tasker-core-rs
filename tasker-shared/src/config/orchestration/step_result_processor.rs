@@ -1,4 +1,5 @@
-use crate::config::TaskerConfig;
+// TAS-61 Phase 6C/6D: TaskerConfig is the canonical config
+use crate::config::tasker::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ pub struct StepResultProcessorConfig {
 impl Default for StepResultProcessorConfig {
     fn default() -> Self {
         Self {
-            step_results_queue_name: "orchestration_step_results_queue".to_string(),
+            step_results_queue_name: "orchestration_step_results".to_string(),
             batch_size: 10,
             visibility_timeout_seconds: 300, // 5 minutes
             polling_interval_seconds: 1,
@@ -29,30 +30,43 @@ impl Default for StepResultProcessorConfig {
     }
 }
 
+// TAS-61 Phase 6C/6D: V2 configuration is canonical
 impl From<&TaskerConfig> for StepResultProcessorConfig {
     fn from(config: &TaskerConfig) -> StepResultProcessorConfig {
+        // Build queue name from pattern: {orchestration_namespace}_{step_results}_queue
+        let step_results_queue_name = format!(
+            "{}_{}_queue",
+            config.common.queues.orchestration_namespace,
+            config.common.queues.orchestration_queues.step_results
+        );
+
         StepResultProcessorConfig {
-            // Use the new queues config for step results queue name
-            step_results_queue_name: config.queues.step_results_queue_name(),
-            // Use queues config for all queue-related settings
-            batch_size: config.queues.default_batch_size as i32,
-            visibility_timeout_seconds: config.queues.default_visibility_timeout_seconds as i32,
-            polling_interval_seconds: config.queues.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
-            max_processing_attempts: config.queues.pgmq.max_retries as i32,
+            step_results_queue_name,
+            batch_size: config.common.queues.default_batch_size as i32,
+            visibility_timeout_seconds: config.common.queues.default_visibility_timeout_seconds
+                as i32,
+            polling_interval_seconds: (config.common.queues.pgmq.poll_interval_ms / 1000) as u64,
+            max_processing_attempts: config.common.queues.pgmq.max_retries as i32,
         }
     }
 }
 
 impl From<Arc<TaskerConfig>> for StepResultProcessorConfig {
     fn from(config: Arc<TaskerConfig>) -> StepResultProcessorConfig {
+        // Build queue name from pattern: {orchestration_namespace}_{step_results}_queue
+        let step_results_queue_name = format!(
+            "{}_{}_queue",
+            config.common.queues.orchestration_namespace,
+            config.common.queues.orchestration_queues.step_results
+        );
+
         StepResultProcessorConfig {
-            // Use the new queues config for step results queue name
-            step_results_queue_name: config.queues.step_results_queue_name(),
-            // Use queues config for all queue-related settings
-            batch_size: config.queues.default_batch_size as i32,
-            visibility_timeout_seconds: config.queues.default_visibility_timeout_seconds as i32,
-            polling_interval_seconds: config.queues.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
-            max_processing_attempts: config.queues.pgmq.max_retries as i32,
+            step_results_queue_name,
+            batch_size: config.common.queues.default_batch_size as i32,
+            visibility_timeout_seconds: config.common.queues.default_visibility_timeout_seconds
+                as i32,
+            polling_interval_seconds: (config.common.queues.pgmq.poll_interval_ms / 1000) as u64,
+            max_processing_attempts: config.common.queues.pgmq.max_retries as i32,
         }
     }
 }

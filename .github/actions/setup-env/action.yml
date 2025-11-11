@@ -19,8 +19,9 @@ runs:
         echo "WORKSPACE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
         # Database and application settings
-        echo "DATABASE_URL=postgres://tasker:tasker@localhost:5432/tasker_rust_test" >> $GITHUB_ENV
+        echo "DATABASE_URL=postgresql://tasker:tasker@localhost:5432/tasker_rust_test" >> $GITHUB_ENV
         echo "TASKER_ENV=test" >> $GITHUB_ENV
+        echo "TASKER_CONFIG_PATH=$GITHUB_WORKSPACE/config/tasker/complete-test.toml" >> $GITHUB_ENV
         echo "LOG_LEVEL=warn" >> $GITHUB_ENV
         echo "RUST_LOG=warn" >> $GITHUB_ENV
 
@@ -42,6 +43,7 @@ runs:
         echo "- WORKSPACE_PATH: $WORKSPACE_PATH"
         echo "- DATABASE_URL: $DATABASE_URL"
         echo "- TASKER_ENV: $TASKER_ENV"
+        echo "- TASKER_CONFIG_PATH: $TASKER_CONFIG_PATH"
         echo "- LOG_LEVEL: $LOG_LEVEL"
         echo "- RUST_LOG: $RUST_LOG"
         echo "- API_KEY: ${API_KEY:0:8}..." # Show only first 8 chars for security
