@@ -58,7 +58,7 @@ min_state_transition_interval_seconds = 5.0
 [common.database]
 database = "tasker_rust_test"
 skip_migration_check = false
-url = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
+url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 
 [common.database.pool]
 acquire_timeout_seconds = 5
