@@ -61,11 +61,11 @@ skip_migration_check = false
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 
 [common.database.pool]
-acquire_timeout_seconds = 5
+acquire_timeout_seconds = 10
 idle_timeout_seconds = 60
 max_connections = 20
 max_lifetime_seconds = 3600
-min_connections = 5
+min_connections = 1
 
 [common.database.variables]
 statement_timeout = 5000

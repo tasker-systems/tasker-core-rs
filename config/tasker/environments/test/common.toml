@@ -14,9 +14,14 @@ skip_migration_check = false
 # - Web API pools (orch 15 + worker 10 + ruby 10) = 35
 # - Parallel tests (4 threads × 20 connections) = 80
 # - Total: ~175 connections, leaves 325 headroom out of 500
+#
+# Bootstrap Strategy:
+# - Start with min_connections=1 for fast, reliable bootstrap
+# - Pool grows to max_connections=20 as needed under load
+# - acquire_timeout_seconds=10 provides buffer for connection establishment
 max_connections = 20
-min_connections = 5
-acquire_timeout_seconds = 5
+min_connections = 1
+acquire_timeout_seconds = 10
 idle_timeout_seconds = 60
 max_lifetime_seconds = 3600
 
