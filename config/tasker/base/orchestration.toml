@@ -113,7 +113,7 @@ pgmq_event_buffer_size = 50000
 
 [orchestration.web]
 enabled = true
-bind_address = "0.0.0.0:8080"
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
 request_timeout_ms = 30000
 
 [orchestration.web.database_pools]
