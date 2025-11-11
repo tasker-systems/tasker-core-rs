@@ -20,6 +20,8 @@ logger.info "Environment: #{ENV['TASKER_ENV'] || 'development'}"
 logger.info "Ruby Version: #{RUBY_VERSION}"
 logger.info "Database URL: #{ENV['DATABASE_URL'] ? '[REDACTED]' : 'Not set'}"
 logger.info "Template Path: #{ENV['TASKER_TEMPLATE_PATH'] || 'Not set'}"
+logger.info "Web Bind Address: #{ENV['TASKER_WEB_BIND_ADDRESS'] || 'Not set'}"
+logger.info "Config Path: #{ENV['TASKER_CONFIG_PATH'] || 'Not set'}"
 
 # Log configuration details
 logger.info 'Configuration:'
