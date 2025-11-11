@@ -7,7 +7,11 @@ fail-fast = false
 # CI-specific settings
 fail-fast = false
 slow-timeout = { period = "60s", terminate-after = 2 }
-test-threads = "num-cpus"
+# Limit parallelism to avoid database connection pool exhaustion
+# Each test may create a SystemContext with ~20 connections
+# With postgres max_connections=500 and 3 services running, limit to 4 threads
+# Total usage: 3 services (~95) + 4 test threads (~80) = ~175 connections
+test-threads = 4
 status-level = "pass"
 final-status-level = "slow"
 
