@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2025-11-10T16:52:00.217785+00:00
+# Generated: 2025-11-11T21:05:43.349548+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -61,12 +61,11 @@ skip_migration_check = false
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 
 [common.database.pool]
-acquire_timeout_seconds = 5
+acquire_timeout_seconds = 10
 idle_timeout_seconds = 60
-# Test environment needs larger pool for simultaneous e2e test execution
-max_connections = 100
+max_connections = 20
 max_lifetime_seconds = 3600
-min_connections = 50
+min_connections = 1
 
 [common.database.variables]
 statement_timeout = 5000
@@ -108,9 +107,9 @@ orchestration_namespace = "orchestration"
 worker_namespace = "worker"
 
 [common.queues.orchestration_queues]
-step_results = "orchestration_step_results_queue"
-task_finalizations = "orchestration_task_finalizations_queue"
-task_requests = "orchestration_task_requests_queue"
+step_results = "orchestration_step_results"
+task_finalizations = "orchestration_task_finalizations"
+task_requests = "orchestration_task_requests"
 
 [common.queues.pgmq]
 max_retries = 1

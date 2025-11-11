@@ -258,10 +258,7 @@ mod tests {
     #[test]
     fn test_config_defaults() {
         let config = StepResultProcessorConfig::default();
-        assert_eq!(
-            config.step_results_queue_name,
-            "orchestration_step_results_queue"
-        );
+        assert_eq!(config.step_results_queue_name, "orchestration_step_results");
         assert_eq!(config.batch_size, 10);
         assert_eq!(config.visibility_timeout_seconds, 300);
         assert_eq!(config.polling_interval_seconds, 1);

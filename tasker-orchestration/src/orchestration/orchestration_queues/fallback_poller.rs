@@ -250,19 +250,11 @@ impl OrchestrationFallbackPoller {
 
             let mut interval = tokio::time::interval(config.polling_interval);
 
+            // Use configured queue names from classifier (no hardcoding)
             let monitored_queues = vec![
-                classifier.ensure_queue_name_well_structured(
-                    "orchestration_step_results_queue",
-                    "orchestration",
-                ),
-                classifier.ensure_queue_name_well_structured(
-                    "orchestration_task_requests_queue",
-                    "orchestration",
-                ),
-                classifier.ensure_queue_name_well_structured(
-                    "orchestration_task_finalizations_queue",
-                    "orchestration",
-                ),
+                classifier.step_results_queue_name().to_string(),
+                classifier.task_requests_queue_name().to_string(),
+                classifier.task_finalizations_queue_name().to_string(),
             ];
 
             loop {

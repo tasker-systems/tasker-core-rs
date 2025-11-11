@@ -403,17 +403,17 @@ impl_builder_default!(QueuesConfig);
 pub struct OrchestrationQueuesConfig {
     /// Task request queue name
     #[validate(length(min = 1))]
-    #[builder(default = "task_requests".to_string())]
+    #[builder(default = "orchestration_task_requests".to_string())]
     pub task_requests: String,
 
     /// Task finalization queue name
     #[validate(length(min = 1))]
-    #[builder(default = "task_finalizations".to_string())]
+    #[builder(default = "orchestration_task_finalizations".to_string())]
     pub task_finalizations: String,
 
     /// Step results queue name
     #[validate(length(min = 1))]
-    #[builder(default = "step_results".to_string())]
+    #[builder(default = "orchestration_step_results".to_string())]
     pub step_results: String,
 }
 

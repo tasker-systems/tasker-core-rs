@@ -68,11 +68,8 @@ impl OrchestrationResultSender {
             correlation_id,
         };
 
-        // Use config-driven queue name with namespace prefixing
-        let queue_name = self.queue_classifier.ensure_queue_name_well_structured(
-            self.queue_classifier.step_results_queue_name(),
-            "orchestration",
-        );
+        // Use config-driven orchestration queue name (explicit, no naming pattern)
+        let queue_name = self.queue_classifier.step_results_queue_name().to_string();
 
         self.pgmq_client
             .send_json_message(&queue_name, &message)
@@ -115,12 +112,9 @@ impl OrchestrationResultSender {
         Ok(())
     }
 
-    /// Get the configured orchestration step results queue name with proper prefixing
+    /// Get the configured orchestration step results queue name (explicit, no naming pattern)
     #[allow(dead_code)]
     pub fn step_results_queue(&self) -> String {
-        self.queue_classifier.ensure_queue_name_well_structured(
-            self.queue_classifier.step_results_queue_name(),
-            "orchestration",
-        )
+        self.queue_classifier.step_results_queue_name().to_string()
     }
 }

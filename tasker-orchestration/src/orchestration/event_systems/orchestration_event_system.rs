@@ -257,11 +257,13 @@ impl OrchestrationEventSystem {
 
     /// Convert to OrchestrationListenerConfig for queue listener
     fn listener_config(&self) -> OrchestrationListenerConfig {
+        // Use configured queue names from system context (no hardcoding)
+        let queues = &self.context.tasker_config.common.queues;
         OrchestrationListenerConfig {
             namespace: "orchestration".to_string(),
             monitored_queues: vec![
-                "orchestration_step_results_queue".to_string(),
-                "orchestration_task_requests_queue".to_string(),
+                queues.orchestration_queues.step_results.clone(),
+                queues.orchestration_queues.task_requests.clone(),
             ],
             retry_interval: Duration::from_secs(5),
             max_retry_attempts: 10,
@@ -272,6 +274,8 @@ impl OrchestrationEventSystem {
 
     /// Convert to OrchestrationPollerConfig for fallback poller
     fn poller_config(&self) -> OrchestrationPollerConfig {
+        // Use configured queue names from system context (no hardcoding)
+        let queues = &self.context.tasker_config.common.queues;
         OrchestrationPollerConfig {
             enabled: true, // Always enabled when instantiated
             polling_interval: self.config.fallback_polling_interval(),
@@ -279,8 +283,8 @@ impl OrchestrationEventSystem {
             age_threshold: Duration::from_secs(5), // Only poll messages >5 seconds old
             max_age: Duration::from_secs(24 * 60 * 60), // Don't poll messages >24 hours old
             monitored_queues: vec![
-                "orchestration_step_results_queue".to_string(),
-                "orchestration_task_requests_queue".to_string(),
+                queues.orchestration_queues.step_results.clone(),
+                queues.orchestration_queues.task_requests.clone(),
             ],
             namespace: "orchestration".to_string(),
             visibility_timeout: self.config.visibility_timeout(),

@@ -20,9 +20,9 @@ pub struct OrchestrationOwnedQueues {
 impl Default for OrchestrationOwnedQueues {
     fn default() -> Self {
         Self {
-            step_results: "orchestration_step_results_queue".to_string(),
-            task_requests: "orchestration_task_requests_queue".to_string(),
-            task_finalizations: "orchestration_task_finalizations_queue".to_string(),
+            step_results: "orchestration_step_results".to_string(),
+            task_requests: "orchestration_task_requests".to_string(),
+            task_finalizations: "orchestration_task_finalizations".to_string(),
         }
     }
 }
@@ -31,7 +31,7 @@ impl QueuesConfig {
     /// Get the full queue name using the configured naming pattern
     ///
     /// Examples:
-    /// - get_queue_name("orchestration", "step_results") -> "orchestration_step_results_queue"
+    /// - get_queue_name("orchestration", "step_results") -> "orchestration_step_results"
     /// - get_queue_name("worker", "fulfillment") -> "worker_fulfillment_queue"
     pub fn get_queue_name(&self, namespace: &str, name: &str) -> String {
         // Check if the name already follows the pattern to avoid double-applying
@@ -58,18 +58,21 @@ impl QueuesConfig {
     }
 
     /// Get the step results queue name (most commonly used)
+    /// Returns the explicitly configured orchestration queue name
     pub fn step_results_queue_name(&self) -> String {
-        self.get_orchestration_queue_name(&self.orchestration_queues.step_results)
+        self.orchestration_queues.step_results.clone()
     }
 
     /// Get the task requests queue name
+    /// Returns the explicitly configured orchestration queue name
     pub fn task_requests_queue_name(&self) -> String {
-        self.get_orchestration_queue_name(&self.orchestration_queues.task_requests)
+        self.orchestration_queues.task_requests.clone()
     }
 
     /// Get the task finalizations queue name
+    /// Returns the explicitly configured orchestration queue name
     pub fn task_finalizations_queue_name(&self) -> String {
-        self.get_orchestration_queue_name(&self.orchestration_queues.task_finalizations)
+        self.orchestration_queues.task_finalizations.clone()
     }
 }
 
@@ -83,11 +86,13 @@ mod tests {
     fn test_queue_name_generation() {
         let config = QueuesConfig::default();
 
+        // Orchestration queues use explicit configuration (no naming pattern)
         assert_eq!(
-            config.get_queue_name("orchestration", "step_results"),
-            "orchestration_step_results_queue"
+            config.orchestration_queues.step_results,
+            "orchestration_step_results"
         );
 
+        // Worker queues use naming pattern with _queue suffix
         assert_eq!(
             config.get_queue_name("worker", "fulfillment"),
             "worker_fulfillment_queue"
@@ -98,9 +103,10 @@ mod tests {
     fn test_convenience_methods() {
         let config = QueuesConfig::default();
 
+        // Convenience method returns explicitly configured orchestration queue name
         assert_eq!(
             config.step_results_queue_name(),
-            "orchestration_step_results_queue"
+            "orchestration_step_results"
         );
     }
 }
