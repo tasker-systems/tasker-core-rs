@@ -65,7 +65,8 @@ impl TaskReadinessEventSystem {
                                 o.event_systems
                                     .task_readiness
                                     .timing
-                                    .fallback_polling_interval_seconds as u64
+                                    .fallback_polling_interval_seconds
+                                    as u64
                             })
                             .unwrap_or(30),
                     ),

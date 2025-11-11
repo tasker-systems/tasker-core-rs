@@ -1007,7 +1007,6 @@ pub struct EventSystemProcessingConfig {
     #[validate(range(max = 100))]
     #[builder(default = 3)]
     pub max_retries: u32,
-
     // TAS-61: Removed backoff field - never accessed at runtime
     // Actual backoff logic uses config.common.backoff instead
     // See: tasker-orchestration/src/orchestration/backoff_calculator.rs:74-77
@@ -1242,7 +1241,6 @@ pub struct OrchestrationWebConfig {
 
     // TAS-61: Removed tls field - web servers run plain HTTP only (ports 8080, 8081)
     // No rustls or TLS acceptor implementation exists
-
     /// Database pool configuration
     #[validate(nested)]
     #[builder(default)]
@@ -1250,7 +1248,6 @@ pub struct OrchestrationWebConfig {
 
     // TAS-61: Removed cors field - middleware uses hardcoded tower_http::cors::Any
     // See: tasker-orchestration/src/web/middleware/mod.rs:create_cors_layer()
-
     /// Authentication configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
@@ -1258,7 +1255,6 @@ pub struct OrchestrationWebConfig {
 
     // TAS-61: Removed rate_limiting field - no rate limiting middleware implemented
     // If rate limiting needed in future, consider tower-governor or similar
-
     /// Resilience configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
@@ -1437,7 +1433,6 @@ pub struct ResilienceConfig {
     /// Enable circuit breaker
     #[builder(default = true)]
     pub circuit_breaker_enabled: bool,
-
     // TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
     // TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented
 }
@@ -2013,7 +2008,6 @@ pub struct WorkerWebConfig {
 
     // TAS-61: Removed tls field - web servers run plain HTTP only (ports 8080, 8081)
     // No rustls or TLS acceptor implementation exists
-
     /// Database pool configuration
     #[validate(nested)]
     #[builder(default)]
@@ -2021,7 +2015,6 @@ pub struct WorkerWebConfig {
 
     // TAS-61: Removed cors field - middleware uses hardcoded tower_http::cors::Any
     // See: tasker-orchestration/src/web/middleware/mod.rs:create_cors_layer()
-
     /// Authentication configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
@@ -2029,7 +2022,6 @@ pub struct WorkerWebConfig {
 
     // TAS-61: Removed rate_limiting field - no rate limiting middleware implemented
     // If rate limiting needed in future, consider tower-governor or similar
-
     /// Resilience configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
@@ -2654,7 +2646,7 @@ mod tests {
         );
         assert_eq!(processing.max_concurrent_operations, 200);
         assert_eq!(processing.batch_size, 50); // Default
-        // TAS-61: backoff field removed - uses config.common.backoff instead
+                                               // TAS-61: backoff field removed - uses config.common.backoff instead
 
         // Test all config types for Display trait
         println!("\n=== Testing Display Trait ===");

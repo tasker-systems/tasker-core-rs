@@ -59,6 +59,9 @@ use std::collections::HashMap;
 ///     PgmqNotifyEvent::MessageReady(e) => {
 ///         println!("Message ready: {}", e.msg_id);
 ///     }
+///     PgmqNotifyEvent::BatchReady(e) => {
+///         println!("Batch ready: {} messages", e.message_count);
+///     }
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -68,6 +71,8 @@ pub enum PgmqNotifyEvent {
     QueueCreated(QueueCreatedEvent),
     /// Message is ready for processing in a queue
     MessageReady(MessageReadyEvent),
+    /// Batch of messages are ready for processing in a queue
+    BatchReady(BatchReadyEvent),
 }
 
 /// Event emitted when a new PGMQ queue is created
@@ -155,6 +160,7 @@ impl PgmqNotifyEvent {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => &event.namespace,
             PgmqNotifyEvent::MessageReady(event) => &event.namespace,
+            PgmqNotifyEvent::BatchReady(event) => &event.namespace,
         }
     }
 
@@ -164,6 +170,7 @@ impl PgmqNotifyEvent {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => &event.queue_name,
             PgmqNotifyEvent::MessageReady(event) => &event.queue_name,
+            PgmqNotifyEvent::BatchReady(event) => &event.queue_name,
         }
     }
 
@@ -173,6 +180,7 @@ impl PgmqNotifyEvent {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => event.created_at,
             PgmqNotifyEvent::MessageReady(event) => event.ready_at,
+            PgmqNotifyEvent::BatchReady(event) => event.ready_at,
         }
     }
 
@@ -182,6 +190,7 @@ impl PgmqNotifyEvent {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => &event.metadata,
             PgmqNotifyEvent::MessageReady(event) => &event.metadata,
+            PgmqNotifyEvent::BatchReady(event) => &event.metadata,
         }
     }
 
@@ -197,6 +206,7 @@ impl PgmqNotifyEvent {
         match self {
             PgmqNotifyEvent::QueueCreated(_) => "queue_created",
             PgmqNotifyEvent::MessageReady(_) => "message_ready",
+            PgmqNotifyEvent::BatchReady(_) => "batch_ready",
         }
     }
 }
@@ -287,6 +297,106 @@ impl MessageReadyEvent {
     #[must_use]
     pub fn with_visibility_timeout(mut self, timeout_seconds: i32) -> Self {
         self.visibility_timeout_seconds = Some(timeout_seconds);
+        self
+    }
+}
+
+/// Event emitted when a batch of messages is ready for processing
+///
+/// This event is triggered when multiple messages are enqueued in PGMQ via batch
+/// operations and become available for processing. It provides the message IDs and
+/// queue information needed to claim and process the batch.
+///
+/// # Examples
+///
+/// ```rust
+/// use pgmq_notify::events::BatchReadyEvent;
+/// use chrono::Utc;
+/// use std::collections::HashMap;
+///
+/// let event = BatchReadyEvent {
+///     msg_ids: vec![1, 2, 3],
+///     queue_name: "tasks_queue".to_string(),
+///     namespace: "tasks".to_string(),
+///     message_count: 3,
+///     ready_at: Utc::now(),
+///     metadata: HashMap::new(),
+///     delay_seconds: 0,
+/// };
+///
+/// assert_eq!(event.msg_ids, vec![1, 2, 3]);
+/// assert_eq!(event.message_count, 3);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BatchReadyEvent {
+    /// IDs of the messages in the batch
+    pub msg_ids: Vec<i64>,
+    /// Queue where the messages are available
+    pub queue_name: String,
+    /// Extracted namespace from the queue name
+    pub namespace: String,
+    /// Number of messages in the batch
+    pub message_count: i64,
+    /// When the batch became ready
+    pub ready_at: DateTime<Utc>,
+    /// Optional message metadata (limited by payload size)
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+    /// Delay in seconds before messages become visible
+    pub delay_seconds: i32,
+}
+
+impl BatchReadyEvent {
+    /// Create a new batch ready event
+    pub fn new<S: Into<String>>(msg_ids: Vec<i64>, queue_name: S, namespace: S) -> Self {
+        let message_count = msg_ids.len() as i64;
+        Self {
+            msg_ids,
+            queue_name: queue_name.into(),
+            namespace: namespace.into(),
+            message_count,
+            ready_at: Utc::now(),
+            metadata: HashMap::new(),
+            delay_seconds: 0,
+        }
+    }
+
+    /// Create with custom timestamp
+    pub fn with_timestamp<S: Into<String>>(
+        msg_ids: Vec<i64>,
+        queue_name: S,
+        namespace: S,
+        ready_at: DateTime<Utc>,
+    ) -> Self {
+        let message_count = msg_ids.len() as i64;
+        Self {
+            msg_ids,
+            queue_name: queue_name.into(),
+            namespace: namespace.into(),
+            message_count,
+            ready_at,
+            metadata: HashMap::new(),
+            delay_seconds: 0,
+        }
+    }
+
+    /// Add metadata to the event
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: HashMap<String, String>) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    /// Add a single metadata entry
+    pub fn add_metadata<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.metadata.insert(key.into(), value.into());
+        self
+    }
+
+    /// Set delay seconds
+    #[must_use]
+    pub fn with_delay_seconds(mut self, delay_seconds: i32) -> Self {
+        self.delay_seconds = delay_seconds;
         self
     }
 }

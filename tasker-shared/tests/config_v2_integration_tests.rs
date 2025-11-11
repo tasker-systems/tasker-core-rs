@@ -138,11 +138,15 @@ fn test_environment_override_application() {
 
 /// Test that ConfigLoader performs environment variable substitution
 #[test]
+#[serial_test::serial]
 fn test_env_var_substitution() {
-    // Just set our test variable - no need to unset DATABASE_URL
+    // Clear any existing DATABASE_URL from environment
+    std::env::remove_var("DATABASE_URL");
+
+    // Use the allowlisted DATABASE_URL environment variable
     std::env::set_var(
-        "TEST_DATABASE_URL",
-        "postgresql://test:test@localhost/testdb",
+        "DATABASE_URL",
+        "postgresql://test:test@localhost:5432/testdb",
     );
 
     // Load a real merged config to get all required fields, then just change the URL field
@@ -156,13 +160,13 @@ fn test_env_var_substitution() {
     let mut config_toml: toml::Value =
         toml::from_str(&base_config).expect("Failed to parse config");
 
-    // Update just the URL to use TEST_DATABASE_URL
+    // Update just the URL to use DATABASE_URL env var substitution
     if let Some(common) = config_toml.get_mut("common") {
         if let Some(database) = common.get_mut("database") {
             if let Some(table) = database.as_table_mut() {
                 table.insert(
                     "url".to_string(),
-                    toml::Value::String("${TEST_DATABASE_URL}".to_string()),
+                    toml::Value::String("${DATABASE_URL}".to_string()),
                 );
             }
         }
@@ -178,11 +182,12 @@ fn test_env_var_substitution() {
 
     assert_eq!(
         config.common.database.url,
-        "postgresql://test:test@localhost/testdb"
+        "postgresql://test:test@localhost:5432/testdb"
     );
 
     // Cleanup
     std::fs::remove_file(temp_file).ok();
+    std::env::remove_var("DATABASE_URL");
 }
 
 /// Test ConfigMerger preserves placeholders (doesn't substitute)

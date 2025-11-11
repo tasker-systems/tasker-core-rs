@@ -1,14 +1,16 @@
 # Test Environment - Common Configuration Overrides
 
 # Database overrides - must include ALL top-level database fields for proper merging
+# Note: DATABASE_URL environment variable takes precedence (used in Docker: postgres:5432)
 [common.database]
-url = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
+url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 database = "tasker_rust_test"
 skip_migration_check = false
 
 [common.database.pool]
-max_connections = 10
-min_connections = 2
+# Test environment needs larger pool for simultaneous e2e test execution
+max_connections = 100
+min_connections = 50
 acquire_timeout_seconds = 5
 idle_timeout_seconds = 60
 max_lifetime_seconds = 3600

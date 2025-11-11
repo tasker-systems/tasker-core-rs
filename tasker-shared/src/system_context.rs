@@ -129,7 +129,7 @@ impl SystemContext {
     /// This method loads worker configuration from context-based TOML files
     /// specified by the TASKER_CONFIG_PATH environment variable.
     ///
-    /// The configuration uses a context-based structure with [common] and [worker] sections.
+    /// The configuration uses a context-based structure with \[common\] and \[worker\] sections.
     /// See config/tasker/worker-test.toml for reference.
     ///
     /// # Returns

@@ -324,13 +324,14 @@ pub struct UnifiedHealthReport {
 
 #[cfg(test)]
 mod tests {
-    use tasker_shared::config::tasker::{
-        // TAS-61: EventSystemBackoffConfig import removed - no longer used in tests
-        EventSystemHealthConfig, EventSystemProcessingConfig,
-        EventSystemTimingConfig,
-    };
     use tasker_shared::config::event_systems::{
         EventSystemConfig, OrchestrationEventSystemMetadata, TaskReadinessEventSystemMetadata,
+    };
+    use tasker_shared::config::tasker::{
+        // TAS-61: EventSystemBackoffConfig import removed - no longer used in tests
+        EventSystemHealthConfig,
+        EventSystemProcessingConfig,
+        EventSystemTimingConfig,
     };
     use tasker_shared::DeploymentMode;
 
@@ -343,23 +344,23 @@ mod tests {
     fn test_config_values_used_not_defaults() {
         // Create non-default config values that would be loaded from TOML
         let custom_processing = EventSystemProcessingConfig {
-            batch_size: 75, // Non-default
+            batch_size: 75,                 // Non-default
             max_concurrent_operations: 150, // Non-default
-            max_retries: 5, // Non-default
-            // TAS-61: Commented out during investigation - backoff field removed
-            // backoff: EventSystemBackoffConfig {
-            //     initial_delay_ms: 250,
-            //     max_delay_ms: 15000,
-            //     multiplier: 3.0,
-            //     jitter_percent: 0.2,
-            // },
+            max_retries: 5,                 // Non-default
+                                            // TAS-61: Commented out during investigation - backoff field removed
+                                            // backoff: EventSystemBackoffConfig {
+                                            //     initial_delay_ms: 250,
+                                            //     max_delay_ms: 15000,
+                                            //     multiplier: 3.0,
+                                            //     jitter_percent: 0.2,
+                                            // },
         };
 
         let custom_health = EventSystemHealthConfig {
-            enabled: false, // Intentionally opposite of default
+            enabled: false,                        // Intentionally opposite of default
             performance_monitoring_enabled: false, // Intentionally opposite of default
-            max_consecutive_errors: 25, // Non-default
-            error_rate_threshold_per_minute: 50, // Non-default
+            max_consecutive_errors: 25,            // Non-default
+            error_rate_threshold_per_minute: 50,   // Non-default
         };
 
         let custom_timing = EventSystemTimingConfig {
@@ -447,7 +448,10 @@ mod tests {
             "Timing health_check_interval should use custom config value"
         );
         assert_eq!(
-            orchestration_config.timing.fallback_polling_interval_seconds, 8,
+            orchestration_config
+                .timing
+                .fallback_polling_interval_seconds,
+            8,
             "Timing fallback_polling_interval should use custom config value"
         );
 

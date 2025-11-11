@@ -419,6 +419,21 @@ impl PgmqEventHandler for WorkerEventHandler {
                 // but we can log them for debugging
                 Ok(())
             }
+            PgmqNotifyEvent::BatchReady(batch_event) => {
+                debug!(
+                    listener_id = %self.listener_id,
+                    queue_name = %batch_event.queue_name,
+                    namespace = %batch_event.namespace,
+                    msg_count = %batch_event.message_count,
+                    "Worker queue listener received batch ready event with {} messages",
+                    batch_event.message_count
+                );
+
+                // Batch ready events are informational only
+                // Individual messages will also trigger MessageReady events
+                // which will be processed normally via the individual message handling path
+                Ok(())
+            }
         }
     }
 }

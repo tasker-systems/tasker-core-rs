@@ -20,9 +20,13 @@ use uuid::Uuid;
 use tasker_shared::{
     config::event_systems::{
         // TAS-61: BackoffConfig import removed - field no longer in EventSystemProcessingConfig
-        EventSystemHealthConfig, EventSystemProcessingConfig,
-        EventSystemTimingConfig, FallbackPollerConfig, InProcessEventsConfig,
-        ListenerConfig as UnifiedWorkerListenerConfig, ResourceLimitsConfig,
+        EventSystemHealthConfig,
+        EventSystemProcessingConfig,
+        EventSystemTimingConfig,
+        FallbackPollerConfig,
+        InProcessEventsConfig,
+        ListenerConfig as UnifiedWorkerListenerConfig,
+        ResourceLimitsConfig,
         WorkerEventSystemMetadata,
     },
     event_system::{deployment::DeploymentMode, event_driven::EventDrivenSystem},

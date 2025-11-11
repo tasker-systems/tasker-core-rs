@@ -10,9 +10,13 @@ use pgmq_notify::MessageReadyEvent;
 use tasker_shared::{
     config::event_systems::{
         // TAS-61: BackoffConfig import removed - no longer used in tests
-        EventSystemHealthConfig, EventSystemProcessingConfig,
-        EventSystemTimingConfig, FallbackPollerConfig, InProcessEventsConfig,
-        ListenerConfig as UnifiedWorkerListenerConfig, ResourceLimitsConfig,
+        EventSystemHealthConfig,
+        EventSystemProcessingConfig,
+        EventSystemTimingConfig,
+        FallbackPollerConfig,
+        InProcessEventsConfig,
+        ListenerConfig as UnifiedWorkerListenerConfig,
+        ResourceLimitsConfig,
         WorkerEventSystemMetadata,
     },
     event_system::{deployment::DeploymentMode, event_driven::EventDrivenSystem},
@@ -244,7 +248,7 @@ async fn test_deployment_mode_behavior() {
 
     for deployment_mode in test_cases {
         let mut config = create_default_config();
-        config.deployment_mode = deployment_mode.clone();
+        config.deployment_mode = deployment_mode;
         config.system_id = format!("test-{:?}", deployment_mode);
 
         let context = Arc::new(

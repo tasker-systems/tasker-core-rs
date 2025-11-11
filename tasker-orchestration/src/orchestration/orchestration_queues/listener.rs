@@ -372,6 +372,22 @@ impl OrchestrationEventHandler {
 impl PgmqEventHandler for OrchestrationEventHandler {
     async fn handle_event(&self, event: PgmqNotifyEvent) -> pgmq_notify::Result<()> {
         match event {
+            PgmqNotifyEvent::BatchReady(batch_event) => {
+                // Handle batch ready events by logging them
+                // In the future, we could optimize by processing batches directly
+                debug!(
+                    listener_id = %self.listener_id,
+                    queue = %batch_event.queue_name,
+                    msg_count = %batch_event.message_count,
+                    namespace = %batch_event.namespace,
+                    "Received batch ready event with {} messages",
+                    batch_event.message_count
+                );
+
+                // For now, batch ready events are informational only
+                // The individual messages will also trigger MessageReady events
+                // which will be processed normally via the individual message handling path
+            }
             PgmqNotifyEvent::MessageReady(msg_event) => {
                 // Only process messages for our orchestration namespace
                 if msg_event.namespace != self.config.namespace {

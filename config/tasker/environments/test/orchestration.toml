@@ -13,7 +13,9 @@ event_channel_buffer_size = 100
 pgmq_event_buffer_size = 100
 
 [orchestration.web]
-request_timeout_ms = 5000
+# Increased from 5000ms to 30000ms to support complex task creation operations
+# which can involve template parsing, step creation, DB saves, and PGMQ messaging
+request_timeout_ms = 30000
 
 [orchestration.web.database_pools]
 web_api_pool_size = 10

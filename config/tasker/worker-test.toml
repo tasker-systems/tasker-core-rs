@@ -1,6 +1,6 @@
 # Tasker Configuration - worker Context
 # Environment: test
-# Generated: 2025-11-10T12:14:52.251672+00:00
+# Generated: 2025-11-10T16:52:06.453531+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -58,14 +58,15 @@ min_state_transition_interval_seconds = 5.0
 [common.database]
 database = "tasker_rust_test"
 skip_migration_check = false
-url = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
+url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 
 [common.database.pool]
 acquire_timeout_seconds = 5
 idle_timeout_seconds = 60
-max_connections = 10
+# Test environment needs larger pool for simultaneous e2e test execution
+max_connections = 100
 max_lifetime_seconds = 3600
-min_connections = 2
+min_connections = 50
 
 [common.database.variables]
 statement_timeout = 5000
@@ -224,7 +225,7 @@ max_retries = 3
 [worker.web]
 bind_address = "0.0.0.0:8081"
 enabled = true
-request_timeout_ms = 5000
+request_timeout_ms = 30000
 
 [worker.web.auth]
 api_key = ""

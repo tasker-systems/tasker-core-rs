@@ -205,9 +205,7 @@ impl From<&TaskerConfig> for WorkerBootstrapConfig {
                 .map(|web| web.enabled)
                 .unwrap_or(true),
             // TAS-61 Phase 6D: Convert from canonical TOML config
-            web_config: worker_config
-                .map(WorkerWebConfig::from)
-                .unwrap_or_default(),
+            web_config: worker_config.map(WorkerWebConfig::from).unwrap_or_default(),
             orchestration_api_config: worker_config
                 .and_then(|w| w.orchestration_client.as_ref())
                 .map(OrchestrationApiConfig::from)

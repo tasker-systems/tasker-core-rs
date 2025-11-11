@@ -40,7 +40,8 @@ broadcast_buffer_size = 1000
 pgmq_event_buffer_size = 100
 
 [worker.web]
-request_timeout_ms = 5000
+# Increased from 5000ms to 30000ms to support complex operations
+request_timeout_ms = 30000
 
 [worker.web.database_pools]
 web_api_pool_size = 5
