@@ -32,10 +32,14 @@ USER root
 COPY --from=build-stage /usr/lib/postgresql/17/lib/pg_uuidv7.so /usr/lib/postgresql/17/lib/
 COPY --from=build-stage /usr/share/postgresql/17/extension/pg_uuidv7* /usr/share/postgresql/17/extension/
 
-# Create initialization script for UUID v7 extension (PGMQ already included in base)
+# Create initialization scripts
+# 1. Create postgres role for pg_partman background worker compatibility
+RUN echo "CREATE ROLE postgres WITH SUPERUSER LOGIN;" > /docker-entrypoint-initdb.d/01-create-postgres-role.sql
+
+# 2. Initialize UUID v7 extension (PGMQ already included in base)
 RUN echo "CREATE EXTENSION IF NOT EXISTS pg_uuidv7 CASCADE;" > /docker-entrypoint-initdb.d/02-pg_uuidv7.sql
 
-# Test script to verify both extensions work
+# 3. Test script to verify both extensions work
 RUN echo "SELECT uuid_generate_v7() as test_uuid_v7, 'PGMQ and UUID v7 ready!' as status;" > /docker-entrypoint-initdb.d/99-test-extensions.sql
 
 # Switch back to postgres user for runtime
