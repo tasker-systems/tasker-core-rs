@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use crate::actors::batch_processing_actor::BatchProcessingActor;
 use crate::actors::decision_point_actor::DecisionPointActor;
 use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
 use crate::orchestration::{BackoffCalculator, BackoffCalculatorConfig};
@@ -33,6 +34,8 @@ use super::task_coordinator::TaskCoordinator;
 /// - Step state transitions (Ruby workers + Statesman)
 /// - Step result persistence (Ruby MessageManager)
 /// - Workflow step transition creation (Ruby state machines)
+///
+/// **TAS-59 Phase 4**: Now processes batch processing outcomes for dynamic worker creation
 #[derive(Clone, Debug)]
 pub struct OrchestrationResultProcessor {
     message_handler: MessageHandler,
@@ -42,10 +45,12 @@ impl OrchestrationResultProcessor {
     /// Create a new orchestration result processor
     ///
     /// TAS-53 Phase 6: Now accepts DecisionPointActor for dynamic workflow step creation
+    /// TAS-59 Phase 4: Now accepts BatchProcessingActor for dynamic batch worker creation
     pub fn new(
         task_finalizer: TaskFinalizer,
         context: Arc<SystemContext>,
         decision_point_actor: Arc<DecisionPointActor>,
+        batch_processing_actor: Arc<BatchProcessingActor>,
     ) -> Self {
         // Create backoff calculator (V2 config is canonical)
         let backoff_config: BackoffCalculatorConfig = context.tasker_config.clone().into();
@@ -57,13 +62,16 @@ impl OrchestrationResultProcessor {
         let state_transition_handler = StateTransitionHandler::new(context.clone());
         let task_coordinator = TaskCoordinator::new(context.clone(), task_finalizer);
 
-        // Create message handler that orchestrates all components (TAS-53: includes decision point actor)
+        // Create message handler that orchestrates all components
+        // TAS-53: includes decision point actor
+        // TAS-59: includes batch processing actor
         let message_handler = MessageHandler::new(
             context.clone(),
             metadata_processor,
             state_transition_handler,
             task_coordinator,
             decision_point_actor,
+            batch_processing_actor,
         );
 
         Self { message_handler }
@@ -125,8 +133,25 @@ mod tests {
             decision_point_service,
         ));
 
-        let processor =
-            OrchestrationResultProcessor::new(task_finalizer, context, decision_point_actor);
+        // Create BatchProcessingActor for testing (TAS-59 Phase 4)
+        let batch_processing_service = Arc::new(
+            crate::orchestration::lifecycle::batch_processing::BatchProcessingService::new(
+                context.clone(),
+            ),
+        );
+        let batch_processing_actor = Arc::new(
+            crate::actors::batch_processing_actor::BatchProcessingActor::new(
+                context.clone(),
+                batch_processing_service,
+            ),
+        );
+
+        let processor = OrchestrationResultProcessor::new(
+            task_finalizer,
+            context,
+            decision_point_actor,
+            batch_processing_actor,
+        );
 
         // Verify it's created (basic smoke test)
         assert!(std::mem::size_of_val(&processor) > 0);
@@ -155,8 +180,25 @@ mod tests {
             decision_point_service,
         ));
 
-        let processor =
-            OrchestrationResultProcessor::new(task_finalizer, context, decision_point_actor);
+        // Create BatchProcessingActor for testing (TAS-59 Phase 4)
+        let batch_processing_service = Arc::new(
+            crate::orchestration::lifecycle::batch_processing::BatchProcessingService::new(
+                context.clone(),
+            ),
+        );
+        let batch_processing_actor = Arc::new(
+            crate::actors::batch_processing_actor::BatchProcessingActor::new(
+                context.clone(),
+                batch_processing_service,
+            ),
+        );
+
+        let processor = OrchestrationResultProcessor::new(
+            task_finalizer,
+            context,
+            decision_point_actor,
+            batch_processing_actor,
+        );
 
         let cloned = processor.clone();
 

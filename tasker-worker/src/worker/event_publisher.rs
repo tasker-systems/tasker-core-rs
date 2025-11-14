@@ -301,6 +301,7 @@ mod tests {
                 skippable: false,
                 created_at: chrono::Utc::now().naive_utc(),
                 updated_at: chrono::Utc::now().naive_utc(),
+                template_step_name: step_name.to_string(),
             },
             dependency_results,
             step_definition: StepDefinition {
@@ -322,6 +323,7 @@ mod tests {
                     max_backoff_ms: None,
                 },
                 publishes_events: vec![],
+                batch_config: None,
             },
         }
     }

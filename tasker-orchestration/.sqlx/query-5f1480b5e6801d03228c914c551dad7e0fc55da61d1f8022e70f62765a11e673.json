@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name, ws.retryable, ws.max_attempts,\n                   ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,\n                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_named_steps ns ON ws.named_step_uuid = ns.named_step_uuid\n            WHERE workflow_step_uuid = $1\n            ",
+  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid,\n                   ws.retryable, ws.max_attempts, ws.in_process, ws.processed,\n                   ws.processed_at, ws.attempts, ws.last_attempted_at,\n                   ws.backoff_request_seconds, ws.inputs, ws.results,\n                   ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            JOIN tasker_named_steps ns ON ws.named_step_uuid = ns.named_step_uuid\n            WHERE ws.task_uuid = $1\n              AND ns.name = $2\n            LIMIT 1\n            ",
   "describe": {
     "columns": [
       {
@@ -20,82 +20,77 @@
       },
       {
         "ordinal": 3,
-        "name": "name",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 4,
         "name": "retryable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "max_attempts",
         "type_info": "Int4"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "in_process",
         "type_info": "Bool"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "processed",
         "type_info": "Bool"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "processed_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "attempts",
         "type_info": "Int4"
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "last_attempted_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 11,
+        "ordinal": 10,
         "name": "backoff_request_seconds",
         "type_info": "Int4"
       },
       {
-        "ordinal": 12,
+        "ordinal": 11,
         "name": "inputs",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 13,
+        "ordinal": 12,
         "name": "results",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 14,
+        "ordinal": 13,
         "name": "skippable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 15,
+        "ordinal": 14,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 16,
+        "ordinal": 15,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Text"
       ]
     },
     "nullable": [
-      false,
       false,
       false,
       false,
@@ -114,5 +109,5 @@
       false
     ]
   },
-  "hash": "1701bc0ccdbd2ca7dd1b63e81cb2ae13212e37271d1d1146a7895c7b8c4e41e1"
+  "hash": "5f1480b5e6801d03228c914c551dad7e0fc55da61d1f8022e70f62765a11e673"
 }

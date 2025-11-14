@@ -889,6 +889,11 @@ pub struct OrchestrationConfig {
     #[builder(default)]
     pub dlq: DlqOperationsConfig,
 
+    /// Batch processing configuration (TAS-59)
+    #[validate(nested)]
+    #[builder(default)]
+    pub batch_processing: BatchProcessingConfig,
+
     /// Web API configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
@@ -1603,6 +1608,47 @@ pub struct DlqReasons {
 }
 
 impl_builder_default!(DlqReasons);
+
+/// Batch Processing Configuration (TAS-59)
+///
+/// Controls cursor-based batch processing behavior for large dataset workflows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display, Builder)]
+#[serde(rename_all = "snake_case")]
+#[display(
+    "BatchProcessingConfig(enabled: {}, max_parallel: {}, default_batch_size: {}, checkpoint_interval: {}, stall_minutes: {})",
+    enabled,
+    max_parallel_batches,
+    default_batch_size,
+    checkpoint_interval_default,
+    checkpoint_stall_minutes
+)]
+pub struct BatchProcessingConfig {
+    /// Enable batch processing functionality
+    #[builder(default = true)]
+    pub enabled: bool,
+
+    /// Maximum number of parallel batch workers per task
+    #[validate(range(min = 1, max = 1000))]
+    #[builder(default = 50)]
+    pub max_parallel_batches: usize,
+
+    /// Default batch size when not specified in template
+    #[validate(range(min = 1, max = 100000))]
+    #[builder(default = 1000)]
+    pub default_batch_size: u32,
+
+    /// Default checkpoint interval when not specified in template
+    #[validate(range(min = 1, max = 10000))]
+    #[builder(default = 100)]
+    pub checkpoint_interval_default: u32,
+
+    /// Minutes without checkpoint progress before considering batch stalled
+    #[validate(range(min = 1, max = 1440))]
+    #[builder(default = 15)]
+    pub checkpoint_stall_minutes: u32,
+}
+
+impl_builder_default!(BatchProcessingConfig);
 
 // ============================================================================
 // WORKER CONFIGURATION (Worker-specific)
@@ -2351,6 +2397,7 @@ mod tests {
             },
             web: None,
             dlq: DlqOperationsConfig::default(),
+            batch_processing: BatchProcessingConfig::default(),
         }
     }
 

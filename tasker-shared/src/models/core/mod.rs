@@ -1,4 +1,5 @@
 pub mod annotation_type;
+pub mod batch_worker;
 pub mod dependent_system;
 pub mod dependent_system_object_map;
 pub mod named_step;

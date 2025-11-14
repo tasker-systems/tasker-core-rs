@@ -614,6 +614,262 @@ impl DecisionPointOutcome {
     }
 }
 
+/// Configuration for a single batch's cursor position and range
+///
+/// Each batch worker receives a `CursorConfig` that defines its processing boundaries.
+/// The cursor enables resumable batch processing by tracking progress through a dataset.
+///
+/// # Example
+/// ```json
+/// {
+///   "batch_id": "batch_001",
+///   "start_cursor": 0,
+///   "end_cursor": 1000,
+///   "batch_size": 1000
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CursorConfig {
+    /// Batch identifier (e.g., "batch_001", "batch_002")
+    pub batch_id: String,
+
+    /// Starting position for this batch (inclusive)
+    ///
+    /// Can be any JSON value depending on cursor type:
+    /// - Integer for record IDs: `123`
+    /// - String for timestamps: `"2025-11-01T00:00:00Z"`
+    /// - Object for composite keys: `{"page": 1, "offset": 0}`
+    pub start_cursor: Value,
+
+    /// Ending position for this batch (exclusive)
+    ///
+    /// The worker processes items from `start_cursor` (inclusive)
+    /// up to but not including `end_cursor`.
+    pub end_cursor: Value,
+
+    /// Number of items in this batch
+    ///
+    /// Useful for progress reporting and load balancing.
+    pub batch_size: u32,
+}
+
+/// Outcome of a batchable step that determines batch worker creation
+///
+/// Similar to `DecisionPointOutcome`, this enum represents the decision
+/// made by a batchable step handler about how to split work into parallel batches.
+///
+/// # Serialization Format
+///
+/// ```json
+/// // NoBatches variant
+/// { "type": "no_batches" }
+///
+/// // CreateBatches variant
+/// {
+///   "type": "create_batches",
+///   "worker_template_name": "batch_worker_template",
+///   "worker_count": 5,
+///   "cursor_configs": [...],
+///   "total_items": 5000
+/// }
+/// ```
+///
+/// The batch outcome is embedded in the `StepExecutionResult.result` field
+/// and processed by the BatchProcessingActor for dynamic worker creation.
+///
+/// # Example Usage
+///
+/// ```rust
+/// use tasker_shared::messaging::{BatchProcessingOutcome, CursorConfig};
+/// use serde_json::json;
+///
+/// // Handler determines batching is needed
+/// let outcome = BatchProcessingOutcome::create_batches(
+///     "batch_worker_template".to_string(),
+///     3,
+///     vec![
+///         CursorConfig {
+///             batch_id: "batch_001".to_string(),
+///             start_cursor: json!(0),
+///             end_cursor: json!(1000),
+///             batch_size: 1000,
+///         },
+///         CursorConfig {
+///             batch_id: "batch_002".to_string(),
+///             start_cursor: json!(1000),
+///             end_cursor: json!(2000),
+///             batch_size: 1000,
+///         },
+///         CursorConfig {
+///             batch_id: "batch_003".to_string(),
+///             start_cursor: json!(2000),
+///             end_cursor: json!(3000),
+///             batch_size: 1000,
+///         },
+///     ],
+///     3000,
+/// );
+///
+/// // Embed in step result
+/// let result_data = json!({
+///     "batch_processing_outcome": outcome.to_value(),
+///     "analysis": "Dataset size: 3000 items"
+/// });
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum BatchProcessingOutcome {
+    /// No batches needed - process as single step
+    ///
+    /// Returned when:
+    /// - Dataset is too small to warrant batching
+    /// - Data doesn't meet batching criteria
+    /// - Batch processing not applicable for this execution
+    NoBatches,
+
+    /// Create batch worker steps from template
+    ///
+    /// The orchestration system will:
+    /// 1. Instantiate N workers from the template step
+    /// 2. Assign each worker a unique cursor config
+    /// 3. Create DAG edges from batchable step to workers
+    /// 4. Enqueue workers for parallel execution
+    CreateBatches {
+        /// Template step name to use for creating workers
+        ///
+        /// Must match a step definition in the template with `type: batch_worker`.
+        /// The system will create multiple instances with generated names like:
+        /// - `{template_name}_001`
+        /// - `{template_name}_002`
+        /// - etc.
+        worker_template_name: String,
+
+        /// Number of worker instances to create
+        ///
+        /// Typically calculated based on:
+        /// - Dataset size / batch_size
+        /// - Parallelism configuration
+        /// - System resource constraints
+        worker_count: u32,
+
+        /// Initial cursor positions for each batch
+        ///
+        /// Each worker receives one `CursorConfig` that defines its
+        /// processing boundaries. Length must equal `worker_count`.
+        cursor_configs: Vec<CursorConfig>,
+
+        /// Total items to process across all batches
+        ///
+        /// Used for progress tracking and observability.
+        total_items: u64,
+    },
+}
+
+impl BatchProcessingOutcome {
+    /// Create a NoBatches outcome
+    ///
+    /// Use when batching is not needed or applicable.
+    pub fn no_batches() -> Self {
+        Self::NoBatches
+    }
+
+    /// Create a CreateBatches outcome with specified configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `worker_template_name` - Name of the template step to instantiate
+    /// * `worker_count` - Number of workers to create
+    /// * `cursor_configs` - Cursor configuration for each worker (length must equal worker_count)
+    /// * `total_items` - Total number of items to process
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug mode if `cursor_configs.len() != worker_count`.
+    pub fn create_batches(
+        worker_template_name: String,
+        worker_count: u32,
+        cursor_configs: Vec<CursorConfig>,
+        total_items: u64,
+    ) -> Self {
+        debug_assert_eq!(
+            cursor_configs.len(),
+            worker_count as usize,
+            "cursor_configs length must equal worker_count"
+        );
+
+        Self::CreateBatches {
+            worker_template_name,
+            worker_count,
+            cursor_configs,
+            total_items,
+        }
+    }
+
+    /// Check if this outcome requires worker creation
+    pub fn requires_worker_creation(&self) -> bool {
+        matches!(self, Self::CreateBatches { .. })
+    }
+
+    /// Get the worker template name (if any)
+    pub fn worker_template_name(&self) -> Option<&str> {
+        match self {
+            Self::NoBatches => None,
+            Self::CreateBatches {
+                worker_template_name,
+                ..
+            } => Some(worker_template_name),
+        }
+    }
+
+    /// Get the number of workers to create (if any)
+    pub fn worker_count(&self) -> u32 {
+        match self {
+            Self::NoBatches => 0,
+            Self::CreateBatches { worker_count, .. } => *worker_count,
+        }
+    }
+
+    /// Get the cursor configs (if any)
+    pub fn cursor_configs(&self) -> Vec<CursorConfig> {
+        match self {
+            Self::NoBatches => vec![],
+            Self::CreateBatches { cursor_configs, .. } => cursor_configs.clone(),
+        }
+    }
+
+    /// Convert to JSON Value for embedding in StepExecutionResult
+    pub fn to_value(&self) -> Value {
+        serde_json::to_value(self).expect("BatchProcessingOutcome should always serialize")
+    }
+
+    /// Try to extract BatchProcessingOutcome from StepExecutionResult
+    ///
+    /// Returns None if the result does not contain a valid batch outcome.
+    /// The batch_processing_outcome is expected to be nested inside the result field:
+    ///
+    /// ```json
+    /// {
+    ///   "result": {
+    ///     "batch_processing_outcome": {
+    ///       "type": "create_batches",
+    ///       "worker_template_name": "batch_worker_template",
+    ///       "worker_count": 5,
+    ///       "cursor_configs": [...],
+    ///       "total_items": 5000
+    ///     }
+    ///   }
+    /// }
+    /// ```
+    pub fn from_step_result(result: &StepExecutionResult) -> Option<Self> {
+        // Extract the batch_processing_outcome field from the result object
+        let result_obj = result.result.as_object()?;
+
+        let outcome_value = result_obj.get("batch_processing_outcome")?;
+
+        serde_json::from_value(outcome_value.clone()).ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

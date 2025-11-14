@@ -108,6 +108,38 @@ impl TaskCoordinator {
                 "Task already in EvaluatingResults state, checking if finalization is needed"
             );
             true // Check if finalization is needed
+        } else if current_state.is_terminal() {
+            // Task is already in a terminal state (Complete, Error, Cancelled, ResolvedManually)
+            // This is expected when processing duplicate/retried step result messages
+            // Treat as successful no-op (idempotent processing)
+            debug!(
+                correlation_id = %correlation_id,
+                task_uuid = %workflow_step.task_uuid,
+                step_uuid = %step_uuid,
+                current_state = ?current_state,
+                "Task already in terminal state, treating step result as no-op (idempotent)"
+            );
+            return Ok(());
+        } else if matches!(
+            current_state,
+            TaskState::WaitingForDependencies
+                | TaskState::WaitingForRetry
+                | TaskState::EnqueuingSteps
+        ) {
+            // Task is in a waiting/transitional state
+            // This can happen when:
+            // - Batchable step completes, creates edges, task moves to WaitingForDependencies
+            // - Step result message is retried after edge creation completed
+            // - Task is enqueuing newly-ready steps
+            // Treat as successful no-op (idempotent processing)
+            debug!(
+                correlation_id = %correlation_id,
+                task_uuid = %workflow_step.task_uuid,
+                step_uuid = %step_uuid,
+                current_state = ?current_state,
+                "Task in waiting/transitional state, treating step result as no-op (idempotent)"
+            );
+            return Ok(());
         } else {
             debug!(
                 correlation_id = %correlation_id,

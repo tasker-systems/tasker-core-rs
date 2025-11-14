@@ -70,6 +70,7 @@
 //! }
 //! ```
 
+pub mod batch_processing_actor;
 pub mod decision_point_actor;
 pub mod registry;
 pub mod result_processor_actor;
@@ -79,6 +80,7 @@ pub mod task_request_actor;
 pub mod traits;
 
 // Re-export message types and traits publicly
+pub use batch_processing_actor::ProcessBatchableStepMessage;
 pub use decision_point_actor::{DecisionPointProcessingResult, ProcessDecisionPointMessage};
 pub use registry::ActorRegistry;
 pub use result_processor_actor::ProcessStepResultMessage;

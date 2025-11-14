@@ -4,12 +4,15 @@
 //! TaskRequest represents the input specification for creating a Task instance
 //! from a NamedTask template with user-provided context and options.
 
+use bon::Builder;
 use chrono::NaiveDateTime;
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
+use validator::Validate;
 
 use super::named_task::NamedTask;
 use super::task::{NewTask, Task};
@@ -18,46 +21,70 @@ use crate::errors::{TaskerError, TaskerResult};
 /// TaskRequest represents an incoming request to create and execute a task
 /// This is the primary routing input that identifies which handler should process the task
 /// and contains all the information needed to create a Task instance from a NamedTask template
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, Validate, Display, Builder)]
+#[display(
+    "TaskRequest(name: {}, namespace: {}, version: {}, initiator: {})",
+    name,
+    namespace,
+    version,
+    initiator
+)]
 pub struct TaskRequest {
     /// The name of the task to be performed (Rails: name)
+    #[validate(length(min = 1, max = 255))]
     pub name: String,
 
     /// The namespace of the task to be performed (Rails: namespace, default: "default")
+    #[validate(length(min = 1, max = 255))]
+    #[builder(default = "default".to_string())]
     pub namespace: String,
 
     /// The version of the task to be performed (Rails: version, default: "0.1.0")
+    #[validate(length(min = 1, max = 50))]
+    #[builder(default = "0.1.0".to_string())]
     pub version: String,
 
     /// Context data required for task execution (Rails: context)
+    #[builder(default = serde_json::json!({}))]
     pub context: serde_json::Value,
 
     /// The entity or system that initiated this task request (Rails: initiator)
+    #[validate(length(min = 1, max = 255))]
+    #[builder(default = "system".to_string())]
     pub initiator: String,
 
     /// The system from which this task originated (Rails: source_system)
+    #[validate(length(min = 1, max = 255))]
+    #[builder(default = "tasker-core".to_string())]
     pub source_system: String,
 
     /// The reason why this task was requested (Rails: reason)
+    #[validate(length(min = 1, max = 500))]
+    #[builder(default = "Task requested".to_string())]
     pub reason: String,
 
     /// Tags associated with this task for categorization or filtering (Rails: tags)
+    #[builder(default)]
     pub tags: Vec<String>,
 
     /// List of step names that should be bypassed during task execution (Rails: bypass_steps)
+    #[builder(default)]
     pub bypass_steps: Vec<String>,
 
     /// Timestamp when the task was initially requested (Rails: requested_at)
+    #[builder(default = chrono::Utc::now().naive_utc())]
     pub requested_at: NaiveDateTime,
 
     /// Custom options that override task template defaults (Rust extension)
     pub options: Option<HashMap<String, serde_json::Value>>,
 
     /// Priority for task execution (higher values = higher priority). Default: 0
+    #[validate(range(min = -100, max = 100))]
     pub priority: Option<i32>,
 
     /// Correlation ID for distributed tracing (auto-generated if not provided)
     /// TAS-29: Enables end-to-end request tracking across orchestration and workers
+    #[builder(default = Uuid::new_v4())]
     pub correlation_id: Uuid,
 
     /// Optional parent correlation ID for nested/chained workflow relationships
@@ -74,35 +101,16 @@ pub struct ResolvedTaskRequest {
     pub resolved_options: HashMap<String, serde_json::Value>,
 }
 
-impl Default for TaskRequest {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            namespace: "default".to_string(),
-            version: "1.0.0".to_string(),
-            context: serde_json::json!({}),
-            initiator: "UNKNOWN".to_string(),
-            source_system: "UNKNOWN".to_string(),
-            reason: "UNKNOWN".to_string(),
-            tags: Vec::new(),
-            bypass_steps: Vec::new(),
-            requested_at: chrono::Utc::now().naive_utc(),
-            options: None,
-            priority: None,
-            correlation_id: Uuid::now_v7(),
-            parent_correlation_id: None,
-        }
-    }
-}
+// Note: No Default implementation - use TaskRequest::builder() instead
+// TaskRequest requires a name, so Default doesn't make semantic sense
 
 impl TaskRequest {
     /// Create a new TaskRequest with minimal required fields
     pub fn new(name: String, namespace: String) -> Self {
-        Self {
-            name,
-            namespace,
-            ..Default::default()
-        }
+        TaskRequest::builder()
+            .name(name)
+            .namespace(namespace)
+            .build()
     }
 
     /// Add context data to the request
@@ -375,7 +383,7 @@ mod tests {
     fn test_routing_key_generation() {
         // Test with default version
         let request = TaskRequest::new("order_processing".to_string(), "payments".to_string());
-        assert_eq!(request.routing_key(), "payments/order_processing:1.0.0");
+        assert_eq!(request.routing_key(), "payments/order_processing:0.1.0");
 
         // Test with specific version
         let request_v2 = request.clone().with_version("2.1.0".to_string());
@@ -385,7 +393,7 @@ mod tests {
         let (namespace, name, version) = request.handler_identifier();
         assert_eq!(namespace, "payments");
         assert_eq!(name, "order_processing");
-        assert_eq!(version, "1.0.0"); // Default version from Default impl
+        assert_eq!(version, "0.1.0"); // Default version from builder
     }
 
     #[test]

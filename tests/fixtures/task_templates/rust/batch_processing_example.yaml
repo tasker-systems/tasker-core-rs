@@ -1,0 +1,151 @@
+# TAS-59 Batch Processing Example Workflow
+#
+# Demonstrates cursor-based batch processing with resumability and checkpoint health monitoring.
+#
+# Workflow Structure:
+#   analyze_dataset (batchable) → process_batch (batch_worker template) → aggregate_results (deferred_convergence)
+#
+# Key Features:
+# - Dynamic worker creation based on dataset size
+# - Cursor-based iteration with checkpoint support
+# - Resume-from-checkpoint after failures
+# - Automatic staleness detection via TAS-49 integration
+# - Result aggregation with validation
+
+---
+name: large_dataset_processor
+namespace_name: data_processing
+version: "1.0.0"
+description: "Process large datasets in parallel batches with cursor-based resumability"
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization: {}
+
+steps:
+  #
+  # BATCHABLE STEP: Dataset Analysis and Batch Planning
+  #
+  # This step analyzes the dataset and returns BatchProcessingOutcome to orchestrate
+  # parallel batch processing. The orchestration system will:
+  # 1. Instantiate N workers from the process_batch template
+  # 2. Assign each worker a unique cursor configuration
+  # 3. Create DAG edges from this step to all workers
+  # 4. Create edge from all workers to aggregate_results
+  # 5. Enqueue workers for parallel execution
+  #
+  - name: analyze_dataset
+    type: batchable
+    dependencies: []
+    handler:
+      callable: tasker_worker_rust::step_handlers::batch_processing_example::DatasetAnalyzerHandler
+      initialization:
+        batch_size: 1000 # Items per batch
+        max_workers: 10 # Maximum parallel workers
+        checkpoint_interval: 100 # Checkpoint every N items
+        worker_template_name: "process_batch" # Template step to instantiate
+
+  #
+  # BATCH WORKER TEMPLATE: Single Batch Processing
+  #
+  # This step is never executed directly - it serves as a template for dynamic worker
+  # creation. The orchestration system will create multiple instances like:
+  # - process_batch_001 (items 0-1000)
+  # - process_batch_002 (items 1000-2000)
+  # - process_batch_003 (items 2000-3000)
+  #
+  # Each instance receives BatchWorkerInputs in its initialization:
+  # {
+  #   "cursor": {
+  #     "start_position": 0,
+  #     "end_position": 1000,
+  #     "checkpoint_interval": 100,
+  #     "checkpoint_progress": 0
+  #   },
+  #   "batch_metadata": {
+  #     "checkpoint_interval": 100,
+  #     "cursor_field": "id",
+  #     "failure_strategy": "halt_on_first"
+  #   }
+  # }
+  #
+  - name: process_batch
+    type: batch_worker
+    dependencies:
+      - analyze_dataset
+    handler:
+      callable: tasker_worker_rust::step_handlers::batch_processing_example::BatchWorkerHandler
+      initialization:
+        operation: "transform"
+        # cursor and batch_metadata will be added by orchestration
+    batch_config:
+      batch_size: 1000
+      parallelism: 10
+      cursor_field: "id"
+      checkpoint_interval: 100
+      worker_template: "process_batch"
+      failure_strategy: "fail_fast"
+
+  #
+  # DEFERRED CONVERGENCE STEP: Result Aggregation and Validation
+  #
+  # This step waits for ALL batch workers to complete (intersection semantics),
+  # then aggregates results and validates against expected totals.
+  #
+  # It receives dependency_results containing output from all batch workers:
+  # {
+  #   "process_batch_001": { "result": { "processed_count": 1000, ... } },
+  #   "process_batch_002": { "result": { "processed_count": 1000, ... } },
+  #   ...
+  # }
+  #
+  - name: aggregate_results
+    type: deferred_convergence
+    # Depends on the batchable step (analyze_dataset).
+    # When batch workers are created, additional edges are added from workers → aggregate_results,
+    # but the batchable step dependency ensures proper initialization state.
+    dependencies:
+      - analyze_dataset
+    handler:
+      callable: tasker_worker_rust::step_handlers::batch_processing_example::ResultsAggregatorHandler
+      initialization:
+        aggregation_type: "sum"
+#
+# EXPECTED TASK CONTEXT
+#
+# The task context must include:
+# {
+#   "dataset_size": 5000,           // Total items to process
+#   "dataset_name": "users",         // Optional: dataset identifier
+#   "processing_mode": "parallel"    // Optional: processing configuration
+# }
+#
+# Example usage:
+#
+# ```ruby
+# task_request = TaskRequest.new(
+#   namespace: "data_processing",
+#   name: "large_dataset_processor",
+#   version: "1.0.0",
+#   context: {
+#     dataset_size: 5000,
+#     dataset_name: "users",
+#     processing_mode: "parallel"
+#   }
+# )
+# ```
+#
+# Or via Rust:
+#
+# ```rust
+# use tasker_shared::models::core::task_request::TaskRequest;
+#
+# let task_request = TaskRequest::new(
+#     "large_dataset_processor".to_string(),
+#     "data_processing".to_string()
+# )
+# .with_context(json!({
+#     "dataset_size": 5000,
+#     "dataset_name": "users",
+#     "processing_mode": "parallel"
+# }));
+# ```

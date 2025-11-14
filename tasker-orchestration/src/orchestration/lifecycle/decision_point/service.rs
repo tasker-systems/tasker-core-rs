@@ -427,7 +427,7 @@ impl DecisionPointService {
         }
 
         // Find and include deferred convergence steps
-        let deferred_steps = template.deferred_steps();
+        let deferred_steps = template.deferred_convergence_steps();
         for deferred_step in &deferred_steps {
             // Check if any of this deferred step's dependencies are being created
             let intersection: Vec<String> = deferred_step
@@ -562,7 +562,7 @@ impl DecisionPointService {
                 } else {
                     // For deferred steps, skip dependencies that weren't created
                     // For regular steps, fall back to decision_step_uuid (parent)
-                    if step_def.is_deferred() {
+                    if step_def.is_deferred_convergence() {
                         debug!(
                             deferred_step = %step_name,
                             missing_dep = %dep_name,
@@ -622,7 +622,7 @@ impl DecisionPointService {
                     to = %step_name,
                     from_uuid = %from_step_uuid,
                     to_uuid = %to_step_uuid,
-                    step_type = if step_def.is_deferred() { "deferred" } else { "regular" },
+                    step_type = if step_def.is_deferred_convergence() { "deferred" } else { "regular" },
                     "Created workflow step edge"
                 );
             }

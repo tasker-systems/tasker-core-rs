@@ -33,3 +33,11 @@ waiting_for_dependencies_minutes = 5  # Short timeout for tests
 waiting_for_retry_minutes = 2         # Short timeout for tests
 steps_in_process_minutes = 5
 task_max_lifetime_hours = 1
+
+# TAS-59: Batch Processing Configuration Overrides for Test Environment
+[orchestration.batch_processing]
+enabled = true                  # Enable batch processing for tests
+max_parallel_batches = 10       # Smaller for tests
+default_batch_size = 100        # Smaller batches for faster tests
+checkpoint_interval_default = 10  # More frequent checkpoints for tests
+checkpoint_stall_minutes = 2    # Faster stall detection for tests

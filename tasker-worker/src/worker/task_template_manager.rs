@@ -747,6 +747,7 @@ mod tests {
                 retry: Default::default(),
                 timeout_seconds: Some(30),
                 publishes_events: Vec::new(),
+                batch_config: None,
             }],
             environments: HashMap::new(),
             lifecycle: None,

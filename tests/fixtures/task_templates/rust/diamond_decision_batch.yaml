@@ -1,0 +1,192 @@
+# Diamond-Decision-Batch Combined Workflow
+#
+# Integration test demonstrating composition of three workflow patterns:
+# - Diamond pattern (parallel branches with convergence)
+# - Decision points (dynamic step creation based on runtime conditions)
+# - Batch processing (cursor-based parallel batch workers)
+#
+# Workflow Structure:
+#   ddb_diamond_start (standard)
+#       ├─→ branch_evens (standard - filters even numbers)
+#       └─→ branch_odds (standard - filters odd numbers)
+#               └─→ ddb_routing_decision (decision - creates batchable based on dominant type)
+#                       ├─→ even_batch_analyzer (batchable - if evens dominant)
+#                       │       ├─→ process_even_batch_001 (batch_worker)
+#                       │       ├─→ process_even_batch_002 (batch_worker)
+#                       │       └─→ process_even_batch_N (batch_worker)
+#                       │               └─→ aggregate_even_results (deferred_convergence)
+#                       │
+#                       └─→ odd_batch_analyzer (batchable - if odds dominant)
+#                               ├─→ process_odd_batch_001 (batch_worker)
+#                               ├─→ process_odd_batch_002 (batch_worker)
+#                               └─→ process_odd_batch_N (batch_worker)
+#                                       └─→ aggregate_odd_results (deferred_convergence)
+#
+# Expected Task Context:
+# {
+#   "numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+#   "batch_size": 3
+# }
+
+---
+name: diamond_decision_batch_processor
+namespace_name: combined_workflow_test
+version: "1.0.0"
+description: "Combined workflow demonstrating diamond pattern, decision points, and batch processing"
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization: {}
+
+steps:
+  # ============================================================================
+  # DIAMOND PATTERN: Initial step that validates input
+  # ============================================================================
+  - name: ddb_diamond_start
+    type: standard
+    dependencies: []
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::DiamondStartHandler
+      initialization: {}
+
+  # ============================================================================
+  # DIAMOND PATTERN: Two parallel branches that filter numbers
+  # ============================================================================
+  - name: branch_evens
+    type: standard
+    dependencies:
+      - ddb_diamond_start
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::BranchEvensHandler
+      initialization: {}
+
+  - name: branch_odds
+    type: standard
+    dependencies:
+      - ddb_diamond_start
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::BranchOddsHandler
+      initialization: {}
+
+  # ============================================================================
+  # DECISION POINT: Convergence step that creates batchable steps
+  # ============================================================================
+  - name: ddb_routing_decision
+    type: decision
+    dependencies:
+      - branch_evens
+      - branch_odds
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::RoutingDecisionHandler
+      initialization: {}
+
+  # ============================================================================
+  # BATCH PROCESSING: Even path (dynamically created by decision point)
+  # ============================================================================
+  - name: even_batch_analyzer
+    type: batchable
+    dependencies:
+      - ddb_routing_decision
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::EvenBatchAnalyzerHandler
+      initialization:
+        batch_size: 3
+        max_workers: 10
+        worker_template_name: "process_even_batch"
+
+  - name: process_even_batch
+    type: batch_worker
+    dependencies:
+      - even_batch_analyzer
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::ProcessEvenBatchHandler
+      initialization:
+        operation: "sum"
+        # cursor will be added by orchestration
+    batch_config:
+      batch_size: 3
+      parallelism: 10
+      cursor_field: "id"
+      checkpoint_interval: 50
+      worker_template: "process_even_batch"
+      failure_strategy: "fail_fast"
+
+  - name: aggregate_even_results
+    type: deferred_convergence
+    # Depends on the batchable step (even_batch_analyzer).
+    # When batch workers are created, additional edges are added.
+    dependencies:
+      - even_batch_analyzer
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::AggregateEvenResultsHandler
+      initialization:
+        validation_mode: "strict"
+
+  # ============================================================================
+  # BATCH PROCESSING: Odd path (dynamically created by decision point)
+  # ============================================================================
+  - name: odd_batch_analyzer
+    type: batchable
+    dependencies:
+      - ddb_routing_decision
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::OddBatchAnalyzerHandler
+      initialization:
+        batch_size: 3
+        max_workers: 10
+        worker_template_name: "process_odd_batch"
+
+  - name: process_odd_batch
+    type: batch_worker
+    dependencies:
+      - odd_batch_analyzer
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::ProcessOddBatchHandler
+      initialization:
+        operation: "sum"
+        # cursor will be added by orchestration
+    batch_config:
+      batch_size: 3
+      parallelism: 10
+      cursor_field: "id"
+      checkpoint_interval: 50
+      worker_template: "process_odd_batch"
+      failure_strategy: "fail_fast"
+
+  - name: aggregate_odd_results
+    type: deferred_convergence
+    # Depends on the batchable step (odd_batch_analyzer).
+    # When batch workers are created, additional edges are added.
+    dependencies:
+      - odd_batch_analyzer
+    handler:
+      callable: tasker_worker_rust::step_handlers::diamond_decision_batch::AggregateOddResultsHandler
+      initialization:
+        validation_mode: "strict"
+
+#
+# Example Usage:
+#
+# ```ruby
+# task_request = TaskRequest.new(
+#   namespace: "combined_workflow_test",
+#   name: "diamond_decision_batch_processor",
+#   version: "1.0.0",
+#   context: {
+#     numbers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+#     batch_size: 3
+#   }
+# )
+# ```
+#
+# ```rust
+# use tasker_shared::models::core::task_request::TaskRequest;
+#
+# let task_request = TaskRequest::new(
+#     "diamond_decision_batch_processor".to_string(),
+#     "combined_workflow_test".to_string()
+# )
+# .with_context(json!({
+#     "numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+#     "batch_size": 3
+# }));
+# ```

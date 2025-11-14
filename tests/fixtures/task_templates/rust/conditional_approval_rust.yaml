@@ -25,7 +25,7 @@ steps:
       initialization: {}
 
   - name: finalize_approval
-    type: deferred
+    type: deferred_convergence
     dependencies:
       - auto_approve
       - manager_approval

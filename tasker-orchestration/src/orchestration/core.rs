@@ -175,9 +175,19 @@ impl OrchestrationCore {
 
         // Start staleness detector if enabled
         if staleness_config.enabled {
+            // Get batch processing config (TAS-59 Phase 3)
+            let batch_config = self
+                .context
+                .tasker_config
+                .orchestration
+                .as_ref()
+                .map(|o| o.batch_processing.clone())
+                .unwrap_or_default();
+
             let detector = StalenessDetector::new(
                 self.context.database_pool().clone(),
                 staleness_config.clone(),
+                batch_config,
             );
 
             let handle = tokio::spawn(async move {
