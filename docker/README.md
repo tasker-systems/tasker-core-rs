@@ -10,18 +10,26 @@ Comprehensive Docker infrastructure for the Tasker Core system with production-r
 docker/
 ├── build/                              # Service-specific Dockerfiles
 │   ├── orchestration.test.Dockerfile   # Test build: orchestration + migrations
+│   ├── orchestration.test-local.Dockerfile  # Optimized local test build
 │   ├── orchestration.prod.Dockerfile   # Production build: orchestration + migrations
 │   ├── rust-worker.test.Dockerfile     # Test build: worker (no migrations)
-│   └── rust-worker.prod.Dockerfile     # Production build: worker (no migrations)
+│   ├── rust-worker.test-local.Dockerfile    # Optimized local test build
+│   ├── rust-worker.prod.Dockerfile     # Production build: worker (no migrations)
+│   ├── ruby-worker.test.Dockerfile     # Ruby FFI worker test build
+│   └── ruby-worker.test-local.Dockerfile    # Optimized Ruby FFI worker build
 ├── db/
 │   └── Dockerfile                      # PostgreSQL with PGMQ + UUID v7 extensions
 ├── scripts/                            # Service entrypoints and utilities
 │   ├── orchestration-entrypoint.sh     # Orchestration startup + migrations
 │   ├── worker-entrypoint.sh             # Worker startup (migration-free)
-│   └── migrate.sh                      # Database migration utility
+│   ├── migrate.sh                      # Database migration utility
+│   ├── benchmark-builds.sh             # Docker build performance comparison
+│   └── validate-optimized-builds.sh    # Validation for optimized builds
 ├── docker-compose.test.yml             # Test environment
+├── docker-compose.test-local.yml       # Optimized local test environment
 ├── docker-compose.prod.yml             # Production environment
 ├── .env.prod.template                  # Production environment template
+├── OPTIMIZATION-GUIDE.md               # Docker build optimization documentation
 └── README.md                           # This documentation
 ```
 
@@ -95,6 +103,9 @@ docker/
 - **Multi-stage builds**: Minimal runtime images with optimized binaries
 - **Service separation**: Workers start faster without migration overhead
 - **Horizontal scaling**: Scale workers independently
+- **BuildKit cache mounts**: Persistent cargo registry and build artifacts (`.test-local.` files)
+- **Pre-built binaries**: cargo-chef and cargo-binstall for 5-10 min savings
+- **Optimized local builds**: 35-90% faster rebuilds with `.test-local.` variants
 
 ### Production Ready
 - **Non-root execution**: All containers run as unprivileged `tasker` user
@@ -105,11 +116,36 @@ docker/
 ## 🚀 Quick Start
 
 ### Test Environment
+
+**Standard Build (Original)**
 ```bash
 cd docker
 docker compose -f docker-compose.test.yml up --build
 ```
 **Features:** Debug builds, orchestration handles migrations, worker scaling ready
+
+**Optimized Local Build (35-90% faster)**
+```bash
+# Enable BuildKit (required)
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
+# Use optimized Dockerfiles
+docker compose -f docker-compose.test-local.yml up --build
+```
+**Features:** Same as standard but with BuildKit cache mounts, pre-built tools, single-layer patterns
+
+**Validate & Benchmark Optimizations**
+```bash
+# Quick validation of optimized builds
+./docker/scripts/validate-optimized-builds.sh
+
+# Full validation with service tests
+./docker/scripts/validate-optimized-builds.sh --full
+
+# Benchmark original vs optimized
+./docker/scripts/benchmark-builds.sh
+```
 
 ### Production Deployment
 ```bash
@@ -359,6 +395,64 @@ docker stats
 docker compose config
 ```
 
+## 🚀 Docker Build Optimizations
+
+### Overview
+The `.test-local.` Dockerfiles provide optimized builds for local development with 35-90% performance improvements.
+
+| Build Type | Original Time | Optimized Time | Improvement |
+|-----------|---------------|----------------|-------------|
+| First build (no cache) | 15-20 min | 8-12 min | 35-40% |
+| Rebuild (code changes) | 10-15 min | 3-5 min | 60-70% |
+| Rebuild (no changes) | 5-8 min | 30-60 sec | 85-90% |
+
+### Key Optimizations
+
+1. **Pre-built binaries**: cargo-chef downloaded instead of compiled (5-10 min savings)
+2. **cargo-binstall**: Fast sqlx-cli installation (3-5 min savings)
+3. **BuildKit cache mounts**: Persistent cargo registry and build artifacts
+4. **Single-layer patterns**: Efficient binary copying from cache mounts
+5. **Consolidated stages**: Ruby FFI worker reduced from 3 to 2 stages
+
+### Using Optimized Builds
+
+```bash
+# Required: Enable BuildKit
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
+# Build with optimizations
+docker compose -f docker/docker-compose.test-local.yml up --build
+
+# Clear cache if needed
+rm -rf /tmp/docker-cache
+docker builder prune
+```
+
+### Troubleshooting Optimized Builds
+
+**BuildKit not enabled:**
+```bash
+# Add to your shell profile
+echo 'export DOCKER_BUILDKIT=1' >> ~/.zshrc
+echo 'export COMPOSE_DOCKER_CLI_BUILD=1' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Cache not working:**
+```bash
+# Check cache exists
+ls -la /tmp/docker-cache/
+
+# View BuildKit cache usage
+docker builder du
+
+# Build with verbose output
+BUILDKIT_PROGRESS=plain docker compose -f docker/docker-compose.test-local.yml build
+```
+
+For full optimization details, see [OPTIMIZATION-GUIDE.md](./OPTIMIZATION-GUIDE.md).
+
 ## 📝 Production Checklist
 
 Before deploying to production:
@@ -371,6 +465,7 @@ Before deploying to production:
 - [ ] 📊 **Log aggregation configured**
 - [ ] 📊 **Resource limits appropriate** for workload
 - [ ] 🔄 **Worker scaling tested** (`--scale worker=N`)
+- [ ] 🚀 **Consider optimizations** for faster builds (see Docker Build Optimizations)
 
 ## 🚀 Summary
 

@@ -35,6 +35,9 @@ use std::sync::Arc;
 use super::batch_processing_example::{
     BatchWorkerHandler, DatasetAnalyzerHandler, ResultsAggregatorHandler,
 };
+use super::batch_processing_products_csv::{
+    CsvAnalyzerHandler, CsvBatchProcessorHandler, CsvResultsAggregatorHandler,
+};
 use super::conditional_approval_rust::{
     AutoApproveHandler, FinalizeApprovalHandler, FinanceReviewHandler, ManagerApprovalHandler,
     RoutingDecisionHandler as ConditionalRoutingDecisionHandler, ValidateRequestHandler,
@@ -83,7 +86,7 @@ impl std::fmt::Debug for RustStepHandlerRegistry {
 impl RustStepHandlerRegistry {
     /// Create a new registry with all handlers pre-registered
     ///
-    /// This method registers all 46 step handlers across 8 workflow patterns:
+    /// This method registers all 49 step handlers across 9 workflow patterns:
     /// - Linear Workflow (4 handlers)
     /// - Diamond Workflow (4 handlers)
     /// - Tree Workflow (8 handlers)
@@ -91,6 +94,7 @@ impl RustStepHandlerRegistry {
     /// - Order Fulfillment (4 handlers)
     /// - Conditional Approval Rust (6 handlers)
     /// - Batch Processing Example (3 handlers)
+    /// - Batch Processing Products CSV (3 handlers)
     /// - Diamond-Decision-Batch (10 handlers)
     #[must_use]
     pub fn new() -> Self {
@@ -233,6 +237,16 @@ impl RustStepHandlerRegistry {
             ],
         );
 
+        // Batch Processing Products CSV
+        workflows.insert(
+            "batch_processing_products_csv".to_string(),
+            vec![
+                "analyze_csv".to_string(),
+                "process_csv_batch".to_string(),
+                "aggregate_csv_results".to_string(),
+            ],
+        );
+
         // Diamond-Decision-Batch
         workflows.insert(
             "diamond_decision_batch".to_string(),
@@ -317,6 +331,13 @@ impl RustStepHandlerRegistry {
             empty_config.clone(),
         )));
 
+        // Batch Processing Products CSV Handlers (3)
+        self.register_handler(Arc::new(CsvAnalyzerHandler::new(empty_config.clone())));
+        self.register_handler(Arc::new(CsvBatchProcessorHandler::new(empty_config.clone())));
+        self.register_handler(Arc::new(CsvResultsAggregatorHandler::new(
+            empty_config.clone(),
+        )));
+
         // Diamond-Decision-Batch Handlers (10)
         self.register_handler(Arc::new(DDBDiamondStartHandler::new(empty_config.clone())));
         self.register_handler(Arc::new(BranchEvensHandler::new(empty_config.clone())));
@@ -379,10 +400,11 @@ mod tests {
     fn test_registry_creation() {
         let registry = RustStepHandlerRegistry::new();
 
-        // Should have all 46 handlers (4+4+8+7+4+6+3+10)
+        // Should have all 49 handlers (4+4+8+7+4+6+3+3+10)
         // Linear(4) + Diamond(4) + Tree(8) + MixedDAG(7) + OrderFulfillment(4)
-        // + ConditionalApproval(6) + BatchProcessingExample(3) + DiamondDecisionBatch(10)
-        assert_eq!(registry.handler_count(), 46);
+        // + ConditionalApproval(6) + BatchProcessingExample(3) + BatchProcessingProductsCsv(3)
+        // + DiamondDecisionBatch(10)
+        assert_eq!(registry.handler_count(), 49);
     }
 
     #[test]
@@ -453,7 +475,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let workflows = registry.get_handlers_by_workflow();
 
-        assert_eq!(workflows.len(), 8);
+        assert_eq!(workflows.len(), 9);
         assert_eq!(workflows["linear_workflow"].len(), 4);
         assert_eq!(workflows["diamond_workflow"].len(), 4);
         assert_eq!(workflows["tree_workflow"].len(), 8);
@@ -461,6 +483,7 @@ mod tests {
         assert_eq!(workflows["order_fulfillment"].len(), 4);
         assert_eq!(workflows["conditional_approval_rust"].len(), 6);
         assert_eq!(workflows["batch_processing_example"].len(), 3);
+        assert_eq!(workflows["batch_processing_products_csv"].len(), 3);
         assert_eq!(workflows["diamond_decision_batch"].len(), 10);
     }
 
@@ -471,7 +494,7 @@ mod tests {
 
         // Should be the same instance
         assert_eq!(registry1 as *const _, registry2 as *const _);
-        assert_eq!(registry1.handler_count(), 46);
+        assert_eq!(registry1.handler_count(), 49);
     }
 
     #[test]
@@ -479,8 +502,8 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let names = registry.get_all_handler_names();
 
-        // Should have 46 handlers
-        assert_eq!(names.len(), 46);
+        // Should have 49 handlers
+        assert_eq!(names.len(), 49);
 
         // Should be sorted
         let mut sorted_names = names.clone();
