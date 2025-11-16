@@ -59,11 +59,11 @@ async fn test_batch_processing_small_dataset_no_batches(pool: PgPool) -> Result<
     let init_result = manager.initialize_task(task_request).await?;
 
     // Validate initial task execution context
-    // Should have 2 base steps: analyze_dataset, aggregate_results (process_batch template excluded)
+    // Should have 1 step: analyze_dataset only (aggregate_results created dynamically after batchable completes)
     manager
         .validate_task_execution_context(
             init_result.task_uuid,
-            2, // total_steps initially (BatchWorker templates excluded)
+            1, // total_steps initially (only batchable step - convergence created dynamically)
             0, // completed_steps
             1, // ready_steps (only analyze_dataset)
         )
@@ -117,7 +117,7 @@ async fn test_batch_processing_medium_dataset_creates_workers(pool: PgPool) -> R
     manager
         .validate_task_execution_context(
             init_result.task_uuid,
-            2, // total_steps initially (BatchWorker templates excluded)
+            1, // total_steps initially (only batchable step - convergence created dynamically)
             0, // completed_steps
             1, // ready_steps
         )
@@ -134,16 +134,8 @@ async fn test_batch_processing_medium_dataset_creates_workers(pool: PgPool) -> R
         )
         .await?;
 
-    // Validate aggregate_results is not ready (depends on batch workers that don't exist yet)
-    manager
-        .validate_step_readiness(
-            init_result.task_uuid,
-            "aggregate_results",
-            false, // not ready
-            1,     // total_parents (process_batch template edge)
-            0,     // completed_parents
-        )
-        .await?;
+    // NOTE: aggregate_results is NOT created at initialization - it will be created
+    // dynamically after analyze_dataset completes and returns BatchProcessingOutcome
 
     tracing::info!("✅ Medium dataset initialization validated");
 
@@ -179,7 +171,7 @@ async fn test_batch_processing_large_dataset_respects_max_workers(pool: PgPool) 
     manager
         .validate_task_execution_context(
             init_result.task_uuid,
-            2, // total_steps initially (BatchWorker templates excluded)
+            1, // total_steps initially (only batchable step - convergence created dynamically)
             0, // completed_steps
             1, // ready_steps
         )
@@ -229,7 +221,7 @@ async fn test_batch_processing_exact_batch_size_boundary(pool: PgPool) -> Result
     manager
         .validate_task_execution_context(
             init_result.task_uuid,
-            2, // total_steps initially (BatchWorker templates excluded)
+            1, // total_steps initially (only batchable step - convergence created dynamically)
             0, // completed_steps
             1, // ready_steps
         )
@@ -268,7 +260,7 @@ async fn test_batch_processing_minimal_batching(pool: PgPool) -> Result<()> {
     manager
         .validate_task_execution_context(
             init_result.task_uuid,
-            2, // total_steps initially (BatchWorker templates excluded)
+            1, // total_steps initially (only batchable step - convergence created dynamically)
             0, // completed_steps
             1, // ready_steps
         )

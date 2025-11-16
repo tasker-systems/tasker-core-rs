@@ -89,7 +89,8 @@ use crate::models::core::task_template::{BatchConfiguration, FailureStrategy};
 ///     "checkpoint_interval": 100,
 ///     "cursor_field": "id",
 ///     "failure_strategy": "ContinueOnFailure"
-///   }
+///   },
+///   "is_no_op": false
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -110,6 +111,19 @@ pub struct BatchWorkerInputs {
     /// - Cursor field name for queries
     /// - Failure handling strategy
     pub batch_metadata: BatchMetadata,
+
+    /// Explicit flag indicating if this is a no-op/placeholder worker
+    ///
+    /// Set by orchestration outcome handlers based on BatchProcessingOutcome type:
+    /// - `true` for NoBatches outcome (placeholder worker with cursor 0-0)
+    /// - `false` for WithBatches outcome (real worker that should process data)
+    ///
+    /// Workers should check this flag FIRST before any processing logic.
+    /// If `true`, worker should immediately return success without processing.
+    ///
+    /// This eliminates the need for workers to infer no-op status from cursor
+    /// positions or batch_id patterns - orchestration explicitly declares intent.
+    pub is_no_op: bool,
 }
 
 /// Batch processing metadata passed to worker instances
@@ -166,11 +180,13 @@ impl BatchWorkerInputs {
     /// creating worker instances. It composes:
     /// - Runtime data: cursor positions from batchable handler analysis
     /// - Template data: configuration from the task template
+    /// - Orchestration context: explicit no-op status from outcome handler
     ///
     /// # Arguments
     ///
     /// * `cursor_config` - Runtime cursor configuration with batch boundaries
     /// * `batch_config` - Template configuration with processing rules
+    /// * `is_no_op` - Explicit flag set by outcome handler (true for NoBatches, false for WithBatches)
     ///
     /// # Example
     ///
@@ -196,13 +212,15 @@ impl BatchWorkerInputs {
     ///     failure_strategy: FailureStrategy::ContinueOnFailure,
     /// };
     ///
-    /// let inputs = BatchWorkerInputs::new(cursor, &batch_config);
+    /// // Real worker with data to process
+    /// let inputs = BatchWorkerInputs::new(cursor, &batch_config, false);
     ///
     /// assert_eq!(inputs.cursor.batch_id, "batch_001");
     /// assert_eq!(inputs.batch_metadata.checkpoint_interval, 100);
+    /// assert_eq!(inputs.is_no_op, false);
     /// ```
     #[must_use]
-    pub fn new(cursor_config: CursorConfig, batch_config: &BatchConfiguration) -> Self {
+    pub fn new(cursor_config: CursorConfig, batch_config: &BatchConfiguration, is_no_op: bool) -> Self {
         Self {
             cursor: cursor_config,
             batch_metadata: BatchMetadata {
@@ -210,6 +228,7 @@ impl BatchWorkerInputs {
                 cursor_field: batch_config.cursor_field.clone(),
                 failure_strategy: batch_config.failure_strategy.clone(),
             },
+            is_no_op,
         }
     }
 
@@ -288,7 +307,7 @@ mod tests {
         let cursor = sample_cursor_config();
         let batch_config = sample_batch_configuration();
 
-        let inputs = BatchWorkerInputs::new(cursor.clone(), &batch_config);
+        let inputs = BatchWorkerInputs::new(cursor.clone(), &batch_config, false);
 
         assert_eq!(inputs.cursor.batch_id, "batch_001");
         assert_eq!(inputs.cursor.batch_size, 1000);
@@ -298,19 +317,21 @@ mod tests {
             inputs.batch_metadata.failure_strategy,
             FailureStrategy::ContinueOnFailure
         );
+        assert_eq!(inputs.is_no_op, false);
     }
 
     #[test]
     fn test_batch_worker_inputs_serialization() {
         let cursor = sample_cursor_config();
         let batch_config = sample_batch_configuration();
-        let inputs = BatchWorkerInputs::new(cursor, &batch_config);
+        let inputs = BatchWorkerInputs::new(cursor, &batch_config, false);
 
         let json_value = inputs.to_value();
 
         // Verify structure
         assert!(json_value.get("cursor").is_some());
         assert!(json_value.get("batch_metadata").is_some());
+        assert!(json_value.get("is_no_op").is_some());
 
         // Verify cursor data
         let cursor_obj = json_value.get("cursor").unwrap();
@@ -321,6 +342,9 @@ mod tests {
         let metadata_obj = json_value.get("batch_metadata").unwrap();
         assert_eq!(metadata_obj.get("checkpoint_interval").unwrap(), 100);
         assert_eq!(metadata_obj.get("cursor_field").unwrap(), "id");
+
+        // Verify is_no_op flag
+        assert_eq!(json_value.get("is_no_op").unwrap(), false);
     }
 
     #[test]
@@ -336,7 +360,8 @@ mod tests {
                 "checkpoint_interval": 50,
                 "cursor_field": "created_at",
                 "failure_strategy": "fail_fast"
-            }
+            },
+            "is_no_op": true
         }"#;
 
         let inputs: BatchWorkerInputs = serde_json::from_str(json_str).unwrap();
@@ -348,13 +373,14 @@ mod tests {
             inputs.batch_metadata.failure_strategy,
             FailureStrategy::FailFast
         );
+        assert_eq!(inputs.is_no_op, true);
     }
 
     #[test]
     fn test_batch_worker_inputs_round_trip() {
         let cursor = sample_cursor_config();
         let batch_config = sample_batch_configuration();
-        let original = BatchWorkerInputs::new(cursor, &batch_config);
+        let original = BatchWorkerInputs::new(cursor, &batch_config, true);
 
         // Serialize to JSON
         let json_value = original.to_value();
@@ -379,8 +405,24 @@ mod tests {
             let mut batch_config = sample_batch_configuration();
             batch_config.failure_strategy = strategy.clone();
 
-            let inputs = BatchWorkerInputs::new(cursor.clone(), &batch_config);
+            let inputs = BatchWorkerInputs::new(cursor.clone(), &batch_config, false);
             assert_eq!(inputs.batch_metadata.failure_strategy, strategy);
         }
+    }
+
+    #[test]
+    fn test_no_op_flag_serialization() {
+        let cursor = sample_cursor_config();
+        let batch_config = sample_batch_configuration();
+
+        // Test with is_no_op = true
+        let no_op_inputs = BatchWorkerInputs::new(cursor.clone(), &batch_config, true);
+        let no_op_json = no_op_inputs.to_value();
+        assert_eq!(no_op_json.get("is_no_op").unwrap(), true);
+
+        // Test with is_no_op = false
+        let real_inputs = BatchWorkerInputs::new(cursor, &batch_config, false);
+        let real_json = real_inputs.to_value();
+        assert_eq!(real_json.get("is_no_op").unwrap(), false);
     }
 }

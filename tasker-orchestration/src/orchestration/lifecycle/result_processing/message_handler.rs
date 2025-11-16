@@ -655,15 +655,14 @@ impl MessageHandler {
             }
         };
 
-        // Check if batch worker creation is needed
+        // Log batch processing outcome
         match &outcome {
             BatchProcessingOutcome::NoBatches => {
                 info!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
-                    "Batchable step determined no batches needed"
+                    "Batchable step determined no batches needed - will create placeholder worker"
                 );
-                return Ok(());
             }
             BatchProcessingOutcome::CreateBatches {
                 worker_count,

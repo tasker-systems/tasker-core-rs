@@ -55,13 +55,15 @@ async fn test_diamond_decision_batch_even_dominant() -> Result<()> {
     }
 
     // Create combined workflow task with even-dominant numbers
+    // Note: batch_size is configured in YAML template (not task context) for security
+    // Allowing task context to override batch_size would be a DoS vulnerability
     println!("\n🎯 Creating diamond-decision-batch task (even dominant)...");
     let task_request = create_task_request(
         "combined_workflow_test",
         "diamond_decision_batch_processor",
         json!({
-            "numbers": [2, 4, 6, 8, 10, 12],
-            "batch_size": 2  // Should create 3 workers (6/2 = 3)
+            "numbers": [2, 4, 6, 8, 10, 12]
+            // batch_size=2 from YAML → 6 numbers / 2 = 3 workers expected
         }),
     );
 
@@ -195,13 +197,14 @@ async fn test_diamond_decision_batch_odd_dominant() -> Result<()> {
 
     let manager = IntegrationTestManager::setup().await?;
 
+    // Note: batch_size is configured in YAML template (not task context) for security
     println!("\n🎯 Creating diamond-decision-batch task (odd dominant)...");
     let task_request = create_task_request(
         "combined_workflow_test",
         "diamond_decision_batch_processor",
         json!({
-            "numbers": [1, 3, 5, 7, 9, 11, 2, 4],
-            "batch_size": 2  // Should create 3 workers (6/2 = 3)
+            "numbers": [1, 3, 5, 7, 9, 11, 2, 4]
+            // batch_size=2 from YAML → 6 odds / 2 = 3 workers expected
         }),
     );
 
@@ -299,13 +302,14 @@ async fn test_diamond_decision_batch_balanced() -> Result<()> {
 
     let manager = IntegrationTestManager::setup().await?;
 
+    // Note: batch_size is configured in YAML template (not task context) for security
     println!("\n🎯 Creating diamond-decision-batch task (balanced)...");
     let task_request = create_task_request(
         "combined_workflow_test",
         "diamond_decision_batch_processor",
         json!({
-            "numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-            "batch_size": 3
+            "numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            // batch_size=2 from YAML → 5 evens / 2 = 2.5 → 3 workers expected
         }),
     );
 

@@ -323,6 +323,20 @@ pub enum StepType {
     BatchWorker,
 }
 
+impl StepType {
+    /// Returns true if this step type should be created during task initialization
+    ///
+    /// Certain step types are excluded from initialization and created dynamically:
+    /// - `BatchWorker`: Template steps that are instantiated by batchable steps
+    /// - `DeferredConvergence`: Convergence steps created after batch workers complete
+    ///
+    /// These types represent templates or dynamic orchestration points rather than
+    /// concrete workflow steps that should exist at task creation time.
+    pub fn is_created_at_initialization(&self) -> bool {
+        !matches!(self, StepType::BatchWorker | StepType::DeferredConvergence)
+    }
+}
+
 /// Individual workflow step definition
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 pub struct StepDefinition {
@@ -858,11 +872,12 @@ impl TaskTemplate {
 
         if decision_steps.is_empty() {
             // No decision points - entire workflow is one initial graph
-            // Filter out BatchWorker template steps (they're instantiated dynamically by batchable steps)
+            // Filter to only steps that should be created at initialization
+            // (excludes BatchWorker templates and DeferredConvergence steps)
             let filtered_steps: Vec<StepDefinition> = self
                 .steps
                 .iter()
-                .filter(|s| s.step_type != StepType::BatchWorker)
+                .filter(|s| s.step_type.is_created_at_initialization())
                 .cloned()
                 .collect();
 

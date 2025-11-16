@@ -86,6 +86,7 @@ use std::collections::HashMap;
 
 use tasker_shared::messaging::{BatchProcessingOutcome, CursorConfig, StepExecutionResult};
 use tasker_shared::types::TaskSequenceStep;
+use tasker_worker::batch_processing::BatchWorkerContext;
 
 use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 
@@ -155,14 +156,36 @@ impl RustStepHandler for DatasetAnalyzerHandler {
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow::anyhow!("Missing required field: dataset_size"))?;
 
-        // Get configuration parameters
-        let batch_size = self.config.get_u64("batch_size").unwrap_or(1000);
-        let max_workers = self.config.get_u64("max_workers").unwrap_or(10);
-        let checkpoint_interval = self.config.get_u64("checkpoint_interval").unwrap_or(100);
-        let worker_template_name = self
-            .config
-            .get_string("worker_template_name")
-            .unwrap_or_else(|| "process_batch".to_string());
+        // Get configuration parameters from step definition (YAML initialization section)
+        let batch_size = step_data
+            .step_definition
+            .handler
+            .initialization
+            .get("batch_size")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1000);
+        let max_workers = step_data
+            .step_definition
+            .handler
+            .initialization
+            .get("max_workers")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(10);
+        let checkpoint_interval = step_data
+            .step_definition
+            .handler
+            .initialization
+            .get("checkpoint_interval")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100);
+        let worker_template_name = step_data
+            .step_definition
+            .handler
+            .initialization
+            .get("worker_template_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("process_batch")
+            .to_string();
 
         tracing::debug!(
             dataset_size = dataset_size,
@@ -335,68 +358,46 @@ impl RustStepHandler for BatchWorkerHandler {
             "Starting batch worker execution"
         );
 
-        // Extract cursor configuration from workflow_step.inputs (not step_definition)
-        // For dynamic batch workers, instance-specific data is stored in the database inputs field
-        let inputs = step_data
-            .workflow_step
-            .inputs
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Missing inputs in workflow step"))?;
+        // Extract batch worker context using helper
+        let context = BatchWorkerContext::from_step_data(step_data)?;
 
-        let cursor = inputs
-            .get("cursor")
-            .ok_or_else(|| anyhow::anyhow!("Missing cursor configuration"))?;
-
-        let start_position = cursor
-            .get("start_cursor")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing start_cursor in cursor"))?;
-
-        let end_position = cursor
-            .get("end_cursor")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing end_cursor in cursor"))?;
-
-        let batch_metadata = inputs
-            .get("batch_metadata")
-            .ok_or_else(|| anyhow::anyhow!("Missing batch_metadata in inputs"))?;
-
-        let checkpoint_interval = batch_metadata
-            .get("checkpoint_interval")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing checkpoint_interval in batch_metadata"))?;
-
-        let checkpoint_progress = cursor
-            .get("checkpoint_progress")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+        // Check if this is a no-op/placeholder worker (NoBatches scenario)
+        if context.is_no_op() {
+            tracing::info!(
+                batch_id = %context.batch_id(),
+                start_position = context.start_position(),
+                end_position = context.end_position(),
+                "Detected no-op worker (NoBatches scenario) - returning success immediately"
+            );
+            return Ok(success_result(
+                step_uuid,
+                json!({
+                    "no_op": true,
+                    "reason": "NoBatches scenario - no items to process",
+                    "batch_id": context.batch_id(),
+                }),
+                start_time.elapsed().as_millis() as i64,
+                Some(HashMap::from([
+                    ("no_op".to_string(), json!(true)),
+                ])),
+            ));
+        }
 
         tracing::debug!(
-            start_position = start_position,
-            end_position = end_position,
-            checkpoint_interval = checkpoint_interval,
-            checkpoint_progress = checkpoint_progress,
+            batch_id = %context.batch_id(),
+            start_position = context.start_position(),
+            end_position = context.end_position(),
+            checkpoint_interval = context.checkpoint_interval(),
             "Extracted cursor configuration"
         );
 
-        // Determine resume position
-        let resume_position = if checkpoint_progress > 0 {
-            tracing::info!(
-                checkpoint_progress = checkpoint_progress,
-                "Resuming from previous checkpoint"
-            );
-            checkpoint_progress
-        } else {
-            start_position
-        };
-
         // Simulate batch processing with checkpoints
-        let mut current_position = resume_position;
+        let mut current_position = context.start_position();
         let mut processed_count = 0;
         let mut checkpoint_count = 0;
 
-        while current_position < end_position {
-            let chunk_end = (current_position + checkpoint_interval).min(end_position);
+        while current_position < context.end_position() {
+            let chunk_end = (current_position + context.checkpoint_interval() as u64).min(context.end_position());
             let chunk_size = chunk_end - current_position;
 
             // Simulate processing chunk
@@ -426,10 +427,8 @@ impl RustStepHandler for BatchWorkerHandler {
             );
         }
 
-        let total_processed = end_position - resume_position;
-
         tracing::info!(
-            total_processed = total_processed,
+            processed_count = processed_count,
             checkpoint_count = checkpoint_count,
             "Batch worker completed successfully"
         );
@@ -439,18 +438,19 @@ impl RustStepHandler for BatchWorkerHandler {
             json!({
                 "processed_count": processed_count,
                 "checkpoint_count": checkpoint_count,
-                "start_position": start_position,
-                "end_position": end_position,
-                "resumed_from": resume_position,
-                "final_checkpoint": current_position
+                "start_position": context.start_position(),
+                "end_position": context.end_position(),
+                "final_position": current_position,
+                "batch_id": context.batch_id()
             }),
             start_time.elapsed().as_millis() as i64,
             Some(HashMap::from([
                 (
                     "batch_range".to_string(),
-                    json!(format!("{}-{}", start_position, end_position)),
+                    json!(format!("{}-{}", context.start_position(), context.end_position())),
                 ),
                 ("checkpoints".to_string(), json!(checkpoint_count)),
+                ("batch_id".to_string(), json!(context.batch_id())),
             ])),
         ))
     }
@@ -536,40 +536,70 @@ impl RustStepHandler for ResultsAggregatorHandler {
             .and_then(|ctx| ctx.get("dataset_size"))
             .and_then(|v| v.as_u64());
 
-        // Aggregate results from all batch workers
-        let mut total_processed: u64 = 0;
-        let mut total_checkpoints: u64 = 0;
-        let worker_count = step_data.dependency_results.len();
+        // Use centralized batch aggregation scenario detection
+        let scenario = tasker_worker::BatchAggregationScenario::detect(
+            &step_data.dependency_results,
+            "analyze_dataset", // batchable step name
+            "process_batch_",  // batch worker prefix
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to detect aggregation scenario: {}", e))?;
 
-        tracing::debug!(
-            worker_count = worker_count,
-            aggregation_type = %aggregation_type,
-            "Processing dependency results"
-        );
+        let (total_processed, total_checkpoints, worker_count) = match scenario {
+            tasker_worker::BatchAggregationScenario::NoBatches { batchable_result } => {
+                // NoBatches scenario: Use dataset_size from the batchable step result
+                tracing::info!(
+                    "Detected NoBatches scenario - using dataset size from batchable step"
+                );
 
-        for (step_name, result) in &step_data.dependency_results {
-            let processed = result
-                .result
-                .get("processed_count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+                let dataset_size = batchable_result
+                    .result
+                    .get("dataset_size")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
 
-            let checkpoints = result
-                .result
-                .get("checkpoint_count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+                (dataset_size, 0, 0) // No batch workers, so 0 checkpoints and 0 workers
+            }
+            tasker_worker::BatchAggregationScenario::WithBatches {
+                batch_results,
+                worker_count,
+            } => {
+                // WithBatches scenario: Aggregate results from all batch workers
+                let mut total_processed: u64 = 0;
+                let mut total_checkpoints: u64 = 0;
 
-            total_processed += processed;
-            total_checkpoints += checkpoints;
+                tracing::debug!(
+                    worker_count = worker_count,
+                    aggregation_type = %aggregation_type,
+                    "Processing dependency results from batch workers"
+                );
 
-            tracing::debug!(
-                step_name = %step_name,
-                processed = processed,
-                checkpoints = checkpoints,
-                "Aggregated worker result"
-            );
-        }
+                for (step_name, result) in batch_results {
+                    let processed = result
+                        .result
+                        .get("processed_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+
+                    let checkpoints = result
+                        .result
+                        .get("checkpoint_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+
+                    total_processed += processed;
+                    total_checkpoints += checkpoints;
+
+                    tracing::debug!(
+                        step_name = %step_name,
+                        processed = processed,
+                        checkpoints = checkpoints,
+                        "Aggregated worker result"
+                    );
+                }
+
+                (total_processed, total_checkpoints, worker_count)
+            }
+        };
 
         // Validate against expected total if available
         if let Some(expected) = expected_total {

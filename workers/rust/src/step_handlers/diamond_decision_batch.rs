@@ -32,6 +32,7 @@ use tasker_shared::messaging::{
     BatchProcessingOutcome, CursorConfig, DecisionPointOutcome, StepExecutionResult,
 };
 use tasker_shared::types::TaskSequenceStep;
+use tasker_worker::batch_processing::BatchWorkerContext;
 
 use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 
@@ -413,9 +414,21 @@ impl RustStepHandler for EvenBatchAnalyzerHandler {
             ));
         }
 
-        // Get configuration
-        let batch_size = self.config.get_u64("batch_size").unwrap_or(3);
-        let max_workers = self.config.get_u64("max_workers").unwrap_or(10);
+        // Get configuration from step definition (YAML initialization section)
+        let batch_size = step_data
+            .step_definition
+            .handler
+            .initialization
+            .get("batch_size")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3);
+        let max_workers = step_data
+            .step_definition
+            .handler
+            .initialization
+            .get("max_workers")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(10);
 
         // Calculate worker count
         let ideal_workers = ((dataset_size as f64) / (batch_size as f64)).ceil() as u64;
@@ -498,23 +511,11 @@ impl RustStepHandler for ProcessEvenBatchHandler {
             "⚙️ ProcessEvenBatchHandler: Processing even number batch"
         );
 
-        // Extract cursor from initialization
-        let cursor = step_data
-            .step_definition
-            .handler
-            .initialization
-            .get("cursor")
-            .ok_or_else(|| anyhow::anyhow!("Missing cursor configuration"))?;
+        // Extract batch worker context using helper
+        let context = BatchWorkerContext::from_step_data(step_data)?;
 
-        let start_idx = cursor
-            .get("start_cursor")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid start_cursor"))?;
-
-        let end_idx = cursor
-            .get("end_cursor")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid end_cursor"))?;
+        let start_idx = context.start_position();
+        let end_idx = context.end_position();
 
         // Get even numbers from branch_evens dependency
         let even_numbers: Vec<i64> = step_data
@@ -588,38 +589,68 @@ impl RustStepHandler for AggregateEvenResultsHandler {
             "📊 AggregateEvenResultsHandler: Aggregating even batch results"
         );
 
-        let mut total_processed = 0u64;
-        let mut total_sum = 0i64;
-        let mut batch_count = 0u32;
+        // Use centralized batch aggregation scenario detection
+        let scenario = tasker_worker::BatchAggregationScenario::detect(
+            &step_data.dependency_results,
+            "even_batch_analyzer", // batchable step name
+            "process_even_batch_", // batch worker prefix
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to detect aggregation scenario: {}", e))?;
 
-        // Aggregate results from all even batch workers
-        for (step_name, result) in &step_data.dependency_results {
-            if step_name.starts_with("process_even_batch_") {
-                let count = result
-                    .result
-                    .get("processed_count")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let sum = result
-                    .result
-                    .get("batch_sum")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+        let (total_processed, total_sum, batch_count) = match scenario {
+            tasker_worker::BatchAggregationScenario::NoBatches { .. } => {
+                // NoBatches scenario: Get dataset_size and calculate sum from even_numbers
+                tracing::info!("Detected NoBatches scenario - no batch workers found");
 
-                total_processed += count;
-                total_sum += sum;
-                batch_count += 1;
+                // Get even numbers directly from branch_evens dependency
+                let even_numbers: Vec<i64> = step_data
+                    .dependency_results
+                    .get("branch_evens")
+                    .and_then(|r| r.result.get("even_numbers"))
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+                    .unwrap_or_default();
 
-                tracing::debug!(
-                    step_name = %step_name,
-                    count = count,
-                    sum = sum,
-                    "Aggregated batch: {} items, sum {}",
-                    count,
-                    sum
-                );
+                let dataset_size = even_numbers.len() as u64;
+                let sum: i64 = even_numbers.iter().sum();
+
+                (dataset_size, sum, 0u32)
             }
-        }
+            tasker_worker::BatchAggregationScenario::WithBatches { batch_results, .. } => {
+                // WithBatches scenario: Aggregate results from all even batch workers
+                let mut total_processed = 0u64;
+                let mut total_sum = 0i64;
+                let mut batch_count = 0u32;
+
+                for (step_name, result) in batch_results {
+                    let count = result
+                        .result
+                        .get("processed_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let sum = result
+                        .result
+                        .get("batch_sum")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+
+                    total_processed += count;
+                    total_sum += sum;
+                    batch_count += 1;
+
+                    tracing::debug!(
+                        step_name = %step_name,
+                        count = count,
+                        sum = sum,
+                        "Aggregated batch: {} items, sum {}",
+                        count,
+                        sum
+                    );
+                }
+
+                (total_processed, total_sum, batch_count)
+            }
+        };
 
         let average = if batch_count > 0 {
             total_sum / (batch_count as i64)
@@ -712,9 +743,21 @@ impl RustStepHandler for OddBatchAnalyzerHandler {
             ));
         }
 
-        // Get configuration
-        let batch_size = self.config.get_u64("batch_size").unwrap_or(3);
-        let max_workers = self.config.get_u64("max_workers").unwrap_or(10);
+        // Get configuration from step definition (YAML initialization section)
+        let batch_size = step_data
+            .step_definition
+            .handler
+            .initialization
+            .get("batch_size")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3);
+        let max_workers = step_data
+            .step_definition
+            .handler
+            .initialization
+            .get("max_workers")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(10);
 
         // Calculate worker count
         let ideal_workers = ((dataset_size as f64) / (batch_size as f64)).ceil() as u64;
@@ -797,23 +840,11 @@ impl RustStepHandler for ProcessOddBatchHandler {
             "⚙️ ProcessOddBatchHandler: Processing odd number batch"
         );
 
-        // Extract cursor from initialization
-        let cursor = step_data
-            .step_definition
-            .handler
-            .initialization
-            .get("cursor")
-            .ok_or_else(|| anyhow::anyhow!("Missing cursor configuration"))?;
+        // Extract batch worker context using helper
+        let context = BatchWorkerContext::from_step_data(step_data)?;
 
-        let start_idx = cursor
-            .get("start_cursor")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid start_cursor"))?;
-
-        let end_idx = cursor
-            .get("end_cursor")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid end_cursor"))?;
+        let start_idx = context.start_position();
+        let end_idx = context.end_position();
 
         // Get odd numbers from branch_odds dependency
         let odd_numbers: Vec<i64> = step_data
@@ -887,38 +918,68 @@ impl RustStepHandler for AggregateOddResultsHandler {
             "📊 AggregateOddResultsHandler: Aggregating odd batch results"
         );
 
-        let mut total_processed = 0u64;
-        let mut total_sum = 0i64;
-        let mut batch_count = 0u32;
+        // Use centralized batch aggregation scenario detection
+        let scenario = tasker_worker::BatchAggregationScenario::detect(
+            &step_data.dependency_results,
+            "odd_batch_analyzer", // batchable step name
+            "process_odd_batch_", // batch worker prefix
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to detect aggregation scenario: {}", e))?;
 
-        // Aggregate results from all odd batch workers
-        for (step_name, result) in &step_data.dependency_results {
-            if step_name.starts_with("process_odd_batch_") {
-                let count = result
-                    .result
-                    .get("processed_count")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let sum = result
-                    .result
-                    .get("batch_sum")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+        let (total_processed, total_sum, batch_count) = match scenario {
+            tasker_worker::BatchAggregationScenario::NoBatches { .. } => {
+                // NoBatches scenario: Get dataset_size and calculate sum from odd_numbers
+                tracing::info!("Detected NoBatches scenario - no batch workers found");
 
-                total_processed += count;
-                total_sum += sum;
-                batch_count += 1;
+                // Get odd numbers directly from branch_odds dependency
+                let odd_numbers: Vec<i64> = step_data
+                    .dependency_results
+                    .get("branch_odds")
+                    .and_then(|r| r.result.get("odd_numbers"))
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+                    .unwrap_or_default();
 
-                tracing::debug!(
-                    step_name = %step_name,
-                    count = count,
-                    sum = sum,
-                    "Aggregated batch: {} items, sum {}",
-                    count,
-                    sum
-                );
+                let dataset_size = odd_numbers.len() as u64;
+                let sum: i64 = odd_numbers.iter().sum();
+
+                (dataset_size, sum, 0u32)
             }
-        }
+            tasker_worker::BatchAggregationScenario::WithBatches { batch_results, .. } => {
+                // WithBatches scenario: Aggregate results from all odd batch workers
+                let mut total_processed = 0u64;
+                let mut total_sum = 0i64;
+                let mut batch_count = 0u32;
+
+                for (step_name, result) in batch_results {
+                    let count = result
+                        .result
+                        .get("processed_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let sum = result
+                        .result
+                        .get("batch_sum")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+
+                    total_processed += count;
+                    total_sum += sum;
+                    batch_count += 1;
+
+                    tracing::debug!(
+                        step_name = %step_name,
+                        count = count,
+                        sum = sum,
+                        "Aggregated batch: {} items, sum {}",
+                        count,
+                        sum
+                    );
+                }
+
+                (total_processed, total_sum, batch_count)
+            }
+        };
 
         let average = if batch_count > 0 {
             total_sum / (batch_count as i64)

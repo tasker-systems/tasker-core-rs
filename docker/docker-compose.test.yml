@@ -52,7 +52,7 @@ services:
     environment:
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
       TASKER_ENV: test
-      RUST_LOG: info
+      RUST_LOG: info,tasker_orchestration::orchestration::lifecycle::batch_processing=debug
       LOG_LEVEL: info
       RUST_BACKTRACE: 1
       PORT: 8080
@@ -92,7 +92,7 @@ services:
     environment:
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
       TASKER_ENV: test
-      RUST_LOG: info
+      RUST_LOG: info,tasker_worker_rust::step_handlers=debug
       LOG_LEVEL: info
       RUST_BACKTRACE: 1
       WORKER_ID: test-worker-001

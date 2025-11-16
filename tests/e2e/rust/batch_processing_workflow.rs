@@ -269,32 +269,34 @@ async fn test_batch_processing_tiny_dataset() -> Result<()> {
         .await?;
     println!("✅ Retrieved {} workflow steps", steps.len());
 
-    // Verify we have analyze_dataset but NO batch workers (NoBatches outcome)
+    // Verify expected steps for NoBatches outcome
     let step_names: Vec<&str> = steps.iter().map(|s| s.name.as_str()).collect();
     assert!(
         step_names.contains(&"analyze_dataset"),
         "Should have analyze_dataset step"
     );
 
+    // NoBatches creates ONE placeholder worker (process_batch_000) with cursor 0-0
     let batch_worker_count = step_names
         .iter()
         .filter(|name| name.starts_with("process_batch_"))
         .count();
     assert_eq!(
-        batch_worker_count, 0,
-        "Should have NO batch workers for tiny dataset (NoBatches outcome)"
+        batch_worker_count, 1,
+        "Should have 1 placeholder batch worker for tiny dataset (NoBatches outcome)"
     );
-    println!("   ✅ NoBatches outcome: No batch workers created for tiny dataset");
+    println!("   ✅ NoBatches outcome: Created placeholder worker process_batch_000");
 
-    // Should NOT have aggregate_results either (no batches to aggregate)
+    // Should have aggregate_results step (depends on placeholder worker)
     assert!(
-        !step_names.contains(&"aggregate_results"),
-        "Should NOT have aggregate_results when no batches created"
+        step_names.contains(&"aggregate_results"),
+        "Should have aggregate_results step (depends on placeholder worker)"
     );
+    println!("   ✅ Convergence step created: aggregate_results");
 
     println!("\n🎉 Batch Processing (Tiny Dataset) Test PASSED!");
     println!("✅ NoBatches outcome handling: Working");
-    println!("✅ Batch processing optimization: Working");
+    println!("✅ Placeholder worker lifecycle: Working");
 
     Ok(())
 }
@@ -336,24 +338,24 @@ async fn test_batch_processing_api_validation() -> Result<()> {
     println!("✅ Batch processing retrieval API working");
 
     // Verify expected step count for batch processing workflow
-    // At initialization, only non-template steps are created:
+    // At initialization, only non-template steps created at init time:
     // 1. analyze_dataset (batchable step)
-    // 2. aggregate_results (deferred_convergence step - waits for all batch workers)
     //
     // NOT created at initialization:
-    // - process_batch (batch_worker template) - excluded by initial_step_set() filter
+    // - process_batch (batch_worker template) - excluded by is_created_at_initialization()
+    // - aggregate_results (deferred_convergence) - created dynamically after batch workers created
     //
-    // Note: Dynamic batch workers (process_batch_001, process_batch_002, etc.) are created
-    // at runtime when the batchable step executes and returns a CreateBatches outcome.
+    // Note: Dynamic batch workers (process_batch_001, process_batch_002, etc.) and convergence
+    // steps are created at runtime when the batchable step executes.
     println!(
-        "   Task has {} steps at initialization (expecting 2: analyze_dataset, aggregate_results)",
+        "   Task has {} steps at initialization (expecting 1: analyze_dataset only)",
         task_response.step_count
     );
     assert_eq!(
-        task_response.step_count, 2,
-        "Batch processing workflow should have exactly 2 steps at initialization \
-        (analyze_dataset, aggregate_results). BatchWorker template steps are NOT created \
-        as workflow steps - they only serve as templates for dynamic instantiation. Got: {}",
+        task_response.step_count, 1,
+        "Batch processing workflow should have exactly 1 step at initialization \
+        (analyze_dataset only). BatchWorker templates and DeferredConvergence steps are \
+        created dynamically at runtime. Got: {}",
         task_response.step_count
     );
     println!(

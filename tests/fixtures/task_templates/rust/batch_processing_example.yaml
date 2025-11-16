@@ -98,13 +98,15 @@ steps:
   #   ...
   # }
   #
+  # CRITICAL: Must depend on the batch_worker template step (process_batch), NOT the batchable step.
+  # This dependency signals to orchestration to create dynamic edges:
+  #   - WithBatches: process_batch_001 → aggregate_results, process_batch_002 → aggregate_results, etc.
+  #   - NoBatches: Creates placeholder worker process_batch_000 (immediate complete) → aggregate_results
+  #
   - name: aggregate_results
     type: deferred_convergence
-    # Depends on the batchable step (analyze_dataset).
-    # When batch workers are created, additional edges are added from workers → aggregate_results,
-    # but the batchable step dependency ensures proper initialization state.
     dependencies:
-      - analyze_dataset
+      - process_batch  # Depends on worker template (orchestration creates dynamic edges)
     handler:
       callable: tasker_worker_rust::step_handlers::batch_processing_example::ResultsAggregatorHandler
       initialization:

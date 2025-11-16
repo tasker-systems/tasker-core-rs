@@ -379,8 +379,10 @@ mod tests {
     fn test_registry_creation() {
         let registry = RustStepHandlerRegistry::new();
 
-        // Should have all 36 handlers (4+4+8+7+4+6+3)
-        assert_eq!(registry.handler_count(), 36);
+        // Should have all 46 handlers (4+4+8+7+4+6+3+10)
+        // Linear(4) + Diamond(4) + Tree(8) + MixedDAG(7) + OrderFulfillment(4)
+        // + ConditionalApproval(6) + BatchProcessingExample(3) + DiamondDecisionBatch(10)
+        assert_eq!(registry.handler_count(), 46);
     }
 
     #[test]
@@ -422,9 +424,9 @@ mod tests {
         assert!(registry.has_handler("finalize_approval"));
 
         // Test batch processing example handlers
-        assert!(registry.has_handler("dataset_analyzer"));
-        assert!(registry.has_handler("batch_worker"));
-        assert!(registry.has_handler("results_aggregator"));
+        assert!(registry.has_handler("analyze_dataset"));
+        assert!(registry.has_handler("process_batch"));
+        assert!(registry.has_handler("aggregate_results"));
 
         // Test non-existent handler
         assert!(!registry.has_handler("nonexistent_handler"));
@@ -451,7 +453,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let workflows = registry.get_handlers_by_workflow();
 
-        assert_eq!(workflows.len(), 7);
+        assert_eq!(workflows.len(), 8);
         assert_eq!(workflows["linear_workflow"].len(), 4);
         assert_eq!(workflows["diamond_workflow"].len(), 4);
         assert_eq!(workflows["tree_workflow"].len(), 8);
@@ -459,6 +461,7 @@ mod tests {
         assert_eq!(workflows["order_fulfillment"].len(), 4);
         assert_eq!(workflows["conditional_approval_rust"].len(), 6);
         assert_eq!(workflows["batch_processing_example"].len(), 3);
+        assert_eq!(workflows["diamond_decision_batch"].len(), 10);
     }
 
     #[test]
@@ -468,7 +471,7 @@ mod tests {
 
         // Should be the same instance
         assert_eq!(registry1 as *const _, registry2 as *const _);
-        assert_eq!(registry1.handler_count(), 36);
+        assert_eq!(registry1.handler_count(), 46);
     }
 
     #[test]
@@ -476,8 +479,8 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let names = registry.get_all_handler_names();
 
-        // Should have 36 handlers
-        assert_eq!(names.len(), 36);
+        // Should have 46 handlers
+        assert_eq!(names.len(), 46);
 
         // Should be sorted
         let mut sorted_names = names.clone();

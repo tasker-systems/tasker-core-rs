@@ -36,12 +36,13 @@ async fn test_even_dominant_creates_even_batches(pool: PgPool) -> Result<()> {
             .await?;
 
     // Create task with more evens than odds
+    // Note: batch_size is configured in YAML template (not task context) for security
     let task_request = manager.create_task_request_for_template(
         "diamond_decision_batch_processor",
         "combined_workflow_test",
         serde_json::json!({
             "numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],  // 5 evens, 5 odds (equal - defaults to even)
-            "batch_size": 3
+            // batch_size=2 from YAML → 5 evens / 2 = 2.5 → 3 workers expected
         }),
     );
 
@@ -271,12 +272,13 @@ async fn test_even_batch_worker_creation(pool: PgPool) -> Result<()> {
         LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/rust")
             .await?;
 
+    // Note: batch_size is configured in YAML template (not task context) for security
     let task_request = manager.create_task_request_for_template(
         "diamond_decision_batch_processor",
         "combined_workflow_test",
         serde_json::json!({
             "numbers": [2, 4, 6, 8, 10, 12],  // 6 evens, 0 odds
-            "batch_size": 2  // Should create 3 workers (6/2 = 3)
+            // batch_size=2 from YAML → 6 evens / 2 = 3 workers expected
         }),
     );
 

@@ -25,7 +25,7 @@
 # Expected Task Context:
 # {
 #   "numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-#   "batch_size": 3
+#   "batch_size": 2
 # }
 
 ---
@@ -89,7 +89,7 @@ steps:
     handler:
       callable: tasker_worker_rust::step_handlers::diamond_decision_batch::EvenBatchAnalyzerHandler
       initialization:
-        batch_size: 3
+        batch_size: 2
         max_workers: 10
         worker_template_name: "process_even_batch"
 
@@ -103,7 +103,7 @@ steps:
         operation: "sum"
         # cursor will be added by orchestration
     batch_config:
-      batch_size: 3
+      batch_size: 2
       parallelism: 10
       cursor_field: "id"
       checkpoint_interval: 50
@@ -112,10 +112,12 @@ steps:
 
   - name: aggregate_even_results
     type: deferred_convergence
-    # Depends on the batchable step (even_batch_analyzer).
-    # When batch workers are created, additional edges are added.
+    # Depends on the worker template step (process_even_batch).
+    # Orchestration creates dynamic edges based on BatchProcessingOutcome:
+    #   - WithBatches: process_even_batch_001 → aggregate_even_results, etc.
+    #   - NoBatches: Creates placeholder worker process_even_batch_000 (immediate complete)
     dependencies:
-      - even_batch_analyzer
+      - process_even_batch
     handler:
       callable: tasker_worker_rust::step_handlers::diamond_decision_batch::AggregateEvenResultsHandler
       initialization:
@@ -131,7 +133,7 @@ steps:
     handler:
       callable: tasker_worker_rust::step_handlers::diamond_decision_batch::OddBatchAnalyzerHandler
       initialization:
-        batch_size: 3
+        batch_size: 2
         max_workers: 10
         worker_template_name: "process_odd_batch"
 
@@ -145,7 +147,7 @@ steps:
         operation: "sum"
         # cursor will be added by orchestration
     batch_config:
-      batch_size: 3
+      batch_size: 2
       parallelism: 10
       cursor_field: "id"
       checkpoint_interval: 50
@@ -154,10 +156,12 @@ steps:
 
   - name: aggregate_odd_results
     type: deferred_convergence
-    # Depends on the batchable step (odd_batch_analyzer).
-    # When batch workers are created, additional edges are added.
+    # Depends on the worker template step (process_odd_batch).
+    # Orchestration creates dynamic edges based on BatchProcessingOutcome:
+    #   - WithBatches: process_odd_batch_001 → aggregate_odd_results, etc.
+    #   - NoBatches: Creates placeholder worker process_odd_batch_000 (immediate complete)
     dependencies:
-      - odd_batch_analyzer
+      - process_odd_batch
     handler:
       callable: tasker_worker_rust::step_handlers::diamond_decision_batch::AggregateOddResultsHandler
       initialization:
@@ -173,7 +177,7 @@ steps:
 #   version: "1.0.0",
 #   context: {
 #     numbers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-#     batch_size: 3
+#     batch_size: 2
 #   }
 # )
 # ```
@@ -187,6 +191,6 @@ steps:
 # )
 # .with_context(json!({
 #     "numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-#     "batch_size": 3
+#     "batch_size": 2
 # }));
 # ```
