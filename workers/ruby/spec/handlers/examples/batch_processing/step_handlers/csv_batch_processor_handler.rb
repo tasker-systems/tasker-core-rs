@@ -43,6 +43,14 @@ module TaskerCore
           csv_file_path = get_dependency_result(sequence, 'analyze_csv', 'csv_file_path')
           raise ArgumentError, 'csv_file_path not found in analyze_csv results' if csv_file_path.nil?
 
+          # TODO (SECURITY): In production, validate CSV file path to prevent path traversal
+          # This is an example handler for testing, but production code should:
+          # 1. Define allowed base directory for CSV files
+          # 2. Validate path is within allowed directory using File.realpath
+          # 3. Reject paths containing '..' or absolute paths outside allowed directory
+          # Example: validate_csv_path(csv_file_path, allowed_dir: '/app/data/csv')
+          validate_csv_path(csv_file_path)
+
           # Extract cursor range
           start_row = context.start_position
           end_row = context.end_position
@@ -118,6 +126,36 @@ module TaskerCore
             max_price_product: max_price_product,
             average_rating: average_rating
           }
+        end
+
+        # Validate CSV file path to prevent path traversal attacks
+        #
+        # NOTE: This is a basic example implementation for testing purposes.
+        # Production code should use a more robust validation with:
+        # - Defined allowed base directory
+        # - File.realpath to resolve symlinks and '..' references
+        # - Explicit rejection of paths outside allowed directory
+        #
+        # @param file_path [String] Path to validate
+        # @raise [ArgumentError] If path appears to be a path traversal attempt
+        def validate_csv_path(file_path)
+          # Basic validation for example purposes
+          # TODO: Replace with production-grade path validation
+          if file_path.include?('..')
+            raise ArgumentError,
+                  "Path traversal detected in CSV file path: #{file_path}"
+          end
+
+          # Check file exists and is readable
+          unless File.exist?(file_path)
+            raise ArgumentError,
+                  "CSV file not found: #{file_path}"
+          end
+
+          unless File.readable?(file_path)
+            raise ArgumentError,
+                  "CSV file not readable: #{file_path}"
+          end
         end
 
         # Parse a CSV row into a Product struct

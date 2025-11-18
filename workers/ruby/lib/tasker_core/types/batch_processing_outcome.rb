@@ -82,7 +82,7 @@ module TaskerCore
         # Convert to hash for serialization to Rust
         # Note: Rust expects lowercase snake_case due to #[serde(rename_all = "snake_case")]
         def to_h
-          { type: 'no_batches' }
+          { 'type' => 'no_batches' }
         end
 
         # Check if this outcome requires batch creation
@@ -172,6 +172,12 @@ module TaskerCore
           end
           raise ArgumentError, 'cursor_configs cannot be empty' if cursor_configs.nil? || cursor_configs.empty?
 
+          # Validate cursor_configs count matches worker_count
+          if cursor_configs.size != worker_count
+            raise ArgumentError,
+                  "cursor_configs length (#{cursor_configs.size}) must equal worker_count (#{worker_count})"
+          end
+
           CreateBatches.new(
             worker_template_name: worker_template_name,
             worker_count: worker_count,
@@ -186,7 +192,8 @@ module TaskerCore
         # Supports both symbol and string keys for maximum flexibility.
         #
         # @param hash [Hash] The hash representation of an outcome
-        # @return [NoBatches, CreateBatches, nil] The parsed outcome or nil if invalid
+        # @return [NoBatches, CreateBatches] The parsed outcome
+        # @raise [ArgumentError] If hash is invalid or missing required fields
         #
         # @example Parse no-batches outcome
         #   outcome = BatchProcessingOutcome.from_hash({
@@ -204,7 +211,8 @@ module TaskerCore
         #     'total_items' => 300
         #   })
         def from_hash(hash)
-          return nil unless hash.is_a?(Hash)
+          raise ArgumentError, 'Expected Hash, got nil' if hash.nil?
+          raise ArgumentError, "Expected Hash, got #{hash.class}" unless hash.is_a?(Hash)
 
           # Support both symbol and string keys
           # Note: Rust sends lowercase snake_case due to #[serde(rename_all = "snake_case")]
@@ -220,10 +228,15 @@ module TaskerCore
             cursor_configs = hash[:cursor_configs]
             total_items = hash[:total_items]
 
-            return nil if worker_template_name.nil? || worker_template_name.empty?
-            return nil if worker_count.nil? || worker_count.negative?
-            return nil unless cursor_configs.is_a?(Array) && !cursor_configs.empty?
-            return nil if total_items.nil? || total_items.negative?
+            if worker_template_name.nil? || worker_template_name.empty?
+              raise ArgumentError, 'worker_template_name is required for create_batches outcome'
+            end
+            raise ArgumentError, 'worker_count is required and must be >= 0' if worker_count.nil? || worker_count.negative?
+
+            unless cursor_configs.is_a?(Array) && !cursor_configs.empty?
+              raise ArgumentError, 'cursor_configs must be a non-empty array'
+            end
+            raise ArgumentError, 'total_items is required and must be >= 0' if total_items.nil? || total_items.negative?
 
             CreateBatches.new(
               worker_template_name: worker_template_name,
@@ -231,6 +244,8 @@ module TaskerCore
               cursor_configs: cursor_configs,
               total_items: total_items
             )
+          else
+            raise ArgumentError, "Unknown outcome type: #{outcome_type.inspect}"
           end
         end
 

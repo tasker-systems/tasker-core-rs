@@ -10,6 +10,28 @@ module TaskerCore
     # the batch processing capabilities. It also provides helper methods to
     # reduce boilerplate in common batch processing patterns.
     #
+    # ## IMPORTANT: Outcome Helper Methods Return Success Objects
+    #
+    # The outcome helper methods (no_batches_outcome, create_batches_outcome, etc.)
+    # return fully-wrapped Success objects, NOT raw data hashes.
+    #
+    # ✅ CORRECT: Return helper result directly
+    # ```ruby
+    # def call(_task, sequence, step)
+    #   if dataset_empty?
+    #     return no_batches_outcome(reason: 'empty_dataset')  # Returns Success
+    #   end
+    # end
+    # ```
+    #
+    # ❌ INCORRECT: Double-wrapping (wrapping Success in Success)
+    # ```ruby
+    # def call(_task, sequence, step)
+    #   outcome = no_batches_outcome(reason: 'empty_dataset')  # Returns Success
+    #   success(result: outcome)  # WRONG: Double wrapping!
+    # end
+    # ```
+    #
     # ## Usage
     #
     # ```ruby

@@ -124,6 +124,33 @@ impl BatchProcessingService {
         // Create transaction for atomic operations (both CreateBatches and NoBatches)
         let mut tx = self.context.database_pool().begin().await?;
 
+        // Idempotency check: Verify workers haven't already been created
+        // This prevents duplicate worker creation if process_batchable_step is called multiple times
+        // (e.g., due to retry, duplicate message, or recovery scenarios)
+        let existing_workers = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as "count!"
+            FROM tasker_workflow_step_edges
+            WHERE from_step_uuid = $1 AND name = 'batch_dependency'
+            "#,
+            batchable_step.workflow_step_uuid
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if existing_workers.count > 0 {
+            info!(
+                task_uuid = %task_uuid,
+                step_uuid = %batchable_step.workflow_step_uuid,
+                existing_worker_count = existing_workers.count,
+                "Workers already created for this batchable step (idempotency check), returning existing outcome"
+            );
+            // Rollback transaction since no changes needed
+            tx.rollback().await?;
+            // Return the outcome that was passed in (idempotent)
+            return Ok(batch_outcome);
+        }
+
         // Delegate to appropriate handler based on outcome type
         let result = match &batch_outcome {
             BatchProcessingOutcome::NoBatches => {

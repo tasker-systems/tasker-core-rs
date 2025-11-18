@@ -11,6 +11,13 @@ module TaskerCore
       # 3. Aggregates results from all batch workers in WithBatches scenario
       # 4. Calculates overall inventory metrics
       #
+      # TODO (SECURITY): CSV Injection Mitigation
+      # If aggregated results are ever exported to CSV format, sanitize string fields
+      # (e.g., max_price_product, category names) to prevent CSV injection attacks.
+      # Sanitize cells starting with: =, +, -, @, \t (tab), \r (carriage return)
+      # Example: prefix dangerous cells with single quote: "'=cmd|'/c calc'!A1"
+      # Current implementation is safe (JSON storage only), but document for future features.
+      #
       # Expected dependency results:
       #   - analyze_csv: Analyzer step result (contains batch_processing_outcome)
       #   - process_csv_batch_*: One or more batch worker results

@@ -60,9 +60,29 @@ module TaskerCore
 
         # Count total data rows in CSV (excluding header)
         #
+        # TODO (SECURITY): In production, implement file size limits before loading CSV
+        # This example uses CSV.read which loads entire file into memory.
+        # Recommended limits:
+        # - Max file size: 100 MB (configurable)
+        # - Max row count: 1,000,000 rows (configurable)
+        # Example implementation:
+        #   max_size_bytes = 100 * 1024 * 1024  # 100 MB
+        #   file_size = File.size(csv_file_path)
+        #   raise ArgumentError, "CSV file too large (#{file_size} bytes)" if file_size > max_size_bytes
+        #
         # @param csv_file_path [String] Path to CSV file
         # @return [Integer] Number of data rows
         def count_csv_rows(csv_file_path)
+          # Basic file size check for example purposes
+          # TODO: Make configurable in production
+          max_size_bytes = 100 * 1024 * 1024  # 100 MB
+          file_size = File.size(csv_file_path)
+
+          if file_size > max_size_bytes
+            raise ArgumentError,
+                  "CSV file too large (#{file_size} bytes, max #{max_size_bytes} bytes)"
+          end
+
           CSV.read(csv_file_path, headers: true).length
         end
       end
