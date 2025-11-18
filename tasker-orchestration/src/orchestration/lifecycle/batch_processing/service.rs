@@ -237,7 +237,7 @@ impl BatchProcessingService {
             .await?;
 
         // Create a single placeholder worker with no cursor (no actual work)
-        info!(
+        debug!(
             worker_template = %worker_template_name,
             "Creating placeholder worker for NoBatches outcome"
         );
@@ -267,7 +267,7 @@ impl BatchProcessingService {
             )
         })?;
 
-        info!(
+        debug!(
             placeholder_worker_uuid = %placeholder_worker.workflow_step_uuid,
             placeholder_worker_name = %worker_template_name,
             "Created placeholder worker"
@@ -279,21 +279,21 @@ impl BatchProcessingService {
             .map(|_w| worker_template_name.to_string())
             .collect();
 
-        info!(
+        debug!(
             worker_count = created_workers.len(),
             worker_template_name = %worker_template_name,
             worker_names = ?worker_names,
-            "🔍 NoBatches: About to determine and create convergence steps"
+            "NoBatches: Determining and creating convergence steps"
         );
 
         let step_mapping = self
             .determine_and_create_convergence_step(tx, task_uuid, &template, &worker_names)
             .await?;
 
-        info!(
+        debug!(
             convergence_steps_created = step_mapping.len(),
             convergence_step_names = ?step_mapping.keys().collect::<Vec<_>>(),
-            "🔍 NoBatches: Convergence step creation completed"
+            "NoBatches: Convergence step creation completed"
         );
 
         // Create edges: batchable → placeholder
@@ -315,7 +315,7 @@ impl BatchProcessingService {
             )
             .await?;
 
-            info!(
+            debug!(
                 convergence_step_name = %convergence_name,
                 convergence_step_uuid = %convergence_uuid,
                 "Created edge from placeholder worker to convergence step"
@@ -327,7 +327,7 @@ impl BatchProcessingService {
         // Pending → Enqueued → InProgress → EnqueuedForOrchestration → Complete
         // This ensures the step result gets processed by OrchestrationResultProcessor,
         // which discovers and enqueues the next ready steps (convergence step).
-        info!(
+        debug!(
             placeholder_worker_uuid = %placeholder_worker.workflow_step_uuid,
             "Created placeholder worker in Pending state - will be processed through normal lifecycle"
         );
@@ -353,12 +353,19 @@ impl BatchProcessingService {
         cursor_configs: &[CursorConfig],
         total_items: usize,
     ) -> Result<BatchProcessingOutcome, BatchProcessingError> {
-        info!(
+        debug!(
             worker_template = %worker_template_name,
             worker_count = %worker_count,
             total_items = %total_items,
             "Processing batch worker creation"
         );
+
+        // Validate cursor_configs is not empty
+        if cursor_configs.is_empty() {
+            return Err(BatchProcessingError::InvalidConfiguration(
+                "cursor_configs cannot be empty for CreateBatches outcome".to_string(),
+            ));
+        }
 
         // Get task template
         let template = self.get_task_template(tx, task_uuid).await?;
@@ -374,11 +381,11 @@ impl BatchProcessingService {
             .await?;
 
         // Create worker instances with cursor configs
-        info!(
+        debug!(
             expected_worker_count = worker_count,
             cursor_configs_count = cursor_configs.len(),
             cursor_batch_ids = ?cursor_configs.iter().map(|c| &c.batch_id).collect::<Vec<_>>(),
-            "🔍 About to create batch worker instances"
+            "Creating batch worker instances"
         );
 
         let created_workers = self
@@ -393,32 +400,32 @@ impl BatchProcessingService {
             )
             .await?;
 
-        info!(
+        debug!(
             expected_count = worker_count,
             actual_created_count = created_workers.len(),
             worker_uuids = ?created_workers.iter().map(|w| w.workflow_step_uuid).collect::<Vec<_>>(),
-            "🔍 Successfully created batch worker instances"
+            "Successfully created batch worker instances"
         );
 
         // Determine which steps to create (convergence step if intersection exists)
         let worker_names = vec![worker_template_name.to_string()];
 
-        info!(
+        debug!(
             actual_worker_count = created_workers.len(),
             expected_worker_count = worker_count,
             worker_template_name = %worker_template_name,
             worker_names = ?worker_names,
-            "🔍 CreateBatches: About to determine and create convergence steps"
+            "CreateBatches: Determining and creating convergence steps"
         );
 
         let step_mapping = self
             .determine_and_create_convergence_step(tx, task_uuid, &template, &worker_names)
             .await?;
 
-        info!(
+        debug!(
             convergence_steps_created = step_mapping.len(),
             convergence_step_names = ?step_mapping.keys().collect::<Vec<_>>(),
-            "🔍 CreateBatches: Convergence step creation completed"
+            "CreateBatches: Convergence step creation completed"
         );
 
         // Create edges: batchable → workers
@@ -444,7 +451,7 @@ impl BatchProcessingService {
                 .await?;
             }
 
-            info!(
+            debug!(
                 convergence_step_name = %convergence_name,
                 convergence_step_uuid = %convergence_uuid,
                 worker_count = created_workers.len(),
@@ -453,7 +460,7 @@ impl BatchProcessingService {
             );
         }
 
-        info!("Successfully created dependency edges for batch workers");
+        debug!("Successfully created dependency edges for batch workers");
 
         Ok(BatchProcessingOutcome::CreateBatches {
             worker_template_name: worker_template_name.to_string(),
@@ -499,11 +506,11 @@ impl BatchProcessingService {
         // Find deferred convergence steps in template
         let deferred_steps = template.deferred_convergence_steps();
 
-        info!(
+        debug!(
             deferred_step_count = deferred_steps.len(),
             deferred_step_names = ?deferred_steps.iter().map(|s| &s.name).collect::<Vec<_>>(),
             worker_names = ?worker_names,
-            "🔍 Checking for convergence steps to create"
+            "Checking for convergence steps to create"
         );
 
         for deferred_step in &deferred_steps {
@@ -515,21 +522,21 @@ impl BatchProcessingService {
                 .cloned()
                 .collect();
 
-            info!(
+            debug!(
                 deferred_step = %deferred_step.name,
                 dependencies = ?deferred_step.dependencies,
                 worker_names = ?worker_names,
                 intersection = ?intersection,
                 has_intersection = !intersection.is_empty(),
-                "🔍 Checking convergence step intersection"
+                "Checking convergence step intersection"
             );
 
             if !intersection.is_empty() {
-                info!(
+                debug!(
                     deferred_step = %deferred_step.name,
                     dependencies = ?deferred_step.dependencies,
                     intersection = ?intersection,
-                    "✅ Creating deferred convergence step (intersection exists)"
+                    "Creating deferred convergence step (intersection exists)"
                 );
 
                 // Create the convergence step
@@ -546,25 +553,25 @@ impl BatchProcessingService {
 
                 step_mapping.insert(deferred_step.name.clone(), created_step.workflow_step_uuid);
 
-                info!(
+                debug!(
                     convergence_step = %deferred_step.name,
                     convergence_uuid = %created_step.workflow_step_uuid,
                     "Created deferred convergence step"
                 );
             } else {
-                info!(
+                debug!(
                     deferred_step = %deferred_step.name,
                     dependencies = ?deferred_step.dependencies,
                     worker_names = ?worker_names,
-                    "❌ Skipping convergence step (no intersection with workers)"
+                    "Skipping convergence step (no intersection with workers)"
                 );
             }
         }
 
-        info!(
+        debug!(
             total_convergence_steps_created = step_mapping.len(),
             step_names = ?step_mapping.keys().collect::<Vec<_>>(),
-            "🔍 Convergence step creation summary"
+            "Convergence step creation summary"
         );
 
         Ok(step_mapping)
@@ -716,7 +723,14 @@ impl BatchProcessingService {
             // Merge handler initialization with batch worker inputs
             let mut initialization = template.handler.initialization.clone();
             let worker_inputs_json = worker_inputs.to_value();
-            for (key, value) in worker_inputs_json.as_object().unwrap() {
+            let worker_inputs_obj = worker_inputs_json.as_object().ok_or_else(|| {
+                BatchProcessingError::CursorGeneration(format!(
+                    "Failed to serialize cursor config for step {} (batch_id: {}, template: {})",
+                    batchable_step_name, cursor_config.batch_id, template.name
+                ))
+            })?;
+
+            for (key, value) in worker_inputs_obj {
                 initialization.insert(key.clone(), value.clone());
             }
 

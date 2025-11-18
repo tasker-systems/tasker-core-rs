@@ -178,6 +178,28 @@ module TaskerCore
                   "cursor_configs length (#{cursor_configs.size}) must equal worker_count (#{worker_count})"
           end
 
+          # Validate batch_size consistency for numeric cursors
+          # Only validate when both cursors are integers (flexible cursors like UUIDs/timestamps don't have batch_size)
+          cursor_configs.each_with_index do |config, index|
+            next unless config.key?('batch_size') || config.key?(:batch_size)
+
+            # Extract values supporting both string and symbol keys
+            start_cursor = config['start_cursor'] || config[:start_cursor]
+            end_cursor = config['end_cursor'] || config[:end_cursor]
+            batch_size = config['batch_size'] || config[:batch_size]
+
+            # Only validate for numeric cursors
+            if start_cursor.is_a?(Integer) && end_cursor.is_a?(Integer)
+              expected_batch_size = end_cursor - start_cursor
+
+              if batch_size != expected_batch_size
+                raise ArgumentError,
+                      "cursor_configs[#{index}] batch_size (#{batch_size}) must equal " \
+                      "end_cursor - start_cursor (#{end_cursor} - #{start_cursor} = #{expected_batch_size})"
+              end
+            end
+          end
+
           CreateBatches.new(
             worker_template_name: worker_template_name,
             worker_count: worker_count,

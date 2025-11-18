@@ -17,9 +17,48 @@ module TaskerCore
     #
     # @example Accessing cursor configuration
     #   context = BatchWorkerContext.from_step_data(sequence_step)
-    #   start = context.start_position  # => 0
-    #   end_pos = context.end_position  # => 1000
+    #   start = context.start_cursor  # => 0
+    #   end_pos = context.end_cursor  # => 1000
     #   batch_id = context.batch_id     # => "001"
+    #
+    # == Cursor Flexibility
+    #
+    # Cursors are intentionally flexible to support diverse business logic scenarios.
+    # The system validates numeric cursors when both values are integers, but cursors
+    # can also be alphanumeric strings, timestamps, UUIDs, or any comparable type that
+    # makes sense for your data partitioning strategy.
+    #
+    # With great power comes great responsibility: ensure your cursor implementation
+    # matches your data source's capabilities and that your handler logic correctly
+    # interprets the cursor boundaries.
+    #
+    # @example Numeric cursors (validated for ordering)
+    #   cursor: {
+    #     batch_id: '001',
+    #     start_cursor: 0,      # Integer cursors are validated
+    #     end_cursor: 1000
+    #   }
+    #
+    # @example Alphanumeric cursors (developer responsibility)
+    #   cursor: {
+    #     batch_id: '002',
+    #     start_cursor: 'A',    # String cursors for alphabetical ranges
+    #     end_cursor: 'M'
+    #   }
+    #
+    # @example UUID-based cursors (developer responsibility)
+    #   cursor: {
+    #     batch_id: '003',
+    #     start_cursor: '00000000-0000-0000-0000-000000000000',
+    #     end_cursor: '88888888-8888-8888-8888-888888888888'
+    #   }
+    #
+    # @example Timestamp cursors (developer responsibility)
+    #   cursor: {
+    #     batch_id: '004',
+    #     start_cursor: '2024-01-01T00:00:00Z',
+    #     end_cursor: '2024-01-31T23:59:59Z'
+    #   }
     class BatchWorkerContext
       attr_reader :cursor, :batch_metadata, :is_no_op
 
@@ -56,17 +95,17 @@ module TaskerCore
         end
       end
 
-      # Get the starting position in the dataset (inclusive)
+      # Get the starting cursor in the dataset (inclusive)
       #
       # @return [Integer] Starting cursor position
-      def start_position
+      def start_cursor
         cursor[:start_cursor].to_i
       end
 
-      # Get the ending position in the dataset (exclusive)
+      # Get the ending cursor in the dataset (exclusive)
       #
       # @return [Integer] Ending cursor position
-      def end_position
+      def end_cursor
         cursor[:end_cursor].to_i
       end
 

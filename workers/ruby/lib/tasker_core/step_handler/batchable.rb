@@ -69,7 +69,7 @@ module TaskerCore
       # @example
       #   context = extract_cursor_context(step)
       #   batch_id = context.batch_id
-      #   start = context.start_position
+      #   start = context.start_cursor
       def extract_cursor_context(step)
         BatchProcessing::BatchWorkerContext.from_step_data(step)
       end
@@ -145,14 +145,39 @@ module TaskerCore
       # Divides total items into roughly equal ranges for each worker.
       # Supports optional customization via block.
       #
+      # By default, this helper creates numeric cursors (1..N). However, cursors are
+      # intentionally flexible and can be customized to use alphanumeric strings,
+      # timestamps, UUIDs, or any comparable type that matches your data partitioning
+      # strategy. Use the block parameter to customize cursor values for your specific
+      # use case.
+      #
+      # ## Cursor Boundary Math
+      #
+      # The method divides total_items into worker_count roughly equal ranges using
+      # ceiling division to ensure all items are covered:
+      #
+      # 1. items_per_worker = ceil(total_items / worker_count)
+      # 2. For worker i (0-indexed):
+      #    - start_cursor = (i * items_per_worker) + 1  (1-indexed)
+      #    - end_cursor = min(start_cursor + items_per_worker, total_items + 1)  (exclusive)
+      #    - batch_size = end_cursor - start_cursor
+      #
+      # Example: 1000 items, 3 workers
+      #   - items_per_worker = ceil(1000/3) = 334
+      #   - Worker 0: start=1, end=335, size=334
+      #   - Worker 1: start=335, end=669, size=334
+      #   - Worker 2: start=669, end=1001, size=332 (slightly smaller due to ceiling)
+      #
+      # Typically used with create_batches_outcome to send cursor configs to Rust orchestration.
+      #
       # @param total_items [Integer] Total number of items to process
-      # @param worker_count [Integer] Number of workers to create configs for
+      # @param worker_count [Integer] Number of workers to create configs for (must be > 0)
       # @yield [config, index] Optional block to customize each config
       # @yieldparam config [Hash] Cursor config being created
       # @yieldparam index [Integer] Worker index (0-based)
       # @return [Array<Hash>] Array of cursor configurations
       #
-      # @example Basic usage
+      # @example Basic usage (numeric cursors)
       #   configs = create_cursor_configs(1000, 5)
       #   # => [
       #   #   { 'batch_id' => '001', 'start_cursor' => 1, 'end_cursor' => 201, 'batch_size' => 200 },
@@ -160,11 +185,47 @@ module TaskerCore
       #   #   ...
       #   # ]
       #
-      # @example With customization
+      # @example With metadata customization
       #   configs = create_cursor_configs(1000, 5) do |config, i|
       #     config['worker_name'] = "worker_#{i + 1}"
       #   end
+      #
+      # @example Alphanumeric cursors (alphabetical ranges)
+      #   alphabet_ranges = [['A', 'F'], ['G', 'M'], ['N', 'S'], ['T', 'Z']]
+      #   configs = create_cursor_configs(alphabet_ranges.size, alphabet_ranges.size) do |config, i|
+      #     config['start_cursor'] = alphabet_ranges[i][0]
+      #     config['end_cursor'] = alphabet_ranges[i][1]
+      #     config.delete('batch_size')  # Not applicable for non-numeric cursors
+      #   end
+      #
+      # @example UUID-based cursors (for UUID-partitioned datasets)
+      #   uuid_ranges = [
+      #     ['00000000-0000-0000-0000-000000000000', '3fffffff-ffff-ffff-ffff-ffffffffffff'],
+      #     ['40000000-0000-0000-0000-000000000000', '7fffffff-ffff-ffff-ffff-ffffffffffff'],
+      #     ['80000000-0000-0000-0000-000000000000', 'bfffffff-ffff-ffff-ffff-ffffffffffff'],
+      #     ['c0000000-0000-0000-0000-000000000000', 'ffffffff-ffff-ffff-ffff-ffffffffffff']
+      #   ]
+      #   configs = create_cursor_configs(uuid_ranges.size, uuid_ranges.size) do |config, i|
+      #     config['start_cursor'] = uuid_ranges[i][0]
+      #     config['end_cursor'] = uuid_ranges[i][1]
+      #     config.delete('batch_size')
+      #   end
+      #
+      # @example Timestamp cursors (for time-partitioned datasets)
+      #   time_ranges = [
+      #     ['2024-01-01T00:00:00Z', '2024-01-08T00:00:00Z'],
+      #     ['2024-01-08T00:00:00Z', '2024-01-15T00:00:00Z'],
+      #     ['2024-01-15T00:00:00Z', '2024-01-22T00:00:00Z'],
+      #     ['2024-01-22T00:00:00Z', '2024-01-31T23:59:59Z']
+      #   ]
+      #   configs = create_cursor_configs(time_ranges.size, time_ranges.size) do |config, i|
+      #     config['start_cursor'] = time_ranges[i][0]
+      #     config['end_cursor'] = time_ranges[i][1]
+      #     config.delete('batch_size')
+      #   end
       def create_cursor_configs(total_items, worker_count)
+        raise ArgumentError, 'worker_count must be > 0' if worker_count <= 0
+
         items_per_worker = (total_items.to_f / worker_count).ceil
 
         (0...worker_count).map do |i|
@@ -278,7 +339,7 @@ module TaskerCore
       # @yieldreturn [Hash] Aggregated metrics
       # @return [StepHandlerCallResult::Success] Success result with aggregated data
       #
-      # @example
+      # @example Sum aggregation (simple)
       #   scenario = detect_aggregation_scenario(sequence, 'analyze_csv', 'process_csv_batch_')
       #
       #   aggregate_batch_worker_results(
@@ -296,6 +357,79 @@ module TaskerCore
       #     {
       #       'total_processed' => total_processed,
       #       'total_value' => total_value
+      #     }
+      #   end
+      #
+      # @example No customization (pass-through results)
+      #   aggregate_batch_worker_results(scenario) { |results| results }
+      #
+      # @example Max aggregation (finding maximum value)
+      #   aggregate_batch_worker_results(
+      #     scenario,
+      #     zero_metrics: { 'max_price' => 0.0 }
+      #   ) do |batch_results|
+      #     max_price = batch_results.values.map { |r| r['max_price'] || 0.0 }.max
+      #     { 'max_price' => max_price }
+      #   end
+      #
+      # @example Concat aggregation (merging arrays)
+      #   aggregate_batch_worker_results(
+      #     scenario,
+      #     zero_metrics: { 'errors' => [] }
+      #   ) do |batch_results|
+      #     errors = batch_results.values.flat_map { |r| r['errors'] || [] }
+      #     { 'errors' => errors }
+      #   end
+      #
+      # @example Merge aggregation (combining hashes)
+      #   aggregate_batch_worker_results(
+      #     scenario,
+      #     zero_metrics: { 'category_counts' => {} }
+      #   ) do |batch_results|
+      #     category_counts = batch_results.values.each_with_object({}) do |result, acc|
+      #       result_counts = result['category_counts'] || {}
+      #       result_counts.each do |category, count|
+      #         acc[category] ||= 0
+      #         acc[category] += count
+      #       end
+      #     end
+      #     { 'category_counts' => category_counts }
+      #   end
+      #
+      # @example Complex aggregation (multiple metrics with validation)
+      #   aggregate_batch_worker_results(
+      #     scenario,
+      #     zero_metrics: {
+      #       'total_processed' => 0,
+      #       'total_value' => 0.0,
+      #       'errors' => [],
+      #       'processing_times_ms' => []
+      #     }
+      #   ) do |batch_results|
+      #     total_processed = 0
+      #     total_value = 0.0
+      #     errors = []
+      #     processing_times = []
+      #
+      #     batch_results.each do |worker_name, result|
+      #       # Validate result structure
+      #       unless result.is_a?(Hash)
+      #         errors << "Invalid result from #{worker_name}: expected Hash, got #{result.class}"
+      #         next
+      #       end
+      #
+      #       total_processed += result['processed_count'] || 0
+      #       total_value += result['total_value'] || 0.0
+      #       errors.concat(result['errors'] || [])
+      #       processing_times << result['processing_time_ms'] if result['processing_time_ms']
+      #     end
+      #
+      #     {
+      #       'total_processed' => total_processed,
+      #       'total_value' => total_value,
+      #       'errors' => errors,
+      #       'processing_times_ms' => processing_times,
+      #       'avg_processing_time_ms' => processing_times.empty? ? 0 : processing_times.sum / processing_times.size
       #     }
       #   end
       def aggregate_batch_worker_results(scenario, zero_metrics: {})

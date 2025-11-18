@@ -52,8 +52,8 @@ module TaskerCore
           validate_csv_path(csv_file_path)
 
           # Extract cursor range
-          start_row = context.start_position
-          end_row = context.end_position
+          start_row = context.start_cursor
+          end_row = context.end_cursor
           batch_id = context.batch_id
 
           # Process CSV rows in range

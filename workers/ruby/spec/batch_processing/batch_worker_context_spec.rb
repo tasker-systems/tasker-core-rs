@@ -23,8 +23,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
       expect(context).to be_a(described_class)
       expect(context.no_op?).to be false
       expect(context.batch_id).to eq('001')
-      expect(context.start_position).to eq(0)
-      expect(context.end_position).to eq(100)
+      expect(context.start_cursor).to eq(0)
+      expect(context.end_cursor).to eq(100)
       expect(context.checkpoint_interval).to eq(50)
     end
 
@@ -41,8 +41,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
       context = described_class.from_step_data(mock_workflow_step)
 
       expect(context.batch_id).to eq('002')
-      expect(context.start_position).to eq(100)
-      expect(context.end_position).to eq(200)
+      expect(context.start_cursor).to eq(100)
+      expect(context.end_cursor).to eq(200)
     end
   end
 
@@ -57,8 +57,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
         expect(context.no_op?).to be true
         expect(context.batch_id).to eq('unknown')
-        expect(context.start_position).to eq(0)
-        expect(context.end_position).to eq(0)
+        expect(context.start_cursor).to eq(0)
+        expect(context.end_cursor).to eq(0)
       end
     end
 
@@ -96,7 +96,7 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
     end
   end
 
-  describe '#start_position' do
+  describe '#start_cursor' do
     it 'extracts start_cursor from cursor config' do
       allow(mock_workflow_step).to receive(:inputs).and_return({
                                                                  'cursor' => {
@@ -108,7 +108,7 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
       context = described_class.from_step_data(mock_workflow_step)
 
-      expect(context.start_position).to eq(42)
+      expect(context.start_cursor).to eq(42)
     end
 
     it 'converts string to integer' do
@@ -122,7 +122,7 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
       context = described_class.from_step_data(mock_workflow_step)
 
-      expect(context.start_position).to eq(123)
+      expect(context.start_cursor).to eq(123)
     end
 
     it 'defaults to 0 when missing' do
@@ -132,11 +132,11 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
       context = described_class.from_step_data(mock_workflow_step)
 
-      expect(context.start_position).to eq(0)
+      expect(context.start_cursor).to eq(0)
     end
   end
 
-  describe '#end_position' do
+  describe '#end_cursor' do
     it 'extracts end_cursor from cursor config' do
       allow(mock_workflow_step).to receive(:inputs).and_return({
                                                                  'cursor' => {
@@ -148,7 +148,7 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
       context = described_class.from_step_data(mock_workflow_step)
 
-      expect(context.end_position).to eq(500)
+      expect(context.end_cursor).to eq(500)
     end
 
     it 'converts string to integer' do
@@ -162,7 +162,7 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
       context = described_class.from_step_data(mock_workflow_step)
 
-      expect(context.end_position).to eq(789)
+      expect(context.end_cursor).to eq(789)
     end
   end
 
@@ -329,8 +329,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
       context = described_class.from_step_data(mock_workflow_step)
 
-      expect(context.start_position).to eq(0)
-      expect(context.end_position).to eq(0)
+      expect(context.start_cursor).to eq(0)
+      expect(context.end_cursor).to eq(0)
     end
   end
 end
