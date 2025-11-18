@@ -24,11 +24,17 @@ module ErrorScenarios
         message: 'Success handler executed successfully'
       )
 
-      {
-        status: 'success',
-        message: 'Step completed successfully',
-        timestamp: Time.now.utc.iso8601
-      }
+      success(
+        result: {
+          status: 'success',
+          message: 'Step completed successfully',
+          timestamp: Time.now.utc.iso8601
+        },
+        metadata: {
+          step_name: step.name,
+          handler: 'SuccessHandler'
+        }
+      )
     end
   end
 end

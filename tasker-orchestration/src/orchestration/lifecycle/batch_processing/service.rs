@@ -683,7 +683,8 @@ impl BatchProcessingService {
             let worker_name = format!("{}_{}", template.name, cursor_config.batch_id);
 
             // Build inputs for worker with cursor configuration and explicit no-op flag
-            let worker_inputs = self.build_worker_inputs(cursor_config.clone(), batch_config, is_no_op);
+            let worker_inputs =
+                self.build_worker_inputs(cursor_config.clone(), batch_config, is_no_op);
 
             // Merge handler initialization with batch worker inputs
             let mut initialization = template.handler.initialization.clone();

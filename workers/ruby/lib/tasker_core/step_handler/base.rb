@@ -95,6 +95,88 @@ module TaskerCore
       end
 
       # ========================================================================
+      # RESULT HELPER METHODS
+      # ========================================================================
+
+      # Return a standardized success result from a step handler
+      #
+      # This wraps TaskerCore::Types::StepHandlerCallResult.success() to provide
+      # a convenient API for handlers to return properly structured results.
+      #
+      # @param result [Object] The result data (alias: result_data)
+      # @param result_data [Object] Alternative name for result parameter
+      # @param metadata [Hash] Optional metadata for observability
+      # @return [TaskerCore::Types::StepHandlerCallResult::Success] Success result
+      #
+      # @example Basic usage
+      #   success(result: { order_id: "123", total: 100.00 })
+      #
+      # @example With metadata
+      #   success(
+      #     result: { validated: true },
+      #     metadata: { processing_time_ms: 125 }
+      #   )
+      #
+      # @example Using result_data alias (batch processing pattern)
+      #   success(
+      #     result_data: { batch_processing_outcome: outcome },
+      #     metadata: { worker_count: 5 }
+      #   )
+      def success(result: nil, result_data: nil, metadata: {})
+        # Accept either result: or result_data: for flexibility
+        actual_result = result || result_data
+
+        raise ArgumentError, 'result or result_data required' if actual_result.nil?
+
+        TaskerCore::Types::StepHandlerCallResult.success(
+          result: actual_result,
+          metadata: metadata
+        )
+      end
+
+      # Return a standardized error result from a step handler
+      #
+      # This wraps TaskerCore::Types::StepHandlerCallResult.error() to provide
+      # a convenient API for handlers to return error results.
+      #
+      # Note: In most cases, you should raise TaskerCore exceptions instead
+      # of returning error results. This method is provided for cases where
+      # you need to return an error without raising an exception.
+      #
+      # @param message [String] Human-readable error message
+      # @param error_type [String] Type of error (PermanentError, RetryableError, etc.)
+      # @param error_code [String, nil] Optional error code
+      # @param retryable [Boolean] Whether to retry this error
+      # @param metadata [Hash] Additional error context
+      # @return [TaskerCore::Types::StepHandlerCallResult::Error] Error result
+      #
+      # @example Permanent error
+      #   failure(
+      #     message: "Invalid order total",
+      #     error_type: "PermanentError",
+      #     error_code: "INVALID_TOTAL",
+      #     retryable: false,
+      #     metadata: { total: -50 }
+      #   )
+      #
+      # @example Retryable error
+      #   failure(
+      #     message: "API temporarily unavailable",
+      #     error_type: "RetryableError",
+      #     retryable: true,
+      #     metadata: { service: "payment_gateway" }
+      #   )
+      def failure(message:, error_type: 'UnexpectedError', error_code: nil, retryable: false, metadata: {})
+        TaskerCore::Types::StepHandlerCallResult.error(
+          error_type: error_type,
+          message: message,
+          error_code: error_code,
+          retryable: retryable,
+          metadata: metadata
+        )
+      end
+
+      # ========================================================================
       # RAILS ENGINE INTEGRATION NOTES
       # ========================================================================
 

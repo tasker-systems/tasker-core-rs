@@ -1,20 +1,14 @@
 # =============================================================================
-# Rust Worker Service - Test Dockerfile (LOCAL OPTIMIZED)
+# Rust Worker Service - Test Dockerfile
 # =============================================================================
-# Fast local testing build with optimizations:
-# - Pre-built binaries for cargo-chef (5-10 min savings)
-# - BuildKit cache mount support for incremental builds
-# - Single-layer binary copy pattern
+# Fast local testing build using cargo-chef for dependency caching
 # Context: workers/rust/ directory
-# Usage: DOCKER_BUILDKIT=1 docker build -f Dockerfile.test-local -t tasker-worker-rust:test .
-
-# Verify BuildKit is enabled (will fail if not)
-ARG DOCKER_BUILDKIT=1
+# Usage: docker build -f Dockerfile.test -t tasker-worker-rust:test .
 
 FROM rust:1.90-bullseye AS chef
 
-# Version pinning for reproducible builds
-ARG CARGO_CHEF_VERSION=0.1.68
+# Install cargo-chef for dependency layer caching
+RUN cargo install cargo-chef
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -23,14 +17,7 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     build-essential \
     ca-certificates \
-    curl \
     && rm -rf /var/lib/apt/lists/*
-
-# OPTIMIZATION 1: Install pre-built cargo-chef binary
-# Saves 5-10 minutes vs compiling from source
-RUN curl -L --proto '=https' --tlsv1.2 -sSf \
-    https://github.com/LukeMathWalker/cargo-chef/releases/download/v${CARGO_CHEF_VERSION}/cargo-chef-x86_64-unknown-linux-gnu.tar.gz \
-    | tar xz -C /usr/local/bin
 
 WORKDIR /app
 
@@ -71,15 +58,9 @@ FROM chef AS builder
 
 WORKDIR /app
 
-# Copy recipe and build dependencies with cache mounts
+# Copy recipe and build dependencies (cached layer)
 COPY --from=planner /app/recipe.json recipe.json
-
-# OPTIMIZATION 2: Build dependencies with cache mounts
-# Note: We don't use --package here as cargo-chef works better with full workspace
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    cargo chef cook --recipe-path recipe.json
+RUN cargo chef cook --recipe-path recipe.json
 
 # Copy workspace root files and all source
 COPY Cargo.toml Cargo.lock ./
@@ -106,13 +87,8 @@ COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
 # Set offline mode for SQLx
 ENV SQLX_OFFLINE=true
 
-# OPTIMIZATION 3: Build with cache mounts and copy binary in single layer
-# This avoids the inefficient double-copy pattern
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    cargo build --all-features --bin rust-worker -p tasker-worker-rust && \
-    cp /app/target/debug/rust-worker /app/rust-worker
+# Build in debug mode for faster testing
+RUN cargo build --all-features --bin rust-worker -p tasker-worker-rust
 
 # =============================================================================
 # Runtime - Minimal runtime image
@@ -133,7 +109,7 @@ RUN apt-get update && apt-get install -y \
 RUN useradd -r -g daemon -u 999 tasker
 
 # Copy binary from builder
-COPY --from=builder /app/rust-worker ./
+COPY --from=builder /app/target/debug/rust-worker ./
 
 # Create scripts directory and copy worker entrypoint script
 RUN mkdir -p ./scripts

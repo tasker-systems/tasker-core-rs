@@ -1,52 +1,31 @@
 # =============================================================================
-# Ruby Worker Service - Test Dockerfile (LOCAL OPTIMIZED)
+# Ruby Worker Service - Test Dockerfile
 # =============================================================================
 # Ruby-driven worker that bootstraps Rust foundation via FFI
-# Optimizations:
-# - Single-stage Rust build (removed duplicate rust_builder stage)
-# - BuildKit cache mount support for incremental builds
-# - Fixed binary copy pattern in single layer
 # Context: tasker-core/ directory (workspace root)
-# Usage: DOCKER_BUILDKIT=1 docker build -f docker/build/ruby-worker.test-local.Dockerfile -t tasker-ruby-worker:test .
+# Usage: docker build -f docker/build/ruby-worker.test.Dockerfile -t tasker-ruby-worker:test .
 
-# Verify BuildKit is enabled (will fail if not)
-ARG DOCKER_BUILDKIT=1
+FROM rust:1.90-bullseye AS rust_builder
 
-# =============================================================================
-# Ruby Builder - Compile Ruby FFI extensions with both Ruby and Rust available
-# =============================================================================
-FROM ruby:3.4.4-bullseye AS ruby_builder
-
-# Install system dependencies for Ruby FFI compilation
+# Install system dependencies for Rust compilation
 RUN apt-get update && apt-get install -y \
-    build-essential \
     pkg-config \
-    libffi-dev \
     libssl-dev \
     libpq-dev \
+    build-essential \
     libclang-dev \
-    libyaml-dev \
-    zlib1g-dev \
     ca-certificates \
-    curl \
     && rm -rf /var/lib/apt/lists/*
-
-# OPTIMIZATION 1: Install Rust toolchain once (removed separate rust_builder stage)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:$PATH"
 
 # Set libclang path for bindgen (Debian Bullseye uses LLVM 11)
 ENV LIBCLANG_PATH=/usr/lib/llvm-11/lib
 
 WORKDIR /app
 
-# Copy workspace root files for Cargo workspace resolution
+# Copy workspace for Rust FFI extension compilation
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo/ ./.cargo/
-# Copy src/ directory (even if empty, needed for workspace structure)
 COPY src/ ./src/
-
-# Copy workspace crates needed by Ruby FFI extension
 COPY tasker-shared/ ./tasker-shared/
 COPY tasker-worker/ ./tasker-worker/
 COPY tasker-client/ ./tasker-client/
@@ -67,26 +46,75 @@ COPY workers/rust/Cargo.toml ./workers/rust/
 COPY workers/ruby/ ./workers/ruby/
 COPY migrations/ ./migrations/
 
-# OPTIMIZATION 2: Build FFI libraries with cache mounts in single layer
-# This avoids the inefficient double-copy pattern
-ENV SQLX_OFFLINE=true
+# Build Ruby FFI extensions (not the binary worker)
 WORKDIR /app/workers/ruby
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    cargo build --all-features --package tasker-shared --package tasker-client --package tasker-worker --package pgmq-notify && \
-    # Copy compiled libraries from cache mount to persistent location
-    mkdir -p /app/target/debug && \
-    cp -r /app/target/debug/deps /app/target/debug/ && \
-    cp -r /app/target/debug/build /app/target/debug/ 2>/dev/null || true && \
-    find /app/target/debug -name "*.so" -o -name "*.a" -o -name "*.rlib" | xargs -I {} cp {} /app/target/debug/ 2>/dev/null || true
+ENV SQLX_OFFLINE=true
+RUN cargo build --all-features --package tasker-shared --package tasker-client --package tasker-worker --package pgmq-notify  # Build FFI libraries for Ruby integration
+
+# =============================================================================
+# Ruby Builder - Compile Ruby FFI extensions with both Ruby and Rust available
+# =============================================================================
+FROM ruby:3.4.4-bullseye AS ruby_builder
+
+# Install system dependencies for Ruby FFI compilation
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    libffi-dev \
+    libssl-dev \
+    libpq-dev \
+    libclang-dev \
+    libyaml-dev \
+    zlib1g-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust toolchain for FFI compilation
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:$PATH"
+# Set libclang path for bindgen (Debian Bullseye uses LLVM 11)
+ENV LIBCLANG_PATH=/usr/lib/llvm-11/lib
+
+WORKDIR /app
+
+# Copy workspace root files for Cargo workspace resolution
+COPY Cargo.toml Cargo.lock ./
+COPY .cargo/ ./.cargo/
+# Note: src/ is empty now (no library code), but keep for workspace structure
+
+# Copy workspace crates needed by Ruby FFI extension
+COPY tasker-shared/ ./tasker-shared/
+COPY tasker-worker/ ./tasker-worker/
+COPY tasker-client/ ./tasker-client/
+COPY pgmq-notify/ ./pgmq-notify/
+
+# Copy minimal workspace structure for crates we don't actually need
+# Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
+# We don't copy source code - just enough to satisfy workspace validation
+RUN mkdir -p tasker-orchestration/src && \
+    echo "pub fn main() {}" > tasker-orchestration/src/lib.rs
+COPY tasker-orchestration/Cargo.toml ./tasker-orchestration/
+
+RUN mkdir -p workers/rust/src && \
+    echo "pub fn main() {}" > workers/rust/src/lib.rs
+COPY workers/rust/Cargo.toml ./workers/rust/
+
+# Copy Ruby worker source code to proper workspace location
+COPY workers/ruby/ ./workers/ruby/
+
+# Copy compiled Rust FFI libraries from rust_builder
+COPY --from=rust_builder /app/target ./target/
+COPY migrations/ ./migrations/
 
 # Install Ruby dependencies
+WORKDIR /app/workers/ruby
 # Remove deployment mode for test builds - we're testing, not deploying
+# RUN bundle config set --local deployment 'true'  # Not needed for test environment
 RUN bundle config set --local without 'development'
 RUN bundle install
 
-# OPTIMIZATION 3: Compile Ruby FFI extensions with pre-built Rust libraries
+ENV SQLX_OFFLINE=true
+# Compile Ruby FFI extensions (links against pre-built Rust libraries)
 # This stage has both Ruby and Rust toolchain available
 RUN bundle exec rake compile
 

@@ -333,7 +333,9 @@ impl RustStepHandlerRegistry {
 
         // Batch Processing Products CSV Handlers (3)
         self.register_handler(Arc::new(CsvAnalyzerHandler::new(empty_config.clone())));
-        self.register_handler(Arc::new(CsvBatchProcessorHandler::new(empty_config.clone())));
+        self.register_handler(Arc::new(CsvBatchProcessorHandler::new(
+            empty_config.clone(),
+        )));
         self.register_handler(Arc::new(CsvResultsAggregatorHandler::new(
             empty_config.clone(),
         )));

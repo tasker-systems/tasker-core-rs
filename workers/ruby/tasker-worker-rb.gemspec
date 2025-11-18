@@ -69,6 +69,8 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency 'dotenv', '~> 2.8'
   spec.add_dependency 'faraday', '~> 2.12.2'
+  # CSV processing for batch processing handlers (Ruby 3.4+ requires explicit csv gem)
+  spec.add_dependency 'csv', '~> 3.3'
   # Concurrent execution support for BatchStepExecutionOrchestrator
   spec.add_dependency 'concurrent-ruby', '~> 1.3.5'
   spec.add_dependency 'concurrent-ruby-ext', '~> 1.3.5'

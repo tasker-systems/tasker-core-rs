@@ -1,22 +1,15 @@
 # =============================================================================
-# Orchestration Service - Test Dockerfile (LOCAL OPTIMIZED)
+# Orchestration Service - Test Dockerfile
 # =============================================================================
-# Fast local testing build with optimizations:
-# - Pre-built binaries for cargo-chef (5-10 min savings)
-# - cargo-binstall for sqlx-cli installation (3-5 min savings)
-# - Optimized cargo chef cook with targeted packages
-# - BuildKit cache mount support for incremental builds
+# Fast local testing build using cargo-chef for dependency caching
 # Context: tasker-orchestration/ directory
-# Usage: DOCKER_BUILDKIT=1 docker build -f Dockerfile.test-local -t tasker-orchestration:test .
-
-# Verify BuildKit is enabled (will fail if not)
-ARG DOCKER_BUILDKIT=1
+# Usage: docker build -f Dockerfile.test -t tasker-orchestration:test .
 
 FROM rust:1.90-bullseye AS chef
 
-# Version pinning for reproducible builds
-ARG CARGO_CHEF_VERSION=0.1.68
-ARG CARGO_BINSTALL_VERSION=1.10.17
+# Install cargo-chef and sqlx-cli for dependency layer caching and migrations
+RUN cargo install cargo-chef
+RUN cargo install sqlx-cli --features postgres
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -25,26 +18,7 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     build-essential \
     ca-certificates \
-    curl \
     && rm -rf /var/lib/apt/lists/*
-
-# OPTIMIZATION 1: Install pre-built cargo-chef binary
-# Saves 5-10 minutes vs compiling from source
-RUN curl -L --proto '=https' --tlsv1.2 -sSf \
-    https://github.com/LukeMathWalker/cargo-chef/releases/download/v${CARGO_CHEF_VERSION}/cargo-chef-x86_64-unknown-linux-gnu.tar.gz \
-    | tar xz -C /usr/local/bin
-
-# OPTIMIZATION 2: Install cargo-binstall for fast binary installations
-RUN curl -L --proto '=https' --tlsv1.2 -sSf \
-    https://github.com/cargo-bins/cargo-binstall/releases/download/v${CARGO_BINSTALL_VERSION}/cargo-binstall-x86_64-unknown-linux-musl.tgz \
-    | tar xz -C /usr/local/bin
-
-# OPTIMIZATION 3: Install sqlx-cli using cargo-binstall (much faster than compiling)
-# This tries to download a pre-built binary first, falls back to building if needed
-# Note: cargo-binstall doesn't support --features flag, it will install the full version
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    cargo binstall sqlx-cli --no-confirm --no-symlinks
 
 WORKDIR /app
 
@@ -88,15 +62,9 @@ RUN cargo chef prepare --recipe-path recipe.json
 # =============================================================================
 FROM chef AS builder
 
-# Copy recipe and build dependencies with cache mounts
+# Copy recipe and build dependencies (cached layer)
 COPY --from=planner /app/recipe.json recipe.json
-
-# OPTIMIZATION 4: Build dependencies with cache mounts
-# Note: We don't use --package here as cargo-chef works better with full workspace
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    cargo chef cook --recipe-path recipe.json
+RUN cargo chef cook --recipe-path recipe.json
 
 # Copy workspace root files and all source
 COPY Cargo.toml Cargo.lock ./
@@ -127,13 +95,8 @@ COPY workers/rust/Cargo.toml ./workers/rust/
 # Set offline mode for SQLx
 ENV SQLX_OFFLINE=true
 
-# OPTIMIZATION 5: Build with cache mounts and copy binary in single layer
-# This avoids the inefficient double-copy pattern
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    cargo build --all-features --bin tasker-server -p tasker-orchestration && \
-    cp /app/target/debug/tasker-server /app/tasker-server
+# Build in debug mode for faster testing (from workspace)
+RUN cargo build --all-features --bin tasker-server -p tasker-orchestration
 
 # =============================================================================
 # Runtime - Minimal runtime image
@@ -155,11 +118,11 @@ RUN apt-get update && apt-get install -y \
 # Create non-root user
 RUN useradd -r -g daemon -u 999 tasker
 
-# Copy binary from builder
-COPY --from=builder /app/tasker-server ./tasker-orchestration
+# Copy binary from builder (workspace target directory)
+COPY --from=builder /app/target/debug/tasker-server ./tasker-orchestration
 
 # Copy SQLx CLI from builder
-COPY --from=builder /usr/local/bin/sqlx /usr/local/bin/sqlx
+COPY --from=builder /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
 
 # Copy migration scripts and migrations
 COPY docker/scripts/ ./scripts/

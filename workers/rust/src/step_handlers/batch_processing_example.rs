@@ -131,8 +131,9 @@ use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 ///   }
 /// }
 /// ```
+#[derive(Debug)]
 pub struct DatasetAnalyzerHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -293,7 +294,7 @@ impl RustStepHandler for DatasetAnalyzerHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 }
 
@@ -343,8 +344,9 @@ impl RustStepHandler for DatasetAnalyzerHandler {
 /// - Update `workflow_steps.initialization.cursor.checkpoint_progress`
 /// - Emit checkpoint events for progress tracking
 /// - Enable resume-from-checkpoint via TAS-49 staleness detection
+#[derive(Debug)]
 pub struct BatchWorkerHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -377,9 +379,7 @@ impl RustStepHandler for BatchWorkerHandler {
                     "batch_id": context.batch_id(),
                 }),
                 start_time.elapsed().as_millis() as i64,
-                Some(HashMap::from([
-                    ("no_op".to_string(), json!(true)),
-                ])),
+                Some(HashMap::from([("no_op".to_string(), json!(true))])),
             ));
         }
 
@@ -397,7 +397,8 @@ impl RustStepHandler for BatchWorkerHandler {
         let mut checkpoint_count = 0;
 
         while current_position < context.end_position() {
-            let chunk_end = (current_position + context.checkpoint_interval() as u64).min(context.end_position());
+            let chunk_end = (current_position + context.checkpoint_interval() as u64)
+                .min(context.end_position());
             let chunk_size = chunk_end - current_position;
 
             // Simulate processing chunk
@@ -447,7 +448,11 @@ impl RustStepHandler for BatchWorkerHandler {
             Some(HashMap::from([
                 (
                     "batch_range".to_string(),
-                    json!(format!("{}-{}", context.start_position(), context.end_position())),
+                    json!(format!(
+                        "{}-{}",
+                        context.start_position(),
+                        context.end_position()
+                    )),
                 ),
                 ("checkpoints".to_string(), json!(checkpoint_count)),
                 ("batch_id".to_string(), json!(context.batch_id())),
@@ -460,7 +465,7 @@ impl RustStepHandler for BatchWorkerHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 }
 
@@ -507,6 +512,7 @@ impl RustStepHandler for BatchWorkerHandler {
 ///   "aggregation_type": "sum"
 /// }
 /// ```
+#[derive(Debug)]
 pub struct ResultsAggregatorHandler {
     config: StepHandlerConfig,
 }

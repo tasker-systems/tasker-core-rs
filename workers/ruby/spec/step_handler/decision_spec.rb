@@ -78,7 +78,7 @@ RSpec.describe TaskerCore::StepHandler::Decision do
 
     context 'with multiple steps' do
       it 'creates result with all steps in outcome' do
-        steps = ['manager_approval', 'finance_review', 'compliance_check']
+        steps = %w[manager_approval finance_review compliance_check]
         result = handler.decision_success(
           steps: steps,
           result_data: { route_type: 'complex_approval' }
@@ -93,11 +93,11 @@ RSpec.describe TaskerCore::StepHandler::Decision do
     context 'with array of steps' do
       it 'handles array input correctly' do
         result = handler.decision_success(
-          steps: ['step1', 'step2'],
+          steps: %w[step1 step2],
           result_data: { test: 'data' }
         )
 
-        expect(result.result[:decision_point_outcome][:step_names]).to eq(['step1', 'step2'])
+        expect(result.result[:decision_point_outcome][:step_names]).to eq(%w[step1 step2])
       end
     end
 
@@ -346,7 +346,7 @@ RSpec.describe TaskerCore::StepHandler::Decision do
   describe 'Rust FFI serialization compatibility' do
     it 'serializes CreateSteps with snake_case fields' do
       result = handler.decision_success(
-        steps: ['manager_approval', 'finance_review'],
+        steps: %w[manager_approval finance_review],
         result_data: { route_type: 'dual_approval' }
       )
 
@@ -388,7 +388,7 @@ RSpec.describe TaskerCore::StepHandler::Decision do
           )
         else
           decision_success(
-            steps: ['manager_approval', 'finance_review'],
+            steps: %w[manager_approval finance_review],
             result_data: { route_type: 'dual_approval', amount: amount }
           )
         end
@@ -423,13 +423,13 @@ RSpec.describe TaskerCore::StepHandler::Decision do
     end
 
     context 'with large amount' do
-      let(:amount) { 10000 }
+      let(:amount) { 10_000 }
 
       it 'routes to dual approval path' do
         result = routing_handler.call(task_wrapper, sequence, step)
 
         expect(result.result[:route_type]).to eq('dual_approval')
-        expect(result.result[:decision_point_outcome][:step_names]).to eq(['manager_approval', 'finance_review'])
+        expect(result.result[:decision_point_outcome][:step_names]).to eq(%w[manager_approval finance_review])
         expect(result.metadata[:branches_created]).to eq(2)
       end
     end

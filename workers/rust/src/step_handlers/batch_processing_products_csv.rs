@@ -96,8 +96,9 @@ struct Product {
 /// - Worker 1: rows 2-201 (cursor 1-200)
 /// - Worker 2: rows 202-401 (cursor 201-400)
 /// - Worker 5: rows 802-1001 (cursor 801-1000)
+#[derive(Debug)]
 pub struct CsvAnalyzerHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -107,7 +108,7 @@ impl RustStepHandler for CsvAnalyzerHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -268,8 +269,9 @@ impl RustStepHandler for CsvAnalyzerHandler {
 /// - `end_cursor`: Last data row index (inclusive)
 ///
 /// Example: Worker with start=1, end=200 processes CSV rows 2-201 (row 1 is header)
+#[derive(Debug)]
 pub struct CsvBatchProcessorHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -279,7 +281,7 @@ impl RustStepHandler for CsvBatchProcessorHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -426,8 +428,9 @@ impl RustStepHandler for CsvBatchProcessorHandler {
 /// - Merges category counts
 /// - Finds globally most expensive product
 /// - Calculates overall average rating
+#[derive(Debug)]
 pub struct CsvResultsAggregatorHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -437,7 +440,7 @@ impl RustStepHandler for CsvResultsAggregatorHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -452,12 +455,20 @@ impl RustStepHandler for CsvResultsAggregatorHandler {
         // Use centralized batch aggregation scenario detection
         let scenario = tasker_worker::BatchAggregationScenario::detect(
             &step_data.dependency_results,
-            "analyze_csv",       // batchable step name
+            "analyze_csv",        // batchable step name
             "process_csv_batch_", // batch worker prefix
         )
         .map_err(|e| anyhow::anyhow!("Failed to detect aggregation scenario: {}", e))?;
 
-        let (total_processed, total_inventory_value, global_category_counts, max_price, max_price_product, overall_avg_rating, worker_count) = match scenario {
+        let (
+            total_processed,
+            total_inventory_value,
+            global_category_counts,
+            max_price,
+            max_price_product,
+            overall_avg_rating,
+            worker_count,
+        ) = match scenario {
             tasker_worker::BatchAggregationScenario::NoBatches { batchable_result } => {
                 tracing::info!("Detected NoBatches scenario - no CSV processing occurred");
 
@@ -469,7 +480,10 @@ impl RustStepHandler for CsvResultsAggregatorHandler {
 
                 (total_rows, 0.0, HashMap::new(), 0.0, None, 0.0, 0)
             }
-            tasker_worker::BatchAggregationScenario::WithBatches { batch_results, worker_count } => {
+            tasker_worker::BatchAggregationScenario::WithBatches {
+                batch_results,
+                worker_count,
+            } => {
                 let mut total_processed: u64 = 0;
                 let mut total_inventory_value: f64 = 0.0;
                 let mut global_category_counts: HashMap<String, u64> = HashMap::new();
@@ -514,10 +528,15 @@ impl RustStepHandler for CsvResultsAggregatorHandler {
                         .unwrap_or(0.0);
 
                     // Merge category counts
-                    if let Some(category_counts) = result.result.get("category_counts").and_then(|v| v.as_object()) {
+                    if let Some(category_counts) = result
+                        .result
+                        .get("category_counts")
+                        .and_then(|v| v.as_object())
+                    {
                         for (category, count) in category_counts {
                             let count_val = count.as_u64().unwrap_or(0);
-                            *global_category_counts.entry(category.clone()).or_insert(0) += count_val;
+                            *global_category_counts.entry(category.clone()).or_insert(0) +=
+                                count_val;
                         }
                     }
 
@@ -545,7 +564,15 @@ impl RustStepHandler for CsvResultsAggregatorHandler {
                     0.0
                 };
 
-                (total_processed, total_inventory_value, global_category_counts, max_price, max_price_product, overall_avg_rating, worker_count)
+                (
+                    total_processed,
+                    total_inventory_value,
+                    global_category_counts,
+                    max_price,
+                    max_price_product,
+                    overall_avg_rating,
+                    worker_count,
+                )
             }
         };
 

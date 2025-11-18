@@ -220,7 +220,11 @@ impl BatchWorkerInputs {
     /// assert_eq!(inputs.is_no_op, false);
     /// ```
     #[must_use]
-    pub fn new(cursor_config: CursorConfig, batch_config: &BatchConfiguration, is_no_op: bool) -> Self {
+    pub fn new(
+        cursor_config: CursorConfig,
+        batch_config: &BatchConfiguration,
+        is_no_op: bool,
+    ) -> Self {
         Self {
             cursor: cursor_config,
             batch_metadata: BatchMetadata {
@@ -258,7 +262,7 @@ impl BatchWorkerInputs {
     /// #     worker_template: "batch_worker".to_string(),
     /// #     failure_strategy: FailureStrategy::ContinueOnFailure,
     /// # };
-    /// let inputs = BatchWorkerInputs::new(cursor, &batch_config);
+    /// let inputs = BatchWorkerInputs::new(cursor, &batch_config, false);
     /// let json_value = inputs.to_value();
     ///
     /// // Can be merged with handler initialization
@@ -317,7 +321,7 @@ mod tests {
             inputs.batch_metadata.failure_strategy,
             FailureStrategy::ContinueOnFailure
         );
-        assert_eq!(inputs.is_no_op, false);
+        assert!(!inputs.is_no_op);
     }
 
     #[test]
@@ -373,7 +377,7 @@ mod tests {
             inputs.batch_metadata.failure_strategy,
             FailureStrategy::FailFast
         );
-        assert_eq!(inputs.is_no_op, true);
+        assert!(inputs.is_no_op);
     }
 
     #[test]

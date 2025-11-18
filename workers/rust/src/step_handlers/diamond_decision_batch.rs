@@ -49,8 +49,9 @@ use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 ///   "batch_size": 3
 /// }
 /// ```
+#[derive(Debug)]
 pub struct DiamondStartHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -60,7 +61,7 @@ impl RustStepHandler for DiamondStartHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -121,8 +122,9 @@ impl RustStepHandler for DiamondStartHandler {
 }
 
 /// BranchEvensHandler - Filters and counts even numbers
+#[derive(Debug)]
 pub struct BranchEvensHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -132,7 +134,7 @@ impl RustStepHandler for BranchEvensHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -184,8 +186,9 @@ impl RustStepHandler for BranchEvensHandler {
 }
 
 /// BranchOddsHandler - Filters and counts odd numbers
+#[derive(Debug)]
 pub struct BranchOddsHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -195,7 +198,7 @@ impl RustStepHandler for BranchOddsHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -258,8 +261,9 @@ impl RustStepHandler for BranchOddsHandler {
 /// Decision logic:
 /// - If even_count >= odd_count: Create even_batch_analyzer
 /// - If odd_count > even_count: Create odd_batch_analyzer
+#[derive(Debug)]
 pub struct RoutingDecisionHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -269,7 +273,7 @@ impl RustStepHandler for RoutingDecisionHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -365,8 +369,9 @@ impl RustStepHandler for RoutingDecisionHandler {
 /// EvenBatchAnalyzerHandler - Batchable step for even numbers
 ///
 /// Creates batch workers to process even numbers in parallel batches.
+#[derive(Debug)]
 pub struct EvenBatchAnalyzerHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -376,7 +381,7 @@ impl RustStepHandler for EvenBatchAnalyzerHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -488,8 +493,9 @@ impl RustStepHandler for EvenBatchAnalyzerHandler {
 }
 
 /// ProcessEvenBatchHandler - Batch worker for processing even number batches
+#[derive(Debug)]
 pub struct ProcessEvenBatchHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -499,7 +505,7 @@ impl RustStepHandler for ProcessEvenBatchHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -566,8 +572,9 @@ impl RustStepHandler for ProcessEvenBatchHandler {
 }
 
 /// AggregateEvenResultsHandler - Deferred convergence for even batch results
+#[derive(Debug)]
 pub struct AggregateEvenResultsHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -577,7 +584,7 @@ impl RustStepHandler for AggregateEvenResultsHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -694,8 +701,9 @@ impl RustStepHandler for AggregateEvenResultsHandler {
 // ============================================================================
 
 /// OddBatchAnalyzerHandler - Batchable step for odd numbers
+#[derive(Debug)]
 pub struct OddBatchAnalyzerHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -705,7 +713,7 @@ impl RustStepHandler for OddBatchAnalyzerHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -817,8 +825,9 @@ impl RustStepHandler for OddBatchAnalyzerHandler {
 }
 
 /// ProcessOddBatchHandler - Batch worker for processing odd number batches
+#[derive(Debug)]
 pub struct ProcessOddBatchHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -828,7 +837,7 @@ impl RustStepHandler for ProcessOddBatchHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
@@ -895,8 +904,9 @@ impl RustStepHandler for ProcessOddBatchHandler {
 }
 
 /// AggregateOddResultsHandler - Deferred convergence for odd batch results
+#[derive(Debug)]
 pub struct AggregateOddResultsHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -906,7 +916,7 @@ impl RustStepHandler for AggregateOddResultsHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {

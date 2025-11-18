@@ -34,10 +34,10 @@
 //!     }
 //!
 //!     // Process real batch with cursor-based resumability
-//!     let mut current_position = context.resume_position();
+//!     let mut current_position = context.start_position();
 //!     while current_position < context.end_position() {
 //!         // Process chunk...
-//!         current_position += context.checkpoint_interval();
+//!         current_position += context.checkpoint_interval() as u64;
 //!     }
 //!
 //!     Ok(())
@@ -81,11 +81,16 @@ impl BatchWorkerContext {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,no_run
+    /// # use tasker_worker::batch_processing::BatchWorkerContext;
+    /// # use tasker_shared::types::TaskSequenceStep;
+    /// # fn example(step_data: &TaskSequenceStep) -> anyhow::Result<()> {
     /// let context = BatchWorkerContext::from_step_data(step_data)?;
     /// if context.is_no_op() {
     ///     return Ok(()); // Trust orchestration's declaration
     /// }
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn from_step_data(step_data: &TaskSequenceStep) -> Result<Self> {
         // Extract inputs from workflow_step (not step_definition)
@@ -115,7 +120,9 @@ impl BatchWorkerContext {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,no_run
+    /// # use tasker_worker::batch_processing::BatchWorkerContext;
+    /// # fn example(context: &BatchWorkerContext) -> anyhow::Result<()> {
     /// if context.is_no_op() {
     ///     tracing::info!(
     ///         batch_id = %context.batch_id(),
@@ -123,6 +130,8 @@ impl BatchWorkerContext {
     ///     );
     ///     return Ok(());
     /// }
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn is_no_op(&self) -> bool {
         self.inputs.is_no_op
@@ -145,22 +154,14 @@ impl BatchWorkerContext {
     /// WHERE cursor_field > start_cursor AND cursor_field <= end_cursor
     /// ```
     pub fn start_position(&self) -> u64 {
-        self.inputs
-            .cursor
-            .start_cursor
-            .as_u64()
-            .unwrap_or(0)
+        self.inputs.cursor.start_cursor.as_u64().unwrap_or(0)
     }
 
     /// Get the ending position in the dataset (exclusive)
     ///
     /// Returns the numeric value of end_cursor.
     pub fn end_position(&self) -> u64 {
-        self.inputs
-            .cursor
-            .end_cursor
-            .as_u64()
-            .unwrap_or(0)
+        self.inputs.cursor.end_cursor.as_u64().unwrap_or(0)
     }
 
     /// Get the checkpoint interval
@@ -177,11 +178,7 @@ impl BatchWorkerContext {
     pub fn total_batch_size(&self) -> u64 {
         let start = self.start_position();
         let end = self.end_position();
-        if end >= start {
-            end - start
-        } else {
-            0
-        }
+        end.saturating_sub(start)
     }
 
     /// Get the cursor field name for database queries
@@ -245,7 +242,7 @@ mod tests {
         assert_eq!(context.start_position(), 0);
         assert_eq!(context.end_position(), 100);
         assert_eq!(context.checkpoint_interval(), 100);
-        assert_eq!(context.is_no_op(), false);
+        assert!(!context.is_no_op());
     }
 
     #[test]
@@ -254,7 +251,10 @@ mod tests {
         let inputs = create_test_inputs("000", 0, 0, true);
         let context = extract_context_from_inputs(&inputs).unwrap();
 
-        assert!(context.is_no_op(), "Explicit is_no_op=true should return true");
+        assert!(
+            context.is_no_op(),
+            "Explicit is_no_op=true should return true"
+        );
     }
 
     #[test]
@@ -263,7 +263,10 @@ mod tests {
         let inputs = create_test_inputs("001", 0, 100, false);
         let context = extract_context_from_inputs(&inputs).unwrap();
 
-        assert!(!context.is_no_op(), "Explicit is_no_op=false should return false");
+        assert!(
+            !context.is_no_op(),
+            "Explicit is_no_op=false should return false"
+        );
     }
 
     #[test]
@@ -301,6 +304,6 @@ mod tests {
 
         let batch_inputs = context.inputs();
         assert_eq!(batch_inputs.cursor.batch_id, "001");
-        assert_eq!(batch_inputs.is_no_op, false);
+        assert!(!batch_inputs.is_no_op);
     }
 }

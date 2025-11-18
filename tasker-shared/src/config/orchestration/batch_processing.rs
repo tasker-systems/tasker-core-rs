@@ -185,8 +185,10 @@ mod tests {
             HandlerDefinition, StepDefinition, StepType, TaskTemplate,
         };
 
-        let mut config = BatchProcessingConfig::default();
-        config.enabled = false;
+        let config = BatchProcessingConfig {
+            enabled: false,
+            ..Default::default()
+        };
 
         // Template without batchable steps should be valid even when disabled
         let template = TaskTemplate::builder()
