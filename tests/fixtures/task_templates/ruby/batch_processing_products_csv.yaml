@@ -1,0 +1,51 @@
+---
+name: csv_product_inventory_analyzer_ruby
+namespace_name: csv_processing
+version: "1.0.0"
+description: "Process CSV product data in parallel batches (Ruby implementation)"
+task_handler:
+  callable: ruby_ffi_handler
+  initialization: {}
+
+steps:
+  # BATCHABLE STEP: CSV Analysis and Batch Planning
+  - name: analyze_csv
+    type: batchable
+    dependencies: []
+    handler:
+      callable: TaskerCore::BatchProcessing::StepHandlers::CsvAnalyzerHandler
+      initialization:
+        batch_size: 200
+        max_workers: 5
+
+  # BATCH WORKER TEMPLATE: Single CSV Batch Processing
+  # Orchestration creates N instances from this template
+  - name: process_csv_batch
+    type: batch_worker
+    dependencies:
+      - analyze_csv
+    lifecycle:
+      max_steps_in_process_minutes: 120
+      max_retries: 3
+      backoff_multiplier: 2.0
+    handler:
+      callable: TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandler
+      initialization:
+        operation: "inventory_analysis"
+    batch_config:
+      batch_size: 200
+      parallelism: 5
+      cursor_field: "row_number"
+      checkpoint_interval: 50
+      worker_template: "process_csv_batch"
+      failure_strategy: "continue_on_failure"
+
+  # DEFERRED CONVERGENCE STEP: CSV Results Aggregation
+  - name: aggregate_csv_results
+    type: deferred_convergence
+    dependencies:
+      - process_csv_batch  # Template dependency - resolves to all worker instances
+    handler:
+      callable: TaskerCore::BatchProcessing::StepHandlers::CsvResultsAggregatorHandler
+      initialization:
+        aggregation_type: "inventory_metrics"

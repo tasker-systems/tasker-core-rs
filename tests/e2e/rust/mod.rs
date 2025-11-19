@@ -1,4 +1,7 @@
+mod batch_processing_csv_workflow;
+mod batch_processing_workflow;
 mod conditional_approval_rust;
+mod diamond_decision_batch_workflow;
 mod diamond_workflow;
 mod linear_workflow;
 mod mixed_dag_workflow;

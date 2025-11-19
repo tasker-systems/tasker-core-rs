@@ -82,7 +82,7 @@ module ConditionalApproval
           'auto'
         when ['manager']
           'manager_only'
-        when ['finance', 'manager']
+        when %w[finance manager]
           'dual_approval'
         else
           'unknown'

@@ -1,13 +1,17 @@
 # =============================================================================
-# Test Compose Configuration - Local Integration Testing
+# Test Compose Configuration - Local Integration Testing (OPTIMIZED)
 # =============================================================================
 # Optimized for local development and testing:
-# - Fast debug builds with Dockerfile.test
+# - Fast debug builds with optimized Dockerfile.test-local
+# - BuildKit cache configuration for faster rebuilds
 # - Always builds from local source (no cached images)
 # - Minimal resource usage
 # - Quick startup times
 #
-# Usage: docker-compose -f docker/compose/docker-compose.test.yml up --build
+# Usage:
+# export DOCKER_BUILDKIT=1
+# export COMPOSE_DOCKER_CLI_BUILD=1
+# docker-compose -f docker/docker-compose.test-local.yml up --build
 
 services:
   # ==========================================================================
@@ -43,16 +47,22 @@ services:
       - tasker-test
 
   # ==========================================================================
-  # Orchestration Service - Test Build with Centralized Dockerfile
+  # Orchestration Service - Optimized Test Build
   # ==========================================================================
   orchestration:
     build:
       context: ..
       dockerfile: docker/build/orchestration.test.Dockerfile
+      # OPTIMIZATION: BuildKit cache configuration
+      # Note: BuildKit must be enabled via environment variables
+      cache_from:
+        - type=local,src=/tmp/docker-cache/orchestration
+      cache_to:
+        - type=local,dest=/tmp/docker-cache/orchestration,mode=max
     environment:
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
       TASKER_ENV: test
-      RUST_LOG: info
+      RUST_LOG: info,tasker_orchestration::orchestration::lifecycle::batch_processing=debug
       LOG_LEVEL: info
       RUST_BACKTRACE: 1
       PORT: 8080
@@ -83,16 +93,21 @@ services:
       - tasker-test
 
   # ==========================================================================
-  # Rust Worker Service - Test Build with Centralized Dockerfile
+  # Rust Worker Service - Optimized Test Build
   # ==========================================================================
   worker:
     build:
       context: ..
       dockerfile: docker/build/rust-worker.test.Dockerfile
+      # OPTIMIZATION: BuildKit cache configuration
+      cache_from:
+        - type=local,src=/tmp/docker-cache/rust-worker
+      cache_to:
+        - type=local,dest=/tmp/docker-cache/rust-worker,mode=max
     environment:
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
       TASKER_ENV: test
-      RUST_LOG: info
+      RUST_LOG: info,tasker_worker_rust::step_handlers=debug
       LOG_LEVEL: info
       RUST_BACKTRACE: 1
       WORKER_ID: test-worker-001
@@ -101,6 +116,8 @@ services:
       TASKER_CONFIG_PATH: /app/config/tasker/worker-test.toml
       # Point to centralized E2E test templates for Rust handlers
       TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/rust
+      # Point to fixture files for E2E tests
+      TASKER_FIXTURE_PATH: /app/tests/fixtures
       PORT: 8081
     ports:
       - "8081:8081"
@@ -108,6 +125,8 @@ services:
       - ../config/tasker:/app/config/tasker:ro
       # Mount centralized test templates
       - ../tests/fixtures/task_templates/rust:/app/tests/fixtures/task_templates/rust:ro
+      # Mount test fixtures for CSV and other data files
+      - ../tests/fixtures:/app/tests/fixtures:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,12 +142,17 @@ services:
       - tasker-test
 
   # ==========================================================================
-  # Ruby Worker Service - Test Build with Ruby FFI Support
+  # Ruby Worker Service - Optimized Test Build with Ruby FFI Support
   # ==========================================================================
   ruby-worker:
     build:
       context: ..
       dockerfile: docker/build/ruby-worker.test.Dockerfile
+      # OPTIMIZATION: BuildKit cache configuration
+      cache_from:
+        - type=local,src=/tmp/docker-cache/ruby-worker
+      cache_to:
+        - type=local,dest=/tmp/docker-cache/ruby-worker,mode=max
     environment:
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
       TASKER_ENV: test
@@ -141,6 +165,8 @@ services:
       TASKER_CONFIG_PATH: /app/config/tasker/worker-test.toml
       # Point to centralized E2E test templates for Ruby handlers
       TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/ruby
+      # Point to fixture files for E2E tests
+      TASKER_FIXTURE_PATH: /app/tests/fixtures
       # Ruby environment
       RUBY_WORKER_ENABLED: "true"
       BUNDLE_GEMFILE: /app/ruby_worker/Gemfile
@@ -152,8 +178,10 @@ services:
       - ../config/tasker:/app/config/tasker:ro
       # Mount centralized test templates
       - ../tests/fixtures/task_templates/ruby:/app/tests/fixtures/task_templates/ruby:ro
-      # Mount handler source code for discovery
-      - ../workers/ruby/spec/handlers:/app/handlers:ro
+      # Mount test fixtures for CSV and other data files
+      - ../tests/fixtures:/app/tests/fixtures:ro
+      # Mount handler source code for discovery (must match Dockerfile structure)
+      - ../workers/ruby/spec/handlers:/app/ruby_worker/spec/handlers:ro
     depends_on:
       postgres:
         condition: service_healthy

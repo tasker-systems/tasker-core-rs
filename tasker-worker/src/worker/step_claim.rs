@@ -114,13 +114,19 @@ impl StepClaim {
             }
         };
 
-        // Find the step definition in the task template
+        // Find the step definition in the task template using template_step_name
+        // For regular steps, template_step_name equals name
+        // For dynamically created steps (batch workers, decision point steps),
+        // template_step_name contains the template name from inputs->>'__template_step_name'
         let step_definition = task_template
             .steps
             .iter()
-            .find(|step| step.name == workflow_step.name)
+            .find(|step| step.name == workflow_step.template_step_name)
             .ok_or_else(|| {
-                TaskerError::WorkerError("Step definition not found in task template".to_string())
+                TaskerError::WorkerError(format!(
+                    "Step definition not found in task template for step '{}' (template: '{}')",
+                    workflow_step.name, workflow_step.template_step_name
+                ))
             })?;
 
         // Get transitive dependencies and build execution context

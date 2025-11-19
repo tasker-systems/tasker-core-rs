@@ -132,11 +132,20 @@ impl RustEventHandler {
         event: StepExecutionEvent,
         worker_id: &str,
     ) -> Result<()> {
-        let handler_name = &event.payload.task_sequence_step.workflow_step.name;
+        // Use template_step_name for handler lookup
+        // For regular steps, template_step_name equals name
+        // For dynamically created steps (batch workers, decision point steps),
+        // template_step_name contains the template name from inputs->>'__template_step_name'
+        let handler_name = &event
+            .payload
+            .task_sequence_step
+            .workflow_step
+            .template_step_name;
 
         debug!(
             worker_id = %worker_id,
             handler_name = %handler_name,
+            workflow_step_name = %event.payload.task_sequence_step.workflow_step.name,
             "Looking up handler in registry"
         );
 

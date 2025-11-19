@@ -206,6 +206,7 @@ mod tests {
             },
             timeout_seconds: Some(30),
             publishes_events: vec![],
+            batch_config: None,
         }
     }
 
@@ -226,6 +227,7 @@ mod tests {
             retry: RetryConfiguration::default(),
             timeout_seconds: Some(30),
             publishes_events: vec![],
+            batch_config: None,
         }
     }
 

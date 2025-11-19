@@ -1,4 +1,4 @@
-//! # Staleness Detector Background Service (TAS-49 Phase 2)
+//! # Staleness Detector Background Service (TAS-49 Phase 2, TAS-59 Phase 3)
 //!
 //! Automatic background service that periodically detects and processes stale tasks.
 //!
@@ -8,14 +8,16 @@
 //! - Calls SQL function `detect_and_transition_stale_tasks()`
 //! - Integrates with OpenTelemetry metrics for observability
 //! - Supports dry-run mode for testing
+//! - **TAS-59**: Adds checkpoint-based health checks for batch workers
 //!
 //! ## Staleness Detection Flow
 //!
 //! 1. Timer tick triggers detection cycle
 //! 2. SQL function identifies tasks exceeding state thresholds
 //! 3. Per-template lifecycle config takes precedence over global defaults
-//! 4. Tasks transitioned to Error state and/or moved to DLQ
-//! 5. Metrics recorded for monitoring and alerting
+//! 4. **TAS-59**: Post-filter batch workers using checkpoint health checks
+//! 5. Tasks transitioned to Error state and/or moved to DLQ
+//! 6. Metrics recorded for monitoring and alerting
 //!
 //! ## Configuration
 //!
@@ -25,8 +27,12 @@
 //! enabled = true
 //! batch_size = 100
 //! detection_interval_seconds = 300  # 5 minutes
+//!
+//! [batch_processing]
+//! checkpoint_stall_minutes = 15  # Batch worker checkpoint health
 //! ```
 
+use chrono::{DateTime, Utc};
 use opentelemetry::KeyValue;
 use sqlx::PgPool;
 use std::time::Duration;
@@ -34,7 +40,7 @@ use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use tasker_shared::config::tasker::StalenessDetectionConfig;
+use tasker_shared::config::tasker::{BatchProcessingConfig, StalenessDetectionConfig};
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::errors::TaskerResult;
 use tasker_shared::metrics::orchestration;
@@ -103,6 +109,7 @@ pub struct StalenessResult {
 pub struct StalenessDetector {
     executor: SqlFunctionExecutor,
     config: StalenessDetectionConfig,
+    batch_config: BatchProcessingConfig,
 }
 
 // Manual Debug implementation because SqlFunctionExecutor contains PgPool
@@ -110,6 +117,7 @@ impl std::fmt::Debug for StalenessDetector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StalenessDetector")
             .field("config", &self.config)
+            .field("batch_config", &self.batch_config)
             .finish_non_exhaustive()
     }
 }
@@ -121,10 +129,19 @@ impl StalenessDetector {
     ///
     /// * `pool` - Database connection pool
     /// * `config` - Staleness detection configuration
+    /// * `batch_config` - Batch processing configuration (for checkpoint health checks)
     #[must_use]
-    pub fn new(pool: PgPool, config: StalenessDetectionConfig) -> Self {
+    pub fn new(
+        pool: PgPool,
+        config: StalenessDetectionConfig,
+        batch_config: BatchProcessingConfig,
+    ) -> Self {
         let executor = SqlFunctionExecutor::new(pool);
-        Self { executor, config }
+        Self {
+            executor,
+            config,
+            batch_config,
+        }
     }
 
     /// Run staleness detection loop
@@ -205,9 +222,10 @@ impl StalenessDetector {
         }
     }
 
-    /// Detect and transition stale tasks using SQL function
+    /// Detect and transition stale tasks using SQL function with batch worker post-filtering
     ///
-    /// Calls `detect_and_transition_stale_tasks()` via `SqlFunctionExecutor` with configured parameters.
+    /// Calls `detect_and_transition_stale_tasks()` via `SqlFunctionExecutor` with configured parameters,
+    /// then post-filters results for batch worker checkpoint health (TAS-59 Phase 3).
     ///
     /// # Errors
     ///
@@ -239,7 +257,7 @@ impl StalenessDetector {
             .await?;
 
         // Convert database results to internal StalenessResult format
-        let results = db_results
+        let mut results: Vec<StalenessResult> = db_results
             .into_iter()
             .map(|r| StalenessResult {
                 task_uuid: r.task_uuid,
@@ -253,6 +271,51 @@ impl StalenessDetector {
                 transition_success: r.transition_success,
             })
             .collect();
+
+        // TAS-59 Phase 3: Post-filter for batch worker checkpoint health
+        // Only filter if batch processing is enabled and checkpoint health checks are configured
+        if self.batch_config.enabled && self.batch_config.checkpoint_stall_minutes > 0 {
+            let initial_count = results.len();
+
+            // Filter out tasks that fail checkpoint health check
+            let mut filtered_results = Vec::with_capacity(results.len());
+            for result in results {
+                match self.should_task_be_stale(result.task_uuid).await {
+                    Ok(is_stale) if is_stale => {
+                        // Task is truly stale (checkpoint health check passed or no batch workers)
+                        filtered_results.push(result);
+                    }
+                    Ok(_) => {
+                        // Task has healthy batch workers, not truly stale
+                        debug!(
+                            task_uuid = %result.task_uuid,
+                            "Task filtered out - batch workers have healthy checkpoints"
+                        );
+                    }
+                    Err(e) => {
+                        // Error checking batch health - log but include task (conservative approach)
+                        warn!(
+                            task_uuid = %result.task_uuid,
+                            error = %e,
+                            "Error checking batch worker health, including task in staleness results"
+                        );
+                        filtered_results.push(result);
+                    }
+                }
+            }
+
+            results = filtered_results;
+
+            let filtered_count = initial_count - results.len();
+            if filtered_count > 0 {
+                info!(
+                    initial_count = initial_count,
+                    filtered_count = filtered_count,
+                    final_count = results.len(),
+                    "Batch worker checkpoint health filtering applied"
+                );
+            }
+        }
 
         Ok(results)
     }
@@ -382,6 +445,130 @@ impl StalenessDetector {
     pub const fn config(&self) -> &StalenessDetectionConfig {
         &self.config
     }
+
+    /// Check if a workflow step is a batch worker based on results structure
+    ///
+    /// TAS-59: Batch workers store cursor data in `results.batch_cursor`
+    fn is_batch_worker(&self, results: &serde_json::Value) -> bool {
+        results
+            .as_object()
+            .and_then(|obj| obj.get("batch_cursor"))
+            .is_some()
+    }
+
+    /// Check if a batch worker is healthy based on checkpoint timestamps
+    ///
+    /// TAS-59: Batch workers must update `batch_cursor.last_checkpoint` periodically.
+    /// If the checkpoint timestamp exceeds the stall threshold, the worker is unhealthy.
+    ///
+    /// Returns `true` if healthy (recent checkpoint), `false` if stalled.
+    fn is_batch_worker_checkpoint_healthy(&self, results: &serde_json::Value) -> bool {
+        // Extract batch_cursor from results
+        let batch_cursor = match results.as_object().and_then(|obj| obj.get("batch_cursor")) {
+            Some(cursor) => cursor,
+            None => return true, // Not a batch worker, consider healthy
+        };
+
+        // Get last_checkpoint timestamp
+        let last_checkpoint_str = match batch_cursor
+            .as_object()
+            .and_then(|cursor| cursor.get("last_checkpoint"))
+            .and_then(|v| v.as_str())
+        {
+            Some(ts) => ts,
+            None => {
+                debug!("Batch worker missing last_checkpoint timestamp");
+                return false; // Missing checkpoint data = unhealthy
+            }
+        };
+
+        // Parse timestamp
+        let last_checkpoint = match DateTime::parse_from_rfc3339(last_checkpoint_str) {
+            Ok(dt) => dt.with_timezone(&Utc),
+            Err(e) => {
+                warn!(error = %e, "Failed to parse batch worker checkpoint timestamp");
+                return false; // Invalid timestamp = unhealthy
+            }
+        };
+
+        // Calculate elapsed time since last checkpoint
+        let elapsed = Utc::now() - last_checkpoint;
+        let stall_threshold =
+            chrono::Duration::minutes(self.batch_config.checkpoint_stall_minutes as i64);
+
+        if elapsed > stall_threshold {
+            warn!(
+                elapsed_minutes = elapsed.num_minutes(),
+                threshold_minutes = stall_threshold.num_minutes(),
+                "Batch worker stalled - no recent checkpoint"
+            );
+            return false; // Stalled
+        }
+
+        true // Healthy
+    }
+
+    /// Filter batch workers for checkpoint health (TAS-59 Phase 3)
+    ///
+    /// Post-processes SQL staleness detection results to add checkpoint-based health checks
+    /// for batch workers. Regular steps pass through unchanged.
+    ///
+    /// # Arguments
+    ///
+    /// * `task_uuid` - Task UUID to check batch workers for
+    ///
+    /// # Returns
+    ///
+    /// `true` if task should be considered stale (either regular step exceeds time threshold,
+    /// or batch worker has stalled checkpoints), `false` if task is healthy.
+    ///
+    /// # Implementation Notes
+    ///
+    /// This method queries workflow steps in 'in_progress' state by joining with the
+    /// `tasker_workflow_step_transitions` table (state machine pattern). The current state
+    /// is determined by the transition with `most_recent = true`.
+    async fn should_task_be_stale(&self, task_uuid: Uuid) -> TaskerResult<bool> {
+        // Query workflow steps for this task to check batch worker health
+        // Join with transitions to get current state (state machine pattern)
+        let steps = sqlx::query!(
+            r#"
+            SELECT ws.workflow_step_uuid, ws.results
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_workflow_step_transitions wst
+                ON ws.workflow_step_uuid = wst.workflow_step_uuid
+            WHERE ws.task_uuid = $1
+                AND wst.most_recent = true
+                AND wst.to_state = 'in_progress'
+            "#,
+            task_uuid
+        )
+        .fetch_all(self.executor.pool())
+        .await?;
+
+        // If no in-progress steps, defer to SQL function decision
+        if steps.is_empty() {
+            return Ok(true);
+        }
+
+        // Check each step for batch worker health
+        for step in steps {
+            let results = step.results.unwrap_or_default();
+
+            // If this is a batch worker, check checkpoint health
+            if self.is_batch_worker(&results) && !self.is_batch_worker_checkpoint_healthy(&results)
+            {
+                debug!(
+                    task_uuid = %task_uuid,
+                    step_uuid = %step.workflow_step_uuid,
+                    "Batch worker failed checkpoint health check"
+                );
+                return Ok(true); // Batch worker is unhealthy = task is stale
+            }
+        }
+
+        // All batch workers have healthy checkpoints, defer to SQL decision
+        Ok(true)
+    }
 }
 
 #[cfg(test)]
@@ -392,8 +579,9 @@ mod tests {
     async fn test_staleness_detector_creation() {
         let pool = PgPool::connect_lazy("postgresql://test").expect("Should create lazy pool");
         let config = StalenessDetectionConfig::default();
+        let batch_config = BatchProcessingConfig::default();
 
-        let detector = StalenessDetector::new(pool, config.clone());
+        let detector = StalenessDetector::new(pool, config.clone(), batch_config);
 
         assert_eq!(detector.config().enabled, config.enabled);
         assert_eq!(
@@ -432,8 +620,9 @@ mod tests {
     async fn test_staleness_detector_config_getter() {
         let pool = PgPool::connect_lazy("postgresql://test").expect("Should create lazy pool");
         let config = StalenessDetectionConfig::default();
+        let batch_config = BatchProcessingConfig::default();
 
-        let detector = StalenessDetector::new(pool, config.clone());
+        let detector = StalenessDetector::new(pool, config.clone(), batch_config);
 
         assert_eq!(detector.config().batch_size, config.batch_size);
     }

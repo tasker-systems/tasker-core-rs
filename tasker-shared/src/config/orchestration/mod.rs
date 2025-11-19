@@ -7,6 +7,8 @@ pub mod step_enqueuer;
 pub use step_enqueuer::StepEnqueuerConfig;
 pub mod step_result_processor;
 pub use step_result_processor::StepResultProcessorConfig;
+pub mod batch_processing;
+pub use batch_processing::BatchProcessingConfig;
 pub mod event_systems;
 pub use crate::config::web::WebConfig;
 pub use event_systems::OrchestrationEventSystemConfig;

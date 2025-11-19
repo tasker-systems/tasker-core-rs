@@ -1,6 +1,6 @@
 # Tasker Configuration - complete Context
 # Environment: test
-# Generated: 2025-11-09T18:35:06.214911+00:00
+# Generated: 2025-11-13T13:36:46.073693+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -136,6 +136,13 @@ service_name = "tasker-core"
 enable_performance_logging = false
 mode = "standalone"
 
+[orchestration.batch_processing]
+checkpoint_interval_default = 10
+checkpoint_stall_minutes = 2
+default_batch_size = 100
+enabled = true
+max_parallel_batches = 10
+
 [orchestration.decision_points]
 enable_detailed_logging = false
 enable_metrics = true
@@ -244,7 +251,7 @@ event_channel_buffer_size = 100
 [orchestration.web]
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
 enabled = true
-request_timeout_ms = 5000
+request_timeout_ms = 30000
 
 [orchestration.web.auth]
 api_key = ""
@@ -286,20 +293,6 @@ method = "GET"
 path = "/v1/analytics/bottlenecks"
 required = false
 
-[orchestration.web.cors]
-allowed_headers = ["*"]
-allowed_methods = [
-    "GET",
-    "POST",
-    "PUT",
-    "DELETE",
-    "PATCH",
-    "OPTIONS",
-]
-allowed_origins = ["*"]
-enabled = true
-max_age_seconds = 86400
-
 [orchestration.web.database_pools]
 max_total_connections_hint = 30
 web_api_connection_timeout_seconds = 30
@@ -307,16 +300,8 @@ web_api_idle_timeout_seconds = 600
 web_api_max_connections = 15
 web_api_pool_size = 10
 
-[orchestration.web.rate_limiting]
-burst_size = 100
-enabled = false
-per_client_limit = true
-requests_per_minute = 1000
-
 [orchestration.web.resilience]
 circuit_breaker_enabled = true
-max_concurrent_requests = 200
-request_timeout_seconds = 30
 
 [worker]
 worker_id = "test-worker-001"
@@ -410,7 +395,7 @@ max_retries = 3
 [worker.web]
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
 enabled = true
-request_timeout_ms = 5000
+request_timeout_ms = 30000
 
 [worker.web.auth]
 api_key = ""
@@ -452,18 +437,6 @@ method = "POST"
 path = "/templates/{namespace}/{name}/{version}/refresh"
 required = true
 
-[worker.web.cors]
-allowed_headers = ["*"]
-allowed_methods = [
-    "GET",
-    "POST",
-    "DELETE",
-    "OPTIONS",
-]
-allowed_origins = ["*"]
-enabled = true
-max_age_seconds = 86400
-
 [worker.web.database_pools]
 max_total_connections_hint = 15
 web_api_connection_timeout_seconds = 15
@@ -471,13 +444,5 @@ web_api_idle_timeout_seconds = 300
 web_api_max_connections = 10
 web_api_pool_size = 5
 
-[worker.web.rate_limiting]
-burst_size = 50
-enabled = false
-per_client_limit = true
-requests_per_minute = 500
-
 [worker.web.resilience]
 circuit_breaker_enabled = true
-max_concurrent_requests = 100
-request_timeout_seconds = 30

@@ -14,10 +14,13 @@
 //! - Enhanced environment-specific overrides
 //! - JSON Schema-based input validation
 
+use bon::Builder;
 use chrono::{DateTime, Utc};
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use validator::Validate;
 
 use crate::errors::{TaskerError, TaskerResult};
 
@@ -31,15 +34,18 @@ use crate::errors::{TaskerError, TaskerResult};
 /// - First-class domain event support
 /// - Enhanced environment overrides
 /// - JSON Schema input validation
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 pub struct TaskTemplate {
     /// Unique task name within namespace
+    #[validate(length(min = 1, max = 255))]
     pub name: String,
 
     /// Namespace for organization
+    #[validate(length(min = 1, max = 255))]
     pub namespace_name: String,
 
     /// Semantic version
+    #[validate(length(min = 1, max = 50))]
     pub version: String,
 
     /// Human-readable description
@@ -53,10 +59,13 @@ pub struct TaskTemplate {
 
     /// External system dependencies
     #[serde(default)]
+    #[builder(default)]
+    #[validate(nested)]
     pub system_dependencies: SystemDependencies,
 
     /// Domain events this task can publish
     #[serde(default)]
+    #[builder(default)]
     pub domain_events: Vec<DomainEventDefinition>,
 
     /// JSON Schema for input validation
@@ -64,10 +73,12 @@ pub struct TaskTemplate {
 
     /// Workflow step definitions
     #[serde(default)]
+    #[builder(default)]
     pub steps: Vec<StepDefinition>,
 
     /// Environment-specific overrides
     #[serde(default)]
+    #[builder(default)]
     pub environments: HashMap<String, EnvironmentOverride>,
 
     /// TAS-49: Per-template lifecycle configuration (optional)
@@ -79,10 +90,12 @@ pub struct TaskTemplate {
 }
 
 /// Template metadata for documentation and discovery
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder, Display)]
+#[display("TemplateMetadata(author: {:?}, tags: {:?})", author, tags)]
 pub struct TemplateMetadata {
     pub author: Option<String>,
     #[serde(default)]
+    #[builder(default)]
     pub tags: Vec<String>,
     pub documentation_url: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
@@ -90,30 +103,33 @@ pub struct TemplateMetadata {
 }
 
 /// Handler definition with callable and initialization
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder, Display)]
+#[display("HandlerDefinition(callable: {})", callable)]
 pub struct HandlerDefinition {
     /// Callable reference (class, proc, lambda)
+    #[validate(length(min = 1, max = 500))]
     pub callable: String,
 
     /// Initialization parameters
     #[serde(default)]
+    #[builder(default)]
     pub initialization: HashMap<String, Value>,
 }
 
 /// External system dependencies
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder, Display)]
+#[display("SystemDependencies(primary: {}, secondary: {:?})", primary, secondary)]
 pub struct SystemDependencies {
     /// Primary system interaction
     #[serde(default = "default_system")]
+    #[builder(default = default_system())]
+    #[validate(length(min = 1, max = 255))]
     pub primary: String,
 
     /// Secondary systems
     #[serde(default)]
+    #[builder(default)]
     pub secondary: Vec<String>,
-}
-
-fn default_system() -> String {
-    "default".to_string()
 }
 
 impl Default for SystemDependencies {
@@ -123,6 +139,10 @@ impl Default for SystemDependencies {
             secondary: Vec::new(),
         }
     }
+}
+
+fn default_system() -> String {
+    "default".to_string()
 }
 
 /// TAS-49: Per-template lifecycle configuration
@@ -141,18 +161,22 @@ impl Default for SystemDependencies {
 /// 1. Per-template lifecycle config (highest priority)
 /// 2. Global orchestration.toml staleness_detection.thresholds
 /// 3. System hardcoded defaults (lowest priority)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 pub struct LifecycleConfig {
     /// Maximum total task duration (from creation to completion)
+    #[validate(range(min = 1, max = 43200))]
     pub max_duration_minutes: Option<i32>,
 
     /// Maximum time a task can spend in WaitingForDependencies state
+    #[validate(range(min = 1, max = 10080))]
     pub max_waiting_for_dependencies_minutes: Option<i32>,
 
     /// Maximum time a task can spend in WaitingForRetry state
+    #[validate(range(min = 1, max = 10080))]
     pub max_waiting_for_retry_minutes: Option<i32>,
 
     /// Maximum time a task can spend in StepsInProcess state
+    #[validate(range(min = 1, max = 10080))]
     pub max_steps_in_process_minutes: Option<i32>,
 
     /// Action to take when staleness threshold exceeded
@@ -162,6 +186,8 @@ pub struct LifecycleConfig {
     /// - "error": Transition task to Error state
     /// - "none": No automatic action (monitoring only)
     #[serde(default = "default_staleness_action")]
+    #[validate(length(min = 1, max = 50))]
+    #[builder(default = "dlq".to_string())]
     pub staleness_action: String,
 
     /// Automatically transition task to Error state on timeout
@@ -184,8 +210,10 @@ fn default_staleness_action() -> String {
 }
 
 /// Domain event definition with schema
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder, Display)]
+#[display("DomainEventDefinition(name: {})", name)]
 pub struct DomainEventDefinition {
+    #[validate(length(min = 1, max = 255))]
     pub name: String,
     pub description: Option<String>,
     pub schema: Option<Value>, // JSON Schema
@@ -228,20 +256,101 @@ pub enum StepType {
     ///
     /// Example: A finalize_approval step that depends on [auto_approve, manager_approval,
     /// finance_review], but only the steps chosen by the decision point are created.
-    Deferred,
+    DeferredConvergence,
+
+    /// Batchable step that analyzes dataset and creates batch workers
+    ///
+    /// A batchable step determines whether work should be split into multiple
+    /// parallel batches and, if so, creates N worker instances from a template.
+    ///
+    /// The handler for a batchable step:
+    /// 1. Analyzes the dataset size and characteristics
+    /// 2. Determines optimal batch configuration
+    /// 3. Returns a `BatchProcessingOutcome` with worker creation instructions
+    ///
+    /// The orchestration system then:
+    /// - Creates N worker instances from the specified template
+    /// - Assigns each worker a cursor configuration
+    /// - Creates DAG edges: batchable_step → workers
+    /// - Enqueues workers for parallel execution
+    ///
+    /// ### Constraints:
+    /// - Must have `batch_config` metadata specifying worker template and parameters
+    /// - Worker template must exist in same template with `type: batch_worker`
+    /// - Handler must return `BatchProcessingOutcome` in step result
+    ///
+    /// ### Example:
+    /// ```yaml
+    /// - name: process_large_dataset
+    ///   type: batchable
+    ///   batch_config:
+    ///     worker_template: batch_worker_template
+    ///     batch_size: 1000
+    ///     parallelism: 10
+    /// ```
+    Batchable,
+
+    /// Batch worker template (not executed directly, instantiated by batchable step)
+    ///
+    /// A batch worker template serves as a blueprint for creating parallel worker
+    /// instances. It is not included in the initial step set and cannot be executed
+    /// directly - only instantiated copies created by a batchable step can execute.
+    ///
+    /// Each instance receives:
+    /// - Unique name (e.g., `{template_name}_001`, `{template_name}_002`)
+    /// - Cursor configuration defining its processing range
+    /// - Dependencies on the parent batchable step
+    ///
+    /// The handler for a batch worker:
+    /// 1. Loads cursor configuration from step metadata
+    /// 2. Processes items from start_cursor to end_cursor
+    /// 3. Periodically checkpoints progress by updating cursor state
+    /// 4. Returns success or retryable error (cursor preserved for resume)
+    ///
+    /// ### Constraints:
+    /// - Must be referenced by a batchable step's `batch_config.worker_template`
+    /// - Cannot be referenced directly in dependencies
+    /// - Template itself is never enqueued (only instances)
+    ///
+    /// ### Example:
+    /// ```yaml
+    /// - name: batch_worker_template
+    ///   type: batch_worker
+    ///   dependencies: [process_large_dataset]  # Parent batchable step
+    ///   handler:
+    ///     callable: DataPipeline::BatchWorkerHandler
+    /// ```
+    BatchWorker,
+}
+
+impl StepType {
+    /// Returns true if this step type should be created during task initialization
+    ///
+    /// Certain step types are excluded from initialization and created dynamically:
+    /// - `BatchWorker`: Template steps that are instantiated by batchable steps
+    /// - `DeferredConvergence`: Convergence steps created after batch workers complete
+    ///
+    /// These types represent templates or dynamic orchestration points rather than
+    /// concrete workflow steps that should exist at task creation time.
+    pub fn is_created_at_initialization(&self) -> bool {
+        !matches!(self, StepType::BatchWorker | StepType::DeferredConvergence)
+    }
 }
 
 /// Individual workflow step definition
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 pub struct StepDefinition {
+    #[validate(length(min = 1, max = 255))]
     pub name: String,
     pub description: Option<String>,
 
     /// Handler for this step
+    #[validate(nested)]
     pub handler: HandlerDefinition,
 
     /// Step type (standard or decision)
     #[serde(default, rename = "type", alias = "step_type")]
+    #[builder(default)]
     pub step_type: StepType,
 
     /// System this step interacts with
@@ -249,10 +358,13 @@ pub struct StepDefinition {
 
     /// Dependencies on other steps
     #[serde(default)]
+    #[builder(default)]
     pub dependencies: Vec<String>,
 
     /// Retry configuration
     #[serde(default)]
+    #[builder(default)]
+    #[validate(nested)]
     pub retry: RetryConfiguration,
 
     /// Step timeout
@@ -260,25 +372,61 @@ pub struct StepDefinition {
 
     /// Events this step publishes
     #[serde(default)]
+    #[builder(default)]
     pub publishes_events: Vec<String>,
+
+    /// Batch processing configuration (for batchable steps only)
+    ///
+    /// When present, indicates this step uses batch processing to split work
+    /// into parallel workers. Only applicable for steps with `type: batchable`.
+    ///
+    /// # Example
+    /// ```yaml
+    /// type: batchable
+    /// batch_config:
+    ///   batch_size: 1000
+    ///   parallelism: 10
+    ///   cursor_field: record_id
+    ///   checkpoint_interval: 100
+    ///   worker_template: batch_worker_template
+    ///   failure_strategy: continue_on_failure
+    /// ```
+    #[serde(default)]
+    pub batch_config: Option<BatchConfiguration>,
 }
 
 /// Retry configuration with backoff strategies
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display, Builder)]
+#[display(
+    "RetryConfiguration(retryable: {}, max_attempts: {}, backoff: {:?})",
+    retryable,
+    max_attempts,
+    backoff
+)]
 pub struct RetryConfiguration {
     #[serde(default = "default_retryable")]
+    #[builder(default = true)]
     pub retryable: bool,
 
     #[serde(default = "default_max_attempts")]
+    #[validate(range(min = 1, max = 100))]
+    #[builder(default = 3)]
     pub max_attempts: u32,
 
     #[serde(default)]
+    #[builder(default)]
     pub backoff: BackoffStrategy,
 
+    #[validate(range(min = 100, max = 3600000))]
+    #[builder(into)]
     pub backoff_base_ms: Option<u64>,
+
+    #[validate(range(min = 1000, max = 3600000))]
+    #[builder(into)]
     pub max_backoff_ms: Option<u64>,
 }
 
+// Preserve original Default behavior (matches original impl Default)
 impl Default for RetryConfiguration {
     fn default() -> Self {
         Self {
@@ -309,32 +457,156 @@ pub enum BackoffStrategy {
     Fibonacci,
 }
 
+/// Batch processing configuration for batchable steps
+///
+/// Defines how a dataset should be split into parallel batch workers.
+/// Used by steps with `type: batchable` to configure dynamic worker creation.
+///
+/// # Example
+/// ```yaml
+/// batch_config:
+///   batch_size: 1000
+///   parallelism: 10
+///   cursor_field: record_id
+///   checkpoint_interval: 100
+///   worker_template: batch_worker_template
+///   failure_strategy: continue_on_failure
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display, Builder)]
+#[display(
+    "BatchConfiguration(batch_size: {}, parallelism: {}, cursor_field: {}, checkpoint_interval: {}, worker_template: {}, failure_strategy: {:?})",
+    batch_size,
+    parallelism,
+    cursor_field,
+    checkpoint_interval,
+    worker_template,
+    failure_strategy
+)]
+pub struct BatchConfiguration {
+    /// Items per batch
+    ///
+    /// Each batch worker processes up to this many items.
+    /// The actual number may be less for the final batch.
+    #[validate(range(min = 1, max = 100000))]
+    #[builder(default = 1000)]
+    pub batch_size: u32,
+
+    /// Maximum parallel batch workers
+    ///
+    /// Limits concurrent execution to prevent resource exhaustion.
+    /// The actual worker count may be less if dataset is smaller.
+    #[validate(range(min = 1, max = 1000))]
+    #[builder(default = 10)]
+    pub parallelism: u32,
+
+    /// Field to track progress (e.g., "record_id", "offset")
+    ///
+    /// Identifies how to cursor through the dataset. The handler uses
+    /// this field to track progress and resume from failures.
+    #[validate(length(min = 1, max = 255))]
+    #[builder(default = "id".to_string())]
+    pub cursor_field: String,
+
+    /// Checkpoint every N items
+    ///
+    /// Batch workers save cursor state after processing this many items.
+    /// Lower values provide finer-grained recovery but more database writes.
+    #[validate(range(min = 1, max = 10000))]
+    #[builder(default = 100)]
+    pub checkpoint_interval: u32,
+
+    /// Template step name for workers
+    ///
+    /// Must match a step with `type: batch_worker` in the same template.
+    /// The system instantiates multiple copies of this template with
+    /// unique names (e.g., `{template}_001`, `{template}_002`).
+    #[validate(length(min = 1, max = 255))]
+    pub worker_template: String,
+
+    /// How to handle batch failures
+    ///
+    /// Determines whether batch failures block the entire task or allow
+    /// partial success with some failed batches.
+    #[builder(default)]
+    pub failure_strategy: FailureStrategy,
+}
+
+// Note: No Default implementation for BatchConfiguration since worker_template is required
+
+/// Strategy for handling batch worker failures
+///
+/// Determines the step state transition when a batch worker fails,
+/// which affects DAG traversal and task completion.
+///
+/// # Impact on Convergence
+///
+/// The failure strategy determines whether convergence steps can proceed:
+/// - `ContinueOnFailure`: Step completes successfully despite failure (convergence can proceed)
+/// - `FailFast`: Step transitions to Error state (convergence blocked)
+/// - `Isolate`: Step awaits manual resolution (convergence blocked until resolved)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureStrategy {
+    /// Continue processing other batches on failure
+    ///
+    /// Failed batch workers transition to `Complete` state with partial
+    /// failure metadata. The convergence step receives results from all
+    /// batches (including failures) and determines overall outcome.
+    ///
+    /// Use for: Analytics, best-effort processing, non-critical operations
+    #[default]
+    ContinueOnFailure,
+
+    /// First batch failure immediately fails entire task
+    ///
+    /// The failed batch worker transitions to `Error` state. This prevents
+    /// the convergence step from ever becoming ready, blocking the task.
+    /// Other running batches may be cancelled (implementation dependent).
+    ///
+    /// Use for: All-or-nothing operations, financial transactions
+    FailFast,
+
+    /// Failed batches require manual investigation
+    ///
+    /// The failed batch worker is marked for manual resolution via TAS-49's
+    /// DLQ workflow. The task blocks at convergence until an operator
+    /// manually resolves the batch (ResetForRetry, ResolveManually, or
+    /// CompleteManually).
+    ///
+    /// Use for: Sensitive operations requiring human oversight
+    Isolate,
+}
+
 /// Environment-specific overrides
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 pub struct EnvironmentOverride {
     pub task_handler: Option<HandlerOverride>,
     #[serde(default)]
+    #[builder(default)]
+    #[validate(nested)]
     pub steps: Vec<StepOverride>,
 }
 
 /// Handler override for environments
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 pub struct HandlerOverride {
     pub initialization: Option<HashMap<String, Value>>,
 }
 
 /// Step override for environments
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 pub struct StepOverride {
     /// Step name or "ALL" for all steps
+    #[validate(length(min = 1, max = 255))]
     pub name: String,
     pub handler: Option<HandlerOverride>,
     pub timeout_seconds: Option<u32>,
+    #[validate(nested)]
     pub retry: Option<RetryConfiguration>,
 }
 
 /// Resolved task template with environment-specific overrides applied
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct ResolvedTaskTemplate {
     pub template: TaskTemplate,
     pub environment: String,
@@ -523,8 +795,11 @@ impl TaskTemplate {
     ///
     /// Deferred steps are convergence points whose dependencies are dynamically resolved
     /// at runtime based on which paths were actually created by decision points.
-    pub fn deferred_steps(&self) -> Vec<&StepDefinition> {
-        self.steps.iter().filter(|s| s.is_deferred()).collect()
+    pub fn deferred_convergence_steps(&self) -> Vec<&StepDefinition> {
+        self.steps
+            .iter()
+            .filter(|s| s.is_deferred_convergence())
+            .collect()
     }
 
     /// Get the initial step set (steps that should be created during task initialization)
@@ -597,10 +872,19 @@ impl TaskTemplate {
 
         if decision_steps.is_empty() {
             // No decision points - entire workflow is one initial graph
+            // Filter to only steps that should be created at initialization
+            // (excludes BatchWorker templates and DeferredConvergence steps)
+            let filtered_steps: Vec<StepDefinition> = self
+                .steps
+                .iter()
+                .filter(|s| s.step_type.is_created_at_initialization())
+                .cloned()
+                .collect();
+
             return vec![WorkflowGraph {
                 entry_decision: None,
                 exit_decisions: vec![],
-                steps: self.steps.clone(),
+                steps: filtered_steps,
                 graph_type: WorkflowGraphType::Initial,
             }];
         }
@@ -665,11 +949,15 @@ impl TaskTemplate {
             }
         }
 
-        // Initial steps are those NOT downstream of decision points
+        // Initial steps are those NOT downstream of decision points AND NOT batch worker templates
+        // Batch worker templates are instantiated dynamically by batchable steps, not included in initial set
         let initial_steps: Vec<StepDefinition> = self
             .steps
             .iter()
-            .filter(|s| !decision_descendants.contains(s.name.as_str()))
+            .filter(|s| {
+                !decision_descendants.contains(s.name.as_str())
+                    && s.step_type != StepType::BatchWorker
+            })
             .cloned()
             .collect();
 
@@ -861,8 +1149,8 @@ impl StepDefinition {
     }
 
     /// Check if this step is a deferred convergence step
-    pub fn is_deferred(&self) -> bool {
-        matches!(self.step_type, StepType::Deferred)
+    pub fn is_deferred_convergence(&self) -> bool {
+        matches!(self.step_type, StepType::DeferredConvergence)
     }
 
     /// Validate decision point constraints
@@ -1286,6 +1574,7 @@ steps:
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
             publishes_events: vec![],
+            batch_config: None,
         };
         assert!(!standard_step.is_decision());
 
@@ -1302,6 +1591,7 @@ steps:
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
             publishes_events: vec![],
+            batch_config: None,
         };
         assert!(decision_step.is_decision());
     }
@@ -1658,6 +1948,7 @@ steps:
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
             publishes_events: vec![],
+            batch_config: None,
         };
 
         let result = invalid_decision.validate_decision_constraints();
@@ -1680,6 +1971,7 @@ steps:
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
             publishes_events: vec![],
+            batch_config: None,
         };
 
         let result = valid_decision.validate_decision_constraints();
@@ -1699,6 +1991,7 @@ steps:
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
             publishes_events: vec![],
+            batch_config: None,
         };
 
         let result = standard_step.validate_decision_constraints();

@@ -89,7 +89,7 @@ steps:
         description: "Validate request fields and constraints"
     system_dependency:
     dependencies: []
-    type: standard  # Standard step - always created
+    type: standard # Standard step - always created
     retry:
       retryable: true
       max_attempts: 3
@@ -112,7 +112,7 @@ steps:
     system_dependency:
     dependencies:
       - validate_request
-    type: decision  # TAS-53: DECISION POINT - creates steps dynamically
+    type: decision # TAS-53: DECISION POINT - creates steps dynamically
     retry:
       retryable: true
       max_attempts: 3
@@ -142,7 +142,7 @@ steps:
       #
       # Example: If routing_decision creates only auto_approve, then:
       # finalize_approval's actual dependencies = [auto_approve]
-    type: deferred  # Deferred convergence step with dynamic dependency resolution
+    type: deferred_convergence # Deferred convergence step with dynamic dependency resolution
     retry:
       retryable: true
       max_attempts: 3
@@ -173,8 +173,8 @@ steps:
         description: "Automatically approve small requests"
     system_dependency:
     dependencies:
-      - routing_decision  # Created as child of decision point
-    type: standard  # Dynamically created standard step
+      - routing_decision # Created as child of decision point
+    type: standard # Dynamically created standard step
     retry:
       retryable: true
       max_attempts: 3
@@ -193,8 +193,8 @@ steps:
         description: "Route to manager for approval"
     system_dependency:
     dependencies:
-      - routing_decision  # Created as child of decision point
-    type: standard  # Dynamically created standard step
+      - routing_decision # Created as child of decision point
+    type: standard # Dynamically created standard step
     retry:
       retryable: true
       max_attempts: 3
@@ -213,8 +213,8 @@ steps:
         description: "Route to finance for additional review"
     system_dependency:
     dependencies:
-      - routing_decision  # Created as child of decision point
-    type: standard  # Dynamically created standard step
+      - routing_decision # Created as child of decision point
+    type: standard # Dynamically created standard step
     retry:
       retryable: true
       max_attempts: 3

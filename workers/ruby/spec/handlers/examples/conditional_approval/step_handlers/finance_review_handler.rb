@@ -49,7 +49,7 @@ module ConditionalApproval
 
       private
 
-      def check_budget(amount, purpose)
+      def check_budget(amount, _purpose)
         # Simplified budget check - in real system would query budget database
         # For demo purposes, approve amounts up to $25,000
         amount <= 25_000

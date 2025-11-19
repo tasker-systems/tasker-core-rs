@@ -78,12 +78,12 @@ module TaskerCore
 
       # TAS-53: Check if this is a decision point step
       def decision?
-        self.type == 'decision'
+        type == 'decision'
       end
 
       # TAS-53: Check if this is a standard step
       def standard?
-        self.type.nil? || self.type == 'standard'
+        type.nil? || type == 'standard'
       end
     end
 

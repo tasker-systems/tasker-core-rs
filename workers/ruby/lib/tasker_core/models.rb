@@ -247,6 +247,10 @@ module TaskerCore
       def key?(step_name)
         @results.key?(step_name) # HashWithIndifferentAccess handles string/symbol automatically
       end
+
+      def each_key(&)
+        @results.keys.each(&)
+      end
     end
 
     # Wrapper for step definition from task template.

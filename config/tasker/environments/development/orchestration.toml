@@ -14,3 +14,11 @@ waiting_for_dependencies_minutes = 15  # Shorter for dev iteration
 waiting_for_retry_minutes = 10
 steps_in_process_minutes = 15
 task_max_lifetime_hours = 4
+
+# TAS-59: Batch Processing Configuration Overrides for Development Environment
+[orchestration.batch_processing]
+enabled = true                   # Enable batch processing for development
+max_parallel_batches = 25        # Moderate limit for dev
+default_batch_size = 500         # Moderate batch size
+checkpoint_interval_default = 50 # Moderate checkpoint frequency
+checkpoint_stall_minutes = 5     # Faster stall detection for dev iteration

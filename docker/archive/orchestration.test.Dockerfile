@@ -1,0 +1,147 @@
+# =============================================================================
+# Orchestration Service - Test Dockerfile
+# =============================================================================
+# Fast local testing build using cargo-chef for dependency caching
+# Context: tasker-orchestration/ directory
+# Usage: docker build -f Dockerfile.test -t tasker-orchestration:test .
+
+FROM rust:1.90-bullseye AS chef
+
+# Install cargo-chef and sqlx-cli for dependency layer caching and migrations
+RUN cargo install cargo-chef
+RUN cargo install sqlx-cli --features postgres
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libpq-dev \
+    build-essential \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# =============================================================================
+# Planner - Generate recipe for dependency caching
+# =============================================================================
+FROM chef AS planner
+
+# Copy workspace root files
+COPY Cargo.toml Cargo.lock ./
+COPY .cargo/ ./.cargo/
+COPY src/ ./src/
+
+# Copy workspace crates needed by orchestration
+# Note: Each package contains its own .sqlx/ directory with query metadata
+COPY tasker-orchestration/ ./tasker-orchestration/
+COPY tasker-shared/ ./tasker-shared/
+COPY tasker-client/ ./tasker-client/
+COPY pgmq-notify/ ./pgmq-notify/
+COPY migrations/ ./migrations/
+
+# Copy minimal workspace structure for crates we don't actually need
+# Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
+RUN mkdir -p tasker-worker/src && \
+    echo "pub fn stub() {}" > tasker-worker/src/lib.rs
+COPY tasker-worker/Cargo.toml ./tasker-worker/
+
+RUN mkdir -p workers/ruby/ext/tasker_core/src && \
+    echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
+COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
+
+RUN mkdir -p workers/rust/src && \
+    echo "pub fn stub() {}" > workers/rust/src/lib.rs
+COPY workers/rust/Cargo.toml ./workers/rust/
+
+# Generate dependency recipe
+RUN cargo chef prepare --recipe-path recipe.json
+
+# =============================================================================
+# Builder - Build dependencies and application
+# =============================================================================
+FROM chef AS builder
+
+# Copy recipe and build dependencies (cached layer)
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --recipe-path recipe.json
+
+# Copy workspace root files and all source
+COPY Cargo.toml Cargo.lock ./
+COPY .cargo/ ./.cargo/
+COPY src/ ./src/
+
+# Copy workspace crates needed by orchestration
+# Note: Each package contains its own .sqlx/ directory with query metadata
+COPY tasker-orchestration/ ./tasker-orchestration/
+COPY tasker-shared/ ./tasker-shared/
+COPY tasker-client/ ./tasker-client/
+COPY pgmq-notify/ ./pgmq-notify/
+COPY migrations/ ./migrations/
+
+# Copy minimal workspace structure for crates we don't actually need
+RUN mkdir -p tasker-worker/src && \
+    echo "pub fn stub() {}" > tasker-worker/src/lib.rs
+COPY tasker-worker/Cargo.toml ./tasker-worker/
+
+RUN mkdir -p workers/ruby/ext/tasker_core/src && \
+    echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
+COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
+
+RUN mkdir -p workers/rust/src && \
+    echo "pub fn stub() {}" > workers/rust/src/lib.rs
+COPY workers/rust/Cargo.toml ./workers/rust/
+
+# Set offline mode for SQLx
+ENV SQLX_OFFLINE=true
+
+# Build in debug mode for faster testing (from workspace)
+RUN cargo build --all-features --bin tasker-server -p tasker-orchestration
+
+# =============================================================================
+# Runtime - Minimal runtime image
+# =============================================================================
+FROM debian:bullseye-slim AS runtime
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libssl1.1 \
+    libpq5 \
+    ca-certificates \
+    curl \
+    bash \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -r -g daemon -u 999 tasker
+
+# Copy binary from builder (workspace target directory)
+COPY --from=builder /app/target/debug/tasker-server ./tasker-orchestration
+
+# Copy SQLx CLI from builder
+COPY --from=builder /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
+
+# Copy migration scripts and migrations
+COPY docker/scripts/ ./scripts/
+COPY migrations/ ./migrations/
+
+# Make scripts executable before switching to non-root user
+RUN chmod +x ./scripts/*.sh
+
+# Set environment variables for the service
+ENV APP_NAME=tasker-orchestration
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+USER tasker
+
+EXPOSE 8080
+
+# Use orchestration-specific entrypoint that handles migrations
+ENTRYPOINT ["./scripts/orchestration-entrypoint.sh"]
+CMD ["./tasker-orchestration"]

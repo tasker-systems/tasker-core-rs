@@ -1,0 +1,155 @@
+# TAS-59 Batch Processing CSV Example - Product Inventory Analysis
+#
+# Demonstrates real CSV file processing with cursor-based row selection and inventory metrics.
+#
+# Workflow Structure:
+#   analyze_csv (batchable) → process_csv_batch (batch_worker template) → aggregate_csv_results (deferred_convergence)
+#
+# Key Features:
+# - Actual CSV file I/O with cursor-based row selection
+# - Header row handling (1-indexed cursors for data rows)
+# - Real-world inventory metrics (total value, category distribution, max price, average rating)
+# - Resumability with checkpoint support
+# - Automatic staleness detection via TAS-49 integration
+
+---
+name: csv_product_inventory_analyzer
+namespace_name: csv_processing_rust
+version: "1.0.0"
+description: "Process CSV product data in parallel batches with real file I/O"
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization: {}
+
+steps:
+  #
+  # BATCHABLE STEP: CSV Analysis and Batch Planning
+  #
+  # This step counts CSV rows (excluding header) and returns BatchProcessingOutcome
+  # to orchestrate parallel batch processing. The orchestration system will:
+  # 1. Instantiate N workers from the process_csv_batch template
+  # 2. Assign each worker a unique cursor configuration (row ranges)
+  # 3. Create DAG edges from this step to all workers
+  # 4. Create edge from all workers to aggregate_csv_results
+  # 5. Enqueue workers for parallel execution
+  #
+  # Cursors are 1-indexed for data rows (CSV row 0 is header, data starts at row 1).
+  # Worker 1 with cursor 1-200 processes CSV rows 2-201 (skipping row 1 header).
+  #
+  - name: analyze_csv
+    type: batchable
+    dependencies: []
+    handler:
+      callable: tasker_worker_rust::step_handlers::batch_processing_products_csv::CsvAnalyzerHandler
+      initialization:
+        batch_size: 200       # Rows per batch
+        max_workers: 5        # Maximum parallel workers
+        checkpoint_interval: 50  # Checkpoint every N rows
+        worker_template_name: "process_csv_batch"
+
+  #
+  # BATCH WORKER TEMPLATE: Single CSV Batch Processing
+  #
+  # This step is never executed directly - it serves as a template for dynamic worker
+  # creation. The orchestration system will create multiple instances like:
+  # - process_csv_batch_001 (rows 1-200, CSV rows 2-201)
+  # - process_csv_batch_002 (rows 201-400, CSV rows 202-401)
+  # - process_csv_batch_003 (rows 401-600, CSV rows 402-601)
+  #
+  # Each instance receives BatchWorkerInputs with cursor configuration:
+  # {
+  #   "cursor": {
+  #     "batch_id": "001",
+  #     "start_cursor": 1,      # 1-indexed data row number
+  #     "end_cursor": 201,      # Exclusive
+  #     "batch_size": 200
+  #   },
+  #   "batch_metadata": {
+  #     "checkpoint_interval": 50,
+  #     "cursor_field": "row_number",
+  #     "failure_strategy": "continue_on_failure"
+  #   },
+  #   "is_no_op": false
+  # }
+  #
+  # Workers read actual CSV rows from disk, calculate inventory metrics:
+  # - Total inventory value (price × stock)
+  # - Category distribution (counts by category)
+  # - Maximum price product
+  # - Average rating
+  #
+  - name: process_csv_batch
+    type: batch_worker
+    dependencies:
+      - analyze_csv
+    handler:
+      callable: tasker_worker_rust::step_handlers::batch_processing_products_csv::CsvBatchProcessorHandler
+      initialization:
+        operation: "inventory_analysis"
+        # cursor and batch_metadata will be added by orchestration
+    batch_config:
+      batch_size: 200
+      parallelism: 5
+      cursor_field: "row_number"
+      checkpoint_interval: 50
+      worker_template: "process_csv_batch"
+      failure_strategy: "continue_on_failure"
+
+  #
+  # DEFERRED CONVERGENCE STEP: CSV Results Aggregation and Validation
+  #
+  # This step waits for ALL batch workers to complete (intersection semantics),
+  # then aggregates inventory metrics from all batches:
+  # - Sums total inventory value across all batches
+  # - Merges category counts into global distribution
+  # - Finds globally most expensive product
+  # - Calculates weighted average rating across all products
+  #
+  # It receives dependency_results containing output from all batch workers:
+  # {
+  #   "process_csv_batch_001": { "result": { "processed_count": 200, "total_inventory_value": 12345.67, ... } },
+  #   "process_csv_batch_002": { "result": { "processed_count": 200, "total_inventory_value": 23456.78, ... } },
+  #   ...
+  # }
+  #
+  # CRITICAL: Must depend on the batch_worker template step (process_csv_batch), NOT the batchable step.
+  # This dependency signals to orchestration to create dynamic edges:
+  #   - WithBatches: process_csv_batch_001 → aggregate_csv_results, process_csv_batch_002 → aggregate_csv_results, etc.
+  #   - NoBatches: Creates placeholder worker process_csv_batch_000 (immediate complete) → aggregate_csv_results
+  #
+  - name: aggregate_csv_results
+    type: deferred_convergence
+    dependencies:
+      - process_csv_batch  # Depends on worker template (orchestration creates dynamic edges)
+    handler:
+      callable: tasker_worker_rust::step_handlers::batch_processing_products_csv::CsvResultsAggregatorHandler
+      initialization:
+        aggregation_type: "inventory_metrics"
+
+#
+# EXPECTED TASK CONTEXT
+#
+# The task context must include:
+# {
+#   "csv_file_path": "tests/fixtures/products.csv",  // Path to CSV file with header row
+#   "analysis_mode": "inventory"                      // Optional: analysis type
+# }
+#
+# CSV File Format:
+# - Row 0: Header (id, title, description, category, price, discountPercentage, rating, stock, brand, sku, weight)
+# - Rows 1+: Product data (1000 rows of product information)
+#
+# Example usage via Rust:
+#
+# ```rust
+# use tasker_shared::models::core::task_request::TaskRequest;
+#
+# let task_request = TaskRequest::new(
+#     "csv_product_inventory_analyzer".to_string(),
+#     "csv_processing".to_string()
+# )
+# .with_context(json!({
+#     "csv_file_path": "tests/fixtures/products.csv",
+#     "analysis_mode": "inventory"
+# }));
+# ```

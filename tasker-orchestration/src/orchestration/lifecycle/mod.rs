@@ -1,3 +1,4 @@
+pub mod batch_processing;
 pub mod decision_point;
 pub mod result_processing;
 pub mod step_enqueuer;
@@ -8,6 +9,7 @@ pub mod task_finalization;
 pub mod task_initialization;
 pub mod task_request_processor;
 
+pub use batch_processing::{BatchProcessingError, BatchProcessingService};
 pub use decision_point::{DecisionPointProcessingError, DecisionPointService};
 pub use result_processing::{OrchestrationResultProcessor, StepError};
 pub use step_enqueuer::StepEnqueuer;

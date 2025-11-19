@@ -149,7 +149,7 @@ impl WorkerTestFactory {
         let named_task = NamedTask::find_or_create_by_name_version_namespace(
             pool,
             task_name,
-            "1.0.0",
+            "0.1.0",
             test_namespace.namespace.task_namespace_uuid,
         )
         .await

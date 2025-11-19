@@ -7,9 +7,13 @@ ORCHESTRATION_CONFIG="${ORCHESTRATION_CONFIG:-$(pwd)/config/tasker/orchestration
 WORKER_CONFIG="${WORKER_CONFIG:-$(pwd)/config/tasker/worker-test.toml}"
 RUST_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
 RUBY_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/ruby"
+FIXTURE_PATH="$(pwd)/tests/fixtures"
 ORCHESTRATION_PORT="${ORCHESTRATION_PORT:-8080}"
 WORKER_PORT="${WORKER_PORT:-8081}"
 RUBY_WORKER_PORT="${RUBY_WORKER_PORT:-8082}"
+
+# Export fixture path for E2E tests
+export TASKER_FIXTURE_PATH="$FIXTURE_PATH"
 
 echo "🚀 Starting native services..."
 

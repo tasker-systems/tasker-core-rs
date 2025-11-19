@@ -89,7 +89,7 @@ RSpec.describe 'TaskerCore::FFI Correlation ID Support (TAS-29)' do
               max_attempts: 3,
               backoff: 'exponential',
               backoff_base_ms: 1000,
-              max_backoff_ms: 30000
+              max_backoff_ms: 30_000
             },
             timeout_seconds: 30,
             publishes_events: []

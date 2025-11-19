@@ -1414,6 +1414,12 @@ pub struct WorkflowStepWithName {
     pub task_uuid: Uuid,
     pub named_step_uuid: Uuid,
     pub name: String,
+    /// Template step name for dynamically created steps (batch workers, decision point steps)
+    ///
+    /// For regular steps, this equals `name`. For dynamic steps created from templates,
+    /// this contains the template step name from inputs->>'__template_step_name',
+    /// which is used to lookup the correct handler and step definition.
+    pub template_step_name: String,
     pub retryable: bool,
     pub max_attempts: Option<i32>,
     pub in_process: bool,
@@ -1451,7 +1457,9 @@ impl WorkflowStepWithName {
         let steps = sqlx::query_as!(
             WorkflowStepWithName,
             r#"
-            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name, ws.retryable, ws.max_attempts,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name,
+                   COALESCE(ws.inputs->>'__template_step_name', ns.name) as "template_step_name!",
+                   ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -1473,7 +1481,9 @@ impl WorkflowStepWithName {
         let step = sqlx::query_as!(
             WorkflowStepWithName,
             r#"
-            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name, ws.retryable, ws.max_attempts,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name,
+                   COALESCE(ws.inputs->>'__template_step_name', ns.name) as "template_step_name!",
+                   ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws

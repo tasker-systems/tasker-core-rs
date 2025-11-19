@@ -12,6 +12,18 @@ use tasker_shared::state_machine::{TaskEvent, TaskState, TaskStateMachine};
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{errors::OrchestrationResult, OrchestrationError};
 
+/// Action to take when processing a step completion based on current task state
+enum CoordinatorAction {
+    /// Transition task state and attempt finalization
+    TransitionAndFinalize,
+    /// Task already evaluating, just check if finalization needed
+    CheckFinalization,
+    /// Idempotent no-op with reason (late/duplicate message)
+    IdempotentNoOp(&'static str),
+    /// Unexpected state that shouldn't receive step completions
+    UnexpectedState,
+}
+
 /// Coordinates task finalization
 #[derive(Clone, Debug)]
 pub struct TaskCoordinator {
@@ -89,49 +101,113 @@ impl TaskCoordinator {
             task_uuid = %workflow_step.task_uuid,
             current_state = ?current_state,
             step_uuid = %step_uuid,
-            "Current task state before attempting transition"
+            "Current task state before determining action"
         );
 
-        // Only transition with StepCompleted if we're in StepsInProcess state
-        // If we're already in EvaluatingResults, we need to check what the next transition should be
-        let should_finalize = if current_state == TaskState::StepsInProcess {
-            // We can transition with StepCompleted
-            task_state_machine
-                .transition(TaskEvent::StepCompleted(*step_uuid))
-                .await?
-        } else if current_state == TaskState::EvaluatingResults {
-            // We're already evaluating results, need to check if we should finalize
-            // This happens when multiple steps complete in quick succession
-            debug!(
-                correlation_id = %correlation_id,
-                task_uuid = %workflow_step.task_uuid,
-                "Task already in EvaluatingResults state, checking if finalization is needed"
-            );
-            true // Check if finalization is needed
-        } else {
-            debug!(
-                correlation_id = %correlation_id,
-                task_uuid = %workflow_step.task_uuid,
-                current_state = ?current_state,
-                "Task in state that doesn't require immediate finalization check"
-            );
-            false
+        // Exhaustively match on current_state to determine action
+        // This ensures we explicitly handle all TaskState variants
+        let action = match current_state {
+            // Active processing states - attempt transition and finalization
+            TaskState::StepsInProcess => CoordinatorAction::TransitionAndFinalize,
+
+            // Already evaluating - just check finalization (concurrent step completions)
+            TaskState::EvaluatingResults => CoordinatorAction::CheckFinalization,
+
+            // Terminal states - idempotent no-op (duplicate/retried messages)
+            TaskState::Complete
+            | TaskState::Error
+            | TaskState::Cancelled
+            | TaskState::ResolvedManually => {
+                CoordinatorAction::IdempotentNoOp("Task already in terminal state")
+            }
+
+            // Waiting/transitional states - idempotent no-op (late-arriving messages)
+            TaskState::WaitingForDependencies => CoordinatorAction::IdempotentNoOp(
+                "Task waiting for dependencies (e.g., after batch edge creation)",
+            ),
+            TaskState::WaitingForRetry => {
+                CoordinatorAction::IdempotentNoOp("Task waiting for retry timeout")
+            }
+            TaskState::EnqueuingSteps => {
+                CoordinatorAction::IdempotentNoOp("Task currently enqueuing newly-ready steps")
+            }
+
+            // Blocked state - idempotent no-op (other steps failed, this one succeeded late)
+            TaskState::BlockedByFailures => CoordinatorAction::IdempotentNoOp(
+                "Task blocked by failures from other parallel steps",
+            ),
+
+            // Initial states - unexpected (step shouldn't complete before task starts)
+            TaskState::Pending | TaskState::Initializing => CoordinatorAction::UnexpectedState,
         };
 
-        if should_finalize {
-            self.finalize_task(workflow_step.task_uuid, step_uuid, correlation_id)
-                .await
-        } else {
-            error!(
-                correlation_id = %correlation_id,
-                task_uuid = %workflow_step.task_uuid,
-                step_uuid = %step_uuid,
-                "Failed to transition state machine"
-            );
-            Err(OrchestrationError::DatabaseError {
-                operation: format!("TaskStateMachine.transition for {step_uuid}"),
-                reason: "Failed to transition state machine".to_string(),
-            })
+        // Execute the determined action
+        match action {
+            CoordinatorAction::TransitionAndFinalize => {
+                // Transition state machine and finalize if transition succeeds
+                let transition_result = task_state_machine
+                    .transition(TaskEvent::StepCompleted(*step_uuid))
+                    .await?;
+
+                if transition_result {
+                    self.finalize_task(workflow_step.task_uuid, step_uuid, correlation_id)
+                        .await
+                } else {
+                    error!(
+                        correlation_id = %correlation_id,
+                        task_uuid = %workflow_step.task_uuid,
+                        step_uuid = %step_uuid,
+                        current_state = ?current_state,
+                        "Transition failed for StepsInProcess state"
+                    );
+                    Err(OrchestrationError::DatabaseError {
+                        operation: format!("TaskStateMachine.transition for {step_uuid}"),
+                        reason: format!("Failed to transition from {current_state:?}"),
+                    })
+                }
+            }
+
+            CoordinatorAction::CheckFinalization => {
+                // Already in EvaluatingResults, just check finalization
+                debug!(
+                    correlation_id = %correlation_id,
+                    task_uuid = %workflow_step.task_uuid,
+                    "Task already in EvaluatingResults, checking finalization"
+                );
+                self.finalize_task(workflow_step.task_uuid, step_uuid, correlation_id)
+                    .await
+            }
+
+            CoordinatorAction::IdempotentNoOp(reason) => {
+                // Idempotent handling - late or duplicate message, safe to ignore
+                debug!(
+                    correlation_id = %correlation_id,
+                    task_uuid = %workflow_step.task_uuid,
+                    step_uuid = %step_uuid,
+                    current_state = ?current_state,
+                    reason = %reason,
+                    "Treating step result as idempotent no-op"
+                );
+                Ok(())
+            }
+
+            CoordinatorAction::UnexpectedState => {
+                // Unexpected state - log error and fail
+                error!(
+                    correlation_id = %correlation_id,
+                    task_uuid = %workflow_step.task_uuid,
+                    step_uuid = %step_uuid,
+                    current_state = ?current_state,
+                    "Step completion received while task in unexpected state"
+                );
+                Err(OrchestrationError::DatabaseError {
+                    operation: format!("TaskCoordinator.check_and_finalize for {step_uuid}"),
+                    reason: format!(
+                        "Task in unexpected state {:?} for step completion",
+                        current_state
+                    ),
+                })
+            }
         }
     }
 

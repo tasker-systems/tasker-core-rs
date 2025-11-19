@@ -169,8 +169,6 @@ module TaskerCore
             return nil unless step_names.is_a?(Array) && !step_names.empty?
 
             CreateSteps.new(step_names: step_names)
-          else
-            nil
           end
         end
       end

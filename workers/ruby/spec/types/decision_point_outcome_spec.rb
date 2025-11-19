@@ -45,7 +45,7 @@ RSpec.describe TaskerCore::Types::DecisionPointOutcome do
 
     context 'with multiple steps' do
       it 'creates CreateSteps outcome with all step names' do
-        steps = ['manager_approval', 'finance_review', 'compliance_check']
+        steps = %w[manager_approval finance_review compliance_check]
         outcome = described_class.create_steps(steps)
 
         expect(outcome.type).to eq('create_steps')
@@ -54,7 +54,7 @@ RSpec.describe TaskerCore::Types::DecisionPointOutcome do
       end
 
       it 'serializes all step names correctly' do
-        steps = ['manager_approval', 'finance_review']
+        steps = %w[manager_approval finance_review]
         outcome = described_class.create_steps(steps)
         hash = outcome.to_h
 
@@ -107,13 +107,13 @@ RSpec.describe TaskerCore::Types::DecisionPointOutcome do
       it 'parses hash with symbol keys' do
         hash = {
           type: 'create_steps',
-          step_names: ['approval_required', 'notify_manager']
+          step_names: %w[approval_required notify_manager]
         }
         outcome = described_class.from_hash(hash)
 
         expect(outcome).to be_a(TaskerCore::Types::DecisionPointOutcome::CreateSteps)
         expect(outcome.type).to eq('create_steps')
-        expect(outcome.step_names).to eq(['approval_required', 'notify_manager'])
+        expect(outcome.step_names).to eq(%w[approval_required notify_manager])
       end
 
       it 'parses hash with string keys (from Rust)' do
@@ -185,7 +185,7 @@ RSpec.describe TaskerCore::Types::DecisionPointOutcome do
     end
 
     it 'successfully round-trips CreateSteps outcome' do
-      steps = ['step1', 'step2', 'step3']
+      steps = %w[step1 step2 step3]
       original = described_class.create_steps(steps)
       hash = original.to_h
       parsed = described_class.from_hash(hash)

@@ -102,6 +102,14 @@ auto_move_to_dlq = true
 emit_events = true
 event_channel = "task_staleness_detected"
 
+# TAS-59: Batch Processing Configuration
+[orchestration.batch_processing]
+enabled = true
+max_parallel_batches = 50
+default_batch_size = 1000
+checkpoint_interval_default = 100
+checkpoint_stall_minutes = 15
+
 [orchestration.mpsc_channels.command_processor]
 command_buffer_size = 5000
 

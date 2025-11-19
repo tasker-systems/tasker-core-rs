@@ -110,10 +110,24 @@ impl StepResultProcessor {
             decision_point_service,
         ));
 
+        // TAS-59 Phase 4: Create BatchProcessingActor for dynamic batch worker creation
+        let batch_processing_service = Arc::new(
+            crate::orchestration::lifecycle::batch_processing::BatchProcessingService::new(
+                context.clone(),
+            ),
+        );
+        let batch_processing_actor = Arc::new(
+            crate::actors::batch_processing_actor::BatchProcessingActor::new(
+                context.clone(),
+                batch_processing_service,
+            ),
+        );
+
         let orchestration_result_processor = OrchestrationResultProcessor::new(
             task_finalizer,
             context.clone(),
             decision_point_actor,
+            batch_processing_actor,
         );
 
         Ok(Self {

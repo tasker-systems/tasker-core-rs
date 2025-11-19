@@ -318,7 +318,10 @@ pub fn error_result(
 }
 
 // Workflow handler modules
+pub mod batch_processing_example;
+pub mod batch_processing_products_csv;
 pub mod conditional_approval_rust;
+pub mod diamond_decision_batch;
 pub mod diamond_workflow;
 pub mod linear_workflow;
 pub mod mixed_dag_workflow;

@@ -47,6 +47,8 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 - **[Crate Architecture](crate-architecture.md)** - Understand the codebase structure
 - **[Use Cases & Patterns](use-cases-and-patterns.md)** - Practical workflow examples
 - **[Conditional Workflows](conditional-workflows.md)** - Runtime decision-making and dynamic step creation
+- **[Batch Processing](batch-processing.md)** - Parallel processing of large datasets with cursor-based workers
+- **[DLQ System](dlq-system.md)** - Dead letter queue for stuck task investigation and resolution
 - **[Task and Step Readiness](task-and-step-readiness-and-execution.md)** - SQL functions and execution logic
 - **[Retry Semantics](retry-semantics.md)** - Understanding max_attempts and retryable flags
 - **[Archive: Testing Methodologies](archive/testing-methodologies.md)** - Testing patterns and strategies
@@ -61,6 +63,7 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 **Running Tasker in production?** These docs cover deployment and monitoring:
 
 - **[Deployment Patterns](deployment-patterns.md)** - Configuration and deployment modes
+- **[DLQ System](dlq-system.md)** - Dead letter queue for stuck task investigation and resolution
 - **[Observability](observability/README.md)** - Metrics, logging, and monitoring
 - **[Benchmarks](benchmarks/README.md)** - Performance validation and targets
 - **[Archive: Deployment](archive/deployment.md)** - Production deployment insights
@@ -95,6 +98,9 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 |----------|-------------|----------|
 | **[Quick Start](quick-start.md)** | Get running in 5 minutes | Developers |
 | **[Use Cases & Patterns](use-cases-and-patterns.md)** | Practical workflow examples | All |
+| **[Conditional Workflows](conditional-workflows.md)** | Runtime decision-making and dynamic step creation | Developers |
+| **[Batch Processing](batch-processing.md)** | Parallel processing of large datasets with cursor-based workers | Developers |
+| **[DLQ System](dlq-system.md)** | Dead letter queue for stuck task investigation and resolution | Operators, Developers |
 | **[Configuration Management](configuration-management.md)** | TOML architecture, CLI tools, runtime observability | Operators, Developers |
 | **[Environment Comparison](environment-configuration-comparison.md)** | Detailed environment settings | Operators |
 | **[Deployment Patterns](deployment-patterns.md)** | Deployment modes and strategies | Architects, Operators |
@@ -132,6 +138,9 @@ tasker-core/
       quick-start.md                 # Get running in 5 minutes
       crate-architecture.md          # Workspace structure explained
       use-cases-and-patterns.md      # Practical workflow examples
+      conditional-workflows.md       # Runtime decision-making and dynamic steps
+      batch-processing.md            # Parallel dataset processing with workers
+      dlq-system.md                  # Dead letter queue investigation system
       deployment-patterns.md         # Deployment modes and configuration
 
     Core Architecture
@@ -238,6 +247,9 @@ See **[Crate Architecture](crate-architecture.md)** for detailed explanations.
 ### By Use Case
 
 - **"I want to build a workflow"** -> [Use Cases & Patterns](use-cases-and-patterns.md)
+- **"I need dynamic step creation based on runtime conditions"** -> [Conditional Workflows](conditional-workflows.md)
+- **"I need to process large datasets in parallel"** -> [Batch Processing](batch-processing.md)
+- **"I have a stuck or failing task that needs investigation"** -> [DLQ System](dlq-system.md)
 - **"I need to understand the architecture"** -> [Crate Architecture](crate-architecture.md), [Events and Commands](events-and-commands.md)
 - **"I need to understand how concurrency is handled"** -> [Idempotency and Atomicity](idempotency-and-atomicity.md)
 - **"I'm debugging a race condition or data corruption"** -> [Idempotency and Atomicity](idempotency-and-atomicity.md), [States and Lifecycles](states-and-lifecycles.md)

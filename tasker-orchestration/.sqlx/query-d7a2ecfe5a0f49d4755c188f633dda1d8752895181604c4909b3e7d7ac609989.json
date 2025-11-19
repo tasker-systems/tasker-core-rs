@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ws.workflow_step_uuid, ws.results\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_workflow_step_transitions wst\n                ON ws.workflow_step_uuid = wst.workflow_step_uuid\n            WHERE ws.task_uuid = $1\n                AND wst.most_recent = true\n                AND wst.to_state = 'in_progress'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workflow_step_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "results",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "d7a2ecfe5a0f49d4755c188f633dda1d8752895181604c4909b3e7d7ac609989"
+}

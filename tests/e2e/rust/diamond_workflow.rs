@@ -138,11 +138,14 @@ async fn test_end_to_end_diamond_workflow() -> Result<()> {
         );
     }
 
+    // Find the diamond_end step specifically (not just .last())
+    let diamond_end_step = steps.iter().find(|s| s.name == "diamond_end");
+
     // Verify the final result if available (should be 6^16 = 2,821,109,907,456)
-    if let Some(final_step) = steps.last() {
+    if let Some(final_step) = diamond_end_step {
         if let Some(result_data) = &final_step.results {
             println!(
-                "✅ Final diamond step results: {}",
+                "✅ Final diamond step (diamond_end) results: {}",
                 serde_json::to_string_pretty(result_data)?
             );
 
@@ -160,6 +163,8 @@ async fn test_end_to_end_diamond_workflow() -> Result<()> {
                 );
             }
         }
+    } else {
+        println!("⚠️  Warning: diamond_end step not found in results");
     }
 
     println!("\n🎉 Diamond Workflow Integration Test PASSED!");

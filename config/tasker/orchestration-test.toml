@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2025-11-11T21:05:43.349548+00:00
+# Generated: 2025-11-13T13:33:23.356812+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -135,6 +135,13 @@ service_name = "tasker-core"
 [orchestration]
 enable_performance_logging = false
 mode = "standalone"
+
+[orchestration.batch_processing]
+checkpoint_interval_default = 10
+checkpoint_stall_minutes = 2
+default_batch_size = 100
+enabled = true
+max_parallel_batches = 10
 
 [orchestration.decision_points]
 enable_detailed_logging = false

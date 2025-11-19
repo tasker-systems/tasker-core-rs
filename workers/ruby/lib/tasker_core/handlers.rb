@@ -87,11 +87,13 @@ module TaskerCore
       require_relative 'step_handler/base'
       require_relative 'step_handler/api'
       require_relative 'step_handler/decision' # TAS-53: Decision point handlers
+      require_relative 'step_handler/batchable' # TAS-59: Batch processing handlers
 
       # Re-export with clean namespace
       Base = TaskerCore::StepHandler::Base
       API = TaskerCore::StepHandler::Api
       Decision = TaskerCore::StepHandler::Decision
+      Batchable = TaskerCore::StepHandler::Batchable
 
       class << self
         # Create a new step handler instance
