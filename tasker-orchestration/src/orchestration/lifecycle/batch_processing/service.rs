@@ -483,11 +483,11 @@ impl BatchProcessingService {
     ///
     /// Template has:
     /// - process_batch (batch_worker template)
-    /// - aggregate_results (deferred_convergence, depends on: [process_batch])
+    /// - aggregate_results (deferred_convergence, depends on: \[process_batch\])
     ///
     /// When creating workers from process_batch template:
-    /// - worker_names = ["process_batch"]
-    /// - aggregate_results.dependencies ∩ worker_names = ["process_batch"]
+    /// - worker_names = \["process_batch"\]
+    /// - aggregate_results.dependencies ∩ worker_names = \["process_batch"\]
     /// - Intersection exists → create aggregate_results
     ///
     /// ## Returns

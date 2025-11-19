@@ -38,8 +38,8 @@ async fn test_csv_batch_processing_products() -> Result<()> {
     // Use TASKER_FIXTURE_PATH env var for flexible fixture location
     // - Native execution (CI, local): tests/fixtures
     // - Docker execution: /app/tests/fixtures
-    let fixture_base = std::env::var("TASKER_FIXTURE_PATH")
-        .unwrap_or_else(|_| "tests/fixtures".to_string());
+    let fixture_base =
+        std::env::var("TASKER_FIXTURE_PATH").unwrap_or_else(|_| "tests/fixtures".to_string());
     let csv_file_path = format!("{}/products.csv", fixture_base);
 
     println!("\n📄 CSV file path: {}", csv_file_path);
