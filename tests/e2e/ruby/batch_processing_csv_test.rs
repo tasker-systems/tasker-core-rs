@@ -59,16 +59,20 @@ async fn test_csv_batch_processing_with_ruby_handlers() -> Result<()> {
         println!("   Worker: {}", worker_url);
     }
 
-    // Use Docker container path for CSV file
-    // Inside the container, files are mounted at /app/tests/fixtures/
-    let csv_file_path = "/app/tests/fixtures/products.csv";
+    // Use TASKER_FIXTURE_PATH env var for flexible fixture location
+    // - Native execution (CI, local): tests/fixtures
+    // - Docker execution: /app/tests/fixtures
+    let fixture_base = std::env::var("TASKER_FIXTURE_PATH")
+        .unwrap_or_else(|_| "tests/fixtures".to_string());
+    let csv_file_path = format!("{}/products.csv", fixture_base);
 
     println!("\n📄 CSV file path: {}", csv_file_path);
-    println!("   NOTE: This test requires the products.csv fixture file to exist in the container");
+    println!("   Fixture base: {}", fixture_base);
+    println!("   NOTE: This test requires the products.csv fixture file to exist");
 
     // Create CSV batch processing task
     println!("\n🎯 Creating CSV batch processing task...");
-    let task_request = create_csv_processing_request(csv_file_path, "inventory");
+    let task_request = create_csv_processing_request(&csv_file_path, "inventory");
 
     let task_response = manager
         .orchestration_client
@@ -221,14 +225,19 @@ async fn test_no_batches_scenario() -> Result<()> {
 
     let manager = IntegrationTestManager::setup().await?;
 
+    // Use TASKER_FIXTURE_PATH env var for flexible fixture location
+    let fixture_base = std::env::var("TASKER_FIXTURE_PATH")
+        .unwrap_or_else(|_| "tests/fixtures".to_string());
+    let empty_csv_path = format!("{}/products_empty.csv", fixture_base);
+
     println!("\n📄 Creating task with empty CSV path...");
-    println!("   Path: /app/tests/fixtures/products_empty.csv");
+    println!("   Path: {}", empty_csv_path);
+    println!("   Fixture base: {}", fixture_base);
     println!("   NOTE: This tests the NoBatches scenario where no rows are found");
 
     // Create task with empty CSV path
     // The handler should detect no rows and skip batch worker creation
-    let task_request =
-        create_csv_processing_request("/app/tests/fixtures/products_empty.csv", "inventory");
+    let task_request = create_csv_processing_request(&empty_csv_path, "inventory");
 
     let task_response = manager
         .orchestration_client

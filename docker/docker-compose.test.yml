@@ -116,6 +116,8 @@ services:
       TASKER_CONFIG_PATH: /app/config/tasker/worker-test.toml
       # Point to centralized E2E test templates for Rust handlers
       TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/rust
+      # Point to fixture files for E2E tests
+      TASKER_FIXTURE_PATH: /app/tests/fixtures
       PORT: 8081
     ports:
       - "8081:8081"
@@ -163,6 +165,8 @@ services:
       TASKER_CONFIG_PATH: /app/config/tasker/worker-test.toml
       # Point to centralized E2E test templates for Ruby handlers
       TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/ruby
+      # Point to fixture files for E2E tests
+      TASKER_FIXTURE_PATH: /app/tests/fixtures
       # Ruby environment
       RUBY_WORKER_ENABLED: "true"
       BUNDLE_GEMFILE: /app/ruby_worker/Gemfile
