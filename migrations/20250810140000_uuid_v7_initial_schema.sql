@@ -586,7 +586,7 @@ ALTER TABLE ONLY public.tasker_annotation_types
 
 -- Composite uniqueness
 ALTER TABLE ONLY public.tasker_named_tasks
-    ADD CONSTRAINT tasker_named_tasks_namespace_name_unique UNIQUE (task_namespace_uuid, name);
+    ADD CONSTRAINT tasker_named_tasks_namespace_name_version_unique UNIQUE (task_namespace_uuid, name, version);
 
 ALTER TABLE ONLY public.tasker_named_steps
     ADD CONSTRAINT tasker_named_steps_system_name_unique UNIQUE (dependent_system_uuid, name);

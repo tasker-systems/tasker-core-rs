@@ -61,8 +61,8 @@ async fn test_csv_batch_processing_with_ruby_handlers() -> Result<()> {
 
     // E2E tests always run against Docker services, so use Docker path
     // The Docker worker container has fixtures mounted at /app/tests/fixtures
-    let fixture_base = std::env::var("TASKER_FIXTURE_PATH")
-        .unwrap_or_else(|_| "/app/tests/fixtures".to_string());
+    let fixture_base =
+        std::env::var("TASKER_FIXTURE_PATH").unwrap_or_else(|_| "/app/tests/fixtures".to_string());
     let csv_file_path = format!("{}/products.csv", fixture_base);
 
     println!("\n📄 CSV file path: {}", csv_file_path);

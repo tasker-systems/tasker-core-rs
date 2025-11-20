@@ -1,0 +1,118 @@
+# TaskTemplate Configuration - Ruby Implementation
+#
+# Payments Namespace: Process Refund Workflow
+# Demonstrates namespace isolation with same workflow name in different namespaces
+#
+# Template: payments/process_refund:2.1.0
+# Implementation: Ruby FFI with tasker-worker-rb
+# Blog Post: Post 04 - Team Scaling (Namespace Isolation)
+#
+# Business Workflow Pattern (4 steps):
+# 1. Validate Payment Eligibility: Check if payment can be refunded via gateway
+# 2. Process Gateway Refund: Execute refund through payment processor
+# 3. Update Payment Records: Update internal payment status and history
+# 4. Notify Customer: Send refund confirmation to customer
+#
+# This demonstrates the payments team's direct refund workflow
+#
+---
+name: process_refund
+namespace_name: payments
+version: 1.0.0
+description: "Process payment gateway refunds with direct API integration - Post 04 Team Scaling"
+metadata:
+  author: Payments Team
+  blog_post: post_04
+  tags:
+    - namespace:payments
+    - pattern:refund_processing
+    - dependencies:linear
+    - implementation:ruby_ffi
+task_handler:
+  callable: Payments::ProcessRefundHandler
+  initialization:
+    timeout_seconds: 60
+    max_retries: 3
+input_schema:
+  type: object
+  required:
+    - payment_id
+    - refund_amount
+  properties:
+    payment_id:
+      type: string
+      description: "Payment gateway transaction ID"
+      pattern: "^pay_[a-zA-Z0-9_]+$"
+    refund_amount:
+      type: number
+      minimum: 0
+      description: "Amount to refund in cents"
+    refund_reason:
+      type: string
+      enum:
+        - customer_request
+        - fraud
+        - system_error
+        - chargeback
+      description: "Reason for the refund"
+    partial_refund:
+      type: boolean
+      default: false
+      description: "Whether this is a partial refund"
+    customer_email:
+      type: string
+      description: "Customer email address for notification"
+    correlation_id:
+      type: string
+      description: "Correlation ID for tracking across systems"
+steps:
+  - name: validate_payment_eligibility
+    description: "Check if payment can be refunded via gateway"
+    handler:
+      callable: Payments::StepHandlers::ValidatePaymentEligibilityHandler
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 30
+
+  - name: process_gateway_refund
+    description: "Execute refund through payment processor"
+    handler:
+      callable: Payments::StepHandlers::ProcessGatewayRefundHandler
+    dependencies:
+      - validate_payment_eligibility
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      initial_delay: 5
+      max_delay: 60
+
+  - name: update_payment_records
+    description: "Update internal payment status and history"
+    handler:
+      callable: Payments::StepHandlers::UpdatePaymentRecordsHandler
+    dependencies:
+      - process_gateway_refund
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 30
+
+  - name: notify_customer
+    description: "Send refund confirmation to customer"
+    handler:
+      callable: Payments::StepHandlers::NotifyCustomerHandler
+    dependencies:
+      - update_payment_records
+    retry:
+      retryable: true
+      max_attempts: 5
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 60
