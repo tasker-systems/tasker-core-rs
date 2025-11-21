@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Last Updated**: 2025-10-28
+**Last Updated**: 2025-11-19
 
 ## Project Overview
 
@@ -343,6 +343,32 @@ pub trait Handler<M: Message>: OrchestrationActor {
 - Protects database and messaging operations from cascading failures
 - Configurable per executor type via TOML configuration
 - Automatic recovery with exponential backoff
+
+### Advanced Workflow Patterns
+
+**Batch Processing (TAS-59)** - Parallel dataset processing with dynamic worker creation:
+- **Batchable Steps**: Analyze datasets and return `BatchProcessingOutcome::CreateBatches`
+- **Dynamic Workers**: Orchestration creates N workers in single transaction with cursor configs
+- **Cursor-Based Processing**: Workers process specific ranges (row 1-200, 201-400, etc.)
+- **Resumability**: Failed workers preserve cursor position via TAS-49 retry system
+- **Convergence**: Deferred intersection semantics aggregate results from all workers
+- **Use Cases**: CSV processing, large dataset imports, parallel report generation
+
+**Conditional Workflows (TAS-53)** - Runtime decision-making with branch control:
+- **Decision Point Steps**: Enable/disable branches based on runtime conditions
+- **Template-to-Instance**: Dynamic step creation from conditional templates
+- **Deferred Convergence**: Wait for enabled branches before proceeding
+- **Intersection Semantics**: Only converge on actually-executed branches
+- **State Guards**: SQL-level enforcement prevents convergence before branches complete
+- **Use Cases**: Approval workflows, feature flag routing, conditional processing
+
+**Dead Letter Queue (DLQ) System (TAS-49)** - Stuck task investigation and resolution:
+- **Automatic DLQ Entry**: SQL triggers detect blocked/stale tasks
+- **Investigation Queue**: Operators query stuck tasks by staleness, reason, namespace
+- **Step-Level Resolution**: `ResetForRetry`, `ResolveManually`, `CompleteManually`
+- **REST API**: Full CRUD operations for DLQ management
+- **Integration**: Works with all workflow patterns (batch, conditional, standard)
+- **Use Cases**: Production debugging, manual intervention, task recovery
 
 ### Event Flow and Communication
 
@@ -774,6 +800,33 @@ async fn handle_finalize_task(&self, task_uuid: Uuid)
 
 ### Completed Features (Production Ready)
 
+**TAS-59**: Batch Processing architecture (November 2025)
+- Parallel processing of large datasets with cursor-based workers
+- Batchable steps analyze datasets and return `BatchProcessingOutcome`
+- Dynamic worker creation in single transaction (all-or-nothing guarantees)
+- Cursor-based resumability with flexible cursor types (integers, timestamps, UUIDs, etc.)
+- Deferred convergence using intersection semantics for N-worker aggregation
+- Integration with DAG (dynamic node creation), retry (cursor preservation), and DLQ
+- CSV batch processing examples with 1000-row datasets and Ruby handlers
+- Full documentation: `docs/batch-processing.md`
+
+**TAS-53**: Conditional workflows with deferred convergence (November 2025)
+- Decision point steps enable/disable workflow branches at runtime
+- Deferred convergence with intersection semantics for multi-branch coordination
+- Template-to-instance pattern for dynamic step creation
+- Step state guards enforce convergence ordering (branches complete before convergence)
+- Real-world examples: approval workflows, feature flag routing, conditional processing
+- Full documentation: `docs/conditional-workflows.md`
+
+**TAS-49**: Dead Letter Queue (DLQ) system (November 2025)
+- Comprehensive stuck task investigation and resolution system
+- Automatic DLQ entry for blocked/stale tasks via SQL triggers
+- Step-level resolution: `ResetForRetry`, `ResolveManually`, `CompleteManually`
+- Operator workflows with REST API endpoints for investigation and resolution
+- Staleness monitoring and investigation queue prioritization
+- Integration with all workflow patterns (batch processing, conditional, standard)
+- Full documentation: `docs/dlq-system.md`
+
 **TAS-54**: Processor ownership removal for automatic stale task recovery (October 2025)
 - Removed processor UUID enforcement from TaskStateMachine transitions
 - Changed to audit-only mode - processor UUID tracked but not enforced
@@ -859,13 +912,25 @@ docker run -p 3000:8080 -e DATABASE_URL=$DATABASE_URL tasker-server
 ## Architecture Documentation
 
 For deep dives into specific architectural aspects:
+
+### Core Architecture
 - **Actor Pattern**: `docs/actors.md` - Actor-based architecture, TAS-46 implementation details
 - **Event Systems**: `docs/events-and-commands.md` - Event-driven architecture and command patterns
 - **Crate Structure**: `docs/crate-architecture.md` - Workspace organization and public APIs
 - **State Machines**: `docs/states-and-lifecycles.md` - Task and step state transitions
 - **SQL Functions**: `docs/task-and-step-readiness-and-execution.md` - Database-level orchestration logic
+
+### Workflow Patterns
+- **Batch Processing**: `docs/batch-processing.md` - Parallel dataset processing with cursor-based workers, dynamic worker creation, deferred convergence
+- **Conditional Workflows**: `docs/conditional-workflows.md` - Decision points, runtime branch control, deferred convergence with intersection semantics
+- **DLQ System**: `docs/dlq-system.md` - Dead letter queue for stuck task investigation, operator workflows, step-level resolution
+
+### Infrastructure
 - **MPSC Channels**:
   - `docs/architecture-decisions/TAS-51-bounded-mpsc-channels.md` - ADR with design decisions and rationale
   - `docs/operations/mpsc-channel-tuning.md` - Operational runbook for monitoring and capacity planning
   - `docs/development/mpsc-channel-guidelines.md` - Developer guidelines for creating and using channels
+
+### Testing
 - when running tests, *never* use SQLX_OFFLINE, *always* correctly export DATABASE_URL which can be found in the project root's .env
+- E2E tests use `TASKER_FIXTURE_PATH` environment variable for flexible fixture locations (native vs Docker execution)

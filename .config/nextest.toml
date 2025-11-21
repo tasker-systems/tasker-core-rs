@@ -3,6 +3,10 @@ retries = 0
 leak-timeout = { period = "500ms", result = "fail" }
 fail-fast = false
 
+# Environment variables for E2E tests with Docker services
+[[profile.default.overrides]]
+filter = 'test(e2e::)'
+
 [profile.ci]
 # CI-specific settings
 fail-fast = false
@@ -15,6 +19,10 @@ test-threads = 4
 status-level = "pass"
 final-status-level = "slow"
 
+# Environment variables for E2E tests with Docker services
+[[profile.ci.overrides]]
+filter = 'test(e2e::)'
+
 # Archive settings for test result uploads
 [profile.ci.junit]
 path = "target/nextest/ci/junit.xml"
@@ -23,3 +31,7 @@ path = "target/nextest/ci/junit.xml"
 # Local development settings
 fail-fast = true
 status-level = "retry"
+
+# Environment variables for E2E tests with Docker services
+[[profile.local.overrides]]
+filter = 'test(e2e::)'

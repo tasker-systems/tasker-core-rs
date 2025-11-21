@@ -59,11 +59,10 @@ async fn test_csv_batch_processing_with_ruby_handlers() -> Result<()> {
         println!("   Worker: {}", worker_url);
     }
 
-    // Use TASKER_FIXTURE_PATH env var for flexible fixture location
-    // - Native execution (CI, local): tests/fixtures
-    // - Docker execution: /app/tests/fixtures
+    // E2E tests always run against Docker services, so use Docker path
+    // The Docker worker container has fixtures mounted at /app/tests/fixtures
     let fixture_base =
-        std::env::var("TASKER_FIXTURE_PATH").unwrap_or_else(|_| "tests/fixtures".to_string());
+        std::env::var("TASKER_FIXTURE_PATH").unwrap_or_else(|_| "/app/tests/fixtures".to_string());
     let csv_file_path = format!("{}/products.csv", fixture_base);
 
     println!("\n📄 CSV file path: {}", csv_file_path);
@@ -227,7 +226,7 @@ async fn test_no_batches_scenario() -> Result<()> {
 
     // Use TASKER_FIXTURE_PATH env var for flexible fixture location
     let fixture_base =
-        std::env::var("TASKER_FIXTURE_PATH").unwrap_or_else(|_| "tests/fixtures".to_string());
+        std::env::var("TASKER_FIXTURE_PATH").unwrap_or_else(|_| "/app/tests/fixtures".to_string());
     let empty_csv_path = format!("{}/products_empty.csv", fixture_base);
 
     println!("\n📄 Creating task with empty CSV path...");

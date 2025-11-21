@@ -1,0 +1,138 @@
+# TaskTemplate Configuration - Ruby Implementation
+#
+# Customer Success Namespace: Process Refund Workflow
+# Demonstrates namespace isolation with same workflow name in different namespaces
+#
+# Template: customer_success/process_refund:1.3.0
+# Implementation: Ruby FFI with tasker-worker-rb
+# Blog Post: Post 04 - Team Scaling (Namespace Isolation)
+#
+# Business Workflow Pattern (5 steps):
+# 1. Validate Refund Request: Validate customer refund request details
+# 2. Check Refund Policy: Verify request complies with refund policies
+# 3. Get Manager Approval: Route to manager for approval if needed
+# 4. Execute Refund Workflow: Call payments team refund workflow (cross-namespace)
+# 5. Update Ticket Status: Update customer support ticket
+#
+# This demonstrates the customer success team's approval-based refund workflow
+# with cross-namespace coordination to the payments team
+#
+---
+name: process_refund
+namespace_name: customer_success
+version: 1.0.0
+description: "Process customer service refunds with approval workflow - Post 04 Team Scaling"
+metadata:
+  author: Customer Success Team
+  blog_post: post_04
+  tags:
+    - namespace:customer_success
+    - pattern:approval_workflow
+    - dependencies:linear_with_approval
+    - cross_namespace:payments
+    - implementation:ruby_ffi
+task_handler:
+  callable: CustomerSuccess::ProcessRefundHandler
+  initialization:
+    timeout_seconds: 90
+    max_retries: 3
+input_schema:
+  type: object
+  required:
+    - ticket_id
+    - customer_id
+    - refund_amount
+    - customer_email
+  properties:
+    ticket_id:
+      type: string
+      description: "Customer support ticket ID"
+    customer_id:
+      type: string
+      description: "Customer identifier"
+    refund_amount:
+      type: number
+      minimum: 0
+      description: "Requested refund amount in cents"
+    refund_reason:
+      type: string
+      description: "Customer's reason for refund"
+    agent_notes:
+      type: string
+      description: "Internal agent notes"
+    requires_approval:
+      type: boolean
+      default: true
+      description: "Whether manager approval is required"
+    customer_email:
+      type: string
+      description: "Customer email address for notifications"
+    correlation_id:
+      type: string
+      description: "Correlation ID for tracking across systems"
+    payment_id:
+      type: string
+      description: "Payment ID for cross-team workflow coordination"
+steps:
+  - name: validate_refund_request
+    description: "Validate customer refund request details"
+    handler:
+      callable: CustomerSuccess::StepHandlers::ValidateRefundRequestHandler
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 30
+
+  - name: check_refund_policy
+    description: "Verify request complies with refund policies"
+    handler:
+      callable: CustomerSuccess::StepHandlers::CheckRefundPolicyHandler
+    dependencies:
+      - validate_refund_request
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 20
+
+  - name: get_manager_approval
+    description: "Route to manager for approval if needed"
+    handler:
+      callable: CustomerSuccess::StepHandlers::GetManagerApprovalHandler
+    dependencies:
+      - check_refund_policy
+    retry:
+      retryable: true
+      max_attempts: 1
+      backoff: linear
+      initial_delay: 60
+
+  - name: execute_refund_workflow
+    description: "Call payments team refund workflow"
+    handler:
+      callable: CustomerSuccess::StepHandlers::ExecuteRefundWorkflowHandler
+    dependencies:
+      - get_manager_approval
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 5
+      max_delay: 60
+
+  - name: update_ticket_status
+    description: "Update customer support ticket"
+    handler:
+      callable: CustomerSuccess::StepHandlers::UpdateTicketStatusHandler
+    dependencies:
+      - execute_refund_workflow
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 30
