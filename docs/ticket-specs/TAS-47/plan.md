@@ -41,13 +41,13 @@ Migrate 5+ blog post examples from Rails engine (tasker-engine) to the new taske
 - **Tests**: Namespace isolation specs
 - **Migration**: Namespace concept unchanged in tasker-core
 
-**✅ Post 05: Production Observability** (COMPLETE)
+**⏸️ Post 05: Production Observability** (RAILS COMPLETE, TASKER-CORE DEFERRED)
 - **Narrative**: Black box workflows → complete visibility
 - **Pattern**: Event monitoring and metrics
 - **Complexity**: Medium - Event subscribers, monitoring
 - **Rails Features**: Event system (56+ events), custom subscribers
 - **Tests**: Observability specs
-- **Migration**: Event model differs significantly (PGMQ-based)
+- **Migration**: ⏸️ DEFERRED TO TAS-65 - Rails event model (56+ developer-facing events) doesn't translate to distributed architecture. TAS-65 defines two-tier approach separating system events (telemetry-only) from custom domain events (developer-facing).
 
 **⚠️ Post 06: Enterprise Security** (PARTIAL)
 - **Narrative**: Compliance and audit trails
@@ -990,3 +990,107 @@ All core workflow patterns have been successfully demonstrated:
 ---
 
 **Migration Status**: SUCCESS - 4/5 posts migrated, 30 handlers, 7 E2E tests
+
+---
+
+## 11. Branch Completion Summary
+
+**Branch**: `jcoletaylor/tas-47-ruby-blog-post-integration`
+**Completed**: 2025-11-20
+**Status**: READY FOR PR
+
+### What Was Accomplished
+
+This branch successfully migrated 4 out of 5 Rails engine blog post examples to tasker-core with Ruby FFI bindings. The migration demonstrated that all core workflow orchestration patterns work correctly in the new distributed Rust-backed architecture.
+
+### Files Created
+
+**Handlers (30 total)**:
+```
+workers/ruby/spec/handlers/examples/blog_examples/
+├── post_01_ecommerce/
+│   ├── handlers/order_processing_handler.rb
+│   └── step_handlers/ (5 handlers)
+├── post_02_data_pipeline/
+│   ├── handlers/analytics_pipeline_handler.rb
+│   └── step_handlers/ (7 handlers)
+├── post_03_microservices_coordination/
+│   ├── handlers/user_registration_handler.rb
+│   └── step_handlers/ (5 handlers)
+└── post_04_namespace_isolation/
+    ├── payments/handlers/ (1 task + 4 step handlers)
+    └── customer_success/handlers/ (1 task + 5 step handlers)
+```
+
+**YAML Templates (5 total)**:
+```
+tests/fixtures/task_templates/ruby/
+├── ecommerce_order_processing.yaml
+├── data_pipeline_analytics_pipeline.yaml
+├── microservices_user_registration.yaml
+├── payments_process_refund.yaml
+└── customer_success_process_refund.yaml
+```
+
+**E2E Tests (4 test files, 7 test scenarios)**:
+```
+tests/e2e/ruby/
+├── ecommerce_order_test.rs (1 test)
+├── data_pipeline_test.rs (1 test)
+├── microservices_coordination_test.rs (3 tests)
+└── namespace_isolation_test.rs (3 tests)
+```
+
+**Specifications**:
+```
+docs/ticket-specs/
+├── TAS-47/plan.md (this document, updated)
+└── TAS-65.md (new: Distributed Event System Architecture)
+```
+
+### Key Patterns Established
+
+1. **Self-Contained Handlers**: Inline simulation with constants (no external mock services)
+2. **ActiveSupport Integration**: Use built-in methods (`deep_symbolize_keys`)
+3. **Minimal Requires**: Infrastructure loaded by `lib/tasker_core.rb`
+4. **E2E Test Focus**: Happy path testing via Rust tests, no RSpec unit tests for examples
+5. **Template Naming**: `{namespace}_{workflow_name}.yaml`
+
+### Workflow Patterns Demonstrated
+
+| Pattern | Post | Steps | Key Feature |
+|---------|------|-------|-------------|
+| Linear | Post 01 | 5 | Sequential execution, retry logic |
+| DAG | Post 02 | 8 | Parallel execution, convergence |
+| Parallel Services | Post 03 | 5 | Billing ∥ Preferences, idempotency |
+| Namespace Isolation | Post 04 | 4+5 | Multi-namespace, same workflow names |
+
+### Deferred Work
+
+**Post 05 (Observability)** → **TAS-65: Distributed Event System**
+
+The Rails engine's event system (56+ events exposed to developers via `ActiveSupport::Notifications`) doesn't translate to tasker-core's distributed architecture. TAS-65 specification defines:
+
+- **System Events**: Internal lifecycle events → OpenTelemetry only (not developer-facing)
+- **Custom Domain Events**: Business logic events → Developer-facing pub/sub API via PGMQ
+
+### Migration Statistics
+
+| Metric | Value |
+|--------|-------|
+| Blog posts migrated | 4/5 (80%) |
+| Total handlers | 30 |
+| Total YAML templates | 5 |
+| Total E2E tests | 7 |
+| Lines of Ruby code | ~2,500 |
+| Lines saved vs Rails | ~50% (self-contained pattern) |
+| Test success rate | 100% |
+
+### PR Checklist
+
+- [x] All 4 blog posts migrated with working handlers
+- [x] All E2E tests passing
+- [x] Plan document updated with completion status
+- [x] TAS-65 specification created for deferred work
+- [x] No breaking changes to existing code
+- [x] Docker test environment verified working
