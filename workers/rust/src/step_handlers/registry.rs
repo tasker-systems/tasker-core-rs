@@ -66,6 +66,9 @@ use super::tree_workflow::{
     TreeLeafEHandler, TreeLeafFHandler, TreeLeafGHandler, TreeRootHandler,
 };
 
+// TAS-64: Error injection handlers for retry testing
+use super::error_injection::FailNTimesHandler;
+
 /// Central registry for all Rust step handlers
 ///
 /// Provides O(1) handler lookup by name with compile-time type safety.
@@ -359,6 +362,13 @@ impl RustStepHandlerRegistry {
         self.register_handler(Arc::new(AggregateOddResultsHandler::new(
             empty_config.clone(),
         )));
+
+        // TAS-64: Error Injection Handlers for retry testing (registered by step name)
+        // These handlers are generic/reusable, so register under each step name that uses them
+        let fail_n_times: Arc<dyn RustStepHandler> =
+            Arc::new(FailNTimesHandler::new(empty_config.clone()));
+        self.register_handler_as("fail_twice_then_succeed", Arc::clone(&fail_n_times));
+        self.register_handler_as("always_fail", fail_n_times);
     }
 
     /// Register a single handler in the registry
@@ -367,6 +377,11 @@ impl RustStepHandlerRegistry {
     fn register_handler(&mut self, handler: Arc<dyn RustStepHandler>) {
         let name = handler.name().to_string();
         self.handlers.insert(name, handler);
+    }
+
+    /// Register a handler under a specific name (for generic/reusable handlers)
+    fn register_handler_as(&mut self, name: &str, handler: Arc<dyn RustStepHandler>) {
+        self.handlers.insert(name.to_string(), handler);
     }
 }
 
@@ -402,11 +417,11 @@ mod tests {
     fn test_registry_creation() {
         let registry = RustStepHandlerRegistry::new();
 
-        // Should have all 49 handlers (4+4+8+7+4+6+3+3+10)
+        // Should have all 51 handlers (4+4+8+7+4+6+3+3+10+2)
         // Linear(4) + Diamond(4) + Tree(8) + MixedDAG(7) + OrderFulfillment(4)
         // + ConditionalApproval(6) + BatchProcessingExample(3) + BatchProcessingProductsCsv(3)
-        // + DiamondDecisionBatch(10)
-        assert_eq!(registry.handler_count(), 49);
+        // + DiamondDecisionBatch(10) + ErrorInjection(2 step registrations)
+        assert_eq!(registry.handler_count(), 51);
     }
 
     #[test]
@@ -496,7 +511,7 @@ mod tests {
 
         // Should be the same instance
         assert_eq!(registry1 as *const _, registry2 as *const _);
-        assert_eq!(registry1.handler_count(), 49);
+        assert_eq!(registry1.handler_count(), 51);
     }
 
     #[test]
@@ -504,8 +519,8 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let names = registry.get_all_handler_names();
 
-        // Should have 49 handlers
-        assert_eq!(names.len(), 49);
+        // Should have 51 handlers
+        assert_eq!(names.len(), 51);
 
         // Should be sorted
         let mut sorted_names = names.clone();

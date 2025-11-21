@@ -328,6 +328,9 @@ pub mod mixed_dag_workflow;
 pub mod order_fulfillment;
 pub mod tree_workflow;
 
+// TAS-64: Error injection handlers for retry testing
+pub mod error_injection;
+
 // Handler registry
 pub mod registry;
 

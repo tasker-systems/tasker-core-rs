@@ -41,3 +41,16 @@ max_parallel_batches = 10       # Smaller for tests
 default_batch_size = 100        # Smaller batches for faster tests
 checkpoint_interval_default = 10  # More frequent checkpoints for tests
 checkpoint_stall_minutes = 2    # Faster stall detection for tests
+
+# TAS-64: Fast Retry Cycle Configuration for E2E Testing
+# These settings enable fast polling and short backoff for retry tests
+[orchestration.event_systems.orchestration.timing]
+fallback_polling_interval_seconds = 1  # Fast polling for retry discovery
+
+[orchestration.event_systems.task_readiness.timing]
+fallback_polling_interval_seconds = 1  # Fast polling for step readiness
+
+[orchestration.event_systems.orchestration.processing.backoff]
+initial_delay_ms = 50    # Very short initial backoff for tests
+max_delay_ms = 500       # Cap backoff at 500ms for fast test cycles
+multiplier = 1.5         # Exponential growth factor
