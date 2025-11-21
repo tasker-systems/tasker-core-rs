@@ -226,7 +226,7 @@ async fn test_no_batches_scenario() -> Result<()> {
 
     // Use TASKER_FIXTURE_PATH env var for flexible fixture location
     let fixture_base =
-        std::env::var("TASKER_FIXTURE_PATH").unwrap_or_else(|_| "tests/fixtures".to_string());
+        std::env::var("TASKER_FIXTURE_PATH").unwrap_or_else(|_| "/app/tests/fixtures".to_string());
     let empty_csv_path = format!("{}/products_empty.csv", fixture_base);
 
     println!("\n📄 Creating task with empty CSV path...");

@@ -1,0 +1,172 @@
+# TaskTemplate Configuration - Ruby Implementation
+#
+# Data Pipeline Namespace: Analytics Pipeline Workflow
+# Demonstrates DAG pattern with parallel extraction and aggregation
+#
+# Template: data_pipeline/analytics_pipeline:1.0.0
+# Implementation: Ruby FFI with tasker-worker-rb
+# Blog Post: Post 02 - Data Pipeline Resilience
+#
+# Business Workflow Pattern (8 steps):
+# DAG Structure - Parallel Extracts → Sequential Transforms → Aggregation → Insights
+#
+# Extract Phase (3 parallel steps):
+# 1. Extract Sales Data: Pull sales records from database
+# 2. Extract Inventory Data: Pull inventory records from warehouse system
+# 3. Extract Customer Data: Pull customer records from CRM
+#
+# Transform Phase (3 sequential steps):
+# 4. Transform Sales: Calculate daily totals and product summaries
+# 5. Transform Inventory: Calculate warehouse summaries and reorder alerts
+# 6. Transform Customers: Calculate tier analysis and value segmentation
+#
+# Aggregate Phase (1 step):
+# 7. Aggregate Metrics: Combine all transformed data sources
+#
+# Insights Phase (1 step):
+# 8. Generate Insights: Create actionable business intelligence
+#
+# This demonstrates parallel execution, dependency resolution, and data aggregation
+# across multiple branches in a DAG workflow.
+#
+---
+name: analytics_pipeline
+namespace_name: data_pipeline
+version: 1.0.0
+description: "Analytics ETL pipeline with parallel extraction and aggregation - Post 02 Data Pipeline"
+metadata:
+  author: Data Team
+  blog_post: post_02
+  tags:
+    - namespace:data_pipeline
+    - pattern:dag_workflow
+    - pattern:parallel_execution
+    - dependencies:aggregate_convergence
+    - implementation:ruby_ffi
+task_handler:
+  callable: DataPipeline::Handlers::AnalyticsPipelineHandler
+  initialization:
+    timeout_seconds: 120
+    max_retries: 2
+input_schema:
+  type: object
+  properties:
+    pipeline_id:
+      type: string
+      description: "Unique pipeline execution identifier"
+    date_range:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+steps:
+  # EXTRACT PHASE - 3 parallel steps (no dependencies)
+  - name: extract_sales_data
+    description: "Extract sales records from database"
+    handler:
+      callable: DataPipeline::StepHandlers::ExtractSalesDataHandler
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 30
+
+  - name: extract_inventory_data
+    description: "Extract inventory records from warehouse system"
+    handler:
+      callable: DataPipeline::StepHandlers::ExtractInventoryDataHandler
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 30
+
+  - name: extract_customer_data
+    description: "Extract customer records from CRM"
+    handler:
+      callable: DataPipeline::StepHandlers::ExtractCustomerDataHandler
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 30
+
+  # TRANSFORM PHASE - 3 sequential steps (each depends on its extract)
+  - name: transform_sales
+    description: "Transform sales data for analytics"
+    handler:
+      callable: DataPipeline::StepHandlers::TransformSalesHandler
+    dependencies:
+      - extract_sales_data
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 20
+
+  - name: transform_inventory
+    description: "Transform inventory data for analytics"
+    handler:
+      callable: DataPipeline::StepHandlers::TransformInventoryHandler
+    dependencies:
+      - extract_inventory_data
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 20
+
+  - name: transform_customers
+    description: "Transform customer data for analytics"
+    handler:
+      callable: DataPipeline::StepHandlers::TransformCustomersHandler
+    dependencies:
+      - extract_customer_data
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 20
+
+  # AGGREGATE PHASE - 1 step (depends on all 3 transforms - DAG convergence)
+  - name: aggregate_metrics
+    description: "Aggregate metrics from all transformed sources"
+    handler:
+      callable: DataPipeline::StepHandlers::AggregateMetricsHandler
+    dependencies:
+      - transform_sales
+      - transform_inventory
+      - transform_customers
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 20
+
+  # INSIGHTS PHASE - 1 step (depends on aggregation)
+  - name: generate_insights
+    description: "Generate business insights from aggregated data"
+    handler:
+      callable: DataPipeline::StepHandlers::GenerateInsightsHandler
+    dependencies:
+      - aggregate_metrics
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      initial_delay: 2
+      max_delay: 20

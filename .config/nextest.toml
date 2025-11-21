@@ -6,7 +6,6 @@ fail-fast = false
 # Environment variables for E2E tests with Docker services
 [[profile.default.overrides]]
 filter = 'test(e2e::)'
-env = { TASKER_FIXTURE_PATH = "/app/tests/fixtures" }
 
 [profile.ci]
 # CI-specific settings
@@ -23,7 +22,6 @@ final-status-level = "slow"
 # Environment variables for E2E tests with Docker services
 [[profile.ci.overrides]]
 filter = 'test(e2e::)'
-env = { TASKER_FIXTURE_PATH = "/app/tests/fixtures" }
 
 # Archive settings for test result uploads
 [profile.ci.junit]
@@ -37,4 +35,3 @@ status-level = "retry"
 # Environment variables for E2E tests with Docker services
 [[profile.local.overrides]]
 filter = 'test(e2e::)'
-env = { TASKER_FIXTURE_PATH = "/app/tests/fixtures" }
