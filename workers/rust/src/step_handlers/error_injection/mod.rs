@@ -6,8 +6,10 @@
 //! ## Available Handlers
 //!
 //! - `FailNTimesHandler`: Fails first N attempts, then succeeds
-//! - `ConditionalErrorHandler`: Fails based on task context conditions
+//! - `CheckpointAndFailHandler`: Batch worker that checkpoints and fails for resumption testing
 
+mod checkpoint_and_fail_handler;
 mod fail_n_times_handler;
 
+pub use checkpoint_and_fail_handler::CheckpointAndFailHandler;
 pub use fail_n_times_handler::FailNTimesHandler;

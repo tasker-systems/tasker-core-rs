@@ -34,7 +34,7 @@ use tasker_shared::types::TaskSequenceStep;
 /// Step handler that fails first N attempts then succeeds
 #[derive(Debug)]
 pub struct FailNTimesHandler {
-    config: StepHandlerConfig,
+    _config: StepHandlerConfig,
 }
 
 #[async_trait]
@@ -79,8 +79,7 @@ impl RustStepHandler for FailNTimesHandler {
                 step_uuid,
                 format!(
                     "Simulated failure on attempt {} (will succeed after {} failures)",
-                    current_attempt,
-                    fail_count
+                    current_attempt, fail_count
                 ),
                 Some("SIMULATED_FAILURE".to_string()),
                 Some("RetryableError".to_string()),
@@ -121,7 +120,7 @@ impl RustStepHandler for FailNTimesHandler {
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 }
 
@@ -138,9 +137,8 @@ mod tests {
 
     #[test]
     fn test_config_parsing() {
-        let config = StepHandlerConfig::new(
-            [("fail_count".to_string(), json!(3))].into_iter().collect(),
-        );
+        let config =
+            StepHandlerConfig::new([("fail_count".to_string(), json!(3))].into_iter().collect());
         assert_eq!(config.get_i64("fail_count"), Some(3));
     }
 

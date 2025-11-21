@@ -1,5 +1,6 @@
 mod batch_processing_csv_workflow;
 mod batch_processing_workflow;
+mod batch_resumption_test;
 mod conditional_approval_rust;
 mod diamond_decision_batch_workflow;
 mod diamond_workflow;

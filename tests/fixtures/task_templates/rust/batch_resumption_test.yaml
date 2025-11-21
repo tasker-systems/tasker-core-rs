@@ -1,0 +1,114 @@
+# TaskTemplate Configuration - TAS-64 Batch Resumption E2E Testing
+#
+# Tests batch worker cursor-based resumption after retry
+# Proves that batch workers resume from checkpoint and don't reprocess items
+#
+# Template: batch_resumption_test:1.0.0
+# Created: 2025-11-21 (TAS-64 Implementation)
+#
+# Test Pattern:
+# 1. analyze_dataset creates 1 batch (100 items)
+# 2. checkpoint_fail_batch fails on attempt 1 after processing items
+# 3. On retry (attempt 2), resumes and completes remaining items
+#
+---
+name: batch_resumption_test
+namespace_name: rust_e2e_batch_retry
+version: 1.0.0
+description: "E2E test proving batch workers resume from cursor checkpoint after retry"
+metadata:
+  author: TAS-64 Batch Resumption Testing
+  tags:
+    - namespace:batch_retry_testing
+    - pattern:batch_resumption
+    - type:e2e_test
+    - implementation:rust
+  documentation_url:
+  created_at: "2025-11-21T00:00:00Z"
+  updated_at: "2025-11-21T00:00:00Z"
+  notes: "Validates cursor-based resumption with checkpoint preservation"
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization:
+    test_type: batch_resumption
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required: []
+  properties:
+    test_id:
+      type: string
+      description: "Optional test identifier for debugging"
+    dataset_size:
+      type: integer
+      description: "Total items in dataset (default 100)"
+steps:
+  # BATCHABLE STEP: Creates a single batch for testing
+  - name: analyze_dataset
+    type: batchable
+    description: "Analyzes dataset and creates 1 batch for resumption testing"
+    handler:
+      callable: tasker_worker_rust::step_handlers::batch_processing_example::DatasetAnalyzerHandler
+      initialization:
+        batch_size: 100
+        max_workers: 1
+        checkpoint_interval: 25
+        worker_template_name: "checkpoint_fail_batch"
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 50
+      max_backoff_ms: 200
+    timeout_seconds: 30
+    publishes_events: []
+
+  # BATCH WORKER TEMPLATE: Checkpoint and fail handler for resumption testing
+  - name: checkpoint_fail_batch
+    type: batch_worker
+    description: "Processes batch with checkpointing, fails on first attempt to test resumption"
+    handler:
+      callable: CheckpointAndFailHandler
+      initialization:
+        fail_after_items: 50
+        fail_on_attempt: 1
+        checkpoint_interval: 25
+    system_dependency:
+    dependencies:
+      - analyze_dataset
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 50
+      max_backoff_ms: 200
+    timeout_seconds: 30
+    publishes_events: []
+    batch_config:
+      batch_size: 100
+      parallelism: 1
+      cursor_field: "id"
+      checkpoint_interval: 25
+      worker_template: "checkpoint_fail_batch"
+      failure_strategy: "fail_fast"
+
+environments:
+  test:
+    steps:
+      - name: analyze_dataset
+        timeout_seconds: 10
+        retry:
+          max_attempts: 3
+          backoff_base_ms: 50
+          max_backoff_ms: 200
+      - name: checkpoint_fail_batch
+        timeout_seconds: 10
+        retry:
+          max_attempts: 3
+          backoff_base_ms: 50
+          max_backoff_ms: 200

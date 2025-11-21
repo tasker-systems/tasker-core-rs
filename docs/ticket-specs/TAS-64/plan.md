@@ -14,24 +14,49 @@
 | Phase 1 | ✅ Complete | Fast polling configuration for test environment |
 | Phase 2 | ✅ Complete | FailNTimesHandler error injection handler |
 | Phase 3 | ✅ Complete | Task templates for retry testing |
-| Phase 4 | ✅ Complete | E2E retry mechanics tests |
-| Phase 5 | 🔲 Pending | Batch resumption tests (future work) |
+| Phase 4 | ✅ Complete | E2E retry mechanics tests (both passing) |
+| Phase 5 | ✅ Complete | Batch resumption tests with CheckpointAndFailHandler |
 | Phase 6 | 🔲 Pending | Integration test enhancements (future work) |
+
+### Completed Tests (2025-11-21)
+
+**Retry Mechanics:**
+- **`test_retry_after_transient_failure`** - Proves step fails 2 times then succeeds on attempt 3
+- **`test_retry_exhaustion_leads_to_error`** - Proves max_attempts exhaustion leads to error state
+
+**Batch Resumption:**
+- **`test_batch_worker_resumes_from_checkpoint`** - Proves batch workers resume from cursor checkpoint after retry
+- **`test_batch_no_duplicate_processing`** - Validates no duplicate item processing on resumption
+
+### Key Implementation Details
+
+1. **Handler Registration Pattern**: Generic handlers like `FailNTimesHandler` must be registered under each step name that uses them (not by handler class name), since the worker looks up handlers by `template_step_name`.
+
+2. **Runtime Config**: Handler config must be read from `step_data.step_definition.handler.initialization` at execution time, not from construction-time config.
+
+3. **Attempt Counting**: The `workflow_step.attempts` field is 1-indexed (first attempt = 1).
+
+4. **Checkpoint Preservation**: The `workflow_step.results` field is preserved by `ResetForRetry`, allowing batch workers to store and retrieve checkpoint progress.
+
+5. **BatchWorkerContext**: Use `BatchWorkerContext::from_step_data()` to extract cursor configuration from `workflow_step.inputs`.
 
 ### Files Created/Modified
 
 **New Files:**
 - `workers/rust/src/step_handlers/error_injection/mod.rs`
 - `workers/rust/src/step_handlers/error_injection/fail_n_times_handler.rs`
+- `workers/rust/src/step_handlers/error_injection/checkpoint_and_fail_handler.rs`
 - `tests/fixtures/task_templates/rust/retry_mechanics_test.yaml`
 - `tests/fixtures/task_templates/rust/retry_exhaustion_test.yaml`
+- `tests/fixtures/task_templates/rust/batch_resumption_test.yaml`
 - `tests/e2e/rust/retry_mechanics_test.rs`
+- `tests/e2e/rust/batch_resumption_test.rs`
 
 **Modified Files:**
 - `config/tasker/environments/test/orchestration.toml` - Fast polling config
 - `workers/rust/src/step_handlers/mod.rs` - Added error_injection module
-- `workers/rust/src/step_handlers/registry.rs` - Registered FailNTimesHandler
-- `tests/e2e/rust/mod.rs` - Added retry_mechanics_test module
+- `workers/rust/src/step_handlers/registry.rs` - Added `register_handler_as()` method, registered handlers under step names
+- `tests/e2e/rust/mod.rs` - Added retry_mechanics_test and batch_resumption_test modules
 
 ---
 
