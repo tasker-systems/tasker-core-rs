@@ -281,6 +281,444 @@ impl BatchWorkerInputs {
     }
 }
 
+/// Checkpoint progress data for batch worker resumability (TAS-64)
+///
+/// This structure represents checkpoint progress stored in `StepExecutionResult.metadata.context`
+/// or `workflow_steps.results.metadata.context`. It enables cursor-based resumption after failures,
+/// allowing workers to continue from their last checkpoint rather than reprocessing from the beginning.
+///
+/// ## Storage Location
+///
+/// Checkpoint data is stored in the `context` HashMap of `StepExecutionMetadata`:
+/// ```rust
+/// StepExecutionResult::failure(
+///     step_uuid,
+///     error_message,
+///     error_code,
+///     error_type,
+///     retryable,
+///     execution_time_ms,
+///     Some(HashMap::from([
+///         ("checkpoint_progress".to_string(), json!(50)),
+///         ("processed_before_failure".to_string(), json!(50)),
+///         ("resumed_from".to_string(), json!(0)),
+///     ])),
+/// )
+/// ```
+///
+/// ## Resumption Flow
+///
+/// 1. **First attempt**: Worker processes items 0-50, checkpoints at 25 and 50, fails at 50
+/// 2. **Failure**: Creates `CheckpointProgress` with `checkpoint_progress: 50`
+/// 3. **Retry**: Worker extracts checkpoint, resumes from position 50 instead of 0
+/// 4. **Completion**: Worker completes remaining items without duplicate processing
+///
+/// ## Type-Safe Extraction
+///
+/// Instead of raw HashMap navigation:
+/// ```rust
+/// // BEFORE (error-prone, no type safety)
+/// let checkpoint = step_data.workflow_step.results.as_ref()
+///     .and_then(|r| r.get("metadata"))
+///     .and_then(|m| m.get("context"))
+///     .and_then(|c| c.get("checkpoint_progress"))
+///     .and_then(|v| v.as_u64())
+///     .unwrap_or(0);
+/// ```
+///
+/// Use type-safe extraction with proper error handling:
+/// ```rust
+/// // AFTER (type-safe, Result-based error handling)
+/// let checkpoint = CheckpointProgress::from_workflow_step(&step_data.workflow_step)?
+///     .map(|cp| cp.checkpoint_progress)
+///     .unwrap_or(0);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckpointProgress {
+    /// Current position in the dataset where checkpoint was saved
+    ///
+    /// Workers should resume processing from this position on retry.
+    /// Typically represents the last successfully processed item's cursor value.
+    pub checkpoint_progress: u64,
+
+    /// Number of items successfully processed before failure occurred
+    ///
+    /// Used for observability and verification that resumption works correctly.
+    /// Should equal `checkpoint_progress - resumed_from` for the attempt.
+    pub processed_before_failure: u64,
+
+    /// Position from which this attempt resumed processing
+    ///
+    /// - First attempt: 0 (starting from beginning)
+    /// - Subsequent attempts: Previous checkpoint_progress value
+    ///
+    /// Proves no duplicate processing when `resumed_from > 0` on retry.
+    pub resumed_from: u64,
+}
+
+impl CheckpointProgress {
+    /// Create new checkpoint progress for storing in error results
+    ///
+    /// This is the constructor workers should use when creating error results
+    /// with checkpoint data for resumability.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_shared::models::core::batch_worker::CheckpointProgress;
+    /// use std::collections::HashMap;
+    /// use serde_json::json;
+    ///
+    /// // Worker processed 50 items starting from position 0 before failure
+    /// let checkpoint = CheckpointProgress::new(50, 50, 0);
+    ///
+    /// // Convert to HashMap for StepExecutionResult::failure context parameter
+    /// let context = checkpoint.to_context_map();
+    ///
+    /// assert_eq!(context.get("checkpoint_progress").unwrap(), &json!(50));
+    /// ```
+    #[must_use]
+    pub fn new(checkpoint_progress: u64, processed_before_failure: u64, resumed_from: u64) -> Self {
+        Self {
+            checkpoint_progress,
+            processed_before_failure,
+            resumed_from,
+        }
+    }
+
+    /// Convert to HashMap for storing in StepExecutionResult.metadata.context
+    ///
+    /// This produces the HashMap format expected by `StepExecutionResult::failure()`
+    /// context parameter.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_shared::models::core::batch_worker::CheckpointProgress;
+    /// use tasker_shared::messaging::StepExecutionResult;
+    /// use uuid::Uuid;
+    ///
+    /// let checkpoint = CheckpointProgress::new(50, 50, 0);
+    /// let context = Some(checkpoint.to_context_map());
+    ///
+    /// let result = StepExecutionResult::failure(
+    ///     Uuid::new_v4(),
+    ///     "Simulated failure".to_string(),
+    ///     Some("BATCH_FAILURE".to_string()),
+    ///     Some("RetryableError".to_string()),
+    ///     true,  // retryable
+    ///     100,   // execution_time_ms
+    ///     context,
+    /// );
+    /// ```
+    #[must_use]
+    pub fn to_context_map(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        use std::collections::HashMap;
+        HashMap::from([
+            (
+                "checkpoint_progress".to_string(),
+                serde_json::json!(self.checkpoint_progress),
+            ),
+            (
+                "processed_before_failure".to_string(),
+                serde_json::json!(self.processed_before_failure),
+            ),
+            (
+                "resumed_from".to_string(),
+                serde_json::json!(self.resumed_from),
+            ),
+        ])
+    }
+
+    /// Extract checkpoint progress from `StepExecutionResult.metadata.context`
+    ///
+    /// This is used when handlers need to access checkpoint data from a result
+    /// object directly (e.g., during result processing or analysis).
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if:
+    /// - Checkpoint data exists but has invalid structure (wrong types, missing fields)
+    /// - JSON deserialization fails
+    ///
+    /// Returns `Ok(None)` if:
+    /// - No checkpoint data exists in context (expected for non-batch steps)
+    /// - Context HashMap is empty
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_shared::models::core::batch_worker::CheckpointProgress;
+    /// use tasker_shared::messaging::StepExecutionResult;
+    /// # use uuid::Uuid;
+    /// # use std::collections::HashMap;
+    /// # use serde_json::json;
+    ///
+    /// # let checkpoint = CheckpointProgress::new(50, 50, 0);
+    /// # let result = StepExecutionResult::failure(
+    /// #     Uuid::new_v4(), "".to_string(), None, None, true, 100,
+    /// #     Some(checkpoint.to_context_map()),
+    /// # );
+    /// // Extract from result
+    /// let checkpoint = CheckpointProgress::from_step_result(&result)?;
+    /// assert!(checkpoint.is_some());
+    /// assert_eq!(checkpoint.unwrap().checkpoint_progress, 50);
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    pub fn from_step_result(
+        result: &crate::messaging::StepExecutionResult,
+    ) -> anyhow::Result<Option<Self>> {
+        // Check if context has checkpoint_progress key
+        if let Some(checkpoint_value) = result.metadata.context.get("checkpoint_progress") {
+            // Build complete checkpoint structure from context
+            let checkpoint_json = serde_json::json!({
+                "checkpoint_progress": checkpoint_value,
+                "processed_before_failure": result.metadata.context.get("processed_before_failure").unwrap_or(&serde_json::json!(0)),
+                "resumed_from": result.metadata.context.get("resumed_from").unwrap_or(&serde_json::json!(0)),
+            });
+
+            let checkpoint: CheckpointProgress =
+                serde_json::from_value(checkpoint_json).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to deserialize checkpoint progress from StepExecutionResult: {}",
+                        e
+                    )
+                })?;
+
+            Ok(Some(checkpoint))
+        } else {
+            // No checkpoint data present (not an error - just not a batch step or first attempt)
+            Ok(None)
+        }
+    }
+
+    /// Extract checkpoint progress from `workflow_steps.results.metadata.context`
+    ///
+    /// This is the primary method for batch workers to check for existing checkpoint
+    /// data on retry attempts. Workers should call this early in execution to determine
+    /// their resume position.
+    ///
+    /// ## Structure After TAS-64 Fix
+    ///
+    /// After fixing worker serialization to use `to_persistence_format()`, results have:
+    /// ```json
+    /// {
+    ///   "success": false,
+    ///   "result": {},
+    ///   "metadata": {
+    ///     "context": {
+    ///       "checkpoint_progress": 50
+    ///     }
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// Access path: `results.metadata.context.checkpoint_progress` (correct single nesting)
+    ///
+    /// ## Backwards Compatibility
+    ///
+    /// This method handles BOTH old double-nested structure (pre-TAS-64) and new
+    /// correct structure (post-TAS-64) for graceful migration of existing workflows.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if:
+    /// - Results field exists and has checkpoint data, but structure is invalid
+    /// - JSON deserialization fails for checkpoint fields
+    ///
+    /// Returns `Ok(None)` if:
+    /// - No results field exists (first attempt, no previous execution)
+    /// - Results exist but no checkpoint data present
+    /// - Results exist but don't have expected metadata.context structure
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use tasker_shared::models::core::batch_worker::CheckpointProgress;
+    /// use tasker_shared::types::TaskSequenceStep;
+    ///
+    /// # async fn example(step_data: &TaskSequenceStep) -> anyhow::Result<()> {
+    /// // Check for checkpoint from previous attempt
+    /// let checkpoint = CheckpointProgress::from_workflow_step(&step_data.workflow_step)?;
+    ///
+    /// let resume_position = if let Some(cp) = checkpoint {
+    ///     // Resume from last checkpoint
+    ///     cp.checkpoint_progress
+    /// } else {
+    ///     // First attempt, start from beginning
+    ///     0
+    /// };
+    ///
+    /// // Process from resume_position...
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn from_workflow_step(step: &crate::models::WorkflowStep) -> anyhow::Result<Option<Self>> {
+        let results = match step.results.as_ref() {
+            Some(r) => r,
+            None => return Ok(None), // No results yet (first attempt)
+        };
+
+        let metadata = match results.get("metadata") {
+            Some(m) => m,
+            None => return Ok(None), // No metadata (shouldn't happen but handle gracefully)
+        };
+
+        let context = match metadata.get("context") {
+            Some(c) => c,
+            None => return Ok(None), // No context (first attempt or non-batch step)
+        };
+
+        // TAS-64: Try correct structure first (post-fix: metadata.context.checkpoint_progress)
+        if let Some(checkpoint_value) = context.get("checkpoint_progress") {
+            let checkpoint_json = serde_json::json!({
+                "checkpoint_progress": checkpoint_value,
+                "processed_before_failure": context.get("processed_before_failure").unwrap_or(&serde_json::json!(0)),
+                "resumed_from": context.get("resumed_from").unwrap_or(&serde_json::json!(0)),
+            });
+
+            let checkpoint: CheckpointProgress = serde_json::from_value(checkpoint_json)
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to deserialize checkpoint progress from WorkflowStep (correct structure): {}",
+                        e
+                    )
+                })?;
+
+            return Ok(Some(checkpoint));
+        }
+
+        // BACKWARDS COMPATIBILITY: Try old double-nested structure (pre-fix: metadata.context.context.checkpoint_progress)
+        // This handles existing workflows that were created before TAS-64 fix
+        if let Some(nested_context) = context.get("context") {
+            if let Some(checkpoint_value) = nested_context.get("checkpoint_progress") {
+                let checkpoint_json = serde_json::json!({
+                    "checkpoint_progress": checkpoint_value,
+                    "processed_before_failure": nested_context.get("processed_before_failure").unwrap_or(&serde_json::json!(0)),
+                    "resumed_from": nested_context.get("resumed_from").unwrap_or(&serde_json::json!(0)),
+                });
+
+                let checkpoint: CheckpointProgress = serde_json::from_value(checkpoint_json)
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to deserialize checkpoint progress from WorkflowStep (legacy double-nested structure): {}",
+                            e
+                        )
+                    })?;
+
+                tracing::warn!(
+                    step_uuid = %step.workflow_step_uuid,
+                    "Found checkpoint in legacy double-nested structure - consider resetting workflow to use new format"
+                );
+
+                return Ok(Some(checkpoint));
+            }
+        }
+
+        // No checkpoint data found
+        Ok(None)
+    }
+
+    /// Extract checkpoint progress from WorkflowStepWithName (used in workers)
+    ///
+    /// This is a convenience method that delegates to `from_workflow_step()` since both
+    /// `WorkflowStep` and `WorkflowStepWithName` have the same `results` field structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `step` - The workflow step with name to extract checkpoint from
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(checkpoint))` if checkpoint data found and valid
+    /// * `Ok(None)` if no checkpoint data (first attempt or non-batch step)
+    /// * `Err` if checkpoint data exists but cannot be deserialized
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use tasker_shared::models::core::batch_worker::CheckpointProgress;
+    ///
+    /// async fn process_step(step_data: &TaskSequenceStep) -> Result<()> {
+    ///     let checkpoint = CheckpointProgress::from_workflow_step_with_name(&step_data.workflow_step)?;
+    ///     let resume_from = checkpoint
+    ///         .as_ref()
+    ///         .map(|cp| cp.checkpoint_progress)
+    ///         .unwrap_or(0);
+    ///
+    ///     // Process from resume_position...
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn from_workflow_step_with_name(
+        step: &crate::models::workflow_step::WorkflowStepWithName,
+    ) -> anyhow::Result<Option<Self>> {
+        let results = match step.results.as_ref() {
+            Some(r) => r,
+            None => return Ok(None), // No results yet (first attempt)
+        };
+
+        let metadata = match results.get("metadata") {
+            Some(m) => m,
+            None => return Ok(None), // No metadata (shouldn't happen but handle gracefully)
+        };
+
+        let context = match metadata.get("context") {
+            Some(c) => c,
+            None => return Ok(None), // No context (first attempt or non-batch step)
+        };
+
+        // TAS-64: Try correct structure first (post-fix: metadata.context.checkpoint_progress)
+        if let Some(checkpoint_value) = context.get("checkpoint_progress") {
+            let checkpoint_json = serde_json::json!({
+                "checkpoint_progress": checkpoint_value,
+                "processed_before_failure": context.get("processed_before_failure").unwrap_or(&serde_json::json!(0)),
+                "resumed_from": context.get("resumed_from").unwrap_or(&serde_json::json!(0)),
+            });
+
+            let checkpoint: CheckpointProgress = serde_json::from_value(checkpoint_json)
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to deserialize checkpoint progress from WorkflowStepWithName (correct structure): {}",
+                        e
+                    )
+                })?;
+
+            return Ok(Some(checkpoint));
+        }
+
+        // BACKWARDS COMPATIBILITY: Try old double-nested structure (pre-fix: metadata.context.context.checkpoint_progress)
+        // This handles existing workflows that were created before TAS-64 fix
+        if let Some(nested_context) = context.get("context") {
+            if let Some(checkpoint_value) = nested_context.get("checkpoint_progress") {
+                let checkpoint_json = serde_json::json!({
+                    "checkpoint_progress": checkpoint_value,
+                    "processed_before_failure": nested_context.get("processed_before_failure").unwrap_or(&serde_json::json!(0)),
+                    "resumed_from": nested_context.get("resumed_from").unwrap_or(&serde_json::json!(0)),
+                });
+
+                let checkpoint: CheckpointProgress = serde_json::from_value(checkpoint_json)
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to deserialize checkpoint progress from WorkflowStepWithName (legacy double-nested structure): {}",
+                            e
+                        )
+                    })?;
+
+                tracing::warn!(
+                    step_uuid = %step.workflow_step_uuid,
+                    "Found checkpoint in legacy double-nested structure - consider resetting workflow to use new format"
+                );
+
+                return Ok(Some(checkpoint));
+            }
+        }
+
+        // No checkpoint data found
+        Ok(None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,5 +866,61 @@ mod tests {
         let real_inputs = BatchWorkerInputs::new(cursor, &batch_config, false);
         let real_json = real_inputs.to_value();
         assert_eq!(real_json.get("is_no_op").unwrap(), false);
+    }
+
+    // CheckpointProgress tests
+    #[test]
+    fn test_checkpoint_progress_creation() {
+        let checkpoint = CheckpointProgress::new(50, 50, 0);
+
+        assert_eq!(checkpoint.checkpoint_progress, 50);
+        assert_eq!(checkpoint.processed_before_failure, 50);
+        assert_eq!(checkpoint.resumed_from, 0);
+    }
+
+    #[test]
+    fn test_checkpoint_progress_to_context_map() {
+        let checkpoint = CheckpointProgress::new(50, 50, 0);
+        let context = checkpoint.to_context_map();
+
+        assert_eq!(context.get("checkpoint_progress").unwrap(), &json!(50));
+        assert_eq!(context.get("processed_before_failure").unwrap(), &json!(50));
+        assert_eq!(context.get("resumed_from").unwrap(), &json!(0));
+    }
+
+    #[test]
+    fn test_checkpoint_progress_serialization() {
+        let checkpoint = CheckpointProgress::new(100, 75, 25);
+
+        let json_value = serde_json::to_value(&checkpoint).unwrap();
+
+        assert_eq!(json_value.get("checkpoint_progress").unwrap(), 100);
+        assert_eq!(json_value.get("processed_before_failure").unwrap(), 75);
+        assert_eq!(json_value.get("resumed_from").unwrap(), 25);
+    }
+
+    #[test]
+    fn test_checkpoint_progress_deserialization() {
+        let json_str = r#"{
+            "checkpoint_progress": 150,
+            "processed_before_failure": 150,
+            "resumed_from": 0
+        }"#;
+
+        let checkpoint: CheckpointProgress = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(checkpoint.checkpoint_progress, 150);
+        assert_eq!(checkpoint.processed_before_failure, 150);
+        assert_eq!(checkpoint.resumed_from, 0);
+    }
+
+    #[test]
+    fn test_checkpoint_progress_round_trip() {
+        let original = CheckpointProgress::new(200, 100, 100);
+
+        let json_value = serde_json::to_value(&original).unwrap();
+        let deserialized: CheckpointProgress = serde_json::from_value(json_value).unwrap();
+
+        assert_eq!(original, deserialized);
     }
 }

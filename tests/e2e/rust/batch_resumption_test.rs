@@ -87,14 +87,20 @@ async fn test_batch_worker_resumes_from_checkpoint() -> Result<()> {
                     println!("   Resumed from: {:?}", resumed_from);
                     println!("   Total processed: {:?}", total_processed);
 
-                    // If we resumed from a checkpoint > 0, that proves resumption worked
+                    // Verify cursor-based resumption with explicit checkpoint assertion
+                    // Config: fail_after_items=50, checkpoint_interval=25
+                    // Expected: processes 25 items (checkpoint at 25), then 25 more (checkpoint at 50), fails at 50
+                    // On retry: resumes from checkpoint position 50
                     if let Some(resume_pos) = resumed_from {
-                        if resume_pos > 0 {
-                            println!(
-                                "   ✅ Resumption confirmed! Worker resumed from position {}",
-                                resume_pos
-                            );
-                        }
+                        assert!(
+                            resume_pos == 50,
+                            "Worker should resume from checkpoint position 50 (where it failed), got {}",
+                            resume_pos
+                        );
+                        println!(
+                            "   ✅ Resumption confirmed! Worker resumed from position {}",
+                            resume_pos
+                        );
                     }
                 }
             }

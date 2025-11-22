@@ -14,7 +14,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::common::integration_test_manager::IntegrationTestManager;
-use crate::common::integration_test_utils::{create_task_request, wait_for_task_completion};
+use crate::common::integration_test_utils::{
+    create_task_request, wait_for_task_completion, wait_for_task_failure,
+};
 
 /// Test that retry mechanics work - handler fails twice then succeeds on 3rd attempt
 #[tokio::test]
@@ -153,40 +155,9 @@ async fn test_retry_exhaustion_leads_to_error() -> Result<()> {
     println!("\n⏱️ Waiting for retry exhaustion...");
     println!("   Expected: 3 attempts, then permanent error");
 
-    // Poll until task is in a terminal state (complete or error)
+    // Use helper function to wait for task failure
     let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;
-    let start = std::time::Instant::now();
-    let timeout_secs = 30;
-
-    loop {
-        let task = manager.orchestration_client.get_task(task_uuid).await?;
-
-        // Check if task has reached a terminal state
-        let status_upper = task.status.to_ascii_uppercase();
-        let exec_status_upper = task.execution_status.to_ascii_uppercase();
-
-        if status_upper == "ERROR"
-            || exec_status_upper == "ERROR"
-            || status_upper == "COMPLETE"
-            || exec_status_upper == "COMPLETE"
-            || status_upper == "BLOCKED_BY_FAILURES"
-        {
-            println!("\n🔍 Task reached terminal state:");
-            println!("   Status: {}", task.status);
-            println!("   Execution Status: {}", task.execution_status);
-            break;
-        }
-
-        if start.elapsed().as_secs() > timeout_secs {
-            anyhow::bail!(
-                "Timeout waiting for task to reach error state. Current: {} / {}",
-                task.status,
-                task.execution_status
-            );
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    }
+    wait_for_task_failure(&manager.orchestration_client, &task_response.task_uuid, 30).await?;
 
     // Verify the step is in error state
     let steps = manager

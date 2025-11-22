@@ -31,10 +31,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
-use std::collections::HashMap;
 
 use crate::step_handlers::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 use tasker_shared::messaging::StepExecutionResult;
+use tasker_shared::models::core::batch_worker::CheckpointProgress;
 use tasker_shared::types::TaskSequenceStep;
 use tasker_worker::batch_processing::BatchWorkerContext;
 
@@ -78,6 +78,14 @@ impl RustStepHandler for CheckpointAndFailHandler {
         // Current attempt (1-indexed)
         let current_attempt = step_data.workflow_step.attempts.unwrap_or(1);
 
+        // DEBUG: Log what's in results at the start of attempt
+        tracing::info!(
+            step_uuid = %step_uuid,
+            current_attempt = current_attempt,
+            results = ?step_data.workflow_step.results,
+            "CheckpointAndFailHandler: Starting attempt with results"
+        );
+
         // Extract batch worker context from inputs
         let context = BatchWorkerContext::from_step_data(step_data)?;
 
@@ -99,13 +107,13 @@ impl RustStepHandler for CheckpointAndFailHandler {
             ));
         }
 
-        // Check for existing checkpoint in results (preserved by ResetForRetry)
-        let checkpoint_progress = step_data
-            .workflow_step
-            .results
+        // TAS-64: Check for existing checkpoint in results (preserved across retry) using type-safe extraction
+        // CheckpointProgress handles both correct (post-fix) and legacy (pre-fix) structures for backwards compatibility
+        let checkpoint =
+            CheckpointProgress::from_workflow_step_with_name(&step_data.workflow_step)?;
+        let checkpoint_progress = checkpoint
             .as_ref()
-            .and_then(|r| r.get("checkpoint_progress"))
-            .and_then(|v| v.as_u64())
+            .map(|cp| cp.checkpoint_progress)
             .unwrap_or(0);
 
         // Resume from checkpoint or start from beginning
@@ -150,6 +158,10 @@ impl RustStepHandler for CheckpointAndFailHandler {
             }
 
             // Check if we should fail (only on specific attempt)
+            // Calculate cumulative items processed across all attempts
+            // Example: batch range [0..100], resumed from 50, processed_count=10
+            //   total_processed = (50 - 0) + 10 = 60 total items
+            //   This accounts for items processed before retry (50) + current attempt (10)
             let total_processed = (resume_from - context.start_position()) + processed_count;
             if total_processed >= fail_after_items && current_attempt == fail_on_attempt {
                 tracing::warn!(
@@ -162,8 +174,11 @@ impl RustStepHandler for CheckpointAndFailHandler {
 
                 let elapsed_ms = start_time.elapsed().as_millis() as i64;
 
-                // Return error with checkpoint preserved in results
-                // The results field is preserved by ResetForRetry
+                // TAS-64: Return error with checkpoint preserved in results using type-safe CheckpointProgress
+                // CheckpointProgress ensures consistent structure and proper serialization
+                let checkpoint =
+                    CheckpointProgress::new(last_checkpoint, processed_count, resume_from);
+
                 return Ok(error_result(
                     step_uuid,
                     format!(
@@ -174,14 +189,7 @@ impl RustStepHandler for CheckpointAndFailHandler {
                     Some("RetryableError".to_string()),
                     true, // retryable
                     elapsed_ms,
-                    Some(HashMap::from([
-                        ("checkpoint_progress".to_string(), json!(last_checkpoint)),
-                        (
-                            "processed_before_failure".to_string(),
-                            json!(processed_count),
-                        ),
-                        ("resumed_from".to_string(), json!(resume_from)),
-                    ])),
+                    Some(checkpoint.to_context_map()),
                 ));
             }
         }
@@ -198,6 +206,10 @@ impl RustStepHandler for CheckpointAndFailHandler {
             "CheckpointAndFailHandler: Completed successfully"
         );
 
+        // TAS-64: Return success with checkpoint preserved in results using type-safe CheckpointProgress
+        let final_checkpoint =
+            CheckpointProgress::new(current_position, processed_count, resume_from);
+
         Ok(success_result(
             step_uuid,
             json!({
@@ -210,10 +222,7 @@ impl RustStepHandler for CheckpointAndFailHandler {
                 "message": "Batch processing completed successfully"
             }),
             elapsed_ms,
-            Some(HashMap::from([
-                ("checkpoint_progress".to_string(), json!(current_position)),
-                ("total_processed".to_string(), json!(processed_count)),
-            ])),
+            Some(final_checkpoint.to_context_map()),
         ))
     }
 
