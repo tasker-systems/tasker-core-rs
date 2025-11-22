@@ -290,8 +290,18 @@ impl BatchWorkerInputs {
 /// ## Storage Location
 ///
 /// Checkpoint data is stored in the `context` HashMap of `StepExecutionMetadata`:
-/// ```rust
-/// StepExecutionResult::failure(
+/// ```rust,no_run
+/// use std::collections::HashMap;
+/// use serde_json::json;
+/// # use uuid::Uuid;
+/// # use tasker_shared::messaging::StepExecutionResult;
+/// # let step_uuid = Uuid::new_v4();
+/// # let error_message = "Simulated failure".to_string();
+/// # let error_code = Some("BATCH_FAILURE".to_string());
+/// # let error_type = Some("RetryableError".to_string());
+/// # let retryable = true;
+/// # let execution_time_ms = 100;
+/// let _result = StepExecutionResult::failure(
 ///     step_uuid,
 ///     error_message,
 ///     error_code,
@@ -303,7 +313,7 @@ impl BatchWorkerInputs {
 ///         ("processed_before_failure".to_string(), json!(50)),
 ///         ("resumed_from".to_string(), json!(0)),
 ///     ])),
-/// )
+/// );
 /// ```
 ///
 /// ## Resumption Flow
@@ -316,7 +326,9 @@ impl BatchWorkerInputs {
 /// ## Type-Safe Extraction
 ///
 /// Instead of raw HashMap navigation:
-/// ```rust
+/// ```rust,no_run
+/// # use tasker_shared::types::TaskSequenceStep;
+/// # async fn example(step_data: &TaskSequenceStep) -> anyhow::Result<()> {
 /// // BEFORE (error-prone, no type safety)
 /// let checkpoint = step_data.workflow_step.results.as_ref()
 ///     .and_then(|r| r.get("metadata"))
@@ -324,14 +336,21 @@ impl BatchWorkerInputs {
 ///     .and_then(|c| c.get("checkpoint_progress"))
 ///     .and_then(|v| v.as_u64())
 ///     .unwrap_or(0);
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// Use type-safe extraction with proper error handling:
-/// ```rust
+/// ```rust,no_run
+/// # use tasker_shared::models::core::batch_worker::CheckpointProgress;
+/// # use tasker_shared::types::TaskSequenceStep;
+/// # async fn example(step_data: &TaskSequenceStep) -> anyhow::Result<()> {
 /// // AFTER (type-safe, Result-based error handling)
-/// let checkpoint = CheckpointProgress::from_workflow_step(&step_data.workflow_step)?
+/// let checkpoint = CheckpointProgress::from_workflow_step_with_name(&step_data.workflow_step)?
 ///     .map(|cp| cp.checkpoint_progress)
 ///     .unwrap_or(0);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CheckpointProgress {
@@ -535,11 +554,11 @@ impl CheckpointProgress {
     ///
     /// ```rust,no_run
     /// use tasker_shared::models::core::batch_worker::CheckpointProgress;
-    /// use tasker_shared::types::TaskSequenceStep;
+    /// use tasker_shared::models::WorkflowStep;
     ///
-    /// # async fn example(step_data: &TaskSequenceStep) -> anyhow::Result<()> {
+    /// # async fn example(step: &WorkflowStep) -> anyhow::Result<()> {
     /// // Check for checkpoint from previous attempt
-    /// let checkpoint = CheckpointProgress::from_workflow_step(&step_data.workflow_step)?;
+    /// let checkpoint = CheckpointProgress::from_workflow_step(step)?;
     ///
     /// let resume_position = if let Some(cp) = checkpoint {
     ///     // Resume from last checkpoint
