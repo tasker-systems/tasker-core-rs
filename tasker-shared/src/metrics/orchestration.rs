@@ -521,6 +521,69 @@ pub static TASK_TIME_IN_DLQ_HOURS: OnceLock<Histogram<f64>> = OnceLock::new();
 /// Static gauge: dlq_pending_investigations
 pub static DLQ_PENDING_INVESTIGATIONS: OnceLock<Gauge<u64>> = OnceLock::new();
 
+// ============================================================================
+// TAS-65: Task State Machine Event Metrics
+// ============================================================================
+
+/// Total number of task state transitions
+///
+/// Tracks all state machine transitions for tasks.
+///
+/// Labels:
+/// - correlation_id: Task correlation ID (TAS-29)
+/// - from_state: Source state (pending, initializing, enqueuing_steps, etc.)
+/// - to_state: Target state
+/// - namespace: Task namespace
+pub fn task_state_transitions_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.task.state_transitions.total")
+        .with_description("Total number of task state transitions")
+        .init()
+}
+
+/// Time spent in each task state in seconds
+///
+/// Tracks duration between state entry and exit.
+///
+/// Labels:
+/// - state: Task state (pending, initializing, enqueuing_steps, etc.)
+/// - namespace: Task namespace
+/// - correlation_id: Task correlation ID
+pub fn task_state_duration_seconds() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.task.state_duration")
+        .with_description("Time spent in each task state in seconds")
+        .with_unit("s")
+        .init()
+}
+
+/// Task end-to-end completion duration in seconds
+///
+/// Tracks time from Pending to terminal state (Complete, Error, Cancelled, ResolvedManually).
+///
+/// Labels:
+/// - namespace: Task namespace
+/// - outcome: complete, error, cancelled, resolved_manually
+/// - correlation_id: Task correlation ID
+pub fn task_completion_duration_seconds() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.task.completion_duration")
+        .with_description("Task end-to-end completion duration in seconds")
+        .with_unit("s")
+        .init()
+}
+
+// TAS-65: Task state metrics statics
+
+/// Static counter: task_state_transitions_total
+pub static TASK_STATE_TRANSITIONS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static histogram: task_state_duration_seconds
+pub static TASK_STATE_DURATION_SECONDS: OnceLock<Histogram<f64>> = OnceLock::new();
+
+/// Static histogram: task_completion_duration_seconds
+pub static TASK_COMPLETION_DURATION_SECONDS: OnceLock<Histogram<f64>> = OnceLock::new();
+
 /// Initialize all orchestration metrics
 ///
 /// This should be called during application startup after init_metrics().
@@ -558,4 +621,9 @@ pub fn init() {
     STALENESS_DETECTION_DURATION.get_or_init(staleness_detection_duration);
     TASK_TIME_IN_DLQ_HOURS.get_or_init(task_time_in_dlq_hours);
     DLQ_PENDING_INVESTIGATIONS.get_or_init(dlq_pending_investigations);
+
+    // TAS-65: Task state machine metrics
+    TASK_STATE_TRANSITIONS_TOTAL.get_or_init(task_state_transitions_total);
+    TASK_STATE_DURATION_SECONDS.get_or_init(task_state_duration_seconds);
+    TASK_COMPLETION_DURATION_SECONDS.get_or_init(task_completion_duration_seconds);
 }

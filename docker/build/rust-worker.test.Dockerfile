@@ -41,8 +41,9 @@ RUN ARCH=$(uname -m) && \
 
 # OPTIMIZATION 2: Install cargo-chef using cargo-binstall
 # Saves 5-10 minutes vs compiling from source
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
+# Use sharing=locked to prevent concurrent access issues
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     cargo binstall cargo-chef --no-confirm --no-symlinks
 
 WORKDIR /app
@@ -89,9 +90,10 @@ COPY --from=planner /app/recipe.json recipe.json
 
 # OPTIMIZATION 3: Build dependencies with cache mounts
 # Note: We don't use --package here as cargo-chef works better with full workspace
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
+# Use sharing=locked to prevent concurrent access issues
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
     cargo chef cook --recipe-path recipe.json
 
 # Copy workspace root files and all source
@@ -121,9 +123,10 @@ ENV SQLX_OFFLINE=true
 
 # OPTIMIZATION 4: Build with cache mounts and copy binary in single layer
 # This avoids the inefficient double-copy pattern
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
+# Use sharing=locked to prevent concurrent access issues
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
     cargo build --all-features --bin rust-worker -p tasker-worker-rust && \
     cp /app/target/debug/rust-worker /app/rust-worker
 

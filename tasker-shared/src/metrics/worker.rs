@@ -226,6 +226,50 @@ pub static ACTIVE_STEP_EXECUTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
 /// Static gauge: queue_depth
 pub static QUEUE_DEPTH: OnceLock<Gauge<u64>> = OnceLock::new();
 
+// ============================================================================
+// TAS-65: Step State Machine Event Metrics
+// ============================================================================
+
+/// Total number of step state transitions
+///
+/// Tracks all state machine transitions for workflow steps.
+///
+/// Labels:
+/// - task_uuid: Parent task UUID
+/// - from_state: Source state (pending, enqueued, in_progress, etc.)
+/// - to_state: Target state
+/// - namespace: Worker namespace
+pub fn step_state_transitions_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.step.state_transitions.total")
+        .with_description("Total number of step state transitions")
+        .init()
+}
+
+/// Step attempt counts by outcome
+///
+/// Tracks retry behavior and success/failure patterns.
+///
+/// Labels:
+/// - handler_name: Step handler name
+/// - namespace: Worker namespace
+/// - outcome: success, error, cancelled, resolved_manually
+/// - attempt_number: 1, 2, 3, etc.
+pub fn step_attempts_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.step.attempts.total")
+        .with_description("Step attempt counts by outcome")
+        .init()
+}
+
+// TAS-65: Step state metrics statics
+
+/// Static counter: step_state_transitions_total
+pub static STEP_STATE_TRANSITIONS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: step_attempts_total
+pub static STEP_ATTEMPTS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
 /// Initialize all worker metrics
 ///
 /// This should be called during application startup after init_metrics().
@@ -240,4 +284,8 @@ pub fn init() {
     STEP_RESULT_SUBMISSION_DURATION.get_or_init(step_result_submission_duration);
     ACTIVE_STEP_EXECUTIONS.get_or_init(active_step_executions);
     QUEUE_DEPTH.get_or_init(queue_depth);
+
+    // TAS-65: Step state machine metrics
+    STEP_STATE_TRANSITIONS_TOTAL.get_or_init(step_state_transitions_total);
+    STEP_ATTEMPTS_TOTAL.get_or_init(step_attempts_total);
 }

@@ -185,21 +185,41 @@ impl TransitionActions {
 }
 
 // Helper function to determine event names from state transitions
+// TAS-65 Phase 1.2a: Comprehensive event mapping for all 14 task lifecycle events
 fn determine_task_event_name_from_states(from: TaskState, to: TaskState) -> Option<&'static str> {
     use TaskState::*;
 
     match (from, to) {
-        (Pending, Initializing) => Some("task.started"),
+        // Initial state transitions
+        (Pending, Initializing) => Some("task.initialize_requested"),
+        
+        // TAS-41 orchestration lifecycle transitions
+        (Initializing, EnqueuingSteps) => Some("task.steps_discovery_completed"),
+        (EnqueuingSteps, StepsInProcess) => Some("task.steps_enqueued"),
+        (StepsInProcess, EvaluatingResults) => Some("task.step_results_received"),
+        
+        // Waiting state transitions
+        (_, WaitingForDependencies) => Some("task.awaiting_dependencies"),
+        (WaitingForDependencies, EvaluatingResults) => Some("task.dependencies_satisfied"),
+        (_, WaitingForRetry) => Some("task.retry_backoff_started"),
+        (_, BlockedByFailures) => Some("task.blocked_by_failures"),
+        
+        // Terminal state transitions
         (_, Complete) => Some("task.completed"),
         (_, Error) => Some("task.failed"),
         (_, Cancelled) => Some("task.cancelled"),
         (_, ResolvedManually) => Some("task.resolved_manually"),
-        (Error, Pending) => Some("task.reset"),
+        
+        // Retry transitions
+        (Error, Pending) => Some("task.retry_requested"),
+        (WaitingForRetry, Pending) => Some("task.retry_requested"),
+        
         _ => None,
     }
 }
 
 // Helper function to build event context
+// TAS-65 Phase 1.2a: Add correlation_id for distributed tracing (TAS-29)
 fn build_task_event_context(
     task: &Task,
     from_state: TaskState,
@@ -209,6 +229,8 @@ fn build_task_event_context(
     serde_json::json!({
         "task_uuid": task.task_uuid,
         "named_task_uuid": task.named_task_uuid,
+        "correlation_id": task.correlation_id,
+        "parent_correlation_id": task.parent_correlation_id,
         "from_state": from_state.as_str(),
         "to_state": to_state.as_str(),
         "event": format!("{:?}", event),
@@ -218,6 +240,7 @@ fn build_task_event_context(
 }
 
 // Legacy helper function to build event context for string-based parameters
+// TAS-65 Phase 1.2a: Add correlation_id for distributed tracing (TAS-29)
 fn build_task_event_context_legacy(
     task: &Task,
     from_state: &Option<String>,
@@ -227,6 +250,8 @@ fn build_task_event_context_legacy(
     serde_json::json!({
         "task_uuid": task.task_uuid,
         "named_task_uuid": task.named_task_uuid,
+        "correlation_id": task.correlation_id,
+        "parent_correlation_id": task.parent_correlation_id,
         "from_state": from_state.as_deref().unwrap_or("unknown"),
         "to_state": to_state,
         "event": event,
@@ -844,32 +869,69 @@ impl StateAction<WorkflowStep> for ResetAttemptsAction {
 }
 
 // Helper functions for event processing
+// TAS-65 Phase 1.2a: Legacy string-based event mapping with comprehensive TAS-41 coverage
 
 fn determine_task_event_name(from_state: &Option<String>, to_state: &str) -> Option<&'static str> {
     match (from_state.as_deref(), to_state) {
-        (_, "in_progress") => Some("task.started"),
+        // Initial state transitions
+        (Some("pending"), "initializing") => Some("task.initialize_requested"),
+        
+        // TAS-41 orchestration lifecycle transitions
+        (Some("initializing"), "enqueuing_steps") => Some("task.steps_discovery_completed"),
+        (Some("enqueuing_steps"), "steps_in_process") => Some("task.steps_enqueued"),
+        (Some("steps_in_process"), "evaluating_results") => Some("task.step_results_received"),
+        
+        // Waiting state transitions
+        (_, "waiting_for_dependencies") => Some("task.awaiting_dependencies"),
+        (Some("waiting_for_dependencies"), "evaluating_results") => Some("task.dependencies_satisfied"),
+        (_, "waiting_for_retry") => Some("task.retry_backoff_started"),
+        (_, "blocked_by_failures") => Some("task.blocked_by_failures"),
+        
+        // Terminal state transitions
         (_, "complete") => Some("task.completed"),
         (_, "error") => Some("task.failed"),
         (_, "cancelled") => Some("task.cancelled"),
         (_, "resolved_manually") => Some("task.resolved_manually"),
-        (Some("error"), "pending") => Some("task.reset"),
+        
+        // Retry transitions
+        (Some("error"), "pending") => Some("task.retry_requested"),
+        (Some("waiting_for_retry"), "pending") => Some("task.retry_requested"),
+        
+        // Legacy compatibility (deprecated, use snake_case state names above)
+        (_, "in_progress") => Some("task.started"),  // Maps to old "in_progress" state
+        
         _ => None,
     }
 }
 
+// TAS-65 Phase 1.2b: Comprehensive step event mapping with all 12 lifecycle events
 fn determine_step_event_name(from_state: &Option<String>, to_state: &str) -> Option<&'static str> {
     match (from_state.as_deref(), to_state) {
-        (_, "in_progress") => Some("step.started"),
+        // Processing pipeline transitions
+        (Some("pending"), "enqueued") => Some("step.enqueue_requested"),
+        (Some("enqueued"), "in_progress") => Some("step.execution_requested"),
+        (_, "in_progress") => Some("step.handle"),  // Generic in-progress transition (handler execution)
+        
+        // Orchestration coordination transitions
         (_, "enqueued_for_orchestration") => Some("step.enqueued_for_orchestration"),
+        (_, "enqueued_as_error_for_orchestration") => Some("step.enqueued_as_error_for_orchestration"),
+        
+        // Retry transitions
+        (_, "waiting_for_retry") => Some("step.retry_requested"),
+        (Some("error"), "pending") => Some("step.retry_requested"),
+        (Some("waiting_for_retry"), "pending") => Some("step.retry_requested"),
+        
+        // Terminal state transitions
         (_, "complete") => Some("step.completed"),
         (_, "error") => Some("step.failed"),
         (_, "cancelled") => Some("step.cancelled"),
         (_, "resolved_manually") => Some("step.resolved_manually"),
-        (Some("error"), "pending") => Some("step.retried"),
+        
         _ => None,
     }
 }
 
+// TAS-65 Phase 1.2b: Add correlation_id for distributed tracing (TAS-29)
 fn build_step_event_context(
     step: &WorkflowStep,
     from_state: &Option<String>,
@@ -885,6 +947,8 @@ fn build_step_event_context(
         "event": event,
         "transitioned_at": Utc::now()
     })
+    // Note: WorkflowStep doesn't have correlation_id field - it's inherited from Task
+    // Future enhancement: Add task correlation_id lookup when needed for distributed tracing
 }
 
 fn extract_results_from_event(event: &str) -> ActionResult<Option<Value>> {

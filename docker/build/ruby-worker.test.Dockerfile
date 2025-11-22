@@ -69,11 +69,12 @@ COPY migrations/ ./migrations/
 
 # OPTIMIZATION 2: Build FFI libraries with cache mounts in single layer
 # This avoids the inefficient double-copy pattern
+# Use sharing=locked to prevent concurrent access issues
 ENV SQLX_OFFLINE=true
 WORKDIR /app/workers/ruby
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
     cargo build --all-features --package tasker-shared --package tasker-client --package tasker-worker --package pgmq-notify && \
     # Copy compiled libraries from cache mount to persistent location
     mkdir -p /app/target/debug && \
