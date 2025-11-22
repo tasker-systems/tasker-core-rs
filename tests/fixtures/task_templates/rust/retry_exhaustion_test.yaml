@@ -1,0 +1,69 @@
+# TaskTemplate Configuration - TAS-64 Retry Exhaustion E2E Testing
+#
+# Tests retry exhaustion leading to permanent failure
+# Proves that exhausted retries result in error state
+#
+# Template: retry_exhaustion_test:1.0.0
+# Created: 2025-11-20 (TAS-64 Implementation)
+#
+# Test Pattern:
+# always_fail step configured to fail 10 times but only has 3 max_attempts
+# Should exhaust retries and enter error state
+#
+---
+name: retry_exhaustion_test
+namespace_name: rust_e2e_retry
+version: 1.0.0
+description: "E2E test proving retry exhaustion leads to permanent error state"
+metadata:
+  author: TAS-64 Retry Mechanics Testing
+  tags:
+    - namespace:retry_testing
+    - pattern:retry_exhaustion
+    - type:e2e_test
+    - implementation:rust
+  documentation_url:
+  created_at: "2025-11-20T00:00:00Z"
+  updated_at: "2025-11-20T00:00:00Z"
+  notes: "Validates that max_attempts exhaustion correctly transitions to error state"
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization:
+    test_type: retry_exhaustion
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required: []
+  properties:
+    test_id:
+      type: string
+      description: "Optional test identifier for debugging"
+steps:
+  - name: always_fail
+    description: "Always fails - configured to fail more times than max_attempts allows"
+    handler:
+      callable: FailNTimesHandler
+      initialization:
+        fail_count: 10
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 50
+      max_backoff_ms: 100
+    timeout_seconds: 30
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: always_fail
+        timeout_seconds: 10
+        retry:
+          max_attempts: 3
+          backoff_base_ms: 50
+          max_backoff_ms: 100

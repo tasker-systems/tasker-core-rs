@@ -1,10 +1,12 @@
 mod batch_processing_csv_workflow;
 mod batch_processing_workflow;
+mod batch_resumption_test;
 mod conditional_approval_rust;
 mod diamond_decision_batch_workflow;
 mod diamond_workflow;
 mod linear_workflow;
 mod mixed_dag_workflow;
 mod order_fulfillment;
+mod retry_mechanics_test;
 mod simple_integration_tests;
 mod tree_workflow;
