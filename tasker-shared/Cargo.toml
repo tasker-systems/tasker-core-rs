@@ -47,6 +47,7 @@ is-terminal = { workspace = true }
 jsonwebtoken = { workspace = true, optional = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
+opentelemetry-prometheus-text-exporter = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true }
 # Message queue management

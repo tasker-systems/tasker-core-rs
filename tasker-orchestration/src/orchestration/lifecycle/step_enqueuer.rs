@@ -262,7 +262,6 @@ impl StepEnqueuer {
                         counter.add(
                             1,
                             &[
-                                KeyValue::new("correlation_id", correlation_id.to_string()),
                                 KeyValue::new("namespace", task_info.namespace_name.clone()),
                                 KeyValue::new("step_name", viable_step.name.clone()),
                             ],

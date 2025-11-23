@@ -95,7 +95,6 @@ impl MessageHandler {
             counter.add(
                 1,
                 &[
-                    KeyValue::new("correlation_id", correlation_id.to_string()),
                     KeyValue::new("result_type", result_type),
                 ],
             );
@@ -190,7 +189,6 @@ impl MessageHandler {
             histogram.record(
                 duration_ms,
                 &[
-                    KeyValue::new("correlation_id", correlation_id.to_string()),
                     KeyValue::new("result_type", result_type),
                 ],
             );

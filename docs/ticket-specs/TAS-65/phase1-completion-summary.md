@@ -8,13 +8,14 @@
 
 ## Executive Summary
 
-Phase 1 successfully migrated the distributed event system from in-process broadcast channels to OpenTelemetry-based observability. All 34 system events (14 task + 12 step + 8 workflow) now have comprehensive event mapping with correlation_id propagation and Prometheus-compatible metrics.
+Phase 1 successfully migrated the distributed event system from in-process broadcast channels to OpenTelemetry-based observability. All 34 system events (14 task + 12 step + 8 workflow) now have comprehensive event mapping with correlation_id propagation for distributed tracing and low-cardinality Prometheus metrics.
 
 ### Key Achievements
 
 ✅ **Event Audit Complete** - Comprehensive mapping of all 34 system events to state transitions
-✅ **Event Mapping Enhanced** - All task and step events mapped with TAS-29 correlation_id
-✅ **Metrics Implemented** - 5 new OpenTelemetry metrics for state machine observability  
+✅ **Event Mapping Enhanced** - All task and step events mapped with TAS-29 correlation_id in spans
+✅ **Metrics Implemented** - 5 new OpenTelemetry metrics with low-cardinality labels (namespace-based)
+✅ **Cardinality Control** - High-cardinality IDs (task_uuid, correlation_id) in spans/logs, not metrics
 ✅ **Span Infrastructure** - Existing tracing instrumentation verified with correlation_id
 ✅ **Zero Breaking Changes** - All tests passing, backward compatible
 
@@ -111,20 +112,23 @@ match (from_state.as_deref(), to_state) {
 
 1. **task_state_transitions_total** (Counter)
    ```
-   Labels: correlation_id, from_state, to_state, namespace
+   Labels: namespace, from_state, to_state (low-cardinality only)
    Purpose: Track all task state machine transitions
+   Note: High-cardinality IDs (task_uuid, correlation_id) are in spans/logs, not metrics
    ```
 
 2. **task_state_duration_seconds** (Histogram)
    ```
-   Labels: state, namespace, correlation_id
+   Labels: state, namespace (low-cardinality only)
    Purpose: Measure time spent in each task state
+   Note: High-cardinality IDs are in spans/logs, not metrics
    ```
 
 3. **task_completion_duration_seconds** (Histogram)
    ```
-   Labels: namespace, outcome, correlation_id
+   Labels: namespace, outcome (low-cardinality only)
    Purpose: End-to-end task duration (Pending → terminal)
+   Note: High-cardinality IDs are in spans/logs, not metrics
    ```
 
 ### Phase 1.3b: Step State Machine Metrics
@@ -135,8 +139,9 @@ match (from_state.as_deref(), to_state) {
 
 1. **step_state_transitions_total** (Counter)
    ```
-   Labels: task_uuid, from_state, to_state, namespace
+   Labels: namespace, from_state, to_state (low-cardinality only)
    Purpose: Track all step state machine transitions
+   Note: High-cardinality IDs (step_uuid, task_uuid) are in spans/logs, not metrics
    ```
 
 2. **step_attempts_total** (Counter)
@@ -214,20 +219,22 @@ cargo test --all-features --package tasker-shared
 Once OpenTelemetry is enabled, new metrics will be available at Prometheus endpoint:
 
 ```prometheus
-# Task state transitions
-tasker_task_state_transitions_total{correlation_id="...",from_state="pending",to_state="initializing",namespace="payments"} 1
+# Task state transitions (low-cardinality: namespace + states only)
+tasker_task_state_transitions_total{namespace="payments",from_state="pending",to_state="initializing"} 42
 
-# Task state duration
-tasker_task_state_duration_seconds_bucket{state="initializing",namespace="payments",correlation_id="...",le="0.5"} 15
+# Task state duration (low-cardinality: namespace + state only)
+tasker_task_state_duration_seconds_bucket{namespace="payments",state="initializing",le="0.5"} 38
 
-# Task completion duration
-tasker_task_completion_duration_seconds_bucket{namespace="payments",outcome="complete",correlation_id="...",le="10"} 42
+# Task completion duration (low-cardinality: namespace + outcome only)
+tasker_task_completion_duration_seconds_bucket{namespace="payments",outcome="complete",le="10"} 156
 
-# Step state transitions
-tasker_step_state_transitions_total{task_uuid="...",from_state="pending",to_state="enqueued",namespace="payments"} 1
+# Step state transitions (low-cardinality: namespace + states only)
+tasker_step_state_transitions_total{namespace="payments",from_state="pending",to_state="enqueued"} 84
 
 # Step attempts (retry tracking)
 tasker_step_attempts_total{handler_name="process_payment",namespace="payments",outcome="success",attempt_number="1"} 150
+
+# Note: High-cardinality IDs (task_uuid, correlation_id, step_uuid) are in spans and logs for individual request tracing
 ```
 
 ---
@@ -255,14 +262,15 @@ tasker_step_attempts_total{handler_name="process_payment",namespace="payments",o
 ### Prometheus Metrics
 - ✅ 5 new state machine metrics
 - ✅ Existing orchestration/worker metrics (50+ total)
-- ✅ Namespace-aware labels
-- ✅ Correlation_id in all metrics
+- ✅ Low-cardinality namespace-aware labels
+- ✅ High-cardinality IDs (correlation_id, task_uuid) moved to spans/logs
 
 ### Jaeger Tracing
 - ✅ Span hierarchy with correlation_id
 - ✅ Distributed trace visualization
 - ✅ Task → Step trace propagation
 - ✅ Search by correlation_id
+- ✅ High-cardinality context in spans (task_uuid, correlation_id, parent_correlation_id)
 
 ### Grafana Dashboards (Future)
 - Task state transition rates
@@ -319,11 +327,12 @@ Phase 1 completion criteria met:
 
 ✅ **All 34 system events accounted for** (14 task + 12 step + 8 workflow)
 ✅ **All state transitions emit event names** (100% mapping coverage)
-✅ **Correlation_id in all event contexts** (TAS-29 integration)
-✅ **OpenTelemetry metrics implemented** (5 new metrics)
+✅ **Correlation_id in span events** (TAS-29 integration for distributed tracing)
+✅ **OpenTelemetry metrics implemented** (5 new metrics with low-cardinality labels)
 ✅ **Span hierarchy verified** (existing instrumentation confirmed)
 ✅ **Zero breaking changes** (all tests passing)
 ✅ **Clean compilation** (no warnings or errors)
+✅ **Cardinality control** (high-cardinality IDs in spans/logs, not metrics)
 
 ---
 

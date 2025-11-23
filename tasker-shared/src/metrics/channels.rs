@@ -78,7 +78,7 @@ pub fn channel_messages_sent() -> Counter<u64> {
     meter()
         .u64_counter("tasker.channel.messages.sent")
         .with_description("Total number of messages sent through channel")
-        .init()
+        .build()
 }
 
 /// Total number of messages received from channel
@@ -90,7 +90,7 @@ pub fn channel_messages_received() -> Counter<u64> {
     meter()
         .u64_counter("tasker.channel.messages.received")
         .with_description("Total number of messages received from channel")
-        .init()
+        .build()
 }
 
 /// Total number of channel overflow events (backpressure applied)
@@ -102,7 +102,7 @@ pub fn channel_overflow_events() -> Counter<u64> {
     meter()
         .u64_counter("tasker.channel.overflow.events")
         .with_description("Total number of channel overflow events (backpressure applied)")
-        .init()
+        .build()
 }
 
 /// Total number of messages dropped due to overflow
@@ -114,7 +114,7 @@ pub fn channel_messages_dropped() -> Counter<u64> {
     meter()
         .u64_counter("tasker.channel.messages.dropped")
         .with_description("Total number of messages dropped due to channel overflow")
-        .init()
+        .build()
 }
 
 // ============================================================================
@@ -133,7 +133,7 @@ pub fn channel_saturation() -> Gauge<f64> {
     meter()
         .f64_gauge("tasker.channel.saturation")
         .with_description("Current channel saturation ratio (0.0 to 1.0)")
-        .init()
+        .build()
 }
 
 /// Configured channel buffer size
@@ -145,7 +145,7 @@ pub fn channel_buffer_size() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.channel.buffer_size")
         .with_description("Configured channel buffer size")
-        .init()
+        .build()
 }
 
 /// Channel health status indicator (0 = healthy, 1 = degraded, 2 = critical)
@@ -158,7 +158,7 @@ pub fn channel_health_status() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.channel.health_status")
         .with_description("Channel health status (0=healthy, 1=degraded, 2=critical)")
-        .init()
+        .build()
 }
 
 /// Current message backlog (messages in channel)
@@ -172,7 +172,7 @@ pub fn channel_message_backlog() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.channel.backlog")
         .with_description("Current number of messages in channel")
-        .init()
+        .build()
 }
 
 // ============================================================================

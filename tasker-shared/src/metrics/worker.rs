@@ -61,7 +61,7 @@ pub fn step_executions_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.steps.executions.total")
         .with_description("Total number of step executions attempted")
-        .init()
+        .build()
 }
 
 /// Total number of step executions that completed successfully
@@ -75,7 +75,7 @@ pub fn step_successes_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.steps.successes.total")
         .with_description("Total number of step executions that completed successfully")
-        .init()
+        .build()
 }
 
 /// Total number of step executions that failed
@@ -91,7 +91,7 @@ pub fn step_failures_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.steps.failures.total")
         .with_description("Total number of step executions that failed")
-        .init()
+        .build()
 }
 
 /// Total number of steps claimed from queue
@@ -103,7 +103,7 @@ pub fn steps_claimed_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.steps.claimed.total")
         .with_description("Total number of steps claimed from queue")
-        .init()
+        .build()
 }
 
 /// Total number of step results submitted to orchestration
@@ -116,7 +116,7 @@ pub fn step_results_submitted_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.steps.results_submitted.total")
         .with_description("Total number of step results submitted to orchestration")
-        .init()
+        .build()
 }
 
 // Histograms
@@ -136,7 +136,7 @@ pub fn step_execution_duration() -> Histogram<f64> {
         .f64_histogram("tasker.step.execution.duration")
         .with_description("Step execution duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Step claiming duration in milliseconds
@@ -151,7 +151,7 @@ pub fn step_claim_duration() -> Histogram<f64> {
         .f64_histogram("tasker.step.claim.duration")
         .with_description("Step claiming duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Step result submission duration in milliseconds
@@ -166,7 +166,7 @@ pub fn step_result_submission_duration() -> Histogram<f64> {
         .f64_histogram("tasker.step_result.submission.duration")
         .with_description("Step result submission duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 // Gauges
@@ -180,7 +180,7 @@ pub fn active_step_executions() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.steps.active_executions")
         .with_description("Number of steps currently being executed")
-        .init()
+        .build()
 }
 
 /// Current queue depth per namespace
@@ -191,7 +191,7 @@ pub fn queue_depth() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.queue.depth")
         .with_description("Current queue depth per namespace")
-        .init()
+        .build()
 }
 
 // Static instances for convenience
@@ -232,18 +232,19 @@ pub static QUEUE_DEPTH: OnceLock<Gauge<u64>> = OnceLock::new();
 
 /// Total number of step state transitions
 ///
-/// Tracks all state machine transitions for workflow steps.
+/// Tracks all state machine transitions for workflow steps with low-cardinality labels.
 ///
-/// Labels:
-/// - task_uuid: Parent task UUID
+/// Labels (low-cardinality only):
+/// - namespace: Worker namespace (payments, inventory, notifications, etc.)
 /// - from_state: Source state (pending, enqueued, in_progress, etc.)
 /// - to_state: Target state
-/// - namespace: Worker namespace
+///
+/// Note: High-cardinality IDs (step_uuid, task_uuid) are in spans/logs, not metrics.
 pub fn step_state_transitions_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.step.state_transitions.total")
         .with_description("Total number of step state transitions")
-        .init()
+        .build()
 }
 
 /// Step attempt counts by outcome
@@ -259,7 +260,7 @@ pub fn step_attempts_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.step.attempts.total")
         .with_description("Step attempt counts by outcome")
-        .init()
+        .build()
 }
 
 // TAS-65: Step state metrics statics

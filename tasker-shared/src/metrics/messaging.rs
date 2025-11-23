@@ -55,7 +55,7 @@ pub fn messages_sent_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.messages.sent.total")
         .with_description("Total number of messages sent to queues")
-        .init()
+        .build()
 }
 
 /// Total number of messages received from queues
@@ -68,7 +68,7 @@ pub fn messages_received_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.messages.received.total")
         .with_description("Total number of messages received from queues")
-        .init()
+        .build()
 }
 
 /// Total number of messages archived after processing
@@ -79,7 +79,7 @@ pub fn messages_archived_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.messages.archived.total")
         .with_description("Total number of messages archived after processing")
-        .init()
+        .build()
 }
 
 /// Total number of message send failures
@@ -91,7 +91,7 @@ pub fn message_send_failures_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.messages.send_failures.total")
         .with_description("Total number of message send failures")
-        .init()
+        .build()
 }
 
 /// Total number of message receive failures
@@ -103,7 +103,7 @@ pub fn message_receive_failures_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.messages.receive_failures.total")
         .with_description("Total number of message receive failures")
-        .init()
+        .build()
 }
 
 // Histograms
@@ -122,7 +122,7 @@ pub fn message_latency() -> Histogram<f64> {
         .f64_histogram("tasker.message.latency")
         .with_description("Message end-to-end latency in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Message send operation duration in milliseconds
@@ -136,7 +136,7 @@ pub fn message_send_duration() -> Histogram<f64> {
         .f64_histogram("tasker.message.send.duration")
         .with_description("Message send operation duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Message receive operation duration in milliseconds
@@ -150,7 +150,7 @@ pub fn message_receive_duration() -> Histogram<f64> {
         .f64_histogram("tasker.message.receive.duration")
         .with_description("Message receive operation duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Message archive operation duration in milliseconds
@@ -164,7 +164,7 @@ pub fn message_archive_duration() -> Histogram<f64> {
         .f64_histogram("tasker.message.archive.duration")
         .with_description("Message archive operation duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 // Gauges
@@ -177,7 +177,7 @@ pub fn queue_depth() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.queue.depth")
         .with_description("Current queue depth (number of unprocessed messages)")
-        .init()
+        .build()
 }
 
 /// Age of oldest message in queue (milliseconds)
@@ -189,7 +189,7 @@ pub fn queue_oldest_message_age() -> Gauge<u64> {
         .u64_gauge("tasker.queue.oldest_message.age")
         .with_description("Age of oldest message in queue (milliseconds)")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 // Static instances for convenience

@@ -39,9 +39,10 @@
 
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_prometheus_text_exporter::PrometheusExporter;
 use opentelemetry_sdk::{
-    metrics::{reader::DefaultTemporalitySelector, PeriodicReader, SdkMeterProvider},
-    runtime, Resource,
+    metrics::{PeriodicReader, SdkMeterProvider},
+    Resource,
 };
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -54,6 +55,10 @@ pub mod worker;
 
 /// Global metrics initialization state
 static METRICS_INITIALIZED: OnceLock<()> = OnceLock::new();
+
+/// Global Prometheus exporter for scraping metrics
+/// TAS-65 Phase 1: Store exporter for /metrics endpoint access
+static PROMETHEUS_EXPORTER: OnceLock<PrometheusExporter> = OnceLock::new();
 
 /// Telemetry configuration (reused from logging module concept)
 #[derive(Debug, Clone)]
@@ -90,27 +95,31 @@ impl Default for MetricsConfig {
 ///
 /// Creates a MeterProvider configured with OTLP exporter and periodic reader.
 /// Exports metrics every 60 seconds as specified in TAS-29 Phase 3.3.
+///
+/// Note: Currently unused as we use Prometheus text exporter instead.
+/// Kept for potential future OTLP metrics export functionality.
+#[allow(dead_code)]
 fn init_opentelemetry_meter(
     config: &MetricsConfig,
 ) -> Result<SdkMeterProvider, Box<dyn std::error::Error>> {
-    // Build resource attributes
-    let resource = Resource::new(vec![
-        KeyValue::new("service.name", config.service_name.clone()),
-        KeyValue::new("service.version", config.service_version.clone()),
-        KeyValue::new(
-            "deployment.environment",
-            config.deployment_environment.clone(),
-        ),
-    ]);
+    // Build resource with builder pattern (OpenTelemetry 0.28+ API)
+    let resource = Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .with_attributes([
+            KeyValue::new("service.version", config.service_version.clone()),
+            KeyValue::new("deployment.environment", config.deployment_environment.clone()),
+        ])
+        .build();
 
-    // Create OTLP exporter with default temporality selector (Cumulative)
-    let exporter = opentelemetry_otlp::new_exporter()
-        .tonic()
-        .with_endpoint(&config.otlp_endpoint)
-        .build_metrics_exporter(Box::new(DefaultTemporalitySelector::new()))?;
+    // Create OTLP metrics exporter (OpenTelemetry 0.27+ API)
+    let exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_tonic()
+        .with_endpoint(config.otlp_endpoint.clone())
+        .build()?;
 
     // Create periodic reader with 60-second export interval
-    let reader = PeriodicReader::builder(exporter, runtime::Tokio)
+    // OpenTelemetry 0.31+: Runtime is configured in exporter, not reader
+    let reader = PeriodicReader::builder(exporter)
         .with_interval(Duration::from_secs(config.export_interval_seconds))
         .build();
 
@@ -123,46 +132,91 @@ fn init_opentelemetry_meter(
     Ok(meter_provider)
 }
 
-/// Initialize metrics collection with OpenTelemetry
+/// Initialize metrics collection with OpenTelemetry Prometheus text exporter
 ///
 /// This function should be called during application startup to initialize
-/// the global MeterProvider. It's safe to call multiple times - subsequent
-/// calls are no-ops.
+/// the global MeterProvider with Prometheus text exporter. It's safe to call
+/// multiple times - subsequent calls are no-ops.
 ///
-/// Metrics are only initialized if `TELEMETRY_ENABLED=true` is set.
+/// TAS-65 Phase 1: Uses Prometheus text exporter for /metrics endpoint.
+/// Metrics are always enabled (no TELEMETRY_ENABLED check needed for Prometheus).
 pub fn init_metrics() {
     METRICS_INITIALIZED.get_or_init(|| {
-        let config = MetricsConfig::default();
+        // Create Prometheus text exporter
+        let exporter = PrometheusExporter::new();
 
-        if config.enabled {
-            match init_opentelemetry_meter(&config) {
-                Ok(meter_provider) => {
-                    opentelemetry::global::set_meter_provider(meter_provider);
+        // Build resource with builder pattern (OpenTelemetry 0.28+ API)
+        let resource = Resource::builder()
+            .with_service_name(
+                std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "tasker-core".to_string())
+            )
+            .with_attributes([
+                KeyValue::new(
+                    "service.version",
+                    std::env::var("OTEL_SERVICE_VERSION").unwrap_or_else(|_| "0.1.0".to_string()),
+                ),
+                KeyValue::new(
+                    "deployment.environment",
+                    std::env::var("DEPLOYMENT_ENVIRONMENT")
+                        .or_else(|_| std::env::var("TASKER_ENV"))
+                        .unwrap_or_else(|_| "development".to_string()),
+                ),
+            ])
+            .build();
 
-                    // Initialize domain-specific metrics
-                    channels::init();
-                    orchestration::init();
-                    worker::init();
-                    // database and messaging metrics are initialized on-demand
+        // Create meter provider with Prometheus exporter as reader
+        let provider = SdkMeterProvider::builder()
+            .with_reader(exporter.clone())
+            .with_resource(resource)
+            .build();
 
-                    tracing::info!(
-                        service_name = %config.service_name,
-                        otlp_endpoint = %config.otlp_endpoint,
-                        export_interval_seconds = config.export_interval_seconds,
-                        "OpenTelemetry metrics initialized (channels, orchestration, worker)"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to initialize OpenTelemetry metrics - metrics collection disabled"
-                    );
-                }
-            }
-        } else {
-            tracing::debug!("Metrics collection disabled (TELEMETRY_ENABLED=false)");
-        }
+        // Set as global meter provider
+        opentelemetry::global::set_meter_provider(provider);
+
+        // Store exporter for /metrics endpoint access
+        PROMETHEUS_EXPORTER
+            .set(exporter)
+            .expect("Failed to set PROMETHEUS_EXPORTER");
+
+        // Initialize domain-specific metrics
+        channels::init();
+        orchestration::init();
+        worker::init();
+        // database and messaging metrics are initialized on-demand
+
+        tracing::info!(
+            "OpenTelemetry Prometheus text exporter initialized (channels, orchestration, worker)"
+        );
     });
+}
+
+/// Get the Prometheus exporter for exporting metrics
+///
+/// Returns a reference to the global PrometheusExporter that can be used
+/// to export metrics in Prometheus text format via `exporter.export(&mut buf)`.
+///
+/// # Panics
+///
+/// Panics if metrics have not been initialized via `init_metrics()`.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use tasker_shared::metrics;
+///
+/// // Initialize metrics first
+/// metrics::init_metrics();
+///
+/// // Get metrics in Prometheus format
+/// let exporter = metrics::prometheus_exporter();
+/// let mut output = Vec::new();
+/// exporter.export(&mut output).unwrap();
+/// let metrics_text = String::from_utf8(output).unwrap();
+/// ```
+pub fn prometheus_exporter() -> &'static PrometheusExporter {
+    PROMETHEUS_EXPORTER
+        .get()
+        .expect("Metrics not initialized - call init_metrics() first")
 }
 
 /// Shutdown OpenTelemetry metrics gracefully

@@ -47,7 +47,7 @@ pub fn sql_queries_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.sql.queries.total")
         .with_description("Total number of SQL queries executed")
-        .init()
+        .build()
 }
 
 /// Total number of database connection pool checkouts
@@ -58,7 +58,7 @@ pub fn db_pool_checkouts_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.db.pool.checkouts.total")
         .with_description("Total number of database connection pool checkouts")
-        .init()
+        .build()
 }
 
 /// Total number of database connection errors
@@ -69,7 +69,7 @@ pub fn db_connection_errors_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.db.connection.errors.total")
         .with_description("Total number of database connection errors")
-        .init()
+        .build()
 }
 
 // Histograms
@@ -86,7 +86,7 @@ pub fn sql_query_duration() -> Histogram<f64> {
         .f64_histogram("tasker.sql.query.duration")
         .with_description("SQL query execution duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Database transaction duration in milliseconds
@@ -101,7 +101,7 @@ pub fn db_transaction_duration() -> Histogram<f64> {
         .f64_histogram("tasker.db.transaction.duration")
         .with_description("Database transaction duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Connection pool checkout duration in milliseconds
@@ -115,7 +115,7 @@ pub fn db_pool_checkout_duration() -> Histogram<f64> {
         .f64_histogram("tasker.db.pool.checkout.duration")
         .with_description("Connection pool checkout duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 // Gauges
@@ -129,7 +129,7 @@ pub fn db_pool_connections() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.db.pool.connections")
         .with_description("Current database connection pool size")
-        .init()
+        .build()
 }
 
 // Static instances for convenience

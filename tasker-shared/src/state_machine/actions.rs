@@ -11,6 +11,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 
+// TAS-65 Phase 1: OpenTelemetry instrumentation
+use crate::metrics::orchestration::task_state_transitions_total;
+use crate::metrics::worker::step_state_transitions_total;
+use opentelemetry::KeyValue;
+use tracing::{event, Level};
+
 /// Trait for implementing state transition actions
 #[async_trait]
 pub trait StateAction<T> {
@@ -173,6 +179,36 @@ impl TransitionActions {
         if let Some(event_name) = event_name {
             let context = build_task_event_context(task, from_state, to_state, event);
 
+            // TAS-65 Phase 1.2a: Emit OpenTelemetry span event
+            event!(
+                Level::INFO,
+                event_name = event_name,
+                task_uuid = %task.task_uuid,
+                correlation_id = %task.correlation_id,
+                from_state = from_state.as_str(),
+                to_state = to_state.as_str(),
+                "Task state transition"
+            );
+
+            // TAS-65 Phase 1.3a: Emit OpenTelemetry metric
+            // Low-cardinality labels only: namespace, from_state, to_state
+            // High-cardinality IDs (task_uuid, correlation_id) belong in spans/logs, NOT metrics
+            let namespace = task.context
+                .as_ref()
+                .and_then(|ctx| ctx.get("namespace"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            task_state_transitions_total().add(
+                1,
+                &[
+                    KeyValue::new("namespace", namespace.to_string()),
+                    KeyValue::new("from_state", from_state.as_str().to_string()),
+                    KeyValue::new("to_state", to_state.as_str().to_string()),
+                ],
+            );
+
+            // Legacy EventPublisher for backwards compatibility
             publisher.publish(event_name, context).await.map_err(|_| {
                 ActionError::EventPublishFailed {
                     event_name: event_name.to_string(),
@@ -317,6 +353,34 @@ impl StateAction<WorkflowStep> for PublishTransitionEventAction {
         if let Some(event_name) = event_name {
             let context = build_step_event_context(step, &from_state, &to_state, event);
 
+            // TAS-65 Phase 1.2b: Emit OpenTelemetry span event
+            // Note: step_name requires async DB lookup, not available in this context
+            event!(
+                Level::INFO,
+                event_name = event_name,
+                step_uuid = %step.workflow_step_uuid,
+                task_uuid = %step.task_uuid,
+                named_step_uuid = %step.named_step_uuid,
+                from_state = from_state.as_deref().unwrap_or("none"),
+                to_state = %to_state,
+                "Step state transition"
+            );
+
+            // TAS-65 Phase 1.3b: Emit OpenTelemetry metric
+            // Low-cardinality labels only: namespace, from_state, to_state
+            // High-cardinality IDs (step_uuid, task_uuid) belong in spans/logs, NOT metrics
+            // Note: Step namespace would ideally be fetched from task context
+            // For now using "unknown" - will be enhanced in Phase 2
+            step_state_transitions_total().add(
+                1,
+                &[
+                    KeyValue::new("namespace", "unknown".to_string()),
+                    KeyValue::new("from_state", from_state.as_deref().unwrap_or("none").to_string()),
+                    KeyValue::new("to_state", to_state.clone()),
+                ],
+            );
+
+            // Legacy EventPublisher for backwards compatibility
             self.event_publisher
                 .publish(event_name, context)
                 .await

@@ -84,7 +84,6 @@ impl TaskInitializer {
             counter.add(
                 1,
                 &[
-                    KeyValue::new("correlation_id", correlation_id.to_string()),
                     KeyValue::new("task_type", task_name.clone()),
                     KeyValue::new("namespace", namespace.clone()),
                 ],
@@ -262,7 +261,6 @@ impl TaskInitializer {
             histogram.record(
                 duration_ms,
                 &[
-                    KeyValue::new("correlation_id", correlation_id.to_string()),
                     KeyValue::new("task_type", task_name.clone()),
                 ],
             );

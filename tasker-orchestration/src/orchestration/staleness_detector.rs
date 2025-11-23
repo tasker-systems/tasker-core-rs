@@ -345,7 +345,6 @@ impl StalenessDetector {
             // Record DLQ entries created
             if result.moved_to_dlq {
                 let dlq_labels = &[
-                    KeyValue::new("correlation_id", result.task_uuid.to_string()),
                     KeyValue::new("dlq_reason", "staleness_timeout"),
                     KeyValue::new("original_state", result.current_state.clone()),
                 ];
@@ -355,7 +354,6 @@ impl StalenessDetector {
             // Record error state transitions
             if result.transition_success {
                 let transition_labels = &[
-                    KeyValue::new("correlation_id", result.task_uuid.to_string()),
                     KeyValue::new("original_state", result.current_state.clone()),
                     KeyValue::new("reason", "staleness_timeout"),
                 ];

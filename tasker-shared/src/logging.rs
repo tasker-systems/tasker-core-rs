@@ -110,15 +110,11 @@ use uuid::Uuid;
 use crate::metrics;
 
 // OpenTelemetry imports (TAS-29 Phase 3)
-use opentelemetry::{
-    trace::{TraceError, TracerProvider as _},
-    KeyValue,
-};
+use opentelemetry::{trace::TracerProvider as _, KeyValue};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
     propagation::TraceContextPropagator,
-    runtime,
-    trace::{Sampler, TracerProvider},
+    trace::{Sampler, SdkTracerProvider},
     Resource,
 };
 use tracing_opentelemetry::OpenTelemetryLayer;
@@ -126,7 +122,7 @@ use tracing_opentelemetry::OpenTelemetryLayer;
 static TRACING_INITIALIZED: OnceLock<()> = OnceLock::new();
 /// Store TracerProvider handle for proper shutdown
 /// TAS-29: Enables graceful shutdown with span flushing
-static TRACER_PROVIDER: OnceLock<TracerProvider> = OnceLock::new();
+static TRACER_PROVIDER: OnceLock<SdkTracerProvider> = OnceLock::new();
 
 /// Configuration for OpenTelemetry (loaded from environment or defaults)
 struct TelemetryConfig {
@@ -165,19 +161,21 @@ impl Default for TelemetryConfig {
 ///
 /// Creates a TracerProvider configured with OTLP exporter and appropriate
 /// resource attributes for distributed tracing.
-fn init_opentelemetry_tracer(config: &TelemetryConfig) -> Result<TracerProvider, TraceError> {
+fn init_opentelemetry_tracer(
+    config: &TelemetryConfig,
+) -> Result<SdkTracerProvider, Box<dyn std::error::Error>> {
     // Set global propagator for context propagation
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 
     // Build resource attributes
-    let resource = Resource::new(vec![
-        KeyValue::new("service.name", config.service_name.clone()),
-        KeyValue::new("service.version", config.service_version.clone()),
-        KeyValue::new(
-            "deployment.environment",
-            config.deployment_environment.clone(),
-        ),
-    ]);
+    // Build resource with builder pattern (OpenTelemetry 0.28+ API)
+    let resource = Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .with_attributes([
+            KeyValue::new("service.version", config.service_version.clone()),
+            KeyValue::new("deployment.environment", config.deployment_environment.clone()),
+        ])
+        .build();
 
     // Configure tracer with sampling
     let sampler = if config.sample_rate >= 1.0 {
@@ -188,20 +186,19 @@ fn init_opentelemetry_tracer(config: &TelemetryConfig) -> Result<TracerProvider,
         Sampler::TraceIdRatioBased(config.sample_rate)
     };
 
-    // Use the OTLP pipeline to build the tracer provider
-    let tracer_provider = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(&config.otlp_endpoint),
-        )
-        .with_trace_config(
-            opentelemetry_sdk::trace::Config::default()
-                .with_sampler(sampler)
-                .with_resource(resource),
-        )
-        .install_batch(runtime::Tokio)?;
+    // Build OTLP exporter (OpenTelemetry 0.27+ API)
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(config.otlp_endpoint.clone())
+        .build()?;
+
+    // Build tracer provider with sampler and resource
+    // OpenTelemetry 0.31+: Sampler is set directly on builder
+    let tracer_provider = SdkTracerProvider::builder()
+        .with_simple_exporter(exporter)
+        .with_resource(resource)
+        .with_sampler(sampler)
+        .build();
 
     // Store provider handle for graceful shutdown (TAS-29 Phase 3.3)
     let _ = TRACER_PROVIDER.set(tracer_provider.clone());
@@ -315,18 +312,22 @@ pub fn shutdown_telemetry() {
     // Flush any pending spans before shutdown
     if let Some(provider) = TRACER_PROVIDER.get() {
         // Force flush to ensure all spans are exported
-        for result in provider.force_flush() {
-            if let Err(e) = result {
-                tracing::warn!("Failed to flush tracer provider: {}", e);
-            }
+        // OpenTelemetry 0.31+: force_flush() returns Result<(), TraceError>
+        if let Err(e) = provider.force_flush() {
+            tracing::warn!("Failed to flush tracer provider: {}", e);
         }
     }
 
     // Shutdown metrics (will flush any pending metrics)
     metrics::shutdown_metrics();
 
-    // Now safe to shutdown - all pending spans and metrics have been exported
-    opentelemetry::global::shutdown_tracer_provider();
+    // Shutdown tracer provider if it was initialized
+    // OpenTelemetry 0.31+: Call shutdown() on the provider instance
+    if let Some(provider) = TRACER_PROVIDER.get() {
+        if let Err(e) = provider.shutdown() {
+            tracing::error!("Failed to shutdown tracer provider: {}", e);
+        }
+    }
 }
 
 /// Legacy alias for backward compatibility

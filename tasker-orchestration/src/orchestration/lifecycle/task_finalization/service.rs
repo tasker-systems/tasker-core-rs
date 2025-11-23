@@ -104,10 +104,7 @@ impl TaskFinalizer {
             FinalizationAction::Completed => {
                 // Record task completion counter
                 if let Some(counter) = TASK_COMPLETIONS_TOTAL.get() {
-                    counter.add(
-                        1,
-                        &[KeyValue::new("correlation_id", correlation_id.to_string())],
-                    );
+                    counter.add(1, &[]);
                 }
 
                 // Record finalization duration for completed tasks
@@ -115,7 +112,6 @@ impl TaskFinalizer {
                     histogram.record(
                         duration_ms,
                         &[
-                            KeyValue::new("correlation_id", correlation_id.to_string()),
                             KeyValue::new("final_state", "complete"),
                         ],
                     );
@@ -124,10 +120,7 @@ impl TaskFinalizer {
             FinalizationAction::Failed => {
                 // Record task failure counter
                 if let Some(counter) = TASK_FAILURES_TOTAL.get() {
-                    counter.add(
-                        1,
-                        &[KeyValue::new("correlation_id", correlation_id.to_string())],
-                    );
+                    counter.add(1, &[]);
                 }
 
                 // Record finalization duration for failed tasks
@@ -135,7 +128,6 @@ impl TaskFinalizer {
                     histogram.record(
                         duration_ms,
                         &[
-                            KeyValue::new("correlation_id", correlation_id.to_string()),
                             KeyValue::new("final_state", "error"),
                         ],
                     );
@@ -153,7 +145,6 @@ impl TaskFinalizer {
                     histogram.record(
                         duration_ms,
                         &[
-                            KeyValue::new("correlation_id", correlation_id.to_string()),
                             KeyValue::new("final_state", state),
                         ],
                     );
