@@ -16,7 +16,7 @@ use tasker_shared::models::core::task_template::{StepDefinition, TaskTemplate};
 use tasker_shared::models::core::workflow_step_edge::NewWorkflowStepEdge;
 use tasker_shared::models::{Task, WorkflowStep, WorkflowStepEdge};
 use tasker_shared::system_context::SystemContext;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, event, info, instrument, warn, Level};
 
 /// Errors that can occur during decision point processing
 #[derive(Debug, thiserror::Error)]
@@ -102,11 +102,14 @@ impl DecisionPointService {
         task_uuid: Uuid,
         outcome: DecisionPointOutcome,
     ) -> Result<HashMap<String, Uuid>, DecisionPointProcessingError> {
+        event!(Level::INFO, "decision_outcome.processing_started");
+
         // TAS-53 Phase 7: Start timing for metrics
         let start_time = Instant::now();
 
         // TAS-53 Phase 7: Check if decision points are enabled
         if !self.config.is_enabled() {
+            event!(Level::WARN, "decision_points.disabled");
             warn!(
                 decision_step_uuid = %decision_step_uuid,
                 "Decision points are disabled in configuration, skipping processing"
@@ -328,6 +331,12 @@ impl DecisionPointService {
             steps_created = step_count,
             duration_ms = duration_ms,
             "Decision outcome processed successfully"
+        );
+
+        event!(
+            Level::INFO,
+            steps_created = step_count,
+            "decision_outcome.processing_completed"
         );
 
         Ok(step_mapping)

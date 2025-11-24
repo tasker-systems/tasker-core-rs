@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       use-docker:
-        description: 'Force Docker execution (overrides PR label check)'
+        description: "Force Docker execution (overrides PR label check)"
         required: false
         type: boolean
         default: false
@@ -44,7 +44,7 @@ jobs:
       - name: Setup Ruby for FFI extension
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.4'
+          ruby-version: "3.4"
           bundler-cache: true
           working-directory: workers/ruby
 
@@ -198,7 +198,7 @@ jobs:
       - name: Setup Ruby for FFI worker
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.4'
+          ruby-version: "3.4"
           bundler-cache: true
           working-directory: workers/ruby
 
@@ -376,7 +376,7 @@ jobs:
         run: |
           echo "🐳 Building and starting Docker services..."
           echo "   Note: Using cached Rust compilation from build job!"
-          docker compose -f docker/docker-compose.test.yml up --build -d
+          docker compose -f docker/docker-compose.ci.yml up --build -d
           echo "✅ All services started"
 
       - name: Wait for services with health checks
@@ -458,10 +458,10 @@ jobs:
         run: |
           echo "📋 Collecting service logs for debugging..."
           mkdir -p docker-logs
-          docker compose -f docker/docker-compose.test.yml logs postgres > docker-logs/postgres.log
-          docker compose -f docker/docker-compose.test.yml logs orchestration > docker-logs/orchestration.log
-          docker compose -f docker/docker-compose.test.yml logs worker > docker-logs/rust-worker.log
-          docker compose -f docker/docker-compose.test.yml logs ruby-worker > docker-logs/ruby-worker.log
+          docker compose -f docker/docker-compose.ci.yml logs postgres > docker-logs/postgres.log
+          docker compose -f docker/docker-compose.ci.yml logs orchestration > docker-logs/orchestration.log
+          docker compose -f docker/docker-compose.ci.yml logs worker > docker-logs/rust-worker.log
+          docker compose -f docker/docker-compose.ci.yml logs ruby-worker > docker-logs/ruby-worker.log
 
       - name: Upload service logs on failure
         if: failure()
@@ -472,4 +472,4 @@ jobs:
 
       - name: Shutdown services
         if: always()
-        run: docker compose -f docker/docker-compose.test.yml down -v
+        run: docker compose -f docker/docker-compose.ci.yml down -v

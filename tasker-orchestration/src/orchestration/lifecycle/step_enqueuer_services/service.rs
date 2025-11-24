@@ -3,7 +3,7 @@
 //! Main service for orchestrating step enqueueing with batch and single task processing.
 
 use std::sync::Arc;
-use tracing::instrument;
+use tracing::{event, instrument, Level};
 use uuid::Uuid;
 
 use super::batch_processor::BatchProcessor;
@@ -50,19 +50,50 @@ impl StepEnqueuerService {
     }
 
     /// Process a single task from ready info
+    ///
+    /// TAS-65 Phase 1.4: Instrumented for distributed tracing
+    #[instrument(skip(self), fields(
+        task_uuid = %task_info.task_uuid,
+        namespace = %task_info.namespace_name
+    ))]
     pub async fn process_single_task_from_ready_info(
         &self,
         task_info: &ReadyTaskInfo,
     ) -> TaskerResult<Option<StepEnqueueResult>> {
-        self.task_processor.process_from_ready_info(task_info).await
+        event!(Level::INFO, "task.enqueue_steps_started");
+
+        let result = self.task_processor.process_from_ready_info(task_info).await;
+
+        if result.is_ok() {
+            event!(Level::INFO, "task.enqueue_steps_completed");
+        } else {
+            event!(Level::ERROR, "task.enqueue_steps_failed");
+        }
+
+        result
     }
 
     /// Process a single task from UUID
+    ///
+    /// TAS-65 Phase 1.4: Instrumented for distributed tracing
+    #[instrument(skip(self), fields(
+        task_uuid = %task_uuid
+    ))]
     pub async fn process_single_task_from_uuid(
         &self,
         task_uuid: Uuid,
     ) -> TaskerResult<Option<StepEnqueueResult>> {
-        self.task_processor.process_from_uuid(task_uuid).await
+        event!(Level::INFO, "task.enqueue_steps_by_uuid_started");
+
+        let result = self.task_processor.process_from_uuid(task_uuid).await;
+
+        if result.is_ok() {
+            event!(Level::INFO, "task.enqueue_steps_by_uuid_completed");
+        } else {
+            event!(Level::ERROR, "task.enqueue_steps_by_uuid_failed");
+        }
+
+        result
     }
 
     /// Get current configuration

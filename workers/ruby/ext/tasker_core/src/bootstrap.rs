@@ -57,6 +57,14 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
         )
     })?;
 
+    // TAS-65 Phase 2: Initialize telemetry in Tokio runtime context
+    // This is phase 2 of the two-phase FFI telemetry initialization pattern.
+    // If TELEMETRY_ENABLED=true, this will initialize OpenTelemetry with batch exporter.
+    // If TELEMETRY_ENABLED=false, this is a no-op (console logging already initialized).
+    runtime.block_on(async {
+        tasker_shared::logging::init_tracing();
+    });
+
     // TAS-50 Phase 3: Load worker-specific configuration from TASKER_CONFIG_PATH (single-file)
     // This respects TASKER_CONFIG_PATH environment variable for runtime overrides
     let system_context = runtime.block_on(async {

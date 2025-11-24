@@ -34,13 +34,53 @@ use magnus::{value::ReprValue, Error, RHash, Value};
 use std::collections::HashMap;
 use tracing::{debug, error, info, trace, warn};
 
-/// Initialize FFI logging (now just ensures main logging is available)
+/// Initialize FFI logging using two-phase pattern for telemetry support
+///
+/// # Two-Phase Initialization Pattern (TAS-65)
+///
+/// This function implements phase 1 of the FFI telemetry initialization pattern:
+///
+/// **Phase 1 (This function)**: Called during Magnus initialization (no Tokio runtime)
+/// - If TELEMETRY_ENABLED=false: Initialize console-only logging (safe, no runtime needed)
+/// - If TELEMETRY_ENABLED=true: Skip initialization (will be done in phase 2)
+///
+/// **Phase 2**: Called in `bootstrap_worker()` after Tokio runtime creation
+/// - Always call `init_tracing()` in `runtime.block_on()` context
+/// - If console already initialized: Returns early (no-op)
+/// - If not initialized (telemetry case): Initializes with OpenTelemetry in Tokio context
+///
+/// # Why This Pattern?
+///
+/// OpenTelemetry batch exporter requires a Tokio runtime context for async I/O.
+/// During Magnus initialization, no Tokio runtime exists yet, so we defer full
+/// initialization until after the runtime is created in `bootstrap_worker()`.
+///
+/// This pattern works for all FFI targets:
+/// - Ruby (Magnus): Same pattern
+/// - Python (PyO3): Same pattern
+/// - WASM: Same pattern
 pub fn init_ffi_logger() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize main structured logging if not already done
-    tasker_shared::logging::init_tracing();
+    // Check if telemetry is enabled
+    let telemetry_enabled = std::env::var("TELEMETRY_ENABLED")
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false);
 
-    // Use unified logging macro instead of file logging
-    tasker_shared::log_ffi!(info, "FFI logging initialized", component: "ffi_boundary");
+    if telemetry_enabled {
+        // Phase 1: Telemetry enabled - skip logging init
+        // Will be initialized in bootstrap_worker() after runtime creation
+        println!("📡 TAS-65: Telemetry enabled - deferring logging init to runtime context");
+    } else {
+        // Phase 1: Telemetry disabled - safe to initialize console-only logging
+        tasker_shared::logging::init_console_only();
+
+        // Use unified logging macro
+        tasker_shared::log_ffi!(
+            info,
+            "FFI console logging initialized (no telemetry)",
+            component: "ffi_boundary"
+        );
+    }
+
     Ok(())
 }
 

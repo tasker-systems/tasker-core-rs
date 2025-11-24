@@ -1,8 +1,8 @@
 # TAS-65: Distributed Event System Architecture - Implementation Plan
 
-**Status**: READY FOR IMPLEMENTATION
+**Status**: PHASE 1 INFRASTRUCTURE COMPLETE - Worker Instrumentation In Progress
 **Branch**: `jcoletaylor/tas-65-distributed-event-system-architecture`
-**Last Updated**: 2025-11-22
+**Last Updated**: 2025-11-24
 
 ## Document Structure
 
@@ -29,7 +29,8 @@ This directory contains:
 
 | Phase | Duration | Parallel Work | Key Deliverable |
 |-------|----------|---------------|-----------------|
-| Phase 1 | Week 1 | Analysis + Implementation can run in parallel | OpenTelemetry migration complete |
+| Phase 1 | Week 1 (Days 1-5) | Analysis + Implementation can run in parallel | OpenTelemetry migration complete |
+| Phase 1.5 | Days 6-8 | Worker span instrumentation bridges to Phase 2 | Worker step execution spans instrumented |
 | Phase 2 | Week 2-3 | Multiple sub-phases can run in parallel | PGMQ-backed domain events working |
 | Phase 3 | Week 4 | Design work, can start during Phase 2 | Message broker abstraction layer |
 | Phase 4 | Week 5 | Testing can start as phases complete | Production-ready system |
@@ -413,6 +414,419 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 cargo test --test integration_
 # Verify span hierarchy shows task.orchestration → step.execution
 ```
 
+### Phase 1.5: Worker Step Execution Span Instrumentation (Days 6-8)
+
+**Goal**: Add correlation_id, task_uuid, and step_uuid attributes to worker step execution spans for complete distributed tracing.
+
+**Status**: ✅ **INFRASTRUCTURE VALIDATED** - Phase 1 complete, Phase 1.5 identified during testing
+
+#### Background
+
+Phase 1 successfully implemented OpenTelemetry infrastructure across all services:
+- ✅ Orchestration spans include correlation_id, task_uuid, step_uuid attributes
+- ✅ Grafana LGTM stack capturing 50,000+ traces with indexed correlation IDs
+- ✅ Two-phase FFI telemetry pattern working for Ruby workers
+- ✅ All 3 services healthy with telemetry enabled
+
+**Discovered Gap** (2025-11-24 validation testing):
+
+Testing with explicit task creation revealed that while infrastructure spans are being created, **worker step execution spans lack domain attributes**:
+
+```bash
+# Created task directly with tasker-cli for validation:
+Task UUID: 019ab624-8257-700b-a471-9a0b0374f144
+Correlation ID: 5ddfd67c-4273-4c07-99fd-11d3d8f84aae
+
+# Tempo query results:
+✅ Orchestration spans: Have correlation_id, task_uuid, step_uuid
+✅ Worker infrastructure spans: Present (read_messages, reserve_capacity)
+❌ Worker step execution spans: Missing correlation_id, task_uuid, step_uuid attributes
+
+# Impact: Cannot link worker execution to orchestration spans in distributed tracing
+```
+
+**Why This Matters**:
+
+Phase 1.5 serves two critical purposes:
+1. **Immediate**: Complete distributed tracing visibility (orchestration → worker execution flow)
+2. **Bridge to Phase 2**: Worker instrumentation patterns will be reused when publishing domain events from step handlers
+
+When we implement Phase 2 domain events, we'll publish events from the same worker step execution contexts. Getting span instrumentation right now ensures domain events will have correct correlation_id and task context.
+
+#### Sub-Phase 1.5a: Rust Worker Span Instrumentation (Days 6-7)
+
+**Implementation Location**: `tasker-worker/src/worker/command_processor.rs`
+
+**Step 1**: Extract execution context attributes
+
+```rust
+// In handle_execute_step() method
+pub async fn handle_execute_step(
+    &self,
+    step_uuid: Uuid,
+    correlation_id: Option<Uuid>,
+) -> TaskerResult<StepExecutionResult> {
+    // Fetch step details to get task_uuid, step_name, namespace
+    let step = self.fetch_step_details(step_uuid).await?;
+
+    // Create properly attributed span
+    let step_span = span!(
+        Level::INFO,
+        "worker.step_execution",
+        correlation_id = %correlation_id.unwrap_or_else(Uuid::nil),
+        task_uuid = %step.task_uuid,
+        step_uuid = %step_uuid,
+        step_name = %step.name,
+        namespace = %step.namespace
+    );
+
+    async move {
+        event!(Level::INFO, "step.execution_started");
+
+        // Handler execution...
+        let result = self.execute_handler(&step).await?;
+
+        event!(Level::INFO, "step.execution_completed",
+            success = result.is_success(),
+            duration_ms = result.duration_ms
+        );
+
+        Ok(result)
+    }
+    .instrument(step_span)
+    .await
+}
+```
+
+**Step 2**: Update handler execution to inherit span context
+
+```rust
+// In handler execution (e.g., tasker-worker/src/worker/handler_executor.rs)
+async fn execute_rust_handler(
+    &self,
+    handler: &RustStepHandler,
+    context: &StepExecutionContext,
+) -> TaskerResult<StepExecutionResult> {
+    // Parent span already contains correlation_id, task_uuid, step_uuid
+    // All events and child spans will inherit these attributes
+
+    event!(Level::DEBUG, "handler.execution_started",
+        handler_type = "rust"
+    );
+
+    let result = handler.execute(context).await?;
+
+    event!(Level::DEBUG, "handler.execution_completed");
+
+    Ok(result)
+}
+```
+
+**Deliverable**: Rust worker step execution spans include all required attributes
+
+**Testing Checkpoint**:
+```bash
+# Create test task with explicit correlation ID
+export CORRELATION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+./target/release/tasker-cli task create \
+  --namespace linear_workflow \
+  --name mathematical_sequence \
+  --version 1.0.0 \
+  --input '{"even_number": 8}' \
+  --correlation-id $CORRELATION_ID \
+  --format json | tee /tmp/task_result.json
+
+# Extract task UUID
+export TASK_UUID=$(jq -r '.task_uuid' /tmp/task_result.json)
+
+# Wait for execution
+sleep 5
+
+# Query Tempo for worker spans
+curl -s "http://localhost:3200/api/search?tags=task_uuid=${TASK_UUID}" | jq .
+
+# Verify worker.step_execution spans have all attributes:
+# ✅ correlation_id
+# ✅ task_uuid
+# ✅ step_uuid
+# ✅ step_name
+# ✅ namespace
+```
+
+#### Sub-Phase 1.5b: Ruby Worker Span Instrumentation (Days 7-8)
+
+**Implementation Location**: `workers/ruby/lib/tasker_core/step_handler/base.rb`
+
+**Challenge**: Ruby step handlers execute through FFI bridge. Need to:
+1. Pass span context across FFI boundary
+2. Instrument Ruby execution while preserving parent span relationship
+
+**Step 1**: Pass execution context from Rust to Ruby (FFI boundary)
+
+```rust
+// In workers/ruby/ext/tasker_core/src/handler_bridge.rs
+
+pub fn execute_ruby_step_handler(
+    step_uuid: Uuid,
+    task_uuid: Uuid,
+    correlation_id: Uuid,
+    step_name: String,
+    namespace: String,
+    handler_class: String,
+    context_json: String,
+) -> Result<String, Error> {
+    // Current span context is already set up by Rust worker
+    // Just need to ensure Ruby handler inherits it
+
+    let span = span!(
+        Level::INFO,
+        "ruby.handler_execution",
+        correlation_id = %correlation_id,
+        task_uuid = %task_uuid,
+        step_uuid = %step_uuid,
+        step_name = %step_name,
+        namespace = %namespace,
+        handler_class = %handler_class
+    );
+
+    let _guard = span.enter();
+
+    // Call Ruby handler
+    let result = Ruby::eval(&format!(
+        "TaskerCore::HandlerExecutor.execute('{}', '{}')",
+        handler_class, context_json
+    ))?;
+
+    Ok(result.to_string())
+}
+```
+
+**Step 2**: Add tracing helpers to Ruby base handler
+
+```ruby
+# workers/ruby/lib/tasker_core/step_handler/base.rb
+
+module TaskerCore
+  module StepHandler
+    class Base
+      attr_reader :execution_context
+
+      def initialize(context)
+        @execution_context = context
+      end
+
+      # Access to execution metadata for tracing
+      def correlation_id
+        execution_context[:correlation_id]
+      end
+
+      def task_uuid
+        execution_context[:task_uuid]
+      end
+
+      def step_uuid
+        execution_context[:step_uuid]
+      end
+
+      def step_name
+        execution_context[:step_name]
+      end
+
+      def namespace
+        execution_context[:namespace]
+      end
+
+      # Log with span context (delegates to Rust tracing via FFI)
+      def log_info(message, **attributes)
+        TaskerCore::Internal.emit_event('INFO', message, {
+          correlation_id: correlation_id,
+          task_uuid: task_uuid,
+          step_uuid: step_uuid,
+          **attributes
+        })
+      end
+
+      def log_debug(message, **attributes)
+        TaskerCore::Internal.emit_event('DEBUG', message, {
+          correlation_id: correlation_id,
+          task_uuid: task_uuid,
+          step_uuid: step_uuid,
+          **attributes
+        })
+      end
+
+      # Template method - subclasses implement
+      def handle
+        raise NotImplementedError, "Subclasses must implement #handle"
+      end
+    end
+  end
+end
+```
+
+**Step 3**: Add FFI helper for Ruby event emission
+
+```rust
+// In workers/ruby/ext/tasker_core/src/tracing_ffi.rs
+
+#[magnus::wrap(class = "TaskerCore::Internal")]
+struct RubyTracingBridge;
+
+impl RubyTracingBridge {
+    fn emit_event(
+        level: String,
+        message: String,
+        attributes: RHash,
+    ) -> Result<(), Error> {
+        use tracing::{event, Level};
+
+        // Convert Ruby hash to structured attributes
+        let correlation_id: String = attributes.get("correlation_id")
+            .and_then(|v: Value| v.try_convert::<String>().ok())
+            .unwrap_or_default();
+        let task_uuid: String = attributes.get("task_uuid")
+            .and_then(|v: Value| v.try_convert::<String>().ok())
+            .unwrap_or_default();
+        let step_uuid: String = attributes.get("step_uuid")
+            .and_then(|v: Value| v.try_convert::<String>().ok())
+            .unwrap_or_default();
+
+        // Emit event with attributes
+        match level.as_str() {
+            "INFO" => event!(
+                Level::INFO,
+                message = %message,
+                correlation_id = %correlation_id,
+                task_uuid = %task_uuid,
+                step_uuid = %step_uuid
+            ),
+            "DEBUG" => event!(
+                Level::DEBUG,
+                message = %message,
+                correlation_id = %correlation_id,
+                task_uuid = %task_uuid,
+                step_uuid = %step_uuid
+            ),
+            _ => {}
+        }
+
+        Ok(())
+    }
+}
+```
+
+**Deliverable**: Ruby step handlers can emit events with full span context
+
+**Testing Checkpoint**:
+```bash
+# Test Ruby worker with linear_workflow template
+export CORRELATION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+./target/release/tasker-cli task create \
+  --namespace linear_workflow \
+  --name mathematical_sequence \
+  --version 1.0.0 \
+  --input '{"even_number": 8}' \
+  --correlation-id $CORRELATION_ID \
+  --format json | tee /tmp/task_result.json
+
+# Query Tempo for Ruby handler spans
+export TASK_UUID=$(jq -r '.task_uuid' /tmp/task_result.json)
+curl -s "http://localhost:3200/api/search?tags=task_uuid=${TASK_UUID}&tags=handler_class=LinearWorkflow::*" | jq .
+
+# Verify ruby.handler_execution spans exist with attributes
+```
+
+#### Shared Patterns for Phase 2 Domain Events
+
+The worker instrumentation patterns established in Phase 1.5 directly enable Phase 2 domain event publication:
+
+**Pattern 1: Execution Context Extraction**
+```rust
+// Used in Phase 1.5 for spans, will be reused in Phase 2 for events
+struct ExecutionContext {
+    correlation_id: Uuid,
+    task_uuid: Uuid,
+    step_uuid: Uuid,
+    step_name: String,
+    namespace: String,
+}
+
+// Phase 1.5: Create span with context
+let span = span!(Level::INFO, "worker.step_execution",
+    correlation_id = %context.correlation_id,
+    task_uuid = %context.task_uuid,
+    // ...
+);
+
+// Phase 2: Publish domain event with same context
+domain_event_publisher.publish_event(
+    "step.completed",
+    payload,
+    EventMetadata {
+        correlation_id: context.correlation_id,
+        task_uuid: context.task_uuid,
+        step_uuid: context.step_uuid,
+        namespace: context.namespace,
+        // ...
+    }
+).await?;
+```
+
+**Pattern 2: FFI Context Threading**
+```rust
+// Phase 1.5: Pass context to Ruby for tracing
+execute_ruby_step_handler(
+    step_uuid, task_uuid, correlation_id,
+    step_name, namespace, handler_class, context_json
+)?;
+
+// Phase 2: Ruby handlers will use same context for events
+# Ruby handler in Phase 2:
+class MyHandler < TaskerCore::StepHandler::Base
+  def handle
+    # Context inherited from FFI boundary
+    publish_event('my.custom.event', {
+      # correlation_id, task_uuid automatically attached
+      # from execution_context
+      data: process_data
+    })
+  end
+end
+```
+
+**Pattern 3: Observability Integration**
+```rust
+// Phase 1.5: Span + metrics for step execution
+let step_span = span!(Level::INFO, "worker.step_execution", /* ... */);
+async move {
+    event!(Level::INFO, "step.execution_started");
+    // ... handler execution
+    metrics::histogram!("step.duration", duration);
+}.instrument(step_span).await
+
+// Phase 2: Domain events will be published within same span
+async move {
+    event!(Level::INFO, "step.execution_started");
+
+    // Handler publishes domain event
+    domain_event_publisher.publish(event).await?;
+
+    // Span context automatically propagates to event metadata
+    metrics::counter!("domain_events.published");
+}.instrument(step_span).await
+```
+
+#### Phase 1.5 Success Criteria
+
+- [ ] Rust worker step execution spans include correlation_id, task_uuid, step_uuid, step_name, namespace
+- [ ] Ruby worker spans inherit context across FFI boundary
+- [ ] Ruby step handlers can emit events with span context via `log_info`/`log_debug`
+- [ ] Tempo queries show complete trace hierarchy: orchestration → worker infrastructure → step execution
+- [ ] tasker-cli created tasks with explicit correlation IDs are traceable end-to-end
+- [ ] Shared patterns documented for Phase 2 domain event publication
+- [ ] Zero regressions: existing worker functionality unchanged
+- [ ] Documentation: Update `docs/ffi-telemetry-pattern.md` with worker span instrumentation examples
+
 ### Phase 1 Success Criteria
 
 - [ ] All 34 system events accounted for (14 task + 12 step + 8 workflow)
@@ -421,6 +835,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 cargo test --test integration_
 - [ ] Task and step metrics modules complete and tested
 - [ ] Jaeger UI shows complete trace hierarchy
 - [ ] Prometheus endpoint exposes all defined metrics
+- [ ] **Phase 1.5**: Worker step execution spans fully instrumented with correlation context
 - [ ] Documentation: `docs/ticket-specs/TAS-65/phase1-telemetry.md` complete
 
 ---
@@ -428,8 +843,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 cargo test --test integration_
 ## Phase 2: PGMQ-Backed Domain Events
 
 **Duration**: Weeks 2-3 (10 days)
-**Dependencies**: Phase 1 complete (for event publication patterns)
+**Dependencies**: Phase 1 + Phase 1.5 complete (worker span instrumentation patterns reused for event publication)
 **Parallel Work**: Multiple sub-phases can run independently
+
+**Bridge from Phase 1.5**: Worker execution context extraction and FFI threading patterns established in Phase 1.5 are directly reused for domain event publication. All domain events will be published from the same instrumented worker contexts, ensuring correlation_id and task metadata are automatically propagated.
 
 ### Phase 2.1: Domain Event Infrastructure (Days 1-3)
 

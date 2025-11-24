@@ -194,8 +194,9 @@ fn init_opentelemetry_tracer(
 
     // Build tracer provider with sampler and resource
     // OpenTelemetry 0.31+: Sampler is set directly on builder
+    // TAS-65: Use batch processor for non-blocking async export (not simple/sync)
     let tracer_provider = SdkTracerProvider::builder()
-        .with_simple_exporter(exporter)
+        .with_batch_exporter(exporter)
         .with_resource(resource)
         .with_sampler(sampler)
         .build();
@@ -206,6 +207,74 @@ fn init_opentelemetry_tracer(
     Ok(tracer_provider)
 }
 
+/// Initialize console-only logging (FFI-safe, no Tokio runtime required)
+///
+/// This function sets up structured console logging without OpenTelemetry,
+/// making it safe to call from FFI initialization contexts where no Tokio
+/// runtime exists yet.
+///
+/// # Use Cases
+///
+/// - Ruby FFI: Called during Magnus initialization before runtime creation
+/// - Python FFI: Called during PyO3 initialization before runtime creation
+/// - WASM FFI: Called during WASM initialization before runtime creation
+///
+/// # Pattern
+///
+/// ```rust
+/// // Phase 1: FFI initialization (no Tokio runtime)
+/// tasker_shared::logging::init_console_only();
+///
+/// // Phase 2: After creating runtime (Tokio context)
+/// let runtime = tokio::runtime::Runtime::new()?;
+/// runtime.block_on(async {
+///     tasker_shared::logging::init_tracing();
+/// });
+/// ```
+pub fn init_console_only() {
+    TRACING_INITIALIZED.get_or_init(|| {
+        let environment = get_environment();
+        let log_level = get_log_level(&environment);
+
+        // Determine if we're in a TTY for ANSI color support
+        let use_ansi = IsTerminal::is_terminal(&std::io::stdout());
+
+        // Create base console layer
+        let console_layer = fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true)
+            .with_ansi(use_ansi)
+            .with_filter(EnvFilter::new(&log_level));
+
+        // Build subscriber with console layer only (no telemetry)
+        let subscriber = tracing_subscriber::registry().with(console_layer);
+
+        if subscriber.try_init().is_err() {
+            tracing::debug!(
+                "Global tracing subscriber already initialized - continuing with existing subscriber"
+            );
+        } else {
+            tracing::info!(
+                environment = %environment,
+                ansi_colors = use_ansi,
+                opentelemetry_enabled = false,
+                context = "ffi_initialization",
+                "Console-only logging initialized (FFI-safe mode)"
+            );
+        }
+
+        // Initialize basic metrics (no OpenTelemetry exporters)
+        metrics::init_metrics();
+
+        // Initialize domain-specific metrics
+        metrics::orchestration::init();
+        metrics::worker::init();
+        metrics::database::init();
+        metrics::messaging::init();
+    });
+}
+
 /// Initialize tracing with console output and optional OpenTelemetry
 ///
 /// This function sets up structured logging that outputs to stdout/stderr,
@@ -214,6 +283,28 @@ fn init_opentelemetry_tracer(
 ///
 /// When OpenTelemetry is enabled (via TELEMETRY_ENABLED=true), it also
 /// configures distributed tracing with OTLP exporter.
+///
+/// # Safety
+///
+/// **IMPORTANT**: When telemetry is enabled, this function MUST be called from
+/// a Tokio runtime context because the batch exporter requires async I/O.
+///
+/// For FFI contexts (Ruby, Python, WASM), use the two-phase initialization pattern:
+/// 1. Call `init_console_only()` during FFI initialization (no runtime required)
+/// 2. Call `init_tracing()` after creating the Tokio runtime
+///
+/// # Example: FFI Two-Phase Initialization
+///
+/// ```rust
+/// // Phase 1: During FFI initialization (Magnus, PyO3, WASM)
+/// tasker_shared::logging::init_console_only();
+///
+/// // Phase 2: After runtime creation
+/// let runtime = tokio::runtime::Runtime::new()?;
+/// runtime.block_on(async {
+///     tasker_shared::logging::init_tracing();
+/// });
+/// ```
 pub fn init_tracing() {
     TRACING_INITIALIZED.get_or_init(|| {
         let environment = get_environment();
