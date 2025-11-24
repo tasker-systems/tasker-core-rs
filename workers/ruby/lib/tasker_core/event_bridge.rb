@@ -239,6 +239,10 @@ module TaskerCore
         wrapped[:correlation_id] = event_data[:correlation_id] if event_data[:correlation_id]
         wrapped[:parent_correlation_id] = event_data[:parent_correlation_id] if event_data[:parent_correlation_id]
 
+        # TAS-65 Phase 1.5b: Expose trace_id and span_id for distributed tracing
+        wrapped[:trace_id] = event_data[:trace_id] if event_data[:trace_id]
+        wrapped[:span_id] = event_data[:span_id] if event_data[:span_id]
+
         wrapped
       end
 

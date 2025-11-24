@@ -197,6 +197,71 @@ impl WorkerEventPublisher {
         }
     }
 
+    /// TAS-65 Phase 1.5b: Fire a step execution event with trace context for distributed tracing
+    ///
+    /// This propagates trace_id and span_id to FFI handlers for distributed tracing.
+    pub async fn fire_step_execution_event_with_trace(
+        &self,
+        task_sequence_step: &TaskSequenceStep,
+        trace_id: Option<String>,
+        span_id: Option<String>,
+    ) -> Result<StepExecutionEvent, WorkerEventError> {
+        let task_uuid = task_sequence_step.task.task.task_uuid;
+        let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
+
+        debug!(
+            worker_id = %self.worker_id,
+            task_uuid = %task_uuid,
+            step_uuid = %step_uuid,
+            step_name = %task_sequence_step.step_definition.name,
+            trace_id = ?trace_id,
+            span_id = ?span_id,
+            "Firing step execution event with trace context"
+        );
+
+        // Create step event payload
+        let payload = StepEventPayload::new(task_uuid, step_uuid, task_sequence_step.clone());
+
+        // Create event with trace context
+        let event = StepExecutionEvent::with_trace_context(
+            payload.clone(),
+            trace_id.clone(),
+            span_id.clone(),
+        );
+        let event_id = event.event_id;
+
+        // Publish event to FFI handlers
+        match self
+            .shared_publisher
+            .publish_step_execution_event(event.clone())
+            .await
+        {
+            Ok(()) => {
+                info!(
+                    worker_id = %self.worker_id,
+                    event_id = %event_id,
+                    step_name = %task_sequence_step.step_definition.name,
+                    trace_id = ?trace_id,
+                    span_id = ?span_id,
+                    "Step execution event with trace context fired successfully to FFI handlers"
+                );
+                Ok(event)
+            }
+            Err(e) => {
+                error!(
+                    worker_id = %self.worker_id,
+                    event_id = %event_id,
+                    step_name = %task_sequence_step.step_definition.name,
+                    error = %e,
+                    "Failed to fire step execution event with trace context to FFI handlers"
+                );
+                Err(WorkerEventError::PublishError(format!(
+                    "Failed to publish step execution event with trace context: {e}"
+                )))
+            }
+        }
+    }
+
     /// Get event system statistics for monitoring
     pub fn get_statistics(&self) -> WorkerEventPublisherStats {
         let system_stats = self.event_system.get_statistics();

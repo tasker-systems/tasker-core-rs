@@ -104,6 +104,12 @@ pub struct StepExecutionEvent {
     pub event_id: Uuid,
     /// Hydrated step payload with all execution context
     pub payload: StepEventPayload,
+    /// TAS-65 Phase 1.5b: Trace ID for distributed tracing (propagated to FFI)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    /// TAS-65 Phase 1.5b: Span ID for distributed tracing (propagated to FFI)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
 }
 
 /// Event for step execution completion (FFI → Rust)
@@ -123,6 +129,12 @@ pub struct StepExecutionCompletionEvent {
     pub metadata: Option<serde_json::Value>,
     /// Error message if step execution failed
     pub error_message: Option<String>,
+    /// TAS-65 Phase 1.5b: Trace ID for distributed tracing (propagated from FFI)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    /// TAS-65 Phase 1.5b: Span ID for distributed tracing (propagated from FFI)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
 }
 
 /// Worker event types for categorizing different events
@@ -167,12 +179,48 @@ impl StepExecutionEvent {
         Self {
             event_id: Uuid::new_v4(),
             payload,
+            trace_id: None,
+            span_id: None,
         }
     }
 
     /// Create a step execution event with specific event ID (for correlation)
     pub fn with_event_id(event_id: Uuid, payload: StepEventPayload) -> Self {
-        Self { event_id, payload }
+        Self {
+            event_id,
+            payload,
+            trace_id: None,
+            span_id: None,
+        }
+    }
+
+    /// TAS-65 Phase 1.5b: Create a step execution event with trace context for distributed tracing
+    pub fn with_trace_context(
+        payload: StepEventPayload,
+        trace_id: Option<String>,
+        span_id: Option<String>,
+    ) -> Self {
+        Self {
+            event_id: Uuid::new_v4(),
+            payload,
+            trace_id,
+            span_id,
+        }
+    }
+
+    /// TAS-65 Phase 1.5b: Create a step execution event with event ID and trace context
+    pub fn with_event_id_and_trace(
+        event_id: Uuid,
+        payload: StepEventPayload,
+        trace_id: Option<String>,
+        span_id: Option<String>,
+    ) -> Self {
+        Self {
+            event_id,
+            payload,
+            trace_id,
+            span_id,
+        }
     }
 }
 
@@ -192,6 +240,8 @@ impl StepExecutionCompletionEvent {
             result,
             metadata,
             error_message: None,
+            trace_id: None,
+            span_id: None,
         }
     }
 
@@ -210,6 +260,8 @@ impl StepExecutionCompletionEvent {
             result: serde_json::Value::Null,
             metadata,
             error_message: Some(error_message),
+            trace_id: None,
+            span_id: None,
         }
     }
 
@@ -231,6 +283,33 @@ impl StepExecutionCompletionEvent {
             result,
             metadata,
             error_message,
+            trace_id: None,
+            span_id: None,
+        }
+    }
+
+    /// TAS-65 Phase 1.5b: Create a completion event with trace context for distributed tracing
+    pub fn with_trace_context(
+        event_id: Uuid,
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+        success: bool,
+        result: serde_json::Value,
+        metadata: Option<serde_json::Value>,
+        error_message: Option<String>,
+        trace_id: Option<String>,
+        span_id: Option<String>,
+    ) -> Self {
+        Self {
+            event_id,
+            task_uuid,
+            step_uuid,
+            success,
+            result,
+            metadata,
+            error_message,
+            trace_id,
+            span_id,
         }
     }
 }

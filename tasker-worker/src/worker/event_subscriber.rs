@@ -63,7 +63,7 @@ use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::types::StepExecutionCompletionEvent;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, span, event, Level};
 use uuid::Uuid;
 
 /// Worker-specific event subscriber for handling FFI completion events
@@ -181,13 +181,46 @@ impl WorkerEventSubscriber {
             );
 
             while let Ok(completion_event) = event_receiver.recv().await {
+                // TAS-65 Phase 1.5b: Create linked span using trace context from Ruby
+                let completion_span = if let (Some(trace_id), Some(span_id)) =
+                    (&completion_event.trace_id, &completion_event.span_id) {
+                    span!(
+                        Level::INFO,
+                        "worker.step_completion_received",
+                        trace_id = %trace_id,
+                        span_id = %span_id,
+                        event_id = %completion_event.event_id,
+                        task_uuid = %completion_event.task_uuid,
+                        step_uuid = %completion_event.step_uuid,
+                        success = completion_event.success
+                    )
+                } else {
+                    span!(
+                        Level::INFO,
+                        "worker.step_completion_received",
+                        event_id = %completion_event.event_id,
+                        task_uuid = %completion_event.task_uuid,
+                        step_uuid = %completion_event.step_uuid,
+                        success = completion_event.success
+                    )
+                };
+
+                let _guard = completion_span.enter();
+
                 debug!(
                     worker_id = %worker_id,
                     event_id = %completion_event.event_id,
                     task_uuid = %completion_event.task_uuid,
                     step_uuid = %completion_event.step_uuid,
                     success = completion_event.success,
-                    "Received step completion event from FFI handler"
+                    trace_id = ?completion_event.trace_id,
+                    span_id = ?completion_event.span_id,
+                    "Received step completion event from FFI handler with trace context"
+                );
+
+                event!(
+                    Level::INFO,
+                    "step.ruby_execution_completed"
                 );
 
                 // Update statistics

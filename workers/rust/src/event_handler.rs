@@ -167,6 +167,8 @@ impl RustEventHandler {
                         event_id: event.event_id, // Use same event_id for correlation
                         task_uuid: event.payload.task_uuid,
                         step_uuid: event.payload.step_uuid,
+                        span_id: event.span_id,
+                        trace_id: event.trace_id,
                         success: step_result.success,
                         result: step_result.result,
                         metadata: Some(
@@ -179,6 +181,8 @@ impl RustEventHandler {
                         event_id: event.event_id, // Use same event_id for correlation
                         task_uuid: event.payload.task_uuid,
                         step_uuid: event.payload.step_uuid,
+                        span_id: event.span_id,
+                        trace_id: event.trace_id,
                         success: false,
                         result: serde_json::Value::Null,
                         metadata: None,

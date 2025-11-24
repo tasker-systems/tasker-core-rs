@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, span, event, Level, Instrument};
 use uuid::Uuid;
 
 use opentelemetry::KeyValue;
@@ -768,7 +768,99 @@ impl WorkerProcessor {
                 }
             }
 
-            // Update statistics and return result
+            // TAS-65 Phase 1.5a: Create span with full execution context for distributed tracing
+            let step_span = span!(
+                Level::INFO,
+                "worker.step_execution",
+                correlation_id = %step_message.correlation_id,
+                task_uuid = %step_message.task_uuid,
+                step_uuid = %step_message.step_uuid,
+                step_name = %task_sequence_step.workflow_step.name,
+                namespace = %task_sequence_step.task.namespace_name
+            );
+
+            // Execute FFI handler within instrumented span
+            let execution_result = async {
+                event!(Level::INFO, "step.execution_started");
+
+                // TAS-65 Phase 1.5b: Extract trace context from current span for FFI propagation
+                // Note: OpenTelemetry span context extraction requires accessing the span's context
+                // via the tracing-opentelemetry layer. For now, we'll use correlation_id as a
+                // placeholder for trace_id until we integrate OpenTelemetry context propagation.
+                let trace_id = Some(step_message.correlation_id.to_string());
+                let span_id = Some(format!("span-{}", step_message.step_uuid));
+
+                // Fire step execution event (FFI handler execution) with trace context
+                let fire_result = match &self.event_publisher {
+                    Some(publisher) => publisher
+                        .fire_step_execution_event_with_trace(
+                            &task_sequence_step,
+                            trace_id,
+                            span_id,
+                        )
+                        .await,
+                    None => {
+                        return Err(TaskerError::WorkerError(
+                            "Event publisher not initialized".to_string()
+                        ));
+                    }
+                };
+
+                if let Err(err) = fire_result {
+                    error!("Failed to fire step execution event: {err}");
+                    event!(Level::ERROR, "step.execution_failed");
+                    return Err(TaskerError::EventError(format!(
+                        "Failed to fire step execution event: {err}"
+                    )));
+                }
+
+                event!(Level::INFO, "step.execution_completed");
+                Ok(())
+            }
+            .instrument(step_span)
+            .await;
+
+            // Handle execution result
+            if let Err(e) = execution_result {
+                // Update failure statistics
+                let execution_time = start_time.elapsed().as_millis() as u64;
+                self.stats.total_failed += 1;
+
+                // TAS-29 Phase 3.3: Record step failure
+                if let Some(counter) = STEP_FAILURES_TOTAL.get() {
+                    counter.add(
+                        1,
+                        &[
+                            KeyValue::new(
+                                "correlation_id",
+                                step_message.correlation_id.to_string(),
+                            ),
+                            KeyValue::new(
+                                "namespace",
+                                task_sequence_step.task.namespace_name.clone(),
+                            ),
+                            KeyValue::new("error_type", "handler_execution_failed"),
+                        ],
+                    );
+                }
+
+                // TAS-29 Phase 3.3: Record step execution duration (even for failures)
+                let duration_ms = execution_time as f64;
+                if let Some(histogram) = STEP_EXECUTION_DURATION.get() {
+                    histogram.record(
+                        duration_ms,
+                        &[
+                            KeyValue::new("correlation_id", step_message.correlation_id.to_string()),
+                            KeyValue::new("namespace", task_sequence_step.task.namespace_name.clone()),
+                            KeyValue::new("result", "failure"),
+                        ],
+                    );
+                }
+
+                return Err(e);
+            }
+
+            // Update statistics and return success
             let execution_time = start_time.elapsed().as_millis() as u64;
             self.stats.total_succeeded += 1;
             self.stats.average_execution_time_ms = (self.stats.average_execution_time_ms
@@ -798,23 +890,6 @@ impl WorkerProcessor {
                         KeyValue::new("result", "success"),
                     ],
                 );
-            }
-
-            // Fire step execution event ONLY after successful claim and state verification
-            match &self.event_publisher {
-                Some(publisher) => match publisher
-                    .fire_step_execution_event(&task_sequence_step)
-                    .await
-                {
-                    Ok(_) => (),
-                    Err(err) => {
-                        error!("Failed to fire step execution event: {err}");
-                        return Err(TaskerError::EventError(format!(
-                            "Failed to fire step execution event: {err}"
-                        )));
-                    }
-                },
-                None => return Ok(()),
             }
 
             Ok(())
