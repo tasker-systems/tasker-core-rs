@@ -82,8 +82,7 @@ impl TaskFinalizer {
         let correlation_id = task.correlation_id;
 
         // Update span with correlation_id once we have it
-        tracing::Span::current()
-            .record("correlation_id", tracing::field::display(&correlation_id));
+        tracing::Span::current().record("correlation_id", tracing::field::display(&correlation_id));
 
         // TAS-29 Phase 3.3: Start timing task finalization
         let start_time = Instant::now();

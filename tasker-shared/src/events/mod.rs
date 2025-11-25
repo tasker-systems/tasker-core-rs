@@ -1,5 +1,6 @@
 pub mod domain_events;
 pub mod publisher;
+pub mod registry; // TAS-65 Phase 2.3a: Event registry with pattern matching
 pub mod types;
 pub mod validation; // TAS-65 Phase 2.2: Event schema validation
 pub mod worker_events;
@@ -20,3 +21,6 @@ pub use domain_events::{DomainEvent, DomainEventError, DomainEventPublisher, Eve
 
 // Re-export TAS-65 Phase 2.2 validation types
 pub use validation::{EventSchemaValidator, EventValidationError};
+
+// Re-export TAS-65 Phase 2.3a registry types
+pub use registry::{EventHandler, EventHandlerError, EventRegistry, RegistryError};

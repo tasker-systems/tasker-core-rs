@@ -355,7 +355,10 @@ impl SystemContext {
     ///
     /// Returns `Ok(())` if all queues were created successfully, or an error if any queue creation failed.
     pub async fn initialize_domain_event_queues(&self, namespaces: &[&str]) -> TaskerResult<()> {
-        info!("Initializing domain event queues for namespaces: {:?}", namespaces);
+        info!(
+            "Initializing domain event queues for namespaces: {:?}",
+            namespaces
+        );
 
         for namespace in namespaces {
             // Create main domain events queue
