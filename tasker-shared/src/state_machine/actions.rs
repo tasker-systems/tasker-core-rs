@@ -193,7 +193,8 @@ impl TransitionActions {
             // TAS-65 Phase 1.3a: Emit OpenTelemetry metric
             // Low-cardinality labels only: namespace, from_state, to_state
             // High-cardinality IDs (task_uuid, correlation_id) belong in spans/logs, NOT metrics
-            let namespace = task.context
+            let namespace = task
+                .context
                 .as_ref()
                 .and_then(|ctx| ctx.get("namespace"))
                 .and_then(|v| v.as_str())
@@ -228,28 +229,28 @@ fn determine_task_event_name_from_states(from: TaskState, to: TaskState) -> Opti
     match (from, to) {
         // Initial state transitions
         (Pending, Initializing) => Some("task.initialize_requested"),
-        
+
         // TAS-41 orchestration lifecycle transitions
         (Initializing, EnqueuingSteps) => Some("task.steps_discovery_completed"),
         (EnqueuingSteps, StepsInProcess) => Some("task.steps_enqueued"),
         (StepsInProcess, EvaluatingResults) => Some("task.step_results_received"),
-        
+
         // Waiting state transitions
         (_, WaitingForDependencies) => Some("task.awaiting_dependencies"),
         (WaitingForDependencies, EvaluatingResults) => Some("task.dependencies_satisfied"),
         (_, WaitingForRetry) => Some("task.retry_backoff_started"),
         (_, BlockedByFailures) => Some("task.blocked_by_failures"),
-        
+
         // Terminal state transitions
         (_, Complete) => Some("task.completed"),
         (_, Error) => Some("task.failed"),
         (_, Cancelled) => Some("task.cancelled"),
         (_, ResolvedManually) => Some("task.resolved_manually"),
-        
+
         // Retry transitions
         (Error, Pending) => Some("task.retry_requested"),
         (WaitingForRetry, Pending) => Some("task.retry_requested"),
-        
+
         _ => None,
     }
 }
@@ -375,7 +376,10 @@ impl StateAction<WorkflowStep> for PublishTransitionEventAction {
                 1,
                 &[
                     KeyValue::new("namespace", "unknown".to_string()),
-                    KeyValue::new("from_state", from_state.as_deref().unwrap_or("none").to_string()),
+                    KeyValue::new(
+                        "from_state",
+                        from_state.as_deref().unwrap_or("none").to_string(),
+                    ),
                     KeyValue::new("to_state", to_state.clone()),
                 ],
             );
@@ -939,31 +943,33 @@ fn determine_task_event_name(from_state: &Option<String>, to_state: &str) -> Opt
     match (from_state.as_deref(), to_state) {
         // Initial state transitions
         (Some("pending"), "initializing") => Some("task.initialize_requested"),
-        
+
         // TAS-41 orchestration lifecycle transitions
         (Some("initializing"), "enqueuing_steps") => Some("task.steps_discovery_completed"),
         (Some("enqueuing_steps"), "steps_in_process") => Some("task.steps_enqueued"),
         (Some("steps_in_process"), "evaluating_results") => Some("task.step_results_received"),
-        
+
         // Waiting state transitions
         (_, "waiting_for_dependencies") => Some("task.awaiting_dependencies"),
-        (Some("waiting_for_dependencies"), "evaluating_results") => Some("task.dependencies_satisfied"),
+        (Some("waiting_for_dependencies"), "evaluating_results") => {
+            Some("task.dependencies_satisfied")
+        }
         (_, "waiting_for_retry") => Some("task.retry_backoff_started"),
         (_, "blocked_by_failures") => Some("task.blocked_by_failures"),
-        
+
         // Terminal state transitions
         (_, "complete") => Some("task.completed"),
         (_, "error") => Some("task.failed"),
         (_, "cancelled") => Some("task.cancelled"),
         (_, "resolved_manually") => Some("task.resolved_manually"),
-        
+
         // Retry transitions
         (Some("error"), "pending") => Some("task.retry_requested"),
         (Some("waiting_for_retry"), "pending") => Some("task.retry_requested"),
-        
+
         // Legacy compatibility (deprecated, use snake_case state names above)
-        (_, "in_progress") => Some("task.started"),  // Maps to old "in_progress" state
-        
+        (_, "in_progress") => Some("task.started"), // Maps to old "in_progress" state
+
         _ => None,
     }
 }
@@ -974,23 +980,25 @@ fn determine_step_event_name(from_state: &Option<String>, to_state: &str) -> Opt
         // Processing pipeline transitions
         (Some("pending"), "enqueued") => Some("step.enqueue_requested"),
         (Some("enqueued"), "in_progress") => Some("step.execution_requested"),
-        (_, "in_progress") => Some("step.handle"),  // Generic in-progress transition (handler execution)
-        
+        (_, "in_progress") => Some("step.handle"), // Generic in-progress transition (handler execution)
+
         // Orchestration coordination transitions
         (_, "enqueued_for_orchestration") => Some("step.enqueued_for_orchestration"),
-        (_, "enqueued_as_error_for_orchestration") => Some("step.enqueued_as_error_for_orchestration"),
-        
+        (_, "enqueued_as_error_for_orchestration") => {
+            Some("step.enqueued_as_error_for_orchestration")
+        }
+
         // Retry transitions
         (_, "waiting_for_retry") => Some("step.retry_requested"),
         (Some("error"), "pending") => Some("step.retry_requested"),
         (Some("waiting_for_retry"), "pending") => Some("step.retry_requested"),
-        
+
         // Terminal state transitions
         (_, "complete") => Some("step.completed"),
         (_, "error") => Some("step.failed"),
         (_, "cancelled") => Some("step.cancelled"),
         (_, "resolved_manually") => Some("step.resolved_manually"),
-        
+
         _ => None,
     }
 }

@@ -163,12 +163,7 @@ impl DecisionPointService {
             );
 
             // Record warning metric
-            decision_warnings_total().add(
-                1,
-                &[
-                    KeyValue::new("warning_type", "step_count"),
-                ],
-            );
+            decision_warnings_total().add(1, &[KeyValue::new("warning_type", "step_count")]);
         }
 
         info!(
@@ -305,9 +300,7 @@ impl DecisionPointService {
         // Record steps created count
         decision_steps_created_total().add(
             step_count as u64,
-            &[
-                KeyValue::new("decision_name", decision_name.clone()),
-            ],
+            &[KeyValue::new("decision_name", decision_name.clone())],
         );
 
         // Record step count distribution

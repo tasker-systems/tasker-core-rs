@@ -219,6 +219,96 @@ pub struct DomainEventDefinition {
     pub schema: Option<Value>, // JSON Schema
 }
 
+/// Event delivery mode for distributed event publishing (TAS-65)
+///
+/// Determines how events are delivered to subscribers across the distributed system.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventDeliveryMode {
+    /// Durable delivery via PGMQ with at-least-once guarantees
+    ///
+    /// Events are persisted to PostgreSQL message queues (PGMQ) before
+    /// acknowledgment. Provides durability, retry on failure, and
+    /// at-least-once delivery semantics.
+    ///
+    /// **Trade-offs:**
+    /// - Pro: Durable, survives crashes, reliable delivery
+    /// - Pro: Automatic retry with backoff
+    /// - Con: Higher latency (~5-10ms) due to database persistence
+    /// - Con: Potential for duplicate delivery (at-least-once)
+    ///
+    /// **Use cases:** Critical business events, audit trails, cross-service
+    /// coordination where reliability is paramount.
+    Durable,
+}
+
+/// Event declaration for workflow step event publishing (TAS-65)
+///
+/// Declares an event that a workflow step can publish during execution.
+/// Includes schema validation via JSON Schema and delivery mode configuration.
+///
+/// ## Schema Validation
+///
+/// The `schema` field contains a JSON Schema (draft-07 compatible) that
+/// validates event payloads at runtime. Invalid payloads are rejected
+/// before publishing, ensuring downstream consumers receive well-formed data.
+///
+/// ## Delivery Modes
+///
+/// Currently supports `durable` delivery via PGMQ. Future modes may include:
+/// - `best_effort`: In-memory with no persistence (lowest latency)
+/// - `transactional`: Coordinated with workflow step transaction
+///
+/// ## Example
+///
+/// ```yaml
+/// publishes_events:
+///   - name: order.created
+///     description: "New order successfully created"
+///     schema:
+///       type: object
+///       properties:
+///         order_id: { type: string, format: uuid }
+///         customer_id: { type: string }
+///         total_amount: { type: number, minimum: 0 }
+///       required: [order_id, customer_id, total_amount]
+///     delivery_mode: durable
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
+pub struct EventDeclaration {
+    /// Event name in dotted notation (e.g., "order.created", "payment.authorized")
+    pub name: String,
+
+    /// Human-readable description of when this event is published
+    pub description: String,
+
+    /// JSON Schema for validating event payloads
+    ///
+    /// Must be a valid JSON Schema (draft-07 compatible).
+    /// Schema validation occurs before event publishing to ensure
+    /// payload correctness.
+    pub schema: serde_json::Value,
+
+    /// Delivery mode for event distribution
+    pub delivery_mode: EventDeliveryMode,
+}
+
+impl EventDeclaration {
+    /// Get the event namespace (prefix before first dot)
+    ///
+    /// Example: "order.created" → "order"
+    pub fn namespace(&self) -> Option<&str> {
+        self.name.split('.').next()
+    }
+
+    /// Get the event action (suffix after last dot)
+    ///
+    /// Example: "order.items.added" → "added"
+    pub fn action(&self) -> Option<&str> {
+        self.name.split('.').next_back()
+    }
+}
+
 /// Step type for workflow orchestration
 ///
 /// ## Decision Point Steps
@@ -370,10 +460,34 @@ pub struct StepDefinition {
     /// Step timeout
     pub timeout_seconds: Option<u32>,
 
-    /// Events this step publishes
+    /// Events this step publishes (TAS-65: Event Schema and Validation)
+    ///
+    /// Declares which events this step can publish during execution.
+    /// Each event declaration includes a name, description, JSON Schema,
+    /// and delivery mode (currently only durable PGMQ delivery).
+    ///
+    /// ## Backward Compatibility
+    ///
+    /// This field defaults to an empty vector if not specified, ensuring
+    /// existing task templates without event declarations continue to work.
+    ///
+    /// ## Example
+    ///
+    /// ```yaml
+    /// publishes_events:
+    ///   - name: payment.authorized
+    ///     description: "Payment successfully authorized"
+    ///     schema:
+    ///       type: object
+    ///       properties:
+    ///         payment_id: { type: string }
+    ///         amount: { type: number }
+    ///       required: [payment_id, amount]
+    ///     delivery_mode: durable
+    /// ```
     #[serde(default)]
     #[builder(default)]
-    pub publishes_events: Vec<String>,
+    pub publishes_events: Vec<EventDeclaration>,
 
     /// Batch processing configuration (for batchable steps only)
     ///
@@ -1153,6 +1267,24 @@ impl StepDefinition {
         matches!(self.step_type, StepType::DeferredConvergence)
     }
 
+    /// Get event declaration by name (TAS-65)
+    ///
+    /// Returns the event declaration for a specific event name if this step
+    /// declares that it can publish that event.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_name` - The event name to look up (e.g., "payment.authorized")
+    ///
+    /// # Returns
+    ///
+    /// `Some(&EventDeclaration)` if the step declares this event, `None` otherwise.
+    pub fn get_event_declaration(&self, event_name: &str) -> Option<&EventDeclaration> {
+        self.publishes_events
+            .iter()
+            .find(|decl| decl.name == event_name)
+    }
+
     /// Validate decision point constraints
     ///
     /// Decision points must:
@@ -1573,7 +1705,7 @@ steps:
             dependencies: vec![],
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
-            publishes_events: vec![],
+            publishes_events: vec![], // TAS-65: Now Vec<EventDeclaration>
             batch_config: None,
         };
         assert!(!standard_step.is_decision());
@@ -1590,7 +1722,7 @@ steps:
             dependencies: vec!["parent".to_string()],
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
-            publishes_events: vec![],
+            publishes_events: vec![], // TAS-65: Now Vec<EventDeclaration>
             batch_config: None,
         };
         assert!(decision_step.is_decision());
@@ -1947,7 +2079,7 @@ steps:
             dependencies: vec![],
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
-            publishes_events: vec![],
+            publishes_events: vec![], // TAS-65: Now Vec<EventDeclaration>
             batch_config: None,
         };
 
@@ -1970,7 +2102,7 @@ steps:
             dependencies: vec!["parent".to_string()],
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
-            publishes_events: vec![],
+            publishes_events: vec![], // TAS-65: Now Vec<EventDeclaration>
             batch_config: None,
         };
 
@@ -1990,7 +2122,7 @@ steps:
             dependencies: vec![],
             retry: RetryConfiguration::default(),
             timeout_seconds: None,
-            publishes_events: vec![],
+            publishes_events: vec![], // TAS-65: Now Vec<EventDeclaration>
             batch_config: None,
         };
 
@@ -2527,5 +2659,257 @@ steps:
         assert_eq!(lifecycle.staleness_action, "dlq"); // Default
         assert_eq!(lifecycle.auto_fail_on_timeout, None);
         assert_eq!(lifecycle.auto_dlq_on_timeout, None);
+    }
+
+    // ========================================================================
+    // TAS-65 Phase 2.2: Event Declaration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_step_definition_without_events_backward_compatibility() {
+        // Test that existing templates without event declarations still work
+        let yaml_content = r#"
+name: legacy_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: legacy_step
+    handler:
+      callable: "LegacyHandler"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+        assert_eq!(template.steps.len(), 1);
+        assert_eq!(template.steps[0].publishes_events.len(), 0);
+    }
+
+    #[test]
+    fn test_step_definition_with_event_declarations() {
+        let yaml_content = r#"
+name: test_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: test_step
+    handler:
+      callable: "TestHandler"
+    publishes_events:
+      - name: test.event.created
+        description: "Test event created"
+        schema:
+          type: object
+          properties:
+            value:
+              type: string
+          required:
+            - value
+        delivery_mode: durable
+      - name: test.event.completed
+        description: "Test event completed"
+        schema:
+          type: object
+          properties:
+            result:
+              type: boolean
+        delivery_mode: durable
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+        assert_eq!(template.steps.len(), 1);
+
+        let step = &template.steps[0];
+        assert_eq!(step.publishes_events.len(), 2);
+
+        // Check first event declaration
+        let event1 = &step.publishes_events[0];
+        assert_eq!(event1.name, "test.event.created");
+        assert_eq!(event1.description, "Test event created");
+        assert_eq!(event1.delivery_mode, EventDeliveryMode::Durable);
+        assert!(event1.schema.is_object());
+
+        // Check second event declaration
+        let event2 = &step.publishes_events[1];
+        assert_eq!(event2.name, "test.event.completed");
+        assert_eq!(event2.description, "Test event completed");
+        assert_eq!(event2.delivery_mode, EventDeliveryMode::Durable);
+    }
+
+    #[test]
+    fn test_event_declaration_namespace_and_action() {
+        use crate::models::core::task_template::EventDeclaration;
+        use serde_json::json;
+
+        let event = EventDeclaration {
+            name: "order.items.added".to_string(),
+            description: "Items added to order".to_string(),
+            schema: json!({"type": "object"}),
+            delivery_mode: EventDeliveryMode::Durable,
+        };
+
+        assert_eq!(event.namespace(), Some("order"));
+        assert_eq!(event.action(), Some("added"));
+    }
+
+    #[test]
+    fn test_event_declaration_single_level_name() {
+        use crate::models::core::task_template::EventDeclaration;
+        use serde_json::json;
+
+        let event = EventDeclaration {
+            name: "simple".to_string(),
+            description: "Simple event".to_string(),
+            schema: json!({"type": "object"}),
+            delivery_mode: EventDeliveryMode::Durable,
+        };
+
+        assert_eq!(event.namespace(), Some("simple"));
+        assert_eq!(event.action(), Some("simple"));
+    }
+
+    #[test]
+    fn test_step_get_event_declaration() {
+        let yaml_content = r#"
+name: test_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: test_step
+    handler:
+      callable: "TestHandler"
+    publishes_events:
+      - name: payment.authorized
+        description: "Payment authorized"
+        schema:
+          type: object
+          properties:
+            payment_id:
+              type: string
+        delivery_mode: durable
+      - name: payment.declined
+        description: "Payment declined"
+        schema:
+          type: object
+          properties:
+            reason:
+              type: string
+        delivery_mode: durable
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+        let step = &template.steps[0];
+
+        // Test finding existing event
+        let authorized = step.get_event_declaration("payment.authorized");
+        assert!(authorized.is_some());
+        assert_eq!(authorized.unwrap().description, "Payment authorized");
+
+        let declined = step.get_event_declaration("payment.declined");
+        assert!(declined.is_some());
+        assert_eq!(declined.unwrap().description, "Payment declined");
+
+        // Test finding non-existent event
+        let unknown = step.get_event_declaration("payment.unknown");
+        assert!(unknown.is_none());
+    }
+
+    #[test]
+    fn test_event_delivery_mode_serialization() {
+        use crate::models::core::task_template::EventDeliveryMode;
+
+        let mode = EventDeliveryMode::Durable;
+        let json = serde_json::to_string(&mode).expect("Should serialize");
+        assert_eq!(json, "\"durable\"");
+
+        let deserialized: EventDeliveryMode =
+            serde_json::from_str(&json).expect("Should deserialize");
+        assert_eq!(deserialized, EventDeliveryMode::Durable);
+    }
+
+    #[test]
+    fn test_event_declaration_builder() {
+        use crate::models::core::task_template::{EventDeclaration, EventDeliveryMode};
+        use serde_json::json;
+
+        let event = EventDeclaration::builder()
+            .name("order.created".to_string())
+            .description("Order created event".to_string())
+            .schema(json!({
+                "type": "object",
+                "properties": {
+                    "order_id": {"type": "string"}
+                }
+            }))
+            .delivery_mode(EventDeliveryMode::Durable)
+            .build();
+
+        assert_eq!(event.name, "order.created");
+        assert_eq!(event.description, "Order created event");
+        assert_eq!(event.delivery_mode, EventDeliveryMode::Durable);
+        assert!(event.schema.is_object());
+    }
+
+    #[test]
+    fn test_complex_event_schema() {
+        let yaml_content = r#"
+name: test_task
+namespace_name: test
+version: "1.0.0"
+
+steps:
+  - name: process_order
+    handler:
+      callable: "OrderHandler"
+    publishes_events:
+      - name: order.created
+        description: "New order created"
+        schema:
+          type: object
+          properties:
+            order_id:
+              type: string
+              format: uuid
+            customer_id:
+              type: string
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  sku:
+                    type: string
+                  quantity:
+                    type: integer
+                    minimum: 1
+                required:
+                  - sku
+                  - quantity
+            total_amount:
+              type: number
+              minimum: 0
+          required:
+            - order_id
+            - customer_id
+            - items
+            - total_amount
+          additionalProperties: false
+        delivery_mode: durable
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+        let step = &template.steps[0];
+        let event = &step.publishes_events[0];
+
+        assert_eq!(event.name, "order.created");
+        assert!(event.schema.is_object());
+
+        // Verify schema structure
+        let schema_obj = event.schema.as_object().unwrap();
+        assert_eq!(schema_obj.get("type").unwrap(), "object");
+        assert!(schema_obj.contains_key("properties"));
+        assert!(schema_obj.contains_key("required"));
+        assert_eq!(schema_obj.get("additionalProperties").unwrap(), false);
     }
 }

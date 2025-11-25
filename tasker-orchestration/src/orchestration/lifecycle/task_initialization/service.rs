@@ -260,9 +260,7 @@ impl TaskInitializer {
         if let Some(histogram) = TASK_INITIALIZATION_DURATION.get() {
             histogram.record(
                 duration_ms,
-                &[
-                    KeyValue::new("task_type", task_name.clone()),
-                ],
+                &[KeyValue::new("task_type", task_name.clone())],
             );
         }
 

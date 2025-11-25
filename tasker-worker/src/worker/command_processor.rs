@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, info, warn, span, event, Level, Instrument};
+use tracing::{debug, error, event, info, span, warn, Instrument, Level};
 use uuid::Uuid;
 
 use opentelemetry::KeyValue;
@@ -792,16 +792,18 @@ impl WorkerProcessor {
 
                 // Fire step execution event (FFI handler execution) with trace context
                 let fire_result = match &self.event_publisher {
-                    Some(publisher) => publisher
-                        .fire_step_execution_event_with_trace(
-                            &task_sequence_step,
-                            trace_id,
-                            span_id,
-                        )
-                        .await,
+                    Some(publisher) => {
+                        publisher
+                            .fire_step_execution_event_with_trace(
+                                &task_sequence_step,
+                                trace_id,
+                                span_id,
+                            )
+                            .await
+                    }
                     None => {
                         return Err(TaskerError::WorkerError(
-                            "Event publisher not initialized".to_string()
+                            "Event publisher not initialized".to_string(),
                         ));
                     }
                 };
@@ -850,8 +852,14 @@ impl WorkerProcessor {
                     histogram.record(
                         duration_ms,
                         &[
-                            KeyValue::new("correlation_id", step_message.correlation_id.to_string()),
-                            KeyValue::new("namespace", task_sequence_step.task.namespace_name.clone()),
+                            KeyValue::new(
+                                "correlation_id",
+                                step_message.correlation_id.to_string(),
+                            ),
+                            KeyValue::new(
+                                "namespace",
+                                task_sequence_step.task.namespace_name.clone(),
+                            ),
                             KeyValue::new("result", "failure"),
                         ],
                     );

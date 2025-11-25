@@ -173,7 +173,10 @@ fn init_opentelemetry_tracer(
         .with_service_name(config.service_name.clone())
         .with_attributes([
             KeyValue::new("service.version", config.service_version.clone()),
-            KeyValue::new("deployment.environment", config.deployment_environment.clone()),
+            KeyValue::new(
+                "deployment.environment",
+                config.deployment_environment.clone(),
+            ),
         ])
         .build();
 

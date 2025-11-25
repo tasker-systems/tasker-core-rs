@@ -82,7 +82,8 @@ impl TaskFinalizer {
         let correlation_id = task.correlation_id;
 
         // Update span with correlation_id once we have it
-        tracing::Span::current().record("correlation_id", &tracing::field::display(&correlation_id));
+        tracing::Span::current()
+            .record("correlation_id", tracing::field::display(&correlation_id));
 
         // TAS-29 Phase 3.3: Start timing task finalization
         let start_time = Instant::now();
@@ -121,12 +122,7 @@ impl TaskFinalizer {
 
                 // Record finalization duration for completed tasks
                 if let Some(histogram) = TASK_FINALIZATION_DURATION.get() {
-                    histogram.record(
-                        duration_ms,
-                        &[
-                            KeyValue::new("final_state", "complete"),
-                        ],
-                    );
+                    histogram.record(duration_ms, &[KeyValue::new("final_state", "complete")]);
                 }
             }
             FinalizationAction::Failed => {
@@ -137,12 +133,7 @@ impl TaskFinalizer {
 
                 // Record finalization duration for failed tasks
                 if let Some(histogram) = TASK_FINALIZATION_DURATION.get() {
-                    histogram.record(
-                        duration_ms,
-                        &[
-                            KeyValue::new("final_state", "error"),
-                        ],
-                    );
+                    histogram.record(duration_ms, &[KeyValue::new("final_state", "error")]);
                 }
             }
             _ => {
@@ -154,12 +145,7 @@ impl TaskFinalizer {
                         FinalizationAction::NoAction => "no_action",
                         _ => "unknown",
                     };
-                    histogram.record(
-                        duration_ms,
-                        &[
-                            KeyValue::new("final_state", state),
-                        ],
-                    );
+                    histogram.record(duration_ms, &[KeyValue::new("final_state", state)]);
                 }
             }
         }

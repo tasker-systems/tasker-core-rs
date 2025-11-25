@@ -107,7 +107,10 @@ fn init_opentelemetry_meter(
         .with_service_name(config.service_name.clone())
         .with_attributes([
             KeyValue::new("service.version", config.service_version.clone()),
-            KeyValue::new("deployment.environment", config.deployment_environment.clone()),
+            KeyValue::new(
+                "deployment.environment",
+                config.deployment_environment.clone(),
+            ),
         ])
         .build();
 
@@ -148,7 +151,7 @@ pub fn init_metrics() {
         // Build resource with builder pattern (OpenTelemetry 0.28+ API)
         let resource = Resource::builder()
             .with_service_name(
-                std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "tasker-core".to_string())
+                std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "tasker-core".to_string()),
             )
             .with_attributes([
                 KeyValue::new(

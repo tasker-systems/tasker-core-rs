@@ -101,7 +101,8 @@ impl OrchestrationResultProcessor {
     ) -> OrchestrationResult<()> {
         event!(Level::INFO, "step_result.processing_started");
 
-        let result = self.message_handler
+        let result = self
+            .message_handler
             .handle_step_result_message(step_result)
             .await;
 
@@ -127,7 +128,8 @@ impl OrchestrationResultProcessor {
     ) -> OrchestrationResult<()> {
         event!(Level::INFO, "step_execution_result.processing_started");
 
-        let result = self.message_handler
+        let result = self
+            .message_handler
             .handle_step_execution_result(step_result)
             .await;
 

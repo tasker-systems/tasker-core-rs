@@ -121,7 +121,12 @@ impl WorkerCore {
                 .iter()
                 .map(|ns| ns.as_str())
                 .collect();
+
+            // Initialize worker queues for step execution
             context.initialize_queues(&namespace_refs).await?;
+
+            // TAS-65 Phase 2: Initialize domain event queues for event publishing
+            context.initialize_domain_event_queues(&namespace_refs).await?;
 
             task_template_manager
                 .set_supported_namespaces(discovery_result.discovered_namespaces.clone())
