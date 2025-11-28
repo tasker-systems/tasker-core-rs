@@ -10,6 +10,7 @@ use crate::{
 };
 use magnus::{value::ReprValue, Error, Value};
 use std::sync::Arc;
+use tasker_worker::worker::{InProcessEventBus, InProcessEventBusConfig};
 use tasker_worker::WorkerBootstrap;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -123,11 +124,33 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
         Ok::<_, Error>((handle, ruby_event_handler))
     })?;
 
-    // Store the bridge handle with event receiver
+    // TAS-65: Create domain event publisher from system context message client
+    // Access message_client through async context to create publisher once
+    let domain_event_publisher = runtime.block_on(async {
+        let worker_core = system_handle.worker_core.lock().await;
+        let message_client = worker_core.context.message_client.clone();
+        Arc::new(tasker_shared::events::domain_events::DomainEventPublisher::new(message_client))
+    });
+
+    // TAS-65 Phase 4.1: Create in-process event bus for fast domain events
+    // Ruby can poll this channel to receive events with delivery_mode: fast
+    info!("⚡ Creating in-process event bus for fast domain events...");
+    let in_process_bus = InProcessEventBus::new(InProcessEventBusConfig::default());
+    let in_process_event_receiver = in_process_bus.subscribe_ffi();
+    info!("✅ In-process event bus created with FFI subscriber");
+
+    // Note: The InProcessEventBus is created but not yet integrated with EventRouter
+    // for routing delivery_mode: fast events. This will be addressed when step handlers
+    // use the EventRouter for dual-path delivery. For now, Ruby can poll this channel
+    // for any events explicitly dispatched to the in-process bus.
+
+    // Store the bridge handle with event receiver and domain event publisher
     *handle_guard = Some(RubyBridgeHandle::new(
         system_handle,
         event_handler,
         event_receiver,
+        domain_event_publisher,
+        Some(in_process_event_receiver),
         runtime,
     ));
 

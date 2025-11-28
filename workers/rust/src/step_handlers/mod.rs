@@ -351,8 +351,10 @@ pub fn error_result(
     )
 }
 
-// TAS-65: Re-export DomainEventPublishable from tasker-worker
-pub use tasker_worker::worker::DomainEventPublishable;
+// TAS-65: Re-export StepEventPublisher types from tasker-worker for custom publishers
+pub use tasker_worker::worker::{
+    PublishResult, StepEventContext, StepEventPublisher, StepEventPublisherRegistry,
+};
 
 // Workflow handler modules
 pub mod batch_processing_example;
@@ -371,10 +373,16 @@ pub mod error_injection;
 // TAS-65: Example handler with domain event publishing
 pub mod payment_example;
 
+// TAS-65 Phase 3: Custom event publisher example
+pub mod payment_event_publisher;
+
 // Handler registry
 pub mod registry;
 
 // Re-export core types for convenience
 pub use registry::{GlobalRustStepHandlerRegistry, RustStepHandlerRegistry};
+
+// Re-export example custom publisher
+pub use payment_event_publisher::PaymentEventPublisher;
 
 // StepHandlerConfig is defined in this module, no need to re-export

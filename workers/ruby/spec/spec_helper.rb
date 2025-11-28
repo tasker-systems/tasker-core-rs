@@ -65,3 +65,7 @@ rescue StandardError => e
   puts e.backtrace.first(10).join("\n   ")
   raise e
 end
+
+# TAS-65: Load domain events test helpers
+require_relative 'support/domain_events'
+puts '🧪 Domain event test helpers loaded'

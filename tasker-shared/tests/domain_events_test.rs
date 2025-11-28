@@ -1,6 +1,15 @@
 use sqlx::PgPool;
-use tasker_shared::events::{DomainEvent, DomainEventPublisher, EventMetadata};
+use std::collections::HashMap;
+use tasker_shared::events::{DomainEvent, DomainEventPayload, DomainEventPublisher, EventMetadata};
+use tasker_shared::messaging::execution_types::{StepExecutionMetadata, StepExecutionResult};
+use tasker_shared::models::core::task::Task;
+use tasker_shared::models::core::task::TaskForOrchestration;
+use tasker_shared::models::core::task_template::{
+    HandlerDefinition, RetryConfiguration, StepDefinition,
+};
+use tasker_shared::models::core::workflow_step::WorkflowStepWithName;
 use tasker_shared::system_context::SystemContext;
+use tasker_shared::types::TaskSequenceStep;
 use uuid::Uuid;
 
 /// Helper to create test metadata
@@ -13,6 +22,114 @@ fn create_test_metadata(namespace: &str) -> EventMetadata {
         correlation_id: Uuid::new_v4(),
         fired_at: chrono::Utc::now(),
         fired_by: "TestHandler".to_string(),
+    }
+}
+
+/// Helper to create a minimal TaskSequenceStep for testing
+fn create_test_task_sequence_step() -> TaskSequenceStep {
+    let now = chrono::Utc::now().naive_utc();
+    TaskSequenceStep {
+        task: TaskForOrchestration {
+            task: Task {
+                task_uuid: Uuid::new_v4(),
+                named_task_uuid: Uuid::new_v4(),
+                complete: false,
+                requested_at: now,
+                initiator: Some("test".to_string()),
+                source_system: None,
+                reason: None,
+                bypass_steps: None,
+                tags: None,
+                context: Some(serde_json::json!({})),
+                identity_hash: "test_hash".to_string(),
+                priority: 5,
+                created_at: now,
+                updated_at: now,
+                correlation_id: Uuid::new_v4(),
+                parent_correlation_id: None,
+            },
+            task_name: "test_task".to_string(),
+            task_version: "1.0".to_string(),
+            namespace_name: "test".to_string(),
+        },
+        workflow_step: WorkflowStepWithName {
+            workflow_step_uuid: Uuid::new_v4(),
+            task_uuid: Uuid::new_v4(),
+            named_step_uuid: Uuid::new_v4(),
+            name: "test_step".to_string(),
+            template_step_name: "test_step".to_string(),
+            retryable: true,
+            max_attempts: Some(3),
+            in_process: false,
+            processed: false,
+            processed_at: None,
+            attempts: Some(0),
+            last_attempted_at: None,
+            backoff_request_seconds: None,
+            inputs: None,
+            results: None,
+            skippable: false,
+            created_at: now,
+            updated_at: now,
+        },
+        dependency_results: HashMap::new(),
+        step_definition: StepDefinition {
+            name: "test_step".to_string(),
+            description: Some("Test step".to_string()),
+            handler: HandlerDefinition {
+                callable: "TestHandler".to_string(),
+                initialization: HashMap::new(),
+            },
+            step_type: Default::default(),
+            system_dependency: None,
+            dependencies: vec![],
+            retry: RetryConfiguration::default(),
+            timeout_seconds: None,
+            publishes_events: vec![],
+            batch_config: None,
+        },
+    }
+}
+
+/// Helper to create a minimal StepExecutionResult for testing
+fn create_test_execution_result(
+    step_uuid: Uuid,
+    payload: serde_json::Value,
+) -> StepExecutionResult {
+    StepExecutionResult {
+        step_uuid,
+        success: true,
+        result: payload,
+        metadata: StepExecutionMetadata {
+            execution_time_ms: 100,
+            handler_version: None,
+            retryable: true,
+            completed_at: chrono::Utc::now(),
+            worker_id: None,
+            worker_hostname: None,
+            started_at: None,
+            custom: HashMap::new(),
+            error_code: None,
+            error_type: None,
+            context: HashMap::new(),
+        },
+        status: "completed".to_string(),
+        error: None,
+        orchestration_metadata: None,
+    }
+}
+
+/// Helper to create a test DomainEventPayload
+fn create_test_payload(business_payload: serde_json::Value) -> DomainEventPayload {
+    let tss = create_test_task_sequence_step();
+    let execution_result = create_test_execution_result(
+        tss.workflow_step.workflow_step_uuid,
+        business_payload.clone(),
+    );
+    DomainEventPayload {
+        task_sequence_step: tss,
+        execution_result,
+        payload: business_payload,
     }
 }
 
@@ -51,14 +168,15 @@ async fn test_publish_event(pool: PgPool) -> sqlx::Result<()> {
 
     // Publish event
     let metadata = create_test_metadata(&namespace);
-    let payload = serde_json::json!({
+    let business_payload = serde_json::json!({
         "order_id": 123,
         "amount": 99.99,
         "status": "processed"
     });
+    let payload = create_test_payload(business_payload);
 
     let event_id = publisher
-        .publish_event("order.processed", payload.clone(), metadata.clone())
+        .publish_event("order.processed", payload, metadata.clone())
         .await
         .map_err(|e| sqlx::Error::Protocol(format!("Failed to publish event: {}", e)))?;
 
@@ -115,7 +233,8 @@ async fn test_publish_event_with_correlation(pool: PgPool) -> sqlx::Result<()> {
         fired_by: "OrderProcessor".to_string(),
     };
 
-    let payload = serde_json::json!({"order_id": 456});
+    let business_payload = serde_json::json!({"order_id": 456});
+    let payload = create_test_payload(business_payload);
 
     publisher
         .publish_event("order.created", payload, metadata)

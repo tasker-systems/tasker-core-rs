@@ -131,3 +131,9 @@ pub use core::workflow_step_transition::{NewWorkflowStepTransition, WorkflowStep
 pub use core::*;
 pub use insights::*;
 pub use orchestration::*;
+
+// TAS-65: Re-export event publication types from task_template module
+pub use core::task_template::{
+    EventDeclaration, EventDeliveryMode, EventPublicationValidator, PublicationCondition,
+    ValidationError, ValidationResult, ValidationWarning,
+};

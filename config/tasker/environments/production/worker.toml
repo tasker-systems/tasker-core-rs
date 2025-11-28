@@ -18,3 +18,9 @@ event_channel_buffer_size = 5000
 
 [worker.mpsc_channels.in_process_events]
 broadcast_buffer_size = 5000
+
+# TAS-65/TAS-69: Domain Event System - large buffers for production throughput
+[worker.mpsc_channels.domain_events]
+command_buffer_size = 5000
+shutdown_drain_timeout_ms = 10000
+log_dropped_events = false

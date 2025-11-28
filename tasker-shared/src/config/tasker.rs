@@ -1965,6 +1965,11 @@ pub struct WorkerMpscChannelsConfig {
     #[validate(nested)]
     #[builder(default)]
     pub event_listeners: WorkerEventListenerChannels,
+
+    /// TAS-65/TAS-69: Domain event system channels
+    #[validate(nested)]
+    #[builder(default)]
+    pub domain_events: WorkerDomainEventChannels,
 }
 
 impl_builder_default!(WorkerMpscChannelsConfig);
@@ -2033,6 +2038,27 @@ pub struct WorkerEventListenerChannels {
 }
 
 impl_builder_default!(WorkerEventListenerChannels);
+
+/// TAS-65/TAS-69: Worker domain event system channels
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerDomainEventChannels {
+    /// Command buffer size for domain event dispatch
+    #[validate(range(min = 10, max = 1000000))]
+    #[builder(default = 1000)]
+    pub command_buffer_size: u32,
+
+    /// Shutdown drain timeout in milliseconds
+    #[validate(range(min = 100, max = 60000))]
+    #[builder(default = 5000)]
+    pub shutdown_drain_timeout_ms: u32,
+
+    /// Whether to log dropped events
+    #[builder(default = true)]
+    pub log_dropped_events: bool,
+}
+
+impl_builder_default!(WorkerDomainEventChannels);
 
 /// Worker web API configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -2468,6 +2494,11 @@ mod tests {
                 },
                 event_listeners: WorkerEventListenerChannels {
                     pgmq_event_buffer_size: 1000,
+                },
+                domain_events: WorkerDomainEventChannels {
+                    command_buffer_size: 1000,
+                    shutdown_drain_timeout_ms: 5000,
+                    log_dropped_events: true,
                 },
             },
             web: None,

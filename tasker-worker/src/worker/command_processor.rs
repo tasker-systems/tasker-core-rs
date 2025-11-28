@@ -17,9 +17,11 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, event, info, span, warn, Instrument, Level};
 use uuid::Uuid;
 
+use chrono::Utc;
 use opentelemetry::KeyValue;
 use pgmq::Message as PgmqMessage;
 use pgmq_notify::MessageReadyEvent;
+use tasker_shared::events::domain_events::EventMetadata;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{PgmqClientTrait, StepExecutionResult};
 use tasker_shared::metrics::worker::*;
@@ -29,10 +31,13 @@ use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::system_context::SystemContext;
+use tasker_shared::types::base::TaskSequenceStep;
 use tasker_shared::{TaskerError, TaskerResult};
 
+use super::domain_event_commands::DomainEventToPublish;
 use super::event_publisher::WorkerEventPublisher;
 use super::event_subscriber::WorkerEventSubscriber;
+use super::event_systems::domain_event_system::DomainEventSystemHandle;
 use super::orchestration_result_sender::OrchestrationResultSender;
 use super::step_claim::StepClaim;
 use super::task_template_manager::TaskTemplateManager;
@@ -177,6 +182,17 @@ pub(crate) struct WorkerProcessor {
 
     /// Channel monitor for command channel observability (TAS-51)
     command_channel_monitor: ChannelMonitor,
+
+    /// TAS-65/TAS-69: Step execution context cache for domain event publishing
+    ///
+    /// Stores TaskSequenceStep keyed by step_uuid during execution.
+    /// At completion time, retrieved to build domain events.
+    step_execution_contexts: HashMap<Uuid, TaskSequenceStep>,
+
+    /// TAS-65/TAS-69: Domain event system handle for fire-and-forget event dispatch
+    ///
+    /// Optional - if not set, domain events are silently skipped.
+    domain_event_handle: Option<DomainEventSystemHandle>,
 }
 
 impl WorkerProcessor {
@@ -222,6 +238,9 @@ impl WorkerProcessor {
             event_subscriber: None,
             orchestration_result_sender,
             command_channel_monitor,
+            // TAS-65/TAS-69: Domain event publishing support
+            step_execution_contexts: HashMap::new(),
+            domain_event_handle: None,
         };
 
         (processor, command_sender)
@@ -274,6 +293,130 @@ impl WorkerProcessor {
 
         self.event_publisher = Some(event_publisher);
         self.event_subscriber = Some(event_subscriber);
+    }
+
+    /// TAS-65/TAS-69: Set domain event handle for fire-and-forget event publishing
+    ///
+    /// This handle is used to dispatch domain events after step completion.
+    /// Domain events are dispatched asynchronously via try_send() - never blocking
+    /// the workflow step execution.
+    pub fn set_domain_event_handle(&mut self, handle: DomainEventSystemHandle) {
+        info!(
+            worker_id = %self.worker_id,
+            "Setting domain event handle for fire-and-forget publishing"
+        );
+        self.domain_event_handle = Some(handle);
+    }
+
+    /// TAS-65/TAS-69: Dispatch domain events after step completion (fire-and-forget)
+    ///
+    /// This method:
+    /// 1. Retrieves cached TaskSequenceStep context
+    /// 2. Checks if step definition declares `publishes_events`
+    /// 3. Builds DomainEventToPublish for each declared event
+    /// 4. Dispatches via try_send() - never blocks, logs if channel full
+    /// 5. Cleans up the context cache
+    fn dispatch_domain_events(
+        &mut self,
+        step_result: &StepExecutionResult,
+        correlation_id: Option<Uuid>,
+    ) {
+        // Early return if no domain event handle configured
+        let handle = match &self.domain_event_handle {
+            Some(h) => h,
+            None => {
+                debug!(
+                    worker_id = %self.worker_id,
+                    step_uuid = %step_result.step_uuid,
+                    "No domain event handle configured, skipping event dispatch"
+                );
+                return;
+            }
+        };
+
+        // Retrieve and remove cached context
+        let task_sequence_step = match self.step_execution_contexts.remove(&step_result.step_uuid) {
+            Some(ctx) => ctx,
+            None => {
+                warn!(
+                    worker_id = %self.worker_id,
+                    step_uuid = %step_result.step_uuid,
+                    "No cached context found for step - cannot dispatch domain events"
+                );
+                return;
+            }
+        };
+
+        // Check if step definition declares any events to publish
+        let events_to_publish = &task_sequence_step.step_definition.publishes_events;
+        if events_to_publish.is_empty() {
+            debug!(
+                worker_id = %self.worker_id,
+                step_uuid = %step_result.step_uuid,
+                step_name = %task_sequence_step.workflow_step.name,
+                "Step has no declared events to publish"
+            );
+            return;
+        }
+
+        // Build domain events from step definition
+        let correlation = correlation_id.unwrap_or_else(Uuid::new_v4);
+        let mut domain_events = Vec::with_capacity(events_to_publish.len());
+
+        for event_def in events_to_publish {
+            let metadata = EventMetadata {
+                task_uuid: task_sequence_step.task.task.task_uuid,
+                step_uuid: Some(step_result.step_uuid),
+                step_name: Some(task_sequence_step.workflow_step.name.clone()),
+                namespace: task_sequence_step.task.namespace_name.clone(),
+                correlation_id: correlation,
+                fired_at: Utc::now(),
+                fired_by: self.worker_id.clone(),
+            };
+
+            let event = DomainEventToPublish {
+                event_name: event_def.name.clone(),
+                delivery_mode: event_def.delivery_mode.clone(),
+                // Business payload comes from step result
+                business_payload: step_result.result.clone(),
+                metadata,
+                task_sequence_step: task_sequence_step.clone(),
+                execution_result: step_result.clone(),
+            };
+
+            domain_events.push(event);
+        }
+
+        let event_count = domain_events.len();
+        let publisher_name = task_sequence_step
+            .step_definition
+            .publishes_events
+            .first()
+            .and_then(|e| e.publisher.clone())
+            .unwrap_or_else(|| "default".to_string());
+
+        // Fire-and-forget dispatch - try_send never blocks
+        let dispatched = handle.dispatch_events(domain_events, publisher_name, correlation);
+
+        if dispatched {
+            info!(
+                worker_id = %self.worker_id,
+                step_uuid = %step_result.step_uuid,
+                step_name = %task_sequence_step.workflow_step.name,
+                event_count = event_count,
+                correlation_id = %correlation,
+                "Domain events dispatched (fire-and-forget)"
+            );
+        } else {
+            warn!(
+                worker_id = %self.worker_id,
+                step_uuid = %step_result.step_uuid,
+                step_name = %task_sequence_step.workflow_step.name,
+                event_count = event_count,
+                correlation_id = %correlation,
+                "Domain event dispatch failed - channel full (events dropped)"
+            );
+        }
     }
 
     /// Start processing worker commands with event integration
@@ -615,6 +758,17 @@ impl WorkerProcessor {
                 return Err(err);
             }
         };
+
+        // TAS-65/TAS-69: Cache step execution context for domain event publishing at completion
+        // We cache *before* claiming since even failed claims might need the context for error events
+        let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
+        self.step_execution_contexts
+            .insert(step_uuid, task_sequence_step.clone());
+        debug!(
+            worker_id = %self.worker_id,
+            step_uuid = %step_uuid,
+            "Cached step execution context for domain event publishing"
+        );
 
         let claimed = match step_claimer
             .try_claim_step(&task_sequence_step, step_message.correlation_id)
@@ -1064,6 +1218,11 @@ impl WorkerProcessor {
         }
 
         self.update_average_execution_time(step_result.metadata.execution_time_ms);
+
+        // TAS-65/TAS-69: Dispatch domain events BEFORE sending result to orchestration
+        // This ensures events are dispatched even if the send fails
+        // Domain events use fire-and-forget semantics (try_send) - never blocks
+        self.dispatch_domain_events(&step_result, correlation_id);
 
         // Forward the result to orchestration
         self.handle_send_step_result(step_result).await?;

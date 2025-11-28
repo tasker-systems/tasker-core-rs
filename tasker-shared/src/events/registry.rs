@@ -326,7 +326,110 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use uuid::Uuid;
 
-    use crate::events::domain_events::EventMetadata;
+    use crate::events::domain_events::{DomainEventPayload, EventMetadata};
+    use crate::messaging::execution_types::{StepExecutionMetadata, StepExecutionResult};
+    use crate::models::core::task::{Task, TaskForOrchestration};
+    use crate::models::core::task_template::{
+        HandlerDefinition, RetryConfiguration, StepDefinition,
+    };
+    use crate::models::core::workflow_step::WorkflowStepWithName;
+    use crate::types::base::TaskSequenceStep;
+    // HashMap imported via super::*
+
+    /// Helper to create a minimal test payload for registry testing
+    fn create_minimal_test_payload() -> DomainEventPayload {
+        // Minimal TaskSequenceStep for testing
+        let task_sequence_step = TaskSequenceStep {
+            task: TaskForOrchestration {
+                task: Task {
+                    task_uuid: Uuid::new_v4(),
+                    named_task_uuid: Uuid::new_v4(),
+                    complete: false,
+                    requested_at: chrono::Utc::now().naive_utc(),
+                    initiator: Some("test".to_string()),
+                    source_system: None,
+                    reason: None,
+                    bypass_steps: None,
+                    tags: None,
+                    context: Some(json!({})),
+                    identity_hash: "test_hash".to_string(),
+                    priority: 5,
+                    created_at: chrono::Utc::now().naive_utc(),
+                    updated_at: chrono::Utc::now().naive_utc(),
+                    correlation_id: Uuid::new_v4(),
+                    parent_correlation_id: None,
+                },
+                task_name: "test_task".to_string(),
+                task_version: "1.0".to_string(),
+                namespace_name: "test".to_string(),
+            },
+            workflow_step: WorkflowStepWithName {
+                workflow_step_uuid: Uuid::new_v4(),
+                task_uuid: Uuid::new_v4(),
+                named_step_uuid: Uuid::new_v4(),
+                name: "test_step".to_string(),
+                template_step_name: "test_step".to_string(),
+                retryable: true,
+                max_attempts: Some(3),
+                in_process: false,
+                processed: false,
+                processed_at: None,
+                attempts: Some(0),
+                last_attempted_at: None,
+                backoff_request_seconds: None,
+                inputs: None,
+                results: None,
+                skippable: false,
+                created_at: chrono::Utc::now().naive_utc(),
+                updated_at: chrono::Utc::now().naive_utc(),
+            },
+            dependency_results: HashMap::new(),
+            step_definition: StepDefinition {
+                name: "test_step".to_string(),
+                description: Some("Test step".to_string()),
+                handler: HandlerDefinition {
+                    callable: "TestHandler".to_string(),
+                    initialization: HashMap::new(),
+                },
+                step_type: Default::default(),
+                system_dependency: None,
+                dependencies: vec![],
+                retry: RetryConfiguration::default(),
+                timeout_seconds: None,
+                publishes_events: vec![],
+                batch_config: None,
+            },
+        };
+
+        // Minimal StepExecutionResult for testing
+        let execution_result = StepExecutionResult {
+            step_uuid: Uuid::new_v4(),
+            success: true,
+            result: json!({}),
+            metadata: StepExecutionMetadata {
+                execution_time_ms: 0,
+                handler_version: None,
+                retryable: true,
+                completed_at: Utc::now(),
+                worker_id: None,
+                worker_hostname: None,
+                started_at: None,
+                custom: HashMap::new(),
+                error_code: None,
+                error_type: None,
+                context: HashMap::new(),
+            },
+            status: "completed".to_string(),
+            error: None,
+            orchestration_metadata: None,
+        };
+
+        DomainEventPayload {
+            task_sequence_step,
+            execution_result,
+            payload: json!({}),
+        }
+    }
 
     /// Helper to create a test event
     fn create_test_event(event_name: &str) -> DomainEvent {
@@ -334,7 +437,7 @@ mod tests {
             event_id: Uuid::new_v4(),
             event_name: event_name.to_string(),
             event_version: "1.0".to_string(),
-            payload: json!({}),
+            payload: create_minimal_test_payload(),
             metadata: EventMetadata {
                 task_uuid: Uuid::new_v4(),
                 step_uuid: None,

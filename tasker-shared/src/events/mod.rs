@@ -1,4 +1,5 @@
 pub mod domain_events;
+pub mod generic_publisher; // TAS-65 Phase 2: Generic event publisher with schema validation
 pub mod publisher;
 pub mod registry; // TAS-65 Phase 2.3a: Event registry with pattern matching
 pub mod types;
@@ -17,7 +18,15 @@ pub use worker_events::{
 };
 
 // Re-export TAS-65 Phase 2.1 domain event types
-pub use domain_events::{DomainEvent, DomainEventError, DomainEventPublisher, EventMetadata};
+pub use domain_events::{
+    DomainEvent, DomainEventError, DomainEventPayload, DomainEventPublisher, EventMetadata,
+};
+
+// Re-export TAS-65 Phase 2: Generic publisher types
+pub use generic_publisher::{
+    GenericEventPublisher, GenericPublisherError, PublishAllResult, PublishError as GenericPublishError,
+    PublishedEvent,
+};
 
 // Re-export TAS-65 Phase 2.2 validation types
 pub use validation::{EventSchemaValidator, EventValidationError};

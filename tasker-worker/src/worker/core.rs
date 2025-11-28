@@ -27,7 +27,13 @@ use super::command_processor::{WorkerCommand, WorkerProcessor, WorkerStatus};
 use super::event_driven_processor::{
     EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
 };
+use super::step_event_publisher::{StepEventPublisher, StepEventContext, PublishResult};
+use super::step_event_publisher_registry::StepEventPublisherRegistry;
 use super::task_template_manager::TaskTemplateManager;
+use std::sync::RwLock;
+use tasker_shared::events::domain_events::DomainEventPublisher;
+use tasker_shared::messaging::execution_types::StepExecutionResult;
+use tasker_shared::types::TaskSequenceStep;
 use crate::health::WorkerHealthStatus;
 use tasker_client::api_clients::orchestration_client::{
     OrchestrationApiClient, OrchestrationApiConfig,
@@ -63,6 +69,14 @@ pub struct WorkerCore {
     /// Orchestration API client for service communication
     pub orchestration_client: Arc<OrchestrationApiClient>,
 
+    /// TAS-65 Phase 3: Step event publisher registry
+    /// Registry of custom event publishers keyed by name (from YAML `publisher:` field)
+    step_event_publisher_registry: Arc<RwLock<StepEventPublisherRegistry>>,
+
+    /// TAS-65 Phase 3: Domain event publisher for PGMQ
+    /// Used to create StepEventPublisherContext when invoking publishers
+    domain_event_publisher: Arc<DomainEventPublisher>,
+
     /// System status
     pub status: WorkerCoreStatus,
 
@@ -72,11 +86,17 @@ pub struct WorkerCore {
 
 impl std::fmt::Debug for WorkerCore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let registry_count = self
+            .step_event_publisher_registry
+            .read()
+            .map(|r| r.len())
+            .unwrap_or(0);
         f.debug_struct("WorkerCore")
             .field("core_id", &self.core_id)
             .field("status", &self.status)
             .field("has_processor", &self.processor.is_some())
             .field("has_event_driven", &self.event_driven_processor.is_some())
+            .field("registered_event_publishers", &registry_count)
             .finish()
     }
 }
@@ -207,6 +227,18 @@ impl WorkerCore {
 
         let core_id = Uuid::now_v7();
 
+        // TAS-65 Phase 3: Create domain event publisher for step events
+        let domain_event_publisher = Arc::new(DomainEventPublisher::new(context.message_client()));
+
+        // TAS-65 Phase 3: Initialize step event publisher registry with domain publisher
+        let step_event_publisher_registry =
+            Arc::new(RwLock::new(StepEventPublisherRegistry::new(domain_event_publisher.clone())));
+
+        info!(
+            core_id = %core_id,
+            "WorkerCore initialized with step event publisher registry"
+        );
+
         Ok(Self {
             context,
             command_sender,
@@ -214,6 +246,8 @@ impl WorkerCore {
             event_driven_processor: Some(event_driven_processor),
             task_template_manager,
             orchestration_client,
+            step_event_publisher_registry,
+            domain_event_publisher,
             status: WorkerCoreStatus::Created,
             core_id,
         })
@@ -423,6 +457,138 @@ impl WorkerCore {
         } else {
             false
         }
+    }
+
+    // =========================================================================
+    // TAS-65 Phase 3: Step Event Publisher Methods
+    // =========================================================================
+
+    /// Register a custom step event publisher
+    ///
+    /// The publisher's `name()` is used as the lookup key. This name should
+    /// match the `publisher:` field in YAML step definitions.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// worker_core.register_step_event_publisher(PaymentEventPublisher::new());
+    /// ```
+    pub fn register_step_event_publisher<P: StepEventPublisher + 'static>(&self, publisher: P) {
+        let name = publisher.name().to_string();
+        info!(publisher_name = %name, "Registering custom step event publisher");
+        if let Ok(mut registry) = self.step_event_publisher_registry.write() {
+            registry.register(publisher);
+        } else {
+            warn!(publisher_name = %name, "Failed to acquire write lock for publisher registration");
+        }
+    }
+
+    /// Get a step event publisher by name
+    ///
+    /// Returns the publisher if registered, or None if not found.
+    pub fn get_step_event_publisher(&self, name: &str) -> Option<Arc<dyn StepEventPublisher>> {
+        self.step_event_publisher_registry
+            .read()
+            .ok()
+            .and_then(|r| r.get(name))
+    }
+
+    /// Get the appropriate publisher for a step
+    ///
+    /// Looks up the publisher by name from YAML config. Returns the generic
+    /// publisher if no custom publisher is specified or found.
+    pub fn get_step_publisher_or_default(
+        &self,
+        publisher_name: Option<&str>,
+    ) -> Arc<dyn StepEventPublisher> {
+        self.step_event_publisher_registry
+            .read()
+            .map(|r| r.get_or_default(publisher_name))
+            .unwrap_or_else(|_| {
+                // Fallback: create a new generic publisher (should rarely happen)
+                Arc::new(super::step_event_publisher::DefaultDomainEventPublisher::new(
+                    self.domain_event_publisher.clone(),
+                ))
+            })
+    }
+
+    /// Publish domain events for a completed step
+    ///
+    /// This is the main entry point for post-execution event publishing.
+    /// Creates a lightweight context DTO and invokes the appropriate publisher.
+    ///
+    /// # Arguments
+    ///
+    /// * `task_sequence_step` - The completed step with full context
+    /// * `execution_result` - The step execution result
+    /// * `publisher_name` - Optional custom publisher name from YAML
+    ///
+    /// # Returns
+    ///
+    /// Result containing published event IDs, skipped events, and any errors.
+    /// Event publishing failures are logged but do NOT fail the step.
+    ///
+    /// # Performance
+    ///
+    /// The context is a pure DTO (no Arc cloning). Publishers own their
+    /// `Arc<DomainEventPublisher>` so no per-invocation Arc operations occur.
+    pub async fn publish_step_events(
+        &self,
+        task_sequence_step: TaskSequenceStep,
+        execution_result: StepExecutionResult,
+        publisher_name: Option<&str>,
+    ) -> PublishResult {
+        let publisher = self.get_step_publisher_or_default(publisher_name);
+
+        // Create lightweight DTO context (no Arc, no behavior)
+        let ctx = StepEventContext::new(task_sequence_step, execution_result);
+
+        let result = publisher.publish(&ctx).await;
+
+        // Log results
+        if !result.published.is_empty() {
+            info!(
+                step_name = %ctx.step_name(),
+                publisher = %publisher.name(),
+                published_count = result.published_count(),
+                "Step events published successfully"
+            );
+        }
+
+        if !result.errors.is_empty() {
+            warn!(
+                step_name = %ctx.step_name(),
+                publisher = %publisher.name(),
+                error_count = result.error_count(),
+                errors = ?result.errors,
+                "Some step events failed to publish"
+            );
+        }
+
+        result
+    }
+
+    /// Get the count of registered custom publishers
+    pub fn registered_publisher_count(&self) -> usize {
+        self.step_event_publisher_registry
+            .read()
+            .map(|r| r.len())
+            .unwrap_or(0)
+    }
+
+    /// Get names of all registered custom publishers
+    pub fn registered_publisher_names(&self) -> Vec<String> {
+        self.step_event_publisher_registry
+            .read()
+            .map(|r| r.registered_names().iter().map(|s| s.to_string()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Get a reference to the domain event publisher
+    ///
+    /// Useful for advanced scenarios where direct access is needed.
+    pub fn domain_event_publisher(&self) -> Arc<DomainEventPublisher> {
+        self.domain_event_publisher.clone()
     }
 }
 

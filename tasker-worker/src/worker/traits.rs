@@ -5,7 +5,10 @@
 use anyhow::Result;
 use std::sync::Arc;
 
-use tasker_shared::events::domain_events::{DomainEventPublisher, EventMetadata};
+use tasker_shared::events::domain_events::{
+    DomainEventPayload, DomainEventPublisher, EventMetadata,
+};
+use tasker_shared::messaging::execution_types::StepExecutionResult;
 use tasker_shared::types::TaskSequenceStep;
 use tracing::{debug, warn};
 
@@ -13,6 +16,13 @@ use tracing::{debug, warn};
 ///
 /// Automatically extracts metadata from `TaskSequenceStep` and handles errors gracefully.
 /// Event publishing failures are logged but do NOT fail the step.
+///
+/// ## Deprecation Notice
+///
+/// This trait supports in-handler event publishing during the transition to
+/// post-execution publisher callbacks. Once Phase 6 (TAS-65) is complete,
+/// this trait will be removed in favor of YAML-declared events published
+/// automatically after step completion.
 ///
 /// ## Usage
 ///
@@ -27,10 +37,11 @@ use tracing::{debug, warn};
 ///     }
 /// }
 ///
-/// // In your handler:
+/// // In your handler (after building your execution result):
 /// self.publish_domain_event(
 ///     step_data,
 ///     "order.processed",
+///     execution_result,
 ///     json!({"order_id": 123})
 /// ).await?;
 /// ```
@@ -42,12 +53,13 @@ pub trait DomainEventPublishable {
     /// The handler's name for metadata (used in `fired_by` field)
     fn handler_name(&self) -> &str;
 
-    /// Publish a domain event with automatic metadata extraction
+    /// Publish a domain event with full execution context
     ///
     /// # Arguments
-    /// - `step_data`: Current step execution context (provides all metadata)
+    /// - `step_data`: Current step execution context (provides task/step metadata)
     /// - `event_name`: Event name in dot notation (e.g., "payment.processed")
-    /// - `payload`: Event payload as JSON value
+    /// - `execution_result`: The complete step execution result
+    /// - `business_payload`: Business-specific event payload as JSON value
     ///
     /// # Error Handling
     /// - If publisher not configured: silently skip (no-op)
@@ -58,6 +70,7 @@ pub trait DomainEventPublishable {
     /// self.publish_domain_event(
     ///     step_data,
     ///     "order.fulfilled",
+    ///     execution_result,
     ///     json!({"order_id": 123, "total": 99.99})
     /// ).await?;
     /// ```
@@ -65,7 +78,8 @@ pub trait DomainEventPublishable {
         &self,
         step_data: &TaskSequenceStep,
         event_name: &str,
-        payload: serde_json::Value,
+        execution_result: StepExecutionResult,
+        business_payload: serde_json::Value,
     ) -> Result<()> {
         // Skip if publisher not configured (e.g., in tests)
         let publisher = match self.event_publisher() {
@@ -80,7 +94,7 @@ pub trait DomainEventPublishable {
             }
         };
 
-        // Extract all metadata from step_data
+        // Extract metadata from step_data
         let metadata = EventMetadata {
             task_uuid: step_data.task.task.task_uuid,
             step_uuid: Some(step_data.workflow_step.workflow_step_uuid),
@@ -91,8 +105,18 @@ pub trait DomainEventPublishable {
             fired_by: self.handler_name().to_string(),
         };
 
+        // Construct domain event payload with full execution context
+        let domain_payload = DomainEventPayload {
+            task_sequence_step: step_data.clone(),
+            execution_result,
+            payload: business_payload,
+        };
+
         // Publish event with graceful error handling
-        if let Err(e) = publisher.publish_event(event_name, payload, metadata).await {
+        if let Err(e) = publisher
+            .publish_event(event_name, domain_payload, metadata)
+            .await
+        {
             warn!(
                 handler = self.handler_name(),
                 event_name = event_name,

@@ -8,7 +8,7 @@
 //! - Environment-based log level configuration
 //! - Domain-specific structured logging macros
 //! - TTY-aware ANSI color output
-//! - OpenTelemetry integration for distributed tracing (TAS-29 Phase 3)
+//! - OpenTelemetry integration for distributed tracing and log forwarding
 //!
 //! ## Distributed Tracing with correlation_id (TAS-29 Phase 2 + 3)
 //!
@@ -48,15 +48,18 @@
 //! 1. **Automatic Span Creation**: The `#[instrument]` macros on hot path functions
 //!    automatically create OpenTelemetry spans
 //!
-//! 2. **correlation_id in Spans**: Since correlation_id is always the first field in
-//!    structured logs, it's automatically captured in span attributes
+//! 2. **Log Forwarding**: All tracing logs are automatically forwarded to the OTLP
+//!    collector as OpenTelemetry logs, enabling unified observability
 //!
-//! 3. **Trace Context Propagation**: The TraceContextPropagator ensures trace context
+//! 3. **correlation_id in Spans and Logs**: Since correlation_id is always the first field in
+//!    structured logs, it's automatically captured in span attributes and log records
+//!
+//! 4. **Trace Context Propagation**: The TraceContextPropagator ensures trace context
 //!    flows across service boundaries following W3C Trace Context specification
 //!
-//! 4. **Service Mesh Integration**: correlation_id enables correlation between:
-//!    - Orchestration service spans
-//!    - Worker service spans
+//! 5. **Service Mesh Integration**: correlation_id enables correlation between:
+//!    - Orchestration service spans and logs
+//!    - Worker service spans and logs
 //!    - Database query traces
 //!    - Message queue operations
 //!
@@ -109,10 +112,11 @@ use uuid::Uuid;
 
 use crate::metrics;
 
-// OpenTelemetry imports (TAS-29 Phase 3)
 use opentelemetry::{trace::TracerProvider as _, KeyValue};
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
+    logs::SdkLoggerProvider,
     propagation::TraceContextPropagator,
     trace::{Sampler, SdkTracerProvider},
     Resource,
@@ -123,6 +127,9 @@ static TRACING_INITIALIZED: OnceLock<()> = OnceLock::new();
 /// Store TracerProvider handle for proper shutdown
 /// TAS-29: Enables graceful shutdown with span flushing
 static TRACER_PROVIDER: OnceLock<SdkTracerProvider> = OnceLock::new();
+/// Store LoggerProvider handle for proper shutdown
+/// Enables graceful shutdown with log flushing
+static LOGGER_PROVIDER: OnceLock<SdkLoggerProvider> = OnceLock::new();
 
 /// Configuration for OpenTelemetry (loaded from environment or defaults)
 struct TelemetryConfig {
@@ -208,6 +215,43 @@ fn init_opentelemetry_tracer(
     let _ = TRACER_PROVIDER.set(tracer_provider.clone());
 
     Ok(tracer_provider)
+}
+
+/// Initialize OpenTelemetry logger provider for log forwarding
+///
+/// Creates a LoggerProvider configured with OTLP exporter to send logs
+/// to the observability backend.
+fn init_opentelemetry_logger(
+    config: &TelemetryConfig,
+) -> Result<SdkLoggerProvider, Box<dyn std::error::Error>> {
+    // Build resource attributes (same as tracer)
+    let resource = Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .with_attributes([
+            KeyValue::new("service.version", config.service_version.clone()),
+            KeyValue::new(
+                "deployment.environment",
+                config.deployment_environment.clone(),
+            ),
+        ])
+        .build();
+
+    // Build OTLP log exporter
+    let exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_tonic()
+        .with_endpoint(config.otlp_endpoint.clone())
+        .build()?;
+
+    // Build logger provider with batch processor
+    let logger_provider = SdkLoggerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(resource)
+        .build();
+
+    // Store provider handle for graceful shutdown
+    let _ = LOGGER_PROVIDER.set(logger_provider.clone());
+
+    Ok(logger_provider)
 }
 
 /// Initialize console-only logging (FFI-safe, no Tokio runtime required)
@@ -329,13 +373,17 @@ pub fn init_tracing() {
         let subscriber = tracing_subscriber::registry().with(console_layer);
 
         if telemetry_config.enabled {
-            // Initialize OpenTelemetry and add layer
-            match init_opentelemetry_tracer(&telemetry_config) {
-                Ok(tracer_provider) => {
+            // Initialize OpenTelemetry tracer and logger
+            match (init_opentelemetry_tracer(&telemetry_config), init_opentelemetry_logger(&telemetry_config)) {
+                (Ok(tracer_provider), Ok(logger_provider)) => {
+                    // Add trace layer
                     let tracer = tracer_provider.tracer("tasker-core");
                     let telemetry_layer = OpenTelemetryLayer::new(tracer);
 
-                    let subscriber = subscriber.with(telemetry_layer);
+                    // Add log layer (bridge tracing logs -> OTEL logs)
+                    let log_layer = OpenTelemetryTracingBridge::new(&logger_provider);
+
+                    let subscriber = subscriber.with(telemetry_layer).with(log_layer);
 
                     // Use try_init to avoid panic if global subscriber already set
                     if subscriber.try_init().is_err() {
@@ -345,14 +393,15 @@ pub fn init_tracing() {
                             environment = %environment,
                             ansi_colors = use_ansi,
                             opentelemetry_enabled = true,
+                            logs_enabled = true,
                             otlp_endpoint = %telemetry_config.otlp_endpoint,
                             service_name = %telemetry_config.service_name,
-                            "Console logging with OpenTelemetry initialized"
+                            "Console logging with OpenTelemetry (traces + logs) initialized"
                         );
                     }
                 }
-                Err(e) => {
-                    // Fall back to console-only logging
+                (Err(trace_err), Ok(_)) => {
+                    // Tracer failed but logger succeeded - fall back to console only
                     let subscriber = subscriber;
                     if subscriber.try_init().is_err() {
                         tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
@@ -360,8 +409,37 @@ pub fn init_tracing() {
                         tracing::warn!(
                             environment = %environment,
                             ansi_colors = use_ansi,
-                            error = %e,
-                            "Failed to initialize OpenTelemetry - falling back to console-only logging"
+                            error = %trace_err,
+                            "Failed to initialize OpenTelemetry tracer - falling back to console-only logging"
+                        );
+                    }
+                }
+                (Ok(_), Err(log_err)) => {
+                    // Logger failed but tracer succeeded - fall back to console only
+                    let subscriber = subscriber;
+                    if subscriber.try_init().is_err() {
+                        tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                    } else {
+                        tracing::warn!(
+                            environment = %environment,
+                            ansi_colors = use_ansi,
+                            error = %log_err,
+                            "Failed to initialize OpenTelemetry logger - falling back to console-only logging"
+                        );
+                    }
+                }
+                (Err(trace_err), Err(log_err)) => {
+                    // Both failed - fall back to console only
+                    let subscriber = subscriber;
+                    if subscriber.try_init().is_err() {
+                        tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                    } else {
+                        tracing::warn!(
+                            environment = %environment,
+                            ansi_colors = use_ansi,
+                            trace_error = %trace_err,
+                            log_error = %log_err,
+                            "Failed to initialize OpenTelemetry tracer and logger - falling back to console-only logging"
                         );
                     }
                 }
@@ -394,14 +472,15 @@ pub fn init_tracing() {
 /// Shutdown OpenTelemetry gracefully
 ///
 /// This should be called before application exit to ensure all pending
-/// spans and metrics are exported.
+/// spans, logs, and metrics are exported.
 ///
-/// # Shutdown Ordering (TAS-29 Phase 3.3)
+/// # Shutdown Ordering
 ///
 /// Proper shutdown sequence prevents "channel closed" errors:
 /// 1. Flush TracerProvider to export pending spans
-/// 2. Shutdown metrics to flush pending metrics
-/// 3. Shutdown global tracer provider last
+/// 2. Flush LoggerProvider to export pending logs
+/// 3. Shutdown metrics to flush pending metrics
+/// 4. Shutdown tracer and logger providers
 pub fn shutdown_telemetry() {
     // Flush any pending spans before shutdown
     if let Some(provider) = TRACER_PROVIDER.get() {
@@ -409,6 +488,14 @@ pub fn shutdown_telemetry() {
         // OpenTelemetry 0.31+: force_flush() returns Result<(), TraceError>
         if let Err(e) = provider.force_flush() {
             tracing::warn!("Failed to flush tracer provider: {}", e);
+        }
+    }
+
+    // Flush any pending logs before shutdown
+    if let Some(provider) = LOGGER_PROVIDER.get() {
+        // Force flush to ensure all logs are exported
+        if let Err(e) = provider.force_flush() {
+            tracing::warn!("Failed to flush logger provider: {}", e);
         }
     }
 
@@ -420,6 +507,13 @@ pub fn shutdown_telemetry() {
     if let Some(provider) = TRACER_PROVIDER.get() {
         if let Err(e) = provider.shutdown() {
             tracing::error!("Failed to shutdown tracer provider: {}", e);
+        }
+    }
+
+    // Shutdown logger provider if it was initialized
+    if let Some(provider) = LOGGER_PROVIDER.get() {
+        if let Err(e) = provider.shutdown() {
+            tracing::error!("Failed to shutdown logger provider: {}", e);
         }
     }
 }

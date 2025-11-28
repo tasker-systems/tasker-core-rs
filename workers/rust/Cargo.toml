@@ -51,3 +51,5 @@ tasker-orchestration = { path = "../../tasker-orchestration" }
 # Testing utilities
 tokio-test = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Integration testing with database
+sqlx = { workspace = true }

@@ -1,32 +1,58 @@
-//! # TAS-65: Payment Handler with Domain Event Publishing
+//! # TAS-65: Payment Handler Example
 //!
-//! Example handler demonstrating domain event publishing pattern for Rust workers.
-//! This serves as a reference implementation before Ruby FFI integration.
+//! Example step handler demonstrating pure business logic execution.
+//!
+//! ## Post-Execution Event Publishing (TAS-65 Architecture)
+//!
+//! This handler follows the TAS-65 post-execution publisher callback pattern:
+//!
+//! 1. Handler executes ONLY business logic (no event publishing)
+//! 2. Returns `StepExecutionResult` with transaction data
+//! 3. Worker invokes `PaymentEventPublisher` after completion
+//! 4. `PaymentEventPublisher` publishes domain events based on YAML config
+//!
+//! This separation ensures:
+//! - Pure separation of concerns (business logic vs observability)
+//! - Event publishing failures never affect step execution
+//! - Configuration-as-contract via YAML declarations
+//! - Testability without event infrastructure mocks
 
-use super::{
-    error_result, success_result, DomainEventPublishable, RustStepHandler, StepHandlerConfig,
-};
+use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::types::TaskSequenceStep;
 use tracing::info;
 use uuid::Uuid;
 
-/// Example handler that processes a payment and publishes domain events
+/// Example handler that processes a payment
 ///
-/// This handler demonstrates the TAS-65 domain event publishing pattern:
-/// - Extracts payment data from task context
-/// - Processes the payment (business logic)
-/// - Publishes `payment.processed` event via DomainEventPublishable trait
-/// - Event publishing failures are logged but don't fail the step
+/// This handler demonstrates the TAS-65 architecture:
+/// - Executes ONLY business logic (payment processing)
+/// - Returns result data for downstream event publishing
+/// - Does NOT publish events directly (that's handled by `PaymentEventPublisher`)
+///
+/// ## YAML Configuration
+///
+/// The step should declare events in the task template:
+/// ```yaml
+/// steps:
+///   - name: process_payment
+///     handler:
+///       callable: ProcessPaymentHandler
+///     publishes_events:
+///       - name: payment.processed
+///         condition: success
+///         publisher: PaymentEventPublisher
+///       - name: payment.failed
+///         condition: failure
+///         publisher: PaymentEventPublisher
+/// ```
 #[derive(Debug)]
 pub struct ProcessPaymentHandler {
     _config: StepHandlerConfig,
-    event_publisher: Option<Arc<tasker_shared::events::domain_events::DomainEventPublisher>>,
 }
 
 #[async_trait]
@@ -74,25 +100,14 @@ impl RustStepHandler for ProcessPaymentHandler {
         let transaction_id = format!("TXN-{}", Uuid::new_v4());
         let timestamp = chrono::Utc::now();
 
-        // TAS-65: Publish domain event using the trait helper
-        self.publish_domain_event(
-            step_data,
-            "payment.processed",
-            json!({
-                "transaction_id": transaction_id,
-                "amount": amount,
-                "currency": currency,
-                "status": "completed",
-                "processed_at": timestamp.to_rfc3339(),
-            }),
-        )
-        .await?;
-
-        // Return success result
+        // Build the execution result
+        // Note: The result data is used by PaymentEventPublisher to build domain events
         let mut metadata = HashMap::new();
         metadata.insert("transaction_id".to_string(), json!(transaction_id));
         metadata.insert("processed_at".to_string(), json!(timestamp.to_rfc3339()));
 
+        // Return just the business result
+        // Domain events are published by PaymentEventPublisher AFTER step completes
         Ok(success_result(
             step_uuid,
             json!({
@@ -107,28 +122,13 @@ impl RustStepHandler for ProcessPaymentHandler {
     }
 
     fn name(&self) -> &str {
-        "process_payment"
+        // Note: This name is used for handler lookup in the registry
+        // Use "payment_example" to avoid conflicting with order_fulfillment's "process_payment"
+        "payment_example"
     }
 
     fn new(config: StepHandlerConfig) -> Self {
-        let event_publisher = config.event_publisher.clone();
-        Self {
-            _config: config,
-            event_publisher,
-        }
-    }
-}
-
-// TAS-65: Implement DomainEventPublishable trait
-impl DomainEventPublishable for ProcessPaymentHandler {
-    fn event_publisher(
-        &self,
-    ) -> Option<&Arc<tasker_shared::events::domain_events::DomainEventPublisher>> {
-        self.event_publisher.as_ref()
-    }
-
-    fn handler_name(&self) -> &str {
-        self.name()
+        Self { _config: config }
     }
 }
 
@@ -138,7 +138,6 @@ mod tests {
     use tasker_shared::models::core::task::Task;
     use tasker_shared::models::core::task_template::HandlerDefinition;
     use tasker_shared::models::core::workflow_step::WorkflowStepWithName;
-    use tasker_shared::models::orchestration::step_transitive_dependencies::StepDependencyResultMap;
     use tasker_shared::models::task_template::StepDefinition;
 
     /// Helper to create test TaskSequenceStep
@@ -213,14 +212,14 @@ mod tests {
         TaskSequenceStep {
             task: task_for_orch,
             workflow_step,
-            dependency_results: StepDependencyResultMap::new(),
+            dependency_results: HashMap::new(),
             step_definition,
         }
     }
 
     #[tokio::test]
-    async fn test_payment_handler_without_publisher() {
-        // Handler works without publisher (events are no-op)
+    async fn test_payment_handler_success() {
+        // Handler executes business logic only - event publishing is external
         let config = StepHandlerConfig::empty();
         let handler = ProcessPaymentHandler::new(config);
 

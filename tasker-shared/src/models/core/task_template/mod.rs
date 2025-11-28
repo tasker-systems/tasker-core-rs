@@ -14,6 +14,11 @@
 //! - Enhanced environment-specific overrides
 //! - JSON Schema-based input validation
 
+// TAS-65: Event declaration module
+pub mod event_declaration;
+// TAS-65 Phase 1.2: Event validation module
+pub mod event_validator;
+
 use bon::Builder;
 use chrono::{DateTime, Utc};
 use derive_more::Display;
@@ -219,95 +224,13 @@ pub struct DomainEventDefinition {
     pub schema: Option<Value>, // JSON Schema
 }
 
-/// Event delivery mode for distributed event publishing (TAS-65)
-///
-/// Determines how events are delivered to subscribers across the distributed system.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventDeliveryMode {
-    /// Durable delivery via PGMQ with at-least-once guarantees
-    ///
-    /// Events are persisted to PostgreSQL message queues (PGMQ) before
-    /// acknowledgment. Provides durability, retry on failure, and
-    /// at-least-once delivery semantics.
-    ///
-    /// **Trade-offs:**
-    /// - Pro: Durable, survives crashes, reliable delivery
-    /// - Pro: Automatic retry with backoff
-    /// - Con: Higher latency (~5-10ms) due to database persistence
-    /// - Con: Potential for duplicate delivery (at-least-once)
-    ///
-    /// **Use cases:** Critical business events, audit trails, cross-service
-    /// coordination where reliability is paramount.
-    Durable,
-}
+// TAS-65: Re-export event types from event_declaration module
+pub use event_declaration::{EventDeclaration, EventDeliveryMode, PublicationCondition};
+// TAS-65 Phase 1.2: Re-export validator types
+pub use event_validator::{
+    EventPublicationValidator, ValidationError, ValidationResult, ValidationWarning,
+};
 
-/// Event declaration for workflow step event publishing (TAS-65)
-///
-/// Declares an event that a workflow step can publish during execution.
-/// Includes schema validation via JSON Schema and delivery mode configuration.
-///
-/// ## Schema Validation
-///
-/// The `schema` field contains a JSON Schema (draft-07 compatible) that
-/// validates event payloads at runtime. Invalid payloads are rejected
-/// before publishing, ensuring downstream consumers receive well-formed data.
-///
-/// ## Delivery Modes
-///
-/// Currently supports `durable` delivery via PGMQ. Future modes may include:
-/// - `best_effort`: In-memory with no persistence (lowest latency)
-/// - `transactional`: Coordinated with workflow step transaction
-///
-/// ## Example
-///
-/// ```yaml
-/// publishes_events:
-///   - name: order.created
-///     description: "New order successfully created"
-///     schema:
-///       type: object
-///       properties:
-///         order_id: { type: string, format: uuid }
-///         customer_id: { type: string }
-///         total_amount: { type: number, minimum: 0 }
-///       required: [order_id, customer_id, total_amount]
-///     delivery_mode: durable
-/// ```
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
-pub struct EventDeclaration {
-    /// Event name in dotted notation (e.g., "order.created", "payment.authorized")
-    pub name: String,
-
-    /// Human-readable description of when this event is published
-    pub description: String,
-
-    /// JSON Schema for validating event payloads
-    ///
-    /// Must be a valid JSON Schema (draft-07 compatible).
-    /// Schema validation occurs before event publishing to ensure
-    /// payload correctness.
-    pub schema: serde_json::Value,
-
-    /// Delivery mode for event distribution
-    pub delivery_mode: EventDeliveryMode,
-}
-
-impl EventDeclaration {
-    /// Get the event namespace (prefix before first dot)
-    ///
-    /// Example: "order.created" → "order"
-    pub fn namespace(&self) -> Option<&str> {
-        self.name.split('.').next()
-    }
-
-    /// Get the event action (suffix after last dot)
-    ///
-    /// Example: "order.items.added" → "added"
-    pub fn action(&self) -> Option<&str> {
-        self.name.split('.').next_back()
-    }
-}
 
 /// Step type for workflow orchestration
 ///
@@ -2741,12 +2664,11 @@ steps:
         use crate::models::core::task_template::EventDeclaration;
         use serde_json::json;
 
-        let event = EventDeclaration {
-            name: "order.items.added".to_string(),
-            description: "Items added to order".to_string(),
-            schema: json!({"type": "object"}),
-            delivery_mode: EventDeliveryMode::Durable,
-        };
+        let event = EventDeclaration::builder()
+            .name("order.items.added".to_string())
+            .description("Items added to order".to_string())
+            .schema(json!({"type": "object"}))
+            .build();
 
         assert_eq!(event.namespace(), Some("order"));
         assert_eq!(event.action(), Some("added"));
@@ -2757,12 +2679,11 @@ steps:
         use crate::models::core::task_template::EventDeclaration;
         use serde_json::json;
 
-        let event = EventDeclaration {
-            name: "simple".to_string(),
-            description: "Simple event".to_string(),
-            schema: json!({"type": "object"}),
-            delivery_mode: EventDeliveryMode::Durable,
-        };
+        let event = EventDeclaration::builder()
+            .name("simple".to_string())
+            .description("Simple event".to_string())
+            .schema(json!({"type": "object"}))
+            .build();
 
         assert_eq!(event.namespace(), Some("simple"));
         assert_eq!(event.action(), Some("simple"));

@@ -25,9 +25,9 @@ use std::time::Duration;
 pub use crate::config::tasker::{
     CommandProcessorChannels, EventListenerChannels, EventPublisherChannels, EventSystemChannels,
     FfiChannels, OrchestrationMpscChannelsConfig, OverflowMetricsConfig, OverflowPolicyConfig,
-    SharedMpscChannelsConfig, WorkerCommandProcessorChannels, WorkerEventListenerChannels,
-    WorkerEventSubscriberChannels, WorkerEventSystemChannels, WorkerInProcessEventChannels,
-    WorkerMpscChannelsConfig,
+    SharedMpscChannelsConfig, WorkerCommandProcessorChannels, WorkerDomainEventChannels,
+    WorkerEventListenerChannels, WorkerEventSubscriberChannels, WorkerEventSystemChannels,
+    WorkerInProcessEventChannels, WorkerMpscChannelsConfig,
 };
 
 // Type aliases for backward compatibility (legacy names → V2 names)
@@ -42,6 +42,7 @@ pub type WorkerEventSystemsConfig = WorkerEventSystemChannels;
 pub type WorkerEventSubscribersConfig = WorkerEventSubscriberChannels;
 pub type WorkerInProcessEventsConfig = WorkerInProcessEventChannels;
 pub type WorkerEventListenersConfig = WorkerEventListenerChannels;
+pub type WorkerDomainEventsConfig = WorkerDomainEventChannels;
 
 pub type SharedChannelsConfig = SharedMpscChannelsConfig;
 pub type SharedEventPublisherConfig = EventPublisherChannels;

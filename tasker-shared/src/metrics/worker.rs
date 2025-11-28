@@ -271,6 +271,109 @@ pub static STEP_STATE_TRANSITIONS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new(
 /// Static counter: step_attempts_total
 pub static STEP_ATTEMPTS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
 
+// ============================================================================
+// TAS-65/TAS-69: Domain Event Publishing Metrics
+// ============================================================================
+
+/// Total number of domain events dispatched to the event system
+///
+/// Labels:
+/// - namespace: Worker namespace
+/// - event_name: Domain event name (e.g., "order.processed", "payment.completed")
+/// - delivery_mode: durable, fast
+pub fn domain_events_dispatched_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.domain_events.dispatched.total")
+        .with_description("Total number of domain events dispatched")
+        .build()
+}
+
+/// Total number of domain events successfully published
+///
+/// Labels:
+/// - namespace: Worker namespace
+/// - event_name: Domain event name
+/// - delivery_mode: durable, fast
+/// - publisher: Publisher name (default, custom)
+pub fn domain_events_published_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.domain_events.published.total")
+        .with_description("Total number of domain events successfully published")
+        .build()
+}
+
+/// Total number of domain events that failed to publish
+///
+/// Labels:
+/// - namespace: Worker namespace
+/// - event_name: Domain event name
+/// - delivery_mode: durable, fast
+/// - error_type: channel_full, publish_failed, etc.
+pub fn domain_events_failed_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.domain_events.failed.total")
+        .with_description("Total number of domain events that failed to publish")
+        .build()
+}
+
+/// Total number of domain events dropped due to backpressure
+///
+/// Labels:
+/// - namespace: Worker namespace
+/// - event_name: Domain event name
+/// - delivery_mode: durable, fast
+pub fn domain_events_dropped_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.domain_events.dropped.total")
+        .with_description("Total number of domain events dropped due to backpressure")
+        .build()
+}
+
+/// Domain event publishing duration in milliseconds
+///
+/// Labels:
+/// - namespace: Worker namespace
+/// - delivery_mode: durable, fast
+/// - result: success, error
+pub fn domain_event_publish_duration() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.domain_event.publish.duration")
+        .with_description("Domain event publishing duration in milliseconds")
+        .with_unit("ms")
+        .build()
+}
+
+/// Current domain event channel depth (approximate)
+///
+/// Labels:
+/// - channel_type: command, notification
+pub fn domain_event_channel_depth() -> Gauge<u64> {
+    meter()
+        .u64_gauge("tasker.domain_events.channel_depth")
+        .with_description("Current domain event channel depth")
+        .build()
+}
+
+// TAS-65/TAS-69: Domain event metrics statics
+
+/// Static counter: domain_events_dispatched_total
+pub static DOMAIN_EVENTS_DISPATCHED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: domain_events_published_total
+pub static DOMAIN_EVENTS_PUBLISHED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: domain_events_failed_total
+pub static DOMAIN_EVENTS_FAILED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: domain_events_dropped_total
+pub static DOMAIN_EVENTS_DROPPED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static histogram: domain_event_publish_duration
+pub static DOMAIN_EVENT_PUBLISH_DURATION: OnceLock<Histogram<f64>> = OnceLock::new();
+
+/// Static gauge: domain_event_channel_depth
+pub static DOMAIN_EVENT_CHANNEL_DEPTH: OnceLock<Gauge<u64>> = OnceLock::new();
+
 /// Initialize all worker metrics
 ///
 /// This should be called during application startup after init_metrics().
@@ -289,4 +392,12 @@ pub fn init() {
     // TAS-65: Step state machine metrics
     STEP_STATE_TRANSITIONS_TOTAL.get_or_init(step_state_transitions_total);
     STEP_ATTEMPTS_TOTAL.get_or_init(step_attempts_total);
+
+    // TAS-65/TAS-69: Domain event publishing metrics
+    DOMAIN_EVENTS_DISPATCHED_TOTAL.get_or_init(domain_events_dispatched_total);
+    DOMAIN_EVENTS_PUBLISHED_TOTAL.get_or_init(domain_events_published_total);
+    DOMAIN_EVENTS_FAILED_TOTAL.get_or_init(domain_events_failed_total);
+    DOMAIN_EVENTS_DROPPED_TOTAL.get_or_init(domain_events_dropped_total);
+    DOMAIN_EVENT_PUBLISH_DURATION.get_or_init(domain_event_publish_duration);
+    DOMAIN_EVENT_CHANNEL_DEPTH.get_or_init(domain_event_channel_depth);
 }
