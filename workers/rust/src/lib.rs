@@ -51,6 +51,7 @@
 
 pub mod bootstrap;
 pub mod event_handler;
+pub mod event_subscribers;
 pub mod global_event_system;
 pub mod step_handlers;
 

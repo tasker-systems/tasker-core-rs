@@ -103,7 +103,7 @@ RSpec.describe TaskerCore::DomainEvents::SubscriberRegistry do
       registry.start_all!
       stats = registry.stats
 
-      expect(stats[:subscribers]).to have(1).item
+      expect(stats[:subscribers].size).to eq(1)
       expect(stats[:subscribers].first).to include(
         active: true,
         patterns: ['test.*']

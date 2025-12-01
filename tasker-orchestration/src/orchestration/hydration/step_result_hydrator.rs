@@ -101,7 +101,7 @@ impl StepResultHydrator {
                 TaskerError::ValidationError(format!("Invalid SimpleStepMessage format: {e}"))
             })?;
 
-        info!(
+        debug!(
             msg_id = message.msg_id,
             step_uuid = %simple_message.step_uuid,
             task_uuid = %simple_message.task_uuid,

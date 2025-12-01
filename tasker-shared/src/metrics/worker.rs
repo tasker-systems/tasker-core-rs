@@ -374,6 +374,103 @@ pub static DOMAIN_EVENT_PUBLISH_DURATION: OnceLock<Histogram<f64>> = OnceLock::n
 /// Static gauge: domain_event_channel_depth
 pub static DOMAIN_EVENT_CHANNEL_DEPTH: OnceLock<Gauge<u64>> = OnceLock::new();
 
+// ============================================================================
+// TAS-65: Domain Event System Statistics (Canonical Location)
+// ============================================================================
+
+/// Statistics for the domain event system
+///
+/// Used for:
+/// - Internal tracking via atomic counters
+/// - API responses via /debug/events endpoint
+/// - GetStats command responses
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct DomainEventSystemStats {
+    /// Total events dispatched (sent to command channel)
+    pub events_dispatched: u64,
+    /// Events successfully published
+    pub events_published: u64,
+    /// Events that failed to publish
+    pub events_failed: u64,
+    /// Events dropped due to channel backpressure
+    pub events_dropped: u64,
+    /// Events routed via durable path (PGMQ)
+    pub durable_events: u64,
+    /// Events routed via fast path (in-process)
+    pub fast_events: u64,
+    /// Events routed via broadcast path (both PGMQ and in-process)
+    pub broadcast_events: u64,
+    /// Last event published timestamp
+    pub last_event_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Current channel depth (approximate)
+    pub channel_depth: usize,
+    /// Channel capacity
+    pub channel_capacity: usize,
+}
+
+/// Result of domain event system shutdown
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DomainEventShutdownResult {
+    /// Whether shutdown completed successfully
+    pub success: bool,
+    /// Number of events drained during shutdown
+    pub events_drained: u64,
+    /// Time taken to shutdown in milliseconds
+    pub duration_ms: u64,
+}
+
+// ============================================================================
+// TAS-65: Event Router Statistics (Canonical Location)
+// ============================================================================
+
+/// Statistics for the event router
+///
+/// Tracks how events are routed based on delivery mode.
+/// Used by both the event router implementation and the /debug/events API.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct EventRouterStats {
+    /// Total events routed through the router
+    pub total_routed: u64,
+    /// Events sent via durable path (PGMQ)
+    pub durable_routed: u64,
+    /// Events sent via fast path (in-process)
+    pub fast_routed: u64,
+    /// Events broadcast to both paths
+    pub broadcast_routed: u64,
+    /// Fast delivery errors in broadcast mode (non-fatal, logged for monitoring)
+    pub fast_delivery_errors: u64,
+    /// Failed routing attempts (durable failures only)
+    pub routing_errors: u64,
+}
+
+// ============================================================================
+// TAS-65: In-Process Event Bus Statistics (Canonical Location)
+// ============================================================================
+
+/// Statistics for the in-process event bus
+///
+/// Tracks event delivery to in-memory subscribers.
+/// Used by both the event bus implementation and the /debug/events API.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct InProcessEventBusStats {
+    /// Total events dispatched through the bus
+    pub total_events_dispatched: u64,
+    /// Total events dispatched to Rust handlers
+    pub rust_handler_dispatches: u64,
+    /// Total events dispatched to FFI channel
+    pub ffi_channel_dispatches: u64,
+    /// Total Rust handler errors (logged, not propagated)
+    pub rust_handler_errors: u64,
+    /// Total FFI channel drops (no subscribers)
+    pub ffi_channel_drops: u64,
+    /// Number of registered Rust subscriber patterns
+    pub rust_subscriber_patterns: usize,
+    /// Number of registered Rust handlers
+    pub rust_handler_count: usize,
+    /// Current FFI channel subscriber count
+    pub ffi_subscriber_count: usize,
+}
+
 /// Initialize all worker metrics
 ///
 /// This should be called during application startup after init_metrics().

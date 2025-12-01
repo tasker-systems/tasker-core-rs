@@ -2,7 +2,7 @@
 
 **Status**: In Progress - TAS-69 Command Pattern Integration
 **Created**: 2025-11-25
-**Updated**: 2025-11-27
+**Updated**: 2025-11-28
 **Architecture Decision**: Post-Execution Publisher Callbacks with Command Pattern
 
 ## Implementation Status
@@ -29,6 +29,23 @@
 - `EventRouter` for durable (PGMQ) vs fast (in-process) routing
 - FFI bridge for Ruby to poll fast events
 - Ruby `InProcessDomainEventPoller` class
+
+**Phase 5: Extended Publication Conditions and Test Infrastructure** ✅
+- Extended `PublicationCondition` with `RetryableFailure` and `PermanentFailure`
+- Added `Broadcast` delivery mode (fast + durable)
+- `DurableEventCapture` for PGMQ event inspection in tests
+- `FastEventCapture` for in-memory event capture in integration tests
+- Example event subscribers (`EventMetricsCollector`, logging subscribers)
+- Failure path integration tests (5 test scenarios)
+- See: `docs/ticket-specs/TAS-65/domain-event-subscribers.md`
+
+**Phase 8: Worker Bootstrap Integration** ✅
+- `InProcessEventBus` created with configurable buffer size
+- `EventRouter` wired with `DomainEventPublisher` and `InProcessEventBus`
+- `DomainEventSystem` created and spawned in `WorkerCore::start()`
+- `processor.set_domain_event_handle(handle)` called during initialization
+- Graceful shutdown with event draining in `WorkerCore::stop()`
+- `in_process_bus` exposed publicly for Rust subscriber registration
 
 ### Remaining Phases (TAS-69)
 

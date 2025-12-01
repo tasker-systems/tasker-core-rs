@@ -29,6 +29,11 @@
 //!   Fire-and-forget with no persistence.
 //!   Use for: Metrics, telemetry, Sentry, DataDog, Slack notifications.
 //!
+//! - **Broadcast**: Events sent to BOTH paths - fast first, then durable.
+//!   Fast delivery happens immediately (fire-and-forget), then durable
+//!   ensures persistence. Fast errors don't block durable delivery.
+//!   Use for: Events needing both real-time metrics AND guaranteed delivery.
+//!
 //! ## Usage
 //!
 //! ```rust,ignore
@@ -55,6 +60,7 @@ use uuid::Uuid;
 use tasker_shared::events::domain_events::{
     DomainEvent, DomainEventError, DomainEventPayload, DomainEventPublisher, EventMetadata,
 };
+use tasker_shared::metrics::worker::EventRouterStats;
 use tasker_shared::models::core::task_template::EventDeliveryMode;
 
 use super::in_process_event_bus::InProcessEventBus;
@@ -74,14 +80,28 @@ pub enum EventRouteOutcome {
     DispatchedFast {
         event_id: Uuid,
     },
+    /// Event was broadcast to both paths (fast first, then durable)
+    Broadcast {
+        /// Event ID (same for both deliveries)
+        event_id: Uuid,
+        /// Queue name for durable path
+        queue_name: String,
+        /// Whether fast delivery succeeded (fire-and-forget, always true)
+        fast_dispatched: bool,
+        /// Whether durable delivery succeeded
+        durable_published: bool,
+        /// Error message if fast delivery had issues (non-fatal)
+        fast_error: Option<String>,
+    },
 }
 
 impl EventRouteOutcome {
     /// Get the event ID regardless of delivery mode
     pub fn event_id(&self) -> Uuid {
         match self {
-            Self::PublishedDurable { event_id, .. } => *event_id,
-            Self::DispatchedFast { event_id } => *event_id,
+            Self::PublishedDurable { event_id, .. }
+            | Self::DispatchedFast { event_id }
+            | Self::Broadcast { event_id, .. } => *event_id,
         }
     }
 
@@ -93,6 +113,27 @@ impl EventRouteOutcome {
     /// Check if event was delivered via fast path
     pub fn is_fast(&self) -> bool {
         matches!(self, Self::DispatchedFast { .. })
+    }
+
+    /// Check if event was broadcast to both paths
+    pub fn is_broadcast(&self) -> bool {
+        matches!(self, Self::Broadcast { .. })
+    }
+
+    /// Check if event used durable delivery (durable-only or broadcast)
+    pub fn includes_durable(&self) -> bool {
+        matches!(
+            self,
+            Self::PublishedDurable { .. } | Self::Broadcast { durable_published: true, .. }
+        )
+    }
+
+    /// Check if event used fast delivery (fast-only or broadcast)
+    pub fn includes_fast(&self) -> bool {
+        matches!(
+            self,
+            Self::DispatchedFast { .. } | Self::Broadcast { fast_dispatched: true, .. }
+        )
     }
 }
 
@@ -109,18 +150,7 @@ pub enum EventRouterError {
     DomainEvent(#[from] DomainEventError),
 }
 
-/// Statistics for event routing
-#[derive(Debug, Clone, Default)]
-pub struct EventRouterStats {
-    /// Total events routed
-    pub total_routed: u64,
-    /// Events sent via durable path (PGMQ)
-    pub durable_routed: u64,
-    /// Events sent via fast path (in-process)
-    pub fast_routed: u64,
-    /// Failed routing attempts
-    pub routing_errors: u64,
-}
+// EventRouterStats is imported from tasker_shared::metrics::worker (canonical location)
 
 /// Routes domain events based on delivery mode
 ///
@@ -210,6 +240,9 @@ impl EventRouter {
             }
             EventDeliveryMode::Fast => {
                 self.route_fast(event_name, payload, metadata).await
+            }
+            EventDeliveryMode::Broadcast => {
+                self.route_broadcast(event_name, payload, metadata).await
             }
         }
     }
@@ -310,6 +343,105 @@ impl EventRouter {
         }
 
         Ok(EventRouteOutcome::DispatchedFast { event_id })
+    }
+
+    /// Route event via broadcast (both fast AND durable)
+    ///
+    /// Fast delivery happens first (fire-and-forget), then durable.
+    /// Fast errors are logged but don't prevent durable delivery.
+    async fn route_broadcast(
+        &self,
+        event_name: &str,
+        payload: DomainEventPayload,
+        metadata: EventMetadata,
+    ) -> RouteResult {
+        debug!(
+            event_name = %event_name,
+            namespace = %metadata.namespace,
+            "Routing to broadcast (fast + durable)"
+        );
+
+        let event_id = Uuid::now_v7();
+        let queue_name = format!("{}_domain_events", metadata.namespace);
+        // Fast delivery is fire-and-forget - errors captured for monitoring only
+        let fast_error: Option<String> = None;
+
+        // Step 1: Fast delivery first (fire-and-forget)
+        // Create event for fast path
+        let fast_event = DomainEvent {
+            event_id,
+            event_name: event_name.to_string(),
+            event_version: "1.0".to_string(),
+            payload: payload.clone(),
+            metadata: metadata.clone(),
+        };
+
+        // Dispatch to in-process bus - fire-and-forget, never blocks durable
+        {
+            let bus = self.in_process_bus.read().await;
+            bus.publish(fast_event).await;
+        }
+
+        debug!(
+            event_id = %event_id,
+            event_name = %event_name,
+            "Broadcast: fast delivery complete"
+        );
+
+        // Step 2: Durable delivery (required for success)
+        match self
+            .domain_publisher
+            .publish_event(event_name, payload, metadata)
+            .await
+        {
+            Ok(published_event_id) => {
+                debug!(
+                    event_id = %published_event_id,
+                    event_name = %event_name,
+                    queue_name = %queue_name,
+                    "Broadcast: durable delivery complete"
+                );
+
+                // Update stats
+                {
+                    let mut stats = self.stats.lock().unwrap();
+                    stats.broadcast_routed += 1;
+                    if fast_error.is_some() {
+                        stats.fast_delivery_errors += 1;
+                    }
+                }
+
+                Ok(EventRouteOutcome::Broadcast {
+                    event_id: published_event_id,
+                    queue_name,
+                    fast_dispatched: true,
+                    durable_published: true,
+                    fast_error,
+                })
+            }
+            Err(e) => {
+                error!(
+                    event_name = %event_name,
+                    error = %e,
+                    "Broadcast: durable delivery failed"
+                );
+
+                // Update stats
+                {
+                    let mut stats = self.stats.lock().unwrap();
+                    stats.routing_errors += 1;
+                    if fast_error.is_some() {
+                        stats.fast_delivery_errors += 1;
+                    }
+                }
+
+                // Durable failure is a routing error
+                Err(EventRouterError::DurablePublishFailed {
+                    event_name: event_name.to_string(),
+                    reason: e.to_string(),
+                })
+            }
+        }
     }
 
     /// Get router statistics
@@ -600,5 +732,99 @@ mod tests {
             }
             _ => panic!("Expected NotInitialized error"),
         }
+    }
+
+    #[test]
+    fn test_broadcast_outcome() {
+        let event_id = Uuid::new_v4();
+
+        let broadcast = EventRouteOutcome::Broadcast {
+            event_id,
+            queue_name: "test_domain_events".to_string(),
+            fast_dispatched: true,
+            durable_published: true,
+            fast_error: None,
+        };
+
+        // Check specific type checks
+        assert!(broadcast.is_broadcast());
+        assert!(!broadcast.is_durable());
+        assert!(!broadcast.is_fast());
+        assert_eq!(broadcast.event_id(), event_id);
+
+        // Check includes_* helpers
+        assert!(broadcast.includes_durable());
+        assert!(broadcast.includes_fast());
+    }
+
+    #[test]
+    fn test_broadcast_outcome_with_fast_error() {
+        let event_id = Uuid::new_v4();
+
+        let broadcast = EventRouteOutcome::Broadcast {
+            event_id,
+            queue_name: "test_domain_events".to_string(),
+            fast_dispatched: true,
+            durable_published: true,
+            fast_error: Some("Fast handler error (non-fatal)".to_string()),
+        };
+
+        // Even with fast error, broadcast should still report success
+        // because durable delivery succeeded
+        assert!(broadcast.is_broadcast());
+        assert!(broadcast.includes_durable());
+        assert!(broadcast.includes_fast());
+    }
+
+    #[test]
+    fn test_outcome_includes_helpers() {
+        let event_id = Uuid::new_v4();
+
+        // Durable-only
+        let durable = EventRouteOutcome::PublishedDurable {
+            event_id,
+            queue_name: "test".to_string(),
+        };
+        assert!(durable.includes_durable());
+        assert!(!durable.includes_fast());
+
+        // Fast-only
+        let fast = EventRouteOutcome::DispatchedFast { event_id };
+        assert!(!fast.includes_durable());
+        assert!(fast.includes_fast());
+
+        // Broadcast with both successful
+        let broadcast = EventRouteOutcome::Broadcast {
+            event_id,
+            queue_name: "test".to_string(),
+            fast_dispatched: true,
+            durable_published: true,
+            fast_error: None,
+        };
+        assert!(broadcast.includes_durable());
+        assert!(broadcast.includes_fast());
+
+        // Broadcast with durable failed (shouldn't happen in real code,
+        // but test the pattern matching)
+        let broadcast_partial = EventRouteOutcome::Broadcast {
+            event_id,
+            queue_name: "test".to_string(),
+            fast_dispatched: true,
+            durable_published: false,
+            fast_error: None,
+        };
+        assert!(!broadcast_partial.includes_durable());
+        assert!(broadcast_partial.includes_fast());
+    }
+
+    #[test]
+    fn test_router_stats_default() {
+        let stats = EventRouterStats::default();
+        assert_eq!(stats.total_routed, 0);
+        assert_eq!(stats.durable_routed, 0);
+        assert_eq!(stats.fast_routed, 0);
+        assert_eq!(stats.broadcast_routed, 0);
+        assert_eq!(stats.fast_delivery_errors, 0);
+        assert_eq!(stats.routing_errors, 0);
     }
 }

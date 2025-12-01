@@ -1,0 +1,269 @@
+# TaskTemplate Configuration - Domain Event Publishing Test (Ruby)
+#
+# TAS-65/TAS-69: Domain Event Publication Architecture
+#
+# This template demonstrates domain event publishing with:
+# - Success condition events (published only on successful step completion)
+# - Failure condition events (published only on step failure)
+# - Always condition events (published regardless of outcome)
+# - Both durable (PGMQ) and fast (in-memory) delivery modes
+# - Custom publisher specification
+#
+# Template: domain_events/domain_event_publishing:1.0.0
+# Implementation: Ruby FFI with tasker-worker-rb
+# Created: 2025-11-28
+#
+---
+name: domain_event_publishing
+namespace_name: domain_events
+version: 1.0.0
+description: "Domain event publishing test: demonstrates event declarations with various conditions and delivery modes"
+metadata:
+  author: TAS-65 Implementation
+  tags:
+    - namespace:domain_events
+    - pattern:linear
+    - feature:domain_events
+    - implementation:ruby_ffi
+    - language:ruby
+  documentation_url:
+  created_at: "2025-11-28T00:00:00Z"
+  updated_at: "2025-11-28T00:00:00Z"
+  notes: "Tests domain event publishing with TAS-65 event declaration architecture"
+task_handler:
+  callable: DomainEvents::DomainEventTestHandler
+  initialization:
+    test_scenario: event_publishing
+    validate_events: true
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - order_id
+    - customer_id
+  properties:
+    order_id:
+      type: string
+      format: uuid
+      description: "Unique order identifier"
+    customer_id:
+      type: string
+      description: "Customer identifier"
+    amount:
+      type: number
+      minimum: 0
+      description: "Order amount"
+    simulate_failure:
+      type: boolean
+      default: false
+      description: "Whether to simulate a payment failure"
+steps:
+  # Step 1: Validate order (fast delivery, success condition)
+  - name: domain_events_validate_order
+    description: "Validate order data and publish order.validated event on success"
+    handler:
+      callable: DomainEvents::StepHandlers::ValidateOrderHandler
+      initialization:
+        validation_mode: strict
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events:
+      - name: order.validated
+        description: "Order validation completed successfully"
+        condition: success
+        schema:
+          type: object
+          required:
+            - order_id
+            - validation_timestamp
+          properties:
+            order_id:
+              type: string
+            validation_timestamp:
+              type: string
+              format: date-time
+            validation_checks:
+              type: array
+              items:
+                type: string
+        delivery_mode: fast
+
+  # Step 2: Process payment (durable delivery, custom publisher, success/failure conditions)
+  - name: domain_events_process_payment
+    description: "Process payment and publish events for both success and failure scenarios"
+    handler:
+      callable: DomainEvents::StepHandlers::ProcessPaymentHandler
+      initialization:
+        payment_provider: mock
+    system_dependency:
+    dependencies:
+      - domain_events_validate_order
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 60
+    publishes_events:
+      - name: payment.processed
+        description: "Payment processed successfully"
+        condition: success
+        schema:
+          type: object
+          required:
+            - transaction_id
+            - amount
+            - payment_method
+          properties:
+            transaction_id:
+              type: string
+            amount:
+              type: number
+              minimum: 0
+            payment_method:
+              type: string
+            processed_at:
+              type: string
+              format: date-time
+        delivery_mode: durable
+        publisher: DomainEvents::Publishers::PaymentEventPublisher
+      - name: payment.failed
+        description: "Payment processing failed"
+        condition: failure
+        schema:
+          type: object
+          required:
+            - error_code
+            - error_message
+          properties:
+            order_id:
+              type: string
+            error_code:
+              type: string
+            error_message:
+              type: string
+            failed_at:
+              type: string
+              format: date-time
+        delivery_mode: durable
+
+  # Step 3: Update inventory (fast delivery, always condition)
+  - name: domain_events_update_inventory
+    description: "Update inventory and publish event regardless of outcome"
+    handler:
+      callable: DomainEvents::StepHandlers::UpdateInventoryHandler
+      initialization:
+        inventory_source: mock
+    system_dependency:
+    dependencies:
+      - domain_events_process_payment
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events:
+      - name: inventory.updated
+        description: "Inventory update attempted (success or failure)"
+        condition: always
+        schema:
+          type: object
+          required:
+            - order_id
+            - items
+            - success
+          properties:
+            order_id:
+              type: string
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  sku:
+                    type: string
+                  quantity:
+                    type: integer
+            success:
+              type: boolean
+            error_message:
+              type: string
+        delivery_mode: fast
+
+  # Step 4: Send notification (fast delivery, custom publisher - completes 2x2 matrix)
+  # This step demonstrates fast + custom publisher (2d case in the test matrix)
+  - name: domain_events_send_notification
+    description: "Send customer notification with fast delivery event and custom publisher"
+    handler:
+      callable: DomainEvents::StepHandlers::SendNotificationHandler
+      initialization:
+        notification_type: email
+    system_dependency:
+    dependencies:
+      - domain_events_update_inventory
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events:
+      - name: notification.sent
+        description: "Customer notification sent (fast + custom publisher)"
+        condition: success
+        schema:
+          type: object
+          required:
+            - notification_id
+            - channel
+            - recipient
+          properties:
+            notification_id:
+              type: string
+            channel:
+              type: string
+              enum:
+                - email
+                - sms
+                - push
+            recipient:
+              type: string
+            sent_at:
+              type: string
+              format: date-time
+        delivery_mode: fast
+        publisher: DomainEvents::Publishers::NotificationEventPublisher
+
+environments:
+  test:
+    steps:
+      - name: domain_events_validate_order
+        timeout_seconds: 5
+        retry:
+          max_attempts: 1
+      - name: domain_events_process_payment
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1
+      - name: domain_events_update_inventory
+        timeout_seconds: 5
+        retry:
+          max_attempts: 1
+      - name: domain_events_send_notification
+        timeout_seconds: 5
+        retry:
+          max_attempts: 1

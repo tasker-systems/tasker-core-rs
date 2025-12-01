@@ -3,6 +3,7 @@
 //! HTTP request handlers for all worker web endpoints.
 
 pub mod config;
+pub mod debug;
 pub mod health;
 pub mod metrics;
 pub mod templates;

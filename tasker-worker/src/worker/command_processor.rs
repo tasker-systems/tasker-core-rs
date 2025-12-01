@@ -364,6 +364,19 @@ impl WorkerProcessor {
         let mut domain_events = Vec::with_capacity(events_to_publish.len());
 
         for event_def in events_to_publish {
+            // TAS-65: Check publication condition before building event
+            // Skip events whose condition doesn't match the step outcome
+            if !event_def.should_publish(step_result.success) {
+                debug!(
+                    worker_id = %self.worker_id,
+                    event_name = %event_def.name,
+                    condition = ?event_def.condition,
+                    step_succeeded = step_result.success,
+                    "Skipping event - condition not met"
+                );
+                continue;
+            }
+
             let metadata = EventMetadata {
                 task_uuid: task_sequence_step.task.task.task_uuid,
                 step_uuid: Some(step_result.step_uuid),
@@ -376,7 +389,7 @@ impl WorkerProcessor {
 
             let event = DomainEventToPublish {
                 event_name: event_def.name.clone(),
-                delivery_mode: event_def.delivery_mode.clone(),
+                delivery_mode: event_def.delivery_mode,
                 // Business payload comes from step result
                 business_payload: step_result.result.clone(),
                 metadata,
@@ -496,20 +509,30 @@ impl WorkerProcessor {
                                 "Received step completion from FFI handler"
                             );
 
-                            // Forward completion to orchestration via handle_send_step_result
-                            if let Err(e) = self.handle_send_step_result(step_result.clone()).await {
-                                error!(
-                                    worker_id = %self.worker_id,
-                                    step_uuid = %step_result.step_uuid,
-                                    error = %e,
-                                    "Failed to forward step completion to orchestration"
-                                );
-                            } else {
-                                info!(
-                                    worker_id = %self.worker_id,
-                                    step_uuid = %step_result.step_uuid,
-                                    "Step completion forwarded to orchestration successfully"
-                                );
+                            // Forward completion to orchestration, then dispatch domain events on success
+                            match self.handle_send_step_result(step_result.clone()).await {
+                                Ok(()) => {
+                                    // TAS-65/TAS-69: Dispatch domain events AFTER successful orchestration notification
+                                    // Domain events are declarative of what HAS happened - the step is only
+                                    // truly complete once orchestration has been notified successfully.
+                                    // Fire-and-forget semantics (try_send) - never blocks the worker.
+                                    self.dispatch_domain_events(&step_result, None);
+                                    info!(
+                                        worker_id = %self.worker_id,
+                                        step_uuid = %step_result.step_uuid,
+                                        "Step completion forwarded to orchestration successfully"
+                                    );
+                                }
+                                Err(e) => {
+                                    // Don't dispatch domain events - orchestration wasn't notified,
+                                    // so the step isn't truly complete from the system's perspective
+                                    error!(
+                                        worker_id = %self.worker_id,
+                                        step_uuid = %step_result.step_uuid,
+                                        error = %e,
+                                        "Failed to forward step completion to orchestration"
+                                    );
+                                }
                             }
                         }
                         None => {

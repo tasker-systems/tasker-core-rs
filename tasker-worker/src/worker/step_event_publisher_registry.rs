@@ -266,7 +266,11 @@ impl StepEventPublisherRegistry {
         } else {
             let err = ValidationErrors {
                 missing_publishers: missing.clone(),
-                registered_publishers: self.registered_names().iter().map(|s| s.to_string()).collect(),
+                registered_publishers: self
+                    .registered_names()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
             };
             tracing::error!(
                 missing = ?missing,
@@ -291,18 +295,26 @@ impl StepEventPublisherRegistry {
     ///
     /// * `Ok(Arc<dyn StepEventPublisher>)` - The publisher
     /// * `Err(PublisherNotFoundError)` - Publisher not registered
-    pub fn get_strict(&self, name: &str) -> Result<Arc<dyn StepEventPublisher>, PublisherNotFoundError> {
+    pub fn get_strict(
+        &self,
+        name: &str,
+    ) -> Result<Arc<dyn StepEventPublisher>, PublisherNotFoundError> {
         // "default" always maps to the default publisher
         if name == "default" {
             return Ok(self.default_publisher.clone());
         }
 
-        self.publishers.get(name).cloned().ok_or_else(|| {
-            PublisherNotFoundError {
+        self.publishers
+            .get(name)
+            .cloned()
+            .ok_or_else(|| PublisherNotFoundError {
                 publisher_name: name.to_string(),
-                registered_publishers: self.registered_names().iter().map(|s| s.to_string()).collect(),
-            }
-        })
+                registered_publishers: self
+                    .registered_names()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            })
     }
 }
 
@@ -432,9 +444,10 @@ impl StepEventPublisherRegistryBuilder {
 
                 // If event_router is provided, use dual-path routing
                 match self.event_router {
-                    Some(event_router) => {
-                        StepEventPublisherRegistry::with_event_router(domain_publisher, event_router)
-                    }
+                    Some(event_router) => StepEventPublisherRegistry::with_event_router(
+                        domain_publisher,
+                        event_router,
+                    ),
                     None => StepEventPublisherRegistry::new(domain_publisher),
                 }
             }
@@ -469,6 +482,7 @@ mod tests {
     }
 
     impl TestPublisher {
+        #[allow(dead_code)]
         fn new(name: &str, domain_publisher: Arc<DomainEventPublisher>) -> Self {
             Self {
                 name: name.to_string(),
@@ -520,7 +534,10 @@ mod tests {
     #[test]
     fn test_validation_errors_display() {
         let err = ValidationErrors {
-            missing_publishers: vec!["PaymentPublisher".to_string(), "InventoryPublisher".to_string()],
+            missing_publishers: vec![
+                "PaymentPublisher".to_string(),
+                "InventoryPublisher".to_string(),
+            ],
             registered_publishers: vec!["DefaultPublisher".to_string()],
         };
         let display = format!("{}", err);

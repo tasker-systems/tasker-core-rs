@@ -299,7 +299,7 @@ impl RustEventHandler {
     /// ## Publisher Selection
     ///
     /// 1. Check if step has `publishes_events` in YAML configuration
-    /// 2. Look up custom publisher if specified, otherwise use GenericStepEventPublisher
+    /// 2. Look up custom publisher if specified, otherwise use DefaultDomainEventPublisher
     /// 3. Invoke publisher with full execution context
     async fn publish_step_events(
         registry: &Arc<RwLock<StepEventPublisherRegistry>>,

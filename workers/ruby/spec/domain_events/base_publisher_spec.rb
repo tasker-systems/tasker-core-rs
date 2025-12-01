@@ -100,8 +100,8 @@ RSpec.describe TaskerCore::DomainEvents::BasePublisher do
         other_event = TaskerCore::TestHelpers::EventFactory.event_declaration(name: 'other.event')
         mock_publisher.before_publish(step_result, other_event, step_context)
 
-        expect(mock_publisher.events_by_name('test.event')).to have(1).item
-        expect(mock_publisher.events_by_name('other.event')).to have(1).item
+        expect(mock_publisher.events_by_name('test.event').size).to eq(1)
+        expect(mock_publisher.events_by_name('other.event').size).to eq(1)
       end
     end
 
@@ -115,8 +115,8 @@ RSpec.describe TaskerCore::DomainEvents::BasePublisher do
         different_event = TaskerCore::TestHelpers::EventFactory.event_declaration(name: 'payment.processed')
         mock_publisher.before_publish(step_result, different_event, step_context)
 
-        expect(mock_publisher.events_matching('test.*')).to have(2).items
-        expect(mock_publisher.events_matching('payment.*')).to have(1).item
+        expect(mock_publisher.events_matching('test.*').size).to eq(2)
+        expect(mock_publisher.events_matching('payment.*').size).to eq(1)
       end
     end
 

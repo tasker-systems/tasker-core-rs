@@ -30,7 +30,6 @@
 //! 3. **Step-level publishing**: Events are collected during step execution and
 //!    dispatched as a batch after completion.
 
-use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tokio::sync::oneshot;
 use uuid::Uuid;
@@ -39,6 +38,11 @@ use tasker_shared::events::domain_events::EventMetadata;
 use tasker_shared::messaging::execution_types::StepExecutionResult;
 use tasker_shared::models::core::task_template::EventDeliveryMode;
 use tasker_shared::types::base::TaskSequenceStep;
+
+// Re-export from canonical location in tasker-shared
+pub use tasker_shared::metrics::worker::{
+    DomainEventShutdownResult as ShutdownResult, DomainEventSystemStats,
+};
 
 /// A domain event ready to be published
 #[derive(Debug, Clone)]
@@ -93,43 +97,12 @@ pub enum DomainEventCommand {
     },
 }
 
-/// Statistics for the domain event system
-#[derive(Debug, Clone, Default)]
-pub struct DomainEventSystemStats {
-    /// Total events dispatched (sent to command channel)
-    pub events_dispatched: u64,
-    /// Events successfully published
-    pub events_published: u64,
-    /// Events that failed to publish
-    pub events_failed: u64,
-    /// Events dropped due to channel backpressure
-    pub events_dropped: u64,
-    /// Events routed via durable path (PGMQ)
-    pub durable_events: u64,
-    /// Events routed via fast path (in-process)
-    pub fast_events: u64,
-    /// Last event published timestamp
-    pub last_event_at: Option<DateTime<Utc>>,
-    /// Current channel depth (approximate)
-    pub channel_depth: usize,
-    /// Channel capacity
-    pub channel_capacity: usize,
-}
-
-/// Result of system shutdown
-#[derive(Debug, Clone)]
-pub struct ShutdownResult {
-    /// Whether shutdown completed successfully
-    pub success: bool,
-    /// Number of events drained during shutdown
-    pub events_drained: u64,
-    /// Time taken to shutdown
-    pub duration_ms: u64,
-}
+// DomainEventSystemStats and ShutdownResult are re-exported from tasker_shared::metrics::worker
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use std::collections::HashMap;
 
     use tasker_shared::messaging::execution_types::StepExecutionMetadata;

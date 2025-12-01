@@ -2015,14 +2015,33 @@ pub struct WorkerEventSubscriberChannels {
 
 impl_builder_default!(WorkerEventSubscriberChannels);
 
-/// Worker in-process event channels
+/// Worker in-process event channels (TAS-65)
+///
+/// Configuration for the in-process event bus used for fast domain event delivery.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", default)]
 pub struct WorkerInProcessEventChannels {
-    /// Broadcast buffer size
+    /// FFI broadcast channel buffer size
+    ///
+    /// Determines how many events can be buffered for FFI subscribers (Ruby, Python)
+    /// before older events are dropped (lagging subscribers).
     #[validate(range(min = 100, max = 1000000))]
     #[builder(default = 1000)]
     pub broadcast_buffer_size: u32,
+
+    /// Whether to log individual subscriber errors at warn level
+    ///
+    /// When true, logs each subscriber failure. When false, only logs
+    /// aggregated error counts for performance.
+    #[builder(default = true)]
+    pub log_subscriber_errors: bool,
+
+    /// Maximum time to wait for dispatch to complete (for metrics)
+    ///
+    /// Dispatch is fire-and-forget, but this helps identify slow subscribers.
+    #[validate(range(min = 100, max = 60000))]
+    #[builder(default = 5000)]
+    pub dispatch_timeout_ms: u32,
 }
 
 impl_builder_default!(WorkerInProcessEventChannels);
@@ -2491,6 +2510,8 @@ mod tests {
                 },
                 in_process_events: WorkerInProcessEventChannels {
                     broadcast_buffer_size: 1000,
+                    log_subscriber_errors: true,
+                    dispatch_timeout_ms: 5000,
                 },
                 event_listeners: WorkerEventListenerChannels {
                     pgmq_event_buffer_size: 1000,

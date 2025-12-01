@@ -11,7 +11,7 @@
 # Usage:
 # export DOCKER_BUILDKIT=1
 # export COMPOSE_DOCKER_CLI_BUILD=1
-# docker-compose -f docker/docker-compose.test-local.yml up --build
+# docker-compose -f docker/docker-compose.ci.yml up --build
 
 services:
   # ==========================================================================
@@ -170,8 +170,9 @@ services:
       # Ruby environment
       RUBY_WORKER_ENABLED: "true"
       BUNDLE_GEMFILE: /app/ruby_worker/Gemfile
-      # Service configuration
-      PORT: 8082
+      # Service configuration - internal port matches Rust worker
+      # External port 8082 is mapped via Docker, internal binding is 8081
+      PORT: 8081
     ports:
       - "8082:8081" # Map to 8082 externally, 8081 internally (same as Rust worker)
     volumes:

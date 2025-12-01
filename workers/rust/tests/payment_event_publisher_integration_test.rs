@@ -463,7 +463,7 @@ async fn test_end_to_end_payment_flow(pool: PgPool) -> sqlx::Result<()> {
 }
 
 /// Test 5: Registry lookup and fallback to default publisher
-/// Verifies that registry returns GenericStepEventPublisher for unknown publishers
+/// Verifies that registry returns DefaultDomainEventPublisher for unknown publishers
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_publisher_registry_lookup(pool: PgPool) -> sqlx::Result<()> {
     let context = SystemContext::with_pool(pool.clone())
@@ -484,13 +484,13 @@ async fn test_publisher_registry_lookup(pool: PgPool) -> sqlx::Result<()> {
     let unknown = registry.get("UnknownPublisher");
     assert!(unknown.is_none(), "Unknown publisher should not be found");
 
-    // get_or_default returns GenericStepEventPublisher for unknown names
+    // get_or_default returns DefaultDomainEventPublisher for unknown names
     let fallback = registry.get_or_default(Some("UnknownPublisher"));
-    assert_eq!(fallback.name(), "GenericStepEventPublisher");
+    assert_eq!(fallback.name(), "DefaultDomainEventPublisher");
 
     // get_or_default returns default when None is passed
     let default = registry.get_or_default(None);
-    assert_eq!(default.name(), "GenericStepEventPublisher");
+    assert_eq!(default.name(), "DefaultDomainEventPublisher");
 
     Ok(())
 }

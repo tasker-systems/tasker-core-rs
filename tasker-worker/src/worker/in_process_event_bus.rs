@@ -56,6 +56,7 @@ use tracing::{debug, info, instrument, warn};
 
 use tasker_shared::events::domain_events::DomainEvent;
 use tasker_shared::events::registry::{EventHandler, EventRegistry, RegistryError};
+use tasker_shared::metrics::worker::InProcessEventBusStats;
 use tasker_shared::monitoring::ChannelMonitor;
 
 /// Configuration for the in-process event bus
@@ -89,26 +90,7 @@ impl Default for InProcessEventBusConfig {
     }
 }
 
-/// Statistics for in-process event bus monitoring
-#[derive(Debug, Clone, Default)]
-pub struct InProcessEventBusStats {
-    /// Total events dispatched
-    pub total_events_dispatched: u64,
-    /// Total events dispatched to Rust handlers
-    pub rust_handler_dispatches: u64,
-    /// Total events dispatched to FFI channel
-    pub ffi_channel_dispatches: u64,
-    /// Total Rust handler errors (logged, not propagated)
-    pub rust_handler_errors: u64,
-    /// Total FFI channel drops (no subscribers)
-    pub ffi_channel_drops: u64,
-    /// Number of registered Rust subscriber patterns
-    pub rust_subscriber_patterns: usize,
-    /// Number of registered Rust handlers
-    pub rust_handler_count: usize,
-    /// Current FFI channel subscriber count
-    pub ffi_subscriber_count: usize,
-}
+// InProcessEventBusStats is imported from tasker_shared::metrics::worker (canonical location)
 
 /// In-process event bus for fast domain event delivery
 ///

@@ -83,6 +83,7 @@ struct AtomicStats {
     events_dropped: AtomicU64,
     durable_events: AtomicU64,
     fast_events: AtomicU64,
+    broadcast_events: AtomicU64,
 }
 
 impl Default for AtomicStats {
@@ -94,6 +95,7 @@ impl Default for AtomicStats {
             events_dropped: AtomicU64::new(0),
             durable_events: AtomicU64::new(0),
             fast_events: AtomicU64::new(0),
+            broadcast_events: AtomicU64::new(0),
         }
     }
 }
@@ -227,6 +229,7 @@ impl DomainEventSystemHandle {
             events_dropped: self.stats.events_dropped.load(Ordering::SeqCst),
             durable_events: self.stats.durable_events.load(Ordering::SeqCst),
             fast_events: self.stats.fast_events.load(Ordering::SeqCst),
+            broadcast_events: self.stats.broadcast_events.load(Ordering::SeqCst),
             last_event_at: None, // Would need RwLock to track this
             channel_depth: self.sender.max_capacity() - self.sender.capacity(),
             channel_capacity: self.sender.max_capacity(),
@@ -339,6 +342,7 @@ impl DomainEventSystem {
                         events_dropped: self.stats.events_dropped.load(Ordering::SeqCst),
                         durable_events: self.stats.durable_events.load(Ordering::SeqCst),
                         fast_events: self.stats.fast_events.load(Ordering::SeqCst),
+                        broadcast_events: self.stats.broadcast_events.load(Ordering::SeqCst),
                         last_event_at: None,
                         channel_depth: 0,
                         channel_capacity: self.config.channel_buffer_size,
@@ -375,11 +379,9 @@ impl DomainEventSystem {
             // TAS-65: Extract metric labels before moving event data
             let event_name = event.event_name.clone();
             let namespace = event.metadata.namespace.clone();
-            let is_durable = matches!(
-                event.delivery_mode,
-                tasker_shared::models::core::task_template::EventDeliveryMode::Durable
-            );
-            let delivery_mode_label = if is_durable { "durable" } else { "fast" };
+            // Use Display trait from EventDeliveryMode for accurate label (durable/fast/broadcast)
+            let delivery_mode_label = event.delivery_mode.to_string();
+            let delivery_mode = event.delivery_mode;
 
             // Create the full domain event payload
             let payload = DomainEventPayload {
@@ -398,18 +400,27 @@ impl DomainEventSystem {
 
             match route_result {
                 Ok(outcome) => {
+                    use tasker_shared::models::core::task_template::EventDeliveryMode;
+
                     self.stats.events_published.fetch_add(1, Ordering::SeqCst);
 
-                    if is_durable {
-                        self.stats.durable_events.fetch_add(1, Ordering::SeqCst);
-                    } else {
-                        self.stats.fast_events.fetch_add(1, Ordering::SeqCst);
+                    // Track stats by delivery mode (durable/fast/broadcast)
+                    match delivery_mode {
+                        EventDeliveryMode::Durable => {
+                            self.stats.durable_events.fetch_add(1, Ordering::SeqCst);
+                        }
+                        EventDeliveryMode::Fast => {
+                            self.stats.fast_events.fetch_add(1, Ordering::SeqCst);
+                        }
+                        EventDeliveryMode::Broadcast => {
+                            self.stats.broadcast_events.fetch_add(1, Ordering::SeqCst);
+                        }
                     }
 
                     debug!(
                         event_id = %outcome.event_id(),
                         event_name = %event_name,
-                        is_durable = is_durable,
+                        delivery_mode = %delivery_mode_label,
                         "Domain event published successfully"
                     );
 
@@ -420,7 +431,7 @@ impl DomainEventSystem {
                             &[
                                 opentelemetry::KeyValue::new("namespace", namespace.clone()),
                                 opentelemetry::KeyValue::new("event_name", event_name.clone()),
-                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label),
+                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label.clone()),
                                 opentelemetry::KeyValue::new("publisher", "default"),
                             ],
                         );
@@ -432,7 +443,7 @@ impl DomainEventSystem {
                             duration_ms,
                             &[
                                 opentelemetry::KeyValue::new("namespace", namespace.clone()),
-                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label),
+                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label.clone()),
                                 opentelemetry::KeyValue::new("result", "success"),
                             ],
                         );
@@ -454,7 +465,7 @@ impl DomainEventSystem {
                             &[
                                 opentelemetry::KeyValue::new("namespace", namespace.clone()),
                                 opentelemetry::KeyValue::new("event_name", event_name.clone()),
-                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label),
+                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label.clone()),
                                 opentelemetry::KeyValue::new("error_type", "publish_failed"),
                             ],
                         );
@@ -466,7 +477,7 @@ impl DomainEventSystem {
                             duration_ms,
                             &[
                                 opentelemetry::KeyValue::new("namespace", namespace.clone()),
-                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label),
+                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label.clone()),
                                 opentelemetry::KeyValue::new("result", "error"),
                             ],
                         );
@@ -519,6 +530,7 @@ impl DomainEventSystem {
                         events_dropped: self.stats.events_dropped.load(Ordering::SeqCst),
                         durable_events: self.stats.durable_events.load(Ordering::SeqCst),
                         fast_events: self.stats.fast_events.load(Ordering::SeqCst),
+                        broadcast_events: self.stats.broadcast_events.load(Ordering::SeqCst),
                         last_event_at: None,
                         channel_depth: 0,
                         channel_capacity: self.config.channel_buffer_size,

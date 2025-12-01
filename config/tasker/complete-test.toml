@@ -15,9 +15,9 @@
 [common.backoff]
 backoff_multiplier = 2.0
 default_backoff_seconds = [
-    1,
-    2,
-    4,
+  1,
+  2,
+  4,
 ]
 jitter_enabled = true
 jitter_max_percentage = 0.15
@@ -368,6 +368,11 @@ performance_monitoring_enabled = true
 
 [worker.mpsc_channels.command_processor]
 command_buffer_size = 100
+
+[worker.mpsc_channels.domain_events]
+command_buffer_size = 100
+log_dropped_events = true
+shutdown_drain_timeout_ms = 1000
 
 [worker.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 100

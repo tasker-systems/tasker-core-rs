@@ -76,6 +76,14 @@ use super::error_injection::{CheckpointAndFailHandler, FailNTimesHandler};
 // TAS-65: Example handler with domain event publishing
 use super::payment_example::ProcessPaymentHandler as PaymentExampleHandler;
 
+// TAS-65: Domain event publishing workflow handlers
+use super::domain_event_publishing::{
+    ProcessPaymentHandler as DomainEventsProcessPaymentHandler,
+    SendNotificationHandler as DomainEventsSendNotificationHandler,
+    UpdateInventoryHandler as DomainEventsUpdateInventoryHandler,
+    ValidateOrderHandler as DomainEventsValidateOrderHandler,
+};
+
 /// Central registry for all Rust step handlers
 ///
 /// Provides O(1) handler lookup by name with compile-time type safety.
@@ -276,6 +284,20 @@ impl RustStepHandlerRegistry {
             // TAS-65: Payment example handler
             "payment_example" => Some(Arc::new(PaymentExampleHandler::new(config))),
 
+            // TAS-65: Domain event publishing workflow handlers
+            "domain_events_validate_order" => {
+                Some(Arc::new(DomainEventsValidateOrderHandler::new(config)))
+            }
+            "domain_events_process_payment" => {
+                Some(Arc::new(DomainEventsProcessPaymentHandler::new(config)))
+            }
+            "domain_events_update_inventory" => {
+                Some(Arc::new(DomainEventsUpdateInventoryHandler::new(config)))
+            }
+            "domain_events_send_notification" => {
+                Some(Arc::new(DomainEventsSendNotificationHandler::new(config)))
+            }
+
             // Unknown handler
             _ => None,
         }
@@ -401,6 +423,17 @@ impl RustStepHandlerRegistry {
             ],
         );
 
+        // TAS-65: Domain Event Publishing
+        workflows.insert(
+            "domain_event_publishing".to_string(),
+            vec![
+                "domain_events_validate_order".to_string(),
+                "domain_events_process_payment".to_string(),
+                "domain_events_update_inventory".to_string(),
+                "domain_events_send_notification".to_string(),
+            ],
+        );
+
         workflows
     }
 
@@ -509,6 +542,20 @@ impl RustStepHandlerRegistry {
         let checkpoint_and_fail: Arc<dyn RustStepHandler> =
             Arc::new(CheckpointAndFailHandler::new(empty_config.clone()));
         self.register_handler_as("checkpoint_fail_batch", checkpoint_and_fail);
+
+        // TAS-65: Domain Event Publishing Workflow Handlers (4)
+        self.register_handler(Arc::new(DomainEventsValidateOrderHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DomainEventsProcessPaymentHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DomainEventsUpdateInventoryHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DomainEventsSendNotificationHandler::new(
+            empty_config.clone(),
+        )));
     }
 
     /// Register a single handler in the registry
@@ -557,11 +604,12 @@ mod tests {
     fn test_registry_creation() {
         let registry = RustStepHandlerRegistry::new();
 
-        // Should have all 52 handlers (4+4+8+7+4+6+3+3+10+3)
+        // Should have all 56 handlers (4+4+8+7+4+6+3+3+10+3+4)
         // Linear(4) + Diamond(4) + Tree(8) + MixedDAG(7) + OrderFulfillment(4)
         // + ConditionalApproval(6) + BatchProcessingExample(3) + BatchProcessingProductsCsv(3)
         // + DiamondDecisionBatch(10) + TAS-64 ErrorInjection(3 step registrations)
-        assert_eq!(registry.handler_count(), 52);
+        // + TAS-65 DomainEventPublishing(4)
+        assert_eq!(registry.handler_count(), 56);
     }
 
     #[test]
@@ -632,7 +680,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let workflows = registry.get_handlers_by_workflow();
 
-        assert_eq!(workflows.len(), 9);
+        assert_eq!(workflows.len(), 10); // Added domain_event_publishing
         assert_eq!(workflows["linear_workflow"].len(), 4);
         assert_eq!(workflows["diamond_workflow"].len(), 4);
         assert_eq!(workflows["tree_workflow"].len(), 8);
@@ -642,6 +690,7 @@ mod tests {
         assert_eq!(workflows["batch_processing_example"].len(), 3);
         assert_eq!(workflows["batch_processing_products_csv"].len(), 3);
         assert_eq!(workflows["diamond_decision_batch"].len(), 10);
+        assert_eq!(workflows["domain_event_publishing"].len(), 4); // TAS-65
     }
 
     #[test]
@@ -651,7 +700,7 @@ mod tests {
 
         // Should be the same instance
         assert_eq!(registry1 as *const _, registry2 as *const _);
-        assert_eq!(registry1.handler_count(), 52);
+        assert_eq!(registry1.handler_count(), 56); // Updated for TAS-65
     }
 
     #[test]
@@ -659,8 +708,8 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let names = registry.get_all_handler_names();
 
-        // Should have 52 handlers
-        assert_eq!(names.len(), 52);
+        // Should have 56 handlers (updated for TAS-65)
+        assert_eq!(names.len(), 56);
 
         // Should be sorted
         let mut sorted_names = names.clone();
@@ -682,7 +731,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
 
         // Verify all handlers start with empty config (no publisher)
-        assert_eq!(registry.handler_count(), 52);
+        assert_eq!(registry.handler_count(), 56); // Updated for TAS-65
 
         // Create mock publisher (we can't fully test without a real message client,
         // but we can verify the method doesn't panic and maintains handler count)
@@ -691,6 +740,6 @@ mod tests {
 
         // The actual integration test will verify end-to-end functionality
         // For now, just verify handler count remains stable
-        assert_eq!(registry.handler_count(), 52);
+        assert_eq!(registry.handler_count(), 56); // Updated for TAS-65
     }
 }

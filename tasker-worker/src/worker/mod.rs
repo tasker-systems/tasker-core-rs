@@ -45,11 +45,13 @@ pub use step_event_publisher_registry::{
 }; // TAS-65 Phase 3 + Phase 4 validation
 pub use traits::DomainEventPublishable; // TAS-65
 pub use in_process_event_bus::{
-    InProcessEventBus, InProcessEventBusBuilder, InProcessEventBusConfig, InProcessEventBusStats,
+    InProcessEventBus, InProcessEventBusBuilder, InProcessEventBusConfig,
 }; // TAS-65 Dual-Path
 pub use event_router::{
-    EventRouteOutcome, EventRouter, EventRouterBuilder, EventRouterError, EventRouterStats,
+    EventRouteOutcome, EventRouter, EventRouterBuilder, EventRouterError,
 }; // TAS-65 Dual-Path
+// Re-export stats types from canonical location in tasker-shared
+pub use tasker_shared::metrics::worker::{EventRouterStats, InProcessEventBusStats};
 pub use domain_event_commands::{
     DomainEventCommand, DomainEventSystemStats, DomainEventToPublish, ShutdownResult,
 }; // TAS-65/TAS-69

@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: production
-# Generated: 2025-11-10T12:14:50.869377+00:00
+# Generated: 2025-11-28T12:47:48.635517+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -138,6 +138,13 @@ service_name = "tasker-core"
 enable_performance_logging = true
 mode = "standalone"
 
+[orchestration.batch_processing]
+checkpoint_interval_default = 200
+checkpoint_stall_minutes = 30
+default_batch_size = 2000
+enabled = true
+max_parallel_batches = 100
+
 [orchestration.decision_points]
 enable_detailed_logging = false
 enable_metrics = true
@@ -244,7 +251,7 @@ pgmq_event_buffer_size = 100000
 event_channel_buffer_size = 20000
 
 [orchestration.web]
-bind_address = "0.0.0.0:8080"
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
 enabled = true
 request_timeout_ms = 30000
 

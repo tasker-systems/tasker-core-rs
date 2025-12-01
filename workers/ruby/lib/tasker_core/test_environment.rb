@@ -94,8 +94,42 @@ module TaskerCore
           template_files: Dir.exist?(@template_fixtures_path) ? Dir.glob("#{@template_fixtures_path}/*.yaml").count : 0,
           example_handlers_path: @example_handlers_path,
           examples_exist: Dir.exist?(@example_handlers_path),
-          handler_files: Dir.exist?(@example_handlers_path) ? Dir.glob("#{@example_handlers_path}/**/*_handler.rb").count : 0
+          handler_files: Dir.exist?(@example_handlers_path) ? Dir.glob("#{@example_handlers_path}/**/*_handler.rb").count : 0,
+          subscriber_files: Dir.exist?(@example_handlers_path) ? Dir.glob("#{@example_handlers_path}/**/*_subscriber.rb").count : 0,
+          registered_subscribers: TaskerCore::DomainEvents::SubscriberRegistry.instance.count
         }
+      end
+
+      # TAS-65: Get count of loaded subscriber classes
+      def loaded_subscriber_count
+        return 0 unless @loaded
+
+        count = 0
+        ObjectSpace.each_object(Class) do |klass|
+          if klass < TaskerCore::DomainEvents::BaseSubscriber &&
+             klass != TaskerCore::DomainEvents::BaseSubscriber
+            count += 1
+          end
+        rescue StandardError
+          next
+        end
+        count
+      end
+
+      # TAS-65: Get list of loaded subscriber class names
+      def loaded_subscriber_names
+        return [] unless @loaded
+
+        names = []
+        ObjectSpace.each_object(Class) do |klass|
+          if klass < TaskerCore::DomainEvents::BaseSubscriber &&
+             klass != TaskerCore::DomainEvents::BaseSubscriber
+            names << klass.name
+          end
+        rescue StandardError
+          next
+        end
+        names.sort
       end
 
       private
@@ -155,6 +189,56 @@ module TaskerCore
         end
 
         log_info("📚 Loaded #{loaded_count}/#{handler_files.count} example handler files")
+
+        # TAS-65: Also load subscriber files
+        load_example_subscriber_files!
+      end
+
+      # TAS-65: Load example domain event subscriber files
+      def load_example_subscriber_files!
+        return unless Dir.exist?(@example_handlers_path)
+
+        subscriber_files = Dir.glob("#{@example_handlers_path}/**/*_subscriber.rb")
+        return if subscriber_files.empty?
+
+        log_debug("🔍 Found #{subscriber_files.count} example subscriber files")
+
+        loaded_count = 0
+        subscriber_files.each do |subscriber_file|
+          require subscriber_file
+          loaded_count += 1
+          log_debug("✅ Loaded subscriber file: #{File.basename(subscriber_file)}")
+        rescue LoadError => e
+          log_warn("❌ Failed to load subscriber file #{subscriber_file}: #{e.message}")
+        rescue StandardError => e
+          log_warn("❌ Error loading subscriber file #{subscriber_file}: #{e.class} - #{e.message}")
+        end
+
+        log_info("📚 Loaded #{loaded_count}/#{subscriber_files.count} example subscriber files")
+
+        # Auto-register loaded subscribers with the registry
+        register_loaded_subscribers!
+      end
+
+      # TAS-65: Auto-register any loaded subscriber classes with SubscriberRegistry
+      def register_loaded_subscribers!
+        registry = TaskerCore::DomainEvents::SubscriberRegistry.instance
+        registered_count = 0
+
+        ObjectSpace.each_object(Class) do |klass|
+          # Skip if not a BaseSubscriber subclass
+          next unless klass < TaskerCore::DomainEvents::BaseSubscriber
+          # Skip the BaseSubscriber itself
+          next if klass == TaskerCore::DomainEvents::BaseSubscriber
+
+          registry.register(klass)
+          registered_count += 1
+          log_debug("✅ Registered subscriber: #{klass.name}")
+        rescue StandardError => e
+          log_warn("❌ Failed to register subscriber #{klass}: #{e.message}")
+        end
+
+        log_info("📚 Registered #{registered_count} domain event subscribers") if registered_count.positive?
       end
 
       def verify_test_setup!
@@ -214,6 +298,16 @@ module TaskerCore
     # Get loaded handler names for debugging
     def self.handler_names
       ConditionalLoader.instance.loaded_handler_names
+    end
+
+    # TAS-65: Get loaded subscriber names for debugging
+    def self.subscriber_names
+      ConditionalLoader.instance.loaded_subscriber_names
+    end
+
+    # TAS-65: Get subscriber count
+    def self.subscriber_count
+      ConditionalLoader.instance.loaded_subscriber_count
     end
   end
 end

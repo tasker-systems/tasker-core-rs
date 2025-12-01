@@ -78,3 +78,21 @@ pub fn template_routes() -> Router<Arc<WorkerWebState>> {
 pub fn config_routes() -> Router<Arc<WorkerWebState>> {
     Router::new().route("/config", get(handlers::config::get_config))
 }
+
+/// TAS-65: Debug routes for domain event observability
+///
+/// These endpoints expose internal statistics for E2E test verification.
+/// They allow tests to verify that domain events were actually published
+/// through the expected delivery paths (durable/PGMQ or fast/in-process).
+///
+/// # Security Note
+///
+/// Consider disabling or protecting these endpoints in production.
+pub fn debug_routes() -> Router<Arc<WorkerWebState>> {
+    Router::new()
+        .route("/debug/events", get(handlers::debug::domain_event_stats))
+        .route(
+            "/debug/events/reset",
+            post(handlers::debug::reset_domain_event_stats),
+        )
+}

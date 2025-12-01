@@ -234,8 +234,9 @@ services:
       # Ruby environment
       RUBY_WORKER_ENABLED: "true"
       BUNDLE_GEMFILE: /app/ruby_worker/Gemfile
-      # Service configuration
-      PORT: 8082
+      # Service configuration - internal port matches Rust worker
+      # External port 8082 is mapped via Docker, internal binding is 8081
+      PORT: 8081
       # TAS-65 Phase 1: OpenTelemetry configuration
       # ENABLED: Two-phase FFI telemetry initialization pattern implemented
       # Phase 1: Magnus init skips telemetry (no runtime)

@@ -32,6 +32,49 @@ module TaskerCore
     class PublisherRegistry
       include Singleton
 
+      # Error classes nested in PublisherRegistry for cleaner namespacing
+      class ValidationError < StandardError
+        attr_reader :missing_publishers, :registered_publishers
+
+        def initialize(missing, registered)
+          @missing_publishers = missing
+          @registered_publishers = registered
+          super("Missing publishers: #{missing.join(', ')}. Registered: #{registered.join(', ')}")
+        end
+      end
+
+      class PublisherNotFoundError < StandardError
+        attr_reader :publisher_name, :registered_publishers
+
+        def initialize(name, registered)
+          @publisher_name = name
+          @registered_publishers = registered
+          super("Publisher '#{name}' not found. Registered: #{registered.join(', ')}")
+        end
+      end
+
+      class RegistryFrozenError < StandardError; end
+
+      class DuplicatePublisherError < StandardError
+        attr_reader :publisher_name
+
+        def initialize(name)
+          @publisher_name = name
+          super("Publisher '#{name}' is already registered")
+        end
+      end
+
+      # Default publisher that passes step result through unchanged
+      class DefaultPublisher < BasePublisher
+        def name
+          'default'
+        end
+
+        def transform_payload(step_result, _event_declaration, _step_context = nil)
+          step_result[:result] || {}
+        end
+      end
+
       attr_reader :logger, :publishers, :default_publisher
 
       def initialize
@@ -45,15 +88,27 @@ module TaskerCore
       #
       # @param publisher [BasePublisher] The publisher instance to register
       # @return [BasePublisher, nil] The previous publisher with the same name, if any
+      # @raise [ArgumentError] If publisher does not inherit from BasePublisher
+      # @raise [DuplicatePublisherError] If a publisher with the same name is already registered
       # @raise [RegistryFrozenError] If the registry has been frozen
       def register(publisher)
+        # Type validation first
+        unless publisher.is_a?(BasePublisher)
+          raise ArgumentError, "Expected BasePublisher, got #{publisher.class}"
+        end
+
         raise RegistryFrozenError, 'Registry is frozen after validation' if @frozen
 
         name = publisher.name
+
+        # Check for duplicates
+        if @publishers.key?(name)
+          raise DuplicatePublisherError, name
+        end
+
         logger.info "Registering domain event publisher: #{name}"
-        previous = @publishers[name]
         @publishers[name] = publisher
-        previous
+        nil # No previous since we now disallow duplicates
       end
 
       # Get a publisher by name
@@ -176,6 +231,14 @@ module TaskerCore
         @frozen
       end
 
+      # Freeze the registry to prevent further changes
+      #
+      # @return [void]
+      def freeze!
+        @frozen = true
+        logger.info 'Publisher registry frozen'
+      end
+
       # Reset the registry (for testing)
       #
       # @note This unfreezes the registry - use only in tests
@@ -186,41 +249,11 @@ module TaskerCore
       end
     end
 
-    # Default publisher that passes step result through unchanged
-    class DefaultPublisher < BasePublisher
-      def name
-        'default'
-      end
-
-      # Default implementation: return step result as payload
-      def transform_payload(step_result, event_declaration, step_context = nil)
-        step_result[:result] || {}
-      end
-    end
-
-    # Error raised when registry validation fails
-    class ValidationError < StandardError
-      attr_reader :missing_publishers, :registered_publishers
-
-      def initialize(missing, registered)
-        @missing_publishers = missing
-        @registered_publishers = registered
-        super("Missing publishers: #{missing.join(', ')}. Registered: #{registered.join(', ')}")
-      end
-    end
-
-    # Error raised when a publisher is not found in strict mode
-    class PublisherNotFoundError < StandardError
-      attr_reader :publisher_name, :registered_publishers
-
-      def initialize(name, registered)
-        @publisher_name = name
-        @registered_publishers = registered
-        super("Publisher '#{name}' not found. Registered: #{registered.join(', ')}")
-      end
-    end
-
-    # Error raised when trying to modify a frozen registry
-    class RegistryFrozenError < StandardError; end
+    # Backwards-compatible aliases for classes that were moved into PublisherRegistry
+    # These allow existing code to use the old namespace while we transition
+    DefaultPublisher = PublisherRegistry::DefaultPublisher
+    ValidationError = PublisherRegistry::ValidationError
+    PublisherNotFoundError = PublisherRegistry::PublisherNotFoundError
+    RegistryFrozenError = PublisherRegistry::RegistryFrozenError
   end
 end

@@ -1,7 +1,7 @@
 //! # TAS-65 Phase 3: Payment Event Publisher Example
 //!
 //! Demonstrates implementing a custom `StepEventPublisher` for domain event
-//! publishing with enrichment logic beyond what `GenericStepEventPublisher` provides.
+//! publishing with enrichment logic beyond what `DefaultDomainEventPublisher` provides.
 //!
 //! ## Key Features
 //!
