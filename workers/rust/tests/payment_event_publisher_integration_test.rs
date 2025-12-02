@@ -17,7 +17,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use tasker_shared::events::domain_events::DomainEventPublisher;
-use tasker_shared::messaging::execution_types::{StepExecutionMetadata, StepExecutionResult, StepExecutionError};
+use tasker_shared::messaging::execution_types::{
+    StepExecutionError, StepExecutionMetadata, StepExecutionResult,
+};
 use tasker_shared::models::core::task::Task;
 use tasker_shared::models::core::task::TaskForOrchestration;
 use tasker_shared::models::core::task_template::{
@@ -146,7 +148,11 @@ fn create_payment_task_sequence_step(
 }
 
 /// Helper to create execution result from handler output
-fn create_execution_result(step_uuid: Uuid, success: bool, result_data: serde_json::Value) -> StepExecutionResult {
+fn create_execution_result(
+    step_uuid: Uuid,
+    success: bool,
+    result_data: serde_json::Value,
+) -> StepExecutionResult {
     if success {
         StepExecutionResult {
             step_uuid,
@@ -209,14 +215,23 @@ async fn test_payment_handler_executes_business_logic_only(_pool: PgPool) -> sql
 
     // Execute handler
     let handler = ProcessPaymentHandler::new(StepHandlerConfig::empty());
-    let result = handler.call(&step_data).await.expect("Handler should execute successfully");
+    let result = handler
+        .call(&step_data)
+        .await
+        .expect("Handler should execute successfully");
 
     // Verify handler returns business result
     assert!(result.is_success(), "Handler should succeed");
-    assert!(result.result.get("transaction_id").is_some(), "Should have transaction_id");
+    assert!(
+        result.result.get("transaction_id").is_some(),
+        "Should have transaction_id"
+    );
     assert_eq!(result.result["amount"], 100.00, "Amount should match");
     assert_eq!(result.result["currency"], "USD", "Currency should match");
-    assert_eq!(result.result["status"], "success", "Status should be success");
+    assert_eq!(
+        result.result["status"], "success",
+        "Status should be success"
+    );
 
     // Handler does NOT publish events - that's StepEventPublisher's job
     // This test just verifies the handler returns the right data
@@ -268,11 +283,15 @@ async fn test_payment_event_publisher_success_flow(pool: PgPool) -> sqlx::Result
     let ctx = StepEventContext::new(step_data.clone(), execution_result);
 
     // Get the publisher from registry (as the worker would)
-    let publisher = registry.get("PaymentEventPublisher")
+    let publisher = registry
+        .get("PaymentEventPublisher")
         .expect("PaymentEventPublisher should be registered");
 
     // Verify publisher handles payment steps
-    assert!(publisher.should_handle("process_payment"), "Should handle payment steps");
+    assert!(
+        publisher.should_handle("process_payment"),
+        "Should handle payment steps"
+    );
 
     // Publish events
     let result = publisher.publish(&ctx).await;
@@ -286,18 +305,22 @@ async fn test_payment_event_publisher_success_flow(pool: PgPool) -> sqlx::Result
     // Should have published payment.analytics (always condition)
     // Should NOT have published payment.failed (failure condition not met)
     assert!(result.errors.is_empty(), "Should have no errors");
-    assert!(result.published.len() >= 1, "Should have published at least 1 event");
+    assert!(
+        result.published.len() >= 1,
+        "Should have published at least 1 event"
+    );
 
     // Verify events were published to the queue
     let queue_name = format!("{}_domain_events", namespace);
-    let message_count: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM pgmq.q_{}",
-        queue_name
-    ))
-    .fetch_one(&pool)
-    .await?;
+    let message_count: i64 =
+        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM pgmq.q_{}", queue_name))
+            .fetch_one(&pool)
+            .await?;
 
-    assert!(message_count >= 1, "Should have at least one message in queue");
+    assert!(
+        message_count >= 1,
+        "Should have at least one message in queue"
+    );
 
     // Cleanup
     let dlq_queue = format!("{}_domain_events_dlq", namespace);
@@ -343,7 +366,8 @@ async fn test_payment_event_publisher_failure_flow(pool: PgPool) -> sqlx::Result
 
     let ctx = StepEventContext::new(step_data.clone(), execution_result);
 
-    let publisher = registry.get("PaymentEventPublisher")
+    let publisher = registry
+        .get("PaymentEventPublisher")
         .expect("PaymentEventPublisher should be registered");
 
     let result = publisher.publish(&ctx).await;
@@ -356,18 +380,22 @@ async fn test_payment_event_publisher_failure_flow(pool: PgPool) -> sqlx::Result
     // Should have published payment.analytics (always condition)
     // Should NOT have published payment.processed (success condition not met)
     assert!(result.errors.is_empty(), "Should have no errors");
-    assert!(result.published.len() >= 1, "Should have published at least 1 event");
+    assert!(
+        result.published.len() >= 1,
+        "Should have published at least 1 event"
+    );
 
     // Verify events in queue
     let queue_name = format!("{}_domain_events", namespace);
-    let message_count: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM pgmq.q_{}",
-        queue_name
-    ))
-    .fetch_one(&pool)
-    .await?;
+    let message_count: i64 =
+        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM pgmq.q_{}", queue_name))
+            .fetch_one(&pool)
+            .await?;
 
-    assert!(message_count >= 1, "Should have at least one message in queue");
+    assert!(
+        message_count >= 1,
+        "Should have at least one message in queue"
+    );
 
     // Cleanup
     let dlq_queue = format!("{}_domain_events_dlq", namespace);
@@ -406,7 +434,10 @@ async fn test_end_to_end_payment_flow(pool: PgPool) -> sqlx::Result<()> {
 
     // STEP 1: Execute handler (business logic only)
     let handler = ProcessPaymentHandler::new(StepHandlerConfig::empty());
-    let handler_result = handler.call(&step_data).await.expect("Handler should succeed");
+    let handler_result = handler
+        .call(&step_data)
+        .await
+        .expect("Handler should succeed");
 
     assert!(handler_result.is_success(), "Handler should succeed");
     assert!(handler_result.result.get("transaction_id").is_some());
@@ -418,7 +449,11 @@ async fn test_end_to_end_payment_flow(pool: PgPool) -> sqlx::Result<()> {
         success: handler_result.success,
         result: handler_result.result.clone(),
         metadata: handler_result.metadata.clone(),
-        status: if handler_result.success { "completed".to_string() } else { "failed".to_string() },
+        status: if handler_result.success {
+            "completed".to_string()
+        } else {
+            "failed".to_string()
+        },
         error: handler_result.error.clone(),
         orchestration_metadata: handler_result.orchestration_metadata.clone(),
     };
@@ -426,29 +461,41 @@ async fn test_end_to_end_payment_flow(pool: PgPool) -> sqlx::Result<()> {
     // STEP 3: Invoke publisher (post-execution callback)
     let ctx = StepEventContext::new(step_data.clone(), execution_result);
 
-    let publisher = registry.get("PaymentEventPublisher")
+    let publisher = registry
+        .get("PaymentEventPublisher")
         .expect("PaymentEventPublisher should be registered");
 
     let publish_result = publisher.publish(&ctx).await;
 
     // Verify publishing succeeded
-    assert!(publish_result.errors.is_empty(), "Should have no publishing errors");
-    assert!(!publish_result.published.is_empty(), "Should have published events");
+    assert!(
+        publish_result.errors.is_empty(),
+        "Should have no publishing errors"
+    );
+    assert!(
+        !publish_result.published.is_empty(),
+        "Should have published events"
+    );
 
     // Verify events in queue
     let queue_name = format!("{}_domain_events", namespace);
-    let message_count: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM pgmq.q_{}",
-        queue_name
-    ))
-    .fetch_one(&pool)
-    .await?;
+    let message_count: i64 =
+        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM pgmq.q_{}", queue_name))
+            .fetch_one(&pool)
+            .await?;
 
-    assert!(message_count >= 1, "Should have at least one message in queue");
+    assert!(
+        message_count >= 1,
+        "Should have at least one message in queue"
+    );
 
     println!("End-to-end test passed:");
     println!("  - Handler executed successfully");
-    println!("  - Published {} events to {}", publish_result.published.len(), queue_name);
+    println!(
+        "  - Published {} events to {}",
+        publish_result.published.len(),
+        queue_name
+    );
 
     // Cleanup
     let dlq_queue = format!("{}_domain_events_dlq", namespace);
@@ -477,7 +524,10 @@ async fn test_publisher_registry_lookup(pool: PgPool) -> sqlx::Result<()> {
 
     // Lookup existing publisher
     let payment_publisher = registry.get("PaymentEventPublisher");
-    assert!(payment_publisher.is_some(), "PaymentEventPublisher should be found");
+    assert!(
+        payment_publisher.is_some(),
+        "PaymentEventPublisher should be found"
+    );
     assert_eq!(payment_publisher.unwrap().name(), "PaymentEventPublisher");
 
     // Lookup non-existent publisher returns None
@@ -533,7 +583,8 @@ async fn test_no_events_when_not_declared(pool: PgPool) -> sqlx::Result<()> {
     let ctx = StepEventContext::new(step_data, execution_result);
 
     // All events should be skipped because they're not declared
-    let publisher = registry.get("PaymentEventPublisher")
+    let publisher = registry
+        .get("PaymentEventPublisher")
         .expect("PaymentEventPublisher should be registered");
 
     let result = publisher.publish(&ctx).await;

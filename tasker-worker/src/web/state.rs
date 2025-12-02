@@ -3,14 +3,23 @@
 //! Contains shared state for the worker web API including database connections,
 //! configuration, and metrics tracking.
 
+use crate::worker::event_router::EventRouter;
+use crate::worker::in_process_event_bus::InProcessEventBus;
 use crate::worker::task_template_manager::TaskTemplateManager;
 use serde::Serialize;
 use sqlx::PgPool;
 use std::{sync::Arc, time::Instant};
 use tasker_shared::{
-    config::tasker::TaskerConfig, errors::TaskerResult, messaging::clients::UnifiedMessageClient,
+    config::tasker::TaskerConfig,
+    errors::TaskerResult,
+    messaging::clients::UnifiedMessageClient,
     types::base::CacheStats,
+    types::web::{
+        DomainEventStats, EventRouterStats as WebEventRouterStats,
+        InProcessEventBusStats as WebInProcessEventBusStats,
+    },
 };
+use tokio::sync::RwLock as TokioRwLock;
 use tracing::info;
 
 /// Configuration for the worker web API
@@ -79,6 +88,12 @@ pub struct WorkerWebState {
     /// Task template manager for template caching and validation
     pub task_template_manager: Arc<TaskTemplateManager>,
 
+    /// TAS-65: Event router for domain event stats (cached to avoid mutex lock)
+    event_router: Option<Arc<EventRouter>>,
+
+    /// TAS-65: In-process event bus for domain event stats (cached to avoid mutex lock)
+    in_process_bus: Arc<TokioRwLock<InProcessEventBus>>,
+
     /// Web API configuration
     pub config: WorkerWebConfig,
 
@@ -118,15 +133,21 @@ impl WorkerWebState {
         let message_client =
             Arc::new(UnifiedMessageClient::new_pgmq_with_pool((*database_pool).clone()).await);
 
-        // Extract task template manager from WorkerCore (shares same instance that was updated during discovery)
-        let task_template_manager = {
+        // Extract task template manager and event components from WorkerCore
+        // (shares same instances that were created during worker initialization)
+        let (task_template_manager, event_router, in_process_bus) = {
             let core = worker_core.lock().await;
-            core.task_template_manager.clone()
+            (
+                core.task_template_manager.clone(),
+                core.event_router(),
+                core.in_process_event_bus(),
+            )
         };
 
         info!(
             namespaces = ?task_template_manager.supported_namespaces().await,
-            "WorkerWebState using shared TaskTemplateManager with discovered namespaces"
+            has_event_router = event_router.is_some(),
+            "WorkerWebState using shared TaskTemplateManager and event components"
         );
 
         Ok(Self {
@@ -134,6 +155,8 @@ impl WorkerWebState {
             database_pool,
             message_client,
             task_template_manager,
+            event_router,
+            in_process_bus,
             config,
             start_time: Instant::now(),
             system_config,
@@ -199,5 +222,49 @@ impl WorkerWebState {
     /// Perform cache maintenance on task templates
     pub async fn maintain_template_cache(&self) {
         self.task_template_manager.maintain_cache().await;
+    }
+
+    /// TAS-65: Get domain event statistics without locking the worker core
+    ///
+    /// Returns combined statistics from the EventRouter and InProcessEventBus.
+    /// This method uses cached references to avoid locking the worker core mutex.
+    pub async fn domain_event_stats(&self) -> DomainEventStats {
+        // Get router stats
+        let router_stats = if let Some(ref router) = self.event_router {
+            let stats = router.get_statistics();
+            WebEventRouterStats {
+                total_routed: stats.total_routed,
+                durable_routed: stats.durable_routed,
+                fast_routed: stats.fast_routed,
+                broadcast_routed: stats.broadcast_routed,
+                fast_delivery_errors: stats.fast_delivery_errors,
+                routing_errors: stats.routing_errors,
+            }
+        } else {
+            WebEventRouterStats::default()
+        };
+
+        // Get in-process bus stats
+        let bus_stats = {
+            let bus = self.in_process_bus.read().await;
+            let stats = bus.get_statistics();
+            WebInProcessEventBusStats {
+                total_events_dispatched: stats.total_events_dispatched,
+                rust_handler_dispatches: stats.rust_handler_dispatches,
+                ffi_channel_dispatches: stats.ffi_channel_dispatches,
+                rust_handler_errors: stats.rust_handler_errors,
+                ffi_channel_drops: stats.ffi_channel_drops,
+                rust_subscriber_patterns: stats.rust_subscriber_patterns,
+                rust_handler_count: stats.rust_handler_count,
+                ffi_subscriber_count: stats.ffi_subscriber_count,
+            }
+        };
+
+        DomainEventStats {
+            router: router_stats,
+            in_process_bus: bus_stats,
+            captured_at: chrono::Utc::now(),
+            worker_id: self.worker_id.clone(),
+        }
     }
 }

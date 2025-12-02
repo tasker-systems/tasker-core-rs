@@ -52,8 +52,7 @@ impl RubyBridgeHandle {
             event_handler,
             event_receiver: Arc::new(Mutex::new(event_receiver)),
             domain_event_publisher,
-            in_process_event_receiver: in_process_event_receiver
-                .map(|r| Arc::new(Mutex::new(r))),
+            in_process_event_receiver: in_process_event_receiver.map(|r| Arc::new(Mutex::new(r))),
             runtime,
         }
     }

@@ -1,2 +1,9 @@
 [env]
 WORKSPACE_PATH = { value = ".", relative = true }
+
+[profile.dev]
+incremental = true  # Keep for local dev
+split-debuginfo = "unpacked"  # Can reduce size on macOS
+
+[profile.release]
+incremental = false  # Disable for release builds

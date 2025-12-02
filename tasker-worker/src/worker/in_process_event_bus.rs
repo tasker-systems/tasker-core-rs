@@ -290,7 +290,8 @@ impl InProcessEventBus {
                 // TAS-51: Record send for channel monitoring
                 if self.channel_monitor.record_send_success() {
                     // Periodic saturation check (approximation since broadcast doesn't track this)
-                    let _saturation = subscriber_count as f64 / self.config.ffi_channel_buffer_size as f64;
+                    let _saturation =
+                        subscriber_count as f64 / self.config.ffi_channel_buffer_size as f64;
                 }
             }
             Err(broadcast::error::SendError(_)) => {
@@ -384,7 +385,9 @@ mod tests {
     use tasker_shared::events::registry::EventHandlerError;
     use tasker_shared::messaging::execution_types::{StepExecutionMetadata, StepExecutionResult};
     use tasker_shared::models::core::task::{Task, TaskForOrchestration};
-    use tasker_shared::models::core::task_template::{HandlerDefinition, RetryConfiguration, StepDefinition};
+    use tasker_shared::models::core::task_template::{
+        HandlerDefinition, RetryConfiguration, StepDefinition,
+    };
     use tasker_shared::models::core::workflow_step::WorkflowStepWithName;
     use tasker_shared::types::base::TaskSequenceStep;
 
@@ -588,8 +591,11 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
 
         // Subscribe with multiple patterns that all match
-        bus.subscribe("payment.processed", create_counting_handler(counter.clone()))
-            .unwrap();
+        bus.subscribe(
+            "payment.processed",
+            create_counting_handler(counter.clone()),
+        )
+        .unwrap();
         bus.subscribe("payment.*", create_counting_handler(counter.clone()))
             .unwrap();
         bus.subscribe("*", create_counting_handler(counter.clone()))
@@ -614,9 +620,13 @@ mod tests {
         let success_counter = Arc::new(AtomicUsize::new(0));
 
         // Subscribe both failing and succeeding handlers
-        bus.subscribe("payment.*", create_failing_handler()).unwrap();
-        bus.subscribe("payment.*", create_counting_handler(success_counter.clone()))
+        bus.subscribe("payment.*", create_failing_handler())
             .unwrap();
+        bus.subscribe(
+            "payment.*",
+            create_counting_handler(success_counter.clone()),
+        )
+        .unwrap();
 
         // Publish event - should not panic despite handler failure
         let event = create_test_event("payment.processed");

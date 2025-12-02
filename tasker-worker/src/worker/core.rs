@@ -646,6 +646,20 @@ impl WorkerCore {
         }
     }
 
+    /// Get event router reference for direct stats access (avoids mutex lock)
+    ///
+    /// Used by WorkerWebState to cache the event router during initialization.
+    pub fn event_router(&self) -> Option<Arc<EventRouter>> {
+        self.event_router.clone()
+    }
+
+    /// Get in-process event bus reference for direct stats access (avoids mutex lock)
+    ///
+    /// Used by WorkerWebState to cache the in-process bus during initialization.
+    pub fn in_process_event_bus(&self) -> Arc<TokioRwLock<InProcessEventBus>> {
+        self.in_process_bus.clone()
+    }
+
     /// TAS-65: Get domain event statistics for observability
     ///
     /// Returns combined statistics from the EventRouter and InProcessEventBus.

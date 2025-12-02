@@ -189,7 +189,10 @@ impl RustStepHandler for ProcessPaymentHandler {
                 start_time.elapsed().as_millis() as i64,
                 Some(HashMap::from([
                     ("order_id".to_string(), json!(order_id)),
-                    ("failed_at".to_string(), json!(chrono::Utc::now().to_rfc3339())),
+                    (
+                        "failed_at".to_string(),
+                        json!(chrono::Utc::now().to_rfc3339()),
+                    ),
                 ])),
             ));
         }
@@ -506,7 +509,10 @@ mod tests {
 
         let result = handler.call(&step_data).await.unwrap();
         assert!(result.is_success());
-        assert!(result.result["transaction_id"].as_str().unwrap().starts_with("TXN-"));
+        assert!(result.result["transaction_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("TXN-"));
         assert_eq!(result.result["status"], "success");
     }
 

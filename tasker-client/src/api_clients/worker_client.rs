@@ -289,7 +289,7 @@ impl WorkerApiClient {
     }
 
     // =========================================================================
-    // TAS-65: Domain Event Debug Endpoints
+    // TAS-65: Domain Event Metrics Endpoints
     // =========================================================================
 
     /// Get domain event statistics from the worker
@@ -325,7 +325,7 @@ impl WorkerApiClient {
     ) -> TaskerResult<tasker_shared::types::web::DomainEventStats> {
         let url = self
             .base_url
-            .join("/debug/events")
+            .join("/metrics/events")
             .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
 
         debug!("Getting domain event stats from: {}", url);
@@ -346,7 +346,9 @@ impl WorkerApiClient {
 
             debug!(
                 "Retrieved domain event stats: durable={}, fast={}, broadcast={}",
-                stats.router.durable_routed, stats.router.fast_routed, stats.router.broadcast_routed
+                stats.router.durable_routed,
+                stats.router.fast_routed,
+                stats.router.broadcast_routed
             );
             Ok(stats)
         } else {

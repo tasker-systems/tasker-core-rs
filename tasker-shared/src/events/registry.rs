@@ -14,10 +14,16 @@
 //!
 //! ```rust,no_run
 //! use tasker_shared::events::registry::{EventRegistry, EventHandler};
-//! use tasker_shared::events::domain_events::DomainEvent;
+//! use tasker_shared::events::domain_events::{DomainEvent, DomainEventPayload, EventMetadata};
+//! use tasker_shared::types::base::TaskSequenceStep;
+//! use tasker_shared::messaging::execution_types::StepExecutionResult;
 //! use std::sync::Arc;
+//! use serde_json::json;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn example(
+//! #     tss: TaskSequenceStep,
+//! #     result: StepExecutionResult,
+//! # ) -> Result<(), Box<dyn std::error::Error>> {
 //! let mut registry = EventRegistry::new();
 //!
 //! // Subscribe to specific event
@@ -43,8 +49,12 @@
 //! #     event_id: uuid::Uuid::new_v4(),
 //! #     event_name: "payment.charged".to_string(),
 //! #     event_version: "1.0".to_string(),
-//! #     payload: serde_json::json!({}),
-//! #     metadata: tasker_shared::events::domain_events::EventMetadata {
+//! #     payload: DomainEventPayload {
+//! #         task_sequence_step: tss,
+//! #         execution_result: result,
+//! #         payload: json!({}),
+//! #     },
+//! #     metadata: EventMetadata {
 //! #         task_uuid: uuid::Uuid::new_v4(),
 //! #         step_uuid: None,
 //! #         step_name: None,

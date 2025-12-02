@@ -157,7 +157,9 @@ impl DomainEventSystemHandle {
         }
 
         let event_count = events.len() as u64;
-        self.stats.events_dispatched.fetch_add(event_count, Ordering::SeqCst);
+        self.stats
+            .events_dispatched
+            .fetch_add(event_count, Ordering::SeqCst);
 
         // TAS-65: Emit dispatched metric using static counter
         if let Some(counter) = DOMAIN_EVENTS_DISPATCHED_TOTAL.get() {
@@ -190,7 +192,9 @@ impl DomainEventSystemHandle {
                     DomainEventCommand::DispatchEvents { events, .. } => events.len() as u64,
                     _ => 0,
                 };
-                self.stats.events_dropped.fetch_add(dropped_count, Ordering::SeqCst);
+                self.stats
+                    .events_dropped
+                    .fetch_add(dropped_count, Ordering::SeqCst);
 
                 if self.config.log_dropped_events {
                     warn!(
@@ -245,7 +249,12 @@ impl DomainEventSystemHandle {
     pub async fn shutdown(&self) -> ShutdownResult {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        if self.sender.send(DomainEventCommand::Shutdown { resp: tx }).await.is_err() {
+        if self
+            .sender
+            .send(DomainEventCommand::Shutdown { resp: tx })
+            .await
+            .is_err()
+        {
             return ShutdownResult {
                 success: false,
                 events_drained: 0,
@@ -431,7 +440,10 @@ impl DomainEventSystem {
                             &[
                                 opentelemetry::KeyValue::new("namespace", namespace.clone()),
                                 opentelemetry::KeyValue::new("event_name", event_name.clone()),
-                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label.clone()),
+                                opentelemetry::KeyValue::new(
+                                    "delivery_mode",
+                                    delivery_mode_label.clone(),
+                                ),
                                 opentelemetry::KeyValue::new("publisher", "default"),
                             ],
                         );
@@ -443,7 +455,10 @@ impl DomainEventSystem {
                             duration_ms,
                             &[
                                 opentelemetry::KeyValue::new("namespace", namespace.clone()),
-                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label.clone()),
+                                opentelemetry::KeyValue::new(
+                                    "delivery_mode",
+                                    delivery_mode_label.clone(),
+                                ),
                                 opentelemetry::KeyValue::new("result", "success"),
                             ],
                         );
@@ -465,7 +480,10 @@ impl DomainEventSystem {
                             &[
                                 opentelemetry::KeyValue::new("namespace", namespace.clone()),
                                 opentelemetry::KeyValue::new("event_name", event_name.clone()),
-                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label.clone()),
+                                opentelemetry::KeyValue::new(
+                                    "delivery_mode",
+                                    delivery_mode_label.clone(),
+                                ),
                                 opentelemetry::KeyValue::new("error_type", "publish_failed"),
                             ],
                         );
@@ -477,7 +495,10 @@ impl DomainEventSystem {
                             duration_ms,
                             &[
                                 opentelemetry::KeyValue::new("namespace", namespace.clone()),
-                                opentelemetry::KeyValue::new("delivery_mode", delivery_mode_label.clone()),
+                                opentelemetry::KeyValue::new(
+                                    "delivery_mode",
+                                    delivery_mode_label.clone(),
+                                ),
                                 opentelemetry::KeyValue::new("result", "error"),
                             ],
                         );

@@ -795,7 +795,9 @@ impl LifecycleTestManager {
     /// // Cleanup only our tracked events
     /// capture.cleanup().await?;
     /// ```
-    pub fn create_event_capture(&self) -> crate::common::domain_event_test_helpers::DurableEventCapture {
+    pub fn create_event_capture(
+        &self,
+    ) -> crate::common::domain_event_test_helpers::DurableEventCapture {
         crate::common::domain_event_test_helpers::DurableEventCapture::new(self.pool.clone())
     }
 }

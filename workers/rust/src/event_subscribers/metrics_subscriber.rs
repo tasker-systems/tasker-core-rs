@@ -238,7 +238,9 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tasker_shared::events::domain_events::{DomainEvent, DomainEventPayload, EventMetadata};
-    use tasker_shared::messaging::execution_types::{StepExecutionError, StepExecutionMetadata, StepExecutionResult};
+    use tasker_shared::messaging::execution_types::{
+        StepExecutionError, StepExecutionMetadata, StepExecutionResult,
+    };
     use tasker_shared::models::core::task::{Task, TaskForOrchestration};
     use tasker_shared::models::core::task_template::{
         HandlerDefinition, RetryConfiguration, StepDefinition,

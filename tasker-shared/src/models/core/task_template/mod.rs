@@ -231,7 +231,6 @@ pub use event_validator::{
     EventPublicationValidator, ValidationError, ValidationResult, ValidationWarning,
 };
 
-
 /// Step type for workflow orchestration
 ///
 /// ## Decision Point Steps

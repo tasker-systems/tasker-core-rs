@@ -153,20 +153,17 @@ impl PaymentEventPublisher {
             .unwrap_or("");
 
         match error_code {
-            "RATE_LIMITED" => 600,        // 10 minutes
-            "TEMPORARY_FAILURE" => 300,   // 5 minutes
-            "NETWORK_ERROR" => 60,        // 1 minute
-            "CARD_DECLINED" => 0,         // No retry (user action needed)
-            _ => 120,                     // 2 minutes default
+            "RATE_LIMITED" => 600,      // 10 minutes
+            "TEMPORARY_FAILURE" => 300, // 5 minutes
+            "NETWORK_ERROR" => 60,      // 1 minute
+            "CARD_DECLINED" => 0,       // No retry (user action needed)
+            _ => 120,                   // 2 minutes default
         }
     }
 
     /// Get the attempt number from workflow step
     fn get_attempt_number(&self, ctx: &StepEventContext) -> i32 {
-        ctx.task_sequence_step
-            .workflow_step
-            .attempts
-            .unwrap_or(1)
+        ctx.task_sequence_step.workflow_step.attempts.unwrap_or(1)
     }
 }
 
@@ -182,7 +179,9 @@ impl StepEventPublisher for PaymentEventPublisher {
 
     fn should_handle(&self, step_name: &str) -> bool {
         // Only handle payment-related steps
-        step_name.contains("payment") || step_name.contains("charge") || step_name.contains("refund")
+        step_name.contains("payment")
+            || step_name.contains("charge")
+            || step_name.contains("refund")
     }
 
     async fn publish(&self, ctx: &StepEventContext) -> PublishResult {
@@ -214,7 +213,9 @@ impl StepEventPublisher for PaymentEventPublisher {
                     }
                 }
             } else {
-                result.skipped.push("payment.processed (not declared)".to_string());
+                result
+                    .skipped
+                    .push("payment.processed (not declared)".to_string());
             }
         } else {
             // Check if payment.failed is declared
@@ -234,7 +235,9 @@ impl StepEventPublisher for PaymentEventPublisher {
                     }
                 }
             } else {
-                result.skipped.push("payment.failed (not declared)".to_string());
+                result
+                    .skipped
+                    .push("payment.failed (not declared)".to_string());
             }
         }
 

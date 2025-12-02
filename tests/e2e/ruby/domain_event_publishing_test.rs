@@ -62,7 +62,9 @@ fn create_domain_event_task_request(
 #[tokio::test]
 async fn test_domain_event_publishing_success() -> Result<()> {
     println!("🚀 Starting Domain Event Publishing Test (Ruby Worker - Success Path)");
-    println!("   Workflow: validate_order → process_payment → update_inventory → send_notification");
+    println!(
+        "   Workflow: validate_order → process_payment → update_inventory → send_notification"
+    );
     println!("   Template: domain_event_publishing");
     println!("   Namespace: domain_events");
     println!("   Events: order.validated, payment.processed, inventory.updated, notification.sent");
@@ -71,25 +73,31 @@ async fn test_domain_event_publishing_success() -> Result<()> {
     let manager = IntegrationTestManager::setup_ruby_worker().await?;
 
     // TAS-65: Require worker client for event verification
-    let worker_client = manager.worker_client.as_ref()
-        .ok_or_else(|| anyhow::anyhow!(
+    let worker_client = manager.worker_client.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
             "Worker client required for domain event verification. \
              Set TASKER_TEST_WORKER_URL or ensure worker is running."
-        ))?;
+        )
+    })?;
 
     println!("\n🎉 All services ready! URLs:");
     println!("   Orchestration: {}", manager.orchestration_url);
-    println!("   Worker: {}", manager.worker_url.as_ref().unwrap_or(&"N/A".to_string()));
+    println!(
+        "   Worker: {}",
+        manager.worker_url.as_ref().unwrap_or(&"N/A".to_string())
+    );
 
     // TAS-65: Capture event stats BEFORE task execution
     println!("\n📊 Capturing event stats before task execution...");
     let stats_before = worker_client.get_domain_event_stats().await?;
-    println!("   Router stats before: total={}, durable={}, fast={}",
+    println!(
+        "   Router stats before: total={}, durable={}, fast={}",
         stats_before.router.total_routed,
         stats_before.router.durable_routed,
         stats_before.router.fast_routed
     );
-    println!("   In-process bus stats before: ffi_dispatches={}",
+    println!(
+        "   In-process bus stats before: ffi_dispatches={}",
         stats_before.in_process_bus.ffi_channel_dispatches
     );
 
@@ -185,12 +193,14 @@ async fn test_domain_event_publishing_success() -> Result<()> {
     // TAS-65: Capture event stats AFTER task completion and verify events were published
     println!("\n📊 Capturing event stats after task completion...");
     let stats_after = worker_client.get_domain_event_stats().await?;
-    println!("   Router stats after: total={}, durable={}, fast={}",
+    println!(
+        "   Router stats after: total={}, durable={}, fast={}",
         stats_after.router.total_routed,
         stats_after.router.durable_routed,
         stats_after.router.fast_routed
     );
-    println!("   In-process bus stats after: ffi_dispatches={}",
+    println!(
+        "   In-process bus stats after: ffi_dispatches={}",
         stats_after.in_process_bus.ffi_channel_dispatches
     );
 
@@ -213,13 +223,15 @@ async fn test_domain_event_publishing_success() -> Result<()> {
     assert!(
         events_published >= 4,
         "Expected at least 4 events to be published, got {}. \
-         This indicates domain events are NOT being published correctly!", events_published
+         This indicates domain events are NOT being published correctly!",
+        events_published
     );
 
     assert!(
         durable_published >= 1,
         "Expected at least 1 durable event (payment.processed), got {}. \
-         The durable event path (PGMQ) is not working!", durable_published
+         The durable event path (PGMQ) is not working!",
+        durable_published
     );
 
     assert!(
@@ -231,7 +243,10 @@ async fn test_domain_event_publishing_success() -> Result<()> {
     // TAS-65: Verify FFI channel dispatches for Ruby handler integration
     // Fast events should be dispatched to FFI subscribers (Ruby handlers)
     // Note: ffi_dispatches depends on Ruby handlers being registered to receive events
-    println!("   Note: FFI channel received {} dispatches (Ruby handler events)", ffi_dispatches);
+    println!(
+        "   Note: FFI channel received {} dispatches (Ruby handler events)",
+        ffi_dispatches
+    );
 
     println!("\n✅ Ruby domain event publishing test passed!");
     println!("   - All 4 steps completed successfully");
@@ -240,8 +255,10 @@ async fn test_domain_event_publishing_success() -> Result<()> {
         "   - Total execution time: {:.2}s",
         execution_time.as_secs_f64()
     );
-    println!("   - ✅ Events VERIFIED ({} total, {} durable, {} fast, {} ffi dispatches):",
-        events_published, durable_published, fast_published, ffi_dispatches);
+    println!(
+        "   - ✅ Events VERIFIED ({} total, {} durable, {} fast, {} ffi dispatches):",
+        events_published, durable_published, fast_published, ffi_dispatches
+    );
     println!("     • order.validated (fast, success condition)");
     println!("     • payment.processed (durable, success condition)");
     println!("     • inventory.updated (fast, always condition)");
@@ -268,7 +285,10 @@ async fn test_domain_event_publishing_concurrent() -> Result<()> {
     let task_count = 3;
     let mut task_uuids = Vec::with_capacity(task_count);
 
-    println!("\n🎯 Creating {} concurrent domain event tasks...", task_count);
+    println!(
+        "\n🎯 Creating {} concurrent domain event tasks...",
+        task_count
+    );
     let start_time = Instant::now();
 
     for i in 0..task_count {
@@ -331,10 +351,7 @@ async fn test_domain_event_publishing_concurrent() -> Result<()> {
         "   - Total execution time: {:.2}s",
         total_time.as_secs_f64()
     );
-    println!(
-        "   - Events published: {} events total",
-        task_count * 4
-    ); // 4 events per task
+    println!("   - Events published: {} events total", task_count * 4); // 4 events per task
 
     Ok(())
 }
@@ -354,11 +371,12 @@ async fn test_ruby_domain_event_metrics_availability() -> Result<()> {
     let manager = IntegrationTestManager::setup_ruby_worker().await?;
 
     // TAS-65: Require worker client instead of silently skipping with if-let
-    let worker_client = manager.worker_client.as_ref()
-        .ok_or_else(|| anyhow::anyhow!(
+    let worker_client = manager.worker_client.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
             "Worker client required for domain event metrics test. \
              Set TASKER_TEST_WORKER_URL or ensure worker is running."
-        ))?;
+        )
+    })?;
 
     println!("\n🔍 Checking worker domain event metrics endpoint...");
     println!("   Worker URL: {}", manager.worker_url.as_ref().unwrap());
@@ -376,16 +394,25 @@ async fn test_ruby_domain_event_metrics_availability() -> Result<()> {
     println!("     Broadcast (both): {}", stats.router.broadcast_routed);
     println!("     Routing errors: {}", stats.router.routing_errors);
     println!("\n   In-Process Bus Stats:");
-    println!("     Total dispatched: {}", stats.in_process_bus.total_events_dispatched);
-    println!("     Rust handler dispatches: {}", stats.in_process_bus.rust_handler_dispatches);
-    println!("     FFI channel dispatches: {}", stats.in_process_bus.ffi_channel_dispatches);
-    println!("     Subscriber patterns: {}", stats.in_process_bus.rust_subscriber_patterns);
+    println!(
+        "     Total dispatched: {}",
+        stats.in_process_bus.total_events_dispatched
+    );
+    println!(
+        "     Rust handler dispatches: {}",
+        stats.in_process_bus.rust_handler_dispatches
+    );
+    println!(
+        "     FFI channel dispatches: {}",
+        stats.in_process_bus.ffi_channel_dispatches
+    );
+    println!(
+        "     Subscriber patterns: {}",
+        stats.in_process_bus.rust_subscriber_patterns
+    );
 
     // TAS-65: Verify the stats structure is valid
-    assert!(
-        !stats.worker_id.is_empty(),
-        "Worker ID should not be empty"
-    );
+    assert!(!stats.worker_id.is_empty(), "Worker ID should not be empty");
 
     // TAS-65: Also verify health endpoint using the worker client
     println!("\n🔍 Checking worker health endpoint...");

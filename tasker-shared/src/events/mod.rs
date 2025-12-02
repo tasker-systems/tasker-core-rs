@@ -24,8 +24,8 @@ pub use domain_events::{
 
 // Re-export TAS-65 Phase 2: Generic publisher types
 pub use generic_publisher::{
-    GenericEventPublisher, GenericPublisherError, PublishAllResult, PublishError as GenericPublishError,
-    PublishedEvent,
+    GenericEventPublisher, GenericPublisherError, PublishAllResult,
+    PublishError as GenericPublishError, PublishedEvent,
 };
 
 // Re-export TAS-65 Phase 2.2 validation types

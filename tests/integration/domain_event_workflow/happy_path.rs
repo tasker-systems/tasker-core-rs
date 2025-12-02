@@ -28,7 +28,9 @@ async fn test_domain_event_workflow_initialization(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DOMAIN EVENT WORKFLOW: Initialization and setup");
 
     // Use Ruby template path for domain_events namespace
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     let task_request = manager.create_task_request_for_template(
         "domain_event_publishing",
@@ -73,7 +75,9 @@ async fn test_domain_event_workflow_dependency_chain(pool: PgPool) -> Result<()>
     tracing::info!("🔍 DOMAIN EVENT WORKFLOW: Dependency chain validation");
 
     // Use Ruby template path for domain_events namespace
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     let task_request = manager.create_task_request_for_template(
         "domain_event_publishing",
@@ -166,7 +170,9 @@ async fn test_domain_event_workflow_complete_execution(pool: PgPool) -> Result<(
     tracing::info!("🔍 DOMAIN EVENT WORKFLOW: Complete execution with state transitions");
 
     // Use Ruby template path for domain_events namespace
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     let task_request = manager.create_task_request_for_template(
         "domain_event_publishing",

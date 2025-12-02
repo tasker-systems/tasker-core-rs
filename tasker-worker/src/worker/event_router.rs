@@ -72,14 +72,9 @@ pub type RouteResult = Result<EventRouteOutcome, EventRouterError>;
 #[derive(Debug, Clone)]
 pub enum EventRouteOutcome {
     /// Event was published to PGMQ (durable)
-    PublishedDurable {
-        event_id: Uuid,
-        queue_name: String,
-    },
+    PublishedDurable { event_id: Uuid, queue_name: String },
     /// Event was dispatched to in-process bus (fast)
-    DispatchedFast {
-        event_id: Uuid,
-    },
+    DispatchedFast { event_id: Uuid },
     /// Event was broadcast to both paths (fast first, then durable)
     Broadcast {
         /// Event ID (same for both deliveries)
@@ -124,7 +119,11 @@ impl EventRouteOutcome {
     pub fn includes_durable(&self) -> bool {
         matches!(
             self,
-            Self::PublishedDurable { .. } | Self::Broadcast { durable_published: true, .. }
+            Self::PublishedDurable { .. }
+                | Self::Broadcast {
+                    durable_published: true,
+                    ..
+                }
         )
     }
 
@@ -132,7 +131,11 @@ impl EventRouteOutcome {
     pub fn includes_fast(&self) -> bool {
         matches!(
             self,
-            Self::DispatchedFast { .. } | Self::Broadcast { fast_dispatched: true, .. }
+            Self::DispatchedFast { .. }
+                | Self::Broadcast {
+                    fast_dispatched: true,
+                    ..
+                }
         )
     }
 }
@@ -235,12 +238,8 @@ impl EventRouter {
         }
 
         match delivery_mode {
-            EventDeliveryMode::Durable => {
-                self.route_durable(event_name, payload, metadata).await
-            }
-            EventDeliveryMode::Fast => {
-                self.route_fast(event_name, payload, metadata).await
-            }
+            EventDeliveryMode::Durable => self.route_durable(event_name, payload, metadata).await,
+            EventDeliveryMode::Fast => self.route_fast(event_name, payload, metadata).await,
             EventDeliveryMode::Broadcast => {
                 self.route_broadcast(event_name, payload, metadata).await
             }
@@ -262,7 +261,11 @@ impl EventRouter {
 
         let queue_name = format!("{}_domain_events", metadata.namespace);
 
-        match self.domain_publisher.publish_event(event_name, payload, metadata).await {
+        match self
+            .domain_publisher
+            .publish_event(event_name, payload, metadata)
+            .await
+        {
             Ok(event_id) => {
                 debug!(
                     event_id = %event_id,
@@ -277,7 +280,10 @@ impl EventRouter {
                     stats.durable_routed += 1;
                 }
 
-                Ok(EventRouteOutcome::PublishedDurable { event_id, queue_name })
+                Ok(EventRouteOutcome::PublishedDurable {
+                    event_id,
+                    queue_name,
+                })
             }
             Err(e) => {
                 error!(
@@ -470,8 +476,17 @@ pub struct EventRouterBuilder {
 impl std::fmt::Debug for EventRouterBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventRouterBuilder")
-            .field("domain_publisher", &self.domain_publisher.as_ref().map(|_| "<DomainEventPublisher>"))
-            .field("in_process_bus", &self.in_process_bus.as_ref().map(|_| "<InProcessEventBus>"))
+            .field(
+                "domain_publisher",
+                &self
+                    .domain_publisher
+                    .as_ref()
+                    .map(|_| "<DomainEventPublisher>"),
+            )
+            .field(
+                "in_process_bus",
+                &self.in_process_bus.as_ref().map(|_| "<InProcessEventBus>"),
+            )
             .finish()
     }
 }
@@ -540,7 +555,9 @@ mod tests {
     use tasker_shared::events::registry::EventHandler;
     use tasker_shared::messaging::execution_types::{StepExecutionMetadata, StepExecutionResult};
     use tasker_shared::models::core::task::{Task, TaskForOrchestration};
-    use tasker_shared::models::core::task_template::{HandlerDefinition, RetryConfiguration, StepDefinition};
+    use tasker_shared::models::core::task_template::{
+        HandlerDefinition, RetryConfiguration, StepDefinition,
+    };
     use tasker_shared::models::core::workflow_step::WorkflowStepWithName;
     use tasker_shared::types::base::TaskSequenceStep;
 
@@ -672,7 +689,8 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let bus = {
             let mut bus = InProcessEventBus::new(InProcessEventBusConfig::default());
-            bus.subscribe("*", create_counting_handler(counter.clone())).unwrap();
+            bus.subscribe("*", create_counting_handler(counter.clone()))
+                .unwrap();
             Arc::new(RwLock::new(bus))
         };
 

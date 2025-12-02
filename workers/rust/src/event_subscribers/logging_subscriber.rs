@@ -44,7 +44,7 @@ use tracing::info;
 ///
 /// # Arguments
 ///
-/// * `prefix` - A prefix to identify this subscriber in logs (e.g., "[PAYMENT]")
+/// * `prefix` - A prefix to identify this subscriber in logs (e.g., "\[PAYMENT\]")
 ///
 /// # Returns
 ///
@@ -64,11 +64,7 @@ pub fn create_logging_subscriber(prefix: &str) -> EventHandler {
 
         Box::pin(async move {
             // Extract step name from metadata if available
-            let step_name = event
-                .metadata
-                .step_name
-                .as_deref()
-                .unwrap_or("unknown");
+            let step_name = event.metadata.step_name.as_deref().unwrap_or("unknown");
 
             info!(
                 prefix = %prefix,
@@ -100,11 +96,7 @@ pub fn create_debug_logging_subscriber(prefix: &str) -> EventHandler {
         let prefix = prefix.clone();
 
         Box::pin(async move {
-            let step_name = event
-                .metadata
-                .step_name
-                .as_deref()
-                .unwrap_or("unknown");
+            let step_name = event.metadata.step_name.as_deref().unwrap_or("unknown");
 
             tracing::debug!(
                 prefix = %prefix,
@@ -133,11 +125,7 @@ pub fn create_verbose_logging_subscriber(prefix: &str) -> EventHandler {
         let prefix = prefix.clone();
 
         Box::pin(async move {
-            let step_name = event
-                .metadata
-                .step_name
-                .as_deref()
-                .unwrap_or("unknown");
+            let step_name = event.metadata.step_name.as_deref().unwrap_or("unknown");
 
             // Serialize payload for logging (truncate if too long)
             let payload_str = serde_json::to_string(&event.payload.payload)

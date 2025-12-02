@@ -30,11 +30,15 @@
 //! use tasker_shared::events::generic_publisher::GenericEventPublisher;
 //! use tasker_shared::events::domain_events::{DomainEventPublisher, EventMetadata};
 //! use tasker_shared::models::EventDeclaration;
+//! use tasker_shared::types::base::TaskSequenceStep;
+//! use tasker_shared::messaging::execution_types::StepExecutionResult;
 //! use serde_json::json;
 //!
 //! # async fn example(
 //! #     domain_publisher: DomainEventPublisher,
 //! #     event_decl: EventDeclaration,
+//! #     tss: TaskSequenceStep,
+//! #     result: StepExecutionResult,
 //! #     metadata: EventMetadata,
 //! # ) -> Result<(), Box<dyn std::error::Error>> {
 //! let publisher = GenericEventPublisher::new(domain_publisher);
@@ -42,9 +46,10 @@
 //! // Publish an event declared in task template
 //! let event_id = publisher.publish(
 //!     &event_decl,
+//!     tss,
+//!     result,
 //!     json!({"order_id": "123", "amount": 99.99}),
 //!     metadata,
-//!     true  // step_succeeded
 //! ).await?;
 //! # Ok(())
 //! # }
@@ -373,10 +378,7 @@ mod tests {
     use crate::models::core::task_template::{EventDeliveryMode, PublicationCondition};
     use serde_json::json;
 
-    fn create_test_event_decl(
-        name: &str,
-        condition: PublicationCondition,
-    ) -> EventDeclaration {
+    fn create_test_event_decl(name: &str, condition: PublicationCondition) -> EventDeclaration {
         EventDeclaration::builder()
             .name(name.to_string())
             .description("Test event".to_string())

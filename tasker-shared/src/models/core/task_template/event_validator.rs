@@ -27,7 +27,10 @@
 //!
 //! # fn example(template: TaskTemplate) -> Result<(), String> {
 //! // Validate all event declarations in the template
-//! EventPublicationValidator::validate_template(&template)?;
+//! let result = EventPublicationValidator::validate_template(&template);
+//! if !result.valid {
+//!     return Err("Template validation failed".to_string());
+//! }
 //! # Ok(())
 //! # }
 //! ```
@@ -145,10 +148,7 @@ pub struct ValidationWarning {
 impl ValidationWarning {
     /// Create a new validation warning
     pub fn new(step_name: String, message: String) -> Self {
-        Self {
-            step_name,
-            message,
-        }
+        Self { step_name, message }
     }
 }
 
@@ -275,7 +275,10 @@ impl EventPublicationValidator {
     /// # Returns
     ///
     /// `Ok(())` if valid, `Err(ValidationError)` otherwise
-    pub fn validate_event(event: &EventDeclaration, step_name: &str) -> Result<(), ValidationError> {
+    pub fn validate_event(
+        event: &EventDeclaration,
+        step_name: &str,
+    ) -> Result<(), ValidationError> {
         event.validate().map_err(|error_msg| {
             ValidationError::event_error(step_name.to_string(), event.name.clone(), error_msg)
         })
@@ -366,8 +369,13 @@ mod tests {
         assert!(!result.valid);
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].step_name, "test_step");
-        assert_eq!(result.errors[0].event_name, Some("invalid_no_dot".to_string()));
-        assert!(result.errors[0].message.contains("must contain at least one dot"));
+        assert_eq!(
+            result.errors[0].event_name,
+            Some("invalid_no_dot".to_string())
+        );
+        assert!(result.errors[0]
+            .message
+            .contains("must contain at least one dot"));
     }
 
     #[test]
@@ -379,7 +387,10 @@ mod tests {
         assert!(!result.valid);
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].step_name, "test_step");
-        assert_eq!(result.errors[0].event_name, Some("order.created".to_string()));
+        assert_eq!(
+            result.errors[0].event_name,
+            Some("order.created".to_string())
+        );
         assert!(result.errors[0].message.contains("Invalid JSON Schema"));
     }
 
@@ -461,7 +472,10 @@ mod tests {
             .version("1.0.0".to_string())
             .steps(vec![
                 create_step_with_events("step1", vec![create_invalid_event_name("invalid1")]),
-                create_step_with_events("step2", vec![create_invalid_event_schema("order.created")]),
+                create_step_with_events(
+                    "step2",
+                    vec![create_invalid_event_schema("order.created")],
+                ),
             ])
             .build();
 
@@ -536,15 +550,15 @@ mod tests {
         );
 
         let display = format!("{}", error);
-        assert_eq!(display, "Step 'test_step', Event 'order.created': Invalid event");
+        assert_eq!(
+            display,
+            "Step 'test_step', Event 'order.created': Invalid event"
+        );
     }
 
     #[test]
     fn test_validation_error_display_no_event() {
-        let error = ValidationError::step_error(
-            "test_step".to_string(),
-            "Step error".to_string(),
-        );
+        let error = ValidationError::step_error("test_step".to_string(), "Step error".to_string());
 
         let display = format!("{}", error);
         assert_eq!(display, "Step 'test_step': Step error");
@@ -552,10 +566,8 @@ mod tests {
 
     #[test]
     fn test_validation_warning_display() {
-        let warning = ValidationWarning::new(
-            "test_step".to_string(),
-            "Duplicate event".to_string(),
-        );
+        let warning =
+            ValidationWarning::new("test_step".to_string(), "Duplicate event".to_string());
 
         let display = format!("{}", warning);
         assert_eq!(display, "Step 'test_step': Duplicate event");

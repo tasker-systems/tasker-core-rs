@@ -383,8 +383,9 @@ impl EventDeclaration {
             // - Each segment starts with letter or underscore
             // - Contains letters, numbers, underscores
             // - Segments separated by :: or .
-            let valid_pattern = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*((::|\.)[a-zA-Z_][a-zA-Z0-9_]*)*$")
-                .expect("Valid regex pattern");
+            let valid_pattern =
+                Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*((::|\.)[a-zA-Z_][a-zA-Z0-9_]*)*$")
+                    .expect("Valid regex pattern");
 
             if !valid_pattern.is_match(publisher) {
                 return Err(format!(

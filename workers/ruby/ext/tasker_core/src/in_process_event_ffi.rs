@@ -58,10 +58,7 @@ fn domain_event_to_ruby_hash(ruby: &Ruby, event: &DomainEvent) -> Result<RHash, 
     // Metadata
     let metadata = ruby.hash_new();
     metadata.aset("task_uuid", event.metadata.task_uuid.to_string())?;
-    metadata.aset(
-        "step_uuid",
-        event.metadata.step_uuid.map(|u| u.to_string()),
-    )?;
+    metadata.aset("step_uuid", event.metadata.step_uuid.map(|u| u.to_string()))?;
     metadata.aset("step_name", event.metadata.step_name.clone())?;
     metadata.aset("namespace", event.metadata.namespace.clone())?;
     metadata.aset("correlation_id", event.metadata.correlation_id.to_string())?;

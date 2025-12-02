@@ -269,6 +269,7 @@ fn init_opentelemetry_logger(
 /// # Pattern
 ///
 /// ```rust
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Phase 1: FFI initialization (no Tokio runtime)
 /// tasker_shared::logging::init_console_only();
 ///
@@ -277,6 +278,8 @@ fn init_opentelemetry_logger(
 /// runtime.block_on(async {
 ///     tasker_shared::logging::init_tracing();
 /// });
+/// # Ok(())
+/// # }
 /// ```
 pub fn init_console_only() {
     TRACING_INITIALIZED.get_or_init(|| {
@@ -343,6 +346,7 @@ pub fn init_console_only() {
 /// # Example: FFI Two-Phase Initialization
 ///
 /// ```rust
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Phase 1: During FFI initialization (Magnus, PyO3, WASM)
 /// tasker_shared::logging::init_console_only();
 ///
@@ -351,6 +355,8 @@ pub fn init_console_only() {
 /// runtime.block_on(async {
 ///     tasker_shared::logging::init_tracing();
 /// });
+/// # Ok(())
+/// # }
 /// ```
 pub fn init_tracing() {
     TRACING_INITIALIZED.get_or_init(|| {

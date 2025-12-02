@@ -40,7 +40,9 @@ async fn test_step_failure_transitions_to_error_state(pool: PgPool) -> Result<()
     tracing::info!("🔍 FAILURE PATH: Testing step failure state transition");
 
     // Use Ruby template path for domain_events namespace
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     let task_request = manager.create_task_request_for_template(
         "domain_event_publishing",
@@ -110,7 +112,9 @@ async fn test_step_failure_transitions_to_error_state(pool: PgPool) -> Result<()
 
     tracing::info!("✅ Step correctly transitioned to error state");
     tracing::info!("   Note: Worker layer would publish payment.failed event (condition: failure)");
-    tracing::info!("   Note: Worker layer would NOT publish payment.processed (condition: success)");
+    tracing::info!(
+        "   Note: Worker layer would NOT publish payment.processed (condition: success)"
+    );
 
     Ok(())
 }
@@ -126,7 +130,9 @@ async fn test_retry_eligibility_after_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 FAILURE PATH: Testing retry eligibility after failure");
 
     // Use Ruby template path for domain_events namespace
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     let task_request = manager.create_task_request_for_template(
         "domain_event_publishing",
@@ -197,7 +203,9 @@ async fn test_permanent_failure_after_max_attempts(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 FAILURE PATH: Testing permanent failure after max attempts");
 
     // Use Ruby template path for domain_events namespace
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     let task_request = manager.create_task_request_for_template(
         "domain_event_publishing",
@@ -265,7 +273,9 @@ async fn test_always_condition_independent_of_outcome(pool: PgPool) -> Result<()
     tracing::info!("🔍 FAILURE PATH: Testing 'always' condition independence");
 
     // Use Ruby template path for domain_events namespace
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     let task_request = manager.create_task_request_for_template(
         "domain_event_publishing",
@@ -330,7 +340,9 @@ async fn test_always_condition_independent_of_outcome(pool: PgPool) -> Result<()
 
     tracing::info!("✅ Step with 'always' condition correctly failed");
     tracing::info!("   Event: inventory.updated would still be published (condition: always)");
-    tracing::info!("   Payload would include: success: false, error_message: 'Inventory service unavailable'");
+    tracing::info!(
+        "   Payload would include: success: false, error_message: 'Inventory service unavailable'"
+    );
 
     Ok(())
 }
@@ -344,7 +356,9 @@ async fn test_complete_failure_scenario_event_expectations(pool: PgPool) -> Resu
     tracing::info!("🔍 FAILURE PATH: Complete failure scenario with event expectations");
 
     // Use Ruby template path for domain_events namespace
-    let manager = LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby").await?;
+    let manager =
+        LifecycleTestManager::with_template_path(pool, "tests/fixtures/task_templates/ruby")
+            .await?;
 
     let task_request = manager.create_task_request_for_template(
         "domain_event_publishing",

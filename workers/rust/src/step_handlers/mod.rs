@@ -374,8 +374,8 @@ pub mod error_injection;
 pub mod payment_example;
 
 // TAS-65 Phase 3: Custom event publisher examples
-pub mod payment_event_publisher;
 pub mod notification_event_publisher;
+pub mod payment_event_publisher;
 
 // TAS-65: Domain event publishing workflow handlers
 pub mod domain_event_publishing;
@@ -387,7 +387,7 @@ pub mod registry;
 pub use registry::{GlobalRustStepHandlerRegistry, RustStepHandlerRegistry};
 
 // Re-export example custom publishers
-pub use payment_event_publisher::PaymentEventPublisher;
 pub use notification_event_publisher::NotificationEventPublisher;
+pub use payment_event_publisher::PaymentEventPublisher;
 
 // StepHandlerConfig is defined in this module, no need to re-export

@@ -28,13 +28,14 @@ pub use command_processor::{
 pub use event_consumer::{EventConsumer, EventConsumerConfig, EventConsumerStats}; // TAS-65 Phase 2.3b
 pub use event_driven_processor::{EventDrivenConfig, EventDrivenStats};
 pub use event_publisher::{WorkerEventError, WorkerEventPublisher, WorkerEventPublisherStats};
+pub use event_router::{EventRouteOutcome, EventRouter, EventRouterBuilder, EventRouterError};
 pub use event_subscriber::{
     CorrelatedCompletionListener, CorrelatedStepResult, WorkerEventSubscriber,
     WorkerEventSubscriberError, WorkerEventSubscriberStats,
 };
-pub use task_template_manager::{
-    CachedTemplate, TaskTemplateManagerConfig, WorkerTaskTemplateOperations,
-};
+pub use in_process_event_bus::{
+    InProcessEventBus, InProcessEventBusBuilder, InProcessEventBusConfig,
+}; // TAS-65 Dual-Path
 pub use step_event_publisher::{
     DefaultDomainEventPublisher, PublishResult, StepEventContext, StepEventPublisher,
     StepEventPublisherError,
@@ -43,18 +44,15 @@ pub use step_event_publisher_registry::{
     PublisherNotFoundError, StepEventPublisherRegistry, StepEventPublisherRegistryBuilder,
     ValidationErrors,
 }; // TAS-65 Phase 3 + Phase 4 validation
-pub use traits::DomainEventPublishable; // TAS-65
-pub use in_process_event_bus::{
-    InProcessEventBus, InProcessEventBusBuilder, InProcessEventBusConfig,
-}; // TAS-65 Dual-Path
-pub use event_router::{
-    EventRouteOutcome, EventRouter, EventRouterBuilder, EventRouterError,
-}; // TAS-65 Dual-Path
-// Re-export stats types from canonical location in tasker-shared
-pub use tasker_shared::metrics::worker::{EventRouterStats, InProcessEventBusStats};
+pub use task_template_manager::{
+    CachedTemplate, TaskTemplateManagerConfig, WorkerTaskTemplateOperations,
+};
+pub use traits::DomainEventPublishable; // TAS-65 // TAS-65 Dual-Path
+                                        // Re-export stats types from canonical location in tasker-shared
 pub use domain_event_commands::{
     DomainEventCommand, DomainEventSystemStats, DomainEventToPublish, ShutdownResult,
 }; // TAS-65/TAS-69
 pub use event_systems::domain_event_system::{
     DomainEventSystem, DomainEventSystemConfig, DomainEventSystemHandle,
-}; // TAS-65/TAS-69
+};
+pub use tasker_shared::metrics::worker::{EventRouterStats, InProcessEventBusStats}; // TAS-65/TAS-69

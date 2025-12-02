@@ -14,12 +14,18 @@
 //! ## Usage Example
 //!
 //! ```rust,no_run
-//! use tasker_shared::events::domain_events::{DomainEventPublisher, EventMetadata};
+//! use tasker_shared::events::domain_events::{DomainEventPublisher, DomainEventPayload, EventMetadata};
 //! use tasker_shared::messaging::UnifiedPgmqClient;
+//! use tasker_shared::types::base::TaskSequenceStep;
+//! use tasker_shared::messaging::execution_types::StepExecutionResult;
 //! use std::sync::Arc;
 //! use serde_json::json;
 //!
-//! # async fn example(message_client: Arc<UnifiedPgmqClient>) -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn example(
+//! #     message_client: Arc<UnifiedPgmqClient>,
+//! #     tss: TaskSequenceStep,
+//! #     result: StepExecutionResult,
+//! # ) -> Result<(), Box<dyn std::error::Error>> {
 //! let publisher = DomainEventPublisher::new(message_client);
 //!
 //! let metadata = EventMetadata {
@@ -32,9 +38,15 @@
 //!     fired_by: "OrderProcessor".to_string(),
 //! };
 //!
+//! let payload = DomainEventPayload {
+//!     task_sequence_step: tss,
+//!     execution_result: result,
+//!     payload: json!({"order_id": 123, "amount": 99.99}),
+//! };
+//!
 //! let event_id = publisher.publish_event(
 //!     "order.processed",
-//!     json!({"order_id": 123, "amount": 99.99}),
+//!     payload,
 //!     metadata
 //! ).await?;
 //! # Ok(())
@@ -327,7 +339,9 @@ mod tests {
 
         // For this test, we just verify the structure is valid
         // Full payload validation happens in integration tests
-        assert!(deserialized.is_ok() || deserialized.is_err(),
-                "Serialization format is defined");
+        assert!(
+            deserialized.is_ok() || deserialized.is_err(),
+            "Serialization format is defined"
+        );
     }
 }

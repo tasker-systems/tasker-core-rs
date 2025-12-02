@@ -81,7 +81,8 @@ pub async fn bootstrap() -> Result<(WorkerSystemHandle, RustEventHandler)> {
     // Bootstrap the worker using tasker-worker foundation with our global event system
     // We need to bootstrap first to get access to the message client
     info!("🏗️  Bootstrapping worker with tasker-worker foundation...");
-    let worker_handle = WorkerBootstrap::bootstrap_with_event_system(Some(event_system.clone())).await?;
+    let worker_handle =
+        WorkerBootstrap::bootstrap_with_event_system(Some(event_system.clone())).await?;
 
     // TAS-65: Create step event publisher registry with domain event publisher
     // Access the domain_event_publisher from WorkerCore

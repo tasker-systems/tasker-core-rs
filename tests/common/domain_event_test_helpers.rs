@@ -137,7 +137,10 @@ impl DurableEventCapture {
     /// # Returns
     ///
     /// All events in the queue, regardless of visibility timeout
-    pub async fn get_events_in_namespace(&mut self, namespace: &str) -> Result<Vec<CapturedDomainEvent>> {
+    pub async fn get_events_in_namespace(
+        &mut self,
+        namespace: &str,
+    ) -> Result<Vec<CapturedDomainEvent>> {
         let queue_name = format!("{}_domain_events", namespace);
         self.get_events_in_queue(&queue_name).await
     }
@@ -145,7 +148,10 @@ impl DurableEventCapture {
     /// Get all events in a specific queue
     ///
     /// Uses direct SQL to bypass VTT.
-    pub async fn get_events_in_queue(&mut self, queue_name: &str) -> Result<Vec<CapturedDomainEvent>> {
+    pub async fn get_events_in_queue(
+        &mut self,
+        queue_name: &str,
+    ) -> Result<Vec<CapturedDomainEvent>> {
         // Direct query to PGMQ queue table - bypasses visibility timeout
         // Queue tables are named: pgmq.q_{queue_name}
         let table_name = format!("pgmq.q_{}", queue_name);
@@ -279,7 +285,9 @@ impl DurableEventCapture {
         namespace: &str,
         event_name_pattern: &str,
     ) -> Result<CapturedDomainEvent> {
-        let events = self.get_events_matching(namespace, event_name_pattern).await?;
+        let events = self
+            .get_events_matching(namespace, event_name_pattern)
+            .await?;
 
         if events.is_empty() {
             anyhow::bail!(
@@ -298,7 +306,9 @@ impl DurableEventCapture {
         namespace: &str,
         event_name_pattern: &str,
     ) -> Result<()> {
-        let events = self.get_events_matching(namespace, event_name_pattern).await?;
+        let events = self
+            .get_events_matching(namespace, event_name_pattern)
+            .await?;
 
         if !events.is_empty() {
             anyhow::bail!(

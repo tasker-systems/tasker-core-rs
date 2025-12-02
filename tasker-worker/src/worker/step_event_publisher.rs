@@ -81,7 +81,9 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
-use tasker_shared::events::domain_events::{DomainEventPayload, DomainEventPublisher, EventMetadata};
+use tasker_shared::events::domain_events::{
+    DomainEventPayload, DomainEventPublisher, EventMetadata,
+};
 use tasker_shared::messaging::execution_types::StepExecutionResult;
 use tasker_shared::models::core::task_template::EventDeliveryMode;
 use tasker_shared::types::TaskSequenceStep;
@@ -118,7 +120,10 @@ pub struct StepEventContext {
 impl StepEventContext {
     /// Create a new event context
     #[inline]
-    pub fn new(task_sequence_step: TaskSequenceStep, execution_result: StepExecutionResult) -> Self {
+    pub fn new(
+        task_sequence_step: TaskSequenceStep,
+        execution_result: StepExecutionResult,
+    ) -> Self {
         Self {
             task_sequence_step,
             execution_result,
@@ -127,7 +132,9 @@ impl StepEventContext {
 
     /// Get the step's declared events from the step definition
     #[inline]
-    pub fn declared_events(&self) -> &[tasker_shared::models::core::task_template::EventDeclaration] {
+    pub fn declared_events(
+        &self,
+    ) -> &[tasker_shared::models::core::task_template::EventDeclaration] {
         &self.task_sequence_step.step_definition.publishes_events
     }
 
@@ -515,7 +522,11 @@ pub trait StepEventPublisher: Send + Sync + std::fmt::Debug {
     ///
     /// Default implementation includes full execution context. Override if
     /// you need to modify the payload structure.
-    fn build_domain_payload(&self, ctx: &StepEventContext, business_payload: Value) -> DomainEventPayload {
+    fn build_domain_payload(
+        &self,
+        ctx: &StepEventContext,
+        business_payload: Value,
+    ) -> DomainEventPayload {
         DomainEventPayload {
             task_sequence_step: ctx.task_sequence_step.clone(),
             execution_result: ctx.execution_result.clone(),

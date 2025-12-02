@@ -38,7 +38,6 @@ pub fn create_app(state: Arc<WorkerWebState>) -> Router {
         .merge(routes::worker_status_routes())
         .merge(routes::template_routes())
         .merge(routes::config_routes())
-        .merge(routes::debug_routes()) // TAS-65: Domain event observability
         .layer(middleware)
         .with_state(state);
 

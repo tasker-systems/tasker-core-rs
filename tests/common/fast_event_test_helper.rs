@@ -35,9 +35,9 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
 use tasker_shared::events::domain_events::DomainEvent;
 use tasker_shared::events::registry::EventHandler;
+use tokio::sync::RwLock;
 
 /// Captures fast/in-process domain events for test verification
 ///
@@ -307,7 +307,9 @@ mod tests {
         let handler = capture.create_handler();
 
         // Capture multiple events
-        handler(create_test_event("payment.processed")).await.unwrap();
+        handler(create_test_event("payment.processed"))
+            .await
+            .unwrap();
         handler(create_test_event("payment.failed")).await.unwrap();
         handler(create_test_event("order.created")).await.unwrap();
 
@@ -326,7 +328,9 @@ mod tests {
         let capture = FastEventCapture::new();
         let handler = capture.create_handler();
 
-        handler(create_test_event("payment.processed")).await.unwrap();
+        handler(create_test_event("payment.processed"))
+            .await
+            .unwrap();
 
         assert!(capture.has_event("payment.processed").await);
         assert!(!capture.has_event("order.created").await);
