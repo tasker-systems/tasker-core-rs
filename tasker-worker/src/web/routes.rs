@@ -23,7 +23,10 @@ pub fn metrics_routes() -> Router<Arc<WorkerWebState>> {
     Router::new()
         .route("/metrics", get(handlers::metrics::prometheus_metrics))
         .route("/metrics/worker", get(handlers::metrics::worker_metrics))
-        .route("/metrics/events", get(handlers::metrics::domain_event_stats))
+        .route(
+            "/metrics/events",
+            get(handlers::metrics::domain_event_stats),
+        )
 }
 
 /// Worker status and information routes

@@ -306,7 +306,7 @@ async fn test_payment_event_publisher_success_flow(pool: PgPool) -> sqlx::Result
     // Should NOT have published payment.failed (failure condition not met)
     assert!(result.errors.is_empty(), "Should have no errors");
     assert!(
-        result.published.len() >= 1,
+        !result.published.is_empty(),
         "Should have published at least 1 event"
     );
 
@@ -381,7 +381,7 @@ async fn test_payment_event_publisher_failure_flow(pool: PgPool) -> sqlx::Result
     // Should NOT have published payment.processed (success condition not met)
     assert!(result.errors.is_empty(), "Should have no errors");
     assert!(
-        result.published.len() >= 1,
+        !result.published.is_empty(),
         "Should have published at least 1 event"
     );
 
