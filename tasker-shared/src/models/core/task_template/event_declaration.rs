@@ -131,11 +131,12 @@ pub enum EventDeliveryMode {
 /// Retryability is determined from the database via `get_step_readiness_status()`,
 /// not from the execution result. The DB knows the authoritative state including
 /// retry attempts remaining.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PublicationCondition {
     /// Publish only on successful step completion
     #[display("success")]
+    #[default]
     Success,
 
     /// Publish only on step failure (any type - backward compatible)
@@ -159,12 +160,6 @@ pub enum PublicationCondition {
     /// Publish regardless of step outcome
     #[display("always")]
     Always,
-}
-
-impl Default for PublicationCondition {
-    fn default() -> Self {
-        Self::Success
-    }
 }
 
 /// Event declaration for workflow step event publishing (TAS-65)
