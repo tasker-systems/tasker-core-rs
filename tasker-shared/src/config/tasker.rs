@@ -822,15 +822,24 @@ impl_builder_default!(TaskTemplatesConfig);
 
 /// Telemetry configuration
 ///
-/// **Important**: This TOML configuration is loaded for config endpoint observability,
-/// but runtime telemetry behavior is controlled by environment variables:
+/// TODO: This struct is loaded from TOML but is NOT used for actual telemetry initialization.
 ///
-/// - `TELEMETRY_ENABLED` - Enable/disable telemetry (overrides `enabled` field)
+/// Telemetry is configured **exclusively via environment variables** because logging must be
+/// initialized before the TOML config loader runs (to log config loading errors). The actual
+/// telemetry initialization uses a separate private `TelemetryConfig` struct in
+/// `tasker-shared/src/logging.rs` that reads only from environment variables:
+///
+/// - `TELEMETRY_ENABLED` - Enable/disable telemetry
 /// - `OTEL_EXPORTER_OTLP_ENDPOINT` - OpenTelemetry collector endpoint
-/// - `OTEL_SERVICE_NAME` - Service name for traces (overrides `service_name` field)
+/// - `OTEL_SERVICE_NAME` - Service name for traces
+/// - `OTEL_SERVICE_VERSION` - Service version
+/// - `OTEL_TRACES_SAMPLER_ARG` - Sampling rate
 ///
-/// The TOML values serve as defaults but environment variables take precedence at runtime.
-/// See `tasker-shared/src/logging.rs` for actual telemetry initialization logic.
+/// This struct exists only for:
+/// 1. TOML schema completeness
+/// 2. Exposure via `/config` API endpoint for debugging
+///
+/// Consider removing this struct and the `[common.telemetry]` TOML section if not needed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 #[serde(rename_all = "snake_case")]
 pub struct TelemetryConfig {

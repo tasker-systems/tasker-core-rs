@@ -84,7 +84,7 @@
 //!
 //! ### Backend-Specific Configuration
 //!
-//! See `config/tasker/base/telemetry.toml` for commented examples of:
+//! Different observability backends can be configured via environment variables:
 //! - Honeycomb (professional observability platform)
 //! - Jaeger (open source tracing)
 //! - Grafana Tempo (open source tracing)
