@@ -40,9 +40,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::errors::{DiscoveryError, OrchestrationResult};
-use tasker_shared::events::{EventPublisher, ViableStep as EventsViableStep};
+use tasker_shared::events::EventPublisher;
+use tasker_shared::events::ViableStep;
 use tasker_shared::system_context::SystemContext;
-use tasker_shared::types::ViableStep;
 use tasker_shared::StepExecutionResult;
 use tracing::{debug, info, instrument, warn};
 
@@ -86,7 +86,8 @@ impl ViableStepDiscovery {
             "Retrieved ready steps from SQL function"
         );
 
-        // Convert to ViableStep objects (no additional verification needed - SQL function handles everything)
+        // Convert to ViableStep objects with SQL type conversions
+        // (no additional verification needed - SQL function handles everything)
         let viable_steps: Vec<ViableStep> = ready_steps
             .into_iter()
             .map(|status| {
@@ -107,10 +108,12 @@ impl ViableStepDiscovery {
                     current_state: status.current_state,
                     dependencies_satisfied: status.dependencies_satisfied,
                     retry_eligible: status.retry_eligible,
-                    attempts: status.attempts,
-                    max_attempts: status.max_attempts,
-                    last_failure_at: status.last_failure_at,
-                    next_retry_at: status.next_retry_at,
+                    // Convert from SQL i32 to u32
+                    attempts: status.attempts as u32,
+                    max_attempts: status.max_attempts as u32,
+                    // Convert from SQL NaiveDateTime to DateTime<Utc>
+                    last_failure_at: status.last_failure_at.map(|dt| dt.and_utc()),
+                    next_retry_at: status.next_retry_at.map(|dt| dt.and_utc()),
                 }
             })
             .collect();
@@ -121,26 +124,9 @@ impl ViableStepDiscovery {
             "Completed viable step discovery"
         );
 
-        // Publish discovery event
-        let events_viable_steps: Vec<EventsViableStep> = viable_steps
-            .iter()
-            .map(|step| EventsViableStep {
-                step_uuid: step.step_uuid,
-                task_uuid: step.task_uuid,
-                name: step.name.clone(),
-                named_step_uuid: step.named_step_uuid,
-                current_state: step.current_state.clone(),
-                dependencies_satisfied: step.dependencies_satisfied,
-                retry_eligible: step.retry_eligible,
-                attempts: step.attempts as u32,
-                max_attempts: step.max_attempts as u32,
-                last_failure_at: step.last_failure_at.map(|dt| dt.and_utc()),
-                next_retry_at: step.next_retry_at.map(|dt| dt.and_utc()),
-            })
-            .collect();
-
+        // Publish discovery event (ViableStep is now the unified type)
         self.event_publisher
-            .publish_viable_steps_discovered(task_uuid, &events_viable_steps)
+            .publish_viable_steps_discovered(task_uuid, &viable_steps)
             .await?;
 
         Ok(viable_steps)
@@ -413,8 +399,8 @@ impl ViableStepDiscovery {
                     .unwrap_or(serde_json::json!({})),
                 previous_results,
                 metadata: StepRequestMetadata {
-                    attempt: step.attempts,
-                    max_attempts: step.max_attempts,
+                    attempt: step.attempts as i32,
+                    max_attempts: step.max_attempts as i32,
                     timeout_ms: timeout_ms as i64,
                     created_at: chrono::Utc::now(),
                 },

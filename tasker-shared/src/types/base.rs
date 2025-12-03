@@ -11,7 +11,6 @@ use crate::models::core::{task::TaskForOrchestration, workflow_step::WorkflowSte
 use crate::models::orchestration::StepDependencyResultMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Statistics about the task template cache
@@ -26,29 +25,8 @@ pub struct CacheStats {
     pub supported_namespaces: Vec<String>,
 }
 
-/// A step that is ready for execution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ViableStep {
-    pub step_uuid: Uuid,
-    pub task_uuid: Uuid,
-    pub name: String,
-    pub named_step_uuid: Uuid,
-    pub current_state: String,
-    pub dependencies_satisfied: bool,
-    pub retry_eligible: bool,
-    pub attempts: i32,
-    pub max_attempts: i32,
-    pub last_failure_at: Option<chrono::NaiveDateTime>,
-    pub next_retry_at: Option<chrono::NaiveDateTime>,
-}
-
-/// Task execution context from SQL functions
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TaskContext {
-    pub task_uuid: Uuid,
-    pub data: serde_json::Value,
-    pub metadata: HashMap<String, serde_json::Value>,
-}
+// ViableStep is now defined in events::types - re-export for backwards compatibility
+pub use crate::events::types::ViableStep;
 
 /// Handler metadata for registry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,15 +38,6 @@ pub struct HandlerMetadata {
     pub config_schema: Option<serde_json::Value>,
     pub default_dependent_system: Option<String>,
     pub registered_at: DateTime<Utc>,
-}
-
-/// Registry statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegistryStats {
-    pub total_handlers: usize,
-    pub total_ffi_handlers: usize,
-    pub namespaces: Vec<String>,
-    pub thread_safe: bool,
 }
 
 // Legacy TaskHandlerConfig and StepTemplate removed - use crate::models::core::task_template::TaskTemplate instead
@@ -135,31 +104,6 @@ pub struct StepExecutionCompletionEvent {
     /// TAS-65 Phase 1.5b: Span ID for distributed tracing (propagated from FFI)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub span_id: Option<String>,
-}
-
-/// Worker event types for categorizing different events
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum WorkerEventType {
-    /// Step execution request sent to FFI handler
-    StepExecutionRequest,
-    /// Step execution completion notification from FFI handler
-    StepExecutionCompletion,
-    /// Worker status update
-    WorkerStatusUpdate,
-    /// Handler registration notification
-    HandlerRegistration,
-}
-
-/// Generic event payload for worker events
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum EventPayload {
-    /// Step execution event payload
-    StepExecution(StepEventPayload),
-    /// Step completion event payload
-    StepCompletion(StepExecutionCompletionEvent),
-    /// Generic JSON payload for other event types
-    Generic(serde_json::Value),
 }
 
 impl StepEventPayload {

@@ -106,8 +106,7 @@ pub mod validation;
 
 pub use constants::events as system_events;
 pub use constants::{
-    status_groups, system, ExecutionStatus, HealthStatus, PendingReason, RecommendedAction,
-    ReenqueueReason, WorkflowEdgeType,
+    status_groups, system, ExecutionStatus, HealthStatus, RecommendedAction, WorkflowEdgeType,
 };
 
 // Re-export shared event-driven and deployment abstractions
