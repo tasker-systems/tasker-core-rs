@@ -35,7 +35,6 @@ pub fn create_app(state: Arc<WorkerWebState>) -> Router {
     let app = Router::new()
         .merge(routes::health_routes())
         .merge(routes::metrics_routes())
-        .merge(routes::worker_status_routes())
         .merge(routes::template_routes())
         .merge(routes::config_routes())
         .layer(middleware)

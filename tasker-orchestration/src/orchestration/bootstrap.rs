@@ -222,7 +222,12 @@ impl OrchestrationBootstrap {
         );
 
         // Initialize OrchestrationCore with orchestration-specific configuration
-        let orchestration_core = Arc::new(OrchestrationCore::new(system_context.clone()).await?);
+        let mut orchestration_core = OrchestrationCore::new(system_context.clone()).await?;
+
+        // Start the orchestration core (transitions status to Running)
+        orchestration_core.start().await?;
+
+        let orchestration_core = Arc::new(orchestration_core);
 
         orchestration_core
             .context

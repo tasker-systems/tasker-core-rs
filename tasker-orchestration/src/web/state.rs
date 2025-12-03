@@ -153,10 +153,11 @@ impl AppState {
             .execution
             .environment
             .clone();
-        let core_status = orchestration_core.status();
+        // Get initial status snapshot for logging (actual status is read dynamically via orchestration_core.status())
+        let core_status_snapshot = orchestration_core.status().read().await.clone();
 
-        // Convert OrchestrationCoreStatus to SystemOperationalState
-        let operational_state = match core_status {
+        // Convert OrchestrationCoreStatus to SystemOperationalState for initial snapshot
+        let operational_state = match &core_status_snapshot {
             OrchestrationCoreStatus::Running => SystemOperationalState::Normal,
             OrchestrationCoreStatus::Starting => SystemOperationalState::Startup,
             OrchestrationCoreStatus::Stopping => SystemOperationalState::GracefulShutdown,
@@ -165,8 +166,10 @@ impl AppState {
             OrchestrationCoreStatus::Created => SystemOperationalState::Startup,
         };
 
+        // Note: orchestration_status is kept for backward compatibility but health checks
+        // should read directly from orchestration_core.status() for real-time status
         let orchestration_status = Arc::new(RwLock::new(OrchestrationStatus {
-            running: matches!(core_status, OrchestrationCoreStatus::Running),
+            running: matches!(core_status_snapshot, OrchestrationCoreStatus::Running),
             environment: environment.clone(),
             operational_state,
             database_pool_size,

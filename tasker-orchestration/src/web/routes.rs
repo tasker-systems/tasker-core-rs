@@ -77,17 +77,17 @@ pub fn api_v1_routes() -> Router<AppState> {
 
 /// Create health and metrics routes
 ///
-/// These routes are at the root level following Kubernetes standards:
+/// Health endpoints are grouped under `/health` for consistency:
 /// - `/health` - Basic health check
-/// - `/ready` - Kubernetes readiness probe
-/// - `/live` - Kubernetes liveness probe
-/// - `/health/detailed` - Detailed health status
+/// - `/health/ready` - Kubernetes readiness probe
+/// - `/health/live` - Kubernetes liveness probe
+/// - `/health/detailed` - Detailed health status with subsystem checks
 /// - `/metrics` - Prometheus metrics export
 pub fn health_routes() -> Router<AppState> {
     Router::new()
         .route("/health", get(handlers::health::basic_health))
-        .route("/ready", get(handlers::health::readiness_probe))
-        .route("/live", get(handlers::health::liveness_probe))
+        .route("/health/ready", get(handlers::health::readiness_probe))
+        .route("/health/live", get(handlers::health::liveness_probe))
         .route("/health/detailed", get(handlers::health::detailed_health))
         .route("/metrics", get(handlers::health::prometheus_metrics))
 }

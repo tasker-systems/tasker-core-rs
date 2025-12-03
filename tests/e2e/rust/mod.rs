@@ -1,3 +1,4 @@
+mod api_client_endpoints_test; // TAS-70: API client endpoint coverage
 mod batch_processing_csv_workflow;
 mod batch_processing_workflow;
 mod batch_resumption_test;

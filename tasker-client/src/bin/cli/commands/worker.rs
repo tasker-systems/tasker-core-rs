@@ -16,55 +16,89 @@ pub async fn handle_worker_command(cmd: WorkerCommands, config: &ClientConfig) -
 
     match cmd {
         WorkerCommands::List { namespace } => {
-            println!("Listing workers");
+            // List templates instead of workers (workers don't have a registry)
+            println!("Listing worker templates and capabilities");
             if let Some(ref ns) = namespace {
                 println!("Namespace filter: {}", ns);
             }
 
-            match client.list_workers(namespace.as_deref()).await {
+            match client.list_templates(None).await {
                 Ok(response) => {
+                    println!("✓ Worker service information:");
                     println!(
-                        "✓ Found {} workers (total: {}, active: {})",
-                        response.workers.len(),
-                        response.total_count,
-                        response.active_count
+                        "  Supported namespaces: {}",
+                        response.supported_namespaces.join(", ")
                     );
-                    println!("  Timestamp: {}\n", response.timestamp);
+                    println!("  Cached templates: {}", response.template_count);
+                    println!(
+                        "  Worker capabilities: {}",
+                        response.worker_capabilities.join(", ")
+                    );
 
-                    for worker in response.workers {
-                        println!("  • Worker: {}", worker.worker_id);
-                        println!(
-                            "    Status: {} | Version: {}",
-                            worker.status, worker.version
-                        );
-                        println!("    Namespaces: {}", worker.namespaces.join(", "));
-                        println!("    Last seen: {}", worker.last_seen);
-                        println!();
+                    if let Some(cache_stats) = response.cache_stats {
+                        println!("\n  Cache statistics:");
+                        println!("    Total cached: {}", cache_stats.total_cached);
+                        println!("    Cache hits: {}", cache_stats.cache_hits);
+                        println!("    Cache misses: {}", cache_stats.cache_misses);
                     }
                 }
                 Err(e) => {
-                    eprintln!("✗ Failed to list workers: {}", e);
+                    eprintln!("✗ Failed to get worker info: {}", e);
                     return Err(e.into());
                 }
             }
         }
-        WorkerCommands::Status { worker_id } => {
-            println!("Getting worker status: {}", worker_id);
+        WorkerCommands::Status { worker_id: _ } => {
+            // Get worker detailed health status (worker_id is ignored - single worker per service)
+            println!("Getting worker status...");
 
-            match client.get_worker_status(&worker_id).await {
+            match client.get_detailed_health().await {
                 Ok(response) => {
                     println!("✓ Worker status:");
                     println!("  Worker ID: {}", response.worker_id);
                     println!("  Status: {}", response.status);
-                    println!("  Version: {} ({})", response.version, response.environment);
-                    println!("  Uptime: {} seconds", response.uptime_seconds);
-                    println!("  Namespaces: {}", response.namespaces.join(", "));
                     println!(
-                        "  Tasks: {} current, {} completed, {} failed",
-                        response.current_tasks, response.completed_tasks, response.failed_tasks
+                        "  Version: {} ({})",
+                        response.system_info.version, response.system_info.environment
                     );
-                    if let Some(last_activity) = response.last_activity {
-                        println!("  Last activity: {}", last_activity);
+                    println!("  Uptime: {} seconds", response.system_info.uptime_seconds);
+                    println!("  Worker type: {}", response.system_info.worker_type);
+                    println!(
+                        "  DB pool size: {}",
+                        response.system_info.database_pool_size
+                    );
+                    println!(
+                        "  Command processor: {}",
+                        if response.system_info.command_processor_active {
+                            "active"
+                        } else {
+                            "inactive"
+                        }
+                    );
+                    println!(
+                        "  Namespaces: {}",
+                        response.system_info.supported_namespaces.join(", ")
+                    );
+
+                    if !response.checks.is_empty() {
+                        println!("\n  Health checks:");
+                        for (check_name, check_result) in &response.checks {
+                            let status_icon = if check_result.status == "healthy" {
+                                "✓"
+                            } else {
+                                "✗"
+                            };
+                            println!(
+                                "    {} {}: {} ({}ms)",
+                                status_icon,
+                                check_name,
+                                check_result.status,
+                                check_result.duration_ms
+                            );
+                            if let Some(ref msg) = check_result.message {
+                                println!("      {}", msg);
+                            }
+                        }
                     }
                 }
                 Err(e) => {
@@ -73,138 +107,78 @@ pub async fn handle_worker_command(cmd: WorkerCommands, config: &ClientConfig) -
                 }
             }
         }
-        WorkerCommands::Health { all, worker_id } => {
-            if all {
-                println!("Checking health of all workers");
-                // Get all workers first, then check health of each
-                match client.list_workers(None).await {
-                    Ok(worker_list) => {
-                        println!(
-                            "✓ Checking health of {} workers\n",
-                            worker_list.workers.len()
-                        );
+        WorkerCommands::Health {
+            all: _,
+            worker_id: _,
+        } => {
+            // Check worker health (--all and worker_id ignored - single worker per service)
+            println!("Checking worker health...");
 
-                        for worker in worker_list.workers {
-                            println!("Worker: {}", worker.worker_id);
-                            match client.worker_health(&worker.worker_id).await {
-                                Ok(health) => {
-                                    println!(
-                                        "  ✓ Status: {} | Version: {}",
-                                        health.status, health.system_info.version
-                                    );
-                                    println!(
-                                        "  Environment: {} | Uptime: {}s",
-                                        health.system_info.environment,
-                                        health.system_info.uptime_seconds
-                                    );
-                                    println!(
-                                        "  Worker type: {} | DB pool: {}",
-                                        health.system_info.worker_type,
-                                        health.system_info.database_pool_size
-                                    );
-                                    println!(
-                                        "  Command processor: {} | Namespaces: {}",
-                                        health.system_info.command_processor_active,
-                                        health.system_info.supported_namespaces.join(", ")
-                                    );
-
-                                    // Show individual health checks
-                                    if !health.checks.is_empty() {
-                                        println!("  Health checks:");
-                                        for (check_name, check_result) in &health.checks {
-                                            let status_icon = if check_result.status == "healthy" {
-                                                "✓"
-                                            } else {
-                                                "✗"
-                                            };
-                                            println!(
-                                                "    {} {}: {} ({}ms)",
-                                                status_icon,
-                                                check_name,
-                                                check_result.status,
-                                                check_result.duration_ms
-                                            );
-                                            if let Some(ref msg) = check_result.message {
-                                                println!("      {}", msg);
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    println!("  ✗ Health check failed: {}", e);
-                                }
-                            }
-                            println!();
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("✗ Failed to get worker list: {}", e);
-                        return Err(e.into());
-                    }
+            // Basic health check first
+            match client.health_check().await {
+                Ok(basic) => {
+                    println!("✓ Worker basic health: {}", basic.status);
+                    println!("  Worker ID: {}", basic.worker_id);
                 }
-            } else if let Some(id) = worker_id {
-                println!("Checking health of worker: {}", id);
+                Err(e) => {
+                    eprintln!("✗ Worker health check failed: {}", e);
+                    return Err(e.into());
+                }
+            }
 
-                match client.worker_health(&id).await {
-                    Ok(response) => {
-                        println!("✓ Worker health:");
-                        println!("  Worker ID: {}", response.worker_id);
-                        println!(
-                            "  Status: {} | Timestamp: {}",
-                            response.status, response.timestamp
-                        );
+            // Detailed health check
+            match client.get_detailed_health().await {
+                Ok(response) => {
+                    println!("\n✓ Detailed worker health:");
+                    println!(
+                        "  Status: {} | Timestamp: {}",
+                        response.status, response.timestamp
+                    );
 
-                        println!("  System info:");
-                        println!(
-                            "    Version: {} | Environment: {}",
-                            response.system_info.version, response.system_info.environment
-                        );
-                        println!(
-                            "    Uptime: {} seconds | Worker type: {}",
-                            response.system_info.uptime_seconds, response.system_info.worker_type
-                        );
-                        println!(
-                            "    DB pool size: {} | Command processor: {}",
-                            response.system_info.database_pool_size,
-                            response.system_info.command_processor_active
-                        );
-                        println!(
-                            "    Supported namespaces: {}",
-                            response.system_info.supported_namespaces.join(", ")
-                        );
+                    println!("\n  System info:");
+                    println!(
+                        "    Version: {} | Environment: {}",
+                        response.system_info.version, response.system_info.environment
+                    );
+                    println!(
+                        "    Uptime: {} seconds | Worker type: {}",
+                        response.system_info.uptime_seconds, response.system_info.worker_type
+                    );
+                    println!(
+                        "    DB pool size: {} | Command processor: {}",
+                        response.system_info.database_pool_size,
+                        response.system_info.command_processor_active
+                    );
+                    println!(
+                        "    Supported namespaces: {}",
+                        response.system_info.supported_namespaces.join(", ")
+                    );
 
-                        if !response.checks.is_empty() {
-                            println!("  Health checks:");
-                            for (check_name, check_result) in response.checks {
-                                let status_icon = if check_result.status == "healthy" {
-                                    "✓"
-                                } else {
-                                    "✗"
-                                };
-                                println!(
-                                    "    {} {}: {} ({}ms) - last checked: {}",
-                                    status_icon,
-                                    check_name,
-                                    check_result.status,
-                                    check_result.duration_ms,
-                                    check_result.last_checked
-                                );
-                                if let Some(message) = check_result.message {
-                                    println!("      {}", message);
-                                }
+                    if !response.checks.is_empty() {
+                        println!("\n  Health checks:");
+                        for (check_name, check_result) in response.checks {
+                            let status_icon = if check_result.status == "healthy" {
+                                "✓"
+                            } else {
+                                "✗"
+                            };
+                            println!(
+                                "    {} {}: {} ({}ms) - last checked: {}",
+                                status_icon,
+                                check_name,
+                                check_result.status,
+                                check_result.duration_ms,
+                                check_result.last_checked
+                            );
+                            if let Some(message) = check_result.message {
+                                println!("      {}", message);
                             }
                         }
                     }
-                    Err(e) => {
-                        eprintln!("✗ Failed to check worker health: {}", e);
-                        return Err(e.into());
-                    }
                 }
-            } else {
-                eprintln!("✗ Please specify either --all or provide a worker ID");
-                return Err(tasker_client::ClientError::InvalidInput(
-                    "Either --all flag or worker ID required".to_string(),
-                ));
+                Err(e) => {
+                    eprintln!("  Could not get detailed health info: {}", e);
+                }
             }
         }
     }

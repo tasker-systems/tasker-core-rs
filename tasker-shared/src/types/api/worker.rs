@@ -1,8 +1,16 @@
+//! # Worker API Types
+//!
+//! Types for worker web API endpoints including templates, health checks, and cache operations.
+
 use crate::types::base::CacheStats;
 use crate::{models::core::task_template::ResolvedTaskTemplate, types::HandlerMetadata};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+// =============================================================================
+// Template Types
+// =============================================================================
 
 /// Query parameters for template listing
 #[derive(Debug, Deserialize)]
@@ -22,7 +30,7 @@ pub struct TemplatePathParams {
 }
 
 /// Response for template retrieval
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateResponse {
     pub template: ResolvedTaskTemplate,
     pub handler_metadata: HandlerMetadata,
@@ -32,7 +40,7 @@ pub struct TemplateResponse {
 }
 
 /// Response for template listing
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateListResponse {
     pub supported_namespaces: Vec<String>,
     pub template_count: usize,
@@ -41,7 +49,7 @@ pub struct TemplateListResponse {
 }
 
 /// Response for cache operations
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheOperationResponse {
     pub operation: String,
     pub success: bool,
@@ -49,13 +57,17 @@ pub struct CacheOperationResponse {
 }
 
 /// Response for template validation
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateValidationResponse {
     pub valid: bool,
     pub errors: Vec<String>,
     pub required_capabilities: Vec<String>,
     pub step_handlers: Vec<String>,
 }
+
+// =============================================================================
+// Health Check Types
+// =============================================================================
 
 /// Basic health check response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,41 +106,4 @@ pub struct WorkerSystemInfo {
     pub database_pool_size: u32,
     pub command_processor_active: bool,
     pub supported_namespaces: Vec<String>,
-}
-
-/// Worker status response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkerStatusResponse {
-    pub worker_id: String,
-    pub status: String,
-    pub uptime_seconds: u64,
-    pub namespaces: Vec<String>,
-    pub current_tasks: u32,
-    pub completed_tasks: u32,
-    pub failed_tasks: u32,
-    pub last_activity: Option<DateTime<Utc>>,
-    pub version: String,
-    pub environment: String,
-}
-
-/// Worker health response (alias for detailed health)
-pub type WorkerHealthResponse = DetailedHealthResponse;
-
-/// Worker information for listing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkerInfo {
-    pub worker_id: String,
-    pub status: String,
-    pub namespaces: Vec<String>,
-    pub last_seen: DateTime<Utc>,
-    pub version: String,
-}
-
-/// Worker list response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkerListResponse {
-    pub workers: Vec<WorkerInfo>,
-    pub total_count: usize,
-    pub active_count: usize,
-    pub timestamp: DateTime<Utc>,
 }
