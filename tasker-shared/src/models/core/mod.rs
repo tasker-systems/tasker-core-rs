@@ -13,4 +13,5 @@ pub mod task_template;
 pub mod task_transition;
 pub mod workflow_step;
 pub mod workflow_step_edge;
+pub mod workflow_step_result_audit;
 pub mod workflow_step_transition;

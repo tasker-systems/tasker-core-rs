@@ -469,3 +469,127 @@ Actions execute sequentially after transition persistence, ensuring consistency.
 - **Orchestration Processing**: Orchestration processes results and completes steps
 
 This sophisticated state machine architecture provides the foundation for reliable, auditable, and scalable workflow orchestration in the tasker-core system.
+
+## Step Result Audit System (TAS-62)
+
+The step result audit system provides SOC2-compliant audit trails for workflow step execution results, enabling complete attribution tracking for compliance and debugging.
+
+### Audit Table Design
+
+The `tasker_workflow_step_result_audit` table stores lightweight references with attribution data:
+
+```sql
+CREATE TABLE tasker_workflow_step_result_audit (
+    workflow_step_result_audit_uuid UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+    workflow_step_uuid UUID NOT NULL REFERENCES tasker_workflow_steps,
+    workflow_step_transition_uuid UUID NOT NULL REFERENCES tasker_workflow_step_transitions,
+    task_uuid UUID NOT NULL REFERENCES tasker_tasks,
+    recorded_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    -- Attribution (NEW data not in transitions)
+    worker_uuid UUID,
+    correlation_id UUID,
+
+    -- Extracted scalars for indexing/filtering
+    success BOOLEAN NOT NULL,
+    execution_time_ms BIGINT,
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE (workflow_step_uuid, workflow_step_transition_uuid)
+);
+```
+
+### Design Principles
+
+1. **No Data Duplication**: Full execution results already exist in `tasker_workflow_step_transitions.metadata`. The audit table stores references only.
+
+2. **Attribution Capture**: The audit system captures NEW attribution data:
+   - `worker_uuid`: Which worker instance processed the step
+   - `correlation_id`: Distributed tracing identifier for request correlation
+
+3. **Indexed Scalars**: Success and execution time are extracted for efficient filtering without JSON parsing.
+
+4. **SQL Trigger**: A database trigger (`trg_step_result_audit`) guarantees audit record creation when workers persist results, ensuring SOC2 compliance.
+
+### Attribution Flow
+
+Attribution data flows through the system via `TransitionContext`:
+
+```rust
+// Worker creates attribution context
+let context = TransitionContext::with_worker(
+    worker_uuid,
+    Some(correlation_id),
+);
+
+// Context is merged into transition metadata
+state_machine.transition_with_context(event, Some(context)).await?;
+
+// SQL trigger extracts attribution from metadata
+-- In trigger:
+-- v_worker_uuid := (NEW.metadata->>'worker_uuid')::UUID;
+-- v_correlation_id := (NEW.metadata->>'correlation_id')::UUID;
+```
+
+### Trigger Behavior
+
+The `create_step_result_audit` trigger fires on transitions to:
+- `enqueued_for_orchestration`: Successful step completion
+- `enqueued_as_error_for_orchestration`: Failed step completion
+
+These states represent when workers persist execution results, creating the audit trail.
+
+### Querying Audit History
+
+#### Via API
+
+```
+GET /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}/audit
+```
+
+Returns audit records with full transition details via JOIN, ordered by `recorded_at` DESC.
+
+#### Via Client
+
+```rust
+let audit_history = client.get_step_audit_history(task_uuid, step_uuid).await?;
+for record in audit_history {
+    println!("Worker: {:?}, Success: {}, Time: {:?}ms",
+        record.worker_uuid,
+        record.success,
+        record.execution_time_ms
+    );
+}
+```
+
+#### Via Model
+
+```rust
+// Get audit history for a step with full transition details
+let history = WorkflowStepResultAudit::get_audit_history(&pool, step_uuid).await?;
+
+// Get all audit records for a task
+let task_history = WorkflowStepResultAudit::get_task_audit_history(&pool, task_uuid).await?;
+
+// Query by worker for attribution investigation
+let worker_records = WorkflowStepResultAudit::get_by_worker(&pool, worker_uuid, Some(100)).await?;
+
+// Query by correlation ID for distributed tracing
+let correlated = WorkflowStepResultAudit::get_by_correlation_id(&pool, correlation_id).await?;
+```
+
+### Indexes for Common Query Patterns
+
+The audit table includes optimized indexes:
+
+- `idx_audit_step_uuid`: Primary query - get audit history for a step
+- `idx_audit_task_uuid`: Get all audit records for a task
+- `idx_audit_recorded_at`: Time-range queries for SOC2 audit reports
+- `idx_audit_worker_uuid`: Attribution investigation (partial index)
+- `idx_audit_correlation_id`: Distributed tracing queries (partial index)
+- `idx_audit_success`: Success/failure filtering
+
+### Historical Data
+
+The migration includes a backfill for existing transitions. Historical records will have NULL attribution (worker_uuid, correlation_id) since that data wasn't captured before TAS-62.

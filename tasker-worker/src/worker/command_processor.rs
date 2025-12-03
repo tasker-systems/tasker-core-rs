@@ -30,6 +30,7 @@ use tasker_shared::monitoring::ChannelMonitor; // TAS-51: Channel monitoring
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
+use tasker_shared::state_machine::TransitionContext;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::types::base::TaskSequenceStep;
 use tasker_shared::{TaskerError, TaskerResult};
@@ -1137,6 +1138,9 @@ impl WorkerProcessor {
     }
 
     /// Send step result to orchestration - complete implementation with StepStateMachine
+    ///
+    /// TAS-62: This method now enriches state transitions with attribution context
+    /// (worker_uuid, correlation_id) for SOC2-compliant audit trails.
     async fn handle_send_step_result(&self, step_result: StepExecutionResult) -> TaskerResult<()> {
         debug!(
             worker_id = %self.worker_id,
@@ -1155,10 +1159,18 @@ impl WorkerProcessor {
                 TaskerError::WorkerError(format!("Step not found: {}", step_result.step_uuid))
             })?;
 
-        // 2. Use StepStateMachine for proper state transition with results persistence
+        // 2. Fetch task to get correlation_id for attribution context (TAS-62)
+        let task_uuid = workflow_step.task_uuid;
+        let task = Task::find_by_id(db_pool, task_uuid)
+            .await
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task: {e}")))?
+            .ok_or_else(|| TaskerError::WorkerError(format!("Task not found: {}", task_uuid)))?;
+        let correlation_id = task.correlation_id;
+
+        // 3. Use StepStateMachine for proper state transition with results persistence
         let mut state_machine = StepStateMachine::new(workflow_step, self.context.clone());
 
-        // 3. Transition using appropriate notification state based on step execution result
+        // 4. Transition using appropriate notification state based on step execution result
         // This enables proper error notification pathway to orchestration
         let step_event = if step_result.success {
             StepEvent::EnqueueForOrchestration(Some(serde_json::to_value(&step_result)?))
@@ -1166,19 +1178,24 @@ impl WorkerProcessor {
             StepEvent::EnqueueAsErrorForOrchestration(Some(serde_json::to_value(&step_result)?))
         };
 
-        // 4. Execute atomic state transition (includes result persistence via UpdateStepResultsAction)
-        let final_state = state_machine.transition(step_event).await.map_err(|e| {
-            TaskerError::StateTransitionError(format!("Step transition failed: {e}"))
-        })?;
+        // 5. TAS-62: Create attribution context for audit enrichment
+        // The SQL trigger extracts worker_uuid and correlation_id from transition metadata
+        // Worker ID format is "worker_{uuid}" - strip prefix before parsing
+        let uuid_str = self.worker_id.strip_prefix("worker_").unwrap_or(&self.worker_id);
+        let worker_uuid = Uuid::parse_str(uuid_str)
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid worker_id UUID '{}': {e}", self.worker_id)))?;
+        let transition_context = TransitionContext::with_worker(worker_uuid, Some(correlation_id));
 
-        let task_uuid = state_machine.task_uuid();
-        let task = Task::find_by_id(db_pool, task_uuid)
+        // 6. Execute atomic state transition with attribution context
+        // (includes result persistence via UpdateStepResultsAction)
+        let final_state = state_machine
+            .transition_with_context(step_event, Some(transition_context))
             .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task: {e}")))?
-            .ok_or_else(|| TaskerError::WorkerError(format!("Task not found: {}", task_uuid)))?;
-        let correlation_id = task.correlation_id;
+            .map_err(|e| {
+                TaskerError::StateTransitionError(format!("Step transition failed: {e}"))
+            })?;
 
-        // 5. Send SimpleStepMessage to orchestration queue using config-driven helper
+        // 7. Send SimpleStepMessage to orchestration queue using config-driven helper
         self.orchestration_result_sender
             .send_completion(task_uuid, step_result.step_uuid, correlation_id)
             .await?;

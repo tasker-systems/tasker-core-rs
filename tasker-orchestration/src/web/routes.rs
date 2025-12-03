@@ -38,6 +38,11 @@ pub fn api_v1_routes() -> Router<AppState> {
             "/tasks/:uuid/workflow_steps/:step_uuid",
             patch(handlers::steps::resolve_step_manually),
         )
+        // TAS-62: Step audit history endpoint
+        .route(
+            "/tasks/:uuid/workflow_steps/:step_uuid/audit",
+            get(handlers::steps::get_step_audit),
+        )
         // Handlers API (read-only)
         .route("/handlers", get(handlers::registry::list_namespaces))
         .route(
