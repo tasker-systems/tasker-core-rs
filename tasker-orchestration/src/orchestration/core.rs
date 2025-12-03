@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -44,8 +44,8 @@ pub struct OrchestrationCore {
     #[allow(dead_code)]
     processor: Option<OrchestrationProcessor>,
 
-    /// System status
-    pub status: OrchestrationCoreStatus,
+    /// System status - shared via Arc\<RwLock\> so web layer can read without locking the core
+    pub status: Arc<RwLock<OrchestrationCoreStatus>>,
 
     /// Channel monitor for command channel observability (TAS-51)
     command_channel_monitor: ChannelMonitor,
@@ -131,7 +131,7 @@ impl OrchestrationCore {
             context,
             command_sender,
             processor: Some(processor),
-            status: OrchestrationCoreStatus::Created,
+            status: Arc::new(RwLock::new(OrchestrationCoreStatus::Created)),
             command_channel_monitor: channel_monitor, // Store monitor for sender instrumentation
             staleness_detector_handle: None,          // TAS-49: Started in start()
         })
@@ -151,14 +151,14 @@ impl OrchestrationCore {
     pub async fn start(&mut self) -> TaskerResult<()> {
         info!("Starting OrchestrationCore with command pattern architecture");
 
-        self.status = OrchestrationCoreStatus::Starting;
+        *self.status.write().await = OrchestrationCoreStatus::Starting;
 
         // The processor is already started in new()
 
         // TAS-49: Start background services
         self.start_background_services().await?;
 
-        self.status = OrchestrationCoreStatus::Running;
+        *self.status.write().await = OrchestrationCoreStatus::Running;
 
         info!(
             processor_uuid = %self.context.processor_uuid(),
@@ -210,7 +210,7 @@ impl OrchestrationCore {
     pub async fn stop(&mut self) -> TaskerResult<()> {
         info!("Stopping OrchestrationCore");
 
-        self.status = OrchestrationCoreStatus::Stopping;
+        *self.status.write().await = OrchestrationCoreStatus::Stopping;
 
         // TAS-49: Stop background services first
         self.stop_background_services().await;
@@ -230,7 +230,7 @@ impl OrchestrationCore {
             }
         }
 
-        self.status = OrchestrationCoreStatus::Stopped;
+        *self.status.write().await = OrchestrationCoreStatus::Stopped;
 
         info!(
             processor_uuid = %self.context.processor_uuid(),
@@ -287,9 +287,9 @@ impl OrchestrationCore {
             .map_err(|e| TaskerError::OrchestrationError(format!("Stats response error: {e}")))?
     }
 
-    /// Get current orchestration core status
-    pub fn status(&self) -> &OrchestrationCoreStatus {
-        &self.status
+    /// Get current orchestration core status (shared reference for web layer)
+    pub fn status(&self) -> Arc<RwLock<OrchestrationCoreStatus>> {
+        Arc::clone(&self.status)
     }
 
     /// Get core ID

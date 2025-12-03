@@ -1096,7 +1096,7 @@ impl WorkerProcessor {
 
         let status = WorkerStatus {
             worker_id: self.worker_id.clone(),
-            status: "running".to_string(),
+            status: "healthy".to_string(),
             steps_executed: self.stats.total_executed,
             steps_succeeded: self.stats.total_succeeded,
             steps_failed: self.stats.total_failed,
@@ -1545,7 +1545,7 @@ mod tests {
 
         let status = processor.handle_get_worker_status().unwrap();
 
-        assert_eq!(status.status, "running");
+        assert_eq!(status.status, "healthy");
         assert_eq!(status.steps_executed, 0);
         assert_eq!(status.registered_handlers.len(), 0);
 

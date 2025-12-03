@@ -8,6 +8,7 @@ use axum::Json;
 use std::collections::HashMap;
 use tracing::{debug, error};
 
+use crate::orchestration::core::OrchestrationCoreStatus;
 use crate::web::state::AppState;
 use tasker_shared::metrics::channels::global_registry;
 use tasker_shared::types::api::orchestration::{
@@ -296,16 +297,28 @@ async fn check_circuit_breaker_health(state: &AppState) -> HealthCheck {
 
 async fn check_orchestration_health(state: &AppState) -> HealthCheck {
     let start = std::time::Instant::now();
-    let status = state.orchestration_status.read().await;
+    // Read directly from OrchestrationCore's shared status for real-time state
+    let core_status = state.orchestration_core.status().read().await.clone();
+
+    let is_running = matches!(core_status, OrchestrationCoreStatus::Running);
+    let operational_state = match &core_status {
+        OrchestrationCoreStatus::Running => "Normal",
+        OrchestrationCoreStatus::Starting => "Startup",
+        OrchestrationCoreStatus::Stopping => "GracefulShutdown",
+        OrchestrationCoreStatus::Stopped => "Stopped",
+        OrchestrationCoreStatus::Error(e) => {
+            return HealthCheck {
+                status: "unhealthy".to_string(),
+                message: Some(format!("Orchestration error: {e}")),
+                duration_ms: start.elapsed().as_millis() as u64,
+            }
+        }
+        OrchestrationCoreStatus::Created => "Startup",
+    };
 
     HealthCheck {
-        status: if status.running {
-            "healthy"
-        } else {
-            "unhealthy"
-        }
-        .to_string(),
-        message: Some(format!("Operational state: {:?}", status.operational_state)),
+        status: if is_running { "healthy" } else { "unhealthy" }.to_string(),
+        message: Some(format!("Operational state: {operational_state}")),
         duration_ms: start.elapsed().as_millis() as u64,
     }
 }
@@ -350,14 +363,24 @@ async fn check_command_processor_health(state: &AppState) -> HealthCheck {
 }
 
 async fn create_health_info(state: &AppState) -> HealthInfo {
-    let status = state.orchestration_status.read().await;
+    let cached_status = state.orchestration_status.read().await;
+    // Get real-time operational state from OrchestrationCore
+    let core_status = state.orchestration_core.status().read().await.clone();
+    let operational_state = match core_status {
+        OrchestrationCoreStatus::Running => "Normal",
+        OrchestrationCoreStatus::Starting => "Startup",
+        OrchestrationCoreStatus::Stopping => "GracefulShutdown",
+        OrchestrationCoreStatus::Stopped => "Stopped",
+        OrchestrationCoreStatus::Error(_) => "Emergency",
+        OrchestrationCoreStatus::Created => "Startup",
+    };
 
     HealthInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        environment: status.environment.clone(),
-        operational_state: format!("{:?}", status.operational_state),
+        environment: cached_status.environment.clone(),
+        operational_state: operational_state.to_string(),
         web_database_pool_size: state.web_db_pool.size(),
-        orchestration_database_pool_size: status.database_pool_size,
+        orchestration_database_pool_size: cached_status.database_pool_size,
         circuit_breaker_state: format!("{:?}", state.web_db_circuit_breaker.current_state()),
     }
 }

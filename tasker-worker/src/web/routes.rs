@@ -16,6 +16,10 @@ pub fn health_routes() -> Router<Arc<WorkerWebState>> {
         .route("/health", get(handlers::health::health_check))
         .route("/health/ready", get(handlers::health::readiness_check))
         .route("/health/live", get(handlers::health::liveness_check))
+        .route(
+            "/health/detailed",
+            get(handlers::health::detailed_health_check),
+        )
 }
 
 /// Metrics routes for Prometheus and monitoring systems
@@ -26,24 +30,6 @@ pub fn metrics_routes() -> Router<Arc<WorkerWebState>> {
         .route(
             "/metrics/events",
             get(handlers::metrics::domain_event_stats),
-        )
-}
-
-/// Worker status and information routes
-pub fn worker_status_routes() -> Router<Arc<WorkerWebState>> {
-    Router::new()
-        .route("/status", get(handlers::worker_status::worker_status))
-        .route(
-            "/status/detailed",
-            get(handlers::worker_status::detailed_status),
-        )
-        .route(
-            "/status/namespaces",
-            get(handlers::worker_status::namespace_health),
-        )
-        .route(
-            "/handlers",
-            get(handlers::worker_status::registered_handlers),
         )
 }
 

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tasker_workflow_steps SET last_attempted_at = NOW() WHERE workflow_step_uuid = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2181cdeda6e4de367a56f71d110ac9de7c4baf5586ef6f6957bf98cb0e4d7644"
+}

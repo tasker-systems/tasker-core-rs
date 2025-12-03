@@ -26,9 +26,9 @@ pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -
                 let orch_client = OrchestrationApiClient::new(orchestration_config)?;
 
                 // Check basic health
-                match orch_client.health_check().await {
-                    Ok(()) => {
-                        println!("  ✓ Orchestration service is healthy");
+                match orch_client.get_basic_health().await {
+                    Ok(health) => {
+                        println!("  ✓ Orchestration service is healthy: {}", health.status);
                     }
                     Err(e) => {
                         println!("  ✗ Orchestration service health check failed: {}", e);
@@ -94,46 +94,54 @@ pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -
 
                 // Check basic worker service health
                 match worker_client.health_check().await {
-                    Ok(()) => {
-                        println!("  ✓ Worker service is healthy");
+                    Ok(health) => {
+                        println!("  ✓ Worker service is healthy: {}", health.status);
+                        println!("    Worker ID: {}", health.worker_id);
                     }
                     Err(e) => {
                         println!("  ✗ Worker service health check failed: {}", e);
                     }
                 }
 
-                // Get worker instances
-                match worker_client.list_workers(None).await {
-                    Ok(worker_list) => {
+                // Get detailed worker health
+                match worker_client.get_detailed_health().await {
+                    Ok(health) => {
+                        println!("  ✓ Worker detailed health:");
                         println!(
-                            "  ✓ Found {} worker instances (active: {})",
-                            worker_list.total_count, worker_list.active_count
+                            "    Status: {} | Version: {} | Uptime: {}s",
+                            health.status,
+                            health.system_info.version,
+                            health.system_info.uptime_seconds
+                        );
+                        println!(
+                            "    Worker type: {} | Environment: {}",
+                            health.system_info.worker_type, health.system_info.environment
+                        );
+                        println!(
+                            "    Namespaces: {}",
+                            health.system_info.supported_namespaces.join(", ")
                         );
 
-                        for worker in worker_list.workers.iter().take(5) {
-                            // Show first 5
-                            match worker_client.worker_health(&worker.worker_id).await {
-                                Ok(health) => {
-                                    println!(
-                                        "    ✓ {}: {} | {} | {}s uptime",
-                                        worker.worker_id,
-                                        health.status,
-                                        health.system_info.version,
-                                        health.system_info.uptime_seconds
-                                    );
-                                }
-                                Err(_) => {
-                                    println!("    ✗ {}: Health check failed", worker.worker_id);
-                                }
+                        if !health.checks.is_empty() {
+                            println!("    Health checks:");
+                            for (check_name, check_result) in &health.checks {
+                                let status_icon = if check_result.status == "healthy" {
+                                    "✓"
+                                } else {
+                                    "✗"
+                                };
+                                println!(
+                                    "      {} {}: {} ({}ms)",
+                                    status_icon,
+                                    check_name,
+                                    check_result.status,
+                                    check_result.duration_ms
+                                );
                             }
-                        }
-
-                        if worker_list.workers.len() > 5 {
-                            println!("    ... and {} more workers", worker_list.workers.len() - 5);
                         }
                     }
                     Err(e) => {
-                        println!("  ✗ Could not get worker list: {}", e);
+                        println!("  ✗ Could not get detailed worker health: {}", e);
                     }
                 }
             }
@@ -200,36 +208,29 @@ pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -
             };
 
             if let Ok(worker_client) = WorkerApiClient::new(worker_config) {
-                match worker_client.list_workers(None).await {
-                    Ok(worker_list) => {
+                match worker_client.get_detailed_health().await {
+                    Ok(health) => {
                         println!(
-                            "  Workers: {} total, {} active",
-                            worker_list.total_count, worker_list.active_count
+                            "  Worker: {} v{} ({})",
+                            health.status,
+                            health.system_info.version,
+                            health.system_info.environment
                         );
-
-                        if let Some(first_worker) = worker_list.workers.first() {
-                            if let Ok(health) =
-                                worker_client.worker_health(&first_worker.worker_id).await
-                            {
-                                println!(
-                                    "    Sample worker: {} v{} ({})",
-                                    health.system_info.worker_type,
-                                    health.system_info.version,
-                                    health.system_info.environment
-                                );
-                                println!(
-                                    "    Supported namespaces: {}",
-                                    health.system_info.supported_namespaces.join(", ")
-                                );
-                            }
-                        }
+                        println!(
+                            "    Worker type: {} | Uptime: {}s",
+                            health.system_info.worker_type, health.system_info.uptime_seconds
+                        );
+                        println!(
+                            "    Supported namespaces: {}",
+                            health.system_info.supported_namespaces.join(", ")
+                        );
                     }
                     Err(_) => {
-                        println!("  Workers: Unable to retrieve worker info");
+                        println!("  Worker: Unable to retrieve worker info");
                     }
                 }
             } else {
-                println!("  Workers: Configuration error");
+                println!("  Worker: Configuration error");
             }
         }
     }

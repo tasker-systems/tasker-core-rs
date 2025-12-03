@@ -1,7 +1,7 @@
 //! # Worker API Client
 //!
 //! HTTP client for communicating with tasker-worker web APIs.
-//! Provides methods for worker status monitoring, health checks, and management operations.
+//! Provides methods for worker health checks, metrics, templates, and configuration.
 
 use reqwest::{Client, Url};
 use std::time::Duration;
@@ -10,7 +10,16 @@ use tracing::{debug, error, info};
 use tasker_shared::{
     config::web::WebAuthConfig,
     errors::{TaskerError, TaskerResult},
-    types::api::worker::{WorkerHealthResponse, WorkerListResponse, WorkerStatusResponse},
+    types::api::{
+        orchestration::WorkerConfigResponse,
+        worker::{
+            BasicHealthResponse, CacheOperationResponse, DetailedHealthResponse,
+            TemplateListResponse, TemplateQueryParams, TemplateResponse,
+            TemplateValidationResponse,
+        },
+    },
+    types::base::CacheStats,
+    types::web::{DomainEventStats, MetricsResponse},
 };
 
 /// Configuration for the worker API client
@@ -128,133 +137,14 @@ impl WorkerApiClient {
         })
     }
 
-    /// Get the status of a specific worker
-    pub async fn get_worker_status(&self, worker_id: &str) -> TaskerResult<WorkerStatusResponse> {
-        let url = self
-            .base_url
-            .join(&format!("/v1/workers/{}/status", worker_id))
-            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+    // =========================================================================
+    // HEALTH API METHODS
+    // =========================================================================
 
-        debug!("Getting worker status from: {}", url);
-
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| TaskerError::WorkerError(format!("Request failed: {}", e)))?;
-
-        let status = response.status();
-        if status.is_success() {
-            let worker_status: WorkerStatusResponse = response.json().await.map_err(|e| {
-                TaskerError::ValidationError(format!("Failed to parse response: {}", e))
-            })?;
-
-            info!(
-                "Retrieved worker status for {}: {:?}",
-                worker_id, worker_status
-            );
-            Ok(worker_status)
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            error!("Worker status request failed: {} - {}", status, error_text);
-            Err(TaskerError::WorkerError(format!(
-                "Worker status request failed: {} - {}",
-                status, error_text
-            )))
-        }
-    }
-
-    /// List all workers, optionally filtered by namespace
-    pub async fn list_workers(&self, namespace: Option<&str>) -> TaskerResult<WorkerListResponse> {
-        let mut url = self
-            .base_url
-            .join("/v1/workers")
-            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
-
-        // Add namespace filter if provided
-        if let Some(ns) = namespace {
-            url.query_pairs_mut().append_pair("namespace", ns);
-        }
-
-        debug!("Listing workers from: {}", url);
-
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| TaskerError::WorkerError(format!("Request failed: {}", e)))?;
-
-        let status = response.status();
-        if status.is_success() {
-            let worker_list: WorkerListResponse = response.json().await.map_err(|e| {
-                TaskerError::ValidationError(format!("Failed to parse response: {}", e))
-            })?;
-
-            info!("Retrieved {} workers", worker_list.workers.len());
-            Ok(worker_list)
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            error!("Worker list request failed: {} - {}", status, error_text);
-            Err(TaskerError::WorkerError(format!(
-                "Worker list request failed: {} - {}",
-                status, error_text
-            )))
-        }
-    }
-
-    /// Check the health of a specific worker
-    pub async fn worker_health(&self, worker_id: &str) -> TaskerResult<WorkerHealthResponse> {
-        let url = self
-            .base_url
-            .join(&format!("/v1/workers/{}/health", worker_id))
-            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
-
-        debug!("Checking worker health from: {}", url);
-
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| TaskerError::WorkerError(format!("Request failed: {}", e)))?;
-
-        let status = response.status();
-        if status.is_success() {
-            let health_response: WorkerHealthResponse = response.json().await.map_err(|e| {
-                TaskerError::ValidationError(format!("Failed to parse response: {}", e))
-            })?;
-
-            info!(
-                "Retrieved worker health for {}: {:?}",
-                worker_id, health_response
-            );
-            Ok(health_response)
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            error!("Worker health request failed: {} - {}", status, error_text);
-            Err(TaskerError::WorkerError(format!(
-                "Worker health request failed: {} - {}",
-                status, error_text
-            )))
-        }
-    }
-
-    /// Check the overall health of the worker service
-    pub async fn health_check(&self) -> TaskerResult<()> {
+    /// Basic health check
+    ///
+    /// GET /health
+    pub async fn health_check(&self) -> TaskerResult<BasicHealthResponse> {
         let url = self
             .base_url
             .join("/health")
@@ -267,106 +157,351 @@ impl WorkerApiClient {
                 TaskerError::WorkerError(format!("Health check request failed: {}", e))
             })?;
 
-        if response.status().is_success() {
-            info!("Worker service health check passed");
-            Ok(())
-        } else {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            error!(
-                "Worker service health check failed: {} - {}",
-                status, error_text
-            );
-            Err(TaskerError::WorkerError(format!(
-                "Worker service health check failed: {} - {}",
-                status, error_text
-            )))
-        }
+        self.handle_response(response, "health check").await
     }
 
-    // =========================================================================
-    // TAS-65: Domain Event Metrics Endpoints
-    // =========================================================================
-
-    /// Get domain event statistics from the worker
+    /// Kubernetes readiness probe
     ///
-    /// Returns statistics about domain event routing and delivery paths.
-    /// Used by E2E tests to verify events were actually published.
-    ///
-    /// # Returns
-    ///
-    /// `DomainEventStats` containing:
-    /// - Router stats (durable_routed, fast_routed, broadcast_routed)
-    /// - In-process bus stats (total_events_dispatched, handler counts)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Capture stats before running a task
-    /// let stats_before = client.get_domain_event_stats().await?;
-    ///
-    /// // Run task that publishes events
-    /// orchestration_client.create_task(request).await?;
-    /// wait_for_completion().await;
-    ///
-    /// // Capture stats after task completes
-    /// let stats_after = client.get_domain_event_stats().await?;
-    ///
-    /// // Verify events were published
-    /// let durable_published = stats_after.router.durable_routed - stats_before.router.durable_routed;
-    /// assert!(durable_published > 0, "Expected durable events");
-    /// ```
-    pub async fn get_domain_event_stats(
-        &self,
-    ) -> TaskerResult<tasker_shared::types::web::DomainEventStats> {
+    /// GET /health/ready
+    pub async fn readiness_probe(&self) -> TaskerResult<DetailedHealthResponse> {
         let url = self
             .base_url
-            .join("/metrics/events")
+            .join("/health/ready")
             .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
 
-        debug!("Getting domain event stats from: {}", url);
+        debug!("Checking worker readiness: {}", url);
 
         let response = self
             .client
             .get(url)
             .send()
             .await
-            .map_err(|e| TaskerError::WorkerError(format!("Request failed: {}", e)))?;
+            .map_err(|e| TaskerError::WorkerError(format!("Readiness check failed: {}", e)))?;
 
-        let status = response.status();
-        if status.is_success() {
-            let stats: tasker_shared::types::web::DomainEventStats =
-                response.json().await.map_err(|e| {
-                    TaskerError::ValidationError(format!("Failed to parse response: {}", e))
-                })?;
+        self.handle_response(response, "readiness probe").await
+    }
 
-            debug!(
-                "Retrieved domain event stats: durable={}, fast={}, broadcast={}",
-                stats.router.durable_routed,
-                stats.router.fast_routed,
-                stats.router.broadcast_routed
-            );
-            Ok(stats)
+    /// Kubernetes liveness probe
+    ///
+    /// GET /health/live
+    pub async fn liveness_probe(&self) -> TaskerResult<BasicHealthResponse> {
+        let url = self
+            .base_url
+            .join("/health/live")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Checking worker liveness: {}", url);
+
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| TaskerError::WorkerError(format!("Liveness check failed: {}", e)))?;
+
+        self.handle_response(response, "liveness probe").await
+    }
+
+    /// Detailed health check with subsystem status
+    ///
+    /// GET /health/detailed
+    pub async fn get_detailed_health(&self) -> TaskerResult<DetailedHealthResponse> {
+        let url = self
+            .base_url
+            .join("/health/detailed")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Getting detailed worker health: {}", url);
+
+        let response = self.client.get(url).send().await.map_err(|e| {
+            TaskerError::WorkerError(format!("Detailed health check failed: {}", e))
+        })?;
+
+        self.handle_response(response, "detailed health").await
+    }
+
+    // =========================================================================
+    // METRICS API METHODS
+    // =========================================================================
+
+    /// Get Prometheus-format metrics
+    ///
+    /// GET /metrics
+    pub async fn get_prometheus_metrics(&self) -> TaskerResult<String> {
+        let url = self
+            .base_url
+            .join("/metrics")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Getting Prometheus metrics: {}", url);
+
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| TaskerError::WorkerError(format!("Metrics request failed: {}", e)))?;
+
+        if response.status().is_success() {
+            let metrics_text = response.text().await.map_err(|e| {
+                TaskerError::WorkerError(format!("Failed to read metrics response: {}", e))
+            })?;
+            debug!("Successfully retrieved Prometheus metrics");
+            Ok(metrics_text)
         } else {
+            let status = response.status();
             let error_text = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-
             error!(
-                "Domain event stats request failed: {} - {}",
+                "Prometheus metrics request failed: {} - {}",
                 status, error_text
             );
             Err(TaskerError::WorkerError(format!(
-                "Domain event stats request failed: {} - {}",
+                "Prometheus metrics request failed: {} - {}",
                 status, error_text
             )))
         }
     }
+
+    /// Get worker metrics in JSON format
+    ///
+    /// GET /metrics/worker
+    pub async fn get_worker_metrics(&self) -> TaskerResult<MetricsResponse> {
+        let url = self
+            .base_url
+            .join("/metrics/worker")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Getting worker metrics: {}", url);
+
+        let response = self.client.get(url).send().await.map_err(|e| {
+            TaskerError::WorkerError(format!("Worker metrics request failed: {}", e))
+        })?;
+
+        self.handle_response(response, "worker metrics").await
+    }
+
+    /// Get domain event statistics
+    ///
+    /// GET /metrics/events
+    ///
+    /// Returns statistics about domain event routing and delivery paths.
+    /// Used by E2E tests to verify events were actually published.
+    pub async fn get_domain_event_stats(&self) -> TaskerResult<DomainEventStats> {
+        let url = self
+            .base_url
+            .join("/metrics/events")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Getting domain event stats: {}", url);
+
+        let response = self.client.get(url).send().await.map_err(|e| {
+            TaskerError::WorkerError(format!("Domain event stats request failed: {}", e))
+        })?;
+
+        self.handle_response(response, "domain event stats").await
+    }
+
+    // =========================================================================
+    // TEMPLATE API METHODS
+    // =========================================================================
+
+    /// List supported templates and namespaces
+    ///
+    /// GET /templates
+    pub async fn list_templates(
+        &self,
+        params: Option<&TemplateQueryParams>,
+    ) -> TaskerResult<TemplateListResponse> {
+        let mut url = self
+            .base_url
+            .join("/templates")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        // Add query parameters if provided
+        if let Some(query_params) = params {
+            let mut query_pairs = url.query_pairs_mut();
+            if let Some(namespace) = &query_params.namespace {
+                query_pairs.append_pair("namespace", namespace);
+            }
+            if let Some(include_stats) = query_params.include_cache_stats {
+                query_pairs.append_pair("include_cache_stats", &include_stats.to_string());
+            }
+            drop(query_pairs);
+        }
+
+        debug!("Listing templates: {}", url);
+
+        let response = self.client.get(url).send().await.map_err(|e| {
+            TaskerError::WorkerError(format!("List templates request failed: {}", e))
+        })?;
+
+        self.handle_response(response, "list templates").await
+    }
+
+    /// Get a specific task template
+    ///
+    /// GET /templates/{namespace}/{name}/{version}
+    pub async fn get_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> TaskerResult<TemplateResponse> {
+        let url = self
+            .base_url
+            .join(&format!("/templates/{}/{}/{}", namespace, name, version))
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Getting template: {}", url);
+
+        let response =
+            self.client.get(url).send().await.map_err(|e| {
+                TaskerError::WorkerError(format!("Get template request failed: {}", e))
+            })?;
+
+        self.handle_response(response, "get template").await
+    }
+
+    /// Validate a template for worker execution
+    ///
+    /// POST /templates/{namespace}/{name}/{version}/validate
+    pub async fn validate_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> TaskerResult<TemplateValidationResponse> {
+        let url = self
+            .base_url
+            .join(&format!(
+                "/templates/{}/{}/{}/validate",
+                namespace, name, version
+            ))
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Validating template: {}", url);
+
+        let response = self.client.post(url).send().await.map_err(|e| {
+            TaskerError::WorkerError(format!("Validate template request failed: {}", e))
+        })?;
+
+        self.handle_response(response, "validate template").await
+    }
+
+    /// Refresh a specific template in cache
+    ///
+    /// POST /templates/{namespace}/{name}/{version}/refresh
+    pub async fn refresh_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> TaskerResult<CacheOperationResponse> {
+        let url = self
+            .base_url
+            .join(&format!(
+                "/templates/{}/{}/{}/refresh",
+                namespace, name, version
+            ))
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Refreshing template: {}", url);
+
+        let response = self.client.post(url).send().await.map_err(|e| {
+            TaskerError::WorkerError(format!("Refresh template request failed: {}", e))
+        })?;
+
+        self.handle_response(response, "refresh template").await
+    }
+
+    /// Clear template cache
+    ///
+    /// DELETE /templates/cache
+    pub async fn clear_template_cache(&self) -> TaskerResult<CacheOperationResponse> {
+        let url = self
+            .base_url
+            .join("/templates/cache")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Clearing template cache: {}", url);
+
+        let response =
+            self.client.delete(url).send().await.map_err(|e| {
+                TaskerError::WorkerError(format!("Clear cache request failed: {}", e))
+            })?;
+
+        self.handle_response(response, "clear template cache").await
+    }
+
+    /// Get template cache statistics
+    ///
+    /// GET /templates/cache/stats
+    pub async fn get_cache_stats(&self) -> TaskerResult<CacheStats> {
+        let url = self
+            .base_url
+            .join("/templates/cache/stats")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Getting cache stats: {}", url);
+
+        let response =
+            self.client.get(url).send().await.map_err(|e| {
+                TaskerError::WorkerError(format!("Cache stats request failed: {}", e))
+            })?;
+
+        self.handle_response(response, "cache stats").await
+    }
+
+    /// Perform template cache maintenance
+    ///
+    /// POST /templates/cache/maintain
+    pub async fn maintain_template_cache(&self) -> TaskerResult<CacheOperationResponse> {
+        let url = self
+            .base_url
+            .join("/templates/cache/maintain")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Maintaining template cache: {}", url);
+
+        let response = self.client.post(url).send().await.map_err(|e| {
+            TaskerError::WorkerError(format!("Cache maintain request failed: {}", e))
+        })?;
+
+        self.handle_response(response, "maintain template cache")
+            .await
+    }
+
+    // =========================================================================
+    // CONFIG API METHODS
+    // =========================================================================
+
+    /// Get worker configuration (secrets redacted)
+    ///
+    /// GET /config
+    pub async fn get_config(&self) -> TaskerResult<WorkerConfigResponse> {
+        let url = self
+            .base_url
+            .join("/config")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Getting worker config: {}", url);
+
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| TaskerError::WorkerError(format!("Config request failed: {}", e)))?;
+
+        self.handle_response(response, "get config").await
+    }
+
+    // =========================================================================
+    // UTILITY METHODS
+    // =========================================================================
 
     /// Get the base URL of the worker API
     #[must_use]
@@ -380,32 +515,22 @@ impl WorkerApiClient {
         self.config.timeout_ms
     }
 
-    /// Utility method to make generic API requests to the worker
-    pub async fn make_request<T>(&self, method: reqwest::Method, path: &str) -> TaskerResult<T>
+    /// Handle HTTP response with proper error handling and deserialization
+    async fn handle_response<T>(
+        &self,
+        response: reqwest::Response,
+        operation: &str,
+    ) -> TaskerResult<T>
     where
         T: serde::de::DeserializeOwned,
     {
-        let url = self
-            .base_url
-            .join(path)
-            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL path '{}': {}", path, e)))?;
-
-        debug!("Making {} request to: {}", method, url);
-
-        let response = self
-            .client
-            .request(method.clone(), url)
-            .send()
-            .await
-            .map_err(|e| TaskerError::WorkerError(format!("{} request failed: {}", method, e)))?;
-
         let status = response.status();
         if status.is_success() {
             let result: T = response.json().await.map_err(|e| {
-                TaskerError::ValidationError(format!("Failed to parse response: {}", e))
+                TaskerError::WorkerError(format!("Failed to parse {} response: {}", operation, e))
             })?;
 
-            debug!("{} request successful", method);
+            debug!("{} request successful", operation);
             Ok(result)
         } else {
             let error_text = response
@@ -413,10 +538,10 @@ impl WorkerApiClient {
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
 
-            error!("{} request failed: {} - {}", method, status, error_text);
+            error!("{} request failed: {} - {}", operation, status, error_text);
             Err(TaskerError::WorkerError(format!(
                 "{} request failed: {} - {}",
-                method, status, error_text
+                operation, status, error_text
             )))
         }
     }

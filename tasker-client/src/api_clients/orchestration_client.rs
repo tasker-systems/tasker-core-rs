@@ -855,9 +855,9 @@ impl OrchestrationApiClient {
 
     /// Check readiness probe (Kubernetes readiness)
     ///
-    /// GET /ready
+    /// GET /health/ready
     pub async fn readiness_probe(&self) -> TaskerResult<HealthResponse> {
-        let url = self.base_url.join("/ready").map_err(|e| {
+        let url = self.base_url.join("/health/ready").map_err(|e| {
             TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
         })?;
 
@@ -872,9 +872,9 @@ impl OrchestrationApiClient {
 
     /// Check liveness probe (Kubernetes liveness)
     ///
-    /// GET /live
+    /// GET /health/live
     pub async fn liveness_probe(&self) -> TaskerResult<HealthResponse> {
-        let url = self.base_url.join("/live").map_err(|e| {
+        let url = self.base_url.join("/health/live").map_err(|e| {
             TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
         })?;
 
@@ -920,6 +920,29 @@ impl OrchestrationApiClient {
                 status, error_text
             )))
         }
+    }
+
+    // ===================================================================================
+    // CONFIG API METHODS
+    // ===================================================================================
+
+    /// Get orchestration configuration (secrets redacted)
+    ///
+    /// GET /config
+    pub async fn get_config(
+        &self,
+    ) -> TaskerResult<tasker_shared::types::api::orchestration::OrchestrationConfigResponse> {
+        let url = self.base_url.join("/config").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        debug!(url = %url, "Getting orchestration config via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get config").await
     }
 
     // ===================================================================================
