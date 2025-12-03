@@ -1181,9 +1181,13 @@ impl WorkerProcessor {
         // 5. TAS-62: Create attribution context for audit enrichment
         // The SQL trigger extracts worker_uuid and correlation_id from transition metadata
         // Worker ID format is "worker_{uuid}" - strip prefix before parsing
-        let uuid_str = self.worker_id.strip_prefix("worker_").unwrap_or(&self.worker_id);
-        let worker_uuid = Uuid::parse_str(uuid_str)
-            .map_err(|e| TaskerError::WorkerError(format!("Invalid worker_id UUID '{}': {e}", self.worker_id)))?;
+        let uuid_str = self
+            .worker_id
+            .strip_prefix("worker_")
+            .unwrap_or(&self.worker_id);
+        let worker_uuid = Uuid::parse_str(uuid_str).map_err(|e| {
+            TaskerError::WorkerError(format!("Invalid worker_id UUID '{}': {e}", self.worker_id))
+        })?;
         let transition_context = TransitionContext::with_worker(worker_uuid, Some(correlation_id));
 
         // 6. Execute atomic state transition with attribution context

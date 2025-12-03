@@ -175,6 +175,15 @@ pub enum TaskCommands {
         #[arg(short = 'b', long, default_value = "cli-operator")]
         completed_by: String,
     },
+    /// Get step audit history (TAS-62: SOC2 compliance)
+    StepAudit {
+        /// Task UUID
+        #[arg(value_name = "TASK_UUID")]
+        task_id: String,
+        /// Step UUID
+        #[arg(value_name = "STEP_UUID")]
+        step_id: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]

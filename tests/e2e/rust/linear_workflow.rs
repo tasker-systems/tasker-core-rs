@@ -126,6 +126,75 @@ async fn test_end_to_end_linear_workflow_with_rust_worker() -> Result<()> {
         }
     }
 
+    // Step 9: Verify audit history (TAS-62)
+    println!("\n🔍 Step 9: Verifying step audit history (TAS-62)...");
+
+    // Get audit history for the first step
+    if let Some(first_step) = steps.first() {
+        let step_uuid = Uuid::parse_str(&first_step.step_uuid)?;
+        let audit_history = manager
+            .orchestration_client
+            .get_step_audit_history(task_uuid, step_uuid)
+            .await?;
+
+        println!(
+            "✅ Retrieved {} audit records for step '{}'",
+            audit_history.len(),
+            first_step.name
+        );
+
+        // Verify audit records exist (should have at least one for completed step)
+        assert!(
+            !audit_history.is_empty(),
+            "Completed step should have at least one audit record"
+        );
+
+        // Verify audit record structure
+        for (i, audit) in audit_history.iter().enumerate() {
+            println!("   Audit record {}:", i + 1);
+            println!("      UUID: {}", audit.audit_uuid);
+            println!(
+                "      Step: {} ({})",
+                audit.step_name, audit.workflow_step_uuid
+            );
+            println!("      Success: {}", audit.success);
+            println!("      Recorded at: {}", audit.recorded_at);
+            println!(
+                "      From state: {:?} → To state: {}",
+                audit.from_state, audit.to_state
+            );
+            if let Some(worker) = &audit.worker_uuid {
+                println!("      Worker: {}", worker);
+            }
+            if let Some(correlation) = &audit.correlation_id {
+                println!("      Correlation ID: {}", correlation);
+            }
+            if let Some(time_ms) = audit.execution_time_ms {
+                println!("      Execution time: {}ms", time_ms);
+            }
+
+            // Verify expected fields
+            assert!(
+                !audit.audit_uuid.is_empty(),
+                "Audit UUID should not be empty"
+            );
+            assert!(
+                !audit.workflow_step_uuid.is_empty(),
+                "Step UUID should not be empty"
+            );
+            assert!(!audit.task_uuid.is_empty(), "Task UUID should not be empty");
+            assert!(!audit.step_name.is_empty(), "Step name should not be empty");
+            assert!(audit.success, "Completed step should have success=true");
+            assert_eq!(
+                audit.to_state.to_lowercase(),
+                "enqueued_for_orchestration",
+                "Audit should capture transition to orchestration queue"
+            );
+        }
+
+        println!("✅ Audit history validation passed!");
+    }
+
     Ok(())
 }
 
