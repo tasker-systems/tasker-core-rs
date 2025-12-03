@@ -775,6 +775,31 @@ impl LifecycleTestManager {
 
         Ok(())
     }
+
+    // ========== Domain Event Observability (TAS-65) ==========
+
+    /// Create a durable event capture for observing domain events
+    ///
+    /// ## Usage
+    ///
+    /// ```rust,no_run
+    /// let manager = LifecycleTestManager::new(pool).await?;
+    /// let mut capture = manager.create_event_capture();
+    ///
+    /// // ... run workflow that publishes events ...
+    ///
+    /// // Verify events were published
+    /// let events = capture.get_events_in_namespace("payments").await?;
+    /// assert!(!events.is_empty());
+    ///
+    /// // Cleanup only our tracked events
+    /// capture.cleanup().await?;
+    /// ```
+    pub fn create_event_capture(
+        &self,
+    ) -> crate::common::domain_event_test_helpers::DurableEventCapture {
+        crate::common::domain_event_test_helpers::DurableEventCapture::new(self.pool.clone())
+    }
 }
 
 /// Step readiness information from SQL function

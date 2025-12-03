@@ -17,6 +17,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -27,11 +28,23 @@ use super::command_processor::{WorkerCommand, WorkerProcessor, WorkerStatus};
 use super::event_driven_processor::{
     EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
 };
+use super::event_router::EventRouter;
+use super::event_systems::domain_event_system::{
+    DomainEventSystem, DomainEventSystemConfig, DomainEventSystemHandle,
+};
+use super::in_process_event_bus::{InProcessEventBus, InProcessEventBusConfig};
+use super::step_event_publisher::{PublishResult, StepEventContext, StepEventPublisher};
+use super::step_event_publisher_registry::StepEventPublisherRegistry;
 use super::task_template_manager::TaskTemplateManager;
 use crate::health::WorkerHealthStatus;
+use std::sync::RwLock;
 use tasker_client::api_clients::orchestration_client::{
     OrchestrationApiClient, OrchestrationApiConfig,
 };
+use tasker_shared::events::domain_events::DomainEventPublisher;
+use tasker_shared::messaging::execution_types::StepExecutionResult;
+use tasker_shared::types::TaskSequenceStep;
+use tokio::sync::RwLock as TokioRwLock;
 
 /// TAS-40 Command Pattern WorkerCore with TAS-43 Event-Driven Integration
 ///
@@ -63,6 +76,38 @@ pub struct WorkerCore {
     /// Orchestration API client for service communication
     pub orchestration_client: Arc<OrchestrationApiClient>,
 
+    /// TAS-65 Phase 3: Step event publisher registry
+    /// Registry of custom event publishers keyed by name (from YAML `publisher:` field)
+    step_event_publisher_registry: Arc<RwLock<StepEventPublisherRegistry>>,
+
+    /// TAS-65 Phase 3: Domain event publisher for PGMQ
+    /// Used to create StepEventPublisherContext when invoking publishers
+    domain_event_publisher: Arc<DomainEventPublisher>,
+
+    /// TAS-65/TAS-69 Phase 8: Domain event system for background event processing
+    /// Stored here so it can be spawned in start() and kept alive
+    domain_event_system: Option<DomainEventSystem>,
+
+    /// TAS-65/TAS-69 Phase 8: Domain event system handle for shutdown
+    /// Kept for graceful shutdown coordination
+    domain_event_handle: Option<DomainEventSystemHandle>,
+
+    /// TAS-65/TAS-69 Phase 8: In-process event bus for fast event subscribers
+    /// Exposed for registering Rust subscribers
+    pub in_process_bus: Arc<TokioRwLock<InProcessEventBus>>,
+
+    /// TAS-65: Event router for domain event statistics
+    /// Kept for debug/observability endpoints
+    event_router: Option<Arc<EventRouter>>,
+
+    /// JoinHandle for the processor background task
+    /// Stored to await clean shutdown and detect panics
+    processor_task_handle: Option<JoinHandle<()>>,
+
+    /// JoinHandle for the domain event system background task
+    /// Stored to await clean shutdown and detect panics
+    domain_event_task_handle: Option<JoinHandle<()>>,
+
     /// System status
     pub status: WorkerCoreStatus,
 
@@ -72,11 +117,29 @@ pub struct WorkerCore {
 
 impl std::fmt::Debug for WorkerCore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let registry_count = self
+            .step_event_publisher_registry
+            .read()
+            .map(|r| r.len())
+            .unwrap_or(0);
         f.debug_struct("WorkerCore")
             .field("core_id", &self.core_id)
             .field("status", &self.status)
             .field("has_processor", &self.processor.is_some())
             .field("has_event_driven", &self.event_driven_processor.is_some())
+            .field(
+                "has_domain_event_system",
+                &self.domain_event_system.is_some(),
+            )
+            .field(
+                "processor_task_running",
+                &self.processor_task_handle.is_some(),
+            )
+            .field(
+                "domain_event_task_running",
+                &self.domain_event_task_handle.is_some(),
+            )
+            .field("registered_event_publishers", &registry_count)
             .finish()
     }
 }
@@ -121,7 +184,14 @@ impl WorkerCore {
                 .iter()
                 .map(|ns| ns.as_str())
                 .collect();
+
+            // Initialize worker queues for step execution
             context.initialize_queues(&namespace_refs).await?;
+
+            // TAS-65 Phase 2: Initialize domain event queues for event publishing
+            context
+                .initialize_domain_event_queues(&namespace_refs)
+                .await?;
 
             task_template_manager
                 .set_supported_namespaces(discovery_result.discovered_namespaces.clone())
@@ -152,7 +222,7 @@ impl WorkerCore {
             command_buffer_size,
         );
 
-        let (processor, command_sender) = {
+        let (mut processor, command_sender) = {
             if let Some(ref event_system) = event_system {
                 WorkerProcessor::new_with_event_system(
                     context.clone(),
@@ -200,6 +270,76 @@ impl WorkerCore {
 
         let core_id = Uuid::now_v7();
 
+        // TAS-65 Phase 3: Create domain event publisher for step events
+        let domain_event_publisher = Arc::new(DomainEventPublisher::new(context.message_client()));
+
+        // TAS-65 Phase 3: Initialize step event publisher registry with domain publisher
+        let step_event_publisher_registry = Arc::new(RwLock::new(StepEventPublisherRegistry::new(
+            domain_event_publisher.clone(),
+        )));
+
+        // TAS-65/TAS-69 Phase 8: Load in-process event bus config from TOML
+        // Uses worker.mpsc_channels.in_process_events section
+        let worker_config = context
+            .tasker_config
+            .worker
+            .as_ref()
+            .expect("Worker configuration required for domain event system");
+
+        let in_process_channels = &worker_config.mpsc_channels.in_process_events;
+        let in_process_bus_config = InProcessEventBusConfig {
+            ffi_channel_buffer_size: in_process_channels.broadcast_buffer_size as usize,
+            log_subscriber_errors: in_process_channels.log_subscriber_errors,
+            dispatch_timeout_ms: in_process_channels.dispatch_timeout_ms as u64,
+        };
+
+        info!(
+            ffi_channel_buffer_size = in_process_bus_config.ffi_channel_buffer_size,
+            log_subscriber_errors = in_process_bus_config.log_subscriber_errors,
+            dispatch_timeout_ms = in_process_bus_config.dispatch_timeout_ms,
+            "Creating InProcessEventBus with TOML configuration"
+        );
+
+        let in_process_bus = Arc::new(TokioRwLock::new(InProcessEventBus::new(
+            in_process_bus_config,
+        )));
+
+        // TAS-65/TAS-69 Phase 8: Create event router for dual-path delivery
+        // We keep a reference for statistics access in debug endpoints
+        let event_router = Arc::new(EventRouter::new(
+            domain_event_publisher.clone(),
+            in_process_bus.clone(),
+        ));
+
+        // TAS-65/TAS-69 Phase 8: Load domain event system config from TOML
+        // Uses worker.mpsc_channels.domain_events section
+        let domain_event_channels = &worker_config.mpsc_channels.domain_events;
+        let domain_event_system_config = DomainEventSystemConfig {
+            channel_buffer_size: domain_event_channels.command_buffer_size as usize,
+            shutdown_drain_timeout_ms: domain_event_channels.shutdown_drain_timeout_ms as u64,
+            log_dropped_events: domain_event_channels.log_dropped_events,
+        };
+
+        info!(
+            channel_buffer_size = domain_event_system_config.channel_buffer_size,
+            shutdown_drain_timeout_ms = domain_event_system_config.shutdown_drain_timeout_ms,
+            log_dropped_events = domain_event_system_config.log_dropped_events,
+            "Creating DomainEventSystem with TOML configuration"
+        );
+
+        let (domain_event_system, domain_event_handle) = DomainEventSystem::new(
+            event_router.clone(), // Clone the Arc to pass to DomainEventSystem
+            domain_event_system_config,
+        );
+
+        // TAS-65/TAS-69 Phase 8: Wire domain event handle into processor for fire-and-forget dispatch
+        processor.set_domain_event_handle(domain_event_handle.clone());
+
+        info!(
+            core_id = %core_id,
+            "WorkerCore initialized with domain event system and step event publisher registry"
+        );
+
         Ok(Self {
             context,
             command_sender,
@@ -207,6 +347,14 @@ impl WorkerCore {
             event_driven_processor: Some(event_driven_processor),
             task_template_manager,
             orchestration_client,
+            step_event_publisher_registry,
+            domain_event_publisher,
+            domain_event_system: Some(domain_event_system),
+            domain_event_handle: Some(domain_event_handle),
+            in_process_bus,
+            event_router: Some(event_router),
+            processor_task_handle: None,
+            domain_event_task_handle: None,
             status: WorkerCoreStatus::Created,
             core_id,
         })
@@ -234,19 +382,33 @@ impl WorkerCore {
 
         if let Some(mut processor) = self.processor.take() {
             // Spawn the processor in background since it contains an infinite processing loop
-            tokio::spawn(async move {
+            // Store the JoinHandle so we can await clean shutdown
+            let handle = tokio::spawn(async move {
                 if let Err(e) = processor.start_with_events().await {
                     tracing::error!("WorkerProcessor error: {}", e);
                 }
             });
+            self.processor_task_handle = Some(handle);
         }
 
-        // The WorkerProcessor is already started in new(), just update status
+        // TAS-65/TAS-69 Phase 8: Start domain event system background processing
+        if let Some(domain_event_system) = self.domain_event_system.take() {
+            info!(
+                core_id = %self.core_id,
+                "Starting DomainEventSystem background processing loop"
+            );
+            // Store the JoinHandle so we can await clean shutdown
+            let handle = tokio::spawn(async move {
+                domain_event_system.run().await;
+            });
+            self.domain_event_task_handle = Some(handle);
+        }
+
         self.status = WorkerCoreStatus::Running;
 
         info!(
             core_id = %self.core_id,
-            "WorkerCore started successfully with TAS-40 command pattern and TAS-43 event-driven integration"
+            "WorkerCore started successfully with TAS-40 command pattern, TAS-43 event-driven integration, and TAS-65 domain events"
         );
 
         Ok(())
@@ -286,6 +448,72 @@ impl WorkerCore {
             // Wait for shutdown acknowledgment
             if let Err(e) = tokio::time::timeout(Duration::from_secs(10), resp_rx).await {
                 warn!("Shutdown acknowledgment timeout: {e}");
+            }
+        }
+
+        // Await processor task completion to ensure clean shutdown
+        if let Some(handle) = self.processor_task_handle.take() {
+            match tokio::time::timeout(Duration::from_secs(5), handle).await {
+                Ok(Ok(())) => {
+                    info!(
+                        core_id = %self.core_id,
+                        "Processor task completed successfully"
+                    );
+                }
+                Ok(Err(e)) => {
+                    warn!(
+                        core_id = %self.core_id,
+                        error = %e,
+                        "Processor task panicked during shutdown"
+                    );
+                }
+                Err(_) => {
+                    warn!(
+                        core_id = %self.core_id,
+                        "Processor task did not complete within timeout"
+                    );
+                }
+            }
+        }
+
+        // TAS-65/TAS-69 Phase 8: Gracefully shutdown domain event system
+        if let Some(ref handle) = self.domain_event_handle {
+            info!(
+                core_id = %self.core_id,
+                "Initiating domain event system shutdown"
+            );
+            let shutdown_result = handle.shutdown().await;
+            info!(
+                core_id = %self.core_id,
+                events_drained = shutdown_result.events_drained,
+                duration_ms = shutdown_result.duration_ms,
+                success = shutdown_result.success,
+                "Domain event system shutdown complete"
+            );
+        }
+
+        // Await domain event task completion to ensure clean shutdown
+        if let Some(handle) = self.domain_event_task_handle.take() {
+            match tokio::time::timeout(Duration::from_secs(5), handle).await {
+                Ok(Ok(())) => {
+                    info!(
+                        core_id = %self.core_id,
+                        "Domain event task completed successfully"
+                    );
+                }
+                Ok(Err(e)) => {
+                    warn!(
+                        core_id = %self.core_id,
+                        error = %e,
+                        "Domain event task panicked during shutdown"
+                    );
+                }
+                Err(_) => {
+                    warn!(
+                        core_id = %self.core_id,
+                        "Domain event task did not complete within timeout"
+                    );
+                }
             }
         }
 
@@ -416,6 +644,209 @@ impl WorkerCore {
         } else {
             false
         }
+    }
+
+    /// Get event router reference for direct stats access (avoids mutex lock)
+    ///
+    /// Used by WorkerWebState to cache the event router during initialization.
+    pub fn event_router(&self) -> Option<Arc<EventRouter>> {
+        self.event_router.clone()
+    }
+
+    /// Get in-process event bus reference for direct stats access (avoids mutex lock)
+    ///
+    /// Used by WorkerWebState to cache the in-process bus during initialization.
+    pub fn in_process_event_bus(&self) -> Arc<TokioRwLock<InProcessEventBus>> {
+        self.in_process_bus.clone()
+    }
+
+    /// TAS-65: Get domain event statistics for observability
+    ///
+    /// Returns combined statistics from the EventRouter and InProcessEventBus.
+    /// Used by the `/debug/events` endpoint for E2E test verification.
+    ///
+    /// # Returns
+    ///
+    /// `DomainEventStats` containing:
+    /// - Router stats (durable_routed, fast_routed, broadcast_routed)
+    /// - In-process bus stats (total_events_dispatched, handler counts)
+    pub async fn get_domain_event_stats(&self) -> tasker_shared::types::web::DomainEventStats {
+        use tasker_shared::types::web::{
+            DomainEventStats, EventRouterStats as WebEventRouterStats,
+            InProcessEventBusStats as WebInProcessEventBusStats,
+        };
+
+        // Get router stats
+        let router_stats = if let Some(ref router) = self.event_router {
+            let stats = router.get_statistics();
+            WebEventRouterStats {
+                total_routed: stats.total_routed,
+                durable_routed: stats.durable_routed,
+                fast_routed: stats.fast_routed,
+                broadcast_routed: stats.broadcast_routed,
+                fast_delivery_errors: stats.fast_delivery_errors,
+                routing_errors: stats.routing_errors,
+            }
+        } else {
+            WebEventRouterStats::default()
+        };
+
+        // Get in-process bus stats
+        let bus_stats = {
+            let bus = self.in_process_bus.read().await;
+            let stats = bus.get_statistics();
+            WebInProcessEventBusStats {
+                total_events_dispatched: stats.total_events_dispatched,
+                rust_handler_dispatches: stats.rust_handler_dispatches,
+                ffi_channel_dispatches: stats.ffi_channel_dispatches,
+                rust_handler_errors: stats.rust_handler_errors,
+                ffi_channel_drops: stats.ffi_channel_drops,
+                rust_subscriber_patterns: stats.rust_subscriber_patterns,
+                rust_handler_count: stats.rust_handler_count,
+                ffi_subscriber_count: stats.ffi_subscriber_count,
+            }
+        };
+
+        DomainEventStats {
+            router: router_stats,
+            in_process_bus: bus_stats,
+            captured_at: chrono::Utc::now(),
+            worker_id: format!("worker-{}", self.core_id),
+        }
+    }
+
+    // =========================================================================
+    // TAS-65 Phase 3: Step Event Publisher Methods
+    // =========================================================================
+
+    /// Register a custom step event publisher
+    ///
+    /// The publisher's `name()` is used as the lookup key. This name should
+    /// match the `publisher:` field in YAML step definitions.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// worker_core.register_step_event_publisher(PaymentEventPublisher::new());
+    /// ```
+    pub fn register_step_event_publisher<P: StepEventPublisher + 'static>(&self, publisher: P) {
+        let name = publisher.name().to_string();
+        info!(publisher_name = %name, "Registering custom step event publisher");
+        if let Ok(mut registry) = self.step_event_publisher_registry.write() {
+            registry.register(publisher);
+        } else {
+            warn!(publisher_name = %name, "Failed to acquire write lock for publisher registration");
+        }
+    }
+
+    /// Get a step event publisher by name
+    ///
+    /// Returns the publisher if registered, or None if not found.
+    pub fn get_step_event_publisher(&self, name: &str) -> Option<Arc<dyn StepEventPublisher>> {
+        self.step_event_publisher_registry
+            .read()
+            .ok()
+            .and_then(|r| r.get(name))
+    }
+
+    /// Get the appropriate publisher for a step
+    ///
+    /// Looks up the publisher by name from YAML config. Returns the generic
+    /// publisher if no custom publisher is specified or found.
+    pub fn get_step_publisher_or_default(
+        &self,
+        publisher_name: Option<&str>,
+    ) -> Arc<dyn StepEventPublisher> {
+        self.step_event_publisher_registry
+            .read()
+            .map(|r| r.get_or_default(publisher_name))
+            .unwrap_or_else(|_| {
+                // Fallback: create a new generic publisher (should rarely happen)
+                Arc::new(
+                    super::step_event_publisher::DefaultDomainEventPublisher::new(
+                        self.domain_event_publisher.clone(),
+                    ),
+                )
+            })
+    }
+
+    /// Publish domain events for a completed step
+    ///
+    /// This is the main entry point for post-execution event publishing.
+    /// Creates a lightweight context DTO and invokes the appropriate publisher.
+    ///
+    /// # Arguments
+    ///
+    /// * `task_sequence_step` - The completed step with full context
+    /// * `execution_result` - The step execution result
+    /// * `publisher_name` - Optional custom publisher name from YAML
+    ///
+    /// # Returns
+    ///
+    /// Result containing published event IDs, skipped events, and any errors.
+    /// Event publishing failures are logged but do NOT fail the step.
+    ///
+    /// # Performance
+    ///
+    /// The context is a pure DTO (no Arc cloning). Publishers own their
+    /// `Arc<DomainEventPublisher>` so no per-invocation Arc operations occur.
+    pub async fn publish_step_events(
+        &self,
+        task_sequence_step: TaskSequenceStep,
+        execution_result: StepExecutionResult,
+        publisher_name: Option<&str>,
+    ) -> PublishResult {
+        let publisher = self.get_step_publisher_or_default(publisher_name);
+
+        // Create lightweight DTO context (no Arc, no behavior)
+        let ctx = StepEventContext::new(task_sequence_step, execution_result);
+
+        let result = publisher.publish(&ctx).await;
+
+        // Log results
+        if !result.published.is_empty() {
+            info!(
+                step_name = %ctx.step_name(),
+                publisher = %publisher.name(),
+                published_count = result.published_count(),
+                "Step events published successfully"
+            );
+        }
+
+        if !result.errors.is_empty() {
+            warn!(
+                step_name = %ctx.step_name(),
+                publisher = %publisher.name(),
+                error_count = result.error_count(),
+                errors = ?result.errors,
+                "Some step events failed to publish"
+            );
+        }
+
+        result
+    }
+
+    /// Get the count of registered custom publishers
+    pub fn registered_publisher_count(&self) -> usize {
+        self.step_event_publisher_registry
+            .read()
+            .map(|r| r.len())
+            .unwrap_or(0)
+    }
+
+    /// Get names of all registered custom publishers
+    pub fn registered_publisher_names(&self) -> Vec<String> {
+        self.step_event_publisher_registry
+            .read()
+            .map(|r| r.registered_names().iter().map(|s| s.to_string()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Get a reference to the domain event publisher
+    ///
+    /// Useful for advanced scenarios where direct access is needed.
+    pub fn domain_event_publisher(&self) -> Arc<DomainEventPublisher> {
+        self.domain_event_publisher.clone()
     }
 }
 

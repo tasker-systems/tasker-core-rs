@@ -342,6 +342,54 @@ impl SystemContext {
         Ok(())
     }
 
+    /// Initialize domain event queues for given namespaces
+    ///
+    /// Creates main queue ({namespace}_domain_events) and DLQ ({namespace}_domain_events_dlq)
+    /// for each namespace to support TAS-65 domain event publishing.
+    ///
+    /// # Arguments
+    ///
+    /// * `namespaces` - Array of namespace identifiers to create queues for
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if all queues were created successfully, or an error if any queue creation failed.
+    pub async fn initialize_domain_event_queues(&self, namespaces: &[&str]) -> TaskerResult<()> {
+        info!(
+            "Initializing domain event queues for namespaces: {:?}",
+            namespaces
+        );
+
+        for namespace in namespaces {
+            // Create main domain events queue
+            let main_queue = format!("{}_domain_events", namespace);
+            self.message_client
+                .create_queue(&main_queue)
+                .await
+                .map_err(|e| {
+                    TaskerError::MessagingError(format!(
+                        "Failed to create domain events queue {}: {}",
+                        main_queue, e
+                    ))
+                })?;
+
+            // Create DLQ for failed events
+            let dlq_queue = format!("{}_domain_events_dlq", namespace);
+            self.message_client
+                .create_queue(&dlq_queue)
+                .await
+                .map_err(|e| {
+                    TaskerError::MessagingError(format!(
+                        "Failed to create domain events DLQ {}: {}",
+                        dlq_queue, e
+                    ))
+                })?;
+        }
+
+        info!("Domain event queues initialized successfully");
+        Ok(())
+    }
+
     /// Get database pool reference
     pub fn database_pool(&self) -> &PgPool {
         &self.database_pool

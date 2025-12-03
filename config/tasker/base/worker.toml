@@ -79,11 +79,20 @@ event_channel_buffer_size = 2000
 completion_buffer_size = 1000
 result_buffer_size = 1000
 
+# TAS-65: In-process event bus configuration for fast domain event delivery
 [worker.mpsc_channels.in_process_events]
 broadcast_buffer_size = 2000
+log_subscriber_errors = true
+dispatch_timeout_ms = 5000
 
 [worker.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 10000
+
+# TAS-65/TAS-69: Domain Event System MPSC Configuration
+[worker.mpsc_channels.domain_events]
+command_buffer_size = 1000
+shutdown_drain_timeout_ms = 5000
+log_dropped_events = true
 
 # Orchestration Client Configuration
 # How the worker connects to the orchestration API

@@ -11,9 +11,10 @@ use crate::event_handler::{send_step_completion_event, RubyEventHandler};
 use crate::ffi_logging::{log_debug, log_error, log_info, log_trace, log_warn};
 use magnus::{function, prelude::*, Error, RModule, Value};
 use std::sync::{Arc, Mutex};
+use tasker_shared::events::domain_events::DomainEvent;
 use tasker_shared::{errors::TaskerResult, types::StepExecutionEvent};
 use tasker_worker::{WorkerSystemHandle, WorkerSystemStatus};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info};
 
 /// Global handle to the worker system for Ruby FFI
@@ -27,6 +28,11 @@ pub struct RubyBridgeHandle {
     pub event_handler: Arc<RubyEventHandler>,
     /// Event receiver for polling step execution events (TAS-51: bounded channel)
     pub event_receiver: Arc<Mutex<mpsc::Receiver<StepExecutionEvent>>>,
+    /// TAS-65: Domain event publisher for Ruby handlers
+    pub domain_event_publisher: Arc<tasker_shared::events::domain_events::DomainEventPublisher>,
+    /// TAS-65 Phase 4.1: In-process event receiver for fast domain events
+    /// Ruby can poll this channel to receive domain events with delivery_mode: fast
+    pub in_process_event_receiver: Option<Arc<Mutex<broadcast::Receiver<DomainEvent>>>>,
     /// Keep runtime alive
     #[allow(dead_code)]
     pub runtime: tokio::runtime::Runtime,
@@ -37,12 +43,16 @@ impl RubyBridgeHandle {
         system_handle: WorkerSystemHandle,
         event_handler: Arc<RubyEventHandler>,
         event_receiver: mpsc::Receiver<StepExecutionEvent>,
+        domain_event_publisher: Arc<tasker_shared::events::domain_events::DomainEventPublisher>,
+        in_process_event_receiver: Option<broadcast::Receiver<DomainEvent>>,
         runtime: tokio::runtime::Runtime,
     ) -> Self {
         Self {
             system_handle,
             event_handler,
             event_receiver: Arc::new(Mutex::new(event_receiver)),
+            domain_event_publisher,
+            in_process_event_receiver: in_process_event_receiver.map(|r| Arc::new(Mutex::new(r))),
             runtime,
         }
     }
@@ -145,6 +155,12 @@ pub fn init_bridge(module: &RModule) -> Result<(), Error> {
     module.define_singleton_method("log_info", function!(log_info, 2))?;
     module.define_singleton_method("log_debug", function!(log_debug, 2))?;
     module.define_singleton_method("log_trace", function!(log_trace, 2))?;
+
+    // TAS-65 Phase 2.4a: Domain event publishing (durable path)
+    crate::event_publisher_ffi::init_event_publisher_ffi(module)?;
+
+    // TAS-65 Phase 4.1: In-process event polling (fast path)
+    crate::in_process_event_ffi::init_in_process_event_ffi(module)?;
 
     info!("✅ Ruby FFI bridge initialized");
     Ok(())

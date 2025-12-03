@@ -288,6 +288,86 @@ impl WorkerApiClient {
         }
     }
 
+    // =========================================================================
+    // TAS-65: Domain Event Metrics Endpoints
+    // =========================================================================
+
+    /// Get domain event statistics from the worker
+    ///
+    /// Returns statistics about domain event routing and delivery paths.
+    /// Used by E2E tests to verify events were actually published.
+    ///
+    /// # Returns
+    ///
+    /// `DomainEventStats` containing:
+    /// - Router stats (durable_routed, fast_routed, broadcast_routed)
+    /// - In-process bus stats (total_events_dispatched, handler counts)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Capture stats before running a task
+    /// let stats_before = client.get_domain_event_stats().await?;
+    ///
+    /// // Run task that publishes events
+    /// orchestration_client.create_task(request).await?;
+    /// wait_for_completion().await;
+    ///
+    /// // Capture stats after task completes
+    /// let stats_after = client.get_domain_event_stats().await?;
+    ///
+    /// // Verify events were published
+    /// let durable_published = stats_after.router.durable_routed - stats_before.router.durable_routed;
+    /// assert!(durable_published > 0, "Expected durable events");
+    /// ```
+    pub async fn get_domain_event_stats(
+        &self,
+    ) -> TaskerResult<tasker_shared::types::web::DomainEventStats> {
+        let url = self
+            .base_url
+            .join("/metrics/events")
+            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
+
+        debug!("Getting domain event stats from: {}", url);
+
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| TaskerError::WorkerError(format!("Request failed: {}", e)))?;
+
+        let status = response.status();
+        if status.is_success() {
+            let stats: tasker_shared::types::web::DomainEventStats =
+                response.json().await.map_err(|e| {
+                    TaskerError::ValidationError(format!("Failed to parse response: {}", e))
+                })?;
+
+            debug!(
+                "Retrieved domain event stats: durable={}, fast={}, broadcast={}",
+                stats.router.durable_routed,
+                stats.router.fast_routed,
+                stats.router.broadcast_routed
+            );
+            Ok(stats)
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+
+            error!(
+                "Domain event stats request failed: {} - {}",
+                status, error_text
+            );
+            Err(TaskerError::WorkerError(format!(
+                "Domain event stats request failed: {} - {}",
+                status, error_text
+            )))
+        }
+    }
+
     /// Get the base URL of the worker API
     #[must_use]
     pub fn base_url(&self) -> &str {

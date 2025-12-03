@@ -45,6 +45,7 @@ dotenvy = { workspace = true }  # For loading .env files
 fastrand = { workspace = true }
 futures = { workspace = true }
 jsonwebtoken = { workspace = true, optional = true }
+metrics = "0.23"  # TAS-65 Phase 2.3b: Event consumer metrics
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 # Message queue management

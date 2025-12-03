@@ -41,15 +41,17 @@ RUN ARCH=$(uname -m) && \
 
 # OPTIMIZATION 2: Install cargo-chef using cargo-binstall
 # Saves 5-10 minutes vs compiling from source
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
+# Use sharing=locked to prevent concurrent access issues
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     cargo binstall cargo-chef --no-confirm --no-symlinks
 
 # OPTIMIZATION 3: Install sqlx-cli using cargo-binstall (much faster than compiling)
 # This tries to download a pre-built binary first, falls back to building if needed
 # Note: cargo-binstall doesn't support --features flag, it will install the full version
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
+# Use sharing=locked to prevent concurrent access issues
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     cargo binstall sqlx-cli --no-confirm --no-symlinks --bin-dir /usr/local/bin
 
 WORKDIR /app
@@ -99,9 +101,10 @@ COPY --from=planner /app/recipe.json recipe.json
 
 # OPTIMIZATION 4: Build dependencies with cache mounts
 # Note: We don't use --package here as cargo-chef works better with full workspace
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
+# Use sharing=locked to prevent concurrent access issues
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
     cargo chef cook --recipe-path recipe.json
 
 # Copy workspace root files and all source
@@ -135,9 +138,10 @@ ENV SQLX_OFFLINE=true
 
 # OPTIMIZATION 5: Build with cache mounts and copy binary in single layer
 # This avoids the inefficient double-copy pattern
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
+# Use sharing=locked to prevent concurrent access issues
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
     cargo build --all-features --bin tasker-server -p tasker-orchestration && \
     cp /app/target/debug/tasker-server /app/tasker-server
 

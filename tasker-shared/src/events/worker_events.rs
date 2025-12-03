@@ -353,6 +353,14 @@ impl WorkerEventPublisher {
         let event = StepExecutionEvent::with_event_id(correlation_id, payload);
         self.event_system.publish_step_execution(event).await
     }
+
+    /// TAS-65 Phase 1.5b: Publish a fully constructed step execution event with trace context
+    pub async fn publish_step_execution_event(
+        &self,
+        event: StepExecutionEvent,
+    ) -> Result<(), WorkerEventError> {
+        self.event_system.publish_step_execution(event).await
+    }
 }
 
 /// Subscriber for worker events (used by WorkerProcessor and FFI handlers)

@@ -69,11 +69,15 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
 // CORRECTED: Use actual production types from the codebase
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::types::TaskSequenceStep;
+
+// TAS-65: Domain event publishing support
+use tasker_shared::events::domain_events::DomainEventPublisher;
 
 /// Configuration structure for step handlers from YAML initialization blocks
 ///
@@ -101,23 +105,53 @@ use tasker_shared::types::TaskSequenceStep;
 /// - `get_i64()` - Integer values
 /// - `get_u64()` - Unsigned integer values
 /// - `get_f64()` - Floating point values
-#[derive(Debug, Clone, Default)]
+///
+/// ## TAS-65: Domain Event Publishing
+///
+/// Optionally contains a `DomainEventPublisher` for handlers that publish domain events.
+/// This is injected after handler creation (two-phase initialization):
+/// 1. Create handler with YAML config data
+/// 2. Inject publisher after worker bootstrap
+#[derive(Clone, Default)]
 pub struct StepHandlerConfig {
     /// Raw configuration data from YAML initialization block
     pub data: HashMap<String, Value>,
+
+    /// TAS-65: Optional domain event publisher (injected after creation)
+    pub event_publisher: Option<Arc<DomainEventPublisher>>,
+}
+
+// Manual Debug implementation because DomainEventPublisher doesn't implement Debug
+impl std::fmt::Debug for StepHandlerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StepHandlerConfig")
+            .field("data", &self.data)
+            .field("has_event_publisher", &self.event_publisher.is_some())
+            .finish()
+    }
 }
 
 impl StepHandlerConfig {
     /// Create new config from initialization data
     #[must_use]
     pub fn new(data: HashMap<String, Value>) -> Self {
-        Self { data }
+        Self {
+            data,
+            event_publisher: None,
+        }
     }
 
     /// Create empty config (for handlers that don't require initialization)
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// TAS-65: Builder method to add event publisher (for two-phase initialization)
+    #[must_use]
+    pub fn with_event_publisher(mut self, publisher: Arc<DomainEventPublisher>) -> Self {
+        self.event_publisher = Some(publisher);
+        self
     }
 
     /// Get string value with optional default
@@ -317,6 +351,11 @@ pub fn error_result(
     )
 }
 
+// TAS-65: Re-export StepEventPublisher types from tasker-worker for custom publishers
+pub use tasker_worker::worker::{
+    PublishResult, StepEventContext, StepEventPublisher, StepEventPublisherRegistry,
+};
+
 // Workflow handler modules
 pub mod batch_processing_example;
 pub mod batch_processing_products_csv;
@@ -331,10 +370,24 @@ pub mod tree_workflow;
 // TAS-64: Error injection handlers for retry testing
 pub mod error_injection;
 
+// TAS-65: Example handler with domain event publishing
+pub mod payment_example;
+
+// TAS-65 Phase 3: Custom event publisher examples
+pub mod notification_event_publisher;
+pub mod payment_event_publisher;
+
+// TAS-65: Domain event publishing workflow handlers
+pub mod domain_event_publishing;
+
 // Handler registry
 pub mod registry;
 
 // Re-export core types for convenience
 pub use registry::{GlobalRustStepHandlerRegistry, RustStepHandlerRegistry};
+
+// Re-export example custom publishers
+pub use notification_event_publisher::NotificationEventPublisher;
+pub use payment_event_publisher::PaymentEventPublisher;
 
 // StepHandlerConfig is defined in this module, no need to re-export

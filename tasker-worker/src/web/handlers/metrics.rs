@@ -174,3 +174,45 @@ pub async fn worker_metrics(
         worker_id: state.worker_id(),
     }))
 }
+
+/// Domain event statistics endpoint: GET /metrics/events
+///
+/// Returns statistics about domain event routing and delivery paths.
+/// Used for monitoring event publishing and by E2E tests to verify
+/// events were published through the expected delivery paths.
+///
+/// # Response
+///
+/// Returns statistics for:
+/// - **Router stats**: durable_routed, fast_routed, broadcast_routed counts
+/// - **In-process bus stats**: handler dispatches, FFI channel dispatches
+///
+/// # Example Response
+///
+/// ```json
+/// {
+///   "router": {
+///     "total_routed": 42,
+///     "durable_routed": 10,
+///     "fast_routed": 30,
+///     "broadcast_routed": 2
+///   },
+///   "in_process_bus": {
+///     "total_events_dispatched": 32,
+///     "rust_handler_dispatches": 20,
+///     "ffi_channel_dispatches": 12
+///   },
+///   "captured_at": "2025-11-30T12:00:00Z",
+///   "worker_id": "worker-01234567"
+/// }
+/// ```
+pub async fn domain_event_stats(
+    State(state): State<Arc<WorkerWebState>>,
+) -> Json<DomainEventStats> {
+    debug!("Serving domain event statistics");
+
+    // Use cached event components - does not lock worker core
+    let stats = state.domain_event_stats().await;
+
+    Json(stats)
+}

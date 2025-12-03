@@ -1,9 +1,9 @@
 # Observability Documentation
 
-**Last Updated**: 2025-10-10
+**Last Updated**: 2025-12-01
 **Audience**: Operators, Developers
 **Status**: Active
-**Related Docs**: [Documentation Hub](../README.md) | [Benchmarks](../benchmarks/README.md) | [Deployment Patterns](../deployment-patterns.md)
+**Related Docs**: [Documentation Hub](../README.md) | [Benchmarks](../benchmarks/README.md) | [Deployment Patterns](../deployment-patterns.md) | [Domain Events](../domain-events.md)
 
 ← Back to [Documentation Hub](../README.md)
 
@@ -101,38 +101,43 @@ info!(
 
 ---
 
-### 3. **Tracing** (Planned - OpenTelemetry)
+### 3. **Tracing and OpenTelemetry**
 **Purpose**: Distributed request tracing across services
 
-**Status**: 🚧 **Planned** (TAS-29 Phase 6)
+**Status**: ✅ **Active** (TAS-65 Complete)
 
-**Planned Features**:
-- Distributed trace propagation via correlation IDs
+**Documentation**:
+- **[opentelemetry-improvements.md](./opentelemetry-improvements.md)** - TAS-65 telemetry enhancements
+
+**Current Features**:
+- Distributed trace propagation via correlation IDs (UUIDv7)
 - Span creation for major operations:
   - API request handling
   - Step execution (claim → execute → submit)
   - Orchestration coordination
-  - Database queries
+  - Domain event publishing
   - Message queue operations
-- Integration with Jaeger/Tempo/Honeycomb
-- Performance breakdown in E2E benchmarks
+- Two-phase FFI telemetry initialization (safe for Ruby/Python workers)
+- Integration with Grafana LGTM stack (Prometheus, Tempo)
+- Domain event metrics (`/metrics/events` endpoint)
 
-**Current State**:
-- Correlation IDs generated and propagated
-- Structured logging includes timing information
-- Foundation ready for OpenTelemetry spans
+**Two-Phase FFI Initialization** (TAS-65):
+- **Phase 1**: Console-only logging (safe during FFI bridge setup)
+- **Phase 2**: Full OpenTelemetry (after FFI established)
 
-**Example (Planned)**:
+**Example**:
 ```rust
 #[tracing::instrument(
-    name = "execute_step",
-    skip(self),
+    name = "publish_domain_event",
+    skip(self, payload),
     fields(
-        step_uuid = %step.uuid,
-        correlation_id = %step.correlation_id
+        event_name = %event_name,
+        namespace = %metadata.namespace,
+        correlation_id = %metadata.correlation_id,
+        delivery_mode = ?delivery_mode
     )
 )]
-async fn execute_step(&self, step: WorkflowStep) -> Result<StepResult> {
+async fn publish_event(&self, event_name: &str, ...) -> Result<()> {
     // Implementation
 }
 ```
@@ -438,6 +443,7 @@ docker-compose logs orchestration | jq 'select(.level == "ERROR")'
 - `metrics-reference.md` - Complete metrics catalog
 - `metrics-verification.md` - Verification procedures
 - `logging-standards.md` - Logging best practices
+- `opentelemetry-improvements.md` - TAS-65 telemetry enhancements
 - `VERIFICATION_RESULTS.md` - Test results
 
 **Archived** (superseded by `docs/benchmarks/`):

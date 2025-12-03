@@ -1,8 +1,13 @@
-# CLAUDE.md
+# WARP.md - Tasker Core Project Context
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**Last Updated**: 2025-11-23  
+**Project Status**: Production Ready (v0.1.0) | 950+ passing tests  
+**Architecture**: Rust-based orchestration with PostgreSQL/PGMQ, FFI workers (Ruby native, Python/WASM planned)
 
-**Last Updated**: 2025-11-19
+---
+
+> **Note**: For complete technical reference and development commands, see [CLAUDE.md](CLAUDE.md).  
+> This document provides strategic context, evolution narrative, and high-level architecture.
 
 ## Project Overview
 

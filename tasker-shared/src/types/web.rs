@@ -517,3 +517,39 @@ pub struct ErrorResponse {
     pub timestamp: DateTime<Utc>,
     pub request_id: Option<String>,
 }
+
+// =============================================================================
+// TAS-65: Domain Event Statistics for Test Observability
+// =============================================================================
+
+// Re-export canonical stats types from metrics::worker
+pub use crate::metrics::worker::{EventRouterStats, InProcessEventBusStats};
+
+/// Domain event statistics response for /debug/events endpoint
+///
+/// Composite type that combines event router and in-process bus statistics.
+/// Exposes event routing and delivery statistics for E2E test verification.
+/// This allows tests to verify that domain events were actually published
+/// via durable (PGMQ) and/or fast (in-process) delivery paths.
+///
+/// # Test Matrix Coverage
+///
+/// | Metric | Verifies |
+/// |--------|----------|
+/// | `router.durable_routed` | Durable events published to PGMQ |
+/// | `router.fast_routed` | Fast events dispatched in-memory |
+/// | `router.broadcast_routed` | Events sent to both paths |
+/// | `in_process_bus.total_events_dispatched` | Total fast events processed |
+/// | `in_process_bus.rust_handler_dispatches` | Rust subscribers received events |
+/// | `in_process_bus.ffi_channel_dispatches` | FFI subscribers received events |
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DomainEventStats {
+    /// Event router statistics
+    pub router: EventRouterStats,
+    /// In-process event bus statistics
+    pub in_process_bus: InProcessEventBusStats,
+    /// Timestamp when stats were captured
+    pub captured_at: DateTime<Utc>,
+    /// Worker ID for correlation
+    pub worker_id: String,
+}

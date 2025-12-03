@@ -206,6 +206,10 @@ module TaskerCore
         EventBridge.instance.stop!
         EventPoller.instance.stop!
 
+        # TAS-65: Stop domain event components
+        DomainEvents::SubscriberRegistry.instance.stop_all!
+        InProcessDomainEventPoller.instance.stop!
+
         # Stop Rust worker and clear handle
         if @rust_handle
           begin
@@ -262,7 +266,10 @@ module TaskerCore
               event_bridge_active: EventBridge.instance.active?,
               handlers_registered: Registry::HandlerRegistry.instance.handlers.size,
               subscriber_active: @step_subscriber&.active? || false,
-              event_poller_active: EventPoller.instance.active?
+              event_poller_active: EventPoller.instance.active?,
+              # TAS-65: Domain event system status
+              domain_event_poller_active: InProcessDomainEventPoller.instance.active?,
+              domain_event_subscribers: DomainEvents::SubscriberRegistry.instance.stats
             }
           }
         rescue StandardError => e
@@ -345,7 +352,7 @@ module TaskerCore
       def start_event_processing!
         logger.info 'Starting event processing...'
 
-        # Start the EventPoller to poll for events from Rust
+        # Start the EventPoller to poll for step execution events from Rust
         EventPoller.instance.start!
 
         # NOTE: StepExecutionSubscriber already subscribes to step execution events
@@ -353,7 +360,13 @@ module TaskerCore
         # Duplicate subscriptions cause the same event to be processed twice,
         # leading to double state transitions.
 
-        logger.info 'Event processing started'
+        # TAS-65: Start in-process domain event poller for fast events
+        InProcessDomainEventPoller.instance.start!
+
+        # TAS-65: Start domain event subscribers
+        DomainEvents::SubscriberRegistry.instance.start_all!
+
+        logger.info 'Event processing started (step events + domain events)'
       end
 
       def register_shutdown_handlers!

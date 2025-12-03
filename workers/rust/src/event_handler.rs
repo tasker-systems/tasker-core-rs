@@ -2,22 +2,43 @@
 //!
 //! Subscribes to the worker event system and executes Rust step handlers
 //! when `StepExecutionEvents` are received.
+//!
+//! ## TAS-65: Post-Execution Domain Event Publishing
+//!
+//! After step execution completes, this handler invokes the appropriate
+//! `StepEventPublisher` to publish domain events based on YAML configuration.
+//! This implements the post-execution publisher callback pattern.
 
 use anyhow::Result;
 use std::sync::Arc;
 use tasker_shared::{
     events::{WorkerEventSubscriber, WorkerEventSystem},
-    types::{StepExecutionCompletionEvent, StepExecutionEvent},
+    messaging::StepExecutionResult,
+    types::{StepExecutionCompletionEvent, StepExecutionEvent, TaskSequenceStep},
 };
-use tokio::sync::broadcast;
+use tasker_worker::worker::{StepEventContext, StepEventPublisherRegistry};
+use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error, info, warn};
 
 use crate::step_handlers::RustStepHandlerRegistry;
 
 /// Event handler that bridges the worker event system with native Rust handlers
+///
+/// ## TAS-65: Domain Event Publishing
+///
+/// After step execution completes, the handler invokes the `StepEventPublisherRegistry`
+/// to publish domain events based on YAML configuration. This implements the
+/// post-execution publisher callback pattern where:
+///
+/// 1. Handler executes business logic → Returns StepExecutionResult
+/// 2. Result is persisted and enqueued for orchestration
+/// 3. StepEventPublisher is invoked with full execution context
+/// 4. Domain events are published (failures logged but don't affect step)
 pub struct RustEventHandler {
     registry: Arc<RustStepHandlerRegistry>,
     event_subscriber: Arc<WorkerEventSubscriber>,
+    /// TAS-65: Registry of step event publishers for post-execution publishing
+    step_event_publisher_registry: Arc<RwLock<StepEventPublisherRegistry>>,
     worker_id: String,
 }
 
@@ -27,16 +48,25 @@ impl std::fmt::Debug for RustEventHandler {
             .field("worker_id", &self.worker_id)
             .field("has_registry", &true)
             .field("has_event_subscriber", &true)
+            .field("has_step_event_publisher_registry", &true)
             .finish()
     }
 }
 
 impl RustEventHandler {
-    /// Create a new event handler with the given registry and event system
+    /// Create a new event handler with the given registry, event system, and publisher registry
+    ///
+    /// # Arguments
+    ///
+    /// * `registry` - Step handler registry for looking up handlers
+    /// * `event_system` - Worker event system for subscribing to events
+    /// * `step_event_publisher_registry` - Registry for post-execution domain event publishers
+    /// * `worker_id` - Unique identifier for this worker
     #[must_use]
     pub fn new(
         registry: Arc<RustStepHandlerRegistry>,
         event_system: Arc<WorkerEventSystem>,
+        step_event_publisher_registry: Arc<RwLock<StepEventPublisherRegistry>>,
         worker_id: String,
     ) -> Self {
         // Clone the Arc to get the WorkerEventSystem value
@@ -46,6 +76,7 @@ impl RustEventHandler {
         Self {
             registry,
             event_subscriber,
+            step_event_publisher_registry,
             worker_id,
         }
     }
@@ -63,6 +94,7 @@ impl RustEventHandler {
         // Clone what we need for the async task
         let registry = self.registry.clone();
         let event_subscriber = self.event_subscriber.clone();
+        let step_event_publisher_registry = self.step_event_publisher_registry.clone();
         let worker_id = self.worker_id.clone();
 
         // Spawn task to handle events
@@ -87,6 +119,7 @@ impl RustEventHandler {
                         if let Err(e) = Self::handle_step_execution(
                             &registry,
                             &event_subscriber,
+                            &step_event_publisher_registry,
                             event,
                             &worker_id,
                         )
@@ -126,9 +159,17 @@ impl RustEventHandler {
     }
 
     /// Handle a single step execution event
+    ///
+    /// ## TAS-65: Post-Execution Event Publishing
+    ///
+    /// After the handler completes and the completion event is published,
+    /// this method invokes the appropriate `StepEventPublisher` to publish
+    /// domain events based on YAML configuration. Event publishing failures
+    /// are logged but do not affect step execution.
     async fn handle_step_execution(
         registry: &Arc<RustStepHandlerRegistry>,
         event_subscriber: &Arc<WorkerEventSubscriber>,
+        step_event_publisher_registry: &Arc<RwLock<StepEventPublisherRegistry>>,
         event: StepExecutionEvent,
         worker_id: &str,
     ) -> Result<()> {
@@ -161,29 +202,48 @@ impl RustEventHandler {
                 // Execute the handler
                 let result = handler.call(&event.payload.task_sequence_step).await;
 
-                // Create step completion event
-                let completion_event = match result {
-                    Ok(step_result) => StepExecutionCompletionEvent {
-                        event_id: event.event_id, // Use same event_id for correlation
-                        task_uuid: event.payload.task_uuid,
-                        step_uuid: event.payload.step_uuid,
-                        success: step_result.success,
-                        result: step_result.result,
-                        metadata: Some(
-                            serde_json::to_value(step_result.metadata)
-                                .unwrap_or(serde_json::Value::Null),
-                        ),
-                        error_message: step_result.error.map(|e| e.message),
-                    },
-                    Err(e) => StepExecutionCompletionEvent {
-                        event_id: event.event_id, // Use same event_id for correlation
-                        task_uuid: event.payload.task_uuid,
-                        step_uuid: event.payload.step_uuid,
-                        success: false,
-                        result: serde_json::Value::Null,
-                        metadata: None,
-                        error_message: Some(e.to_string()),
-                    },
+                // Create step completion event and execution result for domain event publishing
+                let (completion_event, execution_result) = match result {
+                    Ok(step_result) => {
+                        let completion = StepExecutionCompletionEvent {
+                            event_id: event.event_id,
+                            task_uuid: event.payload.task_uuid,
+                            step_uuid: event.payload.step_uuid,
+                            span_id: event.span_id,
+                            trace_id: event.trace_id,
+                            success: step_result.success,
+                            result: step_result.result.clone(),
+                            metadata: Some(
+                                serde_json::to_value(&step_result.metadata)
+                                    .unwrap_or(serde_json::Value::Null),
+                            ),
+                            error_message: step_result.error.as_ref().map(|e| e.message.clone()),
+                        };
+                        (completion, step_result)
+                    }
+                    Err(e) => {
+                        let error_result = StepExecutionResult::failure(
+                            event.payload.step_uuid,
+                            e.to_string(),
+                            Some("HANDLER_ERROR".to_string()),
+                            Some("HandlerExecutionError".to_string()),
+                            true, // Retryable by default
+                            0,
+                            None,
+                        );
+                        let completion = StepExecutionCompletionEvent {
+                            event_id: event.event_id,
+                            task_uuid: event.payload.task_uuid,
+                            step_uuid: event.payload.step_uuid,
+                            span_id: event.span_id,
+                            trace_id: event.trace_id,
+                            success: false,
+                            result: serde_json::Value::Null,
+                            metadata: None,
+                            error_message: Some(e.to_string()),
+                        };
+                        (completion, error_result)
+                    }
                 };
 
                 // Publish the completion event
@@ -197,6 +257,16 @@ impl RustEventHandler {
                     .publish_step_completion(completion_event)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to publish step completion: {}", e))?;
+
+                // TAS-65: Post-execution domain event publishing
+                // This happens AFTER step completion is published to orchestration
+                Self::publish_step_events(
+                    step_event_publisher_registry,
+                    &event.payload.task_sequence_step,
+                    execution_result,
+                    worker_id,
+                )
+                .await;
 
                 info!(
                     worker_id = %worker_id,
@@ -219,5 +289,98 @@ impl RustEventHandler {
         }
 
         Ok(())
+    }
+
+    /// TAS-65: Publish domain events after step execution completes
+    ///
+    /// This method invokes the appropriate `StepEventPublisher` based on
+    /// YAML configuration. Failures are logged but do not affect step execution.
+    ///
+    /// ## Publisher Selection
+    ///
+    /// 1. Check if step has `publishes_events` in YAML configuration
+    /// 2. Look up custom publisher if specified, otherwise use DefaultDomainEventPublisher
+    /// 3. Invoke publisher with full execution context
+    async fn publish_step_events(
+        registry: &Arc<RwLock<StepEventPublisherRegistry>>,
+        task_sequence_step: &TaskSequenceStep,
+        execution_result: StepExecutionResult,
+        worker_id: &str,
+    ) {
+        // Check if step declares any events to publish
+        let publishes_events = &task_sequence_step.step_definition.publishes_events;
+        if publishes_events.is_empty() {
+            debug!(
+                worker_id = %worker_id,
+                step_name = %task_sequence_step.workflow_step.name,
+                "Step has no declared events to publish"
+            );
+            return;
+        }
+
+        debug!(
+            worker_id = %worker_id,
+            step_name = %task_sequence_step.workflow_step.name,
+            event_count = publishes_events.len(),
+            "Publishing domain events for step"
+        );
+
+        // Get the first event's publisher name (all events in a step use the same publisher)
+        let publisher_name = publishes_events
+            .first()
+            .and_then(|e| e.publisher.as_deref());
+
+        // Get the appropriate publisher from the registry
+        let registry_guard = registry.read().await;
+        let publisher = registry_guard.get_or_default(publisher_name);
+
+        // Create the execution context
+        let ctx = StepEventContext::new(task_sequence_step.clone(), execution_result);
+
+        // Check if publisher should handle this step
+        if !publisher.should_handle(&task_sequence_step.workflow_step.name) {
+            debug!(
+                worker_id = %worker_id,
+                step_name = %task_sequence_step.workflow_step.name,
+                publisher = publisher.name(),
+                "Publisher declined to handle step"
+            );
+            return;
+        }
+
+        // Invoke the publisher
+        let result = publisher.publish(&ctx).await;
+
+        // Log results
+        if !result.published.is_empty() {
+            info!(
+                worker_id = %worker_id,
+                step_name = %task_sequence_step.workflow_step.name,
+                published_count = result.published.len(),
+                published_events = ?result.published,
+                "Domain events published successfully"
+            );
+        }
+
+        if !result.skipped.is_empty() {
+            debug!(
+                worker_id = %worker_id,
+                step_name = %task_sequence_step.workflow_step.name,
+                skipped_count = result.skipped.len(),
+                skipped_events = ?result.skipped,
+                "Some events were skipped"
+            );
+        }
+
+        if !result.errors.is_empty() {
+            // Event publishing failures are logged but don't fail the step
+            error!(
+                worker_id = %worker_id,
+                step_name = %task_sequence_step.workflow_step.name,
+                error_count = result.errors.len(),
+                errors = ?result.errors,
+                "Some events failed to publish"
+            );
+        }
     }
 }

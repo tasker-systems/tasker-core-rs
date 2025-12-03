@@ -2,3 +2,15 @@
 
 [worker]
 worker_id = "dev-worker-001"
+
+# TAS-65: In-process event bus - medium buffers for development
+[worker.mpsc_channels.in_process_events]
+broadcast_buffer_size = 2000
+log_subscriber_errors = true
+dispatch_timeout_ms = 5000
+
+# TAS-65/TAS-69: Domain Event System - medium buffers for development
+[worker.mpsc_channels.domain_events]
+command_buffer_size = 500
+shutdown_drain_timeout_ms = 3000
+log_dropped_events = true

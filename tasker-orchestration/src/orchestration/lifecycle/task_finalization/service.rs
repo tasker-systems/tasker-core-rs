@@ -5,7 +5,7 @@
 use opentelemetry::KeyValue;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::debug;
+use tracing::{debug, event, instrument, Level};
 use uuid::Uuid;
 
 use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
@@ -61,16 +61,28 @@ impl TaskFinalizer {
     /// Finalize a task based on its current state using TaskExecutionContext
     ///
     /// @param task_uuid The task ID to finalize
+    ///
+    /// TAS-65 Phase 1.4: Instrumented for distributed tracing
+    #[instrument(skip(self), fields(
+        task_uuid = %task_uuid,
+        correlation_id = tracing::field::Empty
+    ))]
     pub async fn finalize_task(
         &self,
         task_uuid: Uuid,
     ) -> Result<FinalizationResult, FinalizationError> {
+        event!(Level::INFO, "task.finalization_started");
+
         let task = Task::find_by_id(self.context.database_pool(), task_uuid).await?;
         let Some(task) = task else {
+            event!(Level::ERROR, "task.not_found");
             return Err(FinalizationError::TaskNotFound { task_uuid });
         };
 
         let correlation_id = task.correlation_id;
+
+        // Update span with correlation_id once we have it
+        tracing::Span::current().record("correlation_id", tracing::field::display(&correlation_id));
 
         // TAS-29 Phase 3.3: Start timing task finalization
         let start_time = Instant::now();
@@ -104,41 +116,23 @@ impl TaskFinalizer {
             FinalizationAction::Completed => {
                 // Record task completion counter
                 if let Some(counter) = TASK_COMPLETIONS_TOTAL.get() {
-                    counter.add(
-                        1,
-                        &[KeyValue::new("correlation_id", correlation_id.to_string())],
-                    );
+                    counter.add(1, &[]);
                 }
 
                 // Record finalization duration for completed tasks
                 if let Some(histogram) = TASK_FINALIZATION_DURATION.get() {
-                    histogram.record(
-                        duration_ms,
-                        &[
-                            KeyValue::new("correlation_id", correlation_id.to_string()),
-                            KeyValue::new("final_state", "complete"),
-                        ],
-                    );
+                    histogram.record(duration_ms, &[KeyValue::new("final_state", "complete")]);
                 }
             }
             FinalizationAction::Failed => {
                 // Record task failure counter
                 if let Some(counter) = TASK_FAILURES_TOTAL.get() {
-                    counter.add(
-                        1,
-                        &[KeyValue::new("correlation_id", correlation_id.to_string())],
-                    );
+                    counter.add(1, &[]);
                 }
 
                 // Record finalization duration for failed tasks
                 if let Some(histogram) = TASK_FINALIZATION_DURATION.get() {
-                    histogram.record(
-                        duration_ms,
-                        &[
-                            KeyValue::new("correlation_id", correlation_id.to_string()),
-                            KeyValue::new("final_state", "error"),
-                        ],
-                    );
+                    histogram.record(duration_ms, &[KeyValue::new("final_state", "error")]);
                 }
             }
             _ => {
@@ -150,16 +144,16 @@ impl TaskFinalizer {
                         FinalizationAction::NoAction => "no_action",
                         _ => "unknown",
                     };
-                    histogram.record(
-                        duration_ms,
-                        &[
-                            KeyValue::new("correlation_id", correlation_id.to_string()),
-                            KeyValue::new("final_state", state),
-                        ],
-                    );
+                    histogram.record(duration_ms, &[KeyValue::new("final_state", state)]);
                 }
             }
         }
+
+        event!(
+            Level::INFO,
+            action = ?finalization_result.action,
+            "task.finalization_completed"
+        );
 
         Ok(finalization_result)
     }

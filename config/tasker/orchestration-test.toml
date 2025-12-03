@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2025-11-13T13:33:23.356812+00:00
+# Generated: 2025-11-28T12:47:48.448844+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -199,14 +199,14 @@ max_concurrent_operations = 50
 max_retries = 3
 
 [orchestration.event_systems.orchestration.processing.backoff]
-initial_delay_ms = 100
+initial_delay_ms = 50
 jitter_percent = 0.1
-max_delay_ms = 10000
-multiplier = 2.0
+max_delay_ms = 500
+multiplier = 1.5
 
 [orchestration.event_systems.orchestration.timing]
 claim_timeout_seconds = 300
-fallback_polling_interval_seconds = 5
+fallback_polling_interval_seconds = 1
 health_check_interval_seconds = 30
 processing_timeout_seconds = 60
 visibility_timeout_seconds = 30
@@ -234,7 +234,7 @@ multiplier = 2.0
 
 [orchestration.event_systems.task_readiness.timing]
 claim_timeout_seconds = 300
-fallback_polling_interval_seconds = 5
+fallback_polling_interval_seconds = 1
 health_check_interval_seconds = 30
 processing_timeout_seconds = 60
 visibility_timeout_seconds = 30

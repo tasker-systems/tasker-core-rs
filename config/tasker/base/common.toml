@@ -112,6 +112,10 @@ blocked_by_failures = 120
 [common.task_templates]
 search_paths = ["config/tasks/**/*.{yml,yaml}"]
 
+# TODO: This section is currently unused. Telemetry is configured via environment
+# variables only (TELEMETRY_ENABLED, OTEL_SERVICE_NAME, etc.) because logging must
+# be initialized before the TOML config loader runs. See tasker-shared/src/logging.rs.
+# Consider removing this section or implementing a re-init pattern if needed.
 [common.telemetry]
 enabled = true
 service_name = "tasker-core"

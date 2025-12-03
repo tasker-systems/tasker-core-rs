@@ -8,7 +8,7 @@
 //! - Environment-based log level configuration
 //! - Domain-specific structured logging macros
 //! - TTY-aware ANSI color output
-//! - OpenTelemetry integration for distributed tracing (TAS-29 Phase 3)
+//! - OpenTelemetry integration for distributed tracing and log forwarding
 //!
 //! ## Distributed Tracing with correlation_id (TAS-29 Phase 2 + 3)
 //!
@@ -48,15 +48,18 @@
 //! 1. **Automatic Span Creation**: The `#[instrument]` macros on hot path functions
 //!    automatically create OpenTelemetry spans
 //!
-//! 2. **correlation_id in Spans**: Since correlation_id is always the first field in
-//!    structured logs, it's automatically captured in span attributes
+//! 2. **Log Forwarding**: All tracing logs are automatically forwarded to the OTLP
+//!    collector as OpenTelemetry logs, enabling unified observability
 //!
-//! 3. **Trace Context Propagation**: The TraceContextPropagator ensures trace context
+//! 3. **correlation_id in Spans and Logs**: Since correlation_id is always the first field in
+//!    structured logs, it's automatically captured in span attributes and log records
+//!
+//! 4. **Trace Context Propagation**: The TraceContextPropagator ensures trace context
 //!    flows across service boundaries following W3C Trace Context specification
 //!
-//! 4. **Service Mesh Integration**: correlation_id enables correlation between:
-//!    - Orchestration service spans
-//!    - Worker service spans
+//! 5. **Service Mesh Integration**: correlation_id enables correlation between:
+//!    - Orchestration service spans and logs
+//!    - Worker service spans and logs
 //!    - Database query traces
 //!    - Message queue operations
 //!
@@ -81,7 +84,7 @@
 //!
 //! ### Backend-Specific Configuration
 //!
-//! See `config/tasker/base/telemetry.toml` for commented examples of:
+//! Different observability backends can be configured via environment variables:
 //! - Honeycomb (professional observability platform)
 //! - Jaeger (open source tracing)
 //! - Grafana Tempo (open source tracing)
@@ -109,16 +112,13 @@ use uuid::Uuid;
 
 use crate::metrics;
 
-// OpenTelemetry imports (TAS-29 Phase 3)
-use opentelemetry::{
-    trace::{TraceError, TracerProvider as _},
-    KeyValue,
-};
+use opentelemetry::{trace::TracerProvider as _, KeyValue};
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
+    logs::SdkLoggerProvider,
     propagation::TraceContextPropagator,
-    runtime,
-    trace::{Sampler, TracerProvider},
+    trace::{Sampler, SdkTracerProvider},
     Resource,
 };
 use tracing_opentelemetry::OpenTelemetryLayer;
@@ -126,7 +126,10 @@ use tracing_opentelemetry::OpenTelemetryLayer;
 static TRACING_INITIALIZED: OnceLock<()> = OnceLock::new();
 /// Store TracerProvider handle for proper shutdown
 /// TAS-29: Enables graceful shutdown with span flushing
-static TRACER_PROVIDER: OnceLock<TracerProvider> = OnceLock::new();
+static TRACER_PROVIDER: OnceLock<SdkTracerProvider> = OnceLock::new();
+/// Store LoggerProvider handle for proper shutdown
+/// Enables graceful shutdown with log flushing
+static LOGGER_PROVIDER: OnceLock<SdkLoggerProvider> = OnceLock::new();
 
 /// Configuration for OpenTelemetry (loaded from environment or defaults)
 struct TelemetryConfig {
@@ -165,19 +168,24 @@ impl Default for TelemetryConfig {
 ///
 /// Creates a TracerProvider configured with OTLP exporter and appropriate
 /// resource attributes for distributed tracing.
-fn init_opentelemetry_tracer(config: &TelemetryConfig) -> Result<TracerProvider, TraceError> {
+fn init_opentelemetry_tracer(
+    config: &TelemetryConfig,
+) -> Result<SdkTracerProvider, Box<dyn std::error::Error>> {
     // Set global propagator for context propagation
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 
     // Build resource attributes
-    let resource = Resource::new(vec![
-        KeyValue::new("service.name", config.service_name.clone()),
-        KeyValue::new("service.version", config.service_version.clone()),
-        KeyValue::new(
-            "deployment.environment",
-            config.deployment_environment.clone(),
-        ),
-    ]);
+    // Build resource with builder pattern (OpenTelemetry 0.28+ API)
+    let resource = Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .with_attributes([
+            KeyValue::new("service.version", config.service_version.clone()),
+            KeyValue::new(
+                "deployment.environment",
+                config.deployment_environment.clone(),
+            ),
+        ])
+        .build();
 
     // Configure tracer with sampling
     let sampler = if config.sample_rate >= 1.0 {
@@ -188,25 +196,133 @@ fn init_opentelemetry_tracer(config: &TelemetryConfig) -> Result<TracerProvider,
         Sampler::TraceIdRatioBased(config.sample_rate)
     };
 
-    // Use the OTLP pipeline to build the tracer provider
-    let tracer_provider = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(&config.otlp_endpoint),
-        )
-        .with_trace_config(
-            opentelemetry_sdk::trace::Config::default()
-                .with_sampler(sampler)
-                .with_resource(resource),
-        )
-        .install_batch(runtime::Tokio)?;
+    // Build OTLP exporter (OpenTelemetry 0.27+ API)
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(config.otlp_endpoint.clone())
+        .build()?;
+
+    // Build tracer provider with sampler and resource
+    // OpenTelemetry 0.31+: Sampler is set directly on builder
+    // TAS-65: Use batch processor for non-blocking async export (not simple/sync)
+    let tracer_provider = SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(resource)
+        .with_sampler(sampler)
+        .build();
 
     // Store provider handle for graceful shutdown (TAS-29 Phase 3.3)
     let _ = TRACER_PROVIDER.set(tracer_provider.clone());
 
     Ok(tracer_provider)
+}
+
+/// Initialize OpenTelemetry logger provider for log forwarding
+///
+/// Creates a LoggerProvider configured with OTLP exporter to send logs
+/// to the observability backend.
+fn init_opentelemetry_logger(
+    config: &TelemetryConfig,
+) -> Result<SdkLoggerProvider, Box<dyn std::error::Error>> {
+    // Build resource attributes (same as tracer)
+    let resource = Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .with_attributes([
+            KeyValue::new("service.version", config.service_version.clone()),
+            KeyValue::new(
+                "deployment.environment",
+                config.deployment_environment.clone(),
+            ),
+        ])
+        .build();
+
+    // Build OTLP log exporter
+    let exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_tonic()
+        .with_endpoint(config.otlp_endpoint.clone())
+        .build()?;
+
+    // Build logger provider with batch processor
+    let logger_provider = SdkLoggerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(resource)
+        .build();
+
+    // Store provider handle for graceful shutdown
+    let _ = LOGGER_PROVIDER.set(logger_provider.clone());
+
+    Ok(logger_provider)
+}
+
+/// Initialize console-only logging (FFI-safe, no Tokio runtime required)
+///
+/// This function sets up structured console logging without OpenTelemetry,
+/// making it safe to call from FFI initialization contexts where no Tokio
+/// runtime exists yet.
+///
+/// # Use Cases
+///
+/// - Ruby FFI: Called during Magnus initialization before runtime creation
+/// - Python FFI: Called during PyO3 initialization before runtime creation
+/// - WASM FFI: Called during WASM initialization before runtime creation
+///
+/// # Pattern
+///
+/// ```rust
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// // Phase 1: FFI initialization (no Tokio runtime)
+/// tasker_shared::logging::init_console_only();
+///
+/// // Phase 2: After creating runtime (Tokio context)
+/// let runtime = tokio::runtime::Runtime::new()?;
+/// runtime.block_on(async {
+///     tasker_shared::logging::init_tracing();
+/// });
+/// # Ok(())
+/// # }
+/// ```
+pub fn init_console_only() {
+    TRACING_INITIALIZED.get_or_init(|| {
+        let environment = get_environment();
+        let log_level = get_log_level(&environment);
+
+        // Determine if we're in a TTY for ANSI color support
+        let use_ansi = IsTerminal::is_terminal(&std::io::stdout());
+
+        // Create base console layer
+        let console_layer = fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true)
+            .with_ansi(use_ansi)
+            .with_filter(EnvFilter::new(&log_level));
+
+        // Build subscriber with console layer only (no telemetry)
+        let subscriber = tracing_subscriber::registry().with(console_layer);
+
+        if subscriber.try_init().is_err() {
+            tracing::debug!(
+                "Global tracing subscriber already initialized - continuing with existing subscriber"
+            );
+        } else {
+            tracing::info!(
+                environment = %environment,
+                ansi_colors = use_ansi,
+                opentelemetry_enabled = false,
+                context = "ffi_initialization",
+                "Console-only logging initialized (FFI-safe mode)"
+            );
+        }
+
+        // Initialize basic metrics (no OpenTelemetry exporters)
+        metrics::init_metrics();
+
+        // Initialize domain-specific metrics
+        metrics::orchestration::init();
+        metrics::worker::init();
+        metrics::database::init();
+        metrics::messaging::init();
+    });
 }
 
 /// Initialize tracing with console output and optional OpenTelemetry
@@ -217,6 +333,31 @@ fn init_opentelemetry_tracer(config: &TelemetryConfig) -> Result<TracerProvider,
 ///
 /// When OpenTelemetry is enabled (via TELEMETRY_ENABLED=true), it also
 /// configures distributed tracing with OTLP exporter.
+///
+/// # Safety
+///
+/// **IMPORTANT**: When telemetry is enabled, this function MUST be called from
+/// a Tokio runtime context because the batch exporter requires async I/O.
+///
+/// For FFI contexts (Ruby, Python, WASM), use the two-phase initialization pattern:
+/// 1. Call `init_console_only()` during FFI initialization (no runtime required)
+/// 2. Call `init_tracing()` after creating the Tokio runtime
+///
+/// # Example: FFI Two-Phase Initialization
+///
+/// ```rust
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// // Phase 1: During FFI initialization (Magnus, PyO3, WASM)
+/// tasker_shared::logging::init_console_only();
+///
+/// // Phase 2: After runtime creation
+/// let runtime = tokio::runtime::Runtime::new()?;
+/// runtime.block_on(async {
+///     tasker_shared::logging::init_tracing();
+/// });
+/// # Ok(())
+/// # }
+/// ```
 pub fn init_tracing() {
     TRACING_INITIALIZED.get_or_init(|| {
         let environment = get_environment();
@@ -238,13 +379,17 @@ pub fn init_tracing() {
         let subscriber = tracing_subscriber::registry().with(console_layer);
 
         if telemetry_config.enabled {
-            // Initialize OpenTelemetry and add layer
-            match init_opentelemetry_tracer(&telemetry_config) {
-                Ok(tracer_provider) => {
+            // Initialize OpenTelemetry tracer and logger
+            match (init_opentelemetry_tracer(&telemetry_config), init_opentelemetry_logger(&telemetry_config)) {
+                (Ok(tracer_provider), Ok(logger_provider)) => {
+                    // Add trace layer
                     let tracer = tracer_provider.tracer("tasker-core");
                     let telemetry_layer = OpenTelemetryLayer::new(tracer);
 
-                    let subscriber = subscriber.with(telemetry_layer);
+                    // Add log layer (bridge tracing logs -> OTEL logs)
+                    let log_layer = OpenTelemetryTracingBridge::new(&logger_provider);
+
+                    let subscriber = subscriber.with(telemetry_layer).with(log_layer);
 
                     // Use try_init to avoid panic if global subscriber already set
                     if subscriber.try_init().is_err() {
@@ -254,14 +399,15 @@ pub fn init_tracing() {
                             environment = %environment,
                             ansi_colors = use_ansi,
                             opentelemetry_enabled = true,
+                            logs_enabled = true,
                             otlp_endpoint = %telemetry_config.otlp_endpoint,
                             service_name = %telemetry_config.service_name,
-                            "Console logging with OpenTelemetry initialized"
+                            "Console logging with OpenTelemetry (traces + logs) initialized"
                         );
                     }
                 }
-                Err(e) => {
-                    // Fall back to console-only logging
+                (Err(trace_err), Ok(_)) => {
+                    // Tracer failed but logger succeeded - fall back to console only
                     let subscriber = subscriber;
                     if subscriber.try_init().is_err() {
                         tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
@@ -269,8 +415,37 @@ pub fn init_tracing() {
                         tracing::warn!(
                             environment = %environment,
                             ansi_colors = use_ansi,
-                            error = %e,
-                            "Failed to initialize OpenTelemetry - falling back to console-only logging"
+                            error = %trace_err,
+                            "Failed to initialize OpenTelemetry tracer - falling back to console-only logging"
+                        );
+                    }
+                }
+                (Ok(_), Err(log_err)) => {
+                    // Logger failed but tracer succeeded - fall back to console only
+                    let subscriber = subscriber;
+                    if subscriber.try_init().is_err() {
+                        tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                    } else {
+                        tracing::warn!(
+                            environment = %environment,
+                            ansi_colors = use_ansi,
+                            error = %log_err,
+                            "Failed to initialize OpenTelemetry logger - falling back to console-only logging"
+                        );
+                    }
+                }
+                (Err(trace_err), Err(log_err)) => {
+                    // Both failed - fall back to console only
+                    let subscriber = subscriber;
+                    if subscriber.try_init().is_err() {
+                        tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                    } else {
+                        tracing::warn!(
+                            environment = %environment,
+                            ansi_colors = use_ansi,
+                            trace_error = %trace_err,
+                            log_error = %log_err,
+                            "Failed to initialize OpenTelemetry tracer and logger - falling back to console-only logging"
                         );
                     }
                 }
@@ -303,30 +478,50 @@ pub fn init_tracing() {
 /// Shutdown OpenTelemetry gracefully
 ///
 /// This should be called before application exit to ensure all pending
-/// spans and metrics are exported.
+/// spans, logs, and metrics are exported.
 ///
-/// # Shutdown Ordering (TAS-29 Phase 3.3)
+/// # Shutdown Ordering
 ///
 /// Proper shutdown sequence prevents "channel closed" errors:
 /// 1. Flush TracerProvider to export pending spans
-/// 2. Shutdown metrics to flush pending metrics
-/// 3. Shutdown global tracer provider last
+/// 2. Flush LoggerProvider to export pending logs
+/// 3. Shutdown metrics to flush pending metrics
+/// 4. Shutdown tracer and logger providers
 pub fn shutdown_telemetry() {
     // Flush any pending spans before shutdown
     if let Some(provider) = TRACER_PROVIDER.get() {
         // Force flush to ensure all spans are exported
-        for result in provider.force_flush() {
-            if let Err(e) = result {
-                tracing::warn!("Failed to flush tracer provider: {}", e);
-            }
+        // OpenTelemetry 0.31+: force_flush() returns Result<(), TraceError>
+        if let Err(e) = provider.force_flush() {
+            tracing::warn!("Failed to flush tracer provider: {}", e);
+        }
+    }
+
+    // Flush any pending logs before shutdown
+    if let Some(provider) = LOGGER_PROVIDER.get() {
+        // Force flush to ensure all logs are exported
+        if let Err(e) = provider.force_flush() {
+            tracing::warn!("Failed to flush logger provider: {}", e);
         }
     }
 
     // Shutdown metrics (will flush any pending metrics)
     metrics::shutdown_metrics();
 
-    // Now safe to shutdown - all pending spans and metrics have been exported
-    opentelemetry::global::shutdown_tracer_provider();
+    // Shutdown tracer provider if it was initialized
+    // OpenTelemetry 0.31+: Call shutdown() on the provider instance
+    if let Some(provider) = TRACER_PROVIDER.get() {
+        if let Err(e) = provider.shutdown() {
+            tracing::error!("Failed to shutdown tracer provider: {}", e);
+        }
+    }
+
+    // Shutdown logger provider if it was initialized
+    if let Some(provider) = LOGGER_PROVIDER.get() {
+        if let Err(e) = provider.shutdown() {
+            tracing::error!("Failed to shutdown logger provider: {}", e);
+        }
+    }
 }
 
 /// Legacy alias for backward compatibility

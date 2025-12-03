@@ -5,15 +5,64 @@
 # - Fast debug builds with optimized Dockerfile.test-local
 # - BuildKit cache configuration for faster rebuilds
 # - Always builds from local source (no cached images)
+# - Grafana LGTM stack for OpenTelemetry observability (TAS-65 Phase 1)
 # - Minimal resource usage
 # - Quick startup times
 #
 # Usage:
 # export DOCKER_BUILDKIT=1
 # export COMPOSE_DOCKER_CLI_BUILD=1
-# docker-compose -f docker/docker-compose.test-local.yml up --build
+# docker-compose -f docker/docker-compose.test.yml up --build
+#
+# Access:
+# - Grafana UI: http://localhost:3000 (admin/admin)
+# - PostgreSQL: localhost:5432
+# - Orchestration: http://localhost:8080
+# - Rust Worker: http://localhost:8081
+# - Ruby Worker: http://localhost:8082
+# - OTLP gRPC: localhost:4317
+# - Prometheus: http://localhost:9090
 
 services:
+  # ==========================================================================
+  # Grafana LGTM Stack - All-in-One Observability (TAS-65 Phase 1)
+  # ==========================================================================
+  # Includes: Loki (logs), Grafana (UI), Tempo (traces), Mimir (metrics)
+  # OpenTelemetry integration for distributed tracing and metrics
+  observability:
+    image: grafana/otel-lgtm:latest
+    container_name: tasker-test-observability
+    ports:
+      # Grafana UI
+      - "3000:3000"
+      # OTLP receivers
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      # Prometheus metrics
+      - "9090:9090"
+      # Tempo query
+      - "3200:3200"
+    environment:
+      # Enable all features
+      ENABLE_LOGS: "true"
+      ENABLE_METRICS: "true"
+      ENABLE_TRACES: "true"
+    volumes:
+      # Persist Grafana dashboards and data sources
+      - grafana_data:/var/lib/grafana
+      # Persist Tempo traces
+      - tempo_data:/var/tempo
+      # Persist Loki logs
+      - loki_data:/loki
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ready || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - tasker-test
+
   # ==========================================================================
   # PostgreSQL Database with PGMQ Extension
   # ==========================================================================
@@ -76,12 +125,19 @@ services:
       DB_MIGRATION_RETRIES: "3"
       DB_MIGRATION_RETRY_DELAY: "5"
       DB_MIGRATION_TIMEOUT: "120"
+      # TAS-65 Phase 1: OpenTelemetry configuration
+      TELEMETRY_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://observability:4317
+      OTEL_SERVICE_NAME: tasker-orchestration
+      OTEL_SERVICE_VERSION: "0.1.0"
     ports:
       - "8080:8080"
     volumes:
       - ../config/tasker:/app/config/tasker:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      observability:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -119,6 +175,12 @@ services:
       # Point to fixture files for E2E tests
       TASKER_FIXTURE_PATH: /app/tests/fixtures
       PORT: 8081
+      # TAS-65 Phase 1: OpenTelemetry configuration
+      # Testing: Rust worker has #[tokio::main] so should work
+      TELEMETRY_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://observability:4317
+      OTEL_SERVICE_NAME: tasker-rust-worker
+      OTEL_SERVICE_VERSION: "0.1.0"
     ports:
       - "8081:8081"
     volumes:
@@ -129,6 +191,8 @@ services:
       - ../tests/fixtures:/app/tests/fixtures:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      observability:
         condition: service_healthy
       orchestration:
         condition: service_healthy
@@ -170,8 +234,17 @@ services:
       # Ruby environment
       RUBY_WORKER_ENABLED: "true"
       BUNDLE_GEMFILE: /app/ruby_worker/Gemfile
-      # Service configuration
-      PORT: 8082
+      # Service configuration - internal port matches Rust worker
+      # External port 8082 is mapped via Docker, internal binding is 8081
+      PORT: 8081
+      # TAS-65 Phase 1: OpenTelemetry configuration
+      # ENABLED: Two-phase FFI telemetry initialization pattern implemented
+      # Phase 1: Magnus init skips telemetry (no runtime)
+      # Phase 2: bootstrap_worker() initializes telemetry in Tokio context
+      TELEMETRY_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://observability:4317
+      OTEL_SERVICE_NAME: tasker-ruby-worker
+      OTEL_SERVICE_VERSION: "0.1.0"
     ports:
       - "8082:8081" # Map to 8082 externally, 8081 internally (same as Rust worker)
     volumes:
@@ -184,6 +257,8 @@ services:
       - ../workers/ruby/spec/handlers:/app/ruby_worker/spec/handlers:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      observability:
         condition: service_healthy
       orchestration:
         condition: service_healthy
@@ -198,6 +273,9 @@ services:
 
 volumes:
   postgres_data:
+  grafana_data:
+  tempo_data:
+  loki_data:
 
 networks:
   tasker-test:

@@ -16,7 +16,7 @@ use tasker_shared::models::core::task_template::{StepDefinition, TaskTemplate};
 use tasker_shared::models::core::workflow_step_edge::NewWorkflowStepEdge;
 use tasker_shared::models::{Task, WorkflowStep, WorkflowStepEdge};
 use tasker_shared::system_context::SystemContext;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, event, info, instrument, warn, Level};
 
 /// Errors that can occur during decision point processing
 #[derive(Debug, thiserror::Error)]
@@ -102,11 +102,14 @@ impl DecisionPointService {
         task_uuid: Uuid,
         outcome: DecisionPointOutcome,
     ) -> Result<HashMap<String, Uuid>, DecisionPointProcessingError> {
+        event!(Level::INFO, "decision_outcome.processing_started");
+
         // TAS-53 Phase 7: Start timing for metrics
         let start_time = Instant::now();
 
         // TAS-53 Phase 7: Check if decision points are enabled
         if !self.config.is_enabled() {
+            event!(Level::WARN, "decision_points.disabled");
             warn!(
                 decision_step_uuid = %decision_step_uuid,
                 "Decision points are disabled in configuration, skipping processing"
@@ -117,15 +120,9 @@ impl DecisionPointService {
         // If no steps to create, return early
         if !outcome.requires_step_creation() {
             // TAS-53 Phase 7: Record metric for no_branches outcome
-            let correlation_id = Task::find_by_id(self.context.database_pool(), task_uuid)
-                .await?
-                .map(|t| t.correlation_id)
-                .unwrap_or(task_uuid);
-
             decision_outcomes_processed_total().add(
                 1,
                 &[
-                    KeyValue::new("correlation_id", correlation_id.to_string()),
                     KeyValue::new("decision_name", "unknown"),
                     KeyValue::new("outcome_type", "no_branches"),
                 ],
@@ -166,13 +163,7 @@ impl DecisionPointService {
             );
 
             // Record warning metric
-            decision_warnings_total().add(
-                1,
-                &[
-                    KeyValue::new("warning_type", "step_count"),
-                    KeyValue::new("correlation_id", task_uuid.to_string()),
-                ],
-            );
+            decision_warnings_total().add(1, &[KeyValue::new("warning_type", "step_count")]);
         }
 
         info!(
@@ -244,7 +235,6 @@ impl DecisionPointService {
 
         // Validate outcome against template
         // TAS-53 Phase 7: Record error metrics on validation failure
-        let correlation_id = task.correlation_id;
         if let Err(e) = self.validate_outcome(&task_template, &decision_step_def, &step_names) {
             let error_type = match &e {
                 DecisionPointProcessingError::InvalidDescendant { .. } => "invalid_descendant",
@@ -255,7 +245,6 @@ impl DecisionPointService {
             decision_validation_errors_total().add(
                 1,
                 &[
-                    KeyValue::new("correlation_id", correlation_id.to_string()),
                     KeyValue::new("decision_name", decision_step_def.name.clone()),
                     KeyValue::new("error_type", error_type),
                 ],
@@ -284,7 +273,6 @@ impl DecisionPointService {
                 decision_validation_errors_total().add(
                     1,
                     &[
-                        KeyValue::new("correlation_id", correlation_id.to_string()),
                         KeyValue::new("decision_name", decision_step_def.name.clone()),
                         KeyValue::new("error_type", "cycle_detected"),
                     ],
@@ -298,14 +286,12 @@ impl DecisionPointService {
         // TAS-53 Phase 7: Record success metrics
         let duration_ms = start_time.elapsed().as_millis() as f64;
         let step_count = step_mapping.len();
-        let correlation_id = task.correlation_id;
         let decision_name = &decision_step_def.name;
 
         // Record outcome processed
         decision_outcomes_processed_total().add(
             1,
             &[
-                KeyValue::new("correlation_id", correlation_id.to_string()),
                 KeyValue::new("decision_name", decision_name.clone()),
                 KeyValue::new("outcome_type", "create_steps"),
             ],
@@ -314,10 +300,7 @@ impl DecisionPointService {
         // Record steps created count
         decision_steps_created_total().add(
             step_count as u64,
-            &[
-                KeyValue::new("correlation_id", correlation_id.to_string()),
-                KeyValue::new("decision_name", decision_name.clone()),
-            ],
+            &[KeyValue::new("decision_name", decision_name.clone())],
         );
 
         // Record step count distribution
@@ -330,7 +313,6 @@ impl DecisionPointService {
         decision_processing_duration().record(
             duration_ms,
             &[
-                KeyValue::new("correlation_id", correlation_id.to_string()),
                 KeyValue::new("decision_name", decision_name.clone()),
                 KeyValue::new("outcome_type", "create_steps"),
             ],
@@ -342,6 +324,12 @@ impl DecisionPointService {
             steps_created = step_count,
             duration_ms = duration_ms,
             "Decision outcome processed successfully"
+        );
+
+        event!(
+            Level::INFO,
+            steps_created = step_count,
+            "decision_outcome.processing_completed"
         );
 
         Ok(step_mapping)

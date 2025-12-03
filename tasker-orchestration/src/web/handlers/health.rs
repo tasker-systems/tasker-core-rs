@@ -184,21 +184,36 @@ pub async fn detailed_health(State(state): State<AppState>) -> Json<DetailedHeal
 pub async fn prometheus_metrics(State(state): State<AppState>) -> Html<String> {
     let mut metrics = Vec::new();
 
+    // TAS-65 Phase 1: Get OpenTelemetry metrics in Prometheus format
+    // This includes all task_state_transitions_total, step_state_transitions_total,
+    // and other OpenTelemetry metrics from the global meter provider
+    let exporter = tasker_shared::metrics::prometheus_exporter();
+    let mut output = Vec::new();
+    if let Err(e) = exporter.export(&mut output) {
+        tracing::error!("Failed to export Prometheus metrics: {}", e);
+    } else {
+        let otel_metrics = String::from_utf8_lossy(&output).to_string();
+        metrics.push(otel_metrics);
+    }
+
+    // Custom orchestration-specific metrics (not managed by OpenTelemetry)
+    let mut custom_metrics = Vec::new();
+
     // Basic service information
-    metrics.push(format!(
+    custom_metrics.push(format!(
         "# HELP tasker_orchestration_info Orchestration service information\n# TYPE tasker_orchestration_info gauge\ntasker_orchestration_info{{version=\"{}\"}} 1",
         env!("CARGO_PKG_VERSION")
     ));
 
     // Orchestration system status
     let status = state.orchestration_status.read().await;
-    metrics.push(format!(
+    custom_metrics.push(format!(
         "# HELP tasker_orchestration_running Orchestration system running status\n# TYPE tasker_orchestration_running gauge\ntasker_orchestration_running {{}} {}",
         if status.running { 1 } else { 0 }
     ));
 
     // Database pool metrics
-    metrics.push(format!(
+    custom_metrics.push(format!(
         "# HELP tasker_orchestration_db_pool_size Database connection pool size\n# TYPE tasker_orchestration_db_pool_size gauge\ntasker_orchestration_db_pool_size {{}} {}",
         state.orchestration_db_pool.size()
     ));
@@ -210,7 +225,7 @@ pub async fn prometheus_metrics(State(state): State<AppState>) -> Html<String> {
         crate::web::circuit_breaker::CircuitState::HalfOpen => 1,
         crate::web::circuit_breaker::CircuitState::Open => 2,
     };
-    metrics.push(format!(
+    custom_metrics.push(format!(
         "# HELP tasker_orchestration_circuit_breaker_state Circuit breaker state (0=closed, 1=half-open, 2=open)\n# TYPE tasker_orchestration_circuit_breaker_state gauge\ntasker_orchestration_circuit_breaker_state {{}} {}",
         cb_state_value
     ));
@@ -232,11 +247,14 @@ pub async fn prometheus_metrics(State(state): State<AppState>) -> Html<String> {
             _ => 0,
         };
 
-        metrics.push(format!(
+        custom_metrics.push(format!(
             "# HELP tasker_orchestration_channel_health Channel health status (0=healthy, 1=degraded, 2=critical)\n# TYPE tasker_orchestration_channel_health gauge\ntasker_orchestration_channel_health{{channel_name=\"{}\",component=\"{}\"}} {}",
             channel_name, component, health_value
         ));
     }
+
+    // Append custom metrics after OpenTelemetry metrics
+    metrics.push(custom_metrics.join("\n\n"));
 
     Html(metrics.join("\n\n"))
 }

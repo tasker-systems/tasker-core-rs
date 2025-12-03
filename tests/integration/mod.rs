@@ -4,6 +4,7 @@ mod conditional_approval_workflow;
 mod diamond_decision_batch_workflow;
 mod diamond_workflow;
 mod dlq_lifecycle_test;
+mod domain_event_workflow; // TAS-65: Domain event publishing workflow
 mod linear_workflow;
 mod manual_step_completion_test;
 mod metrics;

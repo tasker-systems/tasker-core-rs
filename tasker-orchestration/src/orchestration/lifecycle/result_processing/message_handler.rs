@@ -92,13 +92,7 @@ impl MessageHandler {
         };
 
         if let Some(counter) = STEP_RESULTS_PROCESSED_TOTAL.get() {
-            counter.add(
-                1,
-                &[
-                    KeyValue::new("correlation_id", correlation_id.to_string()),
-                    KeyValue::new("result_type", result_type),
-                ],
-            );
+            counter.add(1, &[KeyValue::new("result_type", result_type)]);
         }
 
         // TAS-29 Phase 3.3: Start timing result processing
@@ -187,13 +181,7 @@ impl MessageHandler {
         // TAS-29 Phase 3.3: Record step result processing duration
         let duration_ms = start_time.elapsed().as_millis() as f64;
         if let Some(histogram) = STEP_RESULT_PROCESSING_DURATION.get() {
-            histogram.record(
-                duration_ms,
-                &[
-                    KeyValue::new("correlation_id", correlation_id.to_string()),
-                    KeyValue::new("result_type", result_type),
-                ],
-            );
+            histogram.record(duration_ms, &[KeyValue::new("result_type", result_type)]);
         }
 
         result

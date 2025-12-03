@@ -33,11 +33,20 @@ event_channel_buffer_size = 100
 completion_buffer_size = 100
 result_buffer_size = 100
 
+# TAS-65: In-process event bus - smaller buffers for testing
 [worker.mpsc_channels.in_process_events]
 broadcast_buffer_size = 1000
+log_subscriber_errors = true
+dispatch_timeout_ms = 2000
 
 [worker.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 100
+
+# TAS-65/TAS-69: Domain Event System - smaller buffers for testing
+[worker.mpsc_channels.domain_events]
+command_buffer_size = 100
+shutdown_drain_timeout_ms = 1000
+log_dropped_events = true
 
 [worker.web]
 # Increased from 5000ms to 30000ms to support complex operations

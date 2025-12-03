@@ -389,6 +389,34 @@ impl IntegrationTestManager {
     pub async fn full_integration() -> Result<Self> {
         Self::setup().await
     }
+
+    /// Quick setup for Ruby worker integration tests
+    ///
+    /// Uses the ruby-worker on port 8082 by default (unless overridden by
+    /// `TASKER_TEST_RUBY_WORKER_URL` environment variable).
+    ///
+    /// Environment variable:
+    /// - `TASKER_TEST_RUBY_WORKER_URL` - Specific Ruby worker URL (CI uses this)
+    /// - Default: `http://localhost:8082`
+    ///
+    /// Note: This intentionally does NOT fall back to `TASKER_TEST_WORKER_URL` because
+    /// that variable is typically set to the Rust worker (8081) in CI environments.
+    ///
+    /// Docker port mappings:
+    /// - Rust worker: `8081:8081` (external 8081 → internal 8081)
+    /// - Ruby worker: `8082:8081` (external 8082 → internal 8081)
+    pub async fn setup_ruby_worker() -> Result<Self> {
+        // Use Ruby-specific URL if set, otherwise default to Ruby worker port
+        let ruby_worker_url = std::env::var("TASKER_TEST_RUBY_WORKER_URL")
+            .unwrap_or_else(|_| "http://localhost:8082".to_string());
+
+        let config = IntegrationConfig {
+            worker_url: Some(ruby_worker_url),
+            ..Default::default()
+        };
+
+        Self::setup_with_config(config).await
+    }
 }
 
 #[cfg(test)]

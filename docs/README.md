@@ -1,6 +1,6 @@
 # Tasker Core Documentation
 
-**Last Updated**: 2025-10-17
+**Last Updated**: 2025-12-01
 **Project Status**: Production Ready
 **Version**: 0.1.0
 
@@ -29,6 +29,7 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 - **[Crate Architecture](crate-architecture.md)** - Workspace structure and crate responsibilities
 - **[Actor-Based Architecture](actors.md)** - Lightweight actor pattern for lifecycle components (TAS-46)
 - **[Events and Commands Architecture](events-and-commands.md)** - Event-driven coordination patterns
+- **[Domain Events](domain-events.md)** - Business event publishing (durable, fast, broadcast modes)
 - **[States and Lifecycles](states-and-lifecycles.md)** - Dual state machine architecture
 - **[Idempotency and Atomicity](idempotency-and-atomicity.md)** - Defense-in-depth guarantees for distributed orchestration
 - **[Deployment Patterns](deployment-patterns.md)** - Hybrid, EventDriven, and PollingOnly modes
@@ -88,6 +89,7 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 | **[Crate Architecture](crate-architecture.md)** | Workspace structure and crate roles | All |
 | **[Actor-Based Architecture](actors.md)** | Lightweight actor pattern for lifecycle components (TAS-46) | Architects, Developers |
 | **[Events and Commands](events-and-commands.md)** | Event-driven coordination and command patterns | Architects, Developers |
+| **[Domain Events](domain-events.md)** | Business event publishing (durable, fast, broadcast) | Architects, Developers |
 | **[States and Lifecycles](states-and-lifecycles.md)** | Task and step state machines | All |
 | **[Idempotency and Atomicity](idempotency-and-atomicity.md)** | Defense-in-depth guarantees for distributed orchestration | Architects, Developers |
 | **[Task Readiness & Execution](task-and-step-readiness-and-execution.md)** | SQL functions and orchestration logic | Developers, Architects |
@@ -145,6 +147,7 @@ tasker-core/
 
     Core Architecture
       events-and-commands.md         # Event-driven coordination
+      domain-events.md               # Business event publishing (TAS-65)
       states-and-lifecycles.md       # State machine architecture
       idempotency-and-atomicity.md   # Defense-in-depth guarantees
       task-and-step-readiness-and-execution.md  # SQL functions
@@ -159,6 +162,7 @@ tasker-core/
         metrics-reference.md         # Complete metrics catalog
         metrics-verification.md
         logging-standards.md
+        opentelemetry-improvements.md # TAS-65 telemetry enhancements
 
       benchmarks/
         README.md                    # Benchmark suite overview
@@ -192,6 +196,7 @@ tasker-core/
         TAS-49/  # Future enhancements
         TAS-50/  # Configuration CLI & Single-File Runtime Loading
         TAS-54/  # Idempotency Audit & Processor Ownership Removal
+        TAS-65/  # Distributed Event System Architecture
 
     Archive
       archive/
@@ -251,6 +256,7 @@ See **[Crate Architecture](crate-architecture.md)** for detailed explanations.
 - **"I need to process large datasets in parallel"** -> [Batch Processing](batch-processing.md)
 - **"I have a stuck or failing task that needs investigation"** -> [DLQ System](dlq-system.md)
 - **"I need to understand the architecture"** -> [Crate Architecture](crate-architecture.md), [Events and Commands](events-and-commands.md)
+- **"I want to publish business events from my handlers"** -> [Domain Events](domain-events.md)
 - **"I need to understand how concurrency is handled"** -> [Idempotency and Atomicity](idempotency-and-atomicity.md)
 - **"I'm debugging a race condition or data corruption"** -> [Idempotency and Atomicity](idempotency-and-atomicity.md), [States and Lifecycles](states-and-lifecycles.md)
 - **"I'm configuring a deployment"** -> [Configuration Management](configuration-management.md) (see Part 5: Deployment Workflows with TAS-50 Phase 3), [Environment Comparison](environment-configuration-comparison.md)

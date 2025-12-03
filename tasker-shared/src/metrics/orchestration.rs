@@ -46,34 +46,33 @@ fn meter() -> &'static Meter {
 
 /// Total number of task requests received
 ///
-/// Labels:
-/// - correlation_id: Request correlation ID
-/// - task_type: Task handler type
+/// Labels (low-cardinality only):
 /// - namespace: Task namespace
+/// - task_type: Task handler type
+///
+/// Note: correlation_id is tracked in spans/logs, not metrics.
 pub fn task_requests_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.tasks.requests.total")
         .with_description("Total number of task requests received")
-        .init()
+        .build()
 }
 
 /// Total number of tasks completed successfully
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - task_type: Task handler type
 /// - namespace: Task namespace
 pub fn task_completions_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.tasks.completions.total")
         .with_description("Total number of tasks completed successfully")
-        .init()
+        .build()
 }
 
 /// Total number of tasks that failed
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - task_type: Task handler type
 /// - namespace: Task namespace
 /// - error_type: Category of failure
@@ -81,33 +80,31 @@ pub fn task_failures_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.tasks.failures.total")
         .with_description("Total number of tasks that failed")
-        .init()
+        .build()
 }
 
 /// Total number of steps enqueued for execution
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - namespace: Worker namespace
 /// - step_name: Name of the step
 pub fn steps_enqueued_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.steps.enqueued.total")
         .with_description("Total number of steps enqueued for execution")
-        .init()
+        .build()
 }
 
 /// Total number of step results processed
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - namespace: Worker namespace
 /// - result_type: success, error, cancelled
 pub fn step_results_processed_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.steps.results_processed.total")
         .with_description("Total number of step results processed")
-        .init()
+        .build()
 }
 
 // Histograms
@@ -117,14 +114,13 @@ pub fn step_results_processed_total() -> Counter<u64> {
 /// Tracks time from task request to first steps enqueued.
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - task_type: Task handler type
 pub fn task_initialization_duration() -> Histogram<f64> {
     meter()
         .f64_histogram("tasker.task.initialization.duration")
         .with_description("Task initialization duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Task finalization duration in milliseconds
@@ -132,14 +128,13 @@ pub fn task_initialization_duration() -> Histogram<f64> {
 /// Tracks time to finalize task after last step completion.
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - final_state: Task final state (complete, error, cancelled)
 pub fn task_finalization_duration() -> Histogram<f64> {
     meter()
         .f64_histogram("tasker.task.finalization.duration")
         .with_description("Task finalization duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Step result processing duration in milliseconds
@@ -147,14 +142,13 @@ pub fn task_finalization_duration() -> Histogram<f64> {
 /// Tracks time to process step result and discover next steps.
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - result_type: success, error, cancelled
 pub fn step_result_processing_duration() -> Histogram<f64> {
     meter()
         .f64_histogram("tasker.step_result.processing.duration")
         .with_description("Step result processing duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 // Gauges
@@ -169,7 +163,7 @@ pub fn active_tasks() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.tasks.active")
         .with_description("Number of tasks currently in active processing states")
-        .init()
+        .build()
 }
 
 /// Number of steps ready to be enqueued
@@ -182,7 +176,7 @@ pub fn ready_steps() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.steps.ready")
         .with_description("Number of steps ready to be enqueued")
-        .init()
+        .build()
 }
 
 // ============================================================================
@@ -200,7 +194,7 @@ pub fn tasks_excluded_staleness_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.tasks.excluded_staleness.total")
         .with_description("Total number of tasks excluded from discovery due to staleness")
-        .init()
+        .build()
 }
 
 /// Distribution of computed priority values for discovered tasks
@@ -213,7 +207,7 @@ pub fn computed_priority_histogram() -> Histogram<f64> {
     meter()
         .f64_histogram("tasker.task.computed_priority")
         .with_description("Distribution of computed priority values")
-        .init()
+        .build()
 }
 
 /// Task age at discovery time in seconds
@@ -221,14 +215,13 @@ pub fn computed_priority_histogram() -> Histogram<f64> {
 /// Tracks how long tasks wait before being discovered.
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - task_state: pending, waiting_for_dependencies, waiting_for_retry
 pub fn task_age_at_discovery_seconds() -> Histogram<f64> {
     meter()
         .f64_histogram("tasker.task.age_at_discovery")
         .with_description("Task age at discovery time in seconds")
         .with_unit("s")
-        .init()
+        .build()
 }
 
 /// Discovery pool saturation ratio
@@ -242,7 +235,7 @@ pub fn discovery_pool_saturation() -> Gauge<f64> {
     meter()
         .f64_gauge("tasker.discovery.pool_saturation")
         .with_description("Discovery pool saturation ratio (candidates / limit)")
-        .init()
+        .build()
 }
 
 // Static instances for convenience
@@ -298,51 +291,47 @@ pub static DISCOVERY_POOL_SATURATION: OnceLock<Gauge<f64>> = OnceLock::new();
 /// Total number of decision point outcomes processed
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - decision_name: Name of the decision step
 /// - outcome_type: no_branches, create_steps
 pub fn decision_outcomes_processed_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.decision_points.outcomes_processed.total")
         .with_description("Total number of decision point outcomes processed")
-        .init()
+        .build()
 }
 
 /// Total number of workflow steps created from decision points
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - decision_name: Name of the decision step
 pub fn decision_steps_created_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.decision_points.steps_created.total")
         .with_description("Total number of workflow steps created from decision points")
-        .init()
+        .build()
 }
 
 /// Total number of decision point validation errors
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - decision_name: Name of the decision step
 /// - error_type: invalid_descendant, cycle_detected, step_not_found
 pub fn decision_validation_errors_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.decision_points.validation_errors.total")
         .with_description("Total number of decision point validation errors")
-        .init()
+        .build()
 }
 
 /// Total number of decision point warning thresholds exceeded
 ///
 /// Labels:
 /// - warning_type: step_count, decision_depth
-/// - correlation_id: Request correlation ID
 pub fn decision_warnings_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.decision_points.warnings.total")
         .with_description("Total number of decision point warning thresholds exceeded")
-        .init()
+        .build()
 }
 
 /// Decision point processing duration in milliseconds
@@ -350,7 +339,6 @@ pub fn decision_warnings_total() -> Counter<u64> {
 /// Tracks time to validate and create steps from decision outcomes.
 ///
 /// Labels:
-/// - correlation_id: Request correlation ID
 /// - decision_name: Name of the decision step
 /// - outcome_type: no_branches, create_steps
 pub fn decision_processing_duration() -> Histogram<f64> {
@@ -358,7 +346,7 @@ pub fn decision_processing_duration() -> Histogram<f64> {
         .f64_histogram("tasker.decision_point.processing.duration")
         .with_description("Decision point processing duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Distribution of step counts created by decision points
@@ -371,7 +359,7 @@ pub fn decision_step_count_histogram() -> Histogram<u64> {
     meter()
         .u64_histogram("tasker.decision_point.step_count")
         .with_description("Distribution of step counts created by decision points")
-        .init()
+        .build()
 }
 
 // TAS-53: Decision point metrics statics
@@ -403,14 +391,13 @@ pub static DECISION_STEP_COUNT_HISTOGRAM: OnceLock<Histogram<u64>> = OnceLock::n
 /// Tracks tasks sent to DLQ for investigation.
 ///
 /// Labels:
-/// - correlation_id: Task correlation ID
 /// - dlq_reason: staleness_timeout, max_retries_exceeded, dependency_cycle_detected, worker_unavailable, manual_dlq
 /// - original_state: Task state when sent to DLQ
 pub fn dlq_entries_created_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.dlq.entries_created.total")
         .with_description("Total number of DLQ entries created")
-        .init()
+        .build()
 }
 
 /// Total number of stale tasks detected
@@ -424,7 +411,7 @@ pub fn stale_tasks_detected_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.staleness.tasks_detected.total")
         .with_description("Total number of stale tasks detected")
-        .init()
+        .build()
 }
 
 /// Total number of tasks transitioned to Error state due to staleness
@@ -432,14 +419,13 @@ pub fn stale_tasks_detected_total() -> Counter<u64> {
 /// Tracks tasks automatically moved to Error state by staleness detection.
 ///
 /// Labels:
-/// - correlation_id: Task correlation ID
 /// - original_state: State before transition
 /// - reason: staleness_timeout
 pub fn tasks_transitioned_to_error_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.staleness.tasks_transitioned_to_error.total")
         .with_description("Total number of tasks transitioned to Error state due to staleness")
-        .init()
+        .build()
 }
 
 /// Total number of staleness detection runs
@@ -452,7 +438,7 @@ pub fn staleness_detection_runs_total() -> Counter<u64> {
     meter()
         .u64_counter("tasker.staleness.detection_runs.total")
         .with_description("Total number of staleness detection runs")
-        .init()
+        .build()
 }
 
 /// Staleness detection execution duration in milliseconds
@@ -467,7 +453,7 @@ pub fn staleness_detection_duration() -> Histogram<f64> {
         .f64_histogram("tasker.staleness.detection.duration")
         .with_description("Staleness detection execution duration in milliseconds")
         .with_unit("ms")
-        .init()
+        .build()
 }
 
 /// Task time in DLQ in hours
@@ -482,7 +468,7 @@ pub fn task_time_in_dlq_hours() -> Histogram<f64> {
         .f64_histogram("tasker.dlq.time_in_queue")
         .with_description("Task time in DLQ in hours")
         .with_unit("h")
-        .init()
+        .build()
 }
 
 /// Number of pending DLQ investigations
@@ -495,7 +481,7 @@ pub fn dlq_pending_investigations() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.dlq.pending_investigations")
         .with_description("Number of pending DLQ investigations")
-        .init()
+        .build()
 }
 
 // TAS-49: DLQ and lifecycle metrics statics
@@ -520,6 +506,68 @@ pub static TASK_TIME_IN_DLQ_HOURS: OnceLock<Histogram<f64>> = OnceLock::new();
 
 /// Static gauge: dlq_pending_investigations
 pub static DLQ_PENDING_INVESTIGATIONS: OnceLock<Gauge<u64>> = OnceLock::new();
+
+// ============================================================================
+// TAS-65: Task State Machine Event Metrics
+// ============================================================================
+
+/// Total number of task state transitions
+///
+/// Tracks all state machine transitions for tasks with low-cardinality labels.
+///
+/// Labels (low-cardinality only):
+/// - namespace: Task namespace (payments, inventory, notifications, etc.)
+/// - from_state: Source state (pending, initializing, enqueuing_steps, etc.)
+/// - to_state: Target state
+///
+/// Note: High-cardinality IDs (task_uuid, correlation_id) are in spans/logs, not metrics.
+pub fn task_state_transitions_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.task.state_transitions.total")
+        .with_description("Total number of task state transitions")
+        .build()
+}
+
+/// Time spent in each task state in seconds
+///
+/// Tracks duration between state entry and exit.
+///
+/// Labels:
+/// - state: Task state (pending, initializing, enqueuing_steps, etc.)
+/// - namespace: Task namespace
+pub fn task_state_duration_seconds() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.task.state_duration")
+        .with_description("Time spent in each task state in seconds")
+        .with_unit("s")
+        .build()
+}
+
+/// Task end-to-end completion duration in seconds
+///
+/// Tracks time from Pending to terminal state (Complete, Error, Cancelled, ResolvedManually).
+///
+/// Labels:
+/// - namespace: Task namespace
+/// - outcome: complete, error, cancelled, resolved_manually
+pub fn task_completion_duration_seconds() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.task.completion_duration")
+        .with_description("Task end-to-end completion duration in seconds")
+        .with_unit("s")
+        .build()
+}
+
+// TAS-65: Task state metrics statics
+
+/// Static counter: task_state_transitions_total
+pub static TASK_STATE_TRANSITIONS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static histogram: task_state_duration_seconds
+pub static TASK_STATE_DURATION_SECONDS: OnceLock<Histogram<f64>> = OnceLock::new();
+
+/// Static histogram: task_completion_duration_seconds
+pub static TASK_COMPLETION_DURATION_SECONDS: OnceLock<Histogram<f64>> = OnceLock::new();
 
 /// Initialize all orchestration metrics
 ///
@@ -558,4 +606,9 @@ pub fn init() {
     STALENESS_DETECTION_DURATION.get_or_init(staleness_detection_duration);
     TASK_TIME_IN_DLQ_HOURS.get_or_init(task_time_in_dlq_hours);
     DLQ_PENDING_INVESTIGATIONS.get_or_init(dlq_pending_investigations);
+
+    // TAS-65: Task state machine metrics
+    TASK_STATE_TRANSITIONS_TOTAL.get_or_init(task_state_transitions_total);
+    TASK_STATE_DURATION_SECONDS.get_or_init(task_state_duration_seconds);
+    TASK_COMPLETION_DURATION_SECONDS.get_or_init(task_completion_duration_seconds);
 }

@@ -822,15 +822,24 @@ impl_builder_default!(TaskTemplatesConfig);
 
 /// Telemetry configuration
 ///
-/// **Important**: This TOML configuration is loaded for config endpoint observability,
-/// but runtime telemetry behavior is controlled by environment variables:
+/// TODO: This struct is loaded from TOML but is NOT used for actual telemetry initialization.
 ///
-/// - `TELEMETRY_ENABLED` - Enable/disable telemetry (overrides `enabled` field)
+/// Telemetry is configured **exclusively via environment variables** because logging must be
+/// initialized before the TOML config loader runs (to log config loading errors). The actual
+/// telemetry initialization uses a separate private `TelemetryConfig` struct in
+/// `tasker-shared/src/logging.rs` that reads only from environment variables:
+///
+/// - `TELEMETRY_ENABLED` - Enable/disable telemetry
 /// - `OTEL_EXPORTER_OTLP_ENDPOINT` - OpenTelemetry collector endpoint
-/// - `OTEL_SERVICE_NAME` - Service name for traces (overrides `service_name` field)
+/// - `OTEL_SERVICE_NAME` - Service name for traces
+/// - `OTEL_SERVICE_VERSION` - Service version
+/// - `OTEL_TRACES_SAMPLER_ARG` - Sampling rate
 ///
-/// The TOML values serve as defaults but environment variables take precedence at runtime.
-/// See `tasker-shared/src/logging.rs` for actual telemetry initialization logic.
+/// This struct exists only for:
+/// 1. TOML schema completeness
+/// 2. Exposure via `/config` API endpoint for debugging
+///
+/// Consider removing this struct and the `[common.telemetry]` TOML section if not needed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 #[serde(rename_all = "snake_case")]
 pub struct TelemetryConfig {
@@ -1965,6 +1974,11 @@ pub struct WorkerMpscChannelsConfig {
     #[validate(nested)]
     #[builder(default)]
     pub event_listeners: WorkerEventListenerChannels,
+
+    /// TAS-65/TAS-69: Domain event system channels
+    #[validate(nested)]
+    #[builder(default)]
+    pub domain_events: WorkerDomainEventChannels,
 }
 
 impl_builder_default!(WorkerMpscChannelsConfig);
@@ -2010,14 +2024,33 @@ pub struct WorkerEventSubscriberChannels {
 
 impl_builder_default!(WorkerEventSubscriberChannels);
 
-/// Worker in-process event channels
+/// Worker in-process event channels (TAS-65)
+///
+/// Configuration for the in-process event bus used for fast domain event delivery.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", default)]
 pub struct WorkerInProcessEventChannels {
-    /// Broadcast buffer size
+    /// FFI broadcast channel buffer size
+    ///
+    /// Determines how many events can be buffered for FFI subscribers (Ruby, Python)
+    /// before older events are dropped (lagging subscribers).
     #[validate(range(min = 100, max = 1000000))]
     #[builder(default = 1000)]
     pub broadcast_buffer_size: u32,
+
+    /// Whether to log individual subscriber errors at warn level
+    ///
+    /// When true, logs each subscriber failure. When false, only logs
+    /// aggregated error counts for performance.
+    #[builder(default = true)]
+    pub log_subscriber_errors: bool,
+
+    /// Maximum time to wait for dispatch to complete (for metrics)
+    ///
+    /// Dispatch is fire-and-forget, but this helps identify slow subscribers.
+    #[validate(range(min = 100, max = 60000))]
+    #[builder(default = 5000)]
+    pub dispatch_timeout_ms: u32,
 }
 
 impl_builder_default!(WorkerInProcessEventChannels);
@@ -2033,6 +2066,27 @@ pub struct WorkerEventListenerChannels {
 }
 
 impl_builder_default!(WorkerEventListenerChannels);
+
+/// TAS-65/TAS-69: Worker domain event system channels
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerDomainEventChannels {
+    /// Command buffer size for domain event dispatch
+    #[validate(range(min = 10, max = 1000000))]
+    #[builder(default = 1000)]
+    pub command_buffer_size: u32,
+
+    /// Shutdown drain timeout in milliseconds
+    #[validate(range(min = 100, max = 60000))]
+    #[builder(default = 5000)]
+    pub shutdown_drain_timeout_ms: u32,
+
+    /// Whether to log dropped events
+    #[builder(default = true)]
+    pub log_dropped_events: bool,
+}
+
+impl_builder_default!(WorkerDomainEventChannels);
 
 /// Worker web API configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -2465,9 +2519,16 @@ mod tests {
                 },
                 in_process_events: WorkerInProcessEventChannels {
                     broadcast_buffer_size: 1000,
+                    log_subscriber_errors: true,
+                    dispatch_timeout_ms: 5000,
                 },
                 event_listeners: WorkerEventListenerChannels {
                     pgmq_event_buffer_size: 1000,
+                },
+                domain_events: WorkerDomainEventChannels {
+                    command_buffer_size: 1000,
+                    shutdown_drain_timeout_ms: 5000,
+                    log_dropped_events: true,
                 },
             },
             web: None,

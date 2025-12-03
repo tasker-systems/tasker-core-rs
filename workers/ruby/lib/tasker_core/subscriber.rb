@@ -140,17 +140,21 @@ module TaskerCore
       end
 
       def publish_step_completion(event_data:, success:, result: nil, error_message: nil, metadata: nil)
-        TaskerCore::Worker::EventBridge.instance.publish_step_completion(
-          {
-            event_id: event_data[:event_id],
-            task_uuid: event_data[:task_uuid],
-            step_uuid: event_data[:step_uuid],
-            success: success,
-            result: result,
-            metadata: metadata,
-            error_message: error_message
-          }
-        )
+        completion_payload = {
+          event_id: event_data[:event_id],
+          task_uuid: event_data[:task_uuid],
+          step_uuid: event_data[:step_uuid],
+          success: success,
+          result: result,
+          metadata: metadata,
+          error_message: error_message
+        }
+
+        # TAS-65 Phase 1.5b: Propagate trace context back to Rust for distributed tracing
+        completion_payload[:trace_id] = event_data[:trace_id] if event_data[:trace_id]
+        completion_payload[:span_id] = event_data[:span_id] if event_data[:span_id]
+
+        TaskerCore::Worker::EventBridge.instance.publish_step_completion(completion_payload)
       end
     end
   end

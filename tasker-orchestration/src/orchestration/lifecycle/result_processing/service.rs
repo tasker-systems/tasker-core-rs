@@ -13,6 +13,7 @@ use crate::orchestration::{BackoffCalculator, BackoffCalculatorConfig};
 use tasker_shared::errors::OrchestrationResult;
 use tasker_shared::messaging::{StepExecutionResult, StepResultMessage};
 use tasker_shared::system_context::SystemContext;
+use tracing::{event, instrument, Level};
 
 use super::message_handler::MessageHandler;
 use super::metadata_processor::MetadataProcessor;
@@ -87,23 +88,58 @@ impl OrchestrationResultProcessor {
     /// - Processing backoff metadata from workers
     /// - Task-level finalization coordination
     /// - Orchestration-level retry decisions
+    ///
+    /// TAS-65 Phase 1.4: Instrumented for distributed tracing
+    #[instrument(skip(self), fields(
+        task_uuid = %step_result.task_uuid,
+        step_uuid = %step_result.step_uuid,
+        correlation_id = %step_result.correlation_id
+    ))]
     pub async fn handle_step_result_with_metadata(
         &self,
         step_result: StepResultMessage,
     ) -> OrchestrationResult<()> {
-        self.message_handler
+        event!(Level::INFO, "step_result.processing_started");
+
+        let result = self
+            .message_handler
             .handle_step_result_message(step_result)
-            .await
+            .await;
+
+        if result.is_ok() {
+            event!(Level::INFO, "step_result.processing_completed");
+        } else {
+            event!(Level::ERROR, "step_result.processing_failed");
+        }
+
+        result
     }
 
     /// Handle StepExecutionResult message type
+    ///
+    /// TAS-65 Phase 1.4: Instrumented for distributed tracing
+    #[instrument(skip(self), fields(
+        step_uuid = %step_result.step_uuid,
+        success = %step_result.success
+    ))]
     pub async fn handle_step_execution_result(
         &self,
         step_result: &StepExecutionResult,
     ) -> OrchestrationResult<()> {
-        self.message_handler
+        event!(Level::INFO, "step_execution_result.processing_started");
+
+        let result = self
+            .message_handler
             .handle_step_execution_result(step_result)
-            .await
+            .await;
+
+        if result.is_ok() {
+            event!(Level::INFO, "step_execution_result.processing_completed");
+        } else {
+            event!(Level::ERROR, "step_execution_result.processing_failed");
+        }
+
+        result
     }
 }
 

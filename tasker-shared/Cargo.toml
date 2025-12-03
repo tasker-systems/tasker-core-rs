@@ -44,9 +44,12 @@ dotenvy = { workspace = true }  # For loading .env files
 fastrand = { workspace = true }
 futures = { workspace = true }
 is-terminal = { workspace = true }
+jsonschema = "0.18"
 jsonwebtoken = { workspace = true, optional = true }
 opentelemetry = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
 opentelemetry-otlp = { workspace = true }
+opentelemetry-prometheus-text-exporter = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true }
 # Message queue management

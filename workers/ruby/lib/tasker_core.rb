@@ -145,7 +145,9 @@ require_relative 'tasker_core/batch_processing/batch_aggregation_scenario'
 require_relative 'tasker_core/registry'
 require_relative 'tasker_core/subscriber'
 require_relative 'tasker_core/event_bridge'
+require_relative 'tasker_core/domain_events' # TAS-65: Domain event publisher infrastructure
 require_relative 'tasker_core/worker/event_poller'
+require_relative 'tasker_core/worker/in_process_domain_event_poller' # TAS-65: Fast domain events
 require_relative 'tasker_core/bootstrap'
 
 module TaskerCore

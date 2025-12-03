@@ -1,6 +1,6 @@
 # Tasker Configuration - worker Context
 # Environment: production
-# Generated: 2025-11-10T12:14:53.509254+00:00
+# Generated: 2025-11-28T12:47:32.492283+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -200,6 +200,11 @@ performance_monitoring_enabled = true
 [worker.mpsc_channels.command_processor]
 command_buffer_size = 5000
 
+[worker.mpsc_channels.domain_events]
+command_buffer_size = 5000
+log_dropped_events = false
+shutdown_drain_timeout_ms = 10000
+
 [worker.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 10000
 
@@ -224,7 +229,7 @@ max_concurrent_steps = 100
 max_retries = 3
 
 [worker.web]
-bind_address = "0.0.0.0:8081"
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
 enabled = true
 request_timeout_ms = 30000
 

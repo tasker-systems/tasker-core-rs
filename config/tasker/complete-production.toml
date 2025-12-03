@@ -15,11 +15,11 @@
 [common.backoff]
 backoff_multiplier = 2.0
 default_backoff_seconds = [
-    1,
-    5,
-    15,
-    30,
-    60,
+  1,
+  5,
+  15,
+  30,
+  60,
 ]
 jitter_enabled = true
 jitter_max_percentage = 0.15
@@ -291,12 +291,12 @@ required = false
 [orchestration.web.cors]
 allowed_headers = ["*"]
 allowed_methods = [
-    "GET",
-    "POST",
-    "PUT",
-    "DELETE",
-    "PATCH",
-    "OPTIONS",
+  "GET",
+  "POST",
+  "PUT",
+  "DELETE",
+  "PATCH",
+  "OPTIONS",
 ]
 allowed_origins = ["*"]
 enabled = true
@@ -386,6 +386,11 @@ performance_monitoring_enabled = true
 [worker.mpsc_channels.command_processor]
 command_buffer_size = 5000
 
+[worker.mpsc_channels.domain_events]
+command_buffer_size = 5000
+log_dropped_events = false
+shutdown_drain_timeout_ms = 10000
+
 [worker.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 10000
 
@@ -457,10 +462,10 @@ required = true
 [worker.web.cors]
 allowed_headers = ["*"]
 allowed_methods = [
-    "GET",
-    "POST",
-    "DELETE",
-    "OPTIONS",
+  "GET",
+  "POST",
+  "DELETE",
+  "OPTIONS",
 ]
 allowed_origins = ["*"]
 enabled = true
