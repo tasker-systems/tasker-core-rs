@@ -249,7 +249,7 @@ pub async fn get_task(
                 .unwrap_or(0.0);
 
             // Determine status based on task completion
-            let status: String = execution_context.execution_status.clone().into();
+            let status: String = execution_context.execution_status.into();
 
             let response = TaskResponse {
                 task_uuid: task.task_uuid.to_string(),
@@ -277,7 +277,7 @@ pub async fn get_task(
                 execution_status: execution_context.execution_status.as_str().to_string(),
                 recommended_action: execution_context
                     .recommended_action
-                    .map(|ra| ra.clone().into())
+                    .map(|ra| ra.into())
                     .unwrap_or_else(|| "none".to_string()),
                 completion_percentage,
                 health_status: execution_context.health_status,
@@ -454,7 +454,7 @@ pub async fn list_tasks(
                     execution_status: execution_context.execution_status.as_str().to_string(),
                     recommended_action: execution_context
                         .recommended_action
-                        .map(|ra| ra.clone().into())
+                        .map(|ra| ra.into())
                         .unwrap_or_else(|| "none".to_string()),
                     completion_percentage,
                     health_status: execution_context.health_status,
@@ -626,7 +626,7 @@ pub async fn cancel_task(
             execution_status: execution_context.execution_status.as_str().to_string(),
             recommended_action: execution_context
                 .recommended_action
-                .map(|ra| ra.clone().into())
+                .map(|ra| ra.into())
                 .unwrap_or_else(|| "none".to_string()),
             completion_percentage,
             health_status: execution_context.health_status,

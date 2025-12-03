@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+// Import canonical types from their unified locations
+use super::execution_types::StepExecutionError;
+use super::orchestration_messages::StepExecutionStatus;
+
 /// Message for step execution via queues
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepMessage {
@@ -297,35 +301,9 @@ pub enum BackoffHintType {
     Custom,
 }
 
-/// Step execution status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum StepExecutionStatus {
-    /// Step completed successfully
-    Success,
-    /// Step failed with error
-    Failed,
-    /// Step was cancelled
-    Cancelled,
-    /// Step timed out
-    TimedOut,
-    /// Step was retried
-    Retried,
-}
+// StepExecutionStatus is now imported from orchestration_messages module
 
-/// Error information for failed steps
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepExecutionError {
-    /// Error type/category
-    pub error_type: String,
-    /// Human-readable error message
-    pub message: String,
-    /// Whether the error is retryable
-    pub retryable: bool,
-    /// Additional error details
-    pub details: Option<HashMap<String, serde_json::Value>>,
-    /// Stack trace if available
-    pub stack_trace: Option<String>,
-}
+// StepExecutionError is now imported from execution_types module
 
 impl StepExecutionContext {
     /// Create a new execution context with dependency results
@@ -572,15 +550,12 @@ impl StepResult {
         Self {
             step_uuid,
             task_uuid,
-            status: StepExecutionStatus::TimedOut,
+            status: StepExecutionStatus::Timeout,
             result_data: None,
-            error: Some(StepExecutionError {
-                error_type: "TimeoutError".to_string(),
-                message: "Step execution timed out".to_string(),
-                retryable: true,
-                details: None,
-                stack_trace: None,
-            }),
+            error: Some(
+                StepExecutionError::new("Step execution timed out".to_string(), true)
+                    .with_error_type("TimeoutError".to_string()),
+            ),
             execution_time_ms,
             completed_at: chrono::Utc::now(),
             orchestration_metadata: None,

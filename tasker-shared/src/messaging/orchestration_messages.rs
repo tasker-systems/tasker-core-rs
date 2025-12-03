@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::fmt;
 use uuid::Uuid;
 
+use crate::messaging::execution_types::StepExecutionError;
 use crate::messaging::message::OrchestrationMetadata;
 use crate::models::core::task_request::TaskRequest;
 
@@ -228,7 +229,7 @@ pub struct StepResult {
 }
 
 /// Status of individual step execution
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StepExecutionStatus {
     Success,
     Failed,
@@ -255,20 +256,7 @@ impl From<StepExecutionStatus> for String {
     }
 }
 
-/// Error information for failed step execution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepExecutionError {
-    /// Error message
-    pub message: String,
-    /// Error type/category
-    pub error_type: Option<String>,
-    /// HTTP status code if applicable
-    pub status_code: Option<u16>,
-    /// Additional error context
-    pub context: HashMap<String, serde_json::Value>,
-    /// Whether this error is retryable
-    pub retryable: bool,
-}
+// StepExecutionError is now imported from execution_types module for unified error handling
 
 /// Metadata for individual step results
 #[derive(Debug, Clone, Serialize, Deserialize)]

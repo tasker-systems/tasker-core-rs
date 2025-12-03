@@ -151,7 +151,7 @@ impl MessageHandler {
         let result = match self
             .handle_step_result(
                 &step_result.step_uuid,
-                &step_result.status.clone().into(),
+                &step_result.status.into(),
                 &(step_result.execution_time_ms as i64),
                 *correlation_id,
             )
