@@ -16,8 +16,8 @@ use tasker_shared::{
     types::{
         api::orchestration::{
             BottleneckAnalysis, BottleneckQuery, DetailedHealthResponse, HandlerInfo,
-            HealthResponse, MetricsQuery, NamespaceInfo, PerformanceMetrics, StepManualAction,
-            StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
+            HealthResponse, MetricsQuery, NamespaceInfo, PerformanceMetrics, StepAuditResponse,
+            StepManualAction, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
         },
         auth::JwtAuthenticator,
     },
@@ -668,6 +668,64 @@ impl OrchestrationApiClient {
             })?;
 
         self.handle_response(response, "resolve step manually")
+            .await
+    }
+
+    /// Get audit history for a workflow step (TAS-62)
+    ///
+    /// Returns SOC2-compliant audit trail with worker attribution (worker_uuid, correlation_id)
+    /// and execution details. Full execution results are retrieved via JOIN to transition metadata.
+    ///
+    /// GET `/v1/tasks/{task_uuid}/workflow_steps/{step_uuid}/audit`
+    ///
+    /// # Arguments
+    ///
+    /// * `task_uuid` - UUID of the parent task
+    /// * `step_uuid` - UUID of the workflow step to get audit history for
+    ///
+    /// # Returns
+    ///
+    /// Vec of audit records ordered by recorded_at DESC (most recent first)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audit_history = client.get_step_audit_history(task_uuid, step_uuid).await?;
+    /// for record in audit_history {
+    ///     println!("Worker: {:?}, Success: {}, Time: {:?}ms",
+    ///         record.worker_uuid,
+    ///         record.success,
+    ///         record.execution_time_ms
+    ///     );
+    /// }
+    /// ```
+    pub async fn get_step_audit_history(
+        &self,
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+    ) -> TaskerResult<Vec<StepAuditResponse>> {
+        let url = self
+            .base_url
+            .join(&format!(
+                "/v1/tasks/{}/workflow_steps/{}/audit",
+                task_uuid, step_uuid
+            ))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        debug!(
+            url = %url,
+            task_uuid = %task_uuid,
+            step_uuid = %step_uuid,
+            "Getting step audit history via orchestration API"
+        );
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get step audit history")
             .await
     }
 

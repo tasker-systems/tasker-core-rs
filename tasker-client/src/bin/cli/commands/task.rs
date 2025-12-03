@@ -384,6 +384,65 @@ pub async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Cl
                 }
             }
         }
+        TaskCommands::StepAudit { task_id, step_id } => {
+            println!(
+                "Getting audit history for step: {} (task: {})",
+                step_id, task_id
+            );
+
+            let task_uuid = Uuid::parse_str(&task_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid task UUID: {}", e))
+            })?;
+
+            let step_uuid = Uuid::parse_str(&step_id).map_err(|e| {
+                tasker_client::ClientError::InvalidInput(format!("Invalid step UUID: {}", e))
+            })?;
+
+            match client.get_step_audit_history(task_uuid, step_uuid).await {
+                Ok(audit_records) => {
+                    if audit_records.is_empty() {
+                        println!("\n⚠ No audit records found for this step");
+                        println!(
+                            "  Note: Audit records are created when step results are persisted"
+                        );
+                    } else {
+                        println!("\n✓ Found {} audit record(s):\n", audit_records.len());
+                        for (i, audit) in audit_records.iter().enumerate() {
+                            println!("  Audit Record #{}", i + 1);
+                            println!("    UUID: {}", audit.audit_uuid);
+                            println!(
+                                "    Step: {} ({})",
+                                audit.step_name, audit.workflow_step_uuid
+                            );
+                            println!(
+                                "    Success: {}",
+                                if audit.success { "✓ Yes" } else { "✗ No" }
+                            );
+                            println!("    Recorded at: {}", audit.recorded_at);
+                            println!(
+                                "    Transition: {} → {}",
+                                audit.from_state.as_deref().unwrap_or("(none)"),
+                                audit.to_state
+                            );
+                            if let Some(ref worker) = audit.worker_uuid {
+                                println!("    Worker UUID: {}", worker);
+                            }
+                            if let Some(ref correlation) = audit.correlation_id {
+                                println!("    Correlation ID: {}", correlation);
+                            }
+                            if let Some(time_ms) = audit.execution_time_ms {
+                                println!("    Execution time: {}ms", time_ms);
+                            }
+                            println!();
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to get audit history: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
     }
     Ok(())
 }

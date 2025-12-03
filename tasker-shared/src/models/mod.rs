@@ -125,6 +125,7 @@ pub use core::task_namespace::TaskNamespace;
 pub use core::task_transition::{NewTaskTransition, TaskTransition};
 pub use core::workflow_step::WorkflowStep;
 pub use core::workflow_step_edge::WorkflowStepEdge;
+pub use core::workflow_step_result_audit::{StepAuditWithTransition, WorkflowStepResultAudit};
 pub use core::workflow_step_transition::{NewWorkflowStepTransition, WorkflowStepTransition};
 
 // Re-export organized model modules

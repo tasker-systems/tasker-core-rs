@@ -215,6 +215,117 @@ pub struct StepResponse {
     pub last_attempted_at: Option<String>,
 }
 
+/// Step audit record response for SOC2-compliant audit trails (TAS-62)
+///
+/// Provides attribution context (worker_uuid, correlation_id) and execution summary
+/// with full results retrieved via JOIN to the transitions table.
+///
+/// ## Usage
+///
+/// ```json
+/// GET /v1/tasks/{uuid}/workflow_steps/{step_uuid}/audit
+/// [
+///   {
+///     "audit_uuid": "01934567-89ab-cdef-0123-456789abcdef",
+///     "workflow_step_uuid": "...",
+///     "transition_uuid": "...",
+///     "task_uuid": "...",
+///     "recorded_at": "2025-12-03T10:30:00Z",
+///     "worker_uuid": "worker-abc-123",
+///     "correlation_id": "corr-xyz-789",
+///     "success": true,
+///     "execution_time_ms": 150,
+///     "result": { ... },
+///     "step_name": "validate_order",
+///     "from_state": "in_progress",
+///     "to_state": "enqueued_for_orchestration"
+///   }
+/// ]
+/// ```
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct StepAuditResponse {
+    /// Primary key of the audit record
+    pub audit_uuid: String,
+
+    /// The workflow step this audit record belongs to
+    pub workflow_step_uuid: String,
+
+    /// The specific transition that recorded the result
+    pub transition_uuid: String,
+
+    /// The parent task
+    pub task_uuid: String,
+
+    /// When the audit record was created (ISO 8601 format)
+    pub recorded_at: String,
+
+    // Attribution context (SOC2 compliance)
+    /// UUID of the worker instance that processed this step
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_uuid: Option<String>,
+
+    /// Correlation ID for distributed tracing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+
+    // Result summary
+    /// Whether the step execution succeeded
+    pub success: bool,
+
+    /// Execution time in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_time_ms: Option<i64>,
+
+    // Full result from transition metadata (via JOIN)
+    /// Full execution result from the transition
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+
+    // Context
+    /// Name of the step
+    pub step_name: String,
+
+    /// State before the transition
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_state: Option<String>,
+
+    /// State after the transition
+    pub to_state: String,
+}
+
+impl StepAuditResponse {
+    /// Create from database model with transition details
+    pub fn from_audit_with_transition(
+        audit: &crate::models::core::workflow_step_result_audit::StepAuditWithTransition,
+    ) -> Self {
+        // Extract result from transition metadata if available
+        let result = audit.transition_metadata.as_ref().and_then(|meta| {
+            meta.get("event")
+                .and_then(|e| serde_json::from_str::<serde_json::Value>(e.as_str()?).ok())
+        });
+
+        Self {
+            audit_uuid: audit.workflow_step_result_audit_uuid.to_string(),
+            workflow_step_uuid: audit.workflow_step_uuid.to_string(),
+            transition_uuid: audit.workflow_step_transition_uuid.to_string(),
+            task_uuid: audit.task_uuid.to_string(),
+            recorded_at: audit
+                .recorded_at
+                .format("%Y-%m-%dT%H:%M:%S%.6fZ")
+                .to_string(),
+            worker_uuid: audit.worker_uuid.map(|u| u.to_string()),
+            correlation_id: audit.correlation_id.map(|u| u.to_string()),
+            success: audit.success,
+            execution_time_ms: audit.execution_time_ms,
+            result,
+            step_name: audit.step_name.clone(),
+            from_state: audit.from_state.clone(),
+            to_state: audit.to_state.clone(),
+        }
+    }
+}
+
 /// Namespace information
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]

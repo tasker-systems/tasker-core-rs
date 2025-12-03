@@ -3,6 +3,7 @@ use super::{
         ErrorStateCleanupAction, PublishTransitionEventAction, ResetAttemptsAction, StateAction,
         TriggerStepDiscoveryAction, UpdateStepResultsAction,
     },
+    context::TransitionContext,
     errors::{StateMachineError, StateMachineResult},
     events::StepEvent,
     guards::{StateGuard, StepCanBeRetriedGuard, StepDependenciesMetGuard, StepNotInProgressGuard},
@@ -61,6 +62,39 @@ impl StepStateMachine {
 
     /// Attempt to transition the step state
     pub async fn transition(&mut self, event: StepEvent) -> StateMachineResult<WorkflowStepState> {
+        self.transition_with_context(event, None).await
+    }
+
+    /// Attempt to transition the step state with optional attribution context.
+    ///
+    /// This method enriches transition metadata with attribution data from
+    /// `TransitionContext` (worker_uuid, correlation_id). The SQL trigger
+    /// `create_step_result_audit` extracts these values to populate the
+    /// audit table for SOC2 compliance.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The step event triggering the transition
+    /// * `context` - Optional attribution context for audit enrichment
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use tasker_shared::state_machine::{StepStateMachine, StepEvent, TransitionContext};
+    /// use uuid::Uuid;
+    ///
+    /// // Transition with attribution (for worker-side transitions)
+    /// let context = TransitionContext::with_worker(worker_uuid, Some(correlation_id));
+    /// state_machine.transition_with_context(event, Some(context)).await?;
+    ///
+    /// // Transition without attribution (backward compatible)
+    /// state_machine.transition_with_context(event, None).await?;
+    /// ```
+    pub async fn transition_with_context(
+        &mut self,
+        event: StepEvent,
+        context: Option<TransitionContext>,
+    ) -> StateMachineResult<WorkflowStepState> {
         let current_state = self.current_state().await?;
         let target_state = self.determine_target_state_internal(current_state, &event)?;
 
@@ -68,15 +102,28 @@ impl StepStateMachine {
         self.check_guards(current_state, target_state, &event)
             .await?;
 
-        // Persist the transition
+        // Persist the transition with enriched metadata
         let event_str = serde_json::to_string(&event)?;
+
+        // Build base metadata
+        let base_metadata = serde_json::json!({
+            "event": event_str,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+
+        // Enrich metadata with attribution context if provided
+        let metadata = match context {
+            Some(ctx) if ctx.has_attribution() => ctx.merge_into_metadata(base_metadata),
+            _ => base_metadata,
+        };
+
         self.persistence
             .persist_transition(
                 &self.step,
                 Some(current_state.to_string()),
                 target_state.to_string(),
                 &event_str,
-                None,
+                Some(metadata),
                 &self.pool,
             )
             .await?;

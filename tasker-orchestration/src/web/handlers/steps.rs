@@ -19,10 +19,11 @@ use tasker_shared::models::core::workflow_step::WorkflowStep;
 // StepReadinessStatus is used through SqlFunctionExecutor, removing unused direct import
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
 use crate::web::state::AppState;
+use tasker_shared::models::core::workflow_step_result_audit::WorkflowStepResultAudit;
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::state_machine::StateMachineError;
-use tasker_shared::types::api::orchestration::{StepManualAction, StepResponse};
+use tasker_shared::types::api::orchestration::{StepAuditResponse, StepManualAction, StepResponse};
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// List workflow steps for a task: GET /v1/tasks/{uuid}/workflow_steps
@@ -573,4 +574,90 @@ pub async fn resolve_step_manually(
             ApiError::internal_server_error(format!("Manual resolution failed: {error_str}"))
         }
     })
+}
+
+/// Get audit history for a workflow step: GET /v1/tasks/{uuid}/workflow_steps/{step_uuid}/audit
+///
+/// Returns SOC2-compliant audit trail for step execution results (TAS-62).
+/// Each audit record includes:
+/// - Worker attribution (worker_uuid, correlation_id)
+/// - Execution summary (success, execution_time_ms)
+/// - Full execution result via JOIN to transition metadata
+///
+/// ## Response
+///
+/// Returns an array of audit records ordered by recorded_at DESC (most recent first).
+/// Each record links to the transition that captured the execution result.
+#[cfg_attr(feature = "web-api", utoipa::path(
+    get,
+    path = "/v1/tasks/{uuid}/workflow_steps/{step_uuid}/audit",
+    params(
+        ("uuid" = String, Path, description = "Task UUID"),
+        ("step_uuid" = String, Path, description = "Step UUID")
+    ),
+    responses(
+        (status = 200, description = "Audit history for the step", body = Vec<StepAuditResponse>),
+        (status = 400, description = "Invalid UUID format", body = ApiError),
+        (status = 404, description = "Step not found or does not belong to task", body = ApiError),
+        (status = 503, description = "Service unavailable", body = ApiError)
+    ),
+    tag = "workflow_steps"
+))]
+pub async fn get_step_audit(
+    State(state): State<AppState>,
+    Path((task_uuid, step_uuid)): Path<(String, String)>,
+) -> ApiResult<Json<Vec<StepAuditResponse>>> {
+    info!(
+        task_uuid = %task_uuid,
+        step_uuid = %step_uuid,
+        "Getting audit history for workflow step"
+    );
+
+    let task_uuid = Uuid::parse_str(&task_uuid)
+        .map_err(|_| ApiError::bad_request("Invalid task UUID format"))?;
+    let step_uuid = Uuid::parse_str(&step_uuid)
+        .map_err(|_| ApiError::bad_request("Invalid step UUID format"))?;
+
+    execute_with_circuit_breaker(&state, || async {
+        let db_pool = state.select_db_pool(DbOperationType::ReadOnly);
+
+        // Verify the step exists and belongs to the task
+        let workflow_step = WorkflowStep::find_by_id(db_pool, step_uuid)
+            .await
+            .map_err(ApiError::from)?;
+
+        match workflow_step {
+            Some(step) if step.task_uuid == task_uuid => {
+                // Step exists and belongs to task, continue
+            }
+            Some(_) => {
+                return Err(ApiError::not_found(
+                    "Step does not belong to the specified task",
+                ));
+            }
+            None => {
+                return Err(ApiError::not_found("Step not found"));
+            }
+        }
+
+        // Get audit history with full transition details via JOIN
+        let audit_records = WorkflowStepResultAudit::get_audit_history(db_pool, step_uuid)
+            .await
+            .map_err(ApiError::from)?;
+
+        // Transform to API response format
+        let response: Vec<StepAuditResponse> = audit_records
+            .iter()
+            .map(StepAuditResponse::from_audit_with_transition)
+            .collect();
+
+        info!(
+            step_uuid = %step_uuid,
+            record_count = response.len(),
+            "Retrieved audit history for step"
+        );
+
+        Ok::<Json<Vec<StepAuditResponse>>, ApiError>(Json(response))
+    })
+    .await
 }
