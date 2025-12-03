@@ -339,12 +339,10 @@ mod tests {
                     error: if success {
                         None
                     } else {
-                        Some(StepExecutionError {
-                            message: "Test error".to_string(),
-                            error_type: Some("TestError".to_string()),
-                            backtrace: None,
-                            retryable: true,
-                        })
+                        Some(
+                            StepExecutionError::new("Test error".to_string(), true)
+                                .with_error_type("TestError".to_string()),
+                        )
                     },
                     orchestration_metadata: None,
                 },

@@ -2,12 +2,15 @@
 //!
 //! Unified enums for task execution context, used across orchestration components.
 //! These replace the raw string usage in SQL functions with proper typed enums.
+//!
+//! This is the canonical location for `ExecutionStatus` and `RecommendedAction`.
 
 use serde::{Deserialize, Serialize};
 
 /// Execution status returned by the SQL get_task_execution_context function
 /// Matches the execution_status values from the SQL function
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ExecutionStatus {
     /// Task has ready steps that can be executed
     HasReadySteps,
@@ -31,6 +34,21 @@ impl ExecutionStatus {
             Self::AllComplete => "all_complete",
             Self::WaitingForDependencies => "waiting_for_dependencies",
         }
+    }
+
+    /// Check if this status indicates active work is happening
+    pub const fn is_active(&self) -> bool {
+        matches!(self, Self::Processing | Self::HasReadySteps)
+    }
+
+    /// Check if this status indicates a blocked or waiting state
+    pub const fn is_blocked(&self) -> bool {
+        matches!(self, Self::BlockedByFailures | Self::WaitingForDependencies)
+    }
+
+    /// Check if this status indicates completion
+    pub const fn is_complete(&self) -> bool {
+        matches!(self, Self::AllComplete)
     }
 }
 
@@ -61,7 +79,8 @@ impl From<ExecutionStatus> for String {
 
 /// Recommended action returned by the SQL get_task_execution_context function
 /// Matches the recommended_action values from the SQL function
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RecommendedAction {
     /// Execute the ready steps
     ExecuteReadySteps,

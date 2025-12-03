@@ -194,12 +194,10 @@ fn create_execution_result(
                 context: HashMap::new(),
             },
             status: "failed".to_string(),
-            error: Some(StepExecutionError {
-                message: "Payment was declined by processor".to_string(),
-                error_type: Some("PaymentError".to_string()),
-                retryable: true,
-                backtrace: None,
-            }),
+            error: Some(
+                StepExecutionError::new("Payment was declined by processor".to_string(), true)
+                    .with_error_type("PaymentError".to_string()),
+            ),
             orchestration_metadata: None,
         }
     }

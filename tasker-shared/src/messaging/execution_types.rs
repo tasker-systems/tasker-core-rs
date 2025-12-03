@@ -134,12 +134,28 @@ impl From<serde_json::Value> for StepExecutionResult {
 }
 
 /// Error information for failed step execution
+///
+/// Unified error type consolidating fields from multiple messaging contexts:
+/// - Core fields: message, error_type, retryable
+/// - Debugging: backtrace (stack trace as lines)
+/// - HTTP context: status_code (for API errors)
+/// - Additional context: context HashMap for arbitrary error metadata
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StepExecutionError {
+    /// Human-readable error message
     pub message: String,
+    /// Error type/category for classification
     pub error_type: Option<String>,
+    /// Stack trace as array of lines (for debugging)
     pub backtrace: Option<Vec<String>>,
+    /// Whether this error is retryable
     pub retryable: bool,
+    /// HTTP status code if applicable (for API errors)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    /// Additional error context for debugging and observability
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub context: HashMap<String, Value>,
 }
 
 impl StepExecutionError {
@@ -170,15 +186,64 @@ impl StepExecutionError {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
 
+                let status_code = obj
+                    .get("status_code")
+                    .and_then(|v| v.as_u64())
+                    .and_then(|v| u16::try_from(v).ok());
+
+                let context = obj
+                    .get("context")
+                    .and_then(|v| v.as_object())
+                    .map(|c| c.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                    .unwrap_or_default();
+
                 Some(StepExecutionError {
                     message,
                     error_type,
                     backtrace,
                     retryable,
+                    status_code,
+                    context,
                 })
             }
             _ => None,
         }
+    }
+
+    /// Create a new StepExecutionError with required fields
+    pub fn new(message: String, retryable: bool) -> Self {
+        Self {
+            message,
+            error_type: None,
+            backtrace: None,
+            retryable,
+            status_code: None,
+            context: HashMap::new(),
+        }
+    }
+
+    /// Builder method to set error_type
+    pub fn with_error_type(mut self, error_type: String) -> Self {
+        self.error_type = Some(error_type);
+        self
+    }
+
+    /// Builder method to set backtrace
+    pub fn with_backtrace(mut self, backtrace: Vec<String>) -> Self {
+        self.backtrace = Some(backtrace);
+        self
+    }
+
+    /// Builder method to set status_code
+    pub fn with_status_code(mut self, status_code: u16) -> Self {
+        self.status_code = Some(status_code);
+        self
+    }
+
+    /// Builder method to add context
+    pub fn with_context(mut self, key: String, value: Value) -> Self {
+        self.context.insert(key, value);
+        self
     }
 }
 
@@ -381,11 +446,12 @@ impl StepExecutionResult {
             success: false,
             result: serde_json::json!({}), // Empty object for failures, as per Ruby pattern
             status: "failed".to_string(),
-            error: Some(StepExecutionError {
-                message: error_message.clone(),
-                error_type: error_type.clone(),
-                backtrace: None,
-                retryable,
+            error: Some({
+                let mut err = StepExecutionError::new(error_message.clone(), retryable);
+                if let Some(et) = error_type.clone() {
+                    err = err.with_error_type(et);
+                }
+                err
             }),
             metadata: StepExecutionMetadata {
                 execution_time_ms,
@@ -422,11 +488,15 @@ impl StepExecutionResult {
             success: false,
             result: serde_json::json!({}), // Empty object for errors
             status: "error".to_string(),
-            error: Some(StepExecutionError {
-                message: error_message.clone(),
-                error_type: error_type.clone(),
-                backtrace,
-                retryable: false, // System errors typically aren't retryable
+            error: Some({
+                let mut err = StepExecutionError::new(error_message.clone(), false); // System errors typically aren't retryable
+                if let Some(et) = error_type.clone() {
+                    err = err.with_error_type(et);
+                }
+                if let Some(bt) = backtrace {
+                    err = err.with_backtrace(bt);
+                }
+                err
             }),
             metadata: StepExecutionMetadata {
                 execution_time_ms,

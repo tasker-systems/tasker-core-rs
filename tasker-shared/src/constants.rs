@@ -60,27 +60,9 @@ pub mod events {
     pub const WORKFLOW_ORCHESTRATION_REQUESTED: &str = "workflow.orchestration_requested";
 }
 
-/// Task execution context states for orchestration decisions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ExecutionStatus {
-    HasReadySteps,
-    Processing,
-    BlockedByFailures,
-    AllComplete,
-    WaitingForDependencies,
-}
-
-/// Recommended orchestration actions based on task analysis
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RecommendedAction {
-    ExecuteReadySteps,
-    WaitForCompletion,
-    HandleFailures,
-    FinalizeTask,
-    WaitForDependencies,
-}
+// ExecutionStatus and RecommendedAction are now defined in models::orchestration::execution_status
+// Re-export them here for backwards compatibility
+pub use crate::models::orchestration::execution_status::{ExecutionStatus, RecommendedAction};
 
 /// System health indicators for monitoring and alerting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -106,30 +88,6 @@ impl WorkflowEdgeType {
             Self::Provides => "provides",
         }
     }
-}
-
-/// Reasons for task reenqueue decisions in orchestration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ReenqueueReason {
-    ContextUnavailable,
-    StepsInProgress,
-    AwaitingDependencies,
-    ReadyStepsAvailable,
-    ContinuingWorkflow,
-    PendingStepsRemaining,
-    RetryBackoff,
-}
-
-/// Reasons for task pending state in workflow analysis
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PendingReason {
-    ContextUnavailable,
-    WaitingForStepCompletion,
-    WaitingForDependencies,
-    ReadyForProcessing,
-    WorkflowPaused,
 }
 
 /// System-wide constants
@@ -466,24 +424,6 @@ pub fn build_step_transition_map() -> StepTransitionMap {
     }
 
     map
-}
-
-/// Convenience functions for status checking
-impl ExecutionStatus {
-    /// Check if this status indicates active work is happening
-    pub const fn is_active(&self) -> bool {
-        matches!(self, Self::Processing | Self::HasReadySteps)
-    }
-
-    /// Check if this status indicates a blocked or waiting state
-    pub const fn is_blocked(&self) -> bool {
-        matches!(self, Self::BlockedByFailures | Self::WaitingForDependencies)
-    }
-
-    /// Check if this status indicates completion
-    pub const fn is_complete(&self) -> bool {
-        matches!(self, Self::AllComplete)
-    }
 }
 
 impl HealthStatus {
