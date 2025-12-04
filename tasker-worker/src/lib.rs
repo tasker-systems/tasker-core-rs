@@ -15,13 +15,13 @@
 //! - **Database-as-API**: Workers hydrate context from step message UUIDs
 //! - **Orchestration Integration**: Seamless communication with orchestration systems
 //!
-//! ## TAS-43 Event-Driven Architecture
+//! ## TAS-43/TAS-69 Actor-Based Event-Driven Architecture
 //!
 //! ```text
-//! ┌─────────────────┐    ┌──────────────────────┐    ┌─────────────────────┐
-//! │ WorkerBootstrap │───▶│  WorkerEventSystem   │───▶│   WorkerProcessor   │
-//! │  (Config-Driven)│    │   (TAS-43 Core)     │    │   (TAS-40 Commands) │
-//! └─────────────────┘    └──────────────────────┘    └─────────────────────┘
+//! ┌─────────────────┐    ┌──────────────────────┐    ┌─────────────────────────┐
+//! │ WorkerBootstrap │───▶│  WorkerEventSystem   │───▶│ ActorCommandProcessor   │
+//! │  (Config-Driven)│    │   (TAS-43 Core)     │    │ (TAS-69 Actor Pattern)  │
+//! └─────────────────┘    └──────────────────────┘    └─────────────────────────┘
 //!                               │                               │
 //!                               ▼                               ▼
 //!                        ┌─────────────────┐            ┌──────────────────┐
