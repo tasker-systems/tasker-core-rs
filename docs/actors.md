@@ -1,9 +1,9 @@
 # Actor-Based Architecture
 
-**Last Updated**: 2025-10-11
+**Last Updated**: 2025-12-04
 **Audience**: Architects, Developers
 **Status**: Active (TAS-46 Complete - Phases 1-7)
-**Related Docs**: [Documentation Hub](README.md) | [Events and Commands](events-and-commands.md) | [States and Lifecycles](states-and-lifecycles.md)
+**Related Docs**: [Documentation Hub](README.md) | [Worker Actor Architecture](worker-actors.md) | [Events and Commands](events-and-commands.md) | [States and Lifecycles](states-and-lifecycles.md)
 
 ← Back to [Documentation Hub](README.md)
 

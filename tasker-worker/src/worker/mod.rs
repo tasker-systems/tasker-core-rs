@@ -2,6 +2,8 @@
 //!
 //! Command pattern worker implementation that mirrors OrchestrationCore architecture
 
+pub mod actor_command_processor; // TAS-69: Actor-based command processor (pure routing)
+pub mod actors; // TAS-69: Actor-based architecture for worker system
 pub mod command_processor;
 pub mod core;
 pub mod domain_event_commands; // TAS-65/TAS-69: Domain event command types
@@ -11,8 +13,10 @@ pub mod event_publisher;
 pub mod event_router; // TAS-65 Dual-Path: Routes events by delivery mode
 pub mod event_subscriber;
 pub mod event_systems;
+pub mod hydration; // TAS-69: Message hydration layer
 pub mod in_process_event_bus; // TAS-65 Dual-Path: Fast in-memory event delivery
 pub mod orchestration_result_sender;
+pub mod services; // TAS-69: Decomposed service layer
 pub mod step_claim;
 pub mod step_event_publisher; // TAS-65 Phase 3: Custom event publisher trait
 pub mod step_event_publisher_registry; // TAS-65 Phase 3: Publisher registry
@@ -56,3 +60,8 @@ pub use event_systems::domain_event_system::{
     DomainEventSystem, DomainEventSystemConfig, DomainEventSystemHandle,
 };
 pub use tasker_shared::metrics::worker::{EventRouterStats, InProcessEventBusStats}; // TAS-65/TAS-69
+
+// TAS-69: Actor-based worker architecture
+pub use actor_command_processor::ActorCommandProcessor;
+pub use actors::{Handler, Message, WorkerActor, WorkerActorRegistry};
+pub use hydration::StepMessageHydrator;

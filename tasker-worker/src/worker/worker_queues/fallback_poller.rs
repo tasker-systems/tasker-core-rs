@@ -243,6 +243,7 @@ impl WorkerFallbackPoller {
             .await?;
 
         if messages.is_empty() {
+            // Only log at debug level for empty queues to avoid noise
             debug!(
                 poller_id = %poller_id,
                 queue = %queue_name,
@@ -257,7 +258,7 @@ impl WorkerFallbackPoller {
             queue = %queue_name,
             namespace = %namespace,
             count = messages.len(),
-            "Read messages from worker fallback polling"
+            "Found messages in worker fallback polling - sending to command processor"
         );
 
         for message in messages {

@@ -1,14 +1,14 @@
-//! # TAS-40 WorkerCore with Command Pattern Integration
+//! # TAS-69 WorkerCore with Actor-Based Architecture
 //! # TAS-43 Event-Driven Message Processing Integration
 //!
-//! This module provides the main worker system core that integrates the
-//! TAS-40 command pattern architecture with TAS-43 event-driven processing.
+//! This module provides the main worker system core using the actor-based
+//! command-actor-service architecture (TAS-69).
 //!
 //! ## Key Features
 //!
-//! - **Command Pattern Integration**: Uses WorkerProcessor for all worker operations
+//! - **Actor-Based Command Processing**: Pure routing via ActorCommandProcessor
 //! - **Event-Driven Processing**: Real-time message processing via PostgreSQL LISTEN/NOTIFY
-//! - **Hybrid Reliability**: Event-driven with fallback polling for guaranteed message processing
+//! - **Hybrid Reliability**: Event-driven with fallback polling for guaranteed processing
 //! - **Step Execution**: Manages step message processing and result publishing
 //! - **TaskTemplate Management**: Local template caching and validation
 //! - **Orchestration API**: HTTP client for orchestration service communication
@@ -24,10 +24,12 @@ use uuid::Uuid;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
-use super::command_processor::{WorkerCommand, WorkerProcessor, WorkerStatus};
+use super::actor_command_processor::ActorCommandProcessor;
+use super::command_processor::{WorkerCommand, WorkerStatus};
 use super::event_driven_processor::{
     EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
 };
+use super::event_publisher::WorkerEventPublisher;
 use super::event_router::EventRouter;
 use super::event_systems::domain_event_system::{
     DomainEventSystem, DomainEventSystemConfig, DomainEventSystemHandle,
@@ -46,12 +48,12 @@ use tasker_shared::messaging::execution_types::StepExecutionResult;
 use tasker_shared::types::TaskSequenceStep;
 use tokio::sync::RwLock as TokioRwLock;
 
-/// TAS-40 Command Pattern WorkerCore with TAS-43 Event-Driven Integration
+/// TAS-69 Actor-Based WorkerCore with TAS-43 Event-Driven Integration
 ///
 /// Focused on worker-specific operations with real-time event processing:
+/// - Actor-based command processing via ActorCommandProcessor
 /// - Event-driven step message processing via PostgreSQL LISTEN/NOTIFY
 /// - Hybrid reliability with fallback polling for guaranteed processing
-/// - Command pattern integration for all worker operations
 /// - Publishing results back to orchestration
 /// - Managing local task template cache
 /// - Health monitoring and metrics
@@ -62,10 +64,10 @@ pub struct WorkerCore {
     /// Command sender for worker operations
     command_sender: mpsc::Sender<WorkerCommand>,
 
-    /// Worker processor (handles commands in background)
-    /// Kept alive for the lifetime of WorkerCore to ensure background task runs
+    /// TAS-69: Actor-based command processor
+    /// Uses actor pattern for pure routing and typed message handling
     #[allow(dead_code)]
-    processor: Option<WorkerProcessor>,
+    processor: Option<ActorCommandProcessor>,
 
     /// Event-driven message processor for real-time message handling
     event_driven_processor: Option<EventDrivenMessageProcessor>,
@@ -155,7 +157,7 @@ pub enum WorkerCoreStatus {
 }
 
 impl WorkerCore {
-    /// Create new WorkerCore with TAS-43 event-driven processing integration
+    /// Create new WorkerCore with TAS-69 actor-based architecture
     pub async fn new(
         context: Arc<SystemContext>,
         orchestration_config: OrchestrationApiConfig,
@@ -164,12 +166,14 @@ impl WorkerCore {
     }
 
     /// Create new WorkerCore with external event system
+    ///
+    /// TAS-69: Uses ActorCommandProcessor for pure routing and typed message handling
     pub async fn new_with_event_system(
         context: Arc<SystemContext>,
         orchestration_config: OrchestrationApiConfig,
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
     ) -> TaskerResult<Self> {
-        info!("Creating WorkerCore with Command Pattern and Event System");
+        info!("Creating WorkerCore with TAS-69 Actor-Based Architecture");
 
         // Create worker-specific components
         let task_template_manager = Arc::new(TaskTemplateManager::new(
@@ -207,14 +211,62 @@ impl WorkerCore {
             })?,
         );
 
-        // TAS-51: Use configured buffer size for worker command processor
-        // TAS-61 Phase 6D: Worker-specific mpsc channels are in worker.mpsc_channels
-        let command_buffer_size = context
+        // TAS-65 Phase 3: Create domain event publisher for step events
+        let domain_event_publisher = Arc::new(DomainEventPublisher::new(context.message_client()));
+
+        // TAS-65 Phase 3: Initialize step event publisher registry with domain publisher
+        let step_event_publisher_registry = Arc::new(RwLock::new(StepEventPublisherRegistry::new(
+            domain_event_publisher.clone(),
+        )));
+
+        // TAS-65/TAS-69: Load worker config for domain event system
+        let worker_config = context
             .tasker_config
             .worker
             .as_ref()
-            .map(|w| w.mpsc_channels.command_processor.command_buffer_size as usize)
-            .expect("Worker configuration required for command processor buffer size");
+            .expect("Worker configuration required for domain event system");
+
+        // TAS-65/TAS-69: Create in-process event bus
+        let in_process_channels = &worker_config.mpsc_channels.in_process_events;
+        let in_process_bus_config = InProcessEventBusConfig {
+            ffi_channel_buffer_size: in_process_channels.broadcast_buffer_size as usize,
+            log_subscriber_errors: in_process_channels.log_subscriber_errors,
+            dispatch_timeout_ms: in_process_channels.dispatch_timeout_ms as u64,
+        };
+        let in_process_bus = Arc::new(TokioRwLock::new(InProcessEventBus::new(
+            in_process_bus_config,
+        )));
+
+        // TAS-65/TAS-69: Create event router for dual-path delivery
+        let event_router = Arc::new(EventRouter::new(
+            domain_event_publisher.clone(),
+            in_process_bus.clone(),
+        ));
+
+        // TAS-65/TAS-69: Create domain event system and handle
+        let domain_event_channels = &worker_config.mpsc_channels.domain_events;
+        let domain_event_system_config = DomainEventSystemConfig {
+            channel_buffer_size: domain_event_channels.command_buffer_size as usize,
+            shutdown_drain_timeout_ms: domain_event_channels.shutdown_drain_timeout_ms as u64,
+            log_dropped_events: domain_event_channels.log_dropped_events,
+        };
+        let (domain_event_system, domain_event_handle) =
+            DomainEventSystem::new(event_router.clone(), domain_event_system_config);
+
+        // TAS-69: Create shared event system for FFI handlers
+        // CRITICAL: Both event_publisher and event_subscriber MUST share the same event system
+        // Otherwise FFI handlers won't receive step execution events
+        let worker_id = format!("worker_{}", uuid::Uuid::now_v7());
+        let shared_event_system = event_system
+            .unwrap_or_else(|| Arc::new(tasker_shared::events::WorkerEventSystem::new()));
+        let event_publisher =
+            WorkerEventPublisher::with_event_system(worker_id.clone(), shared_event_system.clone());
+
+        // TAS-51: Use configured buffer size for worker command processor
+        let command_buffer_size = worker_config
+            .mpsc_channels
+            .command_processor
+            .command_buffer_size as usize;
 
         // TAS-51: Initialize channel monitor for observability
         let command_channel_monitor = tasker_shared::monitoring::ChannelMonitor::new(
@@ -222,31 +274,29 @@ impl WorkerCore {
             command_buffer_size,
         );
 
-        let (mut processor, command_sender) = {
-            if let Some(ref event_system) = event_system {
-                WorkerProcessor::new_with_event_system(
-                    context.clone(),
-                    task_template_manager.clone(),
-                    command_buffer_size,
-                    command_channel_monitor,
-                    event_system.clone(),
-                )
-            } else {
-                WorkerProcessor::new(
-                    context.clone(),
-                    task_template_manager.clone(),
-                    command_buffer_size,
-                    command_channel_monitor,
-                )
-            }
-        };
+        // TAS-69: Create ActorCommandProcessor with all dependencies upfront
+        // This eliminates two-phase initialization complexity
+        let (mut processor, command_sender) = ActorCommandProcessor::new(
+            context.clone(),
+            worker_id,
+            task_template_manager.clone(),
+            event_publisher,
+            domain_event_handle.clone(),
+            command_buffer_size,
+            command_channel_monitor,
+        )
+        .await?;
+
+        // Enable event subscriber for completion events using shared event system
+        processor
+            .enable_event_subscriber(Some(shared_event_system))
+            .await;
 
         // Create EventDrivenMessageProcessor for TAS-43 integration
         let event_driven_config = EventDrivenConfig {
             fallback_polling_interval: Duration::from_millis(500),
             batch_size: 10,
             visibility_timeout: Duration::from_secs(30),
-            // TAS-61 Phase 6C/6D: Convert V2 DeploymentMode to legacy
             deployment_mode: context
                 .tasker_config
                 .worker
@@ -270,74 +320,9 @@ impl WorkerCore {
 
         let core_id = Uuid::now_v7();
 
-        // TAS-65 Phase 3: Create domain event publisher for step events
-        let domain_event_publisher = Arc::new(DomainEventPublisher::new(context.message_client()));
-
-        // TAS-65 Phase 3: Initialize step event publisher registry with domain publisher
-        let step_event_publisher_registry = Arc::new(RwLock::new(StepEventPublisherRegistry::new(
-            domain_event_publisher.clone(),
-        )));
-
-        // TAS-65/TAS-69 Phase 8: Load in-process event bus config from TOML
-        // Uses worker.mpsc_channels.in_process_events section
-        let worker_config = context
-            .tasker_config
-            .worker
-            .as_ref()
-            .expect("Worker configuration required for domain event system");
-
-        let in_process_channels = &worker_config.mpsc_channels.in_process_events;
-        let in_process_bus_config = InProcessEventBusConfig {
-            ffi_channel_buffer_size: in_process_channels.broadcast_buffer_size as usize,
-            log_subscriber_errors: in_process_channels.log_subscriber_errors,
-            dispatch_timeout_ms: in_process_channels.dispatch_timeout_ms as u64,
-        };
-
-        info!(
-            ffi_channel_buffer_size = in_process_bus_config.ffi_channel_buffer_size,
-            log_subscriber_errors = in_process_bus_config.log_subscriber_errors,
-            dispatch_timeout_ms = in_process_bus_config.dispatch_timeout_ms,
-            "Creating InProcessEventBus with TOML configuration"
-        );
-
-        let in_process_bus = Arc::new(TokioRwLock::new(InProcessEventBus::new(
-            in_process_bus_config,
-        )));
-
-        // TAS-65/TAS-69 Phase 8: Create event router for dual-path delivery
-        // We keep a reference for statistics access in debug endpoints
-        let event_router = Arc::new(EventRouter::new(
-            domain_event_publisher.clone(),
-            in_process_bus.clone(),
-        ));
-
-        // TAS-65/TAS-69 Phase 8: Load domain event system config from TOML
-        // Uses worker.mpsc_channels.domain_events section
-        let domain_event_channels = &worker_config.mpsc_channels.domain_events;
-        let domain_event_system_config = DomainEventSystemConfig {
-            channel_buffer_size: domain_event_channels.command_buffer_size as usize,
-            shutdown_drain_timeout_ms: domain_event_channels.shutdown_drain_timeout_ms as u64,
-            log_dropped_events: domain_event_channels.log_dropped_events,
-        };
-
-        info!(
-            channel_buffer_size = domain_event_system_config.channel_buffer_size,
-            shutdown_drain_timeout_ms = domain_event_system_config.shutdown_drain_timeout_ms,
-            log_dropped_events = domain_event_system_config.log_dropped_events,
-            "Creating DomainEventSystem with TOML configuration"
-        );
-
-        let (domain_event_system, domain_event_handle) = DomainEventSystem::new(
-            event_router.clone(), // Clone the Arc to pass to DomainEventSystem
-            domain_event_system_config,
-        );
-
-        // TAS-65/TAS-69 Phase 8: Wire domain event handle into processor for fire-and-forget dispatch
-        processor.set_domain_event_handle(domain_event_handle.clone());
-
         info!(
             core_id = %core_id,
-            "WorkerCore initialized with domain event system and step event publisher registry"
+            "WorkerCore initialized with TAS-69 actor-based processor"
         );
 
         Ok(Self {
@@ -362,9 +347,7 @@ impl WorkerCore {
 
     /// Start the worker core with event-driven processing
     pub async fn start(&mut self) -> TaskerResult<()> {
-        info!(
-            "Starting WorkerCore with TAS-40 command pattern and TAS-43 event-driven integration"
-        );
+        info!("Starting WorkerCore with TAS-69 actor-based architecture");
 
         self.status = WorkerCoreStatus::Starting;
 
@@ -380,18 +363,21 @@ impl WorkerCore {
             );
         }
 
+        // TAS-69: Start actor-based processor
         if let Some(mut processor) = self.processor.take() {
-            // Spawn the processor in background since it contains an infinite processing loop
-            // Store the JoinHandle so we can await clean shutdown
+            info!(
+                core_id = %self.core_id,
+                "Starting ActorCommandProcessor"
+            );
             let handle = tokio::spawn(async move {
                 if let Err(e) = processor.start_with_events().await {
-                    tracing::error!("WorkerProcessor error: {}", e);
+                    tracing::error!("ActorCommandProcessor error: {}", e);
                 }
             });
             self.processor_task_handle = Some(handle);
         }
 
-        // TAS-65/TAS-69 Phase 8: Start domain event system background processing
+        // TAS-65/TAS-69: Start domain event system background processing
         if let Some(domain_event_system) = self.domain_event_system.take() {
             info!(
                 core_id = %self.core_id,
