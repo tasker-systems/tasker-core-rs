@@ -7,7 +7,7 @@
 //!
 //! The worker actor system provides:
 //! - **WorkerActor trait**: Base trait with lifecycle hooks for all worker actors
-//! - **Handler<M> trait**: Type-safe message handling for specific message types
+//! - **`Handler<M>` trait**: Type-safe message handling for specific message types
 //! - **Message trait**: Marker trait for command messages with associated response types
 //! - **WorkerActorRegistry**: Central registry managing actor lifecycle and access
 //!

@@ -118,7 +118,9 @@ impl FFICompletionService {
         let final_state = state_machine
             .transition_with_context(step_event, Some(transition_context))
             .await
-            .map_err(|e| TaskerError::StateTransitionError(format!("Step transition failed: {e}")))?;
+            .map_err(|e| {
+                TaskerError::StateTransitionError(format!("Step transition failed: {e}"))
+            })?;
 
         // 4. Send SimpleStepMessage to orchestration queue
         self.orchestration_result_sender

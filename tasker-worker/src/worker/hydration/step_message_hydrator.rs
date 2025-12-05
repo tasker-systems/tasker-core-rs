@@ -3,7 +3,7 @@
 //! TAS-69: Transforms PGMQ step messages into typed actor messages.
 //!
 //! This hydrator handles:
-//! - PgmqMessage<SimpleStepMessage> → ExecuteStepMessage
+//! - `PgmqMessage<SimpleStepMessage>` → ExecuteStepMessage
 //! - Raw PgmqMessage → ExecuteStepFromPgmqMessage
 //! - MessageReadyEvent → ExecuteStepFromEventMessage
 
@@ -109,12 +109,12 @@ impl StepMessageHydrator {
     /// * `message` - The raw PGMQ message
     ///
     /// # Returns
-    /// The typed PgmqMessage<SimpleStepMessage> or an error
+    /// The typed `PgmqMessage<SimpleStepMessage>` or an error
     pub fn parse_step_message(
         message: PgmqMessage,
     ) -> TaskerResult<PgmqMessage<SimpleStepMessage>> {
-        let step_message: SimpleStepMessage =
-            serde_json::from_value(message.message.clone()).map_err(|e| {
+        let step_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
+            .map_err(|e| {
                 TaskerError::MessagingError(format!("Failed to deserialize step message: {}", e))
             })?;
 

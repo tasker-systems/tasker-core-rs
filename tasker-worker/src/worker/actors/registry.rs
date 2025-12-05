@@ -125,19 +125,15 @@ impl WorkerActorRegistry {
             domain_event_handle,
         );
 
-        let mut ffi_completion_actor =
-            FFICompletionActor::new(context.clone(), worker_id.clone());
+        let mut ffi_completion_actor = FFICompletionActor::new(context.clone(), worker_id.clone());
 
         let mut template_cache_actor =
             TemplateCacheActor::new(context.clone(), task_template_manager.clone());
 
         let mut domain_event_actor = DomainEventActor::new(context.clone());
 
-        let mut worker_status_actor = WorkerStatusActor::new(
-            context.clone(),
-            worker_id.clone(),
-            task_template_manager,
-        );
+        let mut worker_status_actor =
+            WorkerStatusActor::new(context.clone(), worker_id.clone(), task_template_manager);
 
         // Call started() lifecycle hook on each actor
         step_executor_actor.started()?;
@@ -226,9 +222,9 @@ mod tests {
 
         // Create dependencies for EventRouter
         let domain_publisher = Arc::new(DomainEventPublisher::new(message_client));
-        let in_process_bus = Arc::new(RwLock::new(
-            InProcessEventBus::new(InProcessEventBusConfig::default()),
-        ));
+        let in_process_bus = Arc::new(RwLock::new(InProcessEventBus::new(
+            InProcessEventBusConfig::default(),
+        )));
         let event_router = Arc::new(EventRouter::new(domain_publisher, in_process_bus));
 
         let (_domain_event_system, domain_event_handle) =

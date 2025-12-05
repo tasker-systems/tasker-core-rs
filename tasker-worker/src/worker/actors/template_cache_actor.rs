@@ -36,7 +36,10 @@ impl std::fmt::Debug for TemplateCacheActor {
 
 impl TemplateCacheActor {
     /// Create a new TemplateCacheActor
-    pub fn new(context: Arc<SystemContext>, task_template_manager: Arc<TaskTemplateManager>) -> Self {
+    pub fn new(
+        context: Arc<SystemContext>,
+        task_template_manager: Arc<TaskTemplateManager>,
+    ) -> Self {
         Self {
             context,
             task_template_manager,
@@ -71,7 +74,10 @@ impl WorkerActor for TemplateCacheActor {
 
 #[async_trait]
 impl Handler<RefreshTemplateCacheMessage> for TemplateCacheActor {
-    async fn handle(&self, msg: RefreshTemplateCacheMessage) -> TaskerResult<<RefreshTemplateCacheMessage as Message>::Response> {
+    async fn handle(
+        &self,
+        msg: RefreshTemplateCacheMessage,
+    ) -> TaskerResult<<RefreshTemplateCacheMessage as Message>::Response> {
         debug!(
             actor = self.name(),
             namespace = ?msg.namespace,

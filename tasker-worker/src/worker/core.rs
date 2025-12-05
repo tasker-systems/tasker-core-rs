@@ -29,12 +29,12 @@ use super::command_processor::{WorkerCommand, WorkerStatus};
 use super::event_driven_processor::{
     EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
 };
+use super::event_publisher::WorkerEventPublisher;
 use super::event_router::EventRouter;
 use super::event_systems::domain_event_system::{
     DomainEventSystem, DomainEventSystemConfig, DomainEventSystemHandle,
 };
 use super::in_process_event_bus::{InProcessEventBus, InProcessEventBusConfig};
-use super::event_publisher::WorkerEventPublisher;
 use super::step_event_publisher::{PublishResult, StepEventContext, StepEventPublisher};
 use super::step_event_publisher_registry::StepEventPublisherRegistry;
 use super::task_template_manager::TaskTemplateManager;

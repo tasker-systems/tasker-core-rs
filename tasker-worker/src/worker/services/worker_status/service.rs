@@ -34,7 +34,10 @@ pub struct WorkerStatusService {
     worker_id: String,
 
     /// System context for dependencies
-    #[expect(dead_code, reason = "TAS-69: Reserved for future health check enhancements")]
+    #[expect(
+        dead_code,
+        reason = "TAS-69: Reserved for future health check enhancements"
+    )]
     context: Arc<SystemContext>,
 
     /// Task template manager for cache stats
@@ -96,7 +99,10 @@ impl WorkerStatusService {
     }
 
     /// Get health check status
-    pub async fn get_health_status(&self, stats: &StepExecutionStats) -> TaskerResult<WorkerHealthStatus> {
+    pub async fn get_health_status(
+        &self,
+        stats: &StepExecutionStats,
+    ) -> TaskerResult<WorkerHealthStatus> {
         let health_status = WorkerHealthStatus {
             status: "healthy".to_string(),
             database_connected: true, // TODO: Add actual DB connectivity check
@@ -176,11 +182,8 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let service = WorkerStatusService::new(
-            "test_worker".to_string(),
-            context,
-            task_template_manager,
-        );
+        let service =
+            WorkerStatusService::new("test_worker".to_string(), context, task_template_manager);
 
         assert_eq!(service.worker_id, "test_worker");
     }
@@ -197,11 +200,8 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let service = WorkerStatusService::new(
-            "test_worker".to_string(),
-            context,
-            task_template_manager,
-        );
+        let service =
+            WorkerStatusService::new("test_worker".to_string(), context, task_template_manager);
 
         let stats = StepExecutionStats {
             total_executed: 10,
@@ -210,7 +210,9 @@ mod tests {
             average_execution_time_ms: 100.0,
         };
 
-        let status = service.get_worker_status(&stats, vec!["handler1".to_string()]).unwrap();
+        let status = service
+            .get_worker_status(&stats, vec!["handler1".to_string()])
+            .unwrap();
 
         assert_eq!(status.worker_id, "test_worker");
         assert_eq!(status.status, "healthy");
@@ -231,11 +233,8 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let service = WorkerStatusService::new(
-            "test_worker".to_string(),
-            context,
-            task_template_manager,
-        );
+        let service =
+            WorkerStatusService::new("test_worker".to_string(), context, task_template_manager);
 
         let status = service.get_event_status(None, None).unwrap();
 

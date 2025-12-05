@@ -129,7 +129,9 @@ impl Handler<ExecuteStepMessage> for StepExecutorActor {
             "Handling ExecuteStepMessage"
         );
 
-        self.service.execute_step(msg.message, &msg.queue_name).await
+        self.service
+            .execute_step(msg.message, &msg.queue_name)
+            .await
     }
 }
 
@@ -265,9 +267,9 @@ mod tests {
         // Create required dependencies
         let event_publisher = WorkerEventPublisher::new("test_worker".to_string());
         let domain_publisher = Arc::new(DomainEventPublisher::new(context.message_client.clone()));
-        let in_process_bus = Arc::new(RwLock::new(
-            InProcessEventBus::new(InProcessEventBusConfig::default()),
-        ));
+        let in_process_bus = Arc::new(RwLock::new(InProcessEventBus::new(
+            InProcessEventBusConfig::default(),
+        )));
         let event_router = Arc::new(EventRouter::new(domain_publisher, in_process_bus));
         let (_domain_event_system, domain_event_handle) =
             DomainEventSystem::new(event_router, DomainEventSystemConfig::default());

@@ -4,8 +4,14 @@
 //!
 //! Handles status reporting, health checks, and event integration status
 //! by delegating to WorkerStatusService.
+//!
+//! ## Lock-Free Statistics
+//!
+//! Step execution statistics use `AtomicU64` counters for lock-free updates.
+//! This eliminates lock contention on the hot path (every step completion).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -25,20 +31,102 @@ use crate::worker::event_subscriber::WorkerEventSubscriber;
 use crate::worker::services::WorkerStatusService;
 use crate::worker::task_template_manager::TaskTemplateManager;
 
+/// Lock-free step execution statistics using atomic counters
+///
+/// TAS-69: Eliminates lock contention on the hot path by using `AtomicU64`
+/// for all counter updates. Average execution time is computed on read
+/// from `total_execution_time_ms / total_executed`.
+#[derive(Debug)]
+pub struct AtomicStepExecutionStats {
+    /// Total steps executed (success + failure)
+    total_executed: AtomicU64,
+    /// Total successful step executions
+    total_succeeded: AtomicU64,
+    /// Total failed step executions
+    total_failed: AtomicU64,
+    /// Sum of all execution times in milliseconds (for computing average)
+    total_execution_time_ms: AtomicU64,
+}
+
+impl Default for AtomicStepExecutionStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AtomicStepExecutionStats {
+    /// Create new atomic stats with all counters at zero
+    pub fn new() -> Self {
+        Self {
+            total_executed: AtomicU64::new(0),
+            total_succeeded: AtomicU64::new(0),
+            total_failed: AtomicU64::new(0),
+            total_execution_time_ms: AtomicU64::new(0),
+        }
+    }
+
+    /// Record a successful step execution (lock-free)
+    #[inline]
+    pub fn record_success(&self, execution_time_ms: u64) {
+        self.total_executed.fetch_add(1, Ordering::Relaxed);
+        self.total_succeeded.fetch_add(1, Ordering::Relaxed);
+        self.total_execution_time_ms
+            .fetch_add(execution_time_ms, Ordering::Relaxed);
+    }
+
+    /// Record a failed step execution (lock-free)
+    #[inline]
+    pub fn record_failure(&self) {
+        self.total_executed.fetch_add(1, Ordering::Relaxed);
+        self.total_failed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Get a snapshot of current statistics
+    ///
+    /// Computes average execution time from sum / count.
+    /// Note: Individual reads are atomic but the snapshot is not
+    /// transactionally consistent (acceptable for monitoring).
+    pub fn snapshot(&self) -> StepExecutionStats {
+        let total_executed = self.total_executed.load(Ordering::Relaxed);
+        let total_succeeded = self.total_succeeded.load(Ordering::Relaxed);
+        let total_failed = self.total_failed.load(Ordering::Relaxed);
+        let total_time = self.total_execution_time_ms.load(Ordering::Relaxed);
+
+        let average_execution_time_ms = if total_executed > 0 {
+            total_time as f64 / total_executed as f64
+        } else {
+            0.0
+        };
+
+        StepExecutionStats {
+            total_executed,
+            total_succeeded,
+            total_failed,
+            average_execution_time_ms,
+        }
+    }
+}
+
 /// Worker Status Actor
 ///
 /// TAS-69: Wraps WorkerStatusService with actor interface for message-based
 /// status and health reporting.
+///
+/// ## Lock-Free Design
+///
+/// Step execution statistics use `AtomicStepExecutionStats` for lock-free
+/// counter updates. This eliminates lock contention on the hot path
+/// (every step completion calls `record_success` or `record_failure`).
 pub struct WorkerStatusActor {
     context: Arc<SystemContext>,
     service: WorkerStatusService,
-    /// Execution statistics tracked by the actor
-    stats: RwLock<StepExecutionStats>,
-    /// Handler registry
+    /// Lock-free execution statistics using atomic counters
+    stats: AtomicStepExecutionStats,
+    /// Handler registry (rarely updated, RwLock is fine)
     handlers: RwLock<HashMap<String, String>>,
-    /// Event publisher reference
+    /// Event publisher reference (rarely updated, RwLock is fine)
     event_publisher: RwLock<Option<WorkerEventPublisher>>,
-    /// Event subscriber reference
+    /// Event subscriber reference (rarely updated, RwLock is fine)
     event_subscriber: RwLock<Option<WorkerEventSubscriber>>,
 }
 
@@ -58,53 +146,42 @@ impl WorkerStatusActor {
         worker_id: String,
         task_template_manager: Arc<TaskTemplateManager>,
     ) -> Self {
-        let service = WorkerStatusService::new(
-            worker_id,
-            context.clone(),
-            task_template_manager,
-        );
+        let service = WorkerStatusService::new(worker_id, context.clone(), task_template_manager);
 
         Self {
             context,
             service,
-            stats: RwLock::new(StepExecutionStats {
-                total_executed: 0,
-                total_succeeded: 0,
-                total_failed: 0,
-                average_execution_time_ms: 0.0,
-            }),
+            stats: AtomicStepExecutionStats::new(),
             handlers: RwLock::new(HashMap::new()),
             event_publisher: RwLock::new(None),
             event_subscriber: RwLock::new(None),
         }
     }
 
-    /// Update execution statistics
-    pub async fn update_stats(&self, executed: u64, succeeded: u64, failed: u64, avg_time: f64) {
-        let mut stats = self.stats.write().await;
-        stats.total_executed = executed;
-        stats.total_succeeded = succeeded;
-        stats.total_failed = failed;
-        stats.average_execution_time_ms = avg_time;
-    }
-
-    /// Record a successful step execution
+    /// Record a successful step execution (lock-free)
+    ///
+    /// This method is called on every step completion and uses atomic
+    /// operations to avoid lock contention.
+    #[inline]
     pub async fn record_success(&self, execution_time_ms: f64) {
-        let mut stats = self.stats.write().await;
-        stats.total_executed += 1;
-        stats.total_succeeded += 1;
-
-        // Update average
-        let total = stats.total_executed as f64;
-        stats.average_execution_time_ms =
-            (stats.average_execution_time_ms * (total - 1.0) + execution_time_ms) / total;
+        // Convert to u64 for atomic storage (sub-ms precision not needed for averages)
+        self.stats.record_success(execution_time_ms as u64);
     }
 
-    /// Record a failed step execution
+    /// Record a failed step execution (lock-free)
+    ///
+    /// This method is called on every step failure and uses atomic
+    /// operations to avoid lock contention.
+    #[inline]
     pub async fn record_failure(&self) {
-        let mut stats = self.stats.write().await;
-        stats.total_executed += 1;
-        stats.total_failed += 1;
+        self.stats.record_failure();
+    }
+
+    /// Get a snapshot of current statistics
+    ///
+    /// Computes average execution time from sum / count.
+    pub fn stats_snapshot(&self) -> StepExecutionStats {
+        self.stats.snapshot()
     }
 
     /// Register a handler
@@ -156,10 +233,13 @@ impl WorkerActor for WorkerStatusActor {
 
 #[async_trait]
 impl Handler<GetWorkerStatusMessage> for WorkerStatusActor {
-    async fn handle(&self, _msg: GetWorkerStatusMessage) -> TaskerResult<<GetWorkerStatusMessage as Message>::Response> {
+    async fn handle(
+        &self,
+        _msg: GetWorkerStatusMessage,
+    ) -> TaskerResult<<GetWorkerStatusMessage as Message>::Response> {
         debug!(actor = self.name(), "Handling GetWorkerStatusMessage");
 
-        let stats = self.stats.read().await;
+        let stats = self.stats_snapshot();
         let handlers = self.handlers.read().await;
         let handler_list: Vec<String> = handlers.keys().cloned().collect();
 
@@ -169,17 +249,23 @@ impl Handler<GetWorkerStatusMessage> for WorkerStatusActor {
 
 #[async_trait]
 impl Handler<HealthCheckMessage> for WorkerStatusActor {
-    async fn handle(&self, _msg: HealthCheckMessage) -> TaskerResult<<HealthCheckMessage as Message>::Response> {
+    async fn handle(
+        &self,
+        _msg: HealthCheckMessage,
+    ) -> TaskerResult<<HealthCheckMessage as Message>::Response> {
         debug!(actor = self.name(), "Handling HealthCheckMessage");
 
-        let stats = self.stats.read().await;
+        let stats = self.stats_snapshot();
         self.service.get_health_status(&stats).await
     }
 }
 
 #[async_trait]
 impl Handler<GetEventStatusMessage> for WorkerStatusActor {
-    async fn handle(&self, _msg: GetEventStatusMessage) -> TaskerResult<<GetEventStatusMessage as Message>::Response> {
+    async fn handle(
+        &self,
+        _msg: GetEventStatusMessage,
+    ) -> TaskerResult<<GetEventStatusMessage as Message>::Response> {
         debug!(actor = self.name(), "Handling GetEventStatusMessage");
 
         let ep = self.event_publisher.read().await;
@@ -191,7 +277,10 @@ impl Handler<GetEventStatusMessage> for WorkerStatusActor {
 
 #[async_trait]
 impl Handler<SetEventIntegrationMessage> for WorkerStatusActor {
-    async fn handle(&self, msg: SetEventIntegrationMessage) -> TaskerResult<<SetEventIntegrationMessage as Message>::Response> {
+    async fn handle(
+        &self,
+        msg: SetEventIntegrationMessage,
+    ) -> TaskerResult<<SetEventIntegrationMessage as Message>::Response> {
         debug!(
             actor = self.name(),
             enabled = msg.enabled,
@@ -253,11 +342,56 @@ mod tests {
         actor.record_success(100.0).await;
         actor.record_success(200.0).await;
 
-        let stats = actor.stats.read().await;
+        let stats = actor.stats_snapshot();
         assert_eq!(stats.total_executed, 2);
         assert_eq!(stats.total_succeeded, 2);
         assert_eq!(stats.total_failed, 0);
-        assert!((stats.average_execution_time_ms - 150.0).abs() < 0.01);
+        // Average is now computed from sum/count: (100+200)/2 = 150
+        assert!((stats.average_execution_time_ms - 150.0).abs() < 1.0);
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_record_failure(pool: sqlx::PgPool) {
+        let context = Arc::new(
+            SystemContext::with_pool(pool)
+                .await
+                .expect("Failed to create context"),
+        );
+
+        let task_template_manager = Arc::new(TaskTemplateManager::new(
+            context.task_handler_registry.clone(),
+        ));
+
+        let actor = WorkerStatusActor::new(
+            context.clone(),
+            "test_worker".to_string(),
+            task_template_manager,
+        );
+
+        actor.record_failure().await;
+        actor.record_failure().await;
+        actor.record_success(100.0).await;
+
+        let stats = actor.stats_snapshot();
+        assert_eq!(stats.total_executed, 3);
+        assert_eq!(stats.total_succeeded, 1);
+        assert_eq!(stats.total_failed, 2);
+    }
+
+    #[test]
+    fn test_atomic_stats_lock_free() {
+        // Verify AtomicStepExecutionStats can be used without locks
+        let stats = AtomicStepExecutionStats::new();
+
+        stats.record_success(100);
+        stats.record_success(200);
+        stats.record_failure();
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.total_executed, 3);
+        assert_eq!(snapshot.total_succeeded, 2);
+        assert_eq!(snapshot.total_failed, 1);
+        assert!((snapshot.average_execution_time_ms - 100.0).abs() < 1.0); // 300/3 = 100
     }
 
     #[test]

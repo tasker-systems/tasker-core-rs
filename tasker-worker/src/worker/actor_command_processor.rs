@@ -16,7 +16,7 @@
 //! ## Key Features
 //!
 //! - **Pure Routing**: No business logic, just command→actor delegation
-//! - **Type-Safe Messages**: Typed actor messages via Handler<M> trait
+//! - **Type-Safe Messages**: Typed actor messages via `Handler<M>` trait
 //! - **Backward Compatible**: Same WorkerCommand enum and response types
 
 use std::sync::Arc;
@@ -491,9 +491,9 @@ mod tests {
 
         // Create dependencies for EventRouter
         let domain_publisher = Arc::new(DomainEventPublisher::new(message_client));
-        let in_process_bus = Arc::new(RwLock::new(
-            InProcessEventBus::new(InProcessEventBusConfig::default()),
-        ));
+        let in_process_bus = Arc::new(RwLock::new(InProcessEventBus::new(
+            InProcessEventBusConfig::default(),
+        )));
         let event_router = Arc::new(EventRouter::new(domain_publisher, in_process_bus));
 
         let (_domain_event_system, domain_event_handle) =

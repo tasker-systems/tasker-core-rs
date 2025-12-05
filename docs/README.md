@@ -1,6 +1,6 @@
 # Tasker Core Documentation
 
-**Last Updated**: 2025-12-01
+**Last Updated**: 2025-12-04
 **Project Status**: Production Ready
 **Version**: 0.1.0
 
@@ -27,7 +27,8 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 **Making design decisions?** These documents explain architectural patterns and trade-offs:
 
 - **[Crate Architecture](crate-architecture.md)** - Workspace structure and crate responsibilities
-- **[Actor-Based Architecture](actors.md)** - Lightweight actor pattern for lifecycle components (TAS-46)
+- **[Actor-Based Architecture](actors.md)** - Lightweight actor pattern for orchestration lifecycle components (TAS-46)
+- **[Worker Actor Architecture](worker-actors.md)** - Actor pattern for worker step execution (TAS-69)
 - **[Events and Commands Architecture](events-and-commands.md)** - Event-driven coordination patterns
 - **[Domain Events](domain-events.md)** - Business event publishing (durable, fast, broadcast modes)
 - **[States and Lifecycles](states-and-lifecycles.md)** - Dual state machine architecture
@@ -87,7 +88,8 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 | Document | Description | Audience |
 |----------|-------------|----------|
 | **[Crate Architecture](crate-architecture.md)** | Workspace structure and crate roles | All |
-| **[Actor-Based Architecture](actors.md)** | Lightweight actor pattern for lifecycle components (TAS-46) | Architects, Developers |
+| **[Actor-Based Architecture](actors.md)** | Lightweight actor pattern for orchestration lifecycle components (TAS-46) | Architects, Developers |
+| **[Worker Actor Architecture](worker-actors.md)** | Actor pattern for worker step execution (TAS-69) | Architects, Developers |
 | **[Events and Commands](events-and-commands.md)** | Event-driven coordination and command patterns | Architects, Developers |
 | **[Domain Events](domain-events.md)** | Business event publishing (durable, fast, broadcast) | Architects, Developers |
 | **[States and Lifecycles](states-and-lifecycles.md)** | Task and step state machines | All |
@@ -146,6 +148,8 @@ tasker-core/
       deployment-patterns.md         # Deployment modes and configuration
 
     Core Architecture
+      actors.md                      # Orchestration actor pattern (TAS-46)
+      worker-actors.md               # Worker actor pattern (TAS-69)
       events-and-commands.md         # Event-driven coordination
       domain-events.md               # Business event publishing (TAS-65)
       states-and-lifecycles.md       # State machine architecture
@@ -197,6 +201,7 @@ tasker-core/
         TAS-50/  # Configuration CLI & Single-File Runtime Loading
         TAS-54/  # Idempotency Audit & Processor Ownership Removal
         TAS-65/  # Distributed Event System Architecture
+        TAS-69/  # Worker Command-Actor-Service Refactor (with detailed analysis)
 
     Archive
       archive/

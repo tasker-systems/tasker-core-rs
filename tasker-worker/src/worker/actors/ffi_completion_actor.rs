@@ -66,7 +66,10 @@ impl WorkerActor for FFICompletionActor {
 
 #[async_trait]
 impl Handler<SendStepResultMessage> for FFICompletionActor {
-    async fn handle(&self, msg: SendStepResultMessage) -> TaskerResult<<SendStepResultMessage as Message>::Response> {
+    async fn handle(
+        &self,
+        msg: SendStepResultMessage,
+    ) -> TaskerResult<<SendStepResultMessage as Message>::Response> {
         debug!(
             actor = self.name(),
             step_uuid = %msg.result.step_uuid,
@@ -80,7 +83,10 @@ impl Handler<SendStepResultMessage> for FFICompletionActor {
 
 #[async_trait]
 impl Handler<ProcessStepCompletionMessage> for FFICompletionActor {
-    async fn handle(&self, msg: ProcessStepCompletionMessage) -> TaskerResult<<ProcessStepCompletionMessage as Message>::Response> {
+    async fn handle(
+        &self,
+        msg: ProcessStepCompletionMessage,
+    ) -> TaskerResult<<ProcessStepCompletionMessage as Message>::Response> {
         debug!(
             actor = self.name(),
             step_uuid = %msg.step_result.step_uuid,
@@ -105,10 +111,8 @@ mod tests {
                 .expect("Failed to create context"),
         );
 
-        let actor = FFICompletionActor::new(
-            context.clone(),
-            format!("worker_{}", uuid::Uuid::new_v4()),
-        );
+        let actor =
+            FFICompletionActor::new(context.clone(), format!("worker_{}", uuid::Uuid::new_v4()));
 
         assert_eq!(actor.name(), "FFICompletionActor");
     }

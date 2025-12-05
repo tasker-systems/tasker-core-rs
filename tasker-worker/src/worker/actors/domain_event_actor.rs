@@ -96,7 +96,10 @@ impl WorkerActor for DomainEventActor {
 
 #[async_trait]
 impl Handler<DispatchEventsMessage> for DomainEventActor {
-    async fn handle(&self, msg: DispatchEventsMessage) -> TaskerResult<<DispatchEventsMessage as Message>::Response> {
+    async fn handle(
+        &self,
+        msg: DispatchEventsMessage,
+    ) -> TaskerResult<<DispatchEventsMessage as Message>::Response> {
         debug!(
             actor = self.name(),
             event_count = msg.events.len(),
@@ -107,11 +110,8 @@ impl Handler<DispatchEventsMessage> for DomainEventActor {
 
         match &self.handle {
             Some(handle) => {
-                let dispatched = handle.dispatch_events(
-                    msg.events,
-                    msg.publisher_name,
-                    msg.correlation_id,
-                );
+                let dispatched =
+                    handle.dispatch_events(msg.events, msg.publisher_name, msg.correlation_id);
                 Ok(dispatched)
             }
             None => {
