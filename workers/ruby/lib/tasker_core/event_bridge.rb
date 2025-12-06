@@ -205,8 +205,8 @@ module TaskerCore
         # Validate completion data
         validate_completion!(completion_data)
 
-        # Send to Rust via FFI
-        TaskerCore::FFI.send_step_completion_event(completion_data)
+        # Send to Rust via FFI (TAS-67: complete_step_event takes event_id and completion_data)
+        TaskerCore::FFI.complete_step_event(completion_data[:event_id].to_s, completion_data)
 
         # Also publish locally for monitoring/debugging
         publish('step.completion.sent', completion_data)

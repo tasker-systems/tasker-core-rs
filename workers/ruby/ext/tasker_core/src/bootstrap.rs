@@ -1,24 +1,40 @@
 //! # Ruby Worker Bootstrap
 //!
-//! Follows the same patterns as workers/rust/src/bootstrap.rs but adapted
-//! for Ruby FFI integration with magnus.
+//! TAS-67: Follows the same patterns as workers/rust/src/bootstrap.rs but adapted
+//! for Ruby FFI integration with magnus. Uses FfiDispatchChannel for step event
+//! dispatch instead of the legacy RubyEventHandler.
+//!
+//! ## Architecture
+//!
+//! ```text
+//! WorkerBootstrap → WorkerSystemHandle → take_dispatch_handles()
+//!                                              │
+//!                                              ▼
+//!                                    FfiDispatchChannel
+//!                                              │
+//!                             ┌────────────────┴────────────────┐
+//!                             ▼                                 ▼
+//!                     poll_step_events()              complete_step_event()
+//!                        (Ruby FFI)                      (Ruby FFI)
+//! ```
 
-use crate::{
-    bridge::{RubyBridgeHandle, WORKER_SYSTEM},
-    event_handler::RubyEventHandler,
-    global_event_system::get_global_event_system,
-};
+use crate::bridge::{RubyBridgeHandle, WORKER_SYSTEM};
+use crate::global_event_system::get_global_event_system;
 use magnus::{value::ReprValue, Error, Value};
 use std::sync::Arc;
-use tasker_worker::worker::{InProcessEventBus, InProcessEventBusConfig};
+use tasker_worker::worker::{
+    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, InProcessEventBus,
+    InProcessEventBusConfig, StepEventPublisherRegistry,
+};
 use tasker_worker::WorkerBootstrap;
+use tokio::sync::RwLock;
 use tracing::{error, info};
 use uuid::Uuid;
 
 /// Bootstrap the worker system for Ruby
 ///
-/// This follows the same pattern as the Rust worker bootstrap but stores
-/// the handle in a global static for Ruby access.
+/// TAS-67: This now uses FfiDispatchChannel for step event dispatch,
+/// matching the architecture of the Rust worker but adapted for FFI.
 ///
 /// Returns a handle ID that Ruby can use to reference the worker system.
 pub fn bootstrap_worker() -> Result<Value, Error> {
@@ -59,57 +75,16 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
     })?;
 
     // TAS-65 Phase 2: Initialize telemetry in Tokio runtime context
-    // This is phase 2 of the two-phase FFI telemetry initialization pattern.
-    // If TELEMETRY_ENABLED=true, this will initialize OpenTelemetry with batch exporter.
-    // If TELEMETRY_ENABLED=false, this is a no-op (console logging already initialized).
     runtime.block_on(async {
         tasker_shared::logging::init_tracing();
     });
 
-    // TAS-50 Phase 3: Load worker-specific configuration from TASKER_CONFIG_PATH (single-file)
-    // This respects TASKER_CONFIG_PATH environment variable for runtime overrides
-    let system_context = runtime.block_on(async {
-        tasker_shared::system_context::SystemContext::new_for_worker()
-            .await
-            .map_err(|e| {
-                error!("Failed to load worker configuration: {}", e);
-                Error::new(
-                    magnus::exception::runtime_error(),
-                    format!("Configuration load failed: {}", e),
-                )
-            })
-    })?;
-
-    let config = system_context.tasker_config.as_ref().clone();
-
     // Get global event system (shared singleton)
     let event_system = get_global_event_system();
 
-    // TAS-61 Phase 6C/6D: Access mpsc_channels from common config
-    // Create Ruby event handler with bounded channel (TAS-51)
-    let buffer_size = config.common.mpsc_channels.ffi.ruby_event_buffer_size;
-    let (ruby_event_handler, event_receiver) = RubyEventHandler::new(
-        event_system.clone(),
-        worker_id_str.clone(),
-        buffer_size as usize,
-    );
-    let ruby_event_handler = Arc::new(ruby_event_handler);
-
-    // Bootstrap within runtime context
-    let (system_handle, event_handler) = runtime.block_on(async {
-        // Start the Ruby event handler (subscribes to events)
-        ruby_event_handler.start().await.map_err(|e| {
-            error!("Failed to start Ruby event handler: {}", e);
-            Error::new(
-                magnus::exception::runtime_error(),
-                format!("Event handler start failed: {}", e),
-            )
-        })?;
-
-        info!("✅ Ruby event handler started and subscribed to events");
-
-        // Bootstrap the worker using tasker-worker foundation
-        let handle = WorkerBootstrap::bootstrap_with_event_system(Some(event_system))
+    // Bootstrap the worker using tasker-worker foundation
+    let mut system_handle = runtime.block_on(async {
+        WorkerBootstrap::bootstrap_with_event_system(Some(event_system))
             .await
             .map_err(|e| {
                 error!("Failed to bootstrap worker system: {}", e);
@@ -117,38 +92,76 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
                     magnus::exception::runtime_error(),
                     format!("Worker bootstrap failed: {}", e),
                 )
-            })?;
-
-        info!("✅ Worker system bootstrapped successfully");
-
-        Ok::<_, Error>((handle, ruby_event_handler))
+            })
     })?;
 
-    // TAS-65: Create domain event publisher from system context message client
-    // Access message_client through async context to create publisher once
-    let domain_event_publisher = runtime.block_on(async {
+    info!("✅ Worker system bootstrapped successfully");
+
+    // TAS-67: Create domain event callback for step completion
+    // This MUST be done BEFORE taking dispatch handles
+    info!("🔔 Setting up step event publisher registry for domain events...");
+    let (domain_event_publisher, domain_event_callback) = runtime.block_on(async {
         let worker_core = system_handle.worker_core.lock().await;
+
+        // Get the message client for durable events
         let message_client = worker_core.context.message_client.clone();
-        Arc::new(tasker_shared::events::domain_events::DomainEventPublisher::new(message_client))
+        let publisher = Arc::new(
+            tasker_shared::events::domain_events::DomainEventPublisher::new(message_client),
+        );
+
+        // TAS-67: Get EventRouter from WorkerCore for stats tracking
+        let event_router = worker_core
+            .event_router()
+            .expect("EventRouter should be available from WorkerCore");
+
+        // Create registry with EventRouter for dual-path delivery (durable + fast)
+        let step_event_registry =
+            StepEventPublisherRegistry::with_event_router(publisher.clone(), event_router);
+
+        let registry = Arc::new(RwLock::new(step_event_registry));
+        let callback = Arc::new(DomainEventCallback::new(registry));
+
+        (publisher, callback)
     });
+    info!("✅ Domain event callback created with EventRouter for stats tracking");
+
+    // TAS-67: Take dispatch handles and create FfiDispatchChannel with callback
+    let ffi_dispatch_channel = if let Some(dispatch_handles) = system_handle.take_dispatch_handles()
+    {
+        info!("🔗 Creating FfiDispatchChannel from dispatch handles...");
+
+        // Create config with runtime handle for executing async callbacks from FFI threads
+        let config = FfiDispatchChannelConfig::new(runtime.handle().clone())
+            .with_service_id(worker_id_str.clone())
+            .with_completion_timeout(std::time::Duration::from_secs(30));
+
+        let channel = FfiDispatchChannel::new(
+            dispatch_handles.dispatch_receiver,
+            dispatch_handles.completion_sender,
+            config,
+            domain_event_callback,
+        );
+
+        info!("✅ FfiDispatchChannel created with domain event callback for Ruby step dispatch");
+        Arc::new(channel)
+    } else {
+        error!("Failed to get dispatch handles from WorkerSystemHandle");
+        return Err(Error::new(
+            magnus::exception::runtime_error(),
+            "Dispatch handles not available",
+        ));
+    };
 
     // TAS-65 Phase 4.1: Create in-process event bus for fast domain events
-    // Ruby can poll this channel to receive events with delivery_mode: fast
     info!("⚡ Creating in-process event bus for fast domain events...");
     let in_process_bus = InProcessEventBus::new(InProcessEventBusConfig::default());
     let in_process_event_receiver = in_process_bus.subscribe_ffi();
     info!("✅ In-process event bus created with FFI subscriber");
 
-    // Note: The InProcessEventBus is created but not yet integrated with EventRouter
-    // for routing delivery_mode: fast events. This will be addressed when step handlers
-    // use the EventRouter for dual-path delivery. For now, Ruby can poll this channel
-    // for any events explicitly dispatched to the in-process bus.
-
-    // Store the bridge handle with event receiver and domain event publisher
+    // Store the bridge handle with FfiDispatchChannel
     *handle_guard = Some(RubyBridgeHandle::new(
         system_handle,
-        event_handler,
-        event_receiver,
+        ffi_dispatch_channel,
         domain_event_publisher,
         Some(in_process_event_receiver),
         runtime,

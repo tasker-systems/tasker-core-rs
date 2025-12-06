@@ -55,8 +55,8 @@ mod worker_status_actor;
 // Re-export core traits
 pub use traits::{Handler, Message, WorkerActor};
 
-// Re-export registry
-pub use registry::WorkerActorRegistry;
+// Re-export registry and dispatch mode types (TAS-67)
+pub use registry::{DispatchChannels, DispatchModeConfig, WorkerActorRegistry};
 
 // Re-export actors
 pub use domain_event_actor::DomainEventActor;
@@ -67,8 +67,9 @@ pub use worker_status_actor::WorkerStatusActor;
 
 // Re-export messages
 pub use messages::{
-    DispatchEventsMessage, ExecuteStepFromEventMessage, ExecuteStepFromPgmqMessage,
-    ExecuteStepMessage, ExecuteStepWithCorrelationMessage, GetEventStatusMessage,
-    GetWorkerStatusMessage, HealthCheckMessage, ProcessStepCompletionMessage,
-    RefreshTemplateCacheMessage, SendStepResultMessage, SetEventIntegrationMessage,
+    DispatchEventsMessage, DispatchHandlerMessage, ExecuteStepFromEventMessage,
+    ExecuteStepFromPgmqMessage, ExecuteStepMessage, ExecuteStepWithCorrelationMessage,
+    GetEventStatusMessage, GetWorkerStatusMessage, HealthCheckMessage,
+    ProcessStepCompletionMessage, RefreshTemplateCacheMessage, SendStepResultMessage,
+    SetEventIntegrationMessage, TraceContext,
 };

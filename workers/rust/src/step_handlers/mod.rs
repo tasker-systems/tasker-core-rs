@@ -384,10 +384,16 @@ pub mod domain_event_publishing;
 pub mod registry;
 
 // Re-export core types for convenience
-pub use registry::{GlobalRustStepHandlerRegistry, RustStepHandlerRegistry};
+// TAS-67: Export registry and adapter
+pub use registry::{
+    GlobalRustStepHandlerRegistry, RustStepHandlerRegistry, RustStepHandlerRegistryAdapter,
+};
 
 // Re-export example custom publishers
 pub use notification_event_publisher::NotificationEventPublisher;
 pub use payment_event_publisher::PaymentEventPublisher;
+
+// TAS-67: Re-export domain event callback from tasker-worker (shared implementation)
+pub use tasker_worker::worker::DomainEventCallback;
 
 // StepHandlerConfig is defined in this module, no need to re-export

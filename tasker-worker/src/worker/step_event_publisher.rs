@@ -87,7 +87,6 @@ use tasker_shared::events::domain_events::{
 use tasker_shared::messaging::execution_types::StepExecutionResult;
 use tasker_shared::models::core::task_template::EventDeliveryMode;
 use tasker_shared::types::TaskSequenceStep;
-use tokio::sync::RwLock;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -361,10 +360,13 @@ pub trait StepEventPublisher: Send + Sync + std::fmt::Debug {
     /// Returns `Some` if the publisher supports dual-path routing (Durable/Fast).
     /// Default implementation returns None, meaning all events go to durable path.
     ///
+    /// Note: `EventRouter` handles its own synchronization internally via mutex,
+    /// so no external locking is required.
+    ///
     /// Implementors that want dual-path support should:
-    /// 1. Store `Arc<RwLock<EventRouter>>` as a field
-    /// 2. Override this method to return a reference
-    fn event_router(&self) -> Option<&Arc<RwLock<EventRouter>>> {
+    /// 1. Store `Arc<EventRouter>` as a field
+    /// 2. Override this method to return a clone of the Arc
+    fn event_router(&self) -> Option<Arc<EventRouter>> {
         None
     }
 
@@ -474,8 +476,8 @@ pub trait StepEventPublisher: Send + Sync + std::fmt::Debug {
         );
 
         // If event router is available, use it for routing
-        if let Some(router_arc) = self.event_router() {
-            let router = router_arc.read().await;
+        // Note: EventRouter handles its own synchronization internally
+        if let Some(router) = self.event_router() {
             let outcome = router
                 .route_event(delivery_mode, event_name, domain_payload, metadata)
                 .await
@@ -554,11 +556,14 @@ pub trait StepEventPublisher: Send + Sync + std::fmt::Debug {
 /// - `fast`: Dispatched to in-process bus for internal callbacks
 ///
 /// Without an `EventRouter`, all events use the durable (PGMQ) path.
+///
+/// Note: `EventRouter` handles its own synchronization internally via mutex,
+/// so no external RwLock wrapper is needed.
 pub struct DefaultDomainEventPublisher {
     /// The domain event publisher (owned Arc, not cloned per-call)
     domain_publisher: Arc<DomainEventPublisher>,
     /// Optional event router for dual-path delivery
-    event_router: Option<Arc<RwLock<EventRouter>>>,
+    event_router: Option<Arc<EventRouter>>,
 }
 
 // Manual Debug implementation because EventRouter contains closures indirectly
@@ -595,9 +600,12 @@ impl DefaultDomainEventPublisher {
     /// Events will be routed based on their `delivery_mode`:
     /// - `durable`: Published to PGMQ
     /// - `fast`: Dispatched to in-process bus
+    ///
+    /// Note: `EventRouter` handles its own synchronization internally,
+    /// so no external locking wrapper is needed.
     pub fn with_event_router(
         domain_publisher: Arc<DomainEventPublisher>,
-        event_router: Arc<RwLock<EventRouter>>,
+        event_router: Arc<EventRouter>,
     ) -> Self {
         Self {
             domain_publisher,
@@ -616,8 +624,8 @@ impl StepEventPublisher for DefaultDomainEventPublisher {
         &self.domain_publisher
     }
 
-    fn event_router(&self) -> Option<&Arc<RwLock<EventRouter>>> {
-        self.event_router.as_ref()
+    fn event_router(&self) -> Option<Arc<EventRouter>> {
+        self.event_router.clone()
     }
 
     async fn publish(&self, ctx: &StepEventContext) -> PublishResult {

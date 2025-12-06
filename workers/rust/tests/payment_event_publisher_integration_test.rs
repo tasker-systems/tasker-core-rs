@@ -10,6 +10,9 @@
 //! - Event publishing is handled by StepEventPublisher after step completes
 //! - Events are published based on YAML configuration (publishes_events)
 
+// Allow deprecated PaymentEventPublisher::new() - these tests don't need EventRouter stats tracking
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

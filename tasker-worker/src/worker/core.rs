@@ -25,6 +25,7 @@ use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use super::actor_command_processor::ActorCommandProcessor;
+use super::actors::DispatchHandlerMessage;
 use super::command_processor::{WorkerCommand, WorkerStatus};
 use super::event_driven_processor::{
     EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
@@ -34,6 +35,7 @@ use super::event_router::EventRouter;
 use super::event_systems::domain_event_system::{
     DomainEventSystem, DomainEventSystemConfig, DomainEventSystemHandle,
 };
+use super::handlers::{CompletionProcessorConfig, CompletionProcessorService};
 use super::in_process_event_bus::{InProcessEventBus, InProcessEventBusConfig};
 use super::step_event_publisher::{PublishResult, StepEventContext, StepEventPublisher};
 use super::step_event_publisher_registry::StepEventPublisherRegistry;
@@ -47,6 +49,32 @@ use tasker_shared::events::domain_events::DomainEventPublisher;
 use tasker_shared::messaging::execution_types::StepExecutionResult;
 use tasker_shared::types::TaskSequenceStep;
 use tokio::sync::RwLock as TokioRwLock;
+
+/// TAS-67: Handles for dispatch channel consumption
+///
+/// This struct contains the channels needed by language-specific handler dispatch:
+/// - `dispatch_receiver`: Consumed by HandlerDispatchService (Rust) or FfiDispatchChannel bridge (FFI)
+/// - `completion_sender`: Used to send results back to CompletionProcessorService
+///
+/// The `completion_receiver` is kept by `WorkerCore` and consumed by `CompletionProcessorService`.
+pub struct DispatchHandles {
+    /// Receiver for dispatch messages (consumed by HandlerDispatchService or FFI bridge)
+    pub dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
+    /// Sender for completion results (used by handler dispatch to send results)
+    pub completion_sender: mpsc::Sender<StepExecutionResult>,
+}
+
+impl std::fmt::Debug for DispatchHandles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DispatchHandles")
+            .field(
+                "dispatch_receiver",
+                &"mpsc::Receiver<DispatchHandlerMessage>",
+            )
+            .field("completion_sender", &"mpsc::Sender<StepExecutionResult>")
+            .finish()
+    }
+}
 
 /// TAS-69 Actor-Based WorkerCore with TAS-43 Event-Driven Integration
 ///
@@ -110,6 +138,16 @@ pub struct WorkerCore {
     /// Stored to await clean shutdown and detect panics
     domain_event_task_handle: Option<JoinHandle<()>>,
 
+    /// TAS-67: Completion receiver for CompletionProcessorService
+    /// Stored here and consumed when start() is called
+    completion_receiver: Option<mpsc::Receiver<StepExecutionResult>>,
+
+    /// TAS-67: JoinHandle for the completion processor background task
+    completion_processor_task_handle: Option<JoinHandle<()>>,
+
+    /// TAS-67: Worker ID for completion processor
+    worker_id: String,
+
     /// System status
     pub status: WorkerCoreStatus,
 
@@ -158,21 +196,25 @@ pub enum WorkerCoreStatus {
 
 impl WorkerCore {
     /// Create new WorkerCore with TAS-69 actor-based architecture
+    ///
+    /// TAS-67: Returns `DispatchHandles` for language-specific handler dispatch.
+    /// The caller should spawn `HandlerDispatchService` (Rust) or bridge to `FfiDispatchChannel` (FFI).
     pub async fn new(
         context: Arc<SystemContext>,
         orchestration_config: OrchestrationApiConfig,
-    ) -> TaskerResult<Self> {
+    ) -> TaskerResult<(Self, DispatchHandles)> {
         Self::new_with_event_system(context, orchestration_config, None).await
     }
 
     /// Create new WorkerCore with external event system
     ///
     /// TAS-69: Uses ActorCommandProcessor for pure routing and typed message handling
+    /// TAS-67: Returns `DispatchHandles` for language-specific handler dispatch.
     pub async fn new_with_event_system(
         context: Arc<SystemContext>,
         orchestration_config: OrchestrationApiConfig,
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
-    ) -> TaskerResult<Self> {
+    ) -> TaskerResult<(Self, DispatchHandles)> {
         info!("Creating WorkerCore with TAS-69 Actor-Based Architecture");
 
         // Create worker-specific components
@@ -274,18 +316,32 @@ impl WorkerCore {
             command_buffer_size,
         );
 
+        // TAS-67: Create dispatch config for non-blocking handler invocation
+        // TODO: Pull from worker config when handler_dispatch config types are added
+        let dispatch_config = super::actors::DispatchModeConfig::default();
+
         // TAS-69: Create ActorCommandProcessor with all dependencies upfront
-        // This eliminates two-phase initialization complexity
-        let (mut processor, command_sender) = ActorCommandProcessor::new(
+        // TAS-67: Dispatch is now the only execution path (no fallback)
+        let (mut processor, command_sender, dispatch_channels) = ActorCommandProcessor::new(
             context.clone(),
-            worker_id,
+            worker_id.clone(),
             task_template_manager.clone(),
             event_publisher,
             domain_event_handle.clone(),
             command_buffer_size,
             command_channel_monitor,
+            dispatch_config,
         )
         .await?;
+
+        // TAS-67: Split channels - completion_receiver stays with WorkerCore for
+        // CompletionProcessorService, dispatch_receiver goes to caller for
+        // language-specific handler dispatch
+        let dispatch_handles = DispatchHandles {
+            dispatch_receiver: dispatch_channels.dispatch_receiver,
+            completion_sender: dispatch_channels.completion_sender,
+        };
+        let completion_receiver = dispatch_channels.completion_receiver;
 
         // Enable event subscriber for completion events using shared event system
         processor
@@ -325,7 +381,7 @@ impl WorkerCore {
             "WorkerCore initialized with TAS-69 actor-based processor"
         );
 
-        Ok(Self {
+        let worker_core = Self {
             context,
             command_sender,
             processor: Some(processor),
@@ -340,9 +396,14 @@ impl WorkerCore {
             event_router: Some(event_router),
             processor_task_handle: None,
             domain_event_task_handle: None,
+            completion_receiver: Some(completion_receiver),
+            completion_processor_task_handle: None,
+            worker_id,
             status: WorkerCoreStatus::Created,
             core_id,
-        })
+        };
+
+        Ok((worker_core, dispatch_handles))
     }
 
     /// Start the worker core with event-driven processing
@@ -388,6 +449,27 @@ impl WorkerCore {
                 domain_event_system.run().await;
             });
             self.domain_event_task_handle = Some(handle);
+        }
+
+        // TAS-67: Start CompletionProcessorService to route results to orchestration
+        if let Some(completion_receiver) = self.completion_receiver.take() {
+            info!(
+                core_id = %self.core_id,
+                "Starting CompletionProcessorService"
+            );
+            let config = CompletionProcessorConfig {
+                service_id: format!("completion-processor-{}", self.core_id),
+            };
+            let completion_processor = CompletionProcessorService::new(
+                completion_receiver,
+                self.context.clone(),
+                self.worker_id.clone(),
+                config,
+            );
+            let handle = tokio::spawn(async move {
+                completion_processor.run().await;
+            });
+            self.completion_processor_task_handle = Some(handle);
         }
 
         self.status = WorkerCoreStatus::Running;
@@ -498,6 +580,31 @@ impl WorkerCore {
                     warn!(
                         core_id = %self.core_id,
                         "Domain event task did not complete within timeout"
+                    );
+                }
+            }
+        }
+
+        // TAS-67: Await completion processor task completion
+        if let Some(handle) = self.completion_processor_task_handle.take() {
+            match tokio::time::timeout(Duration::from_secs(5), handle).await {
+                Ok(Ok(())) => {
+                    info!(
+                        core_id = %self.core_id,
+                        "Completion processor task completed successfully"
+                    );
+                }
+                Ok(Err(e)) => {
+                    warn!(
+                        core_id = %self.core_id,
+                        error = %e,
+                        "Completion processor task panicked during shutdown"
+                    );
+                }
+                Err(_) => {
+                    warn!(
+                        core_id = %self.core_id,
+                        "Completion processor task did not complete within timeout"
                     );
                 }
             }

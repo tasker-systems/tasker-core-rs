@@ -6,16 +6,17 @@
 use crate::bootstrap::{
     bootstrap_worker, get_worker_status, stop_worker, transition_to_graceful_shutdown,
 };
-use crate::conversions::convert_step_execution_event_to_ruby;
-use crate::event_handler::{send_step_completion_event, RubyEventHandler};
+use crate::conversions::{convert_ffi_step_event_to_ruby, convert_ruby_completion_to_step_result};
 use crate::ffi_logging::{log_debug, log_error, log_info, log_trace, log_warn};
 use magnus::{function, prelude::*, Error, RModule, Value};
 use std::sync::{Arc, Mutex};
+use tasker_shared::errors::TaskerResult;
 use tasker_shared::events::domain_events::DomainEvent;
-use tasker_shared::{errors::TaskerResult, types::StepExecutionEvent};
+use tasker_worker::worker::{FfiDispatchChannel, FfiStepEvent};
 use tasker_worker::{WorkerSystemHandle, WorkerSystemStatus};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 use tracing::{debug, error, info};
+use uuid::Uuid;
 
 /// Global handle to the worker system for Ruby FFI
 pub static WORKER_SYSTEM: Mutex<Option<RubyBridgeHandle>> = Mutex::new(None);
@@ -24,10 +25,9 @@ pub static WORKER_SYSTEM: Mutex<Option<RubyBridgeHandle>> = Mutex::new(None);
 pub struct RubyBridgeHandle {
     /// Handle from tasker-worker bootstrap
     pub system_handle: WorkerSystemHandle,
-    /// Ruby event handler for forwarding events
-    pub event_handler: Arc<RubyEventHandler>,
-    /// Event receiver for polling step execution events (TAS-51: bounded channel)
-    pub event_receiver: Arc<Mutex<mpsc::Receiver<StepExecutionEvent>>>,
+    /// TAS-67: FFI dispatch channel for step execution events
+    /// Ruby polls this to receive step events and submits completions
+    pub ffi_dispatch_channel: Arc<FfiDispatchChannel>,
     /// TAS-65: Domain event publisher for Ruby handlers
     pub domain_event_publisher: Arc<tasker_shared::events::domain_events::DomainEventPublisher>,
     /// TAS-65 Phase 4.1: In-process event receiver for fast domain events
@@ -41,16 +41,14 @@ pub struct RubyBridgeHandle {
 impl RubyBridgeHandle {
     pub fn new(
         system_handle: WorkerSystemHandle,
-        event_handler: Arc<RubyEventHandler>,
-        event_receiver: mpsc::Receiver<StepExecutionEvent>,
+        ffi_dispatch_channel: Arc<FfiDispatchChannel>,
         domain_event_publisher: Arc<tasker_shared::events::domain_events::DomainEventPublisher>,
         in_process_event_receiver: Option<broadcast::Receiver<DomainEvent>>,
         runtime: tokio::runtime::Runtime,
     ) -> Self {
         Self {
             system_handle,
-            event_handler,
-            event_receiver: Arc::new(Mutex::new(event_receiver)),
+            ffi_dispatch_channel,
             domain_event_publisher,
             in_process_event_receiver: in_process_event_receiver.map(|r| Arc::new(Mutex::new(r))),
             runtime,
@@ -69,20 +67,25 @@ impl RubyBridgeHandle {
         &self.system_handle.runtime_handle
     }
 
-    pub fn event_handler(&self) -> &Arc<RubyEventHandler> {
-        &self.event_handler
+    /// TAS-67: Poll for the next step execution event via FfiDispatchChannel
+    /// Returns None if no events are available (non-blocking)
+    pub fn poll_step_event(&self) -> Option<FfiStepEvent> {
+        self.ffi_dispatch_channel.poll()
     }
 
-    /// Poll for the next step execution event
-    /// Returns None if no events are available (non-blocking)
-    pub fn poll_step_event(&self) -> Option<StepExecutionEvent> {
-        let mut receiver = self.event_receiver.lock().ok()?;
-        receiver.try_recv().ok()
+    /// TAS-67: Submit a completion result for an event
+    /// Returns true if the completion was successfully submitted
+    pub fn complete_step_event(
+        &self,
+        event_id: Uuid,
+        result: tasker_shared::messaging::StepExecutionResult,
+    ) -> bool {
+        self.ffi_dispatch_channel.complete(event_id, result)
     }
 }
 
-/// FFI function for Ruby to poll for step execution events
-/// Returns a Ruby hash representation of the event or nil if none available
+/// TAS-67: FFI function for Ruby to poll for step execution events
+/// Returns a Ruby hash representation of the FfiStepEvent or nil if none available
 pub fn poll_step_events() -> Result<Value, Error> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
@@ -99,16 +102,16 @@ pub fn poll_step_events() -> Result<Value, Error> {
         )
     })?;
 
-    // Poll for next event
+    // Poll for next event via FfiDispatchChannel
     if let Some(event) = handle.poll_step_event() {
         debug!(
             event_id = %event.event_id,
-            step_name = %event.payload.task_sequence_step.workflow_step.name,
-            "Polled step execution event for Ruby processing"
+            step_uuid = %event.step_uuid,
+            "Polled FFI step event for Ruby processing"
         );
 
-        // Convert the event to Ruby format
-        let ruby_event = convert_step_execution_event_to_ruby(event).map_err(|e| {
+        // Convert the FfiStepEvent to Ruby format
+        let ruby_event = convert_ffi_step_event_to_ruby(&event).map_err(|e| {
             error!("Failed to convert event to Ruby: {}", e);
             Error::new(
                 magnus::exception::runtime_error(),
@@ -129,6 +132,59 @@ pub fn poll_step_events() -> Result<Value, Error> {
     }
 }
 
+/// TAS-67: FFI function for Ruby to submit step completion
+/// Called after a handler has completed execution
+///
+/// # Arguments
+/// * `event_id` - The event ID string from the FfiStepEvent
+/// * `completion_data` - Ruby hash with completion result data
+pub fn complete_step_event(event_id_str: String, completion_data: Value) -> Result<bool, Error> {
+    // Parse event_id
+    let event_id = Uuid::parse_str(&event_id_str).map_err(|e| {
+        error!("Invalid event_id format: {}", e);
+        Error::new(
+            magnus::exception::arg_error(),
+            format!("Invalid event_id format: {}", e),
+        )
+    })?;
+
+    // Convert Ruby completion to StepExecutionResult
+    let result = convert_ruby_completion_to_step_result(completion_data).map_err(|e| {
+        error!("Failed to convert completion data: {}", e);
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert completion data: {}", e),
+        )
+    })?;
+
+    // Get bridge handle and submit completion
+    let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
+        error!("Failed to acquire worker system lock: {}", e);
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Lock acquisition failed",
+        )
+    })?;
+
+    let handle = handle_guard.as_ref().ok_or_else(|| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Worker system not running",
+        )
+    })?;
+
+    // Submit completion via FfiDispatchChannel
+    let success = handle.complete_step_event(event_id, result);
+
+    if success {
+        debug!(event_id = %event_id, "Step completion submitted successfully");
+    } else {
+        error!(event_id = %event_id, "Failed to submit step completion");
+    }
+
+    Ok(success)
+}
+
 /// Initialize the bridge module with all FFI functions
 pub fn init_bridge(module: &RModule) -> Result<(), Error> {
     info!("🔌 Initializing Ruby FFI bridge");
@@ -142,12 +198,9 @@ pub fn init_bridge(module: &RModule) -> Result<(), Error> {
         function!(transition_to_graceful_shutdown, 0),
     )?;
 
-    // Event handling
-    module.define_singleton_method(
-        "send_step_completion_event",
-        function!(send_step_completion_event, 1),
-    )?;
+    // TAS-67: Event handling via FfiDispatchChannel
     module.define_singleton_method("poll_step_events", function!(poll_step_events, 0))?;
+    module.define_singleton_method("complete_step_event", function!(complete_step_event, 2))?;
 
     // TAS-29 Phase 6: Unified structured logging via FFI
     module.define_singleton_method("log_error", function!(log_error, 2))?;
