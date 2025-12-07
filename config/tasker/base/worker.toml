@@ -105,9 +105,17 @@ handler_timeout_ms = 30000
 [worker.mpsc_channels.ffi_dispatch]
 dispatch_buffer_size = 1000
 completion_timeout_ms = 30000
-# TAS-67 Risk Mitigation: Fire-and-forget callback timeout
+# TAS-67 Risk Mitigation Phase 1: Fire-and-forget callback timeout
 # Prevents indefinite blocking of FFI threads during domain event publishing
 callback_timeout_ms = 5000
+# TAS-67 Risk Mitigation Phase 2: Starvation warning threshold
+# Logs warnings when pending events exceed this age (milliseconds)
+# Enables proactive detection before timeout occurs
+starvation_warning_threshold_ms = 10000
+# TAS-67 Risk Mitigation Phase 2: Completion send timeout
+# Max time to retry sending completion results when channel is full
+# Uses try_send with retry loop instead of blocking send
+completion_send_timeout_ms = 10000
 
 # Orchestration Client Configuration
 # How the worker connects to the orchestration API

@@ -182,13 +182,14 @@ impl CompletionHandler {
         let mut state_machine = self.get_state_machine_for_task(&task).await?;
 
         // Get current state to determine the correct transition event
-        let current_state = state_machine
-            .current_state()
-            .await
-            .map_err(|e| FinalizationError::StateMachine {
-                error: format!("Failed to get current state: {e}"),
-                task_uuid,
-            })?;
+        let current_state =
+            state_machine
+                .current_state()
+                .await
+                .map_err(|e| FinalizationError::StateMachine {
+                    error: format!("Failed to get current state: {e}"),
+                    task_uuid,
+                })?;
 
         // TAS-67: Different events for different states
         // - From EvaluatingResults: PermanentFailure -> BlockedByFailures

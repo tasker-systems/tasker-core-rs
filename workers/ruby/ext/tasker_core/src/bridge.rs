@@ -12,7 +12,7 @@ use magnus::{function, prelude::*, Error, RModule, Value};
 use std::sync::{Arc, Mutex};
 use tasker_shared::errors::TaskerResult;
 use tasker_shared::events::domain_events::DomainEvent;
-use tasker_worker::worker::{FfiDispatchChannel, FfiStepEvent};
+use tasker_worker::worker::{FfiDispatchChannel, FfiDispatchMetrics, FfiStepEvent};
 use tasker_worker::{WorkerSystemHandle, WorkerSystemStatus};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info};
@@ -81,6 +81,16 @@ impl RubyBridgeHandle {
         result: tasker_shared::messaging::StepExecutionResult,
     ) -> bool {
         self.ffi_dispatch_channel.complete(event_id, result)
+    }
+
+    /// TAS-67 Phase 2: Get metrics about FFI dispatch channel health
+    pub fn get_ffi_dispatch_metrics(&self) -> FfiDispatchMetrics {
+        self.ffi_dispatch_channel.metrics()
+    }
+
+    /// TAS-67 Phase 2: Check for starvation warnings and emit logs
+    pub fn check_starvation_warnings(&self) {
+        self.ffi_dispatch_channel.check_starvation_warnings()
     }
 }
 
@@ -185,6 +195,84 @@ pub fn complete_step_event(event_id_str: String, completion_data: Value) -> Resu
     Ok(success)
 }
 
+/// TAS-67 Phase 2: FFI function for Ruby to get FFI dispatch channel metrics
+/// Returns a Ruby hash with metrics for monitoring and observability
+///
+/// The returned hash contains:
+/// - `pending_count`: Number of events waiting for completion
+/// - `oldest_pending_age_ms`: Age of the oldest pending event in milliseconds
+/// - `newest_pending_age_ms`: Age of the newest pending event in milliseconds
+/// - `oldest_event_id`: UUID of the oldest pending event (for debugging)
+/// - `starvation_detected`: Boolean indicating if any events exceed starvation threshold
+/// - `starving_event_count`: Number of events exceeding starvation threshold
+pub fn get_ffi_dispatch_metrics() -> Result<Value, Error> {
+    let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
+        error!("Failed to acquire worker system lock: {}", e);
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Lock acquisition failed",
+        )
+    })?;
+
+    let handle = handle_guard.as_ref().ok_or_else(|| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Worker system not running",
+        )
+    })?;
+
+    let metrics = handle.get_ffi_dispatch_metrics();
+
+    let ruby = magnus::Ruby::get().map_err(|err| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to get ruby system: {}", err),
+        )
+    })?;
+
+    let hash = ruby.hash_new();
+    hash.aset("pending_count", metrics.pending_count)?;
+    hash.aset(
+        "oldest_pending_age_ms",
+        metrics.oldest_pending_age_ms.map(|v| v as i64),
+    )?;
+    hash.aset(
+        "newest_pending_age_ms",
+        metrics.newest_pending_age_ms.map(|v| v as i64),
+    )?;
+    hash.aset(
+        "oldest_event_id",
+        metrics.oldest_event_id.map(|id| id.to_string()),
+    )?;
+    hash.aset("starvation_detected", metrics.starvation_detected)?;
+    hash.aset("starving_event_count", metrics.starving_event_count)?;
+
+    Ok(hash.as_value())
+}
+
+/// TAS-67 Phase 2: FFI function for Ruby to check for starvation warnings
+/// This emits warning logs for any pending events that exceed the starvation threshold.
+/// Call this periodically (e.g., every poll cycle) for proactive monitoring.
+pub fn check_starvation_warnings() -> Result<bool, Error> {
+    let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
+        error!("Failed to acquire worker system lock: {}", e);
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Lock acquisition failed",
+        )
+    })?;
+
+    let handle = handle_guard.as_ref().ok_or_else(|| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Worker system not running",
+        )
+    })?;
+
+    handle.check_starvation_warnings();
+    Ok(true)
+}
+
 /// Initialize the bridge module with all FFI functions
 pub fn init_bridge(module: &RModule) -> Result<(), Error> {
     info!("🔌 Initializing Ruby FFI bridge");
@@ -201,6 +289,16 @@ pub fn init_bridge(module: &RModule) -> Result<(), Error> {
     // TAS-67: Event handling via FfiDispatchChannel
     module.define_singleton_method("poll_step_events", function!(poll_step_events, 0))?;
     module.define_singleton_method("complete_step_event", function!(complete_step_event, 2))?;
+
+    // TAS-67 Phase 2: Observability and metrics
+    module.define_singleton_method(
+        "get_ffi_dispatch_metrics",
+        function!(get_ffi_dispatch_metrics, 0),
+    )?;
+    module.define_singleton_method(
+        "check_starvation_warnings",
+        function!(check_starvation_warnings, 0),
+    )?;
 
     // TAS-29 Phase 6: Unified structured logging via FFI
     module.define_singleton_method("log_error", function!(log_error, 2))?;

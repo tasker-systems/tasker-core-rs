@@ -70,7 +70,7 @@ pub use hydration::StepMessageHydrator;
 // TAS-67: Handler dispatch abstractions
 pub use handlers::{
     create_dispatch_channels, CompletionProcessorConfig, CompletionProcessorService,
-    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, FfiStepEvent,
-    HandlerDispatchConfig, HandlerDispatchService, NoOpCallback, PostHandlerCallback, StepHandler,
-    StepHandlerRegistry,
+    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, FfiDispatchMetrics,
+    FfiStepEvent, HandlerDispatchConfig, HandlerDispatchService, NoOpCallback, PostHandlerCallback,
+    StepHandler, StepHandlerRegistry,
 };

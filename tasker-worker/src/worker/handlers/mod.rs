@@ -51,7 +51,9 @@ pub use dispatch_service::{
 pub use completion_processor::{CompletionProcessorConfig, CompletionProcessorService};
 
 // Re-export FFI dispatch channel
-pub use ffi_dispatch_channel::{FfiDispatchChannel, FfiDispatchChannelConfig, FfiStepEvent};
+pub use ffi_dispatch_channel::{
+    FfiDispatchChannel, FfiDispatchChannelConfig, FfiDispatchMetrics, FfiStepEvent,
+};
 
 // Re-export domain event callback (shared by Rust/Ruby/Python workers)
 pub use domain_event_callback::DomainEventCallback;

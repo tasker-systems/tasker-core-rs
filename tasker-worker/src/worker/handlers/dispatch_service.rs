@@ -266,7 +266,7 @@ impl<R: StepHandlerRegistry + 'static, C: PostHandlerCallback> HandlerDispatchSe
                             msg.step_uuid,
                             "Handler execution failed - semaphore closed during acquisition"
                                 .to_string(),
-                            None, // error_code
+                            None,                                             // error_code
                             Some("semaphore_acquisition_failed".to_string()), // error_type
                             true, // retryable - infrastructure issue, retry may succeed
                             0,    // execution_time_ms

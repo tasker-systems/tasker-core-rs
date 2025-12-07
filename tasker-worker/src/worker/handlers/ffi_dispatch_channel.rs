@@ -62,6 +62,26 @@ use tasker_shared::types::base::{StepEventPayload, StepExecutionEvent};
 use super::dispatch_service::PostHandlerCallback;
 use crate::worker::actors::DispatchHandlerMessage;
 
+/// Metrics about pending events for monitoring
+///
+/// TAS-67 Phase 2: Provides observability into FFI dispatch channel health.
+/// Used for detecting polling starvation and capacity planning.
+#[derive(Debug, Clone, Default)]
+pub struct FfiDispatchMetrics {
+    /// Total pending events in buffer
+    pub pending_count: usize,
+    /// Age of oldest pending event in milliseconds
+    pub oldest_pending_age_ms: Option<u64>,
+    /// Age of newest pending event in milliseconds
+    pub newest_pending_age_ms: Option<u64>,
+    /// UUID of oldest event (for debugging)
+    pub oldest_event_id: Option<Uuid>,
+    /// Whether any events exceed the starvation warning threshold
+    pub starvation_detected: bool,
+    /// Number of events exceeding starvation threshold
+    pub starving_event_count: usize,
+}
+
 /// Configuration for FFI dispatch channel
 #[derive(Debug, Clone)]
 pub struct FfiDispatchChannelConfig {
@@ -76,6 +96,12 @@ pub struct FfiDispatchChannelConfig {
     /// Timeout for post-handler callbacks (domain event publishing)
     /// TAS-67 Risk Mitigation: Prevents indefinite blocking of FFI threads
     pub callback_timeout: Duration,
+    /// TAS-67 Phase 2: Warn if any pending event exceeds this age (milliseconds)
+    /// Used for detecting polling starvation before timeout occurs
+    pub starvation_warning_threshold_ms: u64,
+    /// TAS-67 Phase 2: Maximum time to wait when completion channel is full
+    /// If exceeded, logs error and returns false
+    pub completion_send_timeout: Duration,
 }
 
 impl FfiDispatchChannelConfig {
@@ -86,6 +112,8 @@ impl FfiDispatchChannelConfig {
             service_id: "ffi-dispatch".to_string(),
             runtime_handle,
             callback_timeout: Duration::from_secs(5),
+            starvation_warning_threshold_ms: 10_000, // 10 seconds
+            completion_send_timeout: Duration::from_secs(10),
         }
     }
 
@@ -104,6 +132,18 @@ impl FfiDispatchChannelConfig {
     /// Create config with a custom callback timeout
     pub fn with_callback_timeout(mut self, timeout: Duration) -> Self {
         self.callback_timeout = timeout;
+        self
+    }
+
+    /// Create config with a custom starvation warning threshold
+    pub fn with_starvation_threshold_ms(mut self, threshold_ms: u64) -> Self {
+        self.starvation_warning_threshold_ms = threshold_ms;
+        self
+    }
+
+    /// Create config with a custom completion send timeout
+    pub fn with_completion_send_timeout(mut self, timeout: Duration) -> Self {
+        self.completion_send_timeout = timeout;
         self
     }
 }
@@ -398,9 +438,39 @@ impl FfiDispatchChannel {
                 .clone();
             let worker_id = self.config.service_id.clone();
 
-            // 1. Send to completion channel FIRST (blocking)
+            // 1. Send to completion channel FIRST with timeout and retry
             // This ensures the result is committed to the pipeline before domain events fire
-            match self.completion_sender.blocking_send(result.clone()) {
+            // TAS-67 Phase 2: Uses try_send with retry loop instead of blocking indefinitely
+            let send_timeout = self.config.completion_send_timeout;
+            let start = std::time::Instant::now();
+            let send_result = loop {
+                match self.completion_sender.try_send(result.clone()) {
+                    Ok(()) => {
+                        let elapsed = start.elapsed();
+                        if elapsed > Duration::from_millis(100) {
+                            warn!(
+                                service_id = %self.config.service_id,
+                                event_id = %event_id,
+                                elapsed_ms = elapsed.as_millis(),
+                                "FFI dispatch: completion send was delayed due to channel backpressure"
+                            );
+                        }
+                        break Ok(());
+                    }
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        if start.elapsed() > send_timeout {
+                            break Err("completion channel full - timeout exceeded");
+                        }
+                        // Brief sleep before retry (10ms)
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                        break Err("completion channel closed");
+                    }
+                }
+            };
+
+            match send_result {
                 Ok(()) => {
                     debug!(
                         service_id = %self.config.service_id,
@@ -457,11 +527,12 @@ impl FfiDispatchChannel {
 
                     true
                 }
-                Err(e) => {
+                Err(reason) => {
                     error!(
                         service_id = %self.config.service_id,
                         event_id = %event_id,
-                        error = %e,
+                        reason = %reason,
+                        timeout_ms = send_timeout.as_millis(),
                         "FFI dispatch: failed to send completion - domain events NOT fired"
                     );
                     false
@@ -565,6 +636,81 @@ impl FfiDispatchChannel {
             .len()
     }
 
+    /// Get current metrics about pending events
+    ///
+    /// TAS-67 Phase 2: Provides comprehensive observability for FFI dispatch health.
+    /// Returns metrics including pending count, event ages, and starvation detection.
+    pub fn metrics(&self) -> FfiDispatchMetrics {
+        let pending = self
+            .pending_events
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if pending.is_empty() {
+            return FfiDispatchMetrics::default();
+        }
+
+        let now = std::time::Instant::now();
+        let threshold = Duration::from_millis(self.config.starvation_warning_threshold_ms);
+
+        let mut ages: Vec<(Uuid, u64)> = pending
+            .iter()
+            .map(|(id, p)| {
+                let age = now.duration_since(p.dispatched_at).as_millis() as u64;
+                (*id, age)
+            })
+            .collect();
+
+        // Sort by age ascending (newest first, oldest last)
+        ages.sort_by_key(|(_, age)| *age);
+
+        let starving_count = ages
+            .iter()
+            .filter(|(_, age)| Duration::from_millis(*age) > threshold)
+            .count();
+
+        FfiDispatchMetrics {
+            pending_count: pending.len(),
+            oldest_pending_age_ms: ages.last().map(|(_, age)| *age),
+            newest_pending_age_ms: ages.first().map(|(_, age)| *age),
+            oldest_event_id: ages.last().map(|(id, _)| *id),
+            starvation_detected: starving_count > 0,
+            starving_event_count: starving_count,
+        }
+    }
+
+    /// Check for aging events and emit warnings
+    ///
+    /// TAS-67 Phase 2: Call this periodically (e.g., during poll()) to detect
+    /// and log warnings about events that are approaching timeout.
+    pub fn check_starvation_warnings(&self) {
+        let pending = self
+            .pending_events
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if pending.is_empty() {
+            return;
+        }
+
+        let now = std::time::Instant::now();
+        let threshold = Duration::from_millis(self.config.starvation_warning_threshold_ms);
+
+        for (event_id, pending_event) in pending.iter() {
+            let age = now.duration_since(pending_event.dispatched_at);
+            if age > threshold {
+                warn!(
+                    service_id = %self.config.service_id,
+                    event_id = %event_id,
+                    step_uuid = %pending_event.event.step_uuid,
+                    age_ms = age.as_millis(),
+                    threshold_ms = self.config.starvation_warning_threshold_ms,
+                    "FFI dispatch: pending event aging - slow polling detected"
+                );
+            }
+        }
+    }
+
     /// Clean up timed-out pending events
     ///
     /// Call this periodically to detect handlers that never completed.
@@ -650,8 +796,8 @@ mod tests {
         assert_eq!(config.callback_timeout, Duration::from_secs(5));
 
         // Custom callback timeout via builder
-        let config = FfiDispatchChannelConfig::new(handle)
-            .with_callback_timeout(Duration::from_secs(10));
+        let config =
+            FfiDispatchChannelConfig::new(handle).with_callback_timeout(Duration::from_secs(10));
         assert_eq!(config.callback_timeout, Duration::from_secs(10));
     }
 
