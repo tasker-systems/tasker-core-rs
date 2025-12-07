@@ -251,14 +251,63 @@ impl<R: StepHandlerRegistry + 'static, C: PostHandlerCallback> HandlerDispatchSe
             // Spawn a task for this handler execution
             tokio::spawn(async move {
                 // Acquire semaphore permit (bounds concurrency)
-                let _permit = match semaphore.acquire().await {
+                let permit = match semaphore.acquire().await {
                     Ok(permit) => permit,
                     Err(_) => {
+                        // TAS-67 Risk Mitigation: Generate failure result on semaphore closure
+                        // instead of silent exit, so orchestration knows the step failed
                         error!(
                             service_id = %service_id,
                             step_uuid = %msg.step_uuid,
-                            "Semaphore closed - cannot execute handler"
+                            "Semaphore closed - cannot execute handler, generating failure result"
                         );
+
+                        let failure_result = StepExecutionResult::failure(
+                            msg.step_uuid,
+                            "Handler execution failed - semaphore closed during acquisition"
+                                .to_string(),
+                            None, // error_code
+                            Some("semaphore_acquisition_failed".to_string()), // error_type
+                            true, // retryable - infrastructure issue, retry may succeed
+                            0,    // execution_time_ms
+                            Some(std::collections::HashMap::from([
+                                ("service_id".to_string(), serde_json::json!(service_id)),
+                                ("reason".to_string(), serde_json::json!("semaphore closed")),
+                                (
+                                    "task_uuid".to_string(),
+                                    serde_json::json!(msg.task_uuid.to_string()),
+                                ),
+                            ])),
+                        );
+
+                        // Send failure result to completion channel
+                        match sender.send(failure_result.clone()).await {
+                            Ok(()) => {
+                                debug!(
+                                    service_id = %service_id,
+                                    step_uuid = %msg.step_uuid,
+                                    "Semaphore failure result sent to completion channel"
+                                );
+
+                                // Invoke callback after successful send
+                                if let Some(ref cb) = callback {
+                                    cb.on_handler_complete(
+                                        &msg.task_sequence_step,
+                                        &failure_result,
+                                        &service_id,
+                                    )
+                                    .await;
+                                }
+                            }
+                            Err(e) => {
+                                error!(
+                                    service_id = %service_id,
+                                    step_uuid = %msg.step_uuid,
+                                    error = %e,
+                                    "Failed to send semaphore failure result - channel closed"
+                                );
+                            }
+                        }
                         return;
                     }
                 };
@@ -272,6 +321,10 @@ impl<R: StepHandlerRegistry + 'static, C: PostHandlerCallback> HandlerDispatchSe
                 // Execute handler with timeout and panic catching
                 let result =
                     Self::execute_with_timeout(&registry, &msg, timeout, &service_id).await;
+
+                // TAS-67 Risk Mitigation: Release permit BEFORE sending to completion channel
+                // This prevents backpressure cascade where blocked sends hold semaphore permits
+                drop(permit);
 
                 // 1. Send result to completion channel FIRST
                 // This ensures the result is committed to the pipeline before domain events fire

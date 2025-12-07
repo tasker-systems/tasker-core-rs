@@ -83,6 +83,23 @@ impl StateHandlers {
                     task_uuid,
                 })?;
 
+        // TAS-67: Defensive check - if task is already in BlockedByFailures state,
+        // don't try to enqueue more steps. This can happen when SQL returns
+        // has_ready_steps because there are still retryable steps waiting,
+        // but another step has already permanently failed.
+        if current_state == TaskState::BlockedByFailures {
+            warn!(
+                correlation_id = %correlation_id,
+                task_uuid = %task_uuid,
+                ready_steps = ready_steps,
+                "Task state is already BlockedByFailures - calling error_task instead of enqueueing"
+            );
+            return self
+                .completion_handler
+                .error_task(task, context, correlation_id)
+                .await;
+        }
+
         // Transition to active processing state if not already active or complete
         let is_active = matches!(
             current_state,

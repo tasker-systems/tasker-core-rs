@@ -39,3 +39,5 @@ handler_timeout_ms = 60000
 [worker.mpsc_channels.ffi_dispatch]
 dispatch_buffer_size = 5000
 completion_timeout_ms = 60000
+# TAS-67 Risk Mitigation: Longer timeout for production robustness
+callback_timeout_ms = 10000

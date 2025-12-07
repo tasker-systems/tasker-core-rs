@@ -59,6 +59,8 @@ handler_timeout_ms = 5000
 [worker.mpsc_channels.ffi_dispatch]
 dispatch_buffer_size = 100
 completion_timeout_ms = 5000
+# TAS-67 Risk Mitigation: Fast timeout for tests
+callback_timeout_ms = 2000
 
 [worker.web]
 # Increased from 5000ms to 30000ms to support complex operations

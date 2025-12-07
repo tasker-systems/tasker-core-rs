@@ -73,6 +73,9 @@ pub struct FfiDispatchChannelConfig {
     /// This is required because FFI languages (Ruby/Python) call complete() from
     /// their own threads which don't have a Tokio runtime context.
     pub runtime_handle: tokio::runtime::Handle,
+    /// Timeout for post-handler callbacks (domain event publishing)
+    /// TAS-67 Risk Mitigation: Prevents indefinite blocking of FFI threads
+    pub callback_timeout: Duration,
 }
 
 impl FfiDispatchChannelConfig {
@@ -82,6 +85,7 @@ impl FfiDispatchChannelConfig {
             completion_timeout: Duration::from_secs(30),
             service_id: "ffi-dispatch".to_string(),
             runtime_handle,
+            callback_timeout: Duration::from_secs(5),
         }
     }
 
@@ -94,6 +98,12 @@ impl FfiDispatchChannelConfig {
     /// Create config with a custom completion timeout
     pub fn with_completion_timeout(mut self, timeout: Duration) -> Self {
         self.completion_timeout = timeout;
+        self
+    }
+
+    /// Create config with a custom callback timeout
+    pub fn with_callback_timeout(mut self, timeout: Duration) -> Self {
+        self.callback_timeout = timeout;
         self
     }
 }
@@ -400,20 +410,50 @@ impl FfiDispatchChannel {
 
                     // 2. Invoke post-handler callback AFTER successful send
                     // Domain events only fire after the result is committed to the pipeline
+                    //
+                    // TAS-67 Risk Mitigation: Fire-and-forget pattern with timeout
+                    // Instead of blocking the FFI thread with block_on(), we spawn the callback
+                    // as a separate task. This prevents the Ruby/Python thread from being held
+                    // indefinitely if the callback hangs or experiences network issues.
                     debug!(
                         service_id = %self.config.service_id,
                         callback_name = %self.post_handler_callback.name(),
                         event_id = %event_id,
-                        "FFI dispatch: invoking post-handler callback"
+                        "FFI dispatch: spawning post-handler callback (fire-and-forget)"
                     );
 
-                    // Use the stored runtime handle to call async callback from FFI thread
-                    // This is required because FFI languages (Ruby/Python) call complete() from
-                    // their own threads which don't have a Tokio runtime context.
-                    self.config.runtime_handle.block_on(
-                        self.post_handler_callback
-                            .on_handler_complete(&step, &result, &worker_id),
-                    );
+                    // Clone values needed for the spawned task
+                    let callback = self.post_handler_callback.clone();
+                    let callback_timeout = self.config.callback_timeout;
+                    let service_id = self.config.service_id.clone();
+
+                    // Spawn callback as fire-and-forget - don't block FFI thread
+                    self.config.runtime_handle.spawn(async move {
+                        match tokio::time::timeout(
+                            callback_timeout,
+                            callback.on_handler_complete(&step, &result, &worker_id),
+                        )
+                        .await
+                        {
+                            Ok(()) => {
+                                debug!(
+                                    service_id = %service_id,
+                                    event_id = %event_id,
+                                    "FFI dispatch: post-handler callback completed"
+                                );
+                            }
+                            Err(_) => {
+                                // Timeout - log but don't fail the completion
+                                // The step result is already committed to the pipeline
+                                error!(
+                                    service_id = %service_id,
+                                    event_id = %event_id,
+                                    timeout_ms = callback_timeout.as_millis(),
+                                    "FFI dispatch: post-handler callback timed out"
+                                );
+                            }
+                        }
+                    });
 
                     true
                 }
@@ -600,6 +640,19 @@ mod tests {
             .with_completion_timeout(Duration::from_secs(60));
         assert_eq!(config.completion_timeout, Duration::from_secs(60));
         assert_eq!(config.service_id, "test-service");
+    }
+
+    #[tokio::test]
+    async fn test_ffi_dispatch_channel_config_callback_timeout() {
+        let handle = tokio::runtime::Handle::current();
+        // Default callback timeout should be 5 seconds
+        let config = FfiDispatchChannelConfig::new(handle.clone());
+        assert_eq!(config.callback_timeout, Duration::from_secs(5));
+
+        // Custom callback timeout via builder
+        let config = FfiDispatchChannelConfig::new(handle)
+            .with_callback_timeout(Duration::from_secs(10));
+        assert_eq!(config.callback_timeout, Duration::from_secs(10));
     }
 
     #[tokio::test]

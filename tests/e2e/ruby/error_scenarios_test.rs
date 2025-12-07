@@ -232,7 +232,8 @@ async fn test_mixed_workflow_scenario() -> Result<()> {
         .await?;
 
     // Should fail overall (error steps will fail)
-    wait_for_task_failure(&manager.orchestration_client, &response.task_uuid, 5).await?;
+    // Note: 10s timeout because template includes retryable_error_step which needs retry delays
+    wait_for_task_failure(&manager.orchestration_client, &response.task_uuid, 10).await?;
 
     // Verify mixed results
     let task_uuid = Uuid::parse_str(&response.task_uuid)?;

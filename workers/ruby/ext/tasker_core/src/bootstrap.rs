@@ -23,8 +23,7 @@ use crate::global_event_system::get_global_event_system;
 use magnus::{value::ReprValue, Error, Value};
 use std::sync::Arc;
 use tasker_worker::worker::{
-    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, InProcessEventBus,
-    InProcessEventBusConfig, StepEventPublisherRegistry,
+    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, StepEventPublisherRegistry,
 };
 use tasker_worker::WorkerBootstrap;
 use tokio::sync::RwLock;
@@ -152,11 +151,18 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
         ));
     };
 
-    // TAS-65 Phase 4.1: Create in-process event bus for fast domain events
-    info!("⚡ Creating in-process event bus for fast domain events...");
-    let in_process_bus = InProcessEventBus::new(InProcessEventBusConfig::default());
-    let in_process_event_receiver = in_process_bus.subscribe_ffi();
-    info!("✅ In-process event bus created with FFI subscriber");
+    // TAS-65 Phase 4.1: Get in-process event receiver from WorkerCore's event bus
+    // IMPORTANT: We must use WorkerCore's bus, not create a new one, otherwise the
+    // sender is dropped when the local bus goes out of scope.
+    info!("⚡ Subscribing to WorkerCore's in-process event bus for fast domain events...");
+    let in_process_event_receiver = runtime.block_on(async {
+        let worker_core = system_handle.worker_core.lock().await;
+        // Get the in-process bus from WorkerCore and subscribe for FFI
+        let bus = worker_core.in_process_event_bus();
+        let bus_guard = bus.write().await;
+        bus_guard.subscribe_ffi()
+    });
+    info!("✅ Subscribed to WorkerCore's in-process event bus for FFI domain events");
 
     // Store the bridge handle with FfiDispatchChannel
     *handle_guard = Some(RubyBridgeHandle::new(

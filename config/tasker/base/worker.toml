@@ -105,6 +105,9 @@ handler_timeout_ms = 30000
 [worker.mpsc_channels.ffi_dispatch]
 dispatch_buffer_size = 1000
 completion_timeout_ms = 30000
+# TAS-67 Risk Mitigation: Fire-and-forget callback timeout
+# Prevents indefinite blocking of FFI threads during domain event publishing
+callback_timeout_ms = 5000
 
 # Orchestration Client Configuration
 # How the worker connects to the orchestration API
