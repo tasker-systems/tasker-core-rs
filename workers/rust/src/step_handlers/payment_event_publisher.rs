@@ -49,9 +49,11 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
 use tasker_shared::events::domain_events::DomainEventPublisher;
+use tasker_shared::models::core::task_template::EventDeliveryMode;
 use tasker_worker::worker::step_event_publisher::{
     PublishResult, StepEventContext, StepEventPublisher,
 };
+use tasker_worker::worker::EventRouter;
 use tracing::{debug, info};
 
 /// Custom event publisher for payment processing steps
@@ -65,20 +67,62 @@ use tracing::{debug, info};
 ///
 /// This publisher owns its `Arc<DomainEventPublisher>`, so no Arc cloning
 /// occurs per invocation. The context is a lightweight DTO.
-#[derive(Debug, Clone)]
+///
+/// ## TAS-67: EventRouter Integration
+///
+/// This publisher stores an optional `EventRouter` reference to enable
+/// dual-path routing with stats tracking. When provided, events go through
+/// the router which increments stats counters.
+#[derive(Clone)]
 pub struct PaymentEventPublisher {
     /// The domain event publisher (owned, not cloned per-call)
     domain_publisher: Arc<DomainEventPublisher>,
+    /// Optional event router for dual-path delivery with stats tracking
+    event_router: Option<Arc<EventRouter>>,
+}
+
+impl std::fmt::Debug for PaymentEventPublisher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PaymentEventPublisher")
+            .field("has_event_router", &self.event_router.is_some())
+            .finish()
+    }
 }
 
 impl PaymentEventPublisher {
-    /// Create a new payment event publisher
+    /// Create a new payment event publisher (legacy, no router stats tracking)
     ///
     /// # Arguments
     ///
     /// * `domain_publisher` - The domain event publisher to use
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use with_event_router() to enable stats tracking"
+    )]
     pub fn new(domain_publisher: Arc<DomainEventPublisher>) -> Self {
-        Self { domain_publisher }
+        Self {
+            domain_publisher,
+            event_router: None,
+        }
+    }
+
+    /// Create a new payment event publisher with EventRouter for stats tracking
+    ///
+    /// TAS-67: This constructor enables dual-path routing with stats tracking.
+    /// Events published through this publisher will increment EventRouter counters.
+    ///
+    /// # Arguments
+    ///
+    /// * `domain_publisher` - The domain event publisher to use
+    /// * `event_router` - The event router for stats tracking
+    pub fn with_event_router(
+        domain_publisher: Arc<DomainEventPublisher>,
+        event_router: Arc<EventRouter>,
+    ) -> Self {
+        Self {
+            domain_publisher,
+            event_router: Some(event_router),
+        }
     }
 
     /// Build the success event payload with enrichment
@@ -177,6 +221,11 @@ impl StepEventPublisher for PaymentEventPublisher {
         &self.domain_publisher
     }
 
+    /// TAS-67: Return EventRouter for stats tracking
+    fn event_router(&self) -> Option<Arc<EventRouter>> {
+        self.event_router.clone()
+    }
+
     fn should_handle(&self, step_name: &str) -> bool {
         // Only handle payment-related steps
         step_name.contains("payment")
@@ -199,8 +248,17 @@ impl StepEventPublisher for PaymentEventPublisher {
             if ctx.is_event_declared("payment.processed") {
                 let payload = self.build_success_payload(ctx);
 
-                // Uses trait's default publish_event impl
-                match self.publish_event(ctx, "payment.processed", payload).await {
+                // TAS-67: Use publish_event_with_delivery_mode for router stats tracking
+                // Payment events are durable (PGMQ) for audit trail
+                match self
+                    .publish_event_with_delivery_mode(
+                        ctx,
+                        "payment.processed",
+                        payload,
+                        EventDeliveryMode::Durable,
+                    )
+                    .await
+                {
                     Ok(event_id) => {
                         info!(
                             event_id = %event_id,
@@ -222,7 +280,15 @@ impl StepEventPublisher for PaymentEventPublisher {
             if ctx.is_event_declared("payment.failed") {
                 let payload = self.build_failure_payload(ctx);
 
-                match self.publish_event(ctx, "payment.failed", payload).await {
+                match self
+                    .publish_event_with_delivery_mode(
+                        ctx,
+                        "payment.failed",
+                        payload,
+                        EventDeliveryMode::Durable,
+                    )
+                    .await
+                {
                     Ok(event_id) => {
                         info!(
                             event_id = %event_id,
@@ -245,7 +311,16 @@ impl StepEventPublisher for PaymentEventPublisher {
         if ctx.is_event_declared("payment.analytics") {
             let payload = self.build_analytics_payload(ctx);
 
-            match self.publish_event(ctx, "payment.analytics", payload).await {
+            // Analytics events can use fast path (in-memory) for lower latency
+            match self
+                .publish_event_with_delivery_mode(
+                    ctx,
+                    "payment.analytics",
+                    payload,
+                    EventDeliveryMode::Fast,
+                )
+                .await
+            {
                 Ok(event_id) => {
                     debug!(
                         event_id = %event_id,

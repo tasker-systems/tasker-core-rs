@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::StepExecutionResult;
+use tasker_shared::types::base::TaskSequenceStep;
 
 use super::traits::Message;
 use crate::health::WorkerHealthStatus;
@@ -156,4 +157,52 @@ pub struct SetEventIntegrationMessage {
 
 impl Message for SetEventIntegrationMessage {
     type Response = ();
+}
+
+// ============================================================================
+// TAS-67: Handler Dispatch Messages
+// ============================================================================
+
+/// Trace context for distributed tracing propagation
+#[derive(Debug, Clone)]
+pub struct TraceContext {
+    /// OpenTelemetry trace ID (32 hex chars)
+    pub trace_id: String,
+    /// OpenTelemetry span ID (16 hex chars)
+    pub span_id: String,
+}
+
+/// Dispatch a step to a handler for execution (fire-and-forget)
+///
+/// TAS-67: This message is sent from StepExecutorActor to the handler dispatch
+/// channel. The sender does not wait for a response - completion flows back
+/// through a separate completion channel.
+///
+/// ## Flow
+///
+/// ```text
+/// StepExecutorActor → dispatch_channel → HandlerDispatchService
+///                                              │
+///                                              ├─→ Rust: registry.get() → handler.call()
+///                                              │
+///                                              └─→ FFI: FfiDispatchChannel.poll()
+/// ```
+#[derive(Debug)]
+pub struct DispatchHandlerMessage {
+    /// Unique event identifier for correlation
+    pub event_id: Uuid,
+    /// The step UUID being executed
+    pub step_uuid: Uuid,
+    /// Task UUID for logging and correlation
+    pub task_uuid: Uuid,
+    /// Fully hydrated step data with all execution context
+    pub task_sequence_step: TaskSequenceStep,
+    /// Correlation ID for completion tracking
+    pub correlation_id: Uuid,
+    /// Optional trace context for distributed tracing
+    pub trace_context: Option<TraceContext>,
+}
+
+impl Message for DispatchHandlerMessage {
+    type Response = (); // Fire-and-forget, no response expected
 }

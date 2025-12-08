@@ -193,7 +193,9 @@ impl MessageHandler {
         step_result: &StepExecutionResult,
     ) -> OrchestrationResult<()> {
         let step_uuid = &step_result.step_uuid;
-        let status = &step_result.status;
+        // TAS-67: Use normalized_status() to derive status from success when FFI workers
+        // don't explicitly set the status field
+        let status = step_result.normalized_status();
         let execution_time_ms = &step_result.metadata.execution_time_ms;
         let orchestration_metadata = &step_result.orchestration_metadata;
 
@@ -255,10 +257,11 @@ impl MessageHandler {
             "Delegating to coordination-only processing"
         );
 
+        // TAS-67: Use the normalized status for handle_step_result
         match self
             .handle_step_result(
                 &step_result.step_uuid,
-                &step_result.status,
+                &status,
                 &step_result.metadata.execution_time_ms,
                 correlation_id,
             )

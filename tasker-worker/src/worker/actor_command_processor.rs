@@ -18,6 +18,14 @@
 //! - **Pure Routing**: No business logic, just command→actor delegation
 //! - **Type-Safe Messages**: Typed actor messages via `Handler<M>` trait
 //! - **Backward Compatible**: Same WorkerCommand enum and response types
+//!
+//! ## TAS-67: Dispatch-Only Architecture
+//!
+//! The processor uses dispatch channels for non-blocking handler invocation.
+//! Steps are dispatched via fire-and-forget, and completions flow back through
+//! a separate channel. **Dispatch is the only execution path** - there is no
+//! fallback to direct handler invocation. This ensures step claiming always
+//! occurs before handler execution.
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -29,10 +37,11 @@ use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use super::actors::{
-    ExecuteStepFromEventMessage, ExecuteStepFromPgmqMessage, ExecuteStepMessage,
-    ExecuteStepWithCorrelationMessage, GetEventStatusMessage, GetWorkerStatusMessage, Handler,
-    HealthCheckMessage, ProcessStepCompletionMessage, RefreshTemplateCacheMessage,
-    SendStepResultMessage, SetEventIntegrationMessage, WorkerActorRegistry,
+    DispatchChannels, DispatchModeConfig, ExecuteStepFromEventMessage, ExecuteStepFromPgmqMessage,
+    ExecuteStepMessage, ExecuteStepWithCorrelationMessage, GetEventStatusMessage,
+    GetWorkerStatusMessage, Handler, HealthCheckMessage, ProcessStepCompletionMessage,
+    RefreshTemplateCacheMessage, SendStepResultMessage, SetEventIntegrationMessage,
+    WorkerActorRegistry,
 };
 use super::command_processor::WorkerCommand;
 use super::event_publisher::WorkerEventPublisher;
@@ -44,6 +53,17 @@ use super::task_template_manager::TaskTemplateManager;
 ///
 /// Pure routing implementation that delegates all business logic to actors.
 /// This is the replacement for the legacy WorkerProcessor.
+///
+/// ## TAS-67: Dispatch-Only Architecture
+///
+/// The processor always operates with dispatch channels:
+/// - StepExecutorActor sends steps to dispatch channel (fire-and-forget)
+/// - HandlerDispatchService consumes and invokes handlers
+/// - Completions flow back through completion channel
+///
+/// Dispatch is the ONLY execution path - there is no fallback to direct
+/// handler invocation. This ensures step claiming always occurs before
+/// handler execution.
 pub struct ActorCommandProcessor {
     /// Worker identification
     worker_id: String,
@@ -77,10 +97,11 @@ impl std::fmt::Debug for ActorCommandProcessor {
 }
 
 impl ActorCommandProcessor {
-    /// Create new ActorCommandProcessor with all dependencies
+    /// Create new ActorCommandProcessor with dispatch mode (TAS-67)
     ///
     /// All dependencies required for step execution are provided upfront,
-    /// eliminating two-phase initialization complexity.
+    /// eliminating two-phase initialization complexity. Dispatch mode is
+    /// always enabled - this is the only execution path.
     ///
     /// # Arguments
     ///
@@ -91,6 +112,14 @@ impl ActorCommandProcessor {
     /// * `domain_event_handle` - Handle for domain event dispatch
     /// * `command_buffer_size` - Size of the command channel buffer
     /// * `command_channel_monitor` - Monitor for channel observability
+    /// * `dispatch_config` - Configuration for dispatch channels (required)
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the processor, command sender, and dispatch channels.
+    /// The dispatch channels include:
+    /// - `dispatch_receiver`: Consumed by `HandlerDispatchService`
+    /// - `completion_sender`: Used by `HandlerDispatchService` to send results
     pub async fn new(
         context: Arc<SystemContext>,
         worker_id: String,
@@ -99,23 +128,25 @@ impl ActorCommandProcessor {
         domain_event_handle: DomainEventSystemHandle,
         command_buffer_size: usize,
         command_channel_monitor: ChannelMonitor,
-    ) -> TaskerResult<(Self, mpsc::Sender<WorkerCommand>)> {
+        dispatch_config: DispatchModeConfig,
+    ) -> TaskerResult<(Self, mpsc::Sender<WorkerCommand>, DispatchChannels)> {
         let (command_sender, command_receiver) = mpsc::channel(command_buffer_size);
 
-        // Build actor registry with all dependencies
-        let actors = WorkerActorRegistry::build(
+        // Build actor registry with dispatch - this creates the channels
+        let (actors, dispatch_channels) = WorkerActorRegistry::build(
             context.clone(),
             worker_id.clone(),
             task_template_manager,
             event_publisher.clone(),
             domain_event_handle,
+            dispatch_config,
         )
         .await?;
 
         info!(
             worker_id = %worker_id,
             channel = %command_channel_monitor.channel_name(),
-            "Creating ActorCommandProcessor with all dependencies"
+            "Creating ActorCommandProcessor with dispatch"
         );
 
         let processor = Self {
@@ -128,7 +159,7 @@ impl ActorCommandProcessor {
             event_subscriber: None,
         };
 
-        Ok((processor, command_sender))
+        Ok((processor, command_sender, dispatch_channels))
     }
 
     /// Enable event subscriber for completion events
@@ -519,7 +550,13 @@ mod tests {
             create_test_deps(&worker_id, context.message_client.clone());
         let channel_monitor = ChannelMonitor::new("test_command_channel", 100);
 
-        let (processor, _sender) = ActorCommandProcessor::new(
+        // TAS-67: dispatch_config is now required
+        let dispatch_config = DispatchModeConfig {
+            dispatch_buffer_size: 100,
+            completion_buffer_size: 100,
+        };
+
+        let (processor, _sender, _dispatch_channels) = ActorCommandProcessor::new(
             context,
             worker_id.clone(),
             task_template_manager,
@@ -527,6 +564,7 @@ mod tests {
             domain_event_handle,
             100,
             channel_monitor,
+            dispatch_config,
         )
         .await?;
 

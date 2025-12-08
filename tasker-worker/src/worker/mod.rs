@@ -13,6 +13,7 @@ pub mod event_publisher;
 pub mod event_router; // TAS-65 Dual-Path: Routes events by delivery mode
 pub mod event_subscriber;
 pub mod event_systems;
+pub mod handlers; // TAS-67: Language-agnostic handler traits and dispatch
 pub mod hydration; // TAS-69: Message hydration layer
 pub mod in_process_event_bus; // TAS-65 Dual-Path: Fast in-memory event delivery
 pub mod orchestration_result_sender;
@@ -24,7 +25,7 @@ pub mod task_template_manager;
 pub mod traits; // TAS-65: Worker traits including DomainEventPublishable
 pub mod worker_queues;
 
-pub use core::{WorkerCore, WorkerCoreStatus};
+pub use core::{DispatchHandles, WorkerCore, WorkerCoreStatus};
 
 pub use command_processor::{
     EventIntegrationStatus, StepExecutionStats, WorkerCommand, WorkerStatus,
@@ -65,3 +66,11 @@ pub use tasker_shared::metrics::worker::{EventRouterStats, InProcessEventBusStat
 pub use actor_command_processor::ActorCommandProcessor;
 pub use actors::{Handler, Message, WorkerActor, WorkerActorRegistry};
 pub use hydration::StepMessageHydrator;
+
+// TAS-67: Handler dispatch abstractions
+pub use handlers::{
+    create_dispatch_channels, CompletionProcessorConfig, CompletionProcessorService,
+    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, FfiDispatchMetrics,
+    FfiStepEvent, HandlerDispatchConfig, HandlerDispatchService, NoOpCallback, PostHandlerCallback,
+    StepHandler, StepHandlerRegistry,
+};

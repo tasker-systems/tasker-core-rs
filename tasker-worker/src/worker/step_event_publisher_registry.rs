@@ -37,7 +37,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_shared::events::domain_events::DomainEventPublisher;
-use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use super::event_router::EventRouter;
@@ -79,13 +78,16 @@ impl StepEventPublisherRegistry {
     /// - `durable`: Published to PGMQ (external consumers, audit trails)
     /// - `fast`: Dispatched to in-process bus (metrics, telemetry, notifications)
     ///
+    /// Note: `EventRouter` handles its own synchronization internally,
+    /// so no external RwLock wrapper is needed.
+    ///
     /// # Arguments
     ///
     /// * `domain_publisher` - The domain event publisher (used for durable path)
     /// * `event_router` - The event router for dual-path delivery
     pub fn with_event_router(
         domain_publisher: Arc<DomainEventPublisher>,
-        event_router: Arc<RwLock<EventRouter>>,
+        event_router: Arc<EventRouter>,
     ) -> Self {
         Self {
             publishers: HashMap::new(),
@@ -367,7 +369,7 @@ pub struct StepEventPublisherRegistryBuilder {
     publishers: Vec<Arc<dyn StepEventPublisher>>,
     default_publisher: Option<Arc<dyn StepEventPublisher>>,
     domain_publisher: Option<Arc<DomainEventPublisher>>,
-    event_router: Option<Arc<RwLock<EventRouter>>>,
+    event_router: Option<Arc<EventRouter>>,
 }
 
 // Manual Debug implementation because EventRouter contains closures
@@ -403,7 +405,10 @@ impl StepEventPublisherRegistryBuilder {
     ///
     /// When set, the default DefaultDomainEventPublisher will route events
     /// based on their `delivery_mode` from YAML.
-    pub fn with_event_router(mut self, event_router: Arc<RwLock<EventRouter>>) -> Self {
+    ///
+    /// Note: `EventRouter` handles its own synchronization internally,
+    /// so no external RwLock wrapper is needed.
+    pub fn with_event_router(mut self, event_router: Arc<EventRouter>) -> Self {
         self.event_router = Some(event_router);
         self
     }

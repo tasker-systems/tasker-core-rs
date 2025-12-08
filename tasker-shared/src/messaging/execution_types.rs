@@ -60,6 +60,7 @@ pub struct StepBatchResponse {
 /// This structure aligns with Ruby StepHandlerCallResult to ensure consistent
 /// data serialization to `tasker_workflow_steps.results`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct StepExecutionResult {
     pub step_uuid: Uuid,
     /// Always present - indicates overall success or failure of step execution
@@ -75,6 +76,20 @@ pub struct StepExecutionResult {
     pub error: Option<StepExecutionError>,
     /// Orchestration metadata for workflow coordination
     pub orchestration_metadata: Option<OrchestrationMetadata>,
+}
+
+impl Default for StepExecutionResult {
+    fn default() -> Self {
+        Self {
+            step_uuid: Uuid::nil(),
+            success: false,
+            result: Value::Null,
+            metadata: StepExecutionMetadata::default(),
+            status: String::new(),
+            error: None,
+            orchestration_metadata: None,
+        }
+    }
 }
 
 impl From<serde_json::Value> for StepExecutionResult {
@@ -252,6 +267,7 @@ impl StepExecutionError {
 /// This structure provides rich metadata for observability, backoff evaluation,
 /// and operational insights. Aligns with Ruby StepHandlerCallResult metadata expectations.
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct StepExecutionMetadata {
     /// Execution time in milliseconds for performance monitoring
     pub execution_time_ms: i64,
@@ -525,6 +541,26 @@ impl StepExecutionResult {
     /// Check if this result should be retried
     pub fn is_retryable(&self) -> bool {
         self.metadata.retryable
+    }
+
+    /// Get the normalized status string
+    ///
+    /// Returns "completed" if success is true and status is empty,
+    /// "failed" if success is false and status is empty,
+    /// otherwise returns the status as-is.
+    ///
+    /// This handles the case where FFI workers (Ruby, Python) send
+    /// `success: true/false` without explicitly setting the `status` field.
+    pub fn normalized_status(&self) -> String {
+        if self.status.is_empty() {
+            if self.success {
+                "completed".to_string()
+            } else {
+                "failed".to_string()
+            }
+        } else {
+            self.status.clone()
+        }
     }
 
     /// Get the result as the expected structure for persistence

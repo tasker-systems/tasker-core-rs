@@ -6,6 +6,11 @@
 //! This registry exactly mirrors the Ruby `StepHandlerRegistry` pattern but leverages Rust's
 //! type system for compile-time guarantees and zero-overhead handler resolution.
 //!
+//! ## TAS-67: StepHandlerRegistry Trait Implementation
+//!
+//! This registry implements `StepHandlerRegistry` from `tasker-worker` to enable
+//! integration with the `HandlerDispatchService` for non-blocking handler invocation.
+//!
 //! ## Usage
 //!
 //! ```ignore
@@ -28,8 +33,15 @@
 
 use super::{RustStepHandler, RustStepHandlerError, StepHandlerConfig};
 use anyhow::Result;
+use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+
+// TAS-67: Import traits from tasker-worker for dispatch integration
+use tasker_shared::messaging::StepExecutionResult;
+use tasker_shared::types::base::TaskSequenceStep;
+use tasker_shared::TaskerResult;
+use tasker_worker::worker::handlers::{StepHandler, StepHandlerRegistry};
 
 // TAS-65: Domain event publishing support
 use tasker_shared::events::domain_events::DomainEventPublisher;
@@ -593,6 +605,135 @@ impl GlobalRustStepHandlerRegistry {
     pub fn instance() -> &'static RustStepHandlerRegistry {
         static INSTANCE: std::sync::OnceLock<RustStepHandlerRegistry> = std::sync::OnceLock::new();
         INSTANCE.get_or_init(RustStepHandlerRegistry::new)
+    }
+}
+
+// ============================================================================
+// TAS-67: StepHandlerRegistry Trait Adapters
+// ============================================================================
+//
+// These adapters enable integration with tasker-worker's HandlerDispatchService
+// by implementing the StepHandlerRegistry and StepHandler traits.
+
+/// TAS-67: Adapter to wrap RustStepHandler as StepHandler
+///
+/// This adapter converts between the Rust worker's native handler trait
+/// (`RustStepHandler` returning `anyhow::Result`) and tasker-worker's
+/// trait (`StepHandler` returning `TaskerResult`).
+struct RustStepHandlerAdapter {
+    inner: Arc<dyn RustStepHandler>,
+    handler_name: String,
+}
+
+impl RustStepHandlerAdapter {
+    fn new(handler: Arc<dyn RustStepHandler>) -> Self {
+        let handler_name = handler.name().to_string();
+        Self {
+            inner: handler,
+            handler_name,
+        }
+    }
+}
+
+#[async_trait]
+impl StepHandler for RustStepHandlerAdapter {
+    async fn call(&self, step: &TaskSequenceStep) -> TaskerResult<StepExecutionResult> {
+        // Call the inner handler and convert anyhow::Result to TaskerResult
+        self.inner
+            .call(step)
+            .await
+            .map_err(|e| tasker_shared::TaskerError::WorkerError(e.to_string()))
+    }
+
+    fn name(&self) -> &str {
+        &self.handler_name
+    }
+}
+
+/// TAS-67: Thread-safe adapter for RustStepHandlerRegistry
+///
+/// Wraps the existing registry in `RwLock` to implement the thread-safe
+/// `StepHandlerRegistry` trait from tasker-worker.
+///
+/// ## Usage
+///
+/// ```rust,ignore
+/// use tasker_worker_rust::step_handlers::{RustStepHandlerRegistry, RustStepHandlerRegistryAdapter};
+///
+/// // Create adapter from existing registry
+/// let registry = RustStepHandlerRegistry::new();
+/// let adapter = RustStepHandlerRegistryAdapter::new(registry);
+///
+/// // Use with HandlerDispatchService
+/// let dispatch_service = HandlerDispatchService::new(Arc::new(adapter), ...);
+/// ```
+pub struct RustStepHandlerRegistryAdapter {
+    inner: RwLock<RustStepHandlerRegistry>,
+}
+
+impl std::fmt::Debug for RustStepHandlerRegistryAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RustStepHandlerRegistryAdapter")
+            .field("handler_count", &self.handler_count())
+            .finish()
+    }
+}
+
+impl RustStepHandlerRegistryAdapter {
+    /// Create a new adapter from a RustStepHandlerRegistry
+    pub fn new(registry: RustStepHandlerRegistry) -> Self {
+        Self {
+            inner: RwLock::new(registry),
+        }
+    }
+
+    /// Create a new adapter with a fresh registry
+    pub fn with_default_handlers() -> Self {
+        Self::new(RustStepHandlerRegistry::new())
+    }
+
+    /// Get handler count for debugging
+    fn handler_count(&self) -> usize {
+        self.inner.read().unwrap().handler_count()
+    }
+
+    /// TAS-65: Inject domain event publisher into all handlers
+    pub fn set_event_publisher(&self, publisher: Arc<DomainEventPublisher>) {
+        let mut inner = self.inner.write().unwrap();
+        inner.set_event_publisher(publisher);
+    }
+}
+
+#[async_trait]
+impl StepHandlerRegistry for RustStepHandlerRegistryAdapter {
+    async fn get(&self, step: &TaskSequenceStep) -> Option<Arc<dyn StepHandler>> {
+        // Use template_step_name for handler lookup (matches existing RustEventHandler logic)
+        let handler_name = &step.workflow_step.template_step_name;
+
+        let inner = self.inner.read().unwrap();
+        inner.get_handler(handler_name).ok().map(|handler| {
+            let adapter: Arc<dyn StepHandler> = Arc::new(RustStepHandlerAdapter::new(handler));
+            adapter
+        })
+    }
+
+    fn register(&self, name: &str, _handler: Arc<dyn StepHandler>) {
+        // Note: This is a no-op for Rust handlers since they're pre-registered
+        // In the Rust worker, handlers are registered via RustStepHandlerRegistry::register_handler
+        tracing::warn!(
+            handler_name = %name,
+            "RustStepHandlerRegistryAdapter::register called - use RustStepHandlerRegistry::register_handler instead"
+        );
+    }
+
+    fn handler_available(&self, name: &str) -> bool {
+        let inner = self.inner.read().unwrap();
+        inner.has_handler(name)
+    }
+
+    fn registered_handlers(&self) -> Vec<String> {
+        let inner = self.inner.read().unwrap();
+        inner.get_all_handler_names()
     }
 }
 

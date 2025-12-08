@@ -58,6 +58,9 @@ pub mod step_handlers;
 // Re-export tasker-worker types for easy access
 pub use tasker_worker::{WorkerBootstrap, WorkerBootstrapConfig};
 
+// TAS-67: Re-export bootstrap result type
+pub use bootstrap::RustWorkerBootstrapResult;
+
 // CORRECTED: Use actual production types from tasker-shared
 pub use tasker_shared::messaging::StepExecutionResult;
 pub use tasker_shared::types::TaskSequenceStep;

@@ -91,10 +91,15 @@ module TaskerCore
       # Higher values reduce CPU usage but increase latency
       POLL_INTERVAL = 0.01
 
+      # TAS-67 Phase 2: Check for starvation warnings every N poll iterations
+      # At 10ms poll interval, 100 iterations = 1 second between starvation checks
+      STARVATION_CHECK_INTERVAL = 100
+
       def initialize
         @logger = TaskerCore::Logger.instance
         @active = false
         @polling_thread = nil
+        @poll_count = 0 # TAS-67 Phase 2: Counter for starvation check interval
       end
 
       # Start polling for events from Rust
@@ -132,6 +137,29 @@ module TaskerCore
         @active
       end
 
+      # TAS-67 Phase 2: Get FFI dispatch channel metrics for monitoring
+      #
+      # Returns a hash with the following keys:
+      # - :pending_count - Number of events waiting for completion
+      # - :oldest_pending_age_ms - Age of the oldest pending event in milliseconds
+      # - :newest_pending_age_ms - Age of the newest pending event in milliseconds
+      # - :oldest_event_id - UUID of the oldest pending event (for debugging)
+      # - :starvation_detected - Boolean indicating if any events exceed starvation threshold
+      # - :starving_event_count - Number of events exceeding starvation threshold
+      #
+      # @return [Hash] FFI dispatch metrics, or empty hash if worker not running
+      # @example Check for starvation
+      #   metrics = EventPoller.instance.ffi_dispatch_metrics
+      #   if metrics[:starvation_detected]
+      #     logger.warn "Starvation detected: #{metrics[:starving_event_count]} events waiting"
+      #   end
+      def ffi_dispatch_metrics
+        TaskerCore::FFI.get_ffi_dispatch_metrics
+      rescue StandardError => e
+        logger.debug "Failed to get FFI dispatch metrics: #{e.message}"
+        {}
+      end
+
       private
 
       # Main polling loop - runs in dedicated thread
@@ -140,6 +168,10 @@ module TaskerCore
 
         while @active
           begin
+            # TAS-67 Phase 2: Periodically check for starvation warnings
+            @poll_count += 1
+            check_starvation_periodically
+
             # Poll for next event from Rust via FFI
             event_data = TaskerCore::FFI.poll_step_events
 
@@ -161,6 +193,17 @@ module TaskerCore
         end
 
         logger.debug 'EventPoller: Poll loop terminated'
+      end
+
+      # TAS-67 Phase 2: Check for starvation warnings periodically
+      # This triggers Rust-side logging of any events exceeding the starvation threshold
+      def check_starvation_periodically
+        return unless (@poll_count % STARVATION_CHECK_INTERVAL).zero?
+
+        TaskerCore::FFI.check_starvation_warnings
+      rescue StandardError => e
+        # Don't let starvation check errors affect polling
+        logger.debug "Starvation check error (non-fatal): #{e.message}"
       end
 
       # Process a polled event through the EventBridge

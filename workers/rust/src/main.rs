@@ -13,14 +13,21 @@ async fn main() -> Result<()> {
     // Use tasker-shared's structured logging initialization
     tasker_shared::logging::init_tracing();
 
-    let (mut worker_handle, event_handler) = bootstrap().await?;
+    // TAS-67: Bootstrap returns RustWorkerBootstrapResult with dispatch service handle
+    let mut bootstrap_result = bootstrap().await?;
 
-    // Start event handler in background
+    // Start event handler in background (legacy path - kept for compatibility)
     tokio::spawn(async move {
-        if let Err(e) = event_handler.start().await {
+        if let Err(e) = bootstrap_result.event_handler.start().await {
             warn!("Event handler stopped with error: {}", e);
         }
     });
+
+    // TAS-67: The HandlerDispatchService is already spawned by bootstrap
+    // It will handle step execution via the dispatch channel
+    if bootstrap_result.dispatch_service_handle.is_some() {
+        info!("🚀 TAS-67: HandlerDispatchService active for non-blocking handler dispatch");
+    }
 
     info!("🔄 Worker running... Press Ctrl+C to shutdown gracefully");
 
@@ -38,7 +45,7 @@ async fn main() -> Result<()> {
     }
     // Graceful shutdown
     info!("🔄 Shutting down worker...");
-    worker_handle.stop()?;
+    bootstrap_result.worker_handle.stop()?;
     info!("✅ Worker shutdown complete");
 
     Ok(())

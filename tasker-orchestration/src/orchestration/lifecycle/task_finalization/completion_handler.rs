@@ -181,16 +181,39 @@ impl CompletionHandler {
         // Use state machine for proper state transitions
         let mut state_machine = self.get_state_machine_for_task(&task).await?;
 
-        // Transition to BlockedByFailures state using PermanentFailure event
-        // This is the correct event from EvaluatingResults state
+        // Get current state to determine the correct transition event
+        let current_state =
+            state_machine
+                .current_state()
+                .await
+                .map_err(|e| FinalizationError::StateMachine {
+                    error: format!("Failed to get current state: {e}"),
+                    task_uuid,
+                })?;
+
+        // TAS-67: Different events for different states
+        // - From EvaluatingResults: PermanentFailure -> BlockedByFailures
+        // - From BlockedByFailures: GiveUp -> Error (terminal state)
         let error_message = "Steps in error state".to_string();
-        state_machine
-            .transition(TaskEvent::PermanentFailure(error_message.clone()))
-            .await
-            .map_err(|e| FinalizationError::StateMachine {
-                error: format!("Failed to transition to blocked state: {e}"),
-                task_uuid,
-            })?;
+        if current_state == TaskState::BlockedByFailures {
+            // Already in BlockedByFailures - transition to Error terminal state
+            state_machine
+                .transition(TaskEvent::GiveUp)
+                .await
+                .map_err(|e| FinalizationError::StateMachine {
+                    error: format!("Failed to transition to error state: {e}"),
+                    task_uuid,
+                })?;
+        } else {
+            // From other states - transition to BlockedByFailures first
+            state_machine
+                .transition(TaskEvent::PermanentFailure(error_message.clone()))
+                .await
+                .map_err(|e| FinalizationError::StateMachine {
+                    error: format!("Failed to transition to blocked state: {e}"),
+                    task_uuid,
+                })?;
+        }
 
         Ok(FinalizationResult {
             task_uuid,

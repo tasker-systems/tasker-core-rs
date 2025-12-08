@@ -40,6 +40,106 @@ impl StepClaim {
             task_template_manager,
         }
     }
+    /// TAS-67: Get TaskSequenceStep by step UUID for dispatch mode
+    ///
+    /// This method hydrates the step context directly from the database
+    /// without needing a full SimpleStepMessage.
+    pub async fn get_task_sequence_step_by_uuid(
+        &self,
+        step_uuid: Uuid,
+    ) -> TaskerResult<Option<TaskSequenceStep>> {
+        debug!(
+            task_uuid = %self.task_uuid,
+            step_uuid = %step_uuid,
+            "Worker: Hydrating step context for dispatch"
+        );
+
+        let db_pool = self.context.database_pool();
+
+        // 1. Fetch task data from database using task_uuid
+        let task = match Task::find_by_id(db_pool, self.task_uuid).await {
+            Ok(Some(task)) => task,
+            Ok(None) => {
+                return Err(TaskerError::WorkerError(format!(
+                    "Task not found: {}",
+                    self.task_uuid
+                )));
+            }
+            Err(e) => {
+                return Err(TaskerError::DatabaseError(format!(
+                    "Failed to fetch task: {e}"
+                )));
+            }
+        };
+
+        let task_for_orchestration = task.for_orchestration(db_pool).await.map_err(|e| {
+            TaskerError::DatabaseError(format!("Failed to fetch task for orchestration: {e}"))
+        })?;
+
+        // Use task_handler_registry to get task template
+        let task_template = self
+            .context
+            .task_handler_registry
+            .get_task_template(
+                &task_for_orchestration.namespace_name,
+                &task_for_orchestration.task_name,
+                &task_for_orchestration.task_version,
+            )
+            .await
+            .map_err(|e| TaskerError::WorkerError(format!("Failed to get task template: {e}")))?;
+
+        // Verify task template manager knows about this task
+        let _metadata = self
+            .task_template_manager
+            .get_handler_metadata(
+                &task_for_orchestration.namespace_name,
+                &task_for_orchestration.task_name,
+                &task_for_orchestration.task_version,
+            )
+            .await?;
+
+        // 2. Fetch workflow step from database using step_uuid
+        let workflow_step = match WorkflowStepWithName::find_by_id(db_pool, step_uuid).await {
+            Ok(Some(step)) => step,
+            Ok(None) => {
+                return Err(TaskerError::WorkerError(format!(
+                    "Workflow step not found: {}",
+                    step_uuid
+                )));
+            }
+            Err(e) => {
+                return Err(TaskerError::DatabaseError(format!(
+                    "Failed to fetch workflow step: {e}"
+                )));
+            }
+        };
+
+        // Find the step definition in the task template
+        let step_definition = task_template
+            .steps
+            .iter()
+            .find(|step| step.name == workflow_step.template_step_name)
+            .ok_or_else(|| {
+                TaskerError::WorkerError(format!(
+                    "Step definition not found in task template for step '{}' (template: '{}')",
+                    workflow_step.name, workflow_step.template_step_name
+                ))
+            })?;
+
+        // Get transitive dependencies and build execution context
+        let deps_query = StepTransitiveDependenciesQuery::new(db_pool.clone());
+        let dependency_results = deps_query.get_results_map(step_uuid).await.map_err(|e| {
+            TaskerError::DatabaseError(format!("Failed to get dependency results: {e}"))
+        })?;
+
+        Ok(Some(TaskSequenceStep {
+            task: task_for_orchestration,
+            workflow_step,
+            dependency_results,
+            step_definition: step_definition.clone(),
+        }))
+    }
+
     pub async fn get_task_sequence_step_from_step_message(
         &self,
         message: &SimpleStepMessage,

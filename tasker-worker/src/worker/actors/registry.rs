@@ -3,11 +3,21 @@
 //! TAS-69: Central registry for all worker actors, providing lifecycle management
 //! and unified access to actor instances. This mirrors the orchestration ActorRegistry
 //! pattern from TAS-46.
+//!
+//! ## TAS-67: Dispatch-Only Architecture
+//!
+//! The registry is always built with dispatch channels for non-blocking handler
+//! invocation. This is the only execution path - there is no fallback to direct
+//! handler invocation. The dual-channel pattern ensures step claiming always
+//! occurs before handler execution.
 
 use std::fmt;
 use std::sync::Arc;
+use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::{system_context::SystemContext, TaskerResult};
+use tokio::sync::mpsc;
 
+use super::messages::DispatchHandlerMessage;
 use super::traits::WorkerActor;
 use super::{
     DomainEventActor, FFICompletionActor, StepExecutorActor, TemplateCacheActor, WorkerStatusActor,
@@ -15,6 +25,56 @@ use super::{
 use crate::worker::event_publisher::WorkerEventPublisher;
 use crate::worker::event_systems::domain_event_system::DomainEventSystemHandle;
 use crate::worker::task_template_manager::TaskTemplateManager;
+
+/// TAS-67: Configuration for dispatch mode
+///
+/// When dispatch mode is enabled, the registry creates channels for non-blocking
+/// handler invocation.
+#[derive(Debug, Clone)]
+pub struct DispatchModeConfig {
+    /// Buffer size for dispatch channel (from StepExecutorActor to HandlerDispatchService)
+    pub dispatch_buffer_size: usize,
+    /// Buffer size for completion channel (from HandlerDispatchService to CompletionProcessor)
+    pub completion_buffer_size: usize,
+}
+
+impl Default for DispatchModeConfig {
+    fn default() -> Self {
+        Self {
+            dispatch_buffer_size: 1000,
+            completion_buffer_size: 1000,
+        }
+    }
+}
+
+/// TAS-67: Dispatch channels for non-blocking handler invocation
+pub struct DispatchChannels {
+    /// Receiver for dispatch messages (consumed by HandlerDispatchService)
+    pub dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
+    /// Sender for dispatch messages (used by StepExecutorActor internally)
+    pub dispatch_sender: mpsc::Sender<DispatchHandlerMessage>,
+    /// Receiver for completion results (consumed by CompletionProcessor or ActorCommandProcessor)
+    pub completion_receiver: mpsc::Receiver<StepExecutionResult>,
+    /// Sender for completion results (used by HandlerDispatchService)
+    pub completion_sender: mpsc::Sender<StepExecutionResult>,
+}
+
+impl fmt::Debug for DispatchChannels {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DispatchChannels")
+            .field("dispatch_sender", &"mpsc::Sender<DispatchHandlerMessage>")
+            .field(
+                "dispatch_receiver",
+                &"mpsc::Receiver<DispatchHandlerMessage>",
+            )
+            .field("completion_sender", &"mpsc::Sender<StepExecutionResult>")
+            .field(
+                "completion_receiver",
+                &"mpsc::Receiver<StepExecutionResult>",
+            )
+            .finish()
+    }
+}
 
 /// Registry managing all worker actors
 ///
@@ -28,6 +88,12 @@ use crate::worker::task_template_manager::TaskTemplateManager;
 /// - **Shared Ownership**: All actors are Arc-wrapped for efficient cloning
 /// - **Type Safety**: Strongly-typed access to each actor
 /// - **Lifecycle Management**: Calls started() on all actors during build
+///
+/// ## TAS-67: Dispatch-Only Architecture
+///
+/// The registry creates dispatch and completion channels for non-blocking
+/// handler invocation. The StepExecutorActor uses dispatch for all step
+/// execution - there is no fallback path.
 ///
 /// ## Example
 ///
@@ -87,10 +153,11 @@ impl fmt::Debug for WorkerActorRegistry {
 }
 
 impl WorkerActorRegistry {
-    /// Build a new WorkerActorRegistry with all actors initialized
+    /// TAS-67: Build a new WorkerActorRegistry with non-blocking dispatch
     ///
-    /// This is the primary builder that requires all dependencies upfront,
-    /// eliminating two-phase initialization complexity.
+    /// This builder creates dispatch and completion channels for non-blocking
+    /// handler invocation. All step execution flows through the dispatch channel -
+    /// there is no fallback path.
     ///
     /// # Arguments
     ///
@@ -99,30 +166,42 @@ impl WorkerActorRegistry {
     /// * `task_template_manager` - Pre-initialized template manager
     /// * `event_publisher` - Event publisher for FFI handler invocation
     /// * `domain_event_handle` - Handle for domain event dispatch
+    /// * `dispatch_config` - Configuration for dispatch channels (required)
     ///
     /// # Returns
     ///
-    /// A `TaskerResult` containing the WorkerActorRegistry or an error if any
-    /// actor fails to initialize.
+    /// A tuple containing:
+    /// - `WorkerActorRegistry` - The registry with actors initialized
+    /// - `DispatchChannels` - Channels for handler dispatch and completion
     pub async fn build(
         context: Arc<SystemContext>,
         worker_id: String,
         task_template_manager: Arc<TaskTemplateManager>,
         event_publisher: WorkerEventPublisher,
         domain_event_handle: DomainEventSystemHandle,
-    ) -> TaskerResult<Self> {
+        dispatch_config: DispatchModeConfig,
+    ) -> TaskerResult<(Self, DispatchChannels)> {
         tracing::info!(
             worker_id = %worker_id,
-            "Building WorkerActorRegistry with actors"
+            dispatch_buffer_size = dispatch_config.dispatch_buffer_size,
+            completion_buffer_size = dispatch_config.completion_buffer_size,
+            "Building WorkerActorRegistry with dispatch"
         );
 
-        // Create actors - StepExecutorActor needs all dependencies
+        // Create dispatch channels
+        let (dispatch_sender, dispatch_receiver) =
+            mpsc::channel(dispatch_config.dispatch_buffer_size);
+        let (completion_sender, completion_receiver) =
+            mpsc::channel(dispatch_config.completion_buffer_size);
+
+        // Create actors - StepExecutorActor requires dispatch_sender
         let mut step_executor_actor = StepExecutorActor::new(
             context.clone(),
             worker_id.clone(),
             task_template_manager.clone(),
             event_publisher,
             domain_event_handle,
+            dispatch_sender.clone(),
         );
 
         let mut ffi_completion_actor = FFICompletionActor::new(context.clone(), worker_id.clone());
@@ -144,10 +223,10 @@ impl WorkerActorRegistry {
 
         tracing::info!(
             worker_id = %worker_id,
-            "WorkerActorRegistry built successfully with 5 actors"
+            "WorkerActorRegistry built successfully (5 actors)"
         );
 
-        Ok(Self {
+        let registry = Self {
             context,
             worker_id,
             step_executor_actor: Arc::new(step_executor_actor),
@@ -155,7 +234,16 @@ impl WorkerActorRegistry {
             template_cache_actor: Arc::new(template_cache_actor),
             domain_event_actor: Arc::new(domain_event_actor),
             worker_status_actor: Arc::new(worker_status_actor),
-        })
+        };
+
+        let channels = DispatchChannels {
+            dispatch_receiver,
+            dispatch_sender,
+            completion_receiver,
+            completion_sender,
+        };
+
+        Ok((registry, channels))
     }
 
     /// Get the system context shared by all actors
@@ -247,17 +335,24 @@ mod tests {
         let (event_publisher, domain_event_handle) =
             create_test_deps(&worker_id, context.message_client.clone());
 
-        let registry = WorkerActorRegistry::build(
+        // TAS-67: dispatch_config is now required
+        let dispatch_config = DispatchModeConfig {
+            dispatch_buffer_size: 100,
+            completion_buffer_size: 100,
+        };
+
+        let result = WorkerActorRegistry::build(
             context,
             worker_id.clone(),
             task_template_manager,
             event_publisher,
             domain_event_handle,
+            dispatch_config,
         )
         .await;
 
-        assert!(registry.is_ok(), "Registry should build successfully");
-        let registry = registry.unwrap();
+        assert!(result.is_ok(), "Registry should build successfully");
+        let (registry, _channels) = result.unwrap();
         assert_eq!(registry.worker_id(), worker_id);
     }
 
@@ -288,12 +383,19 @@ mod tests {
         let (event_publisher, domain_event_handle) =
             create_test_deps(&worker_id, context.message_client.clone());
 
-        let mut registry = WorkerActorRegistry::build(
+        // TAS-67: dispatch_config is now required
+        let dispatch_config = DispatchModeConfig {
+            dispatch_buffer_size: 100,
+            completion_buffer_size: 100,
+        };
+
+        let (mut registry, _channels) = WorkerActorRegistry::build(
             context,
             worker_id,
             task_template_manager,
             event_publisher,
             domain_event_handle,
+            dispatch_config,
         )
         .await
         .expect("Failed to build registry");
@@ -317,12 +419,19 @@ mod tests {
         let (event_publisher, domain_event_handle) =
             create_test_deps(&worker_id, context.message_client.clone());
 
-        let registry = WorkerActorRegistry::build(
+        // TAS-67: dispatch_config is now required
+        let dispatch_config = DispatchModeConfig {
+            dispatch_buffer_size: 100,
+            completion_buffer_size: 100,
+        };
+
+        let (registry, _channels) = WorkerActorRegistry::build(
             context,
             worker_id,
             task_template_manager,
             event_publisher,
             domain_event_handle,
+            dispatch_config,
         )
         .await
         .expect("Failed to build registry");

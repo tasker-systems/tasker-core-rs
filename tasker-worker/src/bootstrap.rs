@@ -21,7 +21,7 @@ use tracing::{info, warn};
 
 use crate::{
     web::{state::WorkerWebConfig, WorkerWebState},
-    worker::core::{WorkerCore, WorkerCoreStatus},
+    worker::core::{DispatchHandles, WorkerCore, WorkerCoreStatus},
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
 use tasker_shared::{
@@ -42,6 +42,9 @@ pub struct WorkerSystemHandle {
     pub runtime_handle: tokio::runtime::Handle,
     /// Worker configuration
     pub worker_config: WorkerBootstrapConfig,
+    /// TAS-67: Dispatch handles for language-specific handler dispatch
+    /// Contains dispatch_receiver and completion_sender for spawning HandlerDispatchService
+    dispatch_handles: Option<DispatchHandles>,
 }
 
 impl std::fmt::Debug for WorkerSystemHandle {
@@ -50,6 +53,7 @@ impl std::fmt::Debug for WorkerSystemHandle {
             .field("running", &self.shutdown_sender.is_some())
             .field("web_api_enabled", &self.web_state.is_some())
             .field("worker_config", &self.worker_config)
+            .field("has_dispatch_handles", &self.dispatch_handles.is_some())
             .finish()
     }
 }
@@ -62,6 +66,7 @@ impl WorkerSystemHandle {
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
         worker_config: WorkerBootstrapConfig,
+        dispatch_handles: Option<DispatchHandles>,
     ) -> Self {
         Self {
             worker_core,
@@ -69,12 +74,31 @@ impl WorkerSystemHandle {
             shutdown_sender: Some(shutdown_sender),
             runtime_handle,
             worker_config,
+            dispatch_handles,
         }
     }
 
     /// Check if system is running
     pub fn is_running(&self) -> bool {
         self.shutdown_sender.is_some()
+    }
+
+    /// TAS-67: Take dispatch handles for language-specific handler dispatch
+    ///
+    /// This method can only be called once - subsequent calls will return None.
+    /// Use these handles to spawn `HandlerDispatchService` (Rust) or bridge
+    /// to `FfiDispatchChannel` (Ruby/Python).
+    ///
+    /// # Returns
+    ///
+    /// `Some(DispatchHandles)` if handles haven't been taken yet, `None` otherwise.
+    pub fn take_dispatch_handles(&mut self) -> Option<DispatchHandles> {
+        self.dispatch_handles.take()
+    }
+
+    /// TAS-67: Check if dispatch handles are available
+    pub fn has_dispatch_handles(&self) -> bool {
+        self.dispatch_handles.is_some()
     }
 
     /// Stop the worker system
@@ -266,12 +290,17 @@ impl WorkerBootstrap {
         let config: WorkerBootstrapConfig = system_context.tasker_config.as_ref().into();
 
         // Create worker core (not wrapped in Arc yet - we need to start it first)
-        let mut worker_core = WorkerCore::new_with_event_system(
+        // TAS-67: WorkerCore now returns dispatch handles for language-specific consumption
+        let (mut worker_core, dispatch_handles) = WorkerCore::new_with_event_system(
             system_context.clone(),
             config.orchestration_api_config.clone(),
             event_system, // Use provided event system for cross-component coordination
         )
         .await?;
+
+        // TAS-67: Store dispatch_handles for language-specific handler dispatch.
+        // Call handle.take_dispatch_handles() to spawn HandlerDispatchService (Rust)
+        // or bridge to FfiDispatchChannel (Ruby/Python).
 
         info!("WorkerCore initialized with WorkerEventSystem architecture",);
         info!("   - Event-driven processing enabled with deployment modes support",);
@@ -363,6 +392,7 @@ impl WorkerBootstrap {
             shutdown_sender,
             runtime_handle,
             config,
+            Some(dispatch_handles), // TAS-67: Store for language-specific handler dispatch
         );
 
         info!("Unified worker system bootstrap completed successfully");
