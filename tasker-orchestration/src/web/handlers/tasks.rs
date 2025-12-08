@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
-use crate::web::circuit_breaker::execute_with_circuit_breaker;
+use crate::web::circuit_breaker::{execute_with_circuit_breaker, record_backpressure_rejection};
 use crate::web::state::AppState;
 use tasker_shared::database::sql_functions::{
     SqlFunctionExecutor, StepReadinessStatus, TaskExecutionContext,
@@ -64,9 +64,11 @@ pub async fn create_task(
         return Err(ApiError::bad_request("Version cannot be empty"));
     }
 
-    // Check circuit breaker before attempting operation
-    if !state.is_database_healthy() {
-        return Err(ApiError::CircuitBreakerOpen);
+    // TAS-75: Check comprehensive backpressure status before attempting operation
+    // This checks both circuit breaker state AND command channel saturation
+    if let Some(backpressure_error) = state.check_backpressure_status() {
+        record_backpressure_rejection("/v1/tasks", &backpressure_error);
+        return Err(backpressure_error);
     }
 
     // Set default values for any missing fields if needed

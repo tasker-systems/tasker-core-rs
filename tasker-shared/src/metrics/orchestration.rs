@@ -569,6 +569,45 @@ pub static TASK_STATE_DURATION_SECONDS: OnceLock<Histogram<f64>> = OnceLock::new
 /// Static histogram: task_completion_duration_seconds
 pub static TASK_COMPLETION_DURATION_SECONDS: OnceLock<Histogram<f64>> = OnceLock::new();
 
+// ============================================================================
+// TAS-75: API Backpressure Metrics
+// ============================================================================
+
+/// Total number of API requests rejected due to backpressure
+///
+/// Tracks requests rejected by various backpressure mechanisms.
+///
+/// Labels:
+/// - endpoint: API endpoint path (e.g., "/v1/tasks")
+/// - reason: circuit_breaker, rate_limit, validation
+pub fn api_requests_rejected_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.api.requests_rejected.total")
+        .with_description("Total number of API requests rejected due to backpressure")
+        .build()
+}
+
+/// Current circuit breaker state as a gauge
+///
+/// Values: 0 = closed (healthy), 1 = half-open (testing), 2 = open (rejecting)
+///
+/// Labels:
+/// - component: Component protected by circuit breaker (e.g., "web_database")
+pub fn api_circuit_breaker_state() -> Gauge<u64> {
+    meter()
+        .u64_gauge("tasker.api.circuit_breaker.state")
+        .with_description("Current circuit breaker state (0=closed, 1=half-open, 2=open)")
+        .build()
+}
+
+// TAS-75: API backpressure metrics statics
+
+/// Static counter: api_requests_rejected_total
+pub static API_REQUESTS_REJECTED_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static gauge: api_circuit_breaker_state
+pub static API_CIRCUIT_BREAKER_STATE: OnceLock<Gauge<u64>> = OnceLock::new();
+
 /// Initialize all orchestration metrics
 ///
 /// This should be called during application startup after init_metrics().
@@ -611,4 +650,8 @@ pub fn init() {
     TASK_STATE_TRANSITIONS_TOTAL.get_or_init(task_state_transitions_total);
     TASK_STATE_DURATION_SECONDS.get_or_init(task_state_duration_seconds);
     TASK_COMPLETION_DURATION_SECONDS.get_or_init(task_completion_duration_seconds);
+
+    // TAS-75: API backpressure metrics
+    API_REQUESTS_REJECTED_TOTAL.get_or_init(api_requests_rejected_total);
+    API_CIRCUIT_BREAKER_STATE.get_or_init(api_circuit_breaker_state);
 }

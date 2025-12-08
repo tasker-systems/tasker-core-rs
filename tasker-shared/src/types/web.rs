@@ -42,6 +42,13 @@ pub enum ApiError {
     #[error("Circuit breaker is open")]
     CircuitBreakerOpen,
 
+    /// TAS-75: System backpressure active - includes Retry-After header
+    #[error("Service under backpressure: {reason}")]
+    Backpressure {
+        reason: String,
+        retry_after_seconds: u64,
+    },
+
     #[error("Database operation failed: {operation}")]
     DatabaseError { operation: String },
 
@@ -105,10 +112,76 @@ impl ApiError {
     pub fn internal_server_error(_message: impl Into<String>) -> Self {
         Self::Internal
     }
+
+    /// TAS-75: Create a backpressure error with Retry-After header support
+    ///
+    /// # Arguments
+    /// * `reason` - Human-readable reason for backpressure (e.g., "command_channel_saturated")
+    /// * `retry_after_seconds` - Suggested wait time before retry
+    pub fn backpressure(reason: impl Into<String>, retry_after_seconds: u64) -> Self {
+        Self::Backpressure {
+            reason: reason.into(),
+            retry_after_seconds,
+        }
+    }
+
+    /// TAS-75: Create a backpressure error for channel saturation
+    pub fn channel_saturated(channel_name: &str, saturation_percent: f64) -> Self {
+        // Calculate retry-after based on saturation level
+        // Higher saturation = longer wait time
+        let retry_after = if saturation_percent >= 95.0 {
+            30 // Critical: wait 30 seconds
+        } else if saturation_percent >= 90.0 {
+            15 // High: wait 15 seconds
+        } else {
+            5 // Degraded: wait 5 seconds
+        };
+
+        Self::Backpressure {
+            reason: format!(
+                "Channel '{}' saturated ({:.1}%)",
+                channel_name, saturation_percent
+            ),
+            retry_after_seconds: retry_after,
+        }
+    }
+
+    /// TAS-75: Create a backpressure error for circuit breaker with Retry-After
+    pub fn circuit_breaker_with_retry(recovery_timeout_seconds: u64) -> Self {
+        Self::Backpressure {
+            reason: "circuit_breaker_open".to_string(),
+            retry_after_seconds: recovery_timeout_seconds,
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        // TAS-75: Special handling for Backpressure to include Retry-After header
+        if let ApiError::Backpressure {
+            reason,
+            retry_after_seconds,
+        } = &self
+        {
+            let error_response = json!({
+                "error": {
+                    "code": "BACKPRESSURE",
+                    "message": format!("Service under backpressure: {}", reason),
+                    "retry_after_seconds": retry_after_seconds
+                }
+            });
+
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [(
+                    axum::http::header::RETRY_AFTER,
+                    retry_after_seconds.to_string(),
+                )],
+                Json(error_response),
+            )
+                .into_response();
+        }
+
         let (status_code, error_code, message) = match &self {
             ApiError::NotFound { message: msg } => {
                 (StatusCode::NOT_FOUND, "NOT_FOUND", msg.as_str())
@@ -138,6 +211,14 @@ impl IntoResponse for ApiError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "CIRCUIT_BREAKER_OPEN",
                 "Service temporarily unavailable",
+            ),
+
+            // Note: This branch is unreachable due to early return above,
+            // but kept for exhaustive match pattern
+            ApiError::Backpressure { reason, .. } => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "BACKPRESSURE",
+                reason.as_str(),
             ),
 
             ApiError::DatabaseError { operation } => (

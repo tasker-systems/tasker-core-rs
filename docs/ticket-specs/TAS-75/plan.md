@@ -1,8 +1,8 @@
 # TAS-75: Backpressure Consistency Investigation
 
 **Date**: 2025-12-08
-**Status**: Planning
-**Branch**: `jcoletaylor/tas-75-backpressure-consistency`
+**Status**: In Progress (Phase 1 Complete, Phase 2 Core Complete)
+**Branch**: `jcoletaylor/tas-67-rust-worker-dual-event-system`
 **Priority**: High
 **Dependencies**: TAS-51 (MPSC Channels), TAS-67 (Worker Dual Event System)
 
@@ -24,12 +24,12 @@ The system currently has multiple backpressure mechanisms implemented inconsiste
 |-----------|------------------|-----|
 | MPSC Channels | Bounded with monitoring (TAS-51) | Well-implemented |
 | Handler Dispatch | Semaphore-bounded (TAS-67) | Well-implemented |
-| API Endpoints | No rate limiting | **Missing** |
-| PGMQ Queues | No depth enforcement | **Missing** |
-| Circuit Breakers | Partial coverage | **Inconsistent** |
+| API Endpoints | Circuit breaker (503) | **Metrics added** (TAS-75) |
+| PGMQ Queues | No depth enforcement | **Planned** (soft limits) |
+| Circuit Breakers | Partial coverage | **Documented** |
 | Step Claiming | No refusal mechanism | **Missing** |
 
-This inconsistency creates unpredictable behavior under load and potential cascading failures.
+> **Note**: Rate limiting (429 responses) is explicitly **out of scope** for tasker-core. Rate limiting is the responsibility of upstream infrastructure (API Gateways, NLB/ALB, service mesh). Tasker focuses on system health-based backpressure via 503 responses.
 
 ---
 
@@ -44,10 +44,10 @@ This inconsistency creates unpredictable behavior under load and potential casca
 - Backpressure strategies documented per channel
 
 **Gaps Identified**:
-- No API rate limiting (explicitly removed in TAS-61)
-- No 503 backpressure signaling to clients
+- ~~No API rate limiting~~ (Out of scope - upstream responsibility)
+- ~~No 503 backpressure signaling to clients~~ (**Implemented** - circuit breaker returns 503)
 - Event system channels (`event_sender`, `stats_sender`) not monitored
-- No queue depth checks before enqueueing steps
+- No queue depth checks before enqueueing steps (soft limits planned)
 - Missing connection pool exhaustion handling
 
 **Key Configuration** (`config/tasker/base/orchestration.toml`):
@@ -92,19 +92,23 @@ completion_buffer_size = 1000
 - Dead letter queue integration (TAS-49)
 
 **Gaps Identified**:
-- No maximum queue depth enforcement
+- No maximum queue depth enforcement (soft limits planned, not hard rejection)
 - `QueueCapacityExceeded` error defined but never raised
 - pg_notify has 8KB payload limit (notifications silently fail)
-- No queue depth monitoring/alerting
+- No queue depth monitoring/alerting (planned)
 - Unbounded queue growth under sustained load
 
-**Key Configuration** (`config/tasker/base/pgmq.toml`):
+**Approach Decision**: Use soft limits with tiered monitoring (Normal → Warning → Critical → Overflow) rather than hard rejection. This keeps behavior portable for future RabbitMQ integration.
+
+**Future Work**: Messaging circuit breaker is intentionally deferred. Currently PGMQ shares the same PostgreSQL instance as tasker data. When PGMQ is deployed to a separate database (or replaced with RabbitMQ), a dedicated messaging circuit breaker will be needed. The `MessagingError::CircuitBreakerOpen` error type already exists for this purpose.
+
+**Key Configuration** (`config/tasker/base/common.toml`):
 ```toml
 [pgmq]
 visibility_timeout_seconds = 30
 default_batch_size = 10
 max_batch_size = 100
-# Note: No max_queue_depth configuration
+# Planned: soft_depth_limit, warning_threshold_ratio, critical_threshold_ratio
 ```
 
 ### 4. Circuit Breaker Coverage
@@ -163,23 +167,24 @@ The orchestration system must protect itself from:
 │                    ORCHESTRATION BACKPRESSURE POINTS                     │
 └─────────────────────────────────────────────────────────────────────────┘
 
-[1] API Gateway Layer
-    └── Rate limiting (requests/sec per client)
-    └── 503 Service Unavailable when circuit open
-    └── 429 Too Many Requests when rate exceeded
+[1] API Layer (503 responses only - rate limiting is upstream)
+    └── 503 Service Unavailable when circuit breaker open
+    └── 503 Service Unavailable when queue depth critical
+    └── 503 Service Unavailable when command channel saturated
+    └── Retry-After header with calculated delay
 
 [2] Command Processor Layer
     └── Bounded MPSC channel (existing - TAS-51)
     └── Backpressure: Block with timeout, then reject
 
 [3] PGMQ Enqueue Layer
-    └── Queue depth check before enqueue
-    └── Circuit breaker on PGMQ failures
-    └── Backpressure: Reject with retriable error
+    └── Queue depth monitoring (soft limits, not hard rejection)
+    └── Tiered response: Normal → Warning → Critical → Overflow
+    └── Backpressure: API 503 at critical level
 
 [4] Database Layer
     └── Connection pool limits (existing)
-    └── Circuit breaker on failures (partial)
+    └── Circuit breaker on failures (web database)
     └── Backpressure: Queue requests, then reject
 ```
 
@@ -274,60 +279,79 @@ Step Execution Idempotency Contract:
 
 ## Implementation Plan
 
-### Phase 1: Documentation Foundation
+### Phase 1: Documentation Foundation ✅ COMPLETE
 
 **Goal**: Establish comprehensive backpressure documentation
 
-| Task | Effort | Priority |
-|------|--------|----------|
-| Create `docs/backpressure-architecture.md` | Medium | High |
-| Update `docs/worker-event-systems.md` with backpressure section | Low | High |
-| Create `docs/operations/backpressure-monitoring.md` | Medium | High |
-| Update `docs/development/mpsc-channel-guidelines.md` with backpressure patterns | Low | Medium |
+| Task | Effort | Priority | Status |
+|------|--------|----------|--------|
+| Create `docs/backpressure-architecture.md` | Medium | High | ✅ Done |
+| Update `docs/worker-event-systems.md` with backpressure section | Low | High | ✅ Done |
+| Create `docs/operations/backpressure-monitoring.md` | Medium | High | ✅ Done |
+| Update `docs/development/mpsc-channel-guidelines.md` with backpressure patterns | Low | Medium | Deferred |
 
-### Phase 2: API Layer Backpressure
+### Phase 2: API Layer Backpressure (Core Complete)
 
-**Goal**: Protect orchestration from client overload
+**Goal**: Protect orchestration from client overload via 503 responses
 
-| Task | Effort | Priority |
-|------|--------|----------|
-| Implement 503 response when circuit breaker open | Low | High |
-| Add configurable rate limiting middleware | Medium | Medium |
-| Add `/v1/health` endpoint with capacity metrics | Low | Medium |
-| Document API backpressure behavior | Low | High |
+> **Note**: Rate limiting (429) is out of scope - handled by upstream API Gateway/NLB/ALB.
+
+| Task | Effort | Priority | Status |
+|------|--------|----------|--------|
+| Implement 503 response when circuit breaker open | Low | High | ✅ Existing |
+| Add `api_requests_rejected_total` metric | Low | High | ✅ Done |
+| Add `api_circuit_breaker_state` gauge metric | Low | High | ✅ Done |
+| ~~Add configurable rate limiting middleware~~ | ~~Medium~~ | ~~Medium~~ | Out of scope |
+| Extend 503 with queue depth awareness | Medium | Medium | Planned |
+| Extend 503 with channel saturation awareness | Medium | Medium | ✅ Done |
+| Add Retry-After header calculation | Low | Medium | ✅ Done |
+| Integrate backpressure into POST /v1/tasks handler | Low | High | ✅ Done |
+| Document API backpressure behavior | Low | High | ✅ Done |
+
+**Implementation Details (TAS-75)**:
+- `ApiError::Backpressure` variant added with `Retry-After` HTTP header support
+- `AppState::check_backpressure_status()` checks circuit breaker AND channel saturation
+- `execute_with_backpressure_check()` helper for simple endpoint wrapping
+- `record_backpressure_rejection()` metric recording with reason labels
+- Tiered Retry-After calculation: 5s (degraded), 15s (high), 30s (critical)
+- POST /v1/tasks integrated with comprehensive backpressure checking
 
 ### Phase 3: PGMQ Queue Management
 
-**Goal**: Prevent unbounded queue growth
+**Goal**: Prevent unbounded queue growth via soft limits and monitoring
 
-| Task | Effort | Priority |
-|------|--------|----------|
-| Add queue depth monitoring | Medium | High |
-| Implement max queue depth configuration | Medium | Medium |
-| Add circuit breaker to PGMQ send operations | Medium | Medium |
-| Add queue depth metrics to health endpoint | Low | Medium |
+> **Approach**: Use soft limits with tiered monitoring (Normal → Warning → Critical → Overflow) rather than hard rejection. This keeps behavior portable for future RabbitMQ integration.
+
+| Task | Effort | Priority | Status |
+|------|--------|----------|--------|
+| Add queue depth monitoring | Medium | High | Planned |
+| Implement tiered depth thresholds configuration | Medium | Medium | Planned |
+| Add queue depth metrics to health endpoint | Low | Medium | Planned |
+| Add API 503 response at critical queue depth | Medium | Medium | Planned |
 
 ### Phase 4: Worker Load Shedding
 
 **Goal**: Enable workers to refuse work when overloaded
 
-| Task | Effort | Priority |
-|------|--------|----------|
-| Add capacity check before step claiming | Medium | High |
-| Implement claim refusal metrics | Low | High |
-| Add configurable claim threshold | Low | Medium |
-| Document worker load shedding patterns | Low | Medium |
+| Task | Effort | Priority | Status |
+|------|--------|----------|--------|
+| Add capacity check before step claiming | Medium | High | Planned |
+| Implement claim refusal metrics | Low | High | Planned |
+| Add configurable claim threshold | Low | Medium | Planned |
+| Document worker load shedding patterns | Low | Medium | Planned |
 
 ### Phase 5: Circuit Breaker Expansion
 
 **Goal**: Consistent circuit breaker coverage
 
-| Task | Effort | Priority |
-|------|--------|----------|
-| Add circuit breaker to FFI dispatch | Medium | Medium |
-| Activate task_readiness circuit breaker | Low | Medium |
-| Add circuit breaker to PGMQ send operations | Medium | Medium |
-| Document circuit breaker coverage matrix | Low | Medium |
+> **Note**: Messaging circuit breaker is intentionally deferred. Currently PGMQ shares the same PostgreSQL instance as tasker data. When PGMQ is deployed to a separate database (or replaced with RabbitMQ), a dedicated messaging circuit breaker will be needed. The `MessagingError::CircuitBreakerOpen` error type already exists for this purpose.
+
+| Task | Effort | Priority | Status |
+|------|--------|----------|--------|
+| Add circuit breaker to FFI dispatch | Medium | Medium | Planned |
+| Activate task_readiness circuit breaker | Low | Medium | Planned |
+| Add circuit breaker to PGMQ send operations | Medium | Low | Deferred (future) |
+| Document circuit breaker coverage matrix | Low | Medium | Planned |
 
 ### Phase 6: Load Testing
 
@@ -386,11 +410,13 @@ Step Execution Idempotency Contract:
 
 ### Functional Requirements
 
-- [ ] API returns 503 when circuit breaker is open
-- [ ] API returns 429 when rate limit exceeded (if implemented)
+- [x] API returns 503 when circuit breaker is open (existing)
+- [x] API circuit breaker rejection metrics emitted (TAS-75)
+- [ ] API returns 503 with Retry-After when queue depth critical
+- [x] API returns 503 with Retry-After when command channel saturated (TAS-75)
 - [ ] Workers refuse step claims when at capacity
-- [ ] PGMQ enqueue fails gracefully when queue at depth limit
-- [ ] All backpressure events emit metrics
+- [ ] PGMQ queue depth monitoring with tiered alerting
+- [x] All backpressure events emit metrics (TAS-75)
 
 ### Non-Functional Requirements
 

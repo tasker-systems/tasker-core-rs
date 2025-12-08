@@ -5,9 +5,11 @@
 //! interfering with the orchestration system's PGMQ operations.
 
 use crate::web::state::AppState;
+use opentelemetry::KeyValue;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tasker_shared::metrics::orchestration::api_requests_rejected_total;
 use tasker_shared::types::web::{ApiError, ApiResult};
 use tracing::{debug, warn};
 
@@ -203,6 +205,7 @@ impl Default for WebDatabaseCircuitBreaker {
 /// - **Automatic Success/Failure Recording**: Records operation results for circuit breaker state
 /// - **Error Mapping**: Converts database errors to appropriate API errors
 /// - **Comprehensive Logging**: Logs errors with context for debugging
+/// - **Metrics Recording**: Records circuit breaker rejections (TAS-75)
 ///
 /// # Arguments
 /// * `state` - Application state containing the circuit breaker
@@ -237,6 +240,8 @@ where
 
     // Check circuit breaker before executing operation
     if !state.is_database_healthy() {
+        // TAS-75: Record circuit breaker rejection metric
+        record_circuit_breaker_rejection("unknown");
         return Err(ApiError::CircuitBreakerOpen);
     }
 
@@ -251,6 +256,127 @@ where
             Err(ApiError::database_error(format!("Operation failed: {e}")))
         }
     }
+}
+
+/// TAS-75: Execute an operation with comprehensive backpressure checking
+///
+/// This function checks all backpressure conditions before executing an operation:
+/// 1. Circuit breaker state
+/// 2. Command channel saturation
+///
+/// Returns 503 with Retry-After header when any backpressure condition is active.
+///
+/// # Features
+/// - **Comprehensive Backpressure**: Checks circuit breaker AND channel saturation
+/// - **Retry-After Headers**: Returns appropriate wait time based on condition severity
+/// - **Metrics Recording**: Records backpressure rejections for monitoring
+///
+/// # Arguments
+/// * `state` - Application state containing backpressure monitoring
+/// * `endpoint` - Endpoint name for metrics (e.g., "/v1/tasks")
+/// * `operation` - Async closure that performs the operation
+///
+/// # Returns
+/// `ApiResult<T>` - Success result or `ApiError::Backpressure` with Retry-After
+///
+/// # Example
+/// ```rust,ignore
+/// use tasker_orchestration::web::circuit_breaker::execute_with_backpressure_check;
+///
+/// async fn create_task_handler(state: &AppState, request: CreateTaskRequest) -> ApiResult<Task> {
+///     execute_with_backpressure_check(state, "/v1/tasks", || async {
+///         // Task creation logic
+///         Ok(task)
+///     }).await
+/// }
+/// ```
+pub async fn execute_with_backpressure_check<T, E, F, Fut>(
+    state: &AppState,
+    endpoint: &str,
+    operation: F,
+) -> ApiResult<T>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: std::error::Error + Send + Sync + 'static,
+{
+    use tracing::error;
+
+    // TAS-75: Check comprehensive backpressure status
+    if let Some(backpressure_error) = state.check_backpressure_status() {
+        // Record backpressure rejection metric
+        record_backpressure_rejection(endpoint, &backpressure_error);
+        return Err(backpressure_error);
+    }
+
+    match operation().await {
+        Ok(result) => {
+            state.record_database_success();
+            Ok(result)
+        }
+        Err(e) => {
+            state.record_database_failure();
+            error!(error = %e, endpoint = endpoint, "Operation failed");
+            Err(ApiError::database_error(format!("Operation failed: {e}")))
+        }
+    }
+}
+
+/// TAS-75: Record a backpressure rejection metric
+///
+/// Tracks API requests rejected due to any backpressure condition.
+///
+/// # Arguments
+/// * `endpoint` - The API endpoint that was rejected
+/// * `error` - The backpressure error (for extracting reason)
+pub fn record_backpressure_rejection(endpoint: &str, error: &ApiError) {
+    let reason = match error {
+        ApiError::Backpressure { reason, .. } => reason.as_str(),
+        ApiError::CircuitBreakerOpen => "circuit_breaker",
+        _ => "unknown",
+    };
+
+    let counter = api_requests_rejected_total();
+    counter.add(
+        1,
+        &[
+            KeyValue::new("endpoint", endpoint.to_string()),
+            KeyValue::new("reason", reason.to_string()),
+        ],
+    );
+
+    warn!(
+        endpoint = endpoint,
+        reason = reason,
+        "API request rejected due to backpressure"
+    );
+}
+
+/// Record a circuit breaker rejection metric
+///
+/// TAS-75: Tracks API requests rejected due to circuit breaker being open.
+///
+/// # Arguments
+/// * `endpoint` - The API endpoint that was rejected (e.g., "/v1/tasks")
+pub fn record_circuit_breaker_rejection(endpoint: &str) {
+    // Get the counter from the static or create a new one
+    // Note: api_requests_rejected_total() returns a new counter each time,
+    // but OpenTelemetry will aggregate them by the same metric name
+    let counter = api_requests_rejected_total();
+
+    counter.add(
+        1,
+        &[
+            KeyValue::new("endpoint", endpoint.to_string()),
+            KeyValue::new("reason", "circuit_breaker"),
+        ],
+    );
+
+    warn!(
+        endpoint = endpoint,
+        reason = "circuit_breaker",
+        "API request rejected due to circuit breaker open"
+    );
 }
 
 #[cfg(test)]
