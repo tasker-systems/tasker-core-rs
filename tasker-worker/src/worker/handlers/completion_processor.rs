@@ -92,6 +92,13 @@ impl CompletionProcessorService {
     /// Run the completion processor service
     ///
     /// This method runs until the completion channel is closed.
+    ///
+    /// TODO(TAS-67 Future Enhancement): Consider parallelizing completion processing
+    /// using semaphore-bounded concurrency like `HandlerDispatchService`. Currently
+    /// sequential processing is sufficient since handler execution is typically the
+    /// bottleneck, not completion processing. Monitor completion channel backpressure
+    /// in production before implementing.
+    /// See: docs/ticket-specs/TAS-67/future-enhancements.md
     pub async fn run(mut self) {
         info!(
             service_id = %self.service_id,
