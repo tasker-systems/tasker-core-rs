@@ -425,4 +425,190 @@ mod tests {
     // Note: Recovery timeout tests are timing-sensitive and can be flaky in CI environments.
     // The core circuit breaker functionality (open/close/threshold) is tested above.
     // Integration tests will verify the full behavior in real scenarios.
+
+    // =========================================================================
+    // TAS-75: Extended Circuit Breaker Tests
+    // =========================================================================
+
+    #[test]
+    fn test_circuit_state_from_u8_conversion() {
+        assert_eq!(CircuitState::from(0), CircuitState::Closed);
+        assert_eq!(CircuitState::from(1), CircuitState::Open);
+        assert_eq!(CircuitState::from(2), CircuitState::HalfOpen);
+        // Invalid values default to Closed
+        assert_eq!(CircuitState::from(3), CircuitState::Closed);
+        assert_eq!(CircuitState::from(255), CircuitState::Closed);
+    }
+
+    #[test]
+    fn test_default_circuit_breaker_configuration() {
+        let cb = WebDatabaseCircuitBreaker::default();
+
+        // Default values: 5 failures, 30s recovery, "web_database" component
+        assert_eq!(cb.component_name(), "web_database");
+        assert_eq!(cb.current_state(), CircuitState::Closed);
+        assert_eq!(cb.current_failures(), 0);
+        assert!(!cb.is_circuit_open());
+    }
+
+    #[test]
+    fn test_component_name_accessor() {
+        let cb = WebDatabaseCircuitBreaker::new(5, Duration::from_secs(30), "custom_component");
+        assert_eq!(cb.component_name(), "custom_component");
+    }
+
+    #[test]
+    fn test_failure_count_increments_correctly() {
+        let cb = WebDatabaseCircuitBreaker::new(10, Duration::from_secs(30), "test");
+
+        assert_eq!(cb.current_failures(), 0);
+        cb.record_failure();
+        assert_eq!(cb.current_failures(), 1);
+        cb.record_failure();
+        assert_eq!(cb.current_failures(), 2);
+        cb.record_failure();
+        assert_eq!(cb.current_failures(), 3);
+    }
+
+    #[test]
+    fn test_success_resets_failure_count() {
+        let cb = WebDatabaseCircuitBreaker::new(10, Duration::from_secs(30), "test");
+
+        // Accumulate some failures (but not enough to open)
+        cb.record_failure();
+        cb.record_failure();
+        cb.record_failure();
+        assert_eq!(cb.current_failures(), 3);
+
+        // Success should reset count
+        cb.record_success();
+        assert_eq!(cb.current_failures(), 0);
+    }
+
+    #[test]
+    fn test_success_failure_success_sequence() {
+        let cb = WebDatabaseCircuitBreaker::new(3, Duration::from_secs(30), "test");
+
+        // Start with failures
+        cb.record_failure();
+        cb.record_failure();
+        assert_eq!(cb.current_failures(), 2);
+        assert_eq!(cb.current_state(), CircuitState::Closed);
+
+        // Success resets
+        cb.record_success();
+        assert_eq!(cb.current_failures(), 0);
+
+        // More failures
+        cb.record_failure();
+        assert_eq!(cb.current_failures(), 1);
+
+        // Another success
+        cb.record_success();
+        assert_eq!(cb.current_failures(), 0);
+    }
+
+    #[test]
+    fn test_half_open_state_allows_requests() {
+        let cb = WebDatabaseCircuitBreaker::new(2, Duration::from_secs(30), "test");
+
+        // Manually set to half-open state (simulating recovery timeout elapsed)
+        cb.state.store(CircuitState::HalfOpen as u8, std::sync::atomic::Ordering::Relaxed);
+
+        // Half-open should allow requests (is_circuit_open returns false)
+        assert!(!cb.is_circuit_open());
+        assert_eq!(cb.current_state(), CircuitState::HalfOpen);
+    }
+
+    #[test]
+    fn test_circuit_breaker_exact_threshold() {
+        // Test that circuit opens at exactly the threshold, not before
+        let cb = WebDatabaseCircuitBreaker::new(5, Duration::from_secs(30), "test");
+
+        // 1 through 4 failures - should stay closed
+        for i in 1..5 {
+            cb.record_failure();
+            assert!(
+                !cb.is_circuit_open(),
+                "Circuit should be closed at {} failures (threshold is 5)",
+                i
+            );
+        }
+
+        // 5th failure - should open
+        cb.record_failure();
+        assert!(
+            cb.is_circuit_open(),
+            "Circuit should be open at threshold (5 failures)"
+        );
+    }
+
+    #[test]
+    fn test_multiple_successes_keep_circuit_closed() {
+        let cb = WebDatabaseCircuitBreaker::new(3, Duration::from_secs(30), "test");
+
+        // Multiple successes when healthy
+        cb.record_success();
+        cb.record_success();
+        cb.record_success();
+
+        assert_eq!(cb.current_state(), CircuitState::Closed);
+        assert_eq!(cb.current_failures(), 0);
+    }
+
+    #[test]
+    fn test_open_circuit_stays_open_without_recovery() {
+        let cb = WebDatabaseCircuitBreaker::new(2, Duration::from_secs(3600), "test"); // 1 hour recovery
+
+        // Open the circuit
+        cb.record_failure();
+        cb.record_failure();
+        assert!(cb.is_circuit_open());
+
+        // Additional failures should keep it open
+        cb.record_failure();
+        cb.record_failure();
+        assert!(cb.is_circuit_open());
+        assert_eq!(cb.current_state(), CircuitState::Open);
+    }
+
+    #[test]
+    fn test_success_from_open_state_closes_circuit() {
+        let cb = WebDatabaseCircuitBreaker::new(2, Duration::from_secs(30), "test");
+
+        // Open the circuit
+        cb.record_failure();
+        cb.record_failure();
+        assert!(cb.is_circuit_open());
+
+        // Direct success call closes it (simulates half-open test succeeded)
+        cb.record_success();
+        assert!(!cb.is_circuit_open());
+        assert_eq!(cb.current_state(), CircuitState::Closed);
+    }
+
+    // =========================================================================
+    // TAS-75: Backpressure Recording Tests
+    // =========================================================================
+
+    #[test]
+    fn test_record_backpressure_rejection_runs_without_panic() {
+        // Test that the function runs without panic
+        // Note: We can't easily verify OpenTelemetry metrics in unit tests,
+        // but we can verify the function doesn't panic
+        let error = tasker_shared::types::web::ApiError::backpressure("test", 5);
+        record_backpressure_rejection("/v1/tasks", &error);
+
+        // If we get here, the function worked
+        assert!(true);
+    }
+
+    #[test]
+    fn test_record_circuit_breaker_rejection_runs_without_panic() {
+        // Test that the function runs without panic
+        record_circuit_breaker_rejection("/v1/tasks");
+
+        // If we get here, the function worked
+        assert!(true);
+    }
 }

@@ -316,6 +316,63 @@ Step Execution Idempotency Contract:
 - Tiered Retry-After calculation: 5s (degraded), 15s (high), 30s (critical)
 - POST /v1/tasks integrated with comprehensive backpressure checking
 
+### Phase 2b: Backpressure Unit Testing ✅ COMPLETE
+
+**Goal**: Verify circuit breaker and backpressure logic through deterministic unit tests with mock components
+
+> **Rationale**: Integration testing of circuit breaker open/closed states in real scenarios is difficult and flaky. Unit tests with stand-in structs and channels provide reliable, fast verification of logic correctness without triggering actual system stress.
+
+| Task | Effort | Priority | Status |
+|------|--------|----------|--------|
+| Expand `WebDatabaseCircuitBreaker` unit tests | Low | High | ✅ Done (13 new tests) |
+| Add `ApiError::Backpressure` helper method tests | Low | High | ✅ Done |
+| Add `ApiError::Backpressure` response formatting tests | Low | Medium | ✅ Done |
+| Add Retry-After calculation tests at saturation thresholds | Low | Medium | ✅ Done |
+| Add `record_backpressure_rejection()` metric emission tests | Low | Medium | ✅ Done |
+
+**Test Summary (28 total tests)**:
+- **12 tests** in `tasker-shared/src/types/web.rs::backpressure_tests`
+- **16 tests** in `tasker-orchestration/src/web/circuit_breaker.rs::tests`
+
+**Testing Approach**:
+
+1. **Mock AppState Pattern**:
+   - Create test helper structs with controllable circuit breaker state
+   - Inject channel saturation percentages (0%, 80%, 95%, 100%)
+   - Configure failure counts and timestamps for deterministic behavior
+
+2. **Circuit Breaker State Verification**:
+   ```rust
+   // Existing tests verify: starts closed, opens after threshold, closes on success
+   // Add tests for:
+   // - Half-open state transition after recovery timeout
+   // - Concurrent failure recording (atomic operations)
+   // - State persistence across success/failure sequences
+   ```
+
+3. **Backpressure Status Tests**:
+   ```rust
+   // Test check_backpressure_status() returns correct variants:
+   // - None when healthy (circuit closed, saturation < 80%)
+   // - ApiError::Backpressure with circuit_breaker reason when open
+   // - ApiError::Backpressure with channel_saturated reason at 80%+
+   // - Correct Retry-After values: 5s (80-90%), 15s (90-95%), 30s (95%+)
+   ```
+
+4. **Response Formatting Tests**:
+   ```rust
+   // Verify ApiError::Backpressure produces:
+   // - HTTP 503 Service Unavailable status
+   // - Retry-After header with correct value
+   // - JSON body with BACKPRESSURE code and reason
+   ```
+
+**Benefits**:
+- **Deterministic**: No timing dependencies or flaky conditions
+- **Fast**: Milliseconds vs seconds for load-induced failures
+- **Isolated**: Proves logic correctness without infrastructure complexity
+- **Maintainable**: Clear test cases document expected behavior
+
 ### Phase 3: PGMQ Queue Management
 
 **Goal**: Prevent unbounded queue growth via soft limits and monitoring

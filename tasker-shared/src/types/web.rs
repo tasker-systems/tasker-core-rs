@@ -569,3 +569,274 @@ pub struct DomainEventStats {
     /// Worker ID for correlation
     pub worker_id: String,
 }
+
+// =============================================================================
+// TAS-75: Backpressure Unit Tests
+// =============================================================================
+
+#[cfg(test)]
+mod backpressure_tests {
+    use super::*;
+
+    // =========================================================================
+    // ApiError::Backpressure Helper Method Tests
+    // =========================================================================
+
+    #[test]
+    fn test_backpressure_helper_creates_correct_variant() {
+        let error = ApiError::backpressure("test_reason", 42);
+
+        match error {
+            ApiError::Backpressure {
+                reason,
+                retry_after_seconds,
+            } => {
+                assert_eq!(reason, "test_reason");
+                assert_eq!(retry_after_seconds, 42);
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+    }
+
+    #[test]
+    fn test_circuit_breaker_with_retry_creates_correct_variant() {
+        let error = ApiError::circuit_breaker_with_retry(30);
+
+        match error {
+            ApiError::Backpressure {
+                reason,
+                retry_after_seconds,
+            } => {
+                assert_eq!(reason, "circuit_breaker_open");
+                assert_eq!(retry_after_seconds, 30);
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+    }
+
+    // =========================================================================
+    // Retry-After Calculation Tests at Saturation Thresholds
+    // =========================================================================
+
+    #[test]
+    fn test_channel_saturated_critical_threshold_30s() {
+        // Critical: >= 95% saturation should have 30s retry
+        let error = ApiError::channel_saturated("test_channel", 95.0);
+
+        match error {
+            ApiError::Backpressure {
+                reason,
+                retry_after_seconds,
+            } => {
+                assert!(reason.contains("test_channel"));
+                assert!(reason.contains("95.0%"));
+                assert_eq!(retry_after_seconds, 30, "Critical saturation (95%+) should be 30s");
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+
+        // Also test 100%
+        let error_100 = ApiError::channel_saturated("test_channel", 100.0);
+        match error_100 {
+            ApiError::Backpressure {
+                retry_after_seconds,
+                ..
+            } => {
+                assert_eq!(retry_after_seconds, 30, "100% saturation should be 30s");
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+    }
+
+    #[test]
+    fn test_channel_saturated_high_threshold_15s() {
+        // High: >= 90% but < 95% saturation should have 15s retry
+        let error = ApiError::channel_saturated("test_channel", 90.0);
+
+        match error {
+            ApiError::Backpressure {
+                retry_after_seconds,
+                ..
+            } => {
+                assert_eq!(retry_after_seconds, 15, "High saturation (90-95%) should be 15s");
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+
+        // Test boundary at 94.9%
+        let error_94 = ApiError::channel_saturated("test_channel", 94.9);
+        match error_94 {
+            ApiError::Backpressure {
+                retry_after_seconds,
+                ..
+            } => {
+                assert_eq!(retry_after_seconds, 15, "94.9% saturation should be 15s");
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+    }
+
+    #[test]
+    fn test_channel_saturated_degraded_threshold_5s() {
+        // Degraded: >= 80% but < 90% saturation should have 5s retry
+        let error = ApiError::channel_saturated("test_channel", 80.0);
+
+        match error {
+            ApiError::Backpressure {
+                retry_after_seconds,
+                ..
+            } => {
+                assert_eq!(retry_after_seconds, 5, "Degraded saturation (80-90%) should be 5s");
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+
+        // Test at 89.9%
+        let error_89 = ApiError::channel_saturated("test_channel", 89.9);
+        match error_89 {
+            ApiError::Backpressure {
+                retry_after_seconds,
+                ..
+            } => {
+                assert_eq!(retry_after_seconds, 5, "89.9% saturation should be 5s");
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+    }
+
+    #[test]
+    fn test_channel_saturated_below_threshold_still_5s() {
+        // Below 80% still gets 5s as minimum (this case shouldn't normally
+        // be called, but the function handles it gracefully)
+        let error = ApiError::channel_saturated("test_channel", 50.0);
+
+        match error {
+            ApiError::Backpressure {
+                retry_after_seconds,
+                ..
+            } => {
+                assert_eq!(retry_after_seconds, 5, "Below 80% should default to 5s");
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+    }
+
+    #[test]
+    fn test_channel_saturated_reason_format() {
+        let error = ApiError::channel_saturated("orchestration_command", 87.5);
+
+        match error {
+            ApiError::Backpressure { reason, .. } => {
+                assert!(
+                    reason.contains("orchestration_command"),
+                    "Reason should contain channel name"
+                );
+                assert!(
+                    reason.contains("87.5%"),
+                    "Reason should contain saturation percentage"
+                );
+            }
+            _ => panic!("Expected Backpressure variant"),
+        }
+    }
+
+    // =========================================================================
+    // Response Formatting Tests (IntoResponse)
+    // =========================================================================
+
+    #[test]
+    fn test_backpressure_response_status_code() {
+        let error = ApiError::backpressure("test_reason", 15);
+        let response = error.into_response();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Backpressure should return 503 Service Unavailable"
+        );
+    }
+
+    #[test]
+    fn test_backpressure_response_retry_after_header() {
+        let error = ApiError::backpressure("test_reason", 42);
+        let response = error.into_response();
+
+        let retry_after = response
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .expect("Response should have Retry-After header");
+
+        assert_eq!(
+            retry_after.to_str().unwrap(),
+            "42",
+            "Retry-After header should match retry_after_seconds"
+        );
+    }
+
+    #[test]
+    fn test_backpressure_response_retry_after_at_thresholds() {
+        // Test 5s threshold
+        let error_5s = ApiError::channel_saturated("ch", 85.0);
+        let response_5s = error_5s.into_response();
+        let retry_5s = response_5s
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .unwrap();
+        assert_eq!(retry_5s.to_str().unwrap(), "5");
+
+        // Test 15s threshold
+        let error_15s = ApiError::channel_saturated("ch", 92.0);
+        let response_15s = error_15s.into_response();
+        let retry_15s = response_15s
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .unwrap();
+        assert_eq!(retry_15s.to_str().unwrap(), "15");
+
+        // Test 30s threshold
+        let error_30s = ApiError::channel_saturated("ch", 97.0);
+        let response_30s = error_30s.into_response();
+        let retry_30s = response_30s
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .unwrap();
+        assert_eq!(retry_30s.to_str().unwrap(), "30");
+    }
+
+    #[test]
+    fn test_circuit_breaker_open_response() {
+        // The old CircuitBreakerOpen variant should still work
+        let error = ApiError::CircuitBreakerOpen;
+        let response = error.into_response();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "CircuitBreakerOpen should return 503"
+        );
+
+        // Note: CircuitBreakerOpen doesn't have Retry-After (use circuit_breaker_with_retry for that)
+        assert!(
+            response
+                .headers()
+                .get(axum::http::header::RETRY_AFTER)
+                .is_none(),
+            "CircuitBreakerOpen variant should not have Retry-After header"
+        );
+    }
+
+    #[test]
+    fn test_backpressure_error_display() {
+        let error = ApiError::backpressure("channel_saturated", 15);
+        let display = format!("{}", error);
+
+        assert!(
+            display.contains("backpressure"),
+            "Display should mention backpressure"
+        );
+        assert!(
+            display.contains("channel_saturated"),
+            "Display should include reason"
+        );
+    }
+}
