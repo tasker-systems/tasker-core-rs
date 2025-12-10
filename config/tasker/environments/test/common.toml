@@ -37,6 +37,12 @@ poll_interval_ms = 250
 shutdown_timeout_seconds = 5
 max_retries = 1
 
+# TAS-75 Phase 3: Lower thresholds for test environment
+[common.queues.pgmq.queue_depth_thresholds]
+warning_threshold = 100    # Test: lower warning threshold
+critical_threshold = 500   # Test: lower critical threshold
+overflow_threshold = 1000  # Test: lower overflow threshold
+
 [common.circuit_breakers.global_settings]
 max_circuit_breakers = 20
 metrics_collection_interval_seconds = 10

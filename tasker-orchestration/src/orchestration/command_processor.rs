@@ -168,12 +168,48 @@ pub struct OrchestrationProcessingStats {
     pub current_queue_sizes: HashMap<String, i64>,
 }
 
+/// TAS-75: Enhanced system health status
+///
+/// This struct contains comprehensive health information derived from
+/// cached health status data updated by the background StatusEvaluator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemHealth {
+    /// Overall health status: "healthy", "degraded", or "unhealthy"
     pub status: String,
+
+    /// Whether the database is connected (from cached DB health check)
     pub database_connected: bool,
+
+    /// Whether message queues are healthy (not in Critical/Overflow)
     pub message_queues_healthy: bool,
+
+    /// Number of active orchestration processors
     pub active_processors: u32,
+
+    // TAS-75: Enhanced health fields from cached status
+    /// Circuit breaker state for database operations
+    pub circuit_breaker_open: bool,
+
+    /// Number of consecutive circuit breaker failures
+    pub circuit_breaker_failures: u32,
+
+    /// Command channel saturation percentage (0.0-100.0)
+    pub command_channel_saturation_percent: f64,
+
+    /// Whether backpressure is currently active
+    pub backpressure_active: bool,
+
+    /// Queue depth tier: "Unknown", "Normal", "Warning", "Critical", "Overflow"
+    pub queue_depth_tier: String,
+
+    /// Maximum queue depth across all monitored queues
+    pub queue_depth_max: i64,
+
+    /// Name of the queue with the highest depth
+    pub queue_depth_worst_queue: String,
+
+    /// Whether health data has been evaluated (false means Unknown state)
+    pub health_evaluated: bool,
 }
 
 use std::sync::Arc;
@@ -184,6 +220,7 @@ use crate::actors::result_processor_actor::ProcessStepResultMessage;
 use crate::actors::task_finalizer_actor::FinalizeTaskMessage;
 use crate::actors::task_request_actor::ProcessTaskRequestMessage;
 use crate::actors::{ActorRegistry, Handler, ProcessBatchMessage};
+use crate::health::caches::HealthStatusCaches; // TAS-75: Cached health status
 use crate::orchestration::hydration::{
     FinalizationHydrator, StepResultHydrator, TaskRequestHydrator,
 }; // TAS-46 Phase 4
@@ -212,6 +249,9 @@ pub struct OrchestrationProcessor {
     /// PGMQ client for message operations
     pgmq_client: Arc<UnifiedPgmqClient>,
 
+    /// TAS-75: Cached health status for non-blocking health checks
+    health_caches: HealthStatusCaches,
+
     /// Command receiver channel
     command_rx: Option<mpsc::Receiver<OrchestrationCommand>>,
 
@@ -227,10 +267,13 @@ pub struct OrchestrationProcessor {
 
 impl OrchestrationProcessor {
     /// Create new OrchestrationProcessor with actor-based coordination (TAS-46)
+    ///
+    /// TAS-75: Now accepts `HealthStatusCaches` for non-blocking health checks.
     pub fn new(
         context: Arc<SystemContext>,
         actors: Arc<ActorRegistry>,
         pgmq_client: Arc<UnifiedPgmqClient>,
+        health_caches: HealthStatusCaches,
         buffer_size: usize,
         channel_monitor: ChannelMonitor,
     ) -> (Self, mpsc::Sender<OrchestrationCommand>) {
@@ -255,6 +298,7 @@ impl OrchestrationProcessor {
             context,
             actors,
             pgmq_client,
+            health_caches,
             command_rx: Some(command_rx),
             task_handle: None,
             stats,
@@ -269,6 +313,7 @@ impl OrchestrationProcessor {
         let context = self.context.clone();
         let stats = self.stats.clone();
         let pgmq_client = self.pgmq_client.clone();
+        let health_caches = self.health_caches.clone(); // TAS-75: Clone health caches for spawned task
         let channel_monitor = self.channel_monitor.clone(); // TAS-51: Clone monitor for spawned task
         let mut command_rx = self.command_rx.take().ok_or_else(|| {
             TaskerError::OrchestrationError("Processor already started".to_string())
@@ -276,8 +321,13 @@ impl OrchestrationProcessor {
 
         let actors = self.actors.clone();
         let handle = tokio::spawn(async move {
-            let handler =
-                OrchestrationProcessorCommandHandler::new(context, actors, stats, pgmq_client);
+            let handler = OrchestrationProcessorCommandHandler::new(
+                context,
+                actors,
+                stats,
+                pgmq_client,
+                health_caches, // TAS-75: Pass health caches
+            );
             while let Some(command) = command_rx.recv().await {
                 // TAS-51: Record message receive for channel monitoring
                 channel_monitor.record_receive();
@@ -292,10 +342,12 @@ impl OrchestrationProcessor {
 
 #[derive(Debug)]
 pub struct OrchestrationProcessorCommandHandler {
+    #[allow(dead_code)]
     context: Arc<SystemContext>,
     actors: Arc<ActorRegistry>, // TAS-46: Actor registry for message-based coordination
     stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
     pgmq_client: Arc<UnifiedPgmqClient>,
+    health_caches: HealthStatusCaches, // TAS-75: Cached health status for non-blocking health checks
     step_result_hydrator: StepResultHydrator, // TAS-46 Phase 4: Hydrates step results from messages
     task_request_hydrator: TaskRequestHydrator, // TAS-46 Phase 4: Hydrates task requests from messages
     finalization_hydrator: FinalizationHydrator, // TAS-46 Phase 4: Hydrates finalization requests from messages
@@ -307,6 +359,7 @@ impl OrchestrationProcessorCommandHandler {
         actors: Arc<ActorRegistry>,
         stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
         pgmq_client: Arc<UnifiedPgmqClient>,
+        health_caches: HealthStatusCaches,
     ) -> Self {
         // TAS-46 Phase 4: Initialize hydrators for message transformation
         let step_result_hydrator = StepResultHydrator::new(context.clone());
@@ -318,6 +371,7 @@ impl OrchestrationProcessorCommandHandler {
             actors,
             stats,
             pgmq_client,
+            health_caches,
             step_result_hydrator,
             task_request_hydrator,
             finalization_hydrator,
@@ -975,27 +1029,60 @@ impl OrchestrationProcessorCommandHandler {
         })
     }
 
-    /// Handle health check
+    /// Handle health check using cached health status (TAS-75)
+    ///
+    /// Reads from `HealthStatusCaches` for non-blocking health checks.
+    /// Uses fail-open semantics: unevaluated status returns healthy to avoid
+    /// blocking requests during startup or when health evaluation is disabled.
     async fn handle_health_check(&self) -> TaskerResult<SystemHealth> {
-        // Check database connectivity
-        let database_connected = (sqlx::query("SELECT 1")
-            .fetch_one(self.context.database_pool())
-            .await)
-            .is_ok();
+        // TAS-75: Read from cached health status
+        let db_status = self.health_caches.get_db_status().await;
+        let channel_status = self.health_caches.get_channel_status().await;
+        let queue_status = self.health_caches.get_queue_status().await;
+        let backpressure = self.health_caches.get_backpressure().await;
 
-        // TODO: Add more sophisticated health checks once components are integrated
-        let message_queues_healthy = true; // Placeholder
-        let active_processors = 1; // Placeholder
+        // Determine if we've ever evaluated health
+        let health_evaluated =
+            db_status.evaluated || channel_status.evaluated || queue_status.tier.is_evaluated();
+
+        // Determine database connectivity from cached status
+        // Fail-open: if not evaluated, assume connected
+        let database_connected = if db_status.evaluated {
+            db_status.is_connected && !db_status.circuit_breaker_open
+        } else {
+            true // Fail-open during startup
+        };
+
+        // Determine queue health from cached status
+        // Critical/Overflow tiers indicate unhealthy queues
+        let message_queues_healthy = !queue_status.tier.is_critical();
+
+        // Calculate overall status
+        let status = if !health_evaluated {
+            "unknown".to_string() // Not yet evaluated
+        } else if !database_connected || !message_queues_healthy || backpressure.active {
+            "unhealthy".to_string()
+        } else if channel_status.is_saturated || queue_status.tier.is_warning() {
+            "degraded".to_string()
+        } else {
+            "healthy".to_string()
+        };
 
         Ok(SystemHealth {
-            status: if database_connected && message_queues_healthy {
-                "healthy".to_string()
-            } else {
-                "unhealthy".to_string()
-            },
+            status,
             database_connected,
             message_queues_healthy,
-            active_processors,
+            active_processors: 1, // TODO: Track actual active processors
+
+            // TAS-75: Enhanced health fields from cached status
+            circuit_breaker_open: db_status.circuit_breaker_open,
+            circuit_breaker_failures: db_status.circuit_breaker_failures,
+            command_channel_saturation_percent: channel_status.command_saturation_percent,
+            backpressure_active: backpressure.active,
+            queue_depth_tier: format!("{:?}", queue_status.tier),
+            queue_depth_max: queue_status.max_depth,
+            queue_depth_worst_queue: queue_status.worst_queue.clone(),
+            health_evaluated,
         })
     }
 }

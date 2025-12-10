@@ -43,8 +43,8 @@ pub use traits::{StepHandler, StepHandlerRegistry};
 
 // Re-export dispatch service
 pub use dispatch_service::{
-    create_dispatch_channels, HandlerDispatchConfig, HandlerDispatchService, NoOpCallback,
-    PostHandlerCallback,
+    create_dispatch_channels, CapacityChecker, HandlerDispatchConfig, HandlerDispatchService,
+    LoadSheddingConfig, NoOpCallback, PostHandlerCallback,
 };
 
 // Re-export completion processor

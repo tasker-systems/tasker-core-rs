@@ -3,6 +3,7 @@
 //! Defines the shared state for the web API including database pools,
 //! configuration, and circuit breaker health monitoring.
 
+use crate::health::{BackpressureChecker, BackpressureMetrics, QueueDepthStatus};
 use crate::orchestration::core::{OrchestrationCore, OrchestrationCoreStatus};
 use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
@@ -290,102 +291,118 @@ impl AppState {
     }
 
     // ==========================================================================
-    // TAS-75: Backpressure Status Checking
+    // TAS-75: Backpressure Status Checking (Cache-Based)
     // ==========================================================================
 
-    /// TAS-75: Check command channel saturation level
+    /// TAS-75 Phase 5: Check command channel saturation level (cached)
     ///
     /// Returns the saturation percentage (0.0-100.0) of the orchestration command channel.
     /// This is used for backpressure detection and 503 response decisions.
+    ///
+    /// **Note**: This now reads from the background-updated cache rather than
+    /// calculating inline. If the cache hasn't been evaluated, returns 0.0.
     pub fn get_command_channel_saturation(&self) -> f64 {
-        let channel_monitor = self.orchestration_core.command_channel_monitor();
-        let sender = self.orchestration_core.command_sender();
-        let available_capacity = sender.capacity();
+        // TAS-75 Phase 5: Use cached channel status from BackpressureChecker
+        let channel_status = self
+            .orchestration_core
+            .backpressure_checker()
+            .try_get_channel_status();
 
-        channel_monitor.calculate_saturation(available_capacity) * 100.0
+        // If not evaluated yet, return 0.0 (fail-open)
+        if !channel_status.evaluated {
+            return 0.0;
+        }
+
+        channel_status.command_saturation_percent
     }
 
-    /// TAS-75: Check if command channel is under backpressure (>80% saturated)
+    /// TAS-75 Phase 5: Check if command channel is under backpressure (cached)
+    ///
+    /// Returns true if saturation >= 80%. Uses pre-computed flag from cache.
     pub fn is_command_channel_saturated(&self) -> bool {
-        self.get_command_channel_saturation() >= 80.0
+        // TAS-75 Phase 5: Use cached is_saturated flag
+        let channel_status = self
+            .orchestration_core
+            .backpressure_checker()
+            .try_get_channel_status();
+
+        // If not evaluated, return false (fail-open)
+        channel_status.evaluated && channel_status.is_saturated
     }
 
-    /// TAS-75: Check if command channel is critically saturated (>95%)
+    /// TAS-75 Phase 5: Check if command channel is critically saturated (cached)
+    ///
+    /// Returns true if saturation >= 95%. Uses pre-computed flag from cache.
     pub fn is_command_channel_critical(&self) -> bool {
-        self.get_command_channel_saturation() >= 95.0
+        // TAS-75 Phase 5: Use cached is_critical flag
+        let channel_status = self
+            .orchestration_core
+            .backpressure_checker()
+            .try_get_channel_status();
+
+        // If not evaluated, return false (fail-open)
+        channel_status.evaluated && channel_status.is_critical
     }
 
     /// TAS-75: Get backpressure status for API operations
     ///
     /// Returns `Some(ApiError)` if backpressure is active, `None` if system is healthy.
-    /// Checks in order of severity:
-    /// 1. Circuit breaker open
-    /// 2. Command channel critical saturation (>95%)
-    /// 3. Command channel degraded saturation (>80%)
+    /// This method delegates to the `BackpressureChecker` which reads from caches
+    /// updated by the background `StatusEvaluator`.
     ///
-    /// When backpressure is detected, returns `ApiError::Backpressure` with
-    /// appropriate Retry-After value based on severity.
+    /// This is a synchronous, non-blocking method - no database queries in the hot path.
+    ///
+    /// # Returns
+    /// - `Some(ApiError::Backpressure { ... })` if backpressure is active
+    /// - `None` if the system is healthy and can accept requests
     pub fn check_backpressure_status(&self) -> Option<ApiError> {
-        // Check 1: Circuit breaker open (most severe)
-        if self.web_db_circuit_breaker.is_circuit_open() {
-            // Circuit breaker recovery timeout is 30s by default
-            return Some(ApiError::circuit_breaker_with_retry(30));
-        }
+        // TAS-75 Phase 5: Delegate to BackpressureChecker (cache-based)
+        self.orchestration_core
+            .backpressure_checker()
+            .try_check_backpressure()
+    }
 
-        // Check 2: Command channel saturation
-        let saturation = self.get_command_channel_saturation();
-        if saturation >= 95.0 {
-            // Critical saturation - suggest longer wait
-            return Some(ApiError::channel_saturated(
-                "orchestration_command",
-                saturation,
-            ));
-        } else if saturation >= 80.0 {
-            // Degraded saturation - suggest shorter wait
-            return Some(ApiError::channel_saturated(
-                "orchestration_command",
-                saturation,
-            ));
-        }
+    /// TAS-75: Get queue depth status (synchronous, cache-based)
+    ///
+    /// Returns the cached queue depth status from the background evaluator.
+    /// This is the fix for the "cardinal sin" - now returns real data instead of None.
+    pub fn try_get_queue_depth_status(&self) -> QueueDepthStatus {
+        // TAS-75 Phase 5: Delegate to BackpressureChecker (cache-based)
+        self.orchestration_core
+            .backpressure_checker()
+            .try_get_queue_depth_status()
+    }
 
-        // System is healthy
-        None
+    /// TAS-75: Get the backpressure checker for advanced use cases
+    pub fn backpressure_checker(&self) -> &BackpressureChecker {
+        self.orchestration_core.backpressure_checker()
     }
 
     /// TAS-75: Get detailed backpressure metrics for health endpoint
-    pub fn get_backpressure_metrics(&self) -> BackpressureMetrics {
-        let channel_monitor = self.orchestration_core.command_channel_monitor();
-        let sender = self.orchestration_core.command_sender();
-        let available_capacity = sender.capacity();
-        let channel_metrics = channel_monitor.metrics();
-
-        BackpressureMetrics {
-            circuit_breaker_open: self.web_db_circuit_breaker.is_circuit_open(),
-            circuit_breaker_failures: self.web_db_circuit_breaker.current_failures(),
-            command_channel_saturation_percent: self.get_command_channel_saturation(),
-            command_channel_available_capacity: available_capacity,
-            command_channel_messages_sent: channel_metrics.messages_sent,
-            command_channel_overflow_events: channel_metrics.overflow_events,
-            backpressure_active: self.check_backpressure_status().is_some(),
-        }
+    ///
+    /// This delegates to the `BackpressureChecker` which aggregates metrics from caches.
+    pub async fn get_backpressure_metrics(&self) -> BackpressureMetrics {
+        // TAS-75 Phase 5: Delegate to BackpressureChecker
+        self.orchestration_core
+            .backpressure_checker()
+            .get_backpressure_metrics()
+            .await
     }
-}
 
-/// TAS-75: Backpressure metrics for health endpoint and monitoring
-#[derive(Debug, Clone)]
-pub struct BackpressureMetrics {
-    /// Whether the web database circuit breaker is open
-    pub circuit_breaker_open: bool,
-    /// Current failure count on circuit breaker
-    pub circuit_breaker_failures: u32,
-    /// Command channel saturation percentage (0-100)
-    pub command_channel_saturation_percent: f64,
-    /// Available slots in command channel
-    pub command_channel_available_capacity: usize,
-    /// Total messages sent through command channel
-    pub command_channel_messages_sent: u64,
-    /// Total overflow events on command channel
-    pub command_channel_overflow_events: u64,
-    /// Whether any backpressure condition is active
-    pub backpressure_active: bool,
+    // ==========================================================================
+    // TAS-75 Phase 5: Queue Depth Monitoring (Cache-Based Preferred)
+    // ==========================================================================
+
+    /// TAS-75 Phase 5: Check queue depth status (cached, preferred)
+    ///
+    /// Returns the cached queue depth status from the background evaluator.
+    /// This is the recommended method for API hot-path operations.
+    ///
+    /// **Note**: This delegates to `try_get_queue_depth_status()` for consistency.
+    /// The async signature is maintained for backward compatibility but the
+    /// implementation is synchronous (cache read).
+    pub async fn check_queue_depth_status(&self) -> QueueDepthStatus {
+        // TAS-75 Phase 5: Delegate to cached version
+        self.try_get_queue_depth_status()
+    }
 }

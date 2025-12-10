@@ -41,6 +41,13 @@ poll_interval_ms = 500
 shutdown_timeout_seconds = 10
 max_retries = 3
 
+# TAS-75 Phase 3: Queue depth thresholds for backpressure monitoring
+# These are SOFT limits - messages are never rejected, but API returns 503 at critical depth
+[common.queues.pgmq.queue_depth_thresholds]
+warning_threshold = 1000    # Log warnings above this depth
+critical_threshold = 5000   # Return 503 Service Unavailable above this depth
+overflow_threshold = 10000  # Emergency level requiring manual intervention
+
 [common.queues.rabbitmq]
 connection_timeout_seconds = 30
 

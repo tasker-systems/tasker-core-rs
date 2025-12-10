@@ -101,6 +101,14 @@ completion_buffer_size = 1000
 max_concurrent_handlers = 10
 handler_timeout_ms = 30000
 
+# TAS-75 Phase 4: Worker Load Shedding Configuration
+[worker.mpsc_channels.handler_dispatch.load_shedding]
+enabled = true
+# Refuse step claims when handler capacity exceeds this threshold (0-100%)
+capacity_threshold_percent = 80.0
+# Log warning when approaching threshold (0-100%)
+warning_threshold_percent = 70.0
+
 # TAS-67: FFI Dispatch Channel Configuration
 [worker.mpsc_channels.ffi_dispatch]
 dispatch_buffer_size = 1000

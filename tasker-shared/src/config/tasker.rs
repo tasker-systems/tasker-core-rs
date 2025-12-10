@@ -437,9 +437,46 @@ pub struct PgmqConfig {
     #[validate(range(max = 100))]
     #[builder(default = 3)]
     pub max_retries: u32,
+
+    /// TAS-75 Phase 3: Queue depth thresholds for backpressure monitoring
+    #[validate(nested)]
+    #[serde(default)]
+    #[builder(default)]
+    pub queue_depth_thresholds: QueueDepthThresholds,
 }
 
 impl_builder_default!(PgmqConfig);
+
+/// TAS-75 Phase 3: Queue depth thresholds for soft backpressure limits
+///
+/// Defines tiered monitoring thresholds for PGMQ queue depths.
+/// These are SOFT limits - messages are never rejected, but API returns 503 at critical depth.
+///
+/// # Threshold Tiers
+/// - **Normal**: 0 to warning_threshold (healthy operation)
+/// - **Warning**: warning_threshold to critical_threshold (elevated, monitoring)
+/// - **Critical**: critical_threshold to overflow_threshold (API returns 503)
+/// - **Overflow**: Above overflow_threshold (emergency, manual intervention needed)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct QueueDepthThresholds {
+    /// Warning threshold - queue depth above which warnings are logged
+    #[validate(range(min = 1))]
+    #[builder(default = 1000)]
+    pub warning_threshold: i64,
+
+    /// Critical threshold - queue depth above which API returns 503 Service Unavailable
+    #[validate(range(min = 1))]
+    #[builder(default = 5000)]
+    pub critical_threshold: i64,
+
+    /// Overflow threshold - queue depth indicating emergency conditions
+    #[validate(range(min = 1))]
+    #[builder(default = 10000)]
+    pub overflow_threshold: i64,
+}
+
+impl_builder_default!(QueueDepthThresholds);
 
 /// RabbitMQ-specific configuration
 ///
@@ -2335,6 +2372,7 @@ mod tests {
                 poll_interval_ms: 250,
                 shutdown_timeout_seconds: 5,
                 max_retries: 3,
+                queue_depth_thresholds: QueueDepthThresholds::default(),
             },
             rabbitmq: None,
         }
@@ -2782,5 +2820,64 @@ mod tests {
         println!("✓ Display trait test completed - all types have Display");
         println!("✓ bon Builder pattern test completed - inline defaults work");
         println!("✓ Default implementations match builder defaults");
+    }
+
+    // =========================================================================
+    // TAS-75 Phase 3: Queue Depth Threshold Tests
+    // =========================================================================
+
+    #[test]
+    fn test_queue_depth_thresholds_default() {
+        let thresholds = QueueDepthThresholds::default();
+        assert_eq!(thresholds.warning_threshold, 1000);
+        assert_eq!(thresholds.critical_threshold, 5000);
+        assert_eq!(thresholds.overflow_threshold, 10000);
+    }
+
+    #[test]
+    fn test_queue_depth_thresholds_custom() {
+        let thresholds = QueueDepthThresholds {
+            warning_threshold: 100,
+            critical_threshold: 500,
+            overflow_threshold: 1000,
+        };
+        assert_eq!(thresholds.warning_threshold, 100);
+        assert_eq!(thresholds.critical_threshold, 500);
+        assert_eq!(thresholds.overflow_threshold, 1000);
+    }
+
+    #[test]
+    fn test_pgmq_config_includes_thresholds() {
+        let pgmq_config = PgmqConfig::default();
+        assert_eq!(pgmq_config.queue_depth_thresholds.warning_threshold, 1000);
+        assert_eq!(pgmq_config.queue_depth_thresholds.critical_threshold, 5000);
+        assert_eq!(pgmq_config.queue_depth_thresholds.overflow_threshold, 10000);
+    }
+
+    #[test]
+    fn test_queue_depth_tier_logic() {
+        let thresholds = QueueDepthThresholds {
+            warning_threshold: 100,
+            critical_threshold: 500,
+            overflow_threshold: 1000,
+        };
+
+        // Test tier classification logic
+        assert!(
+            50 < thresholds.warning_threshold,
+            "50 should be normal tier"
+        );
+        assert!(
+            150 >= thresholds.warning_threshold && 150 < thresholds.critical_threshold,
+            "150 should be warning tier"
+        );
+        assert!(
+            600 >= thresholds.critical_threshold && 600 < thresholds.overflow_threshold,
+            "600 should be critical tier"
+        );
+        assert!(
+            1500 >= thresholds.overflow_threshold,
+            "1500 should be overflow tier"
+        );
     }
 }

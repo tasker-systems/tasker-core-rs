@@ -68,9 +68,10 @@ pub use actors::{Handler, Message, WorkerActor, WorkerActorRegistry};
 pub use hydration::StepMessageHydrator;
 
 // TAS-67: Handler dispatch abstractions
+// TAS-75: Added CapacityChecker and LoadSheddingConfig for worker load shedding
 pub use handlers::{
-    create_dispatch_channels, CompletionProcessorConfig, CompletionProcessorService,
-    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, FfiDispatchMetrics,
-    FfiStepEvent, HandlerDispatchConfig, HandlerDispatchService, NoOpCallback, PostHandlerCallback,
-    StepHandler, StepHandlerRegistry,
+    create_dispatch_channels, CapacityChecker, CompletionProcessorConfig,
+    CompletionProcessorService, DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig,
+    FfiDispatchMetrics, FfiStepEvent, HandlerDispatchConfig, HandlerDispatchService,
+    LoadSheddingConfig, NoOpCallback, PostHandlerCallback, StepHandler, StepHandlerRegistry,
 };

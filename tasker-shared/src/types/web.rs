@@ -630,7 +630,10 @@ mod backpressure_tests {
             } => {
                 assert!(reason.contains("test_channel"));
                 assert!(reason.contains("95.0%"));
-                assert_eq!(retry_after_seconds, 30, "Critical saturation (95%+) should be 30s");
+                assert_eq!(
+                    retry_after_seconds, 30,
+                    "Critical saturation (95%+) should be 30s"
+                );
             }
             _ => panic!("Expected Backpressure variant"),
         }
@@ -658,7 +661,10 @@ mod backpressure_tests {
                 retry_after_seconds,
                 ..
             } => {
-                assert_eq!(retry_after_seconds, 15, "High saturation (90-95%) should be 15s");
+                assert_eq!(
+                    retry_after_seconds, 15,
+                    "High saturation (90-95%) should be 15s"
+                );
             }
             _ => panic!("Expected Backpressure variant"),
         }
@@ -686,7 +692,10 @@ mod backpressure_tests {
                 retry_after_seconds,
                 ..
             } => {
-                assert_eq!(retry_after_seconds, 5, "Degraded saturation (80-90%) should be 5s");
+                assert_eq!(
+                    retry_after_seconds, 5,
+                    "Degraded saturation (80-90%) should be 5s"
+                );
             }
             _ => panic!("Expected Backpressure variant"),
         }

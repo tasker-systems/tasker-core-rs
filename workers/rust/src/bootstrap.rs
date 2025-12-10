@@ -27,7 +27,7 @@ use crate::{
 };
 use anyhow::Result;
 use std::sync::Arc;
-use tasker_worker::worker::{HandlerDispatchConfig, HandlerDispatchService};
+use tasker_worker::worker::{HandlerDispatchConfig, HandlerDispatchService, LoadSheddingConfig};
 use tasker_worker::WorkerSystemHandle;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -164,6 +164,7 @@ pub async fn bootstrap() -> Result<RustWorkerBootstrapResult> {
             max_concurrent_handlers: 10,
             handler_timeout: std::time::Duration::from_secs(30),
             service_id: "rust-handler-dispatch".to_string(),
+            load_shedding: LoadSheddingConfig::default(),
         };
 
         // TAS-67: Create domain event callback for post-handler event publishing
@@ -171,7 +172,8 @@ pub async fn bootstrap() -> Result<RustWorkerBootstrapResult> {
         info!("✅ Domain event callback created for dispatch service");
 
         // Use with_callback to enable domain event publishing through dispatch path
-        let dispatch_service = HandlerDispatchService::with_callback(
+        // TAS-75: Returns (service, capacity_checker) tuple - capacity_checker for future load shedding integration
+        let (dispatch_service, _capacity_checker) = HandlerDispatchService::with_callback(
             dispatch_handles.dispatch_receiver,
             dispatch_handles.completion_sender,
             registry_adapter.clone(),

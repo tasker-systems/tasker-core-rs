@@ -513,7 +513,10 @@ mod tests {
         let cb = WebDatabaseCircuitBreaker::new(2, Duration::from_secs(30), "test");
 
         // Manually set to half-open state (simulating recovery timeout elapsed)
-        cb.state.store(CircuitState::HalfOpen as u8, std::sync::atomic::Ordering::Relaxed);
+        cb.state.store(
+            CircuitState::HalfOpen as u8,
+            std::sync::atomic::Ordering::Relaxed,
+        );
 
         // Half-open should allow requests (is_circuit_open returns false)
         assert!(!cb.is_circuit_open());
@@ -593,22 +596,18 @@ mod tests {
 
     #[test]
     fn test_record_backpressure_rejection_runs_without_panic() {
-        // Test that the function runs without panic
+        // Smoke test: verify the function completes without panic
         // Note: We can't easily verify OpenTelemetry metrics in unit tests,
-        // but we can verify the function doesn't panic
+        // but test completion without panic confirms the function works
         let error = tasker_shared::types::web::ApiError::backpressure("test", 5);
         record_backpressure_rejection("/v1/tasks", &error);
-
-        // If we get here, the function worked
-        assert!(true);
+        // Test passes if we reach here without panicking
     }
 
     #[test]
     fn test_record_circuit_breaker_rejection_runs_without_panic() {
-        // Test that the function runs without panic
+        // Smoke test: verify the function completes without panic
         record_circuit_breaker_rejection("/v1/tasks");
-
-        // If we get here, the function worked
-        assert!(true);
+        // Test passes if we reach here without panicking
     }
 }
