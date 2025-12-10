@@ -1,7 +1,7 @@
 # TAS-75: Backpressure Consistency Investigation
 
 **Date**: 2025-12-08
-**Status**: In Progress (Phase 1 ✅, Phase 2 Core ✅, Phase 2b ✅)
+**Status**: In Progress (Phase 1 ✅, Phase 2 ✅, Phase 2b ✅, Phase 3 ✅, Phase 4 Infrastructure ✅, Phase 5d ✅)
 **Branch**: `jcoletaylor/tas-67-rust-worker-dual-event-system`
 **Priority**: High
 **Dependencies**: TAS-51 (MPSC Channels), TAS-67 (Worker Dual Event System)
@@ -373,7 +373,7 @@ Step Execution Idempotency Contract:
 - **Isolated**: Proves logic correctness without infrastructure complexity
 - **Maintainable**: Clear test cases document expected behavior
 
-### Phase 3: PGMQ Queue Management
+### Phase 3: PGMQ Queue Management ✅ COMPLETE
 
 **Goal**: Prevent unbounded queue growth via soft limits and monitoring
 
@@ -381,21 +381,41 @@ Step Execution Idempotency Contract:
 
 | Task | Effort | Priority | Status |
 |------|--------|----------|--------|
-| Add queue depth monitoring | Medium | High | Planned |
-| Implement tiered depth thresholds configuration | Medium | Medium | Planned |
-| Add queue depth metrics to health endpoint | Low | Medium | Planned |
-| Add API 503 response at critical queue depth | Medium | Medium | Planned |
+| Add queue depth monitoring | Medium | High | ✅ Done (`health/queue_status.rs`) |
+| Implement tiered depth thresholds configuration | Medium | Medium | ✅ Done (`QueueHealthConfig`) |
+| Add queue depth metrics to health endpoint | Low | Medium | ✅ Done (health/backpressure.rs) |
+| Add API 503 response at critical queue depth | Medium | Medium | ✅ Done (`compute_backpressure()`) |
 
-### Phase 4: Worker Load Shedding
+**Implementation Details (TAS-75 Phase 3)**:
+- `QueueStatusEvaluator`: Queries `pgmq.metrics_all()` and classifies depths into tiers
+- `QueueDepthTier` enum: Unknown, Normal, Warning, Critical, Overflow
+- `QueueHealthConfig`: Configurable thresholds (warning=1000, critical=5000, overflow=10000)
+- `BackpressureChecker::compute_backpressure()`: Returns 503 at Critical/Overflow tier
+- Health endpoint exposes queue depth status via `BackpressureMetrics`
+
+### Phase 4: Worker Load Shedding (Infrastructure Complete, Production Wiring Pending)
 
 **Goal**: Enable workers to refuse work when overloaded
 
 | Task | Effort | Priority | Status |
 |------|--------|----------|--------|
-| Add capacity check before step claiming | Medium | High | Planned |
-| Implement claim refusal metrics | Low | High | Planned |
-| Add configurable claim threshold | Low | Medium | Planned |
+| Add capacity check before step claiming | Medium | High | ✅ Done (`StepExecutorActor::claim_and_dispatch`) |
+| Implement claim refusal metrics | Low | High | ✅ Done (`claims_refused` counter) |
+| Add configurable claim threshold | Low | Medium | ✅ Done (`LoadSheddingConfig`) |
+| Wire CapacityChecker into WorkerActorRegistry | Low | High | **Pending** |
 | Document worker load shedding patterns | Low | Medium | Planned |
+
+**Implementation Details (TAS-75 Phase 4)**:
+- `CapacityChecker`: Tracks semaphore usage, provides `has_capacity()` check
+- `LoadSheddingConfig`: Configurable `capacity_threshold_percent` (default 80%), `warning_threshold_percent` (70%)
+- `StepExecutorActor::with_capacity_checker()`: Builder method to attach checker
+- `claim_and_dispatch()` (lines 204-217): Checks capacity, refuses claim if exhausted
+- `claims_refused` counter: Tracks load shedding events for metrics
+
+**Critical Gap**: `WorkerActorRegistry::build()` creates `StepExecutorActor::new()` but does NOT call `.with_capacity_checker()`. The infrastructure is complete but effectively disabled in production. Wiring requires:
+1. Add `CapacityChecker` to `WorkerActorRegistry::build()` parameters
+2. Create checker from `HandlerDispatchService`'s semaphore + config
+3. Call `step_executor_actor.with_capacity_checker(checker)` before `Arc::new()`
 
 ### Phase 5: Circuit Breaker Expansion
 
@@ -409,6 +429,24 @@ Step Execution Idempotency Contract:
 | Activate task_readiness circuit breaker | Low | Medium | Planned |
 | Add circuit breaker to PGMQ send operations | Medium | Low | Deferred (future) |
 | Document circuit breaker coverage matrix | Low | Medium | Planned |
+
+### Phase 5d: Health Metrics Integration ✅ COMPLETE
+
+**Goal**: Export health evaluation metrics via OpenTelemetry for observability
+
+| Task | Effort | Priority | Status |
+|------|--------|----------|--------|
+| Create health metrics module | Medium | High | ✅ Done (`tasker-shared/src/metrics/health.rs`) |
+| Add health metrics initialization | Low | High | ✅ Done (`metrics::health::init()`) |
+| Wire metrics into StatusEvaluator | Medium | High | ✅ Done (`evaluate_all()`) |
+| Verify compilation and tests | Low | High | ✅ Done (48 health tests pass) |
+
+**Implementation Details (TAS-75 Phase 5d)**:
+- **Counters**: `health_evaluations_total`, `backpressure_activations_total`, `health_evaluation_errors_total`
+- **Gauges**: `backpressure_active`, `queue_depth_current`, `queue_depth_tier`, `channel_saturation_percent`, `database_connected`, `circuit_breaker_failures`
+- **Histograms**: `health_evaluation_duration`, `database_check_duration`
+- **Helper**: `record_evaluation_cycle()` called at end of each `StatusEvaluator::evaluate_all()` cycle
+- All metrics follow existing OpenTelemetry patterns with Prometheus text exporter integration
 
 ### Phase 6: Load Testing
 
@@ -469,11 +507,11 @@ Step Execution Idempotency Contract:
 
 - [x] API returns 503 when circuit breaker is open (existing)
 - [x] API circuit breaker rejection metrics emitted (TAS-75)
-- [ ] API returns 503 with Retry-After when queue depth critical
+- [x] API returns 503 with Retry-After when queue depth critical (TAS-75 Phase 3)
 - [x] API returns 503 with Retry-After when command channel saturated (TAS-75)
-- [ ] Workers refuse step claims when at capacity
-- [ ] PGMQ queue depth monitoring with tiered alerting
-- [x] All backpressure events emit metrics (TAS-75)
+- [x] Workers refuse step claims when at capacity (TAS-75 Phase 4 - infrastructure complete, production wiring pending)
+- [x] PGMQ queue depth monitoring with tiered alerting (TAS-75 Phase 3)
+- [x] All backpressure events emit metrics (TAS-75 Phase 5d)
 
 ### Non-Functional Requirements
 

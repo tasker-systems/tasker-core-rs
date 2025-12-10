@@ -12,7 +12,8 @@
 
 use sqlx::PgPool;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tasker_shared::metrics::health as health_metrics;
 use tasker_shared::monitoring::channel_metrics::ChannelMonitor;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -158,6 +159,7 @@ impl StatusEvaluator {
     /// This is the main evaluation logic that checks all health conditions
     /// and updates the caches.
     async fn evaluate_all(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let cycle_start = Instant::now();
         debug!("Starting health evaluation cycle");
 
         // 1. Check database health (if enabled)
@@ -196,10 +198,49 @@ impl StatusEvaluator {
 
         // 5. Update all caches atomically
         self.caches
-            .update_all(db_status, channel_status, queue_status, backpressure)
+            .update_all(
+                db_status.clone(),
+                channel_status.clone(),
+                queue_status.clone(),
+                backpressure.clone(),
+            )
             .await;
 
-        debug!("Health evaluation cycle complete");
+        // 6. TAS-75 Phase 5d: Record metrics
+        let cycle_duration_ms = cycle_start.elapsed().as_secs_f64() * 1000.0;
+        let backpressure_source = backpressure.source.as_ref().map(|s| match s {
+            BackpressureSource::CircuitBreaker => "circuit_breaker",
+            BackpressureSource::ChannelSaturation { .. } => "channel_saturation",
+            BackpressureSource::QueueDepth { .. } => "queue_depth",
+        });
+
+        let queue_depths: Vec<(String, i64)> = queue_status
+            .queue_depths
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+
+        health_metrics::record_evaluation_cycle(
+            cycle_duration_ms,
+            backpressure.active,
+            backpressure_source,
+            db_status.is_connected,
+            if db_status.evaluated {
+                Some(db_status.last_check_duration_ms as f64)
+            } else {
+                None
+            },
+            db_status.circuit_breaker_failures,
+            channel_status.command_saturation_percent,
+            queue_status.tier as u8,
+            &queue_depths,
+        );
+
+        debug!(
+            duration_ms = cycle_duration_ms,
+            backpressure_active = backpressure.active,
+            "Health evaluation cycle complete"
+        );
 
         Ok(())
     }

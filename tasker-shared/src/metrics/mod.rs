@@ -49,6 +49,7 @@ use std::time::Duration;
 
 pub mod channels;
 pub mod database;
+pub mod health;
 pub mod messaging;
 pub mod orchestration;
 pub mod worker;
@@ -183,12 +184,13 @@ pub fn init_metrics() {
 
         // Initialize domain-specific metrics
         channels::init();
+        health::init();
         orchestration::init();
         worker::init();
         // database and messaging metrics are initialized on-demand
 
         tracing::info!(
-            "OpenTelemetry Prometheus text exporter initialized (channels, orchestration, worker)"
+            "OpenTelemetry Prometheus text exporter initialized (channels, health, orchestration, worker)"
         );
     });
 }

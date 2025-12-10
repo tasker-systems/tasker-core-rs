@@ -284,8 +284,6 @@ pub struct HandlerDispatchService<R: StepHandlerRegistry, C: PostHandlerCallback
     service_id: String,
     /// Optional post-handler callback for domain events, metrics, etc.
     post_handler_callback: Option<Arc<C>>,
-    /// TAS-75: Configuration for the service
-    config: HandlerDispatchConfig,
 }
 
 impl<R: StepHandlerRegistry, C: PostHandlerCallback> std::fmt::Debug
@@ -337,10 +335,39 @@ impl<R: StepHandlerRegistry + 'static> HandlerDispatchService<R, NoOpCallback> {
             handler_timeout: config.handler_timeout,
             service_id: config.service_id.clone(),
             post_handler_callback: None,
-            config,
         };
 
         (service, capacity_checker)
+    }
+
+    /// TAS-75: Create a handler dispatch service with an external semaphore (no callback)
+    ///
+    /// Use this constructor when the semaphore is created externally (e.g., by WorkerActorRegistry)
+    /// and shared with both StepExecutorActor (via CapacityChecker) and this service.
+    ///
+    /// # Arguments
+    ///
+    /// * `dispatch_receiver` - Channel to receive dispatch messages
+    /// * `completion_sender` - Channel to send completion results
+    /// * `handler_registry` - Registry for handler lookup
+    /// * `semaphore` - Pre-created semaphore shared with CapacityChecker
+    /// * `config` - Service configuration
+    pub fn with_semaphore(
+        dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
+        completion_sender: mpsc::Sender<StepExecutionResult>,
+        handler_registry: Arc<R>,
+        semaphore: Arc<Semaphore>,
+        config: HandlerDispatchConfig,
+    ) -> Self {
+        Self {
+            dispatch_receiver,
+            completion_sender,
+            handler_registry,
+            concurrency_semaphore: semaphore,
+            handler_timeout: config.handler_timeout,
+            service_id: config.service_id.clone(),
+            post_handler_callback: None,
+        }
     }
 }
 
@@ -383,10 +410,41 @@ impl<R: StepHandlerRegistry + 'static, C: PostHandlerCallback> HandlerDispatchSe
             handler_timeout: config.handler_timeout,
             service_id: config.service_id.clone(),
             post_handler_callback: Some(callback),
-            config,
         };
 
         (service, capacity_checker)
+    }
+
+    /// TAS-75: Create a handler dispatch service with an external semaphore and callback
+    ///
+    /// Use this constructor when the semaphore is created externally (e.g., by WorkerActorRegistry)
+    /// and shared with both StepExecutorActor (via CapacityChecker) and this service.
+    ///
+    /// # Arguments
+    ///
+    /// * `dispatch_receiver` - Channel to receive dispatch messages
+    /// * `completion_sender` - Channel to send completion results
+    /// * `handler_registry` - Registry for handler lookup
+    /// * `semaphore` - Pre-created semaphore shared with CapacityChecker
+    /// * `config` - Service configuration
+    /// * `callback` - Callback invoked after handler completion
+    pub fn with_semaphore_and_callback(
+        dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
+        completion_sender: mpsc::Sender<StepExecutionResult>,
+        handler_registry: Arc<R>,
+        semaphore: Arc<Semaphore>,
+        config: HandlerDispatchConfig,
+        callback: Arc<C>,
+    ) -> Self {
+        Self {
+            dispatch_receiver,
+            completion_sender,
+            handler_registry,
+            concurrency_semaphore: semaphore,
+            handler_timeout: config.handler_timeout,
+            service_id: config.service_id.clone(),
+            post_handler_callback: Some(callback),
+        }
     }
 
     /// Run the dispatch service

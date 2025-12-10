@@ -143,8 +143,6 @@ pub async fn bootstrap() -> Result<RustWorkerBootstrapResult> {
     info!("✅ Step event registry created with dual-path routing support");
 
     // Register custom publishers with EventRouter for stats tracking
-    // TAS-67: Use with_event_router() to enable dual-path routing with stats
-    #[allow(deprecated)]
     step_event_registry.register(PaymentEventPublisher::with_event_router(
         domain_event_publisher.clone(),
         event_router,
