@@ -8,7 +8,6 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 use thiserror::Error;
-use tracing::error;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

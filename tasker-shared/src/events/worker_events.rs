@@ -50,7 +50,7 @@ use crate::types::{StepEventPayload, StepExecutionCompletionEvent, StepExecution
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Specialized event system for TAS-40 worker-FFI communication
