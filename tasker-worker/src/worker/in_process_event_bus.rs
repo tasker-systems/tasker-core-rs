@@ -193,7 +193,7 @@ impl InProcessEventBus {
 
         // Update total events stat
         {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
             stats.total_events_dispatched += 1;
         }
 
@@ -226,7 +226,7 @@ impl InProcessEventBus {
 
         // Update stats
         {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
             stats.rust_handler_dispatches += 1;
             stats.rust_handler_errors += errors.len() as u64;
         }
@@ -264,7 +264,7 @@ impl InProcessEventBus {
             );
 
             // Update stats
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
             stats.ffi_channel_drops += 1;
             return;
         }
@@ -284,7 +284,7 @@ impl InProcessEventBus {
                 );
 
                 // Update stats
-                let mut stats = self.stats.lock().unwrap();
+                let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
                 stats.ffi_channel_dispatches += 1;
 
                 // TAS-51: Record send for channel monitoring
@@ -302,7 +302,7 @@ impl InProcessEventBus {
                     "FFI broadcast failed - all subscribers dropped"
                 );
 
-                let mut stats = self.stats.lock().unwrap();
+                let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
                 stats.ffi_channel_drops += 1;
             }
         }
@@ -310,7 +310,7 @@ impl InProcessEventBus {
 
     /// Get bus statistics for monitoring
     pub fn get_statistics(&self) -> InProcessEventBusStats {
-        let mut stats = self.stats.lock().unwrap().clone();
+        let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner()).clone();
 
         // Add current counts
         stats.rust_subscriber_patterns = self.registry.pattern_count();

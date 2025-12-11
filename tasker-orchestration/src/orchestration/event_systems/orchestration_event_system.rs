@@ -102,9 +102,17 @@ impl Clone for OrchestrationStatistics {
             operations_coordinated: AtomicU64::new(
                 self.operations_coordinated.load(Ordering::Relaxed),
             ),
-            last_processing_time: std::sync::Mutex::new(*self.last_processing_time.lock().unwrap()),
+            last_processing_time: std::sync::Mutex::new(
+                *self
+                    .last_processing_time
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()),
+            ),
             processing_latencies: std::sync::Mutex::new(
-                self.processing_latencies.lock().unwrap().clone(),
+                self.processing_latencies
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clone(),
             ),
         }
     }
@@ -120,7 +128,10 @@ impl EventSystemStatistics for OrchestrationStatistics {
     }
 
     fn processing_rate(&self) -> f64 {
-        let latencies = self.processing_latencies.lock().unwrap();
+        let latencies = self
+            .processing_latencies
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         if latencies.is_empty() {
             return 0.0;
         }
@@ -140,7 +151,10 @@ impl EventSystemStatistics for OrchestrationStatistics {
     }
 
     fn average_latency_ms(&self) -> f64 {
-        let latencies = self.processing_latencies.lock().unwrap();
+        let latencies = self
+            .processing_latencies
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         if latencies.is_empty() {
             return 0.0;
         }
@@ -293,7 +307,11 @@ impl OrchestrationEventSystem {
 
     /// Record event processing latency
     fn record_latency(&self, latency: Duration) {
-        let mut latencies = self.statistics.processing_latencies.lock().unwrap();
+        let mut latencies = self
+            .statistics
+            .processing_latencies
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         latencies.push(latency);
 
         // Keep only recent latencies (last 1000)
@@ -1229,6 +1247,9 @@ impl OrchestrationEventSystem {
         }
 
         // Update processing timestamp
-        *statistics.last_processing_time.lock().unwrap() = Some(Instant::now());
+        *statistics
+            .last_processing_time
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
     }
 }

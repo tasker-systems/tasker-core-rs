@@ -233,7 +233,7 @@ impl EventRouter {
 
         // Update total routed stat
         {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
             stats.total_routed += 1;
         }
 
@@ -276,7 +276,7 @@ impl EventRouter {
 
                 // Update stats
                 {
-                    let mut stats = self.stats.lock().unwrap();
+                    let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
                     stats.durable_routed += 1;
                 }
 
@@ -294,7 +294,7 @@ impl EventRouter {
 
                 // Update stats
                 {
-                    let mut stats = self.stats.lock().unwrap();
+                    let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
                     stats.routing_errors += 1;
                 }
 
@@ -344,7 +344,7 @@ impl EventRouter {
 
         // Update stats
         {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
             stats.fast_routed += 1;
         }
 
@@ -410,7 +410,7 @@ impl EventRouter {
 
                 // Update stats
                 {
-                    let mut stats = self.stats.lock().unwrap();
+                    let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
                     stats.broadcast_routed += 1;
                     if fast_error.is_some() {
                         stats.fast_delivery_errors += 1;
@@ -434,7 +434,7 @@ impl EventRouter {
 
                 // Update stats
                 {
-                    let mut stats = self.stats.lock().unwrap();
+                    let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
                     stats.routing_errors += 1;
                     if fast_error.is_some() {
                         stats.fast_delivery_errors += 1;
@@ -452,7 +452,7 @@ impl EventRouter {
 
     /// Get router statistics
     pub fn get_statistics(&self) -> EventRouterStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     /// Get reference to the domain publisher

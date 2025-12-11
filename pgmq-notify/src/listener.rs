@@ -118,7 +118,7 @@ impl PgmqNotifyListener {
     /// Get listener statistics
     #[must_use]
     pub fn stats(&self) -> ListenerStats {
-        self.stats.read().unwrap().clone()
+        self.stats.read().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     /// Connect to the database for listening
@@ -136,7 +136,7 @@ impl PgmqNotifyListener {
 
         // Update stats
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|p| p.into_inner());
             stats.connected = true;
         };
 
@@ -155,13 +155,16 @@ impl PgmqNotifyListener {
 
         // Clear listening channels
         {
-            let mut channels = self.listening_channels.write().unwrap();
+            let mut channels = self
+                .listening_channels
+                .write()
+                .unwrap_or_else(|p| p.into_inner());
             channels.clear();
         };
 
         // Update stats
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|p| p.into_inner());
             stats.connected = false;
             stats.channels_listening = 0;
         };
@@ -179,7 +182,10 @@ impl PgmqNotifyListener {
 
         // Check if already listening
         {
-            let channels = self.listening_channels.read().unwrap();
+            let channels = self
+                .listening_channels
+                .read()
+                .unwrap_or_else(|p| p.into_inner());
             if channels.contains(channel) {
                 warn!("Already listening on channel {channel}");
                 return Ok(());
@@ -194,14 +200,21 @@ impl PgmqNotifyListener {
 
         // Add to listening channels
         {
-            let mut channels = self.listening_channels.write().unwrap();
+            let mut channels = self
+                .listening_channels
+                .write()
+                .unwrap_or_else(|p| p.into_inner());
             channels.insert(channel.to_string())
         };
 
         // Update stats
         {
-            let mut stats = self.stats.write().unwrap();
-            stats.channels_listening = self.listening_channels.read().unwrap().len();
+            let mut stats = self.stats.write().unwrap_or_else(|p| p.into_inner());
+            stats.channels_listening = self
+                .listening_channels
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .len();
         };
 
         info!("Now listening to channel: {}", channel);
@@ -223,14 +236,21 @@ impl PgmqNotifyListener {
 
         // Remove from listening channels
         {
-            let mut channels = self.listening_channels.write().unwrap();
+            let mut channels = self
+                .listening_channels
+                .write()
+                .unwrap_or_else(|p| p.into_inner());
             channels.remove(channel)
         };
 
         // Update stats
         {
-            let mut stats = self.stats.write().unwrap();
-            stats.channels_listening = self.listening_channels.read().unwrap().len();
+            let mut stats = self.stats.write().unwrap_or_else(|p| p.into_inner());
+            stats.channels_listening = self
+                .listening_channels
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .len();
         };
 
         info!("Stopped listening to channel: {}", channel);
@@ -312,7 +332,7 @@ impl PgmqNotifyListener {
 
                         // Update stats
                         {
-                            let mut stats = stats.write().unwrap();
+                            let mut stats = stats.write().unwrap_or_else(|p| p.into_inner());
                             stats.events_received += 1;
                             stats.last_event_at = Some(SystemTime::now());
                         };
@@ -329,7 +349,8 @@ impl PgmqNotifyListener {
 
                                 // Update stats
                                 {
-                                    let mut stats = stats.write().unwrap();
+                                    let mut stats =
+                                        stats.write().unwrap_or_else(|p| p.into_inner());
                                     stats.parse_errors += 1;
                                     stats.last_error_at = Some(SystemTime::now());
                                 };
@@ -349,7 +370,7 @@ impl PgmqNotifyListener {
 
                         // Update stats
                         {
-                            let mut stats = stats.write().unwrap();
+                            let mut stats = stats.write().unwrap_or_else(|p| p.into_inner());
                             stats.connection_errors += 1;
                             stats.last_error_at = Some(SystemTime::now());
                             stats.connected = false;
@@ -409,7 +430,7 @@ impl PgmqNotifyListener {
 
                             // Update stats
                             {
-                                let mut stats = stats.write().unwrap();
+                                let mut stats = stats.write().unwrap_or_else(|p| p.into_inner());
                                 stats.events_received += 1;
                                 stats.last_event_at = Some(SystemTime::now());
                             };
@@ -426,7 +447,8 @@ impl PgmqNotifyListener {
 
                                     // Update stats
                                     {
-                                        let mut stats = stats.write().unwrap();
+                                        let mut stats =
+                                            stats.write().unwrap_or_else(|p| p.into_inner());
                                         stats.parse_errors += 1;
                                         stats.last_error_at = Some(SystemTime::now());
                                     };
@@ -446,7 +468,7 @@ impl PgmqNotifyListener {
 
                             // Update stats
                             {
-                                let mut stats = stats.write().unwrap();
+                                let mut stats = stats.write().unwrap_or_else(|p| p.into_inner());
                                 stats.connection_errors += 1;
                                 stats.last_error_at = Some(SystemTime::now());
                                 stats.connected = false;
@@ -502,7 +524,7 @@ impl PgmqNotifyListener {
 
                             // Update stats
                             {
-                                let mut stats = stats.write().unwrap();
+                                let mut stats = stats.write().unwrap_or_else(|p| p.into_inner());
                                 stats.events_received += 1;
                                 stats.last_event_at = Some(SystemTime::now());
                             };
@@ -524,7 +546,8 @@ impl PgmqNotifyListener {
                                 Err(e) => {
                                     // Update stats
                                     {
-                                        let mut stats = stats.write().unwrap();
+                                        let mut stats =
+                                            stats.write().unwrap_or_else(|p| p.into_inner());
                                         stats.parse_errors += 1;
                                         stats.last_error_at = Some(SystemTime::now());
                                     };
@@ -541,7 +564,7 @@ impl PgmqNotifyListener {
                         Err(e) => {
                             // Update stats
                             {
-                                let mut stats = stats.write().unwrap();
+                                let mut stats = stats.write().unwrap_or_else(|p| p.into_inner());
                                 stats.connection_errors += 1;
                                 stats.last_error_at = Some(SystemTime::now());
                                 stats.connected = false;
@@ -562,7 +585,7 @@ impl PgmqNotifyListener {
 
     /// Check if the listener is healthy
     pub async fn is_healthy(&self) -> bool {
-        let stats = self.stats.read().unwrap();
+        let stats = self.stats.read().unwrap_or_else(|p| p.into_inner());
         stats.connected
     }
 
@@ -571,7 +594,7 @@ impl PgmqNotifyListener {
     pub fn listening_channels(&self) -> Vec<String> {
         self.listening_channels
             .read()
-            .unwrap()
+            .unwrap_or_else(|p| p.into_inner())
             .iter()
             .cloned()
             .collect()

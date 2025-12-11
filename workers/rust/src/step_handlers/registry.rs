@@ -694,12 +694,15 @@ impl RustStepHandlerRegistryAdapter {
 
     /// Get handler count for debugging
     fn handler_count(&self) -> usize {
-        self.inner.read().unwrap().handler_count()
+        self.inner
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .handler_count()
     }
 
     /// TAS-65: Inject domain event publisher into all handlers
     pub fn set_event_publisher(&self, publisher: Arc<DomainEventPublisher>) {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write().unwrap_or_else(|p| p.into_inner());
         inner.set_event_publisher(publisher);
     }
 }
@@ -710,7 +713,7 @@ impl StepHandlerRegistry for RustStepHandlerRegistryAdapter {
         // Use template_step_name for handler lookup (matches existing RustEventHandler logic)
         let handler_name = &step.workflow_step.template_step_name;
 
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read().unwrap_or_else(|p| p.into_inner());
         inner.get_handler(handler_name).ok().map(|handler| {
             let adapter: Arc<dyn StepHandler> = Arc::new(RustStepHandlerAdapter::new(handler));
             adapter
@@ -727,12 +730,12 @@ impl StepHandlerRegistry for RustStepHandlerRegistryAdapter {
     }
 
     fn handler_available(&self, name: &str) -> bool {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read().unwrap_or_else(|p| p.into_inner());
         inner.has_handler(name)
     }
 
     fn registered_handlers(&self) -> Vec<String> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read().unwrap_or_else(|p| p.into_inner());
         inner.get_all_handler_names()
     }
 }

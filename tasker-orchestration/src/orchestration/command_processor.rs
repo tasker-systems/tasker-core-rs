@@ -384,27 +384,45 @@ impl OrchestrationProcessorCommandHandler {
             OrchestrationCommand::InitializeTask { request, resp } => {
                 let result = self.handle_initialize_task(request).await;
                 if result.is_ok() {
-                    self.stats.write().unwrap().task_requests_processed += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .task_requests_processed += 1;
                 } else {
-                    self.stats.write().unwrap().processing_errors += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
             OrchestrationCommand::ProcessStepResult { result, resp } => {
                 let process_result = self.handle_process_step_result(result).await;
                 if process_result.is_ok() {
-                    self.stats.write().unwrap().step_results_processed += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .step_results_processed += 1;
                 } else {
-                    self.stats.write().unwrap().processing_errors += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .processing_errors += 1;
                 }
                 let _ = resp.send(process_result);
             }
             OrchestrationCommand::FinalizeTask { task_uuid, resp } => {
                 let result = self.handle_finalize_task(task_uuid).await;
                 if result.is_ok() {
-                    self.stats.write().unwrap().tasks_finalized += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .tasks_finalized += 1;
                 } else {
-                    self.stats.write().unwrap().processing_errors += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
@@ -416,9 +434,15 @@ impl OrchestrationProcessorCommandHandler {
                     .handle_step_result_from_message_event(message_event)
                     .await;
                 if result.is_ok() {
-                    self.stats.write().unwrap().step_results_processed += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .step_results_processed += 1;
                 } else {
-                    self.stats.write().unwrap().processing_errors += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
@@ -430,9 +454,15 @@ impl OrchestrationProcessorCommandHandler {
                     .handle_task_initialize_from_message_event(message_event)
                     .await;
                 if result.is_ok() {
-                    self.stats.write().unwrap().task_requests_processed += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .task_requests_processed += 1;
                 } else {
-                    self.stats.write().unwrap().processing_errors += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
@@ -444,9 +474,15 @@ impl OrchestrationProcessorCommandHandler {
                     .handle_task_finalize_from_message_event(message_event)
                     .await;
                 if result.is_ok() {
-                    self.stats.write().unwrap().tasks_finalized += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .tasks_finalized += 1;
                 } else {
-                    self.stats.write().unwrap().processing_errors += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
@@ -473,7 +509,10 @@ impl OrchestrationProcessorCommandHandler {
                             result = ?step_result,
                             "ProcessStepResultFromMessage succeeded"
                         );
-                        self.stats.write().unwrap().step_results_processed += 1;
+                        self.stats
+                            .write()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .step_results_processed += 1;
                     }
                     Err(error) => {
                         error!(
@@ -482,7 +521,10 @@ impl OrchestrationProcessorCommandHandler {
                             error = %error,
                             "ProcessStepResultFromMessage failed"
                         );
-                        self.stats.write().unwrap().processing_errors += 1;
+                        self.stats
+                            .write()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .processing_errors += 1;
                     }
                 }
                 let _ = resp.send(result);
@@ -496,9 +538,15 @@ impl OrchestrationProcessorCommandHandler {
                     .handle_task_initialize_from_message(&queue_name, message)
                     .await;
                 if result.is_ok() {
-                    self.stats.write().unwrap().task_requests_processed += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .task_requests_processed += 1;
                 } else {
-                    self.stats.write().unwrap().processing_errors += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
@@ -511,9 +559,15 @@ impl OrchestrationProcessorCommandHandler {
                     .handle_task_finalize_from_message(&queue_name, message)
                     .await;
                 if result.is_ok() {
-                    self.stats.write().unwrap().tasks_finalized += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .tasks_finalized += 1;
                 } else {
-                    self.stats.write().unwrap().processing_errors += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
@@ -549,14 +603,20 @@ impl OrchestrationProcessorCommandHandler {
                     )
                     .await;
                 if result.is_ok() {
-                    self.stats.write().unwrap().tasks_ready_processed += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .tasks_ready_processed += 1;
                 } else {
-                    self.stats.write().unwrap().processing_errors += 1;
+                    self.stats
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
             OrchestrationCommand::GetProcessingStats { resp } => {
-                let stats_copy = self.stats.read().unwrap().clone();
+                let stats_copy = self.stats.read().unwrap_or_else(|p| p.into_inner()).clone();
                 let _ = resp.send(Ok(stats_copy));
             }
             OrchestrationCommand::HealthCheck { resp } => {
