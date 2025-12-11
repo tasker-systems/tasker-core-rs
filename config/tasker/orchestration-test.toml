@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2025-11-28T12:47:48.448844+00:00
+# Generated: 2025-12-11T11:48:13.513365+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -115,6 +115,11 @@ task_requests = "orchestration_task_requests"
 max_retries = 1
 poll_interval_ms = 250
 shutdown_timeout_seconds = 5
+
+[common.queues.pgmq.queue_depth_thresholds]
+critical_threshold = 500
+overflow_threshold = 1000
+warning_threshold = 100
 
 [common.queues.rabbitmq]
 connection_timeout_seconds = 30

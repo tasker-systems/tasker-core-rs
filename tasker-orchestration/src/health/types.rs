@@ -260,7 +260,7 @@ impl Default for BackpressureMetrics {
 
 /// Health status evaluation configuration
 ///
-/// Loaded from `orchestration.toml` [health] section.
+/// Loaded from `orchestration.toml` \[health\] section.
 #[derive(Debug, Clone)]
 pub struct HealthConfig {
     /// Background evaluation interval (milliseconds)

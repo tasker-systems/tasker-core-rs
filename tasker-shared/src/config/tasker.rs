@@ -2068,6 +2068,11 @@ pub struct WorkerMpscChannelsConfig {
     #[validate(nested)]
     #[builder(default)]
     pub domain_events: WorkerDomainEventChannels,
+
+    /// TAS-67/TAS-75: Handler dispatch channels
+    #[validate(nested)]
+    #[builder(default)]
+    pub handler_dispatch: HandlerDispatchChannelsConfig,
 }
 
 impl_builder_default!(WorkerMpscChannelsConfig);
@@ -2176,6 +2181,67 @@ pub struct WorkerDomainEventChannels {
 }
 
 impl_builder_default!(WorkerDomainEventChannels);
+
+/// TAS-67/TAS-75: Handler dispatch channels configuration
+///
+/// Configuration for the dual-channel dispatch system used for non-blocking handler
+/// invocation. The dispatch channel sends steps to the HandlerDispatchService,
+/// and the completion channel returns results to the CompletionProcessor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct HandlerDispatchChannelsConfig {
+    /// Buffer size for dispatch channel (from StepExecutorActor to HandlerDispatchService)
+    #[validate(range(min = 10, max = 1000000))]
+    #[builder(default = 1000)]
+    pub dispatch_buffer_size: u32,
+
+    /// Buffer size for completion channel (from HandlerDispatchService to CompletionProcessor)
+    #[validate(range(min = 10, max = 1000000))]
+    #[builder(default = 1000)]
+    pub completion_buffer_size: u32,
+
+    /// Maximum concurrent handler executions (semaphore permits)
+    #[validate(range(min = 1, max = 10000))]
+    #[builder(default = 10)]
+    pub max_concurrent_handlers: u32,
+
+    /// Handler timeout in milliseconds
+    #[validate(range(min = 1000, max = 3600000))]
+    #[builder(default = 30000)]
+    pub handler_timeout_ms: u32,
+
+    /// TAS-75: Load shedding configuration
+    #[validate(nested)]
+    #[builder(default)]
+    pub load_shedding: LoadSheddingChannelsConfig,
+}
+
+impl_builder_default!(HandlerDispatchChannelsConfig);
+
+/// TAS-75: Load shedding configuration for handler dispatch
+///
+/// Controls capacity-based claim refusal to prevent worker overload.
+/// When handler capacity exceeds the threshold, new step claims are refused
+/// and returned to the queue for other workers to process.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct LoadSheddingChannelsConfig {
+    /// Enable load shedding (refuse claims when at capacity)
+    #[builder(default = true)]
+    pub enabled: bool,
+
+    /// Capacity threshold percentage (0-100) - refuse claims above this
+    #[validate(range(min = 0.0, max = 100.0))]
+    #[builder(default = 80.0)]
+    pub capacity_threshold_percent: f64,
+
+    /// Warning threshold percentage (0-100) - log warnings above this
+    #[validate(range(min = 0.0, max = 100.0))]
+    #[builder(default = 70.0)]
+    pub warning_threshold_percent: f64,
+}
+
+impl_builder_default!(LoadSheddingChannelsConfig);
 
 /// Worker web API configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -2620,6 +2686,7 @@ mod tests {
                     shutdown_drain_timeout_ms: 5000,
                     log_dropped_events: true,
                 },
+                handler_dispatch: HandlerDispatchChannelsConfig::default(),
             },
             circuit_breakers: WorkerCircuitBreakersConfig::default(),
             web: None,

@@ -85,7 +85,7 @@ fn classify_queue_depth(depth: i64, config: &QueueHealthConfig) -> QueueDepthTie
 
 /// Queue metrics row from pgmq.metrics_all()
 ///
-/// Note: queue_name is Option<String> because pgmq.metrics_all() returns it as nullable.
+/// Note: queue_name is `Option<String>` because pgmq.metrics_all() returns it as nullable.
 /// We filter out None values when processing.
 #[derive(Debug)]
 struct QueueMetricsRow {

@@ -1,6 +1,6 @@
 # Tasker Configuration - complete Context
 # Environment: production
-# Generated: 2025-11-09T18:35:16.291538+00:00
+# Generated: 2025-12-11T11:48:21.080616+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -15,11 +15,11 @@
 [common.backoff]
 backoff_multiplier = 2.0
 default_backoff_seconds = [
-  1,
-  5,
-  15,
-  30,
-  60,
+    1,
+    5,
+    15,
+    30,
+    60,
 ]
 jitter_enabled = true
 jitter_max_percentage = 0.15
@@ -118,6 +118,11 @@ max_retries = 3
 poll_interval_ms = 500
 shutdown_timeout_seconds = 10
 
+[common.queues.pgmq.queue_depth_thresholds]
+critical_threshold = 5000
+overflow_threshold = 10000
+warning_threshold = 1000
+
 [common.queues.rabbitmq]
 connection_timeout_seconds = 30
 
@@ -137,6 +142,13 @@ service_name = "tasker-core"
 [orchestration]
 enable_performance_logging = true
 mode = "standalone"
+
+[orchestration.batch_processing]
+checkpoint_interval_default = 200
+checkpoint_stall_minutes = 30
+default_batch_size = 2000
+enabled = true
+max_parallel_batches = 100
 
 [orchestration.decision_points]
 enable_detailed_logging = false
@@ -244,7 +256,7 @@ pgmq_event_buffer_size = 100000
 event_channel_buffer_size = 20000
 
 [orchestration.web]
-bind_address = "0.0.0.0:8080"
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
 enabled = true
 request_timeout_ms = 30000
 
@@ -288,20 +300,6 @@ method = "GET"
 path = "/v1/analytics/bottlenecks"
 required = false
 
-[orchestration.web.cors]
-allowed_headers = ["*"]
-allowed_methods = [
-  "GET",
-  "POST",
-  "PUT",
-  "DELETE",
-  "PATCH",
-  "OPTIONS",
-]
-allowed_origins = ["*"]
-enabled = true
-max_age_seconds = 86400
-
 [orchestration.web.database_pools]
 max_total_connections_hint = 50
 web_api_connection_timeout_seconds = 30
@@ -309,27 +307,18 @@ web_api_idle_timeout_seconds = 600
 web_api_max_connections = 30
 web_api_pool_size = 20
 
-[orchestration.web.rate_limiting]
-burst_size = 100
-enabled = false
-per_client_limit = true
-requests_per_minute = 1000
-
 [orchestration.web.resilience]
 circuit_breaker_enabled = true
-max_concurrent_requests = 200
-request_timeout_seconds = 30
 
 [worker]
 worker_id = "prod-worker-001"
 worker_type = "general"
 
-# TAS-75: Worker circuit breakers configuration
 [worker.circuit_breakers.ffi_completion_send]
 failure_threshold = 5
 recovery_timeout_seconds = 5
-success_threshold = 2
 slow_send_threshold_ms = 100
+success_threshold = 2
 
 [worker.event_systems.worker]
 deployment_mode = "Hybrid"
@@ -408,8 +397,28 @@ result_buffer_size = 1000
 [worker.mpsc_channels.event_systems]
 event_channel_buffer_size = 5000
 
+[worker.mpsc_channels.ffi_dispatch]
+callback_timeout_ms = 10000
+completion_send_timeout_ms = 10000
+completion_timeout_ms = 60000
+dispatch_buffer_size = 5000
+starvation_warning_threshold_ms = 10000
+
+[worker.mpsc_channels.handler_dispatch]
+completion_buffer_size = 5000
+dispatch_buffer_size = 5000
+handler_timeout_ms = 60000
+max_concurrent_handlers = 50
+
+[worker.mpsc_channels.handler_dispatch.load_shedding]
+capacity_threshold_percent = 80.0
+enabled = true
+warning_threshold_percent = 70.0
+
 [worker.mpsc_channels.in_process_events]
 broadcast_buffer_size = 5000
+dispatch_timeout_ms = 10000
+log_subscriber_errors = false
 
 [worker.orchestration_client]
 base_url = "http://orchestration:8080"
@@ -422,7 +431,7 @@ max_concurrent_steps = 100
 max_retries = 3
 
 [worker.web]
-bind_address = "0.0.0.0:8081"
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
 enabled = true
 request_timeout_ms = 30000
 
@@ -466,18 +475,6 @@ method = "POST"
 path = "/templates/{namespace}/{name}/{version}/refresh"
 required = true
 
-[worker.web.cors]
-allowed_headers = ["*"]
-allowed_methods = [
-  "GET",
-  "POST",
-  "DELETE",
-  "OPTIONS",
-]
-allowed_origins = ["*"]
-enabled = true
-max_age_seconds = 86400
-
 [worker.web.database_pools]
 max_total_connections_hint = 25
 web_api_connection_timeout_seconds = 30
@@ -485,13 +482,5 @@ web_api_idle_timeout_seconds = 600
 web_api_max_connections = 15
 web_api_pool_size = 10
 
-[worker.web.rate_limiting]
-burst_size = 50
-enabled = false
-per_client_limit = true
-requests_per_minute = 500
-
 [worker.web.resilience]
 circuit_breaker_enabled = true
-max_concurrent_requests = 100
-request_timeout_seconds = 30
