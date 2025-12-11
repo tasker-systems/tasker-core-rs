@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT queue_name, COALESCE(queue_length, 0) as \"queue_length!\" FROM pgmq.metrics_all()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "queue_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "queue_length!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "de56f5c0d5458121b49d186c4d2359b592f6c82dd961d4a6ca99bd80acc68ab6"
+}

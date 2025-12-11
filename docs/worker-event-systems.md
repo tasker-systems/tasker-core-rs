@@ -444,6 +444,146 @@ async fn health_check(&self) -> Result<DeploymentModeHealthStatus, DeploymentMod
 }
 ```
 
+## Backpressure Handling
+
+The worker event system implements multiple backpressure mechanisms to ensure graceful degradation under load while preserving step idempotency.
+
+### Backpressure Points
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      WORKER BACKPRESSURE FLOW                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[1] Step Claiming
+    │
+    ├── Planned: Capacity check before claiming
+    │   └── If at capacity: Leave message in queue (visibility timeout)
+    │
+    ▼
+[2] Handler Dispatch Channel (Bounded)
+    │
+    ├── dispatch_buffer_size = 1000
+    │   └── If full: Sender blocks until space available
+    │
+    ▼
+[3] Semaphore-Bounded Execution
+    │
+    ├── max_concurrent_handlers = 10
+    │   └── If permits exhausted: Task waits for permit
+    │
+    ├── CRITICAL: Permit released BEFORE sending to completion channel
+    │   └── Prevents backpressure cascade
+    │
+    ▼
+[4] Completion Channel (Bounded)
+    │
+    ├── completion_buffer_size = 1000
+    │   └── If full: Handler task blocks until space available
+    │
+    ▼
+[5] Domain Events (Fire-and-Forget)
+    │
+    └── try_send() semantics
+        └── If channel full: Events DROPPED (step execution unaffected)
+```
+
+### Handler Dispatch Backpressure
+
+The `HandlerDispatchService` uses semaphore-bounded parallelism:
+
+```rust
+// Permit acquisition blocks if all permits in use
+let permit = semaphore.acquire().await?;
+
+let result = execute_with_timeout(&registry, &msg, timeout).await;
+
+// CRITICAL: Release permit BEFORE sending to completion channel
+// This prevents backpressure cascade where full completion channel
+// holds permits, starving new handler execution
+drop(permit);
+
+// Now send to completion channel (may block if full)
+sender.send(result).await?;
+```
+
+**Why permit release before send matters**:
+- If completion channel is full, handler task blocks on send
+- If permit is held during block, no new handlers can start
+- By releasing permit first, new handlers can start even if completions are backing up
+
+### FFI Dispatch Backpressure
+
+The `FfiDispatchChannel` handles backpressure for Ruby/Python workers:
+
+| Scenario | Behavior |
+|----------|----------|
+| Dispatch channel full | Sender blocks |
+| FFI polling too slow | Starvation warning logged |
+| Completion timeout | Failure result generated |
+| Callback timeout | Callback fire-and-forget, logged |
+
+**Starvation Detection**:
+```toml
+[worker.mpsc_channels.ffi_dispatch]
+starvation_warning_threshold_ms = 10000  # Warn if event waits > 10s
+```
+
+### Domain Event Drop Semantics
+
+Domain events use `try_send()` and are explicitly designed to be droppable:
+
+```rust
+// Domain events fire AFTER result is committed
+// They are non-critical and use fire-and-forget semantics
+match event_sender.try_send(event) {
+    Ok(()) => { /* Event dispatched */ }
+    Err(TrySendError::Full(_)) => {
+        // Event dropped - step execution NOT affected
+        warn!("Domain event dropped: channel full");
+        metrics.increment("domain_events_dropped");
+    }
+}
+```
+
+**Why this is safe**: Domain events are informational. Dropping them does not affect step execution correctness. The step result is already committed to the completion channel before domain events fire.
+
+### Step Claiming Backpressure (Planned)
+
+Future enhancement: Workers will check capacity before claiming steps:
+
+```rust
+// Planned implementation
+fn should_claim_step(&self) -> bool {
+    let available = self.semaphore.available_permits();
+    let threshold = self.config.claim_capacity_threshold;  // e.g., 0.8
+    let max = self.config.max_concurrent_handlers;
+
+    available as f64 / max as f64 > (1.0 - threshold)
+}
+```
+
+If at capacity:
+- Worker does NOT acknowledge the PGMQ message
+- Message returns to queue after visibility timeout
+- Another worker (or same worker later) claims it
+
+### Idempotency Under Backpressure
+
+All backpressure mechanisms preserve step idempotency:
+
+| Backpressure Point | Idempotency Guarantee |
+|--------------------|----------------------|
+| Claim refusal | Message stays in queue, visibility timeout protects |
+| Dispatch channel full | Step claimed but queued for execution |
+| Semaphore wait | Step claimed, waiting for permit |
+| Completion channel full | Handler completed, result buffered |
+| Domain event drop | Non-critical, step result already persisted |
+
+**Critical Rule**: A claimed step MUST produce a result (success or failure). Backpressure may delay but never drop step execution.
+
+For comprehensive backpressure strategy, see [Backpressure Architecture](backpressure-architecture.md).
+
 ## Best Practices
 
 ### 1. Choose Deployment Mode
@@ -486,12 +626,14 @@ end
 
 ## Related Documentation
 
+- [Backpressure Architecture](backpressure-architecture.md) - Unified backpressure strategy
 - [Worker Actor-Based Architecture](worker-actors.md) - Actor pattern implementation
 - [Events and Commands](events-and-commands.md) - Command pattern details
 - [TAS-67 Summary](ticket-specs/TAS-67/summary.md) - Implementation summary
 - [TAS-67 Edge Cases](ticket-specs/TAS-67/04-edge-cases-and-risks.md) - Risk analysis
 - [FFI Callback Safety](development/ffi-callback-safety.md) - FFI guidelines
 - [RCA: Parallel Execution Timing Bugs](architecture-decisions/rca-parallel-execution-timing-bugs.md) - Lessons learned
+- [Backpressure Monitoring Runbook](operations/backpressure-monitoring.md) - Metrics and alerting
 
 ---
 

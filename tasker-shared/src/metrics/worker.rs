@@ -471,6 +471,97 @@ pub struct InProcessEventBusStats {
     pub ffi_subscriber_count: usize,
 }
 
+// ============================================================================
+// TAS-75: FFI Completion Circuit Breaker Metrics
+// ============================================================================
+
+/// FFI completion channel send duration in milliseconds
+///
+/// Tracks the latency of sending completion results to the completion channel.
+/// Healthy sends complete in single-digit milliseconds; slow sends indicate backpressure.
+///
+/// Labels:
+/// - namespace: Worker namespace
+/// - result: success, error
+/// - is_slow: true, false (exceeded slow threshold)
+pub fn ffi_completion_send_duration() -> Histogram<f64> {
+    meter()
+        .f64_histogram("tasker.ffi.completion.send.duration")
+        .with_description("FFI completion channel send duration in milliseconds")
+        .with_unit("ms")
+        .build()
+}
+
+/// Total number of FFI completion sends
+///
+/// Labels:
+/// - namespace: Worker namespace
+/// - result: success, error
+pub fn ffi_completion_sends_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.ffi.completion.sends.total")
+        .with_description("Total number of FFI completion sends")
+        .build()
+}
+
+/// Total number of slow FFI completion sends
+///
+/// Sends that exceeded the slow_send_threshold_ms are counted here.
+/// These count as failures for circuit breaker purposes.
+///
+/// Labels:
+/// - namespace: Worker namespace
+pub fn ffi_completion_slow_sends_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.ffi.completion.slow_sends.total")
+        .with_description("Total number of FFI completion sends exceeding slow threshold")
+        .build()
+}
+
+/// Total number of FFI completion sends rejected by circuit breaker
+///
+/// When the circuit breaker is open, completion sends are rejected immediately.
+/// The step returns to the PGMQ queue via visibility timeout for retry.
+///
+/// Labels:
+/// - namespace: Worker namespace
+pub fn ffi_completion_circuit_rejections_total() -> Counter<u64> {
+    meter()
+        .u64_counter("tasker.ffi.completion.circuit_rejections.total")
+        .with_description("Total FFI completion sends rejected by open circuit breaker")
+        .build()
+}
+
+/// Current FFI completion circuit breaker state
+///
+/// Values: 0 = Closed (healthy), 1 = Open (failing fast), 2 = HalfOpen (testing)
+///
+/// Labels:
+/// - namespace: Worker namespace
+pub fn ffi_completion_circuit_state() -> Gauge<u64> {
+    meter()
+        .u64_gauge("tasker.ffi.completion.circuit_state")
+        .with_description("FFI completion circuit breaker state (0=closed, 1=open, 2=half-open)")
+        .build()
+}
+
+// TAS-75: FFI completion circuit breaker metrics statics
+
+/// Static histogram: ffi_completion_send_duration
+pub static FFI_COMPLETION_SEND_DURATION: OnceLock<Histogram<f64>> = OnceLock::new();
+
+/// Static counter: ffi_completion_sends_total
+pub static FFI_COMPLETION_SENDS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: ffi_completion_slow_sends_total
+pub static FFI_COMPLETION_SLOW_SENDS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static counter: ffi_completion_circuit_rejections_total
+pub static FFI_COMPLETION_CIRCUIT_REJECTIONS_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+/// Static gauge: ffi_completion_circuit_state
+pub static FFI_COMPLETION_CIRCUIT_STATE: OnceLock<Gauge<u64>> = OnceLock::new();
+
 /// Initialize all worker metrics
 ///
 /// This should be called during application startup after init_metrics().
@@ -497,4 +588,11 @@ pub fn init() {
     DOMAIN_EVENTS_DROPPED_TOTAL.get_or_init(domain_events_dropped_total);
     DOMAIN_EVENT_PUBLISH_DURATION.get_or_init(domain_event_publish_duration);
     DOMAIN_EVENT_CHANNEL_DEPTH.get_or_init(domain_event_channel_depth);
+
+    // TAS-75: FFI completion circuit breaker metrics
+    FFI_COMPLETION_SEND_DURATION.get_or_init(ffi_completion_send_duration);
+    FFI_COMPLETION_SENDS_TOTAL.get_or_init(ffi_completion_sends_total);
+    FFI_COMPLETION_SLOW_SENDS_TOTAL.get_or_init(ffi_completion_slow_sends_total);
+    FFI_COMPLETION_CIRCUIT_REJECTIONS_TOTAL.get_or_init(ffi_completion_circuit_rejections_total);
+    FFI_COMPLETION_CIRCUIT_STATE.get_or_init(ffi_completion_circuit_state);
 }

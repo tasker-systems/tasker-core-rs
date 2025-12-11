@@ -33,13 +33,104 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::FutureExt;
 use tokio::sync::{mpsc, Semaphore};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::types::base::TaskSequenceStep;
 
 use super::traits::StepHandlerRegistry;
 use crate::worker::actors::DispatchHandlerMessage;
+
+/// TAS-75: Shared capacity checker for load shedding
+///
+/// This struct provides thread-safe access to handler capacity information,
+/// allowing the StepExecutorActor to check capacity before claiming steps.
+#[derive(Clone)]
+pub struct CapacityChecker {
+    /// Semaphore tracking concurrent handler executions
+    semaphore: Arc<Semaphore>,
+    /// Maximum concurrent handlers
+    max_concurrent: usize,
+    /// Load shedding configuration
+    load_shedding: LoadSheddingConfig,
+    /// Service ID for logging
+    service_id: String,
+}
+
+impl CapacityChecker {
+    /// Create a new capacity checker
+    pub fn new(
+        semaphore: Arc<Semaphore>,
+        max_concurrent: usize,
+        load_shedding: LoadSheddingConfig,
+        service_id: String,
+    ) -> Self {
+        Self {
+            semaphore,
+            max_concurrent,
+            load_shedding,
+            service_id,
+        }
+    }
+
+    /// Check if the service has capacity to handle more work
+    ///
+    /// Returns true if the service is below the configured capacity threshold.
+    ///
+    /// # Returns
+    ///
+    /// `(has_capacity, usage_percent)` - Whether capacity is available and current usage
+    pub fn has_capacity(&self) -> (bool, f64) {
+        if !self.load_shedding.enabled {
+            return (true, 0.0);
+        }
+
+        let available = self.semaphore.available_permits();
+        let in_use = self.max_concurrent.saturating_sub(available);
+        let usage_percent = if self.max_concurrent > 0 {
+            (in_use as f64 / self.max_concurrent as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // Log warning if at warning threshold
+        if usage_percent >= self.load_shedding.warning_threshold_percent {
+            warn!(
+                service_id = %self.service_id,
+                usage_percent = %usage_percent,
+                available = available,
+                max = self.max_concurrent,
+                warning_threshold = %self.load_shedding.warning_threshold_percent,
+                "Handler dispatch service approaching capacity"
+            );
+        }
+
+        let has_capacity = usage_percent < self.load_shedding.capacity_threshold_percent;
+        (has_capacity, usage_percent)
+    }
+
+    /// Get current usage statistics
+    pub fn get_usage(&self) -> (usize, usize, f64) {
+        let available = self.semaphore.available_permits();
+        let in_use = self.max_concurrent.saturating_sub(available);
+        let usage_percent = if self.max_concurrent > 0 {
+            (in_use as f64 / self.max_concurrent as f64) * 100.0
+        } else {
+            0.0
+        };
+        (in_use, self.max_concurrent, usage_percent)
+    }
+}
+
+impl std::fmt::Debug for CapacityChecker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CapacityChecker")
+            .field("service_id", &self.service_id)
+            .field("max_concurrent", &self.max_concurrent)
+            .field("load_shedding", &self.load_shedding)
+            .finish()
+    }
+}
 
 /// Trait for post-handler callbacks
 ///
@@ -89,6 +180,27 @@ impl PostHandlerCallback for NoOpCallback {
     }
 }
 
+/// TAS-75: Load shedding configuration
+#[derive(Debug, Clone)]
+pub struct LoadSheddingConfig {
+    /// Enable load shedding (refuse claims when at capacity)
+    pub enabled: bool,
+    /// Capacity threshold percentage (0-100) - refuse claims above this
+    pub capacity_threshold_percent: f64,
+    /// Warning threshold percentage (0-100) - log warnings above this
+    pub warning_threshold_percent: f64,
+}
+
+impl Default for LoadSheddingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            capacity_threshold_percent: 80.0,
+            warning_threshold_percent: 70.0,
+        }
+    }
+}
+
 /// Configuration for the handler dispatch service
 #[derive(Debug, Clone)]
 pub struct HandlerDispatchConfig {
@@ -98,6 +210,8 @@ pub struct HandlerDispatchConfig {
     pub handler_timeout: Duration,
     /// Service identifier for logging
     pub service_id: String,
+    /// TAS-75: Load shedding configuration
+    pub load_shedding: LoadSheddingConfig,
 }
 
 impl Default for HandlerDispatchConfig {
@@ -106,6 +220,7 @@ impl Default for HandlerDispatchConfig {
             max_concurrent_handlers: 10,
             handler_timeout: Duration::from_secs(30),
             service_id: "handler-dispatch".to_string(),
+            load_shedding: LoadSheddingConfig::default(),
         }
     }
 }
@@ -121,6 +236,22 @@ impl HandlerDispatchConfig {
             max_concurrent_handlers,
             handler_timeout: Duration::from_millis(handler_timeout_ms),
             service_id,
+            load_shedding: LoadSheddingConfig::default(),
+        }
+    }
+
+    /// Create config with custom load shedding settings
+    pub fn with_load_shedding(
+        max_concurrent_handlers: usize,
+        handler_timeout_ms: u64,
+        service_id: String,
+        load_shedding: LoadSheddingConfig,
+    ) -> Self {
+        Self {
+            max_concurrent_handlers,
+            handler_timeout: Duration::from_millis(handler_timeout_ms),
+            service_id,
+            load_shedding,
         }
     }
 }
@@ -176,19 +307,65 @@ impl<R: StepHandlerRegistry + 'static> HandlerDispatchService<R, NoOpCallback> {
     /// * `completion_sender` - Channel to send completion results
     /// * `handler_registry` - Registry for handler lookup
     /// * `config` - Service configuration
+    ///
+    /// # Returns
+    ///
+    /// Returns `(service, capacity_checker)` where the capacity_checker can be shared
+    /// with StepExecutorActor for load shedding
     pub fn new(
         dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
         completion_sender: mpsc::Sender<StepExecutionResult>,
         handler_registry: Arc<R>,
+        config: HandlerDispatchConfig,
+    ) -> (Self, CapacityChecker) {
+        let semaphore = Arc::new(Semaphore::new(config.max_concurrent_handlers));
+
+        let capacity_checker = CapacityChecker::new(
+            semaphore.clone(),
+            config.max_concurrent_handlers,
+            config.load_shedding.clone(),
+            config.service_id.clone(),
+        );
+
+        let service = Self {
+            dispatch_receiver,
+            completion_sender,
+            handler_registry,
+            concurrency_semaphore: semaphore,
+            handler_timeout: config.handler_timeout,
+            service_id: config.service_id.clone(),
+            post_handler_callback: None,
+        };
+
+        (service, capacity_checker)
+    }
+
+    /// TAS-75: Create a handler dispatch service with an external semaphore (no callback)
+    ///
+    /// Use this constructor when the semaphore is created externally (e.g., by WorkerActorRegistry)
+    /// and shared with both StepExecutorActor (via CapacityChecker) and this service.
+    ///
+    /// # Arguments
+    ///
+    /// * `dispatch_receiver` - Channel to receive dispatch messages
+    /// * `completion_sender` - Channel to send completion results
+    /// * `handler_registry` - Registry for handler lookup
+    /// * `semaphore` - Pre-created semaphore shared with CapacityChecker
+    /// * `config` - Service configuration
+    pub fn with_semaphore(
+        dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
+        completion_sender: mpsc::Sender<StepExecutionResult>,
+        handler_registry: Arc<R>,
+        semaphore: Arc<Semaphore>,
         config: HandlerDispatchConfig,
     ) -> Self {
         Self {
             dispatch_receiver,
             completion_sender,
             handler_registry,
-            concurrency_semaphore: Arc::new(Semaphore::new(config.max_concurrent_handlers)),
+            concurrency_semaphore: semaphore,
             handler_timeout: config.handler_timeout,
-            service_id: config.service_id,
+            service_id: config.service_id.clone(),
             post_handler_callback: None,
         }
     }
@@ -204,10 +381,58 @@ impl<R: StepHandlerRegistry + 'static, C: PostHandlerCallback> HandlerDispatchSe
     /// * `handler_registry` - Registry for handler lookup
     /// * `config` - Service configuration
     /// * `callback` - Callback invoked after handler completion
+    ///
+    /// # Returns
+    ///
+    /// Returns `(service, capacity_checker)` where the capacity_checker can be shared
+    /// with StepExecutorActor for load shedding
     pub fn with_callback(
         dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
         completion_sender: mpsc::Sender<StepExecutionResult>,
         handler_registry: Arc<R>,
+        config: HandlerDispatchConfig,
+        callback: Arc<C>,
+    ) -> (Self, CapacityChecker) {
+        let semaphore = Arc::new(Semaphore::new(config.max_concurrent_handlers));
+
+        let capacity_checker = CapacityChecker::new(
+            semaphore.clone(),
+            config.max_concurrent_handlers,
+            config.load_shedding.clone(),
+            config.service_id.clone(),
+        );
+
+        let service = Self {
+            dispatch_receiver,
+            completion_sender,
+            handler_registry,
+            concurrency_semaphore: semaphore,
+            handler_timeout: config.handler_timeout,
+            service_id: config.service_id.clone(),
+            post_handler_callback: Some(callback),
+        };
+
+        (service, capacity_checker)
+    }
+
+    /// TAS-75: Create a handler dispatch service with an external semaphore and callback
+    ///
+    /// Use this constructor when the semaphore is created externally (e.g., by WorkerActorRegistry)
+    /// and shared with both StepExecutorActor (via CapacityChecker) and this service.
+    ///
+    /// # Arguments
+    ///
+    /// * `dispatch_receiver` - Channel to receive dispatch messages
+    /// * `completion_sender` - Channel to send completion results
+    /// * `handler_registry` - Registry for handler lookup
+    /// * `semaphore` - Pre-created semaphore shared with CapacityChecker
+    /// * `config` - Service configuration
+    /// * `callback` - Callback invoked after handler completion
+    pub fn with_semaphore_and_callback(
+        dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
+        completion_sender: mpsc::Sender<StepExecutionResult>,
+        handler_registry: Arc<R>,
+        semaphore: Arc<Semaphore>,
         config: HandlerDispatchConfig,
         callback: Arc<C>,
     ) -> Self {
@@ -215,9 +440,9 @@ impl<R: StepHandlerRegistry + 'static, C: PostHandlerCallback> HandlerDispatchSe
             dispatch_receiver,
             completion_sender,
             handler_registry,
-            concurrency_semaphore: Arc::new(Semaphore::new(config.max_concurrent_handlers)),
+            concurrency_semaphore: semaphore,
             handler_timeout: config.handler_timeout,
-            service_id: config.service_id,
+            service_id: config.service_id.clone(),
             post_handler_callback: Some(callback),
         }
     }

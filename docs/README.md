@@ -1,6 +1,6 @@
 # Tasker Core Documentation
 
-**Last Updated**: 2025-12-04
+**Last Updated**: 2025-12-10
 **Project Status**: Production Ready
 **Version**: 0.1.0
 
@@ -33,6 +33,8 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 - **[Domain Events](domain-events.md)** - Business event publishing (durable, fast, broadcast modes)
 - **[States and Lifecycles](states-and-lifecycles.md)** - Dual state machine architecture
 - **[Idempotency and Atomicity](idempotency-and-atomicity.md)** - Defense-in-depth guarantees for distributed orchestration
+- **[Circuit Breakers](circuit-breakers.md)** - Fault isolation and cascade prevention (TAS-75)
+- **[Backpressure Architecture](backpressure-architecture.md)** - Unified resilience strategy across all components
 - **[Deployment Patterns](deployment-patterns.md)** - Hybrid, EventDriven, and PollingOnly modes
 - **[Archive: Architectural Evolution](archive/architectural-evolution.md)** - Historical context and lessons learned
 - **[Archive: Orchestration Principles](archive/orchestration-principles.md)** - Fundamental design patterns
@@ -65,8 +67,11 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 **Running Tasker in production?** These docs cover deployment and monitoring:
 
 - **[Deployment Patterns](deployment-patterns.md)** - Configuration and deployment modes
+- **[Circuit Breakers](circuit-breakers.md)** - Fault isolation, configuration, and operational monitoring
+- **[Backpressure Architecture](backpressure-architecture.md)** - Unified resilience strategy
 - **[DLQ System](dlq-system.md)** - Dead letter queue for stuck task investigation and resolution
 - **[Observability](observability/README.md)** - Metrics, logging, and monitoring
+- **[Operations: Backpressure Monitoring](operations/backpressure-monitoring.md)** - Alerting and incident response
 - **[Benchmarks](benchmarks/README.md)** - Performance validation and targets
 - **[Archive: Deployment](archive/deployment.md)** - Production deployment insights
 
@@ -108,6 +113,8 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 | **[Configuration Management](configuration-management.md)** | TOML architecture, CLI tools, runtime observability | Operators, Developers |
 | **[Environment Comparison](environment-configuration-comparison.md)** | Detailed environment settings | Operators |
 | **[Deployment Patterns](deployment-patterns.md)** | Deployment modes and strategies | Architects, Operators |
+| **[Circuit Breakers](circuit-breakers.md)** | Fault isolation and cascade prevention | Architects, Operators |
+| **[Backpressure Architecture](backpressure-architecture.md)** | Unified resilience strategy | Architects, Operators |
 | **[Retry Semantics](retry-semantics.md)** | Retry configuration explained | Developers |
 
 ### Reference Documentation
@@ -146,6 +153,10 @@ tasker-core/
       batch-processing.md            # Parallel dataset processing with workers
       dlq-system.md                  # Dead letter queue investigation system
       deployment-patterns.md         # Deployment modes and configuration
+
+    Resilience & Operations
+      circuit-breakers.md            # Fault isolation and cascade prevention (TAS-75)
+      backpressure-architecture.md   # Unified resilience strategy
 
     Core Architecture
       actors.md                      # Orchestration actor pattern (TAS-46)
@@ -268,7 +279,9 @@ See **[Crate Architecture](crate-architecture.md)** for detailed explanations.
 - **"I'm debugging configuration issues"** -> [Configuration Management](configuration-management.md) (Part 9: Troubleshooting), check `/config` API endpoints
 - **"I'm debugging a state machine issue"** -> [States and Lifecycles](states-and-lifecycles.md)
 - **"I need to optimize performance"** -> [Benchmarks](benchmarks/README.md), [Archive: Performance Optimization](archive/performance-optimization.md)
-- **"I'm deploying to production"** -> [Configuration Management](configuration-management.md), [Deployment Patterns](deployment-patterns.md), [Observability](observability/README.md)
+- **"I need to understand circuit breakers or resilience patterns"** -> [Circuit Breakers](circuit-breakers.md), [Backpressure Architecture](backpressure-architecture.md)
+- **"I'm seeing 503 errors or circuit breaker alerts"** -> [Circuit Breakers](circuit-breakers.md), [Operations: Backpressure Monitoring](operations/backpressure-monitoring.md)
+- **"I'm deploying to production"** -> [Configuration Management](configuration-management.md), [Deployment Patterns](deployment-patterns.md), [Circuit Breakers](circuit-breakers.md), [Observability](observability/README.md)
 - **"I'm writing a custom handler"** -> [Use Cases & Patterns](use-cases-and-patterns.md), [Archive: Ruby Integration](archive/ruby-integration-lessons.md)
 - **"I need to understand SQL functions"** -> [Task Readiness & Execution](task-and-step-readiness-and-execution.md)
 

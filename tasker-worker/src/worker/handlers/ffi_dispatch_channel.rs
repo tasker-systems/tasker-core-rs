@@ -60,6 +60,7 @@ use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::types::base::{StepEventPayload, StepExecutionEvent};
 
 use super::dispatch_service::PostHandlerCallback;
+use super::ffi_completion_circuit_breaker::FfiCompletionCircuitBreaker;
 use crate::worker::actors::DispatchHandlerMessage;
 
 /// Metrics about pending events for monitoring
@@ -215,6 +216,13 @@ struct PendingEvent {
 /// The channel always invokes the post-handler callback on completion,
 /// which handles domain event publishing based on step configuration.
 ///
+/// ## Circuit Breaker Integration (TAS-75)
+///
+/// Optionally, the channel can be configured with a latency-based circuit
+/// breaker that protects against completion channel backpressure. When
+/// enabled, the circuit breaker tracks send latency and fails fast when
+/// the circuit is open.
+///
 /// ## Integration with WorkerCore
 ///
 /// This channel is designed to work with `DispatchHandles` from `WorkerCore`:
@@ -226,6 +234,15 @@ struct PendingEvent {
 ///     dispatch_handles.completion_sender,
 ///     config,
 ///     domain_event_callback,
+/// );
+///
+/// // Or with circuit breaker
+/// let ffi_channel = FfiDispatchChannel::with_circuit_breaker(
+///     dispatch_handles.dispatch_receiver,
+///     dispatch_handles.completion_sender,
+///     config,
+///     domain_event_callback,
+///     circuit_breaker,
 /// );
 /// ```
 pub struct FfiDispatchChannel {
@@ -239,6 +256,8 @@ pub struct FfiDispatchChannel {
     config: FfiDispatchChannelConfig,
     /// Post-handler callback for domain events, metrics, etc.
     post_handler_callback: Arc<dyn PostHandlerCallback>,
+    /// TAS-75: Optional circuit breaker for completion channel sends
+    circuit_breaker: Option<Arc<FfiCompletionCircuitBreaker>>,
 }
 
 impl std::fmt::Debug for FfiDispatchChannel {
@@ -247,6 +266,7 @@ impl std::fmt::Debug for FfiDispatchChannel {
             .field("service_id", &self.config.service_id)
             .field("pending_count", &self.pending_count())
             .field("callback", &self.post_handler_callback.name())
+            .field("circuit_breaker_enabled", &self.circuit_breaker.is_some())
             .finish()
     }
 }
@@ -276,7 +296,45 @@ impl FfiDispatchChannel {
             completion_sender,
             config,
             post_handler_callback: callback,
+            circuit_breaker: None,
         }
+    }
+
+    /// Create a new FFI dispatch channel with circuit breaker protection
+    ///
+    /// TAS-75 Phase 5a: Adds latency-based circuit breaker for completion channel sends.
+    /// When the circuit is open, completions fail fast and the step returns to the queue
+    /// via PGMQ visibility timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `dispatch_receiver` - Receiver from `DispatchHandles.dispatch_receiver`
+    /// * `completion_sender` - Sender from `DispatchHandles.completion_sender`
+    /// * `config` - Channel configuration
+    /// * `callback` - Post-handler callback for domain events, metrics, etc.
+    /// * `circuit_breaker` - Circuit breaker for completion channel sends
+    pub fn with_circuit_breaker(
+        dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
+        completion_sender: mpsc::Sender<StepExecutionResult>,
+        config: FfiDispatchChannelConfig,
+        callback: Arc<dyn PostHandlerCallback>,
+        circuit_breaker: Arc<FfiCompletionCircuitBreaker>,
+    ) -> Self {
+        Self {
+            dispatch_receiver: Arc::new(Mutex::new(dispatch_receiver)),
+            pending_events: Arc::new(RwLock::new(HashMap::new())),
+            completion_sender,
+            config,
+            post_handler_callback: callback,
+            circuit_breaker: Some(circuit_breaker),
+        }
+    }
+
+    /// Get reference to the circuit breaker (if configured)
+    ///
+    /// TAS-75: Useful for exposing circuit breaker metrics in health endpoints.
+    pub fn circuit_breaker(&self) -> Option<&Arc<FfiCompletionCircuitBreaker>> {
+        self.circuit_breaker.as_ref()
     }
 
     /// Poll for the next step event (non-blocking)
@@ -399,6 +457,9 @@ impl FfiDispatchChannel {
     /// TAS-67: Invokes the post-handler callback for domain event publishing
     /// before sending the result to the completion channel.
     ///
+    /// TAS-75: When circuit breaker is configured, checks breaker state before
+    /// sending and records latency-based results. Fails fast when circuit is open.
+    ///
     /// # Arguments
     ///
     /// * `event_id` - The event ID from the `FfiStepEvent`
@@ -429,6 +490,27 @@ impl FfiDispatchChannel {
                 "FFI dispatch: completion received"
             );
 
+            // TAS-75: Check circuit breaker BEFORE attempting send
+            // If circuit is open, fail fast - step will return to queue via visibility timeout
+            if let Some(ref cb) = self.circuit_breaker {
+                let allowed = self
+                    .config
+                    .runtime_handle
+                    .block_on(async { cb.should_allow().await });
+                if !allowed {
+                    warn!(
+                        service_id = %self.config.service_id,
+                        event_id = %event_id,
+                        step_uuid = %pending.event.step_uuid,
+                        "FFI dispatch: circuit breaker open, failing fast - step will return to queue"
+                    );
+                    // Re-add to pending so cleanup_timeouts can handle it
+                    // Actually, no - we just return false. The step remains claimed but incomplete.
+                    // PGMQ visibility timeout will make it available again for another worker.
+                    return false;
+                }
+            }
+
             // Extract step data for callback (needed after send since result is moved)
             let step = pending
                 .event
@@ -441,24 +523,25 @@ impl FfiDispatchChannel {
             // 1. Send to completion channel FIRST with timeout and retry
             // This ensures the result is committed to the pipeline before domain events fire
             // TAS-67 Phase 2: Uses try_send with retry loop instead of blocking indefinitely
+            // TAS-75: Track send latency for circuit breaker
             let send_timeout = self.config.completion_send_timeout;
-            let start = std::time::Instant::now();
+            let send_start = std::time::Instant::now();
             let send_result = loop {
                 match self.completion_sender.try_send(result.clone()) {
                     Ok(()) => {
-                        let elapsed = start.elapsed();
-                        if elapsed > Duration::from_millis(100) {
+                        let send_elapsed = send_start.elapsed();
+                        if send_elapsed > Duration::from_millis(100) {
                             warn!(
                                 service_id = %self.config.service_id,
                                 event_id = %event_id,
-                                elapsed_ms = elapsed.as_millis(),
+                                elapsed_ms = send_elapsed.as_millis(),
                                 "FFI dispatch: completion send was delayed due to channel backpressure"
                             );
                         }
-                        break Ok(());
+                        break Ok(send_elapsed);
                     }
                     Err(mpsc::error::TrySendError::Full(_)) => {
-                        if start.elapsed() > send_timeout {
+                        if send_start.elapsed() > send_timeout {
                             break Err("completion channel full - timeout exceeded");
                         }
                         // Brief sleep before retry (10ms)
@@ -470,73 +553,81 @@ impl FfiDispatchChannel {
                 }
             };
 
-            match send_result {
-                Ok(()) => {
-                    debug!(
-                        service_id = %self.config.service_id,
-                        event_id = %event_id,
-                        "FFI dispatch: completion sent to channel"
-                    );
+            // TAS-75: Record send result with circuit breaker (latency-based)
+            let send_success = send_result.is_ok();
+            let send_elapsed = send_result.unwrap_or(send_start.elapsed());
+            if let Some(ref cb) = self.circuit_breaker {
+                self.config.runtime_handle.block_on(async {
+                    cb.record_send_result(send_elapsed, send_success).await;
+                });
+            }
 
-                    // 2. Invoke post-handler callback AFTER successful send
-                    // Domain events only fire after the result is committed to the pipeline
-                    //
-                    // TAS-67 Risk Mitigation: Fire-and-forget pattern with timeout
-                    // Instead of blocking the FFI thread with block_on(), we spawn the callback
-                    // as a separate task. This prevents the Ruby/Python thread from being held
-                    // indefinitely if the callback hangs or experiences network issues.
-                    debug!(
-                        service_id = %self.config.service_id,
-                        callback_name = %self.post_handler_callback.name(),
-                        event_id = %event_id,
-                        "FFI dispatch: spawning post-handler callback (fire-and-forget)"
-                    );
+            if send_success {
+                debug!(
+                    service_id = %self.config.service_id,
+                    event_id = %event_id,
+                    "FFI dispatch: completion sent to channel"
+                );
 
-                    // Clone values needed for the spawned task
-                    let callback = self.post_handler_callback.clone();
-                    let callback_timeout = self.config.callback_timeout;
-                    let service_id = self.config.service_id.clone();
+                // 2. Invoke post-handler callback AFTER successful send
+                // Domain events only fire after the result is committed to the pipeline
+                //
+                // TAS-67 Risk Mitigation: Fire-and-forget pattern with timeout
+                // Instead of blocking the FFI thread with block_on(), we spawn the callback
+                // as a separate task. This prevents the Ruby/Python thread from being held
+                // indefinitely if the callback hangs or experiences network issues.
+                debug!(
+                    service_id = %self.config.service_id,
+                    callback_name = %self.post_handler_callback.name(),
+                    event_id = %event_id,
+                    "FFI dispatch: spawning post-handler callback (fire-and-forget)"
+                );
 
-                    // Spawn callback as fire-and-forget - don't block FFI thread
-                    self.config.runtime_handle.spawn(async move {
-                        match tokio::time::timeout(
-                            callback_timeout,
-                            callback.on_handler_complete(&step, &result, &worker_id),
-                        )
-                        .await
-                        {
-                            Ok(()) => {
-                                debug!(
-                                    service_id = %service_id,
-                                    event_id = %event_id,
-                                    "FFI dispatch: post-handler callback completed"
-                                );
-                            }
-                            Err(_) => {
-                                // Timeout - log but don't fail the completion
-                                // The step result is already committed to the pipeline
-                                error!(
-                                    service_id = %service_id,
-                                    event_id = %event_id,
-                                    timeout_ms = callback_timeout.as_millis(),
-                                    "FFI dispatch: post-handler callback timed out"
-                                );
-                            }
+                // Clone values needed for the spawned task
+                let callback = self.post_handler_callback.clone();
+                let callback_timeout = self.config.callback_timeout;
+                let service_id = self.config.service_id.clone();
+
+                // Spawn callback as fire-and-forget - don't block FFI thread
+                self.config.runtime_handle.spawn(async move {
+                    match tokio::time::timeout(
+                        callback_timeout,
+                        callback.on_handler_complete(&step, &result, &worker_id),
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            debug!(
+                                service_id = %service_id,
+                                event_id = %event_id,
+                                "FFI dispatch: post-handler callback completed"
+                            );
                         }
-                    });
+                        Err(_) => {
+                            // Timeout - log but don't fail the completion
+                            // The step result is already committed to the pipeline
+                            error!(
+                                service_id = %service_id,
+                                event_id = %event_id,
+                                timeout_ms = callback_timeout.as_millis(),
+                                "FFI dispatch: post-handler callback timed out"
+                            );
+                        }
+                    }
+                });
 
-                    true
-                }
-                Err(reason) => {
-                    error!(
-                        service_id = %self.config.service_id,
-                        event_id = %event_id,
-                        reason = %reason,
-                        timeout_ms = send_timeout.as_millis(),
-                        "FFI dispatch: failed to send completion - domain events NOT fired"
-                    );
-                    false
-                }
+                true
+            } else {
+                // Send failed - extract reason for logging
+                let reason = send_result.unwrap_err();
+                error!(
+                    service_id = %self.config.service_id,
+                    event_id = %event_id,
+                    reason = %reason,
+                    timeout_ms = send_timeout.as_millis(),
+                    "FFI dispatch: failed to send completion - domain events NOT fired"
+                );
+                false
             }
         } else {
             warn!(

@@ -35,6 +35,7 @@
 mod completion_processor;
 mod dispatch_service;
 mod domain_event_callback;
+mod ffi_completion_circuit_breaker;
 mod ffi_dispatch_channel;
 mod traits;
 
@@ -43,8 +44,8 @@ pub use traits::{StepHandler, StepHandlerRegistry};
 
 // Re-export dispatch service
 pub use dispatch_service::{
-    create_dispatch_channels, HandlerDispatchConfig, HandlerDispatchService, NoOpCallback,
-    PostHandlerCallback,
+    create_dispatch_channels, CapacityChecker, HandlerDispatchConfig, HandlerDispatchService,
+    LoadSheddingConfig, NoOpCallback, PostHandlerCallback,
 };
 
 // Re-export completion processor
@@ -53,6 +54,12 @@ pub use completion_processor::{CompletionProcessorConfig, CompletionProcessorSer
 // Re-export FFI dispatch channel
 pub use ffi_dispatch_channel::{
     FfiDispatchChannel, FfiDispatchChannelConfig, FfiDispatchMetrics, FfiStepEvent,
+};
+
+// Re-export FFI completion circuit breaker (TAS-75 Phase 5a)
+pub use ffi_completion_circuit_breaker::{
+    FfiCompletionCircuitBreaker, FfiCompletionCircuitBreakerConfig,
+    FfiCompletionCircuitBreakerMetrics,
 };
 
 // Re-export domain event callback (shared by Rust/Ruby/Python workers)

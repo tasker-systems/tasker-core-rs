@@ -1,8 +1,8 @@
 # WARP.md - Tasker Core Project Context
 
-**Last Updated**: 2025-11-23  
-**Project Status**: Production Ready (v0.1.0) | 950+ passing tests  
-**Architecture**: Rust-based orchestration with PostgreSQL/PGMQ, FFI workers (Ruby native, Python/WASM planned)
+**Last Updated**: 2025-12-08
+**Project Status**: Production Ready (v0.1.0) | 1185+ passing tests
+**Architecture**: Rust-based orchestration with PostgreSQL/PGMQ, unified dual-channel worker system (Ruby FFI native, Rust native, Python/WASM planned)
 
 ---
 
@@ -330,8 +330,26 @@ pub trait Handler<M: Message>: OrchestrationActor {
 
 **WorkerEventSystem** (`tasker-worker/src/worker/event_systems/`)
 - Monitors namespace-specific queues for step execution
-- Handles step claiming, execution, and result submission
-- Integrates with Ruby/Rust handlers via FFI
+- Implements dual-channel architecture (TAS-67): dispatch channel + completion channel
+- Fire-and-forget handler invocation with semaphore-bounded concurrency
+- Integrates with Ruby/Rust handlers via unified `FfiDispatchChannel`
+
+**Worker Dual-Channel Architecture (TAS-67)**
+```
+StepExecutorActor → [Dispatch Channel] → HandlerDispatchService
+                                              ↓
+                                         handler.call()
+                                              ↓
+                    [Completion Channel] ← PostHandlerCallback
+                                              ↓
+                    CompletionProcessorService → FFICompletionService → Orchestration
+```
+
+**Key Worker Services**:
+- `HandlerDispatchService`: Semaphore-bounded parallel handler execution
+- `CompletionProcessorService`: Routes results to orchestration queue
+- `FfiDispatchChannel`: Pull-based polling interface for FFI workers (Ruby, Python)
+- `PostHandlerCallback`: Domain events fire only after results committed
 
 **Command Processors** (TAS-40, TAS-46)
 - Pure routing to actors without complex logic
@@ -428,24 +446,26 @@ The system relies heavily on PostgreSQL functions for complex operations:
 
 ### Configuration System
 
-Component-based TOML configuration with environment-specific overrides:
+TOML configuration organized by role with environment-specific overrides:
+
+> **IMPORTANT**: Configuration is NOT component-based. We do NOT have separate files like `auth.toml`, `circuit_breakers.toml`, etc. Configuration is always organized as:
 
 ```
 config/tasker/base/
-├── auth.toml              # Authentication settings
-├── circuit_breakers.toml  # Resilience configuration
-├── database.toml          # Connection pool settings
-├── engine.toml            # Core engine parameters
-├── executor_pools.toml    # Pool sizing and behavior
-├── orchestration.toml     # Orchestration settings
-├── pgmq.toml             # Message queue configuration
-├── query_cache.toml      # Caching configuration
-├── system.toml           # System-level settings
-└── telemetry.toml        # Metrics and logging
+├── common.toml          # Shared settings (circuit breakers, pgmq, database pools)
+├── orchestration.toml   # Orchestration-specific settings
+└── worker.toml          # Worker-specific settings
 
 config/tasker/environments/{test,development,production}/
-└── <component>.toml      # Environment-specific overrides
+├── common.toml          # Environment overrides for shared settings
+├── orchestration.toml   # Environment overrides for orchestration
+└── worker.toml          # Environment overrides for worker
 ```
+
+**Key Rules**:
+- All configuration lives in one of three files: `common.toml`, `orchestration.toml`, or `worker.toml`
+- Environment overrides use the same file structure, not component files
+- Never create new TOML files for individual features or components
 
 Environment detection order:
 1. `TASKER_ENV` environment variable
@@ -462,12 +482,13 @@ The system uses bounded MPSC channels with configuration-driven capacity managem
 4. **All channels MUST handle backpressure** - Document overflow behavior
 5. **All configurations MUST have environment overrides** - Test with small buffers
 
-**Configuration Structure**:
+**Configuration Structure** (within role-based files):
 ```
-config/tasker/base/mpsc_channels.toml              # Base channel buffer sizes
-config/tasker/environments/test/mpsc_channels.toml # Small buffers (100-500)
-config/tasker/environments/development/mpsc_channels.toml # Medium buffers (500-1000)
-config/tasker/environments/production/mpsc_channels.toml  # Large buffers (2000-50000)
+# MPSC channel config lives within the main TOML files:
+config/tasker/base/orchestration.toml       # [orchestration.mpsc_channels.*]
+config/tasker/base/worker.toml              # [worker.mpsc_channels.*]
+config/tasker/environments/{env}/orchestration.toml  # Environment overrides
+config/tasker/environments/{env}/worker.toml         # Environment overrides
 ```
 
 **Channel Categories**:
@@ -506,9 +527,9 @@ command_buffer_size = 5000
 - **Development**: `docs/development/mpsc-channel-guidelines.md` - Step-by-step creation guide and patterns
 
 **Quick Start for New Channels**:
-1. Add configuration to `config/tasker/base/mpsc_channels.toml`
-2. Add environment overrides with `[mpsc_channels.*]` prefix
-3. Add Rust type in `tasker-shared/src/config/mpsc_channels.rs`
+1. Add configuration to appropriate role file (`orchestration.toml` or `worker.toml`)
+2. Add environment overrides using full section paths (e.g., `[orchestration.mpsc_channels.new_channel]`)
+3. Add Rust type in the appropriate config module
 4. Create channel using configuration: `mpsc::channel(config.buffer_size)`
 5. Integrate ChannelMonitor for observability
 6. Implement backpressure strategy
@@ -555,6 +576,48 @@ tasker-orchestration/src/orchestration/
 - **Services**: Focused components with single responsibility (<300 lines)
 - **Command Processor**: Pure routing without business logic
 - **No Wrapper Layers**: Direct actor calls from command processor
+
+### Worker Module Organization (TAS-67, TAS-69)
+
+The worker crate mirrors the orchestration actor pattern:
+
+```
+tasker-worker/src/worker/
+├── actors/                          # Actor pattern implementation
+│   ├── messages.rs                  # WorkerCommand, DispatchHandlerMessage
+│   ├── registry.rs                  # WorkerActorRegistry with lifecycle management
+│   └── step_executor_actor.rs       # Step claiming and dispatch coordination
+│
+├── handlers/                        # Handler dispatch system (TAS-67)
+│   ├── traits.rs                    # StepHandlerRegistry, StepHandler traits
+│   ├── dispatch_service.rs          # HandlerDispatchService (semaphore-bounded)
+│   ├── completion_processor.rs      # CompletionProcessorService
+│   ├── ffi_dispatch_channel.rs      # FfiDispatchChannel for Ruby/Python polling
+│   └── domain_event_callback.rs     # PostHandlerCallback implementation
+│
+├── event_systems/                   # Event-driven coordination
+│   ├── worker_event_system.rs       # WorkerEventSystem (EventDrivenSystem trait)
+│   └── domain_event_system.rs       # Fire-and-forget domain event publishing
+│
+├── actor_command_processor.rs       # Pure routing to actors
+├── core.rs                          # Bootstrap with WorkerActorRegistry
+└── step_claim.rs                    # Step claiming logic
+```
+
+**Worker Channel Configuration**:
+```toml
+# config/tasker/base/worker.toml
+[worker.mpsc_channels.handler_dispatch]
+dispatch_buffer_size = 1000
+completion_buffer_size = 1000
+max_concurrent_handlers = 10
+handler_timeout_ms = 30000
+
+[worker.mpsc_channels.ffi_dispatch]
+dispatch_buffer_size = 1000
+completion_timeout_ms = 30000
+starvation_warning_threshold_ms = 10000
+```
 
 ### Message Queue Architecture
 
@@ -805,6 +868,28 @@ async fn handle_finalize_task(&self, task_uuid: Uuid)
 
 ### Completed Features (Production Ready)
 
+**TAS-67**: Worker Dual Event System (December 2025)
+- Fire-and-forget handler dispatch with semaphore-bounded concurrency
+- Dual-channel architecture: dispatch channel + completion channel
+- Domain events fire only AFTER results committed to pipeline (ordering guarantee)
+- `HandlerDispatchService`: Bounded parallel execution with configurable limits
+- `FfiDispatchChannel`: Unified polling interface for Ruby (and future Python) workers
+- `CompletionProcessorService`: Routes results to orchestration queue
+- `PostHandlerCallback` trait: Extensible post-handler action hooks
+- Comprehensive error handling: panics, timeouts, handler errors all generate proper failure results
+- Discovery and fix of latent SQL precedence bug in `get_task_execution_context()`
+- Ruby worker migrated to shared abstractions in `tasker-worker`
+- Full documentation: `docs/worker-event-systems.md`, `docs/ticket-specs/TAS-67/`
+
+**TAS-69**: Worker Command-Actor-Service Pattern (December 2025)
+- Refactored worker system to command-actor-service architecture
+- `StepExecutorActor`: Handles step claiming and dispatch coordination
+- `ActorCommandProcessor`: Pure routing to actors without business logic
+- `WorkerActorRegistry`: Centralized actor lifecycle management
+- Service decomposition matching orchestration patterns
+- Clean separation of concerns: commands → actors → services
+- Foundation for TAS-67 dual-channel integration
+
 **TAS-59**: Batch Processing architecture (November 2025)
 - Parallel processing of large datasets with cursor-based workers
 - Batchable steps analyze datasets and return `BatchProcessingOutcome`
@@ -888,6 +973,7 @@ async fn handle_finalize_task(&self, task_uuid: Uuid)
 ### Available Specifications
 
 Future implementation opportunities with detailed specs:
+- **TAS-75**: Backpressure consistency investigation (`docs/ticket-specs/TAS-75/plan.md`) - API rate limiting, PGMQ queue depth, worker load shedding, circuit breaker expansion
 - **TAS-39**: Health check endpoint integration (`docs/ticket-specs/TAS-39.md`)
 
 ## Performance Targets
@@ -920,6 +1006,7 @@ For deep dives into specific architectural aspects:
 
 ### Core Architecture
 - **Actor Pattern**: `docs/actors.md` - Actor-based architecture, TAS-46 implementation details
+- **Worker Event Systems**: `docs/worker-event-systems.md` - Dual-channel architecture, TAS-67 implementation
 - **Event Systems**: `docs/events-and-commands.md` - Event-driven architecture and command patterns
 - **Crate Structure**: `docs/crate-architecture.md` - Workspace organization and public APIs
 - **State Machines**: `docs/states-and-lifecycles.md` - Task and step state transitions

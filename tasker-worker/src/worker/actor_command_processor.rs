@@ -551,9 +551,11 @@ mod tests {
         let channel_monitor = ChannelMonitor::new("test_command_channel", 100);
 
         // TAS-67: dispatch_config is now required
+        // TAS-75: Extended with load shedding config
         let dispatch_config = DispatchModeConfig {
             dispatch_buffer_size: 100,
             completion_buffer_size: 100,
+            ..Default::default()
         };
 
         let (processor, _sender, _dispatch_channels) = ActorCommandProcessor::new(

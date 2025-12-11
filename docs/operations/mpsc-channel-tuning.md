@@ -1,8 +1,8 @@
 # MPSC Channel Tuning - Operational Runbook
 
-**Last Updated**: 2025-10-14
+**Last Updated**: 2025-12-10
 **Owner**: Platform Engineering
-**Related**: TAS-51, [ADR: Bounded MPSC Channels](../architecture-decisions/TAS-51-bounded-mpsc-channels.md)
+**Related**: TAS-51, TAS-75 | [ADR: Bounded MPSC Channels](../architecture-decisions/TAS-51-bounded-mpsc-channels.md) | [Circuit Breakers](../circuit-breakers.md) | [Backpressure Architecture](../backpressure-architecture.md)
 
 ## Overview
 
@@ -405,7 +405,9 @@ watch -n 5 'curl -s localhost:9090/api/v1/query?query=mpsc_channel_usage_percent
 1. Check for downstream bottleneck (database, queue service)
 2. Scale out consumer services
 3. Temporarily increase all buffer sizes
-4. Consider emergency circuit breaker activation
+4. Check circuit breaker states (`/health/detailed` endpoint) - if circuit breakers are open, address underlying database/service issues first
+
+> **Note**: MPSC channels and circuit breakers are complementary resilience mechanisms. Channel saturation indicates internal backpressure, while circuit breaker state indicates external service health. See [Circuit Breakers](../circuit-breakers.md) for operational guidance.
 
 ## Best Practices
 
@@ -418,9 +420,17 @@ watch -n 5 'curl -s localhost:9090/api/v1/query?query=mpsc_channel_usage_percent
 
 ## Related Documentation
 
-- [ADR: Bounded MPSC Channels](../architecture-decisions/TAS-51-bounded-mpsc-channels.md)
-- [Developer Guidelines](../development/mpsc-channel-guidelines.md)
-- [TAS-51 Specification](../ticket-specs/TAS-51.md)
+**Architecture**:
+- [Backpressure Architecture](../backpressure-architecture.md) - How MPSC channels fit into the broader resilience strategy
+- [Circuit Breakers](../circuit-breakers.md) - Fault isolation working alongside bounded channels
+- [ADR: Bounded MPSC Channels](../architecture-decisions/TAS-51-bounded-mpsc-channels.md) - Design decisions
+
+**Development**:
+- [Developer Guidelines](../development/mpsc-channel-guidelines.md) - Creating and using MPSC channels
+- [TAS-51 Specification](../ticket-specs/TAS-51.md) - Original implementation ticket
+
+**Operations**:
+- [Backpressure Monitoring](backpressure-monitoring.md) - Unified alerting and incident response
 
 ## Support
 

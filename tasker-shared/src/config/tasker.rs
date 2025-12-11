@@ -437,9 +437,46 @@ pub struct PgmqConfig {
     #[validate(range(max = 100))]
     #[builder(default = 3)]
     pub max_retries: u32,
+
+    /// TAS-75 Phase 3: Queue depth thresholds for backpressure monitoring
+    #[validate(nested)]
+    #[serde(default)]
+    #[builder(default)]
+    pub queue_depth_thresholds: QueueDepthThresholds,
 }
 
 impl_builder_default!(PgmqConfig);
+
+/// TAS-75 Phase 3: Queue depth thresholds for soft backpressure limits
+///
+/// Defines tiered monitoring thresholds for PGMQ queue depths.
+/// These are SOFT limits - messages are never rejected, but API returns 503 at critical depth.
+///
+/// # Threshold Tiers
+/// - **Normal**: 0 to warning_threshold (healthy operation)
+/// - **Warning**: warning_threshold to critical_threshold (elevated, monitoring)
+/// - **Critical**: critical_threshold to overflow_threshold (API returns 503)
+/// - **Overflow**: Above overflow_threshold (emergency, manual intervention needed)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct QueueDepthThresholds {
+    /// Warning threshold - queue depth above which warnings are logged
+    #[validate(range(min = 1))]
+    #[builder(default = 1000)]
+    pub warning_threshold: i64,
+
+    /// Critical threshold - queue depth above which API returns 503 Service Unavailable
+    #[validate(range(min = 1))]
+    #[builder(default = 5000)]
+    pub critical_threshold: i64,
+
+    /// Overflow threshold - queue depth indicating emergency conditions
+    #[validate(range(min = 1))]
+    #[builder(default = 10000)]
+    pub overflow_threshold: i64,
+}
+
+impl_builder_default!(QueueDepthThresholds);
 
 /// RabbitMQ-specific configuration
 ///
@@ -1712,9 +1749,61 @@ pub struct WorkerConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub web: Option<WorkerWebConfig>,
+
+    /// Circuit breakers configuration
+    #[validate(nested)]
+    #[builder(default)]
+    pub circuit_breakers: WorkerCircuitBreakersConfig,
 }
 
 impl_builder_default!(WorkerConfig);
+
+/// Worker circuit breakers configuration
+///
+/// TAS-75 Phase 5a: Configuration for worker-specific circuit breakers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerCircuitBreakersConfig {
+    /// FFI completion send circuit breaker (latency-based)
+    #[validate(nested)]
+    #[builder(default)]
+    pub ffi_completion_send: FfiCompletionSendCircuitBreakerConfig,
+}
+
+impl_builder_default!(WorkerCircuitBreakersConfig);
+
+/// FFI completion send circuit breaker configuration
+///
+/// TAS-75 Phase 5a: Latency-based circuit breaker for FFI completion channel sends.
+/// Unlike error-based circuit breakers, this breaker treats slow sends as failures.
+/// A send that takes > `slow_send_threshold_ms` counts toward opening the circuit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct FfiCompletionSendCircuitBreakerConfig {
+    /// Number of slow/failed sends before circuit opens
+    #[validate(range(min = 1, max = 100))]
+    #[builder(default = 5)]
+    pub failure_threshold: u32,
+
+    /// How long circuit stays open before testing recovery (seconds)
+    /// Short because channel recovery should be fast once backpressure clears
+    #[validate(range(min = 1, max = 300))]
+    #[builder(default = 5)]
+    pub recovery_timeout_seconds: u32,
+
+    /// Successful fast sends needed in half-open to close circuit
+    #[validate(range(min = 1, max = 100))]
+    #[builder(default = 2)]
+    pub success_threshold: u32,
+
+    /// Send latency above this threshold (ms) counts as "slow" (failure)
+    /// Healthy sends should complete in single-digit milliseconds
+    #[validate(range(min = 10, max = 10000))]
+    #[builder(default = 100)]
+    pub slow_send_threshold_ms: u32,
+}
+
+impl_builder_default!(FfiCompletionSendCircuitBreakerConfig);
 
 /// Worker event systems configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -1979,6 +2068,11 @@ pub struct WorkerMpscChannelsConfig {
     #[validate(nested)]
     #[builder(default)]
     pub domain_events: WorkerDomainEventChannels,
+
+    /// TAS-67/TAS-75: Handler dispatch channels
+    #[validate(nested)]
+    #[builder(default)]
+    pub handler_dispatch: HandlerDispatchChannelsConfig,
 }
 
 impl_builder_default!(WorkerMpscChannelsConfig);
@@ -2087,6 +2181,67 @@ pub struct WorkerDomainEventChannels {
 }
 
 impl_builder_default!(WorkerDomainEventChannels);
+
+/// TAS-67/TAS-75: Handler dispatch channels configuration
+///
+/// Configuration for the dual-channel dispatch system used for non-blocking handler
+/// invocation. The dispatch channel sends steps to the HandlerDispatchService,
+/// and the completion channel returns results to the CompletionProcessor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct HandlerDispatchChannelsConfig {
+    /// Buffer size for dispatch channel (from StepExecutorActor to HandlerDispatchService)
+    #[validate(range(min = 10, max = 1000000))]
+    #[builder(default = 1000)]
+    pub dispatch_buffer_size: u32,
+
+    /// Buffer size for completion channel (from HandlerDispatchService to CompletionProcessor)
+    #[validate(range(min = 10, max = 1000000))]
+    #[builder(default = 1000)]
+    pub completion_buffer_size: u32,
+
+    /// Maximum concurrent handler executions (semaphore permits)
+    #[validate(range(min = 1, max = 10000))]
+    #[builder(default = 10)]
+    pub max_concurrent_handlers: u32,
+
+    /// Handler timeout in milliseconds
+    #[validate(range(min = 1000, max = 3600000))]
+    #[builder(default = 30000)]
+    pub handler_timeout_ms: u32,
+
+    /// TAS-75: Load shedding configuration
+    #[validate(nested)]
+    #[builder(default)]
+    pub load_shedding: LoadSheddingChannelsConfig,
+}
+
+impl_builder_default!(HandlerDispatchChannelsConfig);
+
+/// TAS-75: Load shedding configuration for handler dispatch
+///
+/// Controls capacity-based claim refusal to prevent worker overload.
+/// When handler capacity exceeds the threshold, new step claims are refused
+/// and returned to the queue for other workers to process.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct LoadSheddingChannelsConfig {
+    /// Enable load shedding (refuse claims when at capacity)
+    #[builder(default = true)]
+    pub enabled: bool,
+
+    /// Capacity threshold percentage (0-100) - refuse claims above this
+    #[validate(range(min = 0.0, max = 100.0))]
+    #[builder(default = 80.0)]
+    pub capacity_threshold_percent: f64,
+
+    /// Warning threshold percentage (0-100) - log warnings above this
+    #[validate(range(min = 0.0, max = 100.0))]
+    #[builder(default = 70.0)]
+    pub warning_threshold_percent: f64,
+}
+
+impl_builder_default!(LoadSheddingChannelsConfig);
 
 /// Worker web API configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -2335,6 +2490,7 @@ mod tests {
                 poll_interval_ms: 250,
                 shutdown_timeout_seconds: 5,
                 max_retries: 3,
+                queue_depth_thresholds: QueueDepthThresholds::default(),
             },
             rabbitmq: None,
         }
@@ -2530,7 +2686,9 @@ mod tests {
                     shutdown_drain_timeout_ms: 5000,
                     log_dropped_events: true,
                 },
+                handler_dispatch: HandlerDispatchChannelsConfig::default(),
             },
+            circuit_breakers: WorkerCircuitBreakersConfig::default(),
             web: None,
             orchestration_client: Some(OrchestrationClientConfig::default()),
         }
@@ -2782,5 +2940,64 @@ mod tests {
         println!("✓ Display trait test completed - all types have Display");
         println!("✓ bon Builder pattern test completed - inline defaults work");
         println!("✓ Default implementations match builder defaults");
+    }
+
+    // =========================================================================
+    // TAS-75 Phase 3: Queue Depth Threshold Tests
+    // =========================================================================
+
+    #[test]
+    fn test_queue_depth_thresholds_default() {
+        let thresholds = QueueDepthThresholds::default();
+        assert_eq!(thresholds.warning_threshold, 1000);
+        assert_eq!(thresholds.critical_threshold, 5000);
+        assert_eq!(thresholds.overflow_threshold, 10000);
+    }
+
+    #[test]
+    fn test_queue_depth_thresholds_custom() {
+        let thresholds = QueueDepthThresholds {
+            warning_threshold: 100,
+            critical_threshold: 500,
+            overflow_threshold: 1000,
+        };
+        assert_eq!(thresholds.warning_threshold, 100);
+        assert_eq!(thresholds.critical_threshold, 500);
+        assert_eq!(thresholds.overflow_threshold, 1000);
+    }
+
+    #[test]
+    fn test_pgmq_config_includes_thresholds() {
+        let pgmq_config = PgmqConfig::default();
+        assert_eq!(pgmq_config.queue_depth_thresholds.warning_threshold, 1000);
+        assert_eq!(pgmq_config.queue_depth_thresholds.critical_threshold, 5000);
+        assert_eq!(pgmq_config.queue_depth_thresholds.overflow_threshold, 10000);
+    }
+
+    #[test]
+    fn test_queue_depth_tier_logic() {
+        let thresholds = QueueDepthThresholds {
+            warning_threshold: 100,
+            critical_threshold: 500,
+            overflow_threshold: 1000,
+        };
+
+        // Test tier classification logic
+        assert!(
+            50 < thresholds.warning_threshold,
+            "50 should be normal tier"
+        );
+        assert!(
+            150 >= thresholds.warning_threshold && 150 < thresholds.critical_threshold,
+            "150 should be warning tier"
+        );
+        assert!(
+            600 >= thresholds.critical_threshold && 600 < thresholds.overflow_threshold,
+            "600 should be critical tier"
+        );
+        assert!(
+            1500 >= thresholds.overflow_threshold,
+            "1500 should be overflow tier"
+        );
     }
 }

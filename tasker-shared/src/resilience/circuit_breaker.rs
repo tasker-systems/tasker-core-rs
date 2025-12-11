@@ -334,6 +334,40 @@ impl CircuitBreaker {
         let failure_rate = metrics.failure_count as f64 / metrics.total_calls as f64;
         failure_rate < 0.1
     }
+
+    /// Manually record a successful operation
+    ///
+    /// Use this when you need fine-grained control over success/failure recording,
+    /// such as when implementing latency-based circuit breaking where a slow success
+    /// should be treated as a failure.
+    ///
+    /// # Arguments
+    ///
+    /// * `duration` - The duration of the operation
+    pub async fn record_success_manual(&self, duration: Duration) {
+        self.record_success(duration).await;
+    }
+
+    /// Manually record a failed operation
+    ///
+    /// Use this when you need fine-grained control over success/failure recording,
+    /// such as when implementing latency-based circuit breaking where a slow success
+    /// should be treated as a failure.
+    ///
+    /// # Arguments
+    ///
+    /// * `duration` - The duration of the operation
+    pub async fn record_failure_manual(&self, duration: Duration) {
+        self.record_failure(duration).await;
+    }
+
+    /// Check if the circuit is allowing calls (not in Open state or timeout elapsed)
+    ///
+    /// Use this for pre-flight checks before attempting an operation when using
+    /// manual recording. Returns true if calls should be allowed.
+    pub async fn should_allow(&self) -> bool {
+        self.should_allow_call::<()>().await.unwrap_or_default()
+    }
 }
 
 #[cfg(test)]

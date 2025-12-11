@@ -8,6 +8,7 @@ use axum::Json;
 use std::collections::HashMap;
 use tracing::{debug, error};
 
+use crate::health::QueueDepthTier;
 use crate::orchestration::core::OrchestrationCoreStatus;
 use crate::web::state::AppState;
 use tasker_shared::metrics::channels::global_registry;
@@ -161,6 +162,16 @@ pub async fn detailed_health(State(state): State<AppState>) -> Json<DetailedHeal
     checks.insert(
         "command_processor".to_string(),
         check_command_processor_health(&state).await,
+    );
+    // TAS-75 Phase 3: Add queue depth health check
+    checks.insert(
+        "queue_depth".to_string(),
+        check_queue_depth_health(&state).await,
+    );
+    // TAS-75 Phase 5: Add channel saturation health check
+    checks.insert(
+        "channel_saturation".to_string(),
+        check_channel_saturation_health(&state),
     );
 
     // Determine overall status
@@ -382,5 +393,107 @@ async fn create_health_info(state: &AppState) -> HealthInfo {
         web_database_pool_size: state.web_db_pool.size(),
         orchestration_database_pool_size: cached_status.database_pool_size,
         circuit_breaker_state: format!("{:?}", state.web_db_circuit_breaker.current_state()),
+    }
+}
+
+/// TAS-75 Phase 5: Check queue depth health using cached status
+///
+/// Uses the BackpressureChecker's cached queue depth status for non-blocking health checks.
+async fn check_queue_depth_health(state: &AppState) -> HealthCheck {
+    let start = std::time::Instant::now();
+
+    // TAS-75 Phase 5: Use synchronous cached status (no database query)
+    let queue_status = state.try_get_queue_depth_status();
+
+    let (status, message) = match queue_status.tier {
+        QueueDepthTier::Unknown => (
+            "unknown",
+            "Queue depth status not yet evaluated or check disabled".to_string(),
+        ),
+        QueueDepthTier::Normal => (
+            "healthy",
+            format!(
+                "All queues normal (max: {} messages)",
+                queue_status.max_depth
+            ),
+        ),
+        QueueDepthTier::Warning => (
+            "degraded",
+            format!(
+                "Queue '{}' at warning level ({} messages)",
+                queue_status.worst_queue, queue_status.max_depth
+            ),
+        ),
+        QueueDepthTier::Critical => (
+            "unhealthy",
+            format!(
+                "Queue '{}' at critical depth ({} messages)",
+                queue_status.worst_queue, queue_status.max_depth
+            ),
+        ),
+        QueueDepthTier::Overflow => (
+            "unhealthy",
+            format!(
+                "Queue '{}' overflow ({} messages)",
+                queue_status.worst_queue, queue_status.max_depth
+            ),
+        ),
+    };
+
+    HealthCheck {
+        status: status.to_string(),
+        message: Some(message),
+        duration_ms: start.elapsed().as_millis() as u64,
+    }
+}
+
+/// TAS-75 Phase 5: Check channel saturation health using cached status
+///
+/// Uses the BackpressureChecker's cached channel status for non-blocking health checks.
+fn check_channel_saturation_health(state: &AppState) -> HealthCheck {
+    let start = std::time::Instant::now();
+
+    // TAS-75 Phase 5: Use synchronous cached channel status
+    let channel_status = state
+        .orchestration_core
+        .backpressure_checker()
+        .try_get_channel_status();
+
+    let (status, message) = if !channel_status.evaluated {
+        (
+            "unknown",
+            "Channel saturation not yet evaluated or check disabled".to_string(),
+        )
+    } else if channel_status.is_critical {
+        (
+            "unhealthy",
+            format!(
+                "Command channel critically saturated ({:.1}%)",
+                channel_status.command_saturation_percent
+            ),
+        )
+    } else if channel_status.is_saturated {
+        (
+            "degraded",
+            format!(
+                "Command channel saturated ({:.1}%)",
+                channel_status.command_saturation_percent
+            ),
+        )
+    } else {
+        (
+            "healthy",
+            format!(
+                "Command channel healthy ({:.1}% saturation, {} capacity available)",
+                channel_status.command_saturation_percent,
+                channel_status.command_available_capacity
+            ),
+        )
+    };
+
+    HealthCheck {
+        status: status.to_string(),
+        message: Some(message),
+        duration_ms: start.elapsed().as_millis() as u64,
     }
 }

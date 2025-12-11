@@ -10,6 +10,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::orchestration::task_readiness::fallback_poller::{FallbackPoller, FallbackPollerConfig};
+use crate::orchestration::task_readiness::TaskReadinessCircuitBreakerConfig;
 use tasker_shared::event_system::DeploymentMode;
 use tasker_shared::{SystemContext, TaskerResult};
 
@@ -70,6 +71,8 @@ impl TaskReadinessEventSystem {
                             })
                             .unwrap_or(30),
                     ),
+                    // TAS-75: Circuit breaker configuration with sensible defaults
+                    circuit_breaker: TaskReadinessCircuitBreakerConfig::default(),
                 }
             }
         };
@@ -163,6 +166,7 @@ mod tests {
         let config = FallbackPollerConfig {
             enabled: false,
             polling_interval: Duration::from_secs(30),
+            circuit_breaker: TaskReadinessCircuitBreakerConfig::default(),
         };
 
         system.set_config(config);

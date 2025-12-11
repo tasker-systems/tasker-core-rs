@@ -87,6 +87,7 @@
 //! ```
 
 pub mod actors;
+pub mod health;
 pub mod orchestration;
 #[cfg(feature = "web-api")]
 pub mod web;

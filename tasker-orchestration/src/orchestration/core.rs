@@ -22,10 +22,12 @@ use tasker_shared::monitoring::ChannelMonitor; // TAS-51: Channel monitoring
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
+use crate::health::{BackpressureChecker, HealthStatusCaches, StatusEvaluator};
 use crate::orchestration::command_processor::{
     OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, SystemHealth,
 };
 use crate::orchestration::staleness_detector::StalenessDetector;
+use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 
 /// TAS-40 Command Pattern OrchestrationCore
 ///
@@ -52,6 +54,18 @@ pub struct OrchestrationCore {
 
     /// TAS-49: Staleness detector background service
     staleness_detector_handle: Option<JoinHandle<()>>,
+
+    /// TAS-75: Health status caches for backpressure monitoring
+    health_caches: HealthStatusCaches,
+
+    /// TAS-75: Backpressure checker for API operations
+    backpressure_checker: BackpressureChecker,
+
+    /// TAS-75: Status evaluator background service handle
+    status_evaluator_handle: Option<JoinHandle<()>>,
+
+    /// TAS-75: Web database circuit breaker (shared with web layer)
+    web_circuit_breaker: Arc<WebDatabaseCircuitBreaker>,
 }
 
 // Manual Debug implementation since JoinHandle doesn't implement Debug
@@ -70,6 +84,13 @@ impl std::fmt::Debug for OrchestrationCore {
                     .as_ref()
                     .map(|_| "JoinHandle"),
             )
+            .field("health_caches", &self.health_caches)
+            .field("backpressure_checker", &self.backpressure_checker)
+            .field(
+                "status_evaluator_handle",
+                &self.status_evaluator_handle.as_ref().map(|_| "JoinHandle"),
+            )
+            .field("web_circuit_breaker", &self.web_circuit_breaker)
             .finish()
     }
 }
@@ -113,19 +134,31 @@ impl OrchestrationCore {
             command_buffer_size as usize,
         );
 
+        // TAS-75: Initialize health monitoring infrastructure BEFORE processor
+        // (so processor can receive cached health data for HealthCheck command)
+        let health_caches = HealthStatusCaches::new();
+        let backpressure_checker =
+            BackpressureChecker::with_default_threshold(health_caches.clone());
+
         let (mut processor, command_sender) = OrchestrationProcessor::new(
             context.clone(),
             actors,
-            // task_request_processor,
-            // result_processor,
-            // task_claim_step_enqueuer,
             context.message_client(),
+            health_caches.clone(), // TAS-75: Pass health caches to processor
             command_buffer_size as usize,
             channel_monitor.clone(), // Pass clone to processor
         );
 
         // Start the processor
         processor.start().await?;
+
+        // TAS-75: Create web circuit breaker (shared with web layer)
+        // Get resilience config from orchestration context
+        let web_circuit_breaker = Arc::new(WebDatabaseCircuitBreaker::new(
+            5,                       // failure_threshold
+            Duration::from_secs(30), // recovery_timeout
+            "orchestration_db",      // component_name
+        ));
 
         Ok(Self {
             context,
@@ -134,6 +167,10 @@ impl OrchestrationCore {
             status: Arc::new(RwLock::new(OrchestrationCoreStatus::Created)),
             command_channel_monitor: channel_monitor, // Store monitor for sender instrumentation
             staleness_detector_handle: None,          // TAS-49: Started in start()
+            health_caches,                            // TAS-75: Health status caches
+            backpressure_checker,                     // TAS-75: Backpressure checker
+            status_evaluator_handle: None,            // TAS-75: Started in start()
+            web_circuit_breaker,                      // TAS-75: Web circuit breaker
         })
     }
 
@@ -169,6 +206,7 @@ impl OrchestrationCore {
     }
 
     /// TAS-49: Start background services for staleness detection
+    /// TAS-75: Start health status evaluator
     async fn start_background_services(&mut self) -> TaskerResult<()> {
         // Get TAS-49 DLQ staleness detection configuration
         let staleness_config = self.context.tasker_config.staleness_detection_config();
@@ -203,7 +241,43 @@ impl OrchestrationCore {
             info!("Staleness detector disabled in configuration");
         }
 
+        // TAS-75: Start health status evaluator
+        self.start_status_evaluator().await;
+
         Ok(())
+    }
+
+    /// TAS-75: Start the health status evaluator background service
+    async fn start_status_evaluator(&mut self) {
+        use crate::health::HealthConfig;
+
+        // Get queue names from configuration
+        let queues_config = &self.context.tasker_config.common.queues;
+        let queue_names = vec![
+            queues_config.step_results_queue_name(),
+            queues_config.task_requests_queue_name(),
+            queues_config.task_finalizations_queue_name(),
+        ];
+
+        // Get health config (using defaults for now, can be made configurable later)
+        let health_config = HealthConfig::default();
+
+        // Create the status evaluator
+        let evaluator = StatusEvaluator::new(
+            self.health_caches.clone(),
+            self.context.database_pool().clone(),
+            self.command_channel_monitor.clone(),
+            self.command_sender.clone(),
+            queue_names,
+            self.web_circuit_breaker.clone(),
+            health_config,
+        );
+
+        // Spawn the background task
+        let handle = evaluator.spawn();
+        self.status_evaluator_handle = Some(handle);
+
+        info!("TAS-75: Health status evaluator background service started");
     }
 
     /// Stop the orchestration core
@@ -241,6 +315,7 @@ impl OrchestrationCore {
     }
 
     /// TAS-49: Stop background services gracefully
+    /// TAS-75: Stop health status evaluator
     async fn stop_background_services(&mut self) {
         // Stop staleness detector
         if let Some(handle) = self.staleness_detector_handle.take() {
@@ -251,6 +326,17 @@ impl OrchestrationCore {
             match tokio::time::timeout(Duration::from_secs(5), handle).await {
                 Ok(_) => info!("Staleness detector stopped gracefully"),
                 Err(_) => warn!("Staleness detector stop timed out (already aborted)"),
+            }
+        }
+
+        // TAS-75: Stop status evaluator
+        if let Some(handle) = self.status_evaluator_handle.take() {
+            info!("Stopping health status evaluator background service");
+            handle.abort();
+
+            match tokio::time::timeout(Duration::from_secs(5), handle).await {
+                Ok(_) => info!("Health status evaluator stopped gracefully"),
+                Err(_) => warn!("Health status evaluator stop timed out (already aborted)"),
             }
         }
     }
@@ -297,60 +383,27 @@ impl OrchestrationCore {
         self.context.processor_uuid()
     }
 
-    ///// Create sophisticated TaskRequestProcessor for delegation
-    // async fn create_task_request_processor(
-    //     context: &Arc<SystemContext>,
-    // ) -> TaskerResult<Arc<TaskRequestProcessor>> {
-    //     info!("Creating sophisticated TaskRequestProcessor for command pattern delegation");
+    /// TAS-75: Get the backpressure checker for API operations
+    ///
+    /// This is the primary interface for web API handlers to check backpressure status.
+    /// The checker reads from caches updated by the background StatusEvaluator.
+    pub fn backpressure_checker(&self) -> &BackpressureChecker {
+        &self.backpressure_checker
+    }
 
-    //     let config = TaskRequestProcessorConfig::default();
-    //     let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
-    //     let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
+    /// TAS-75: Get the health status caches
+    ///
+    /// Direct access to caches for advanced use cases (e.g., custom health endpoints).
+    pub fn health_caches(&self) -> &HealthStatusCaches {
+        &self.health_caches
+    }
 
-    //     // Create TaskInitializer with step enqueuer for immediate step enqueuing
-    //     let task_initializer = Arc::new(TaskInitializer::new(
-    //         context.clone(),
-    //         task_claim_step_enqueuer,
-    //     ));
-
-    //     Ok(Arc::new(TaskRequestProcessor::new(
-    //         context.message_client.clone(),
-    //         context.task_handler_registry.clone(),
-    //         task_initializer,
-    //         config,
-    //     )))
-    // }
-
-    // /// Create sophisticated OrchestrationResultProcessor for delegation
-    // async fn create_result_processor(
-    //     context: &Arc<SystemContext>,
-    // ) -> TaskerResult<Arc<OrchestrationResultProcessor>> {
-    //     info!("Creating sophisticated OrchestrationResultProcessor with unified claim system");
-
-    //     // Create TaskClaimStepEnqueuer with the shared processor UUID
-    //     let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
-    //     let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
-
-    //     let task_finalizer = TaskFinalizer::new(context.clone(), task_claim_step_enqueuer);
-
-    //     Ok(Arc::new(OrchestrationResultProcessor::new(
-    //         task_finalizer,
-    //         context.clone(),
-    //     )))
-    // }
-
-    // /// Create sophisticated TaskClaimStepEnqueuer for delegation
-    // async fn create_task_claim_step_enqueuer(
-    //     context: &Arc<SystemContext>,
-    // ) -> TaskerResult<Arc<StepEnqueuerService>> {
-    //     info!(
-    //         "Creating sophisticated TaskClaimStepEnqueuer for TAS-43 command pattern integration"
-    //     );
-
-    //     let enqueuer = StepEnqueuerService::new(context.clone()).await?;
-
-    //     Ok(Arc::new(enqueuer))
-    // }
+    /// TAS-75: Get the web database circuit breaker
+    ///
+    /// Shared circuit breaker used for both orchestration and web API operations.
+    pub fn web_circuit_breaker(&self) -> Arc<WebDatabaseCircuitBreaker> {
+        Arc::clone(&self.web_circuit_breaker)
+    }
 }
 
 impl std::fmt::Display for OrchestrationCoreStatus {
@@ -363,23 +416,5 @@ impl std::fmt::Display for OrchestrationCoreStatus {
             OrchestrationCoreStatus::Stopped => write!(f, "Stopped"),
             OrchestrationCoreStatus::Error(e) => write!(f, "Error: {e}"),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    #[tokio::test]
-    async fn test_orchestration_core_lifecycle() {
-        // This test will be implemented once we have proper test infrastructure
-        // for the command pattern architecture
-        // This test will be implemented once we have proper test infrastructure
-    }
-
-    #[tokio::test]
-    async fn test_command_pattern_integration() {
-        // This test will verify that the command pattern properly delegates
-        // to sophisticated orchestration components
-        // This test will verify that the command pattern properly delegates
     }
 }

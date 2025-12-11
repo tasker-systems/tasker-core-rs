@@ -316,9 +316,22 @@ impl WorkerCore {
             command_buffer_size,
         );
 
-        // TAS-67: Create dispatch config for non-blocking handler invocation
-        // TODO: Pull from worker config when handler_dispatch config types are added
-        let dispatch_config = super::actors::DispatchModeConfig::default();
+        // TAS-67/TAS-75: Create dispatch config from TOML configuration
+        let handler_dispatch_config = &worker_config.mpsc_channels.handler_dispatch;
+        let dispatch_config = super::actors::DispatchModeConfig {
+            dispatch_buffer_size: handler_dispatch_config.dispatch_buffer_size as usize,
+            completion_buffer_size: handler_dispatch_config.completion_buffer_size as usize,
+            max_concurrent_handlers: handler_dispatch_config.max_concurrent_handlers as usize,
+            load_shedding: super::handlers::LoadSheddingConfig {
+                enabled: handler_dispatch_config.load_shedding.enabled,
+                capacity_threshold_percent: handler_dispatch_config
+                    .load_shedding
+                    .capacity_threshold_percent,
+                warning_threshold_percent: handler_dispatch_config
+                    .load_shedding
+                    .warning_threshold_percent,
+            },
+        };
 
         // TAS-69: Create ActorCommandProcessor with all dependencies upfront
         // TAS-67: Dispatch is now the only execution path (no fallback)

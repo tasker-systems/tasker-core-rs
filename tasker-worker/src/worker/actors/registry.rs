@@ -15,7 +15,7 @@ use std::fmt;
 use std::sync::Arc;
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::{system_context::SystemContext, TaskerResult};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 
 use super::messages::DispatchHandlerMessage;
 use super::traits::WorkerActor;
@@ -24,18 +24,25 @@ use super::{
 };
 use crate::worker::event_publisher::WorkerEventPublisher;
 use crate::worker::event_systems::domain_event_system::DomainEventSystemHandle;
+use crate::worker::handlers::{CapacityChecker, LoadSheddingConfig};
 use crate::worker::task_template_manager::TaskTemplateManager;
 
 /// TAS-67: Configuration for dispatch mode
 ///
 /// When dispatch mode is enabled, the registry creates channels for non-blocking
 /// handler invocation.
+///
+/// TAS-75: Extended with load shedding configuration for capacity-based claim refusal.
 #[derive(Debug, Clone)]
 pub struct DispatchModeConfig {
     /// Buffer size for dispatch channel (from StepExecutorActor to HandlerDispatchService)
     pub dispatch_buffer_size: usize,
     /// Buffer size for completion channel (from HandlerDispatchService to CompletionProcessor)
     pub completion_buffer_size: usize,
+    /// Maximum concurrent handler executions (semaphore permits)
+    pub max_concurrent_handlers: usize,
+    /// TAS-75: Load shedding configuration
+    pub load_shedding: LoadSheddingConfig,
 }
 
 impl Default for DispatchModeConfig {
@@ -43,11 +50,16 @@ impl Default for DispatchModeConfig {
         Self {
             dispatch_buffer_size: 1000,
             completion_buffer_size: 1000,
+            max_concurrent_handlers: 10,
+            load_shedding: LoadSheddingConfig::default(),
         }
     }
 }
 
 /// TAS-67: Dispatch channels for non-blocking handler invocation
+///
+/// TAS-75: Extended with shared semaphore for load shedding coordination between
+/// StepExecutorActor (capacity checking) and HandlerDispatchService (execution bounding).
 pub struct DispatchChannels {
     /// Receiver for dispatch messages (consumed by HandlerDispatchService)
     pub dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
@@ -57,6 +69,12 @@ pub struct DispatchChannels {
     pub completion_receiver: mpsc::Receiver<StepExecutionResult>,
     /// Sender for completion results (used by HandlerDispatchService)
     pub completion_sender: mpsc::Sender<StepExecutionResult>,
+    /// TAS-75: Shared semaphore for handler execution bounding (used by HandlerDispatchService)
+    pub handler_semaphore: Arc<Semaphore>,
+    /// TAS-75: Maximum concurrent handlers (for HandlerDispatchService to reference)
+    pub max_concurrent_handlers: usize,
+    /// TAS-75: Load shedding configuration (for HandlerDispatchService to reference)
+    pub load_shedding_config: LoadSheddingConfig,
 }
 
 impl fmt::Debug for DispatchChannels {
@@ -72,6 +90,15 @@ impl fmt::Debug for DispatchChannels {
                 "completion_receiver",
                 &"mpsc::Receiver<StepExecutionResult>",
             )
+            .field(
+                "handler_semaphore",
+                &format!(
+                    "Arc<Semaphore>(available={})",
+                    self.handler_semaphore.available_permits()
+                ),
+            )
+            .field("max_concurrent_handlers", &self.max_concurrent_handlers)
+            .field("load_shedding_config", &self.load_shedding_config)
             .finish()
     }
 }
@@ -185,7 +212,9 @@ impl WorkerActorRegistry {
             worker_id = %worker_id,
             dispatch_buffer_size = dispatch_config.dispatch_buffer_size,
             completion_buffer_size = dispatch_config.completion_buffer_size,
-            "Building WorkerActorRegistry with dispatch"
+            max_concurrent_handlers = dispatch_config.max_concurrent_handlers,
+            load_shedding_enabled = dispatch_config.load_shedding.enabled,
+            "Building WorkerActorRegistry with dispatch and load shedding"
         );
 
         // Create dispatch channels
@@ -194,7 +223,22 @@ impl WorkerActorRegistry {
         let (completion_sender, completion_receiver) =
             mpsc::channel(dispatch_config.completion_buffer_size);
 
+        // TAS-75: Create shared semaphore for handler execution bounding
+        // This semaphore is shared between:
+        // - StepExecutorActor (via CapacityChecker for claim-time load shedding)
+        // - HandlerDispatchService (for execution-time concurrency bounding)
+        let handler_semaphore = Arc::new(Semaphore::new(dispatch_config.max_concurrent_handlers));
+
+        // TAS-75: Create CapacityChecker for load shedding
+        let capacity_checker = CapacityChecker::new(
+            handler_semaphore.clone(),
+            dispatch_config.max_concurrent_handlers,
+            dispatch_config.load_shedding.clone(),
+            format!("{}-capacity", worker_id),
+        );
+
         // Create actors - StepExecutorActor requires dispatch_sender
+        // TAS-75: Wire in CapacityChecker for load shedding
         let mut step_executor_actor = StepExecutorActor::new(
             context.clone(),
             worker_id.clone(),
@@ -202,7 +246,8 @@ impl WorkerActorRegistry {
             event_publisher,
             domain_event_handle,
             dispatch_sender.clone(),
-        );
+        )
+        .with_capacity_checker(capacity_checker);
 
         let mut ffi_completion_actor = FFICompletionActor::new(context.clone(), worker_id.clone());
 
@@ -223,7 +268,9 @@ impl WorkerActorRegistry {
 
         tracing::info!(
             worker_id = %worker_id,
-            "WorkerActorRegistry built successfully (5 actors)"
+            load_shedding_enabled = dispatch_config.load_shedding.enabled,
+            capacity_threshold = dispatch_config.load_shedding.capacity_threshold_percent,
+            "WorkerActorRegistry built successfully (5 actors, load shedding wired)"
         );
 
         let registry = Self {
@@ -236,11 +283,16 @@ impl WorkerActorRegistry {
             worker_status_actor: Arc::new(worker_status_actor),
         };
 
+        // TAS-75: Include shared semaphore and config in DispatchChannels
+        // HandlerDispatchService should use this semaphore instead of creating its own
         let channels = DispatchChannels {
             dispatch_receiver,
             dispatch_sender,
             completion_receiver,
             completion_sender,
+            handler_semaphore,
+            max_concurrent_handlers: dispatch_config.max_concurrent_handlers,
+            load_shedding_config: dispatch_config.load_shedding,
         };
 
         Ok((registry, channels))
@@ -336,9 +388,11 @@ mod tests {
             create_test_deps(&worker_id, context.message_client.clone());
 
         // TAS-67: dispatch_config is now required
+        // TAS-75: Extended with load shedding config
         let dispatch_config = DispatchModeConfig {
             dispatch_buffer_size: 100,
             completion_buffer_size: 100,
+            ..Default::default()
         };
 
         let result = WorkerActorRegistry::build(
@@ -352,8 +406,14 @@ mod tests {
         .await;
 
         assert!(result.is_ok(), "Registry should build successfully");
-        let (registry, _channels) = result.unwrap();
+        let (registry, channels) = result.unwrap();
         assert_eq!(registry.worker_id(), worker_id);
+
+        // TAS-75: Verify load shedding infrastructure is wired
+        assert!(
+            channels.handler_semaphore.available_permits() > 0,
+            "Handler semaphore should have permits"
+        );
     }
 
     #[test]
@@ -384,9 +444,11 @@ mod tests {
             create_test_deps(&worker_id, context.message_client.clone());
 
         // TAS-67: dispatch_config is now required
+        // TAS-75: Extended with load shedding config
         let dispatch_config = DispatchModeConfig {
             dispatch_buffer_size: 100,
             completion_buffer_size: 100,
+            ..Default::default()
         };
 
         let (mut registry, _channels) = WorkerActorRegistry::build(
@@ -420,9 +482,11 @@ mod tests {
             create_test_deps(&worker_id, context.message_client.clone());
 
         // TAS-67: dispatch_config is now required
+        // TAS-75: Extended with load shedding config
         let dispatch_config = DispatchModeConfig {
             dispatch_buffer_size: 100,
             completion_buffer_size: 100,
+            ..Default::default()
         };
 
         let (registry, _channels) = WorkerActorRegistry::build(

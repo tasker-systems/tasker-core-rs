@@ -107,3 +107,88 @@ pub struct WorkerSystemInfo {
     pub command_processor_active: bool,
     pub supported_namespaces: Vec<String>,
 }
+
+// =============================================================================
+// Circuit Breaker Types (TAS-75)
+// =============================================================================
+
+/// Circuit breaker state as string for API responses
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CircuitBreakerState {
+    /// Normal operation - all calls allowed
+    Closed,
+    /// Failure mode - calls fail fast
+    Open,
+    /// Testing recovery - limited calls allowed
+    HalfOpen,
+}
+
+impl std::fmt::Display for CircuitBreakerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CircuitBreakerState::Closed => write!(f, "closed"),
+            CircuitBreakerState::Open => write!(f, "open"),
+            CircuitBreakerState::HalfOpen => write!(f, "half_open"),
+        }
+    }
+}
+
+/// Circuit breaker health status for API responses
+///
+/// TAS-75: Provides visibility into circuit breaker state for monitoring and alerting.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitBreakerStatus {
+    /// Circuit breaker name/identifier
+    pub name: String,
+    /// Current state of the circuit
+    pub state: CircuitBreakerState,
+    /// Whether the circuit is allowing calls (closed or half-open with capacity)
+    pub is_healthy: bool,
+    /// Total successful operations
+    pub success_count: u64,
+    /// Total failed operations
+    pub failure_count: u64,
+    /// Current consecutive failure count
+    pub consecutive_failures: u64,
+    /// Total calls through the circuit
+    pub total_calls: u64,
+    /// Number of rejections due to circuit being open
+    pub circuit_open_rejections: u64,
+    /// Additional metrics specific to the circuit breaker type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_metrics: Option<HashMap<String, serde_json::Value>>,
+}
+
+impl Default for CircuitBreakerStatus {
+    fn default() -> Self {
+        Self {
+            name: "unknown".to_string(),
+            state: CircuitBreakerState::Closed,
+            is_healthy: true,
+            success_count: 0,
+            failure_count: 0,
+            consecutive_failures: 0,
+            total_calls: 0,
+            circuit_open_rejections: 0,
+            additional_metrics: None,
+        }
+    }
+}
+
+/// Aggregated circuit breaker health for worker
+///
+/// TAS-75: Provides summary of all circuit breakers in the worker.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CircuitBreakersHealth {
+    /// Overall health (true if all circuit breakers are healthy)
+    pub all_healthy: bool,
+    /// Number of circuit breakers in closed state
+    pub closed_count: usize,
+    /// Number of circuit breakers in open state
+    pub open_count: usize,
+    /// Number of circuit breakers in half-open state
+    pub half_open_count: usize,
+    /// Individual circuit breaker statuses
+    pub circuit_breakers: Vec<CircuitBreakerStatus>,
+}

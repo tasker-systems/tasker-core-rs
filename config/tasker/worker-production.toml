@@ -1,6 +1,6 @@
 # Tasker Configuration - worker Context
 # Environment: production
-# Generated: 2025-11-28T12:47:32.492283+00:00
+# Generated: 2025-12-11T11:48:05.706944+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -118,6 +118,11 @@ max_retries = 3
 poll_interval_ms = 500
 shutdown_timeout_seconds = 10
 
+[common.queues.pgmq.queue_depth_thresholds]
+critical_threshold = 5000
+overflow_threshold = 10000
+warning_threshold = 1000
+
 [common.queues.rabbitmq]
 connection_timeout_seconds = 30
 
@@ -137,6 +142,12 @@ service_name = "tasker-core"
 [worker]
 worker_id = "prod-worker-001"
 worker_type = "general"
+
+[worker.circuit_breakers.ffi_completion_send]
+failure_threshold = 5
+recovery_timeout_seconds = 5
+slow_send_threshold_ms = 100
+success_threshold = 2
 
 [worker.event_systems.worker]
 deployment_mode = "Hybrid"
@@ -215,8 +226,28 @@ result_buffer_size = 1000
 [worker.mpsc_channels.event_systems]
 event_channel_buffer_size = 5000
 
+[worker.mpsc_channels.ffi_dispatch]
+callback_timeout_ms = 10000
+completion_send_timeout_ms = 10000
+completion_timeout_ms = 60000
+dispatch_buffer_size = 5000
+starvation_warning_threshold_ms = 10000
+
+[worker.mpsc_channels.handler_dispatch]
+completion_buffer_size = 5000
+dispatch_buffer_size = 5000
+handler_timeout_ms = 60000
+max_concurrent_handlers = 50
+
+[worker.mpsc_channels.handler_dispatch.load_shedding]
+capacity_threshold_percent = 80.0
+enabled = true
+warning_threshold_percent = 70.0
+
 [worker.mpsc_channels.in_process_events]
 broadcast_buffer_size = 5000
+dispatch_timeout_ms = 10000
+log_subscriber_errors = false
 
 [worker.orchestration_client]
 base_url = "http://orchestration:8080"

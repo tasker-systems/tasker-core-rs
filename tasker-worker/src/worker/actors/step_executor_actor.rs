@@ -22,6 +22,7 @@
 //! Handler invocation and completion processing are handled by separate services.
 //! There is no fallback path - dispatch is the only execution mechanism.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -40,6 +41,7 @@ use super::messages::{
 use super::traits::{Handler, Message, WorkerActor};
 use crate::worker::event_publisher::WorkerEventPublisher;
 use crate::worker::event_systems::domain_event_system::DomainEventSystemHandle;
+use crate::worker::handlers::CapacityChecker;
 use crate::worker::services::StepExecutorService;
 use crate::worker::step_claim::StepClaim;
 use crate::worker::task_template_manager::TaskTemplateManager;
@@ -64,6 +66,12 @@ use crate::worker::task_template_manager::TaskTemplateManager;
 /// - Completion flows back through a separate channel
 ///
 /// The dispatch channel is REQUIRED - there is no fallback path.
+///
+/// ## TAS-75: Load Shedding Integration
+///
+/// When a `CapacityChecker` is provided, the actor checks handler capacity
+/// before claiming steps. If capacity is exhausted, the step is not claimed
+/// and will be retried later via PGMQ visibility timeout.
 pub struct StepExecutorActor {
     context: Arc<SystemContext>,
     service: Arc<StepExecutorService>,
@@ -71,6 +79,10 @@ pub struct StepExecutorActor {
     dispatch_sender: mpsc::Sender<DispatchHandlerMessage>,
     /// TAS-67: Task template manager for hydrating step context
     task_template_manager: Arc<TaskTemplateManager>,
+    /// TAS-75: Optional capacity checker for load shedding
+    capacity_checker: Option<CapacityChecker>,
+    /// TAS-75: Counter for steps refused due to capacity limits
+    claims_refused: Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for StepExecutorActor {
@@ -79,6 +91,11 @@ impl std::fmt::Debug for StepExecutorActor {
             .field("context", &"Arc<SystemContext>")
             .field("service", &"Arc<StepExecutorService>")
             .field("dispatch_sender", &"mpsc::Sender")
+            .field("capacity_checker", &self.capacity_checker.is_some())
+            .field(
+                "claims_refused",
+                &self.claims_refused.load(Ordering::Relaxed),
+            )
             .finish()
     }
 }
@@ -119,6 +136,36 @@ impl StepExecutorActor {
             service: Arc::new(service),
             dispatch_sender,
             task_template_manager,
+            capacity_checker: None,
+            claims_refused: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// TAS-75: Set the capacity checker for load shedding
+    ///
+    /// When set, the actor will check handler capacity before claiming steps.
+    /// Steps are refused (not claimed) when capacity is exhausted, allowing
+    /// the PGMQ visibility timeout to retry them later.
+    #[must_use]
+    pub fn with_capacity_checker(mut self, checker: CapacityChecker) -> Self {
+        self.capacity_checker = Some(checker);
+        self
+    }
+
+    /// TAS-75: Get the number of step claims refused due to capacity limits
+    ///
+    /// This metric is useful for monitoring load shedding effectiveness.
+    pub fn claims_refused_count(&self) -> u64 {
+        self.claims_refused.load(Ordering::Relaxed)
+    }
+
+    /// TAS-75: Check if we have capacity to process more steps
+    ///
+    /// Returns (has_capacity, utilization_percent)
+    fn check_capacity(&self) -> (bool, f64) {
+        match &self.capacity_checker {
+            Some(checker) => checker.has_capacity(),
+            None => (true, 0.0), // No checker = unlimited capacity
         }
     }
 
@@ -139,12 +186,14 @@ impl StepExecutorActor {
     /// TAS-67: Claim step and dispatch to handler channel (non-blocking)
     ///
     /// This method:
-    /// 1. Hydrates step context from database
-    /// 2. Claims the step via state machine
-    /// 3. Sends DispatchHandlerMessage to dispatch channel (fire-and-forget)
-    /// 4. Returns immediately
+    /// 1. TAS-75: Checks handler capacity (if capacity checker configured)
+    /// 2. Hydrates step context from database
+    /// 3. Claims the step via state machine
+    /// 4. Sends DispatchHandlerMessage to dispatch channel (fire-and-forget)
+    /// 5. Returns immediately
     ///
     /// Returns true if step was claimed and dispatched, false if not claimed.
+    /// TAS-75: Also returns false if capacity is exhausted (load shedding).
     async fn claim_and_dispatch(
         &self,
         step_uuid: Uuid,
@@ -152,6 +201,21 @@ impl StepExecutorActor {
         correlation_id: Uuid,
         trace_context: Option<TraceContext>,
     ) -> TaskerResult<bool> {
+        // TAS-75: Check capacity before claiming step
+        let (has_capacity, utilization) = self.check_capacity();
+        if !has_capacity {
+            self.claims_refused.fetch_add(1, Ordering::Relaxed);
+            debug!(
+                actor = "StepExecutorActor",
+                step_uuid = %step_uuid,
+                utilization_percent = utilization,
+                claims_refused = self.claims_refused.load(Ordering::Relaxed),
+                "Step claim refused - handler capacity exhausted (load shedding)"
+            );
+            // Return false without claiming - PGMQ visibility timeout will retry
+            return Ok(false);
+        }
+
         // Create step claim helper
         let step_claimer = StepClaim::new(
             task_uuid,
@@ -540,5 +604,175 @@ mod tests {
     fn test_step_executor_actor_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<StepExecutorActor>();
+    }
+
+    // TAS-75: Tests for capacity checking and load shedding integration
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_capacity_checker_builder(pool: sqlx::PgPool) {
+        use crate::worker::handlers::{CapacityChecker, LoadSheddingConfig};
+        use tokio::sync::Semaphore;
+
+        let context = Arc::new(
+            SystemContext::with_pool(pool)
+                .await
+                .expect("Failed to create context"),
+        );
+
+        let task_template_manager = Arc::new(TaskTemplateManager::new(
+            context.task_handler_registry.clone(),
+        ));
+
+        let event_publisher = WorkerEventPublisher::new("test_worker".to_string());
+        let domain_publisher = Arc::new(DomainEventPublisher::new(context.message_client.clone()));
+        let in_process_bus = Arc::new(RwLock::new(InProcessEventBus::new(
+            InProcessEventBusConfig::default(),
+        )));
+        let event_router = Arc::new(EventRouter::new(domain_publisher, in_process_bus));
+        let (_domain_event_system, domain_event_handle) =
+            DomainEventSystem::new(event_router, DomainEventSystemConfig::default());
+        let (dispatch_sender, _dispatch_receiver) = mpsc::channel(100);
+
+        // Create actor without capacity checker
+        let actor = StepExecutorActor::new(
+            context.clone(),
+            "test_worker".to_string(),
+            task_template_manager,
+            event_publisher,
+            domain_event_handle,
+            dispatch_sender,
+        );
+
+        // Verify no capacity checker initially
+        let (has_capacity, utilization) = actor.check_capacity();
+        assert!(has_capacity, "Should have capacity without checker");
+        assert!(
+            (utilization - 0.0).abs() < f64::EPSILON,
+            "Should report 0% utilization without checker"
+        );
+
+        // Add capacity checker
+        let semaphore = Arc::new(Semaphore::new(10));
+        let capacity_checker = CapacityChecker::new(
+            semaphore,
+            10,
+            LoadSheddingConfig::default(),
+            "test-service".to_string(),
+        );
+        let actor = actor.with_capacity_checker(capacity_checker);
+
+        // Verify capacity checker is now active
+        let (has_capacity, _) = actor.check_capacity();
+        assert!(has_capacity, "Should have capacity with available permits");
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_claims_refused_counter(pool: sqlx::PgPool) {
+        use crate::worker::handlers::{CapacityChecker, LoadSheddingConfig};
+        use tokio::sync::Semaphore;
+
+        let context = Arc::new(
+            SystemContext::with_pool(pool)
+                .await
+                .expect("Failed to create context"),
+        );
+
+        let task_template_manager = Arc::new(TaskTemplateManager::new(
+            context.task_handler_registry.clone(),
+        ));
+
+        let event_publisher = WorkerEventPublisher::new("test_worker".to_string());
+        let domain_publisher = Arc::new(DomainEventPublisher::new(context.message_client.clone()));
+        let in_process_bus = Arc::new(RwLock::new(InProcessEventBus::new(
+            InProcessEventBusConfig::default(),
+        )));
+        let event_router = Arc::new(EventRouter::new(domain_publisher, in_process_bus));
+        let (_domain_event_system, domain_event_handle) =
+            DomainEventSystem::new(event_router, DomainEventSystemConfig::default());
+        let (dispatch_sender, _dispatch_receiver) = mpsc::channel(100);
+
+        // Create capacity checker at capacity (0 available permits = 100% usage)
+        let semaphore = Arc::new(Semaphore::new(0)); // No permits = at capacity
+        let config = LoadSheddingConfig {
+            enabled: true,
+            capacity_threshold_percent: 80.0, // Refuse above 80%
+            warning_threshold_percent: 70.0,
+        };
+        let capacity_checker = CapacityChecker::new(
+            semaphore,
+            10, // max_concurrent = 10, but 0 available = 100% usage
+            config,
+            "test-service".to_string(),
+        );
+
+        let actor = StepExecutorActor::new(
+            context.clone(),
+            "test_worker".to_string(),
+            task_template_manager,
+            event_publisher,
+            domain_event_handle,
+            dispatch_sender,
+        )
+        .with_capacity_checker(capacity_checker);
+
+        // Initial count should be 0
+        assert_eq!(
+            actor.claims_refused_count(),
+            0,
+            "Initial refusal count should be 0"
+        );
+
+        // Simulate capacity check (would refuse)
+        let (has_capacity, utilization) = actor.check_capacity();
+        assert!(
+            !has_capacity,
+            "Should not have capacity at 100% utilization"
+        );
+        assert!(
+            (utilization - 100.0).abs() < f64::EPSILON,
+            "Should be at 100% utilization"
+        );
+
+        // Manually increment to test counter (claim_and_dispatch would do this)
+        actor.claims_refused.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(actor.claims_refused_count(), 1, "Refusal count should be 1");
+
+        actor.claims_refused.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(actor.claims_refused_count(), 2, "Refusal count should be 2");
+    }
+
+    #[test]
+    fn test_load_shedding_config_defaults() {
+        use crate::worker::handlers::LoadSheddingConfig;
+
+        let config = LoadSheddingConfig::default();
+        assert!(config.enabled, "Load shedding should be enabled by default");
+        assert!((config.capacity_threshold_percent - 80.0).abs() < f64::EPSILON);
+        assert!((config.warning_threshold_percent - 70.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_capacity_checker_with_disabled_load_shedding() {
+        use crate::worker::handlers::{CapacityChecker, LoadSheddingConfig};
+        use tokio::sync::Semaphore;
+
+        let semaphore = Arc::new(Semaphore::new(0)); // No permits
+        let config = LoadSheddingConfig {
+            enabled: false, // Disabled
+            capacity_threshold_percent: 80.0,
+            warning_threshold_percent: 70.0,
+        };
+        let checker = CapacityChecker::new(semaphore, 10, config, "test".to_string());
+
+        // Even at 100% usage, should report capacity available when disabled
+        let (has_capacity, utilization) = checker.has_capacity();
+        assert!(
+            has_capacity,
+            "Should have capacity when load shedding disabled"
+        );
+        assert!(
+            (utilization - 0.0).abs() < f64::EPSILON,
+            "Should report 0% when disabled"
+        );
     }
 }
