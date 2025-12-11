@@ -38,6 +38,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Free up disk space
+        uses: ./.github/actions/free-disk-space
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -174,6 +177,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Free up disk space
+        uses: ./.github/actions/free-disk-space
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -338,6 +344,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Free up disk space
+        uses: ./.github/actions/free-disk-space
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -363,14 +372,8 @@ jobs:
         with:
           tools: "nextest"
 
-      - name: Free up disk space
-        run: |
-          echo "🧹 Freeing up disk space before Docker builds..."
-          docker system prune -af --volumes
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      - name: Clean Docker resources
+        run: docker system prune -af --volumes
 
       - name: Build and start Docker services
         run: |
