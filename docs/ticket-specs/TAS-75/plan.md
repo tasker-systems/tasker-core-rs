@@ -1,7 +1,7 @@
 # TAS-75: Backpressure Consistency Investigation
 
 **Date**: 2025-12-08
-**Status**: In Progress (Phase 1 ✅, Phase 2 ✅, Phase 2b ✅, Phase 3 ✅, Phase 4 Infrastructure ✅, Phase 5d ✅)
+**Status**: In Progress (Phase 1 ✅, Phase 2 ✅, Phase 2b ✅, Phase 3 ✅, Phase 4 ✅, Phase 5d ✅)
 **Branch**: `jcoletaylor/tas-67-rust-worker-dual-event-system`
 **Priority**: High
 **Dependencies**: TAS-51 (MPSC Channels), TAS-67 (Worker Dual Event System)
@@ -393,7 +393,7 @@ Step Execution Idempotency Contract:
 - `BackpressureChecker::compute_backpressure()`: Returns 503 at Critical/Overflow tier
 - Health endpoint exposes queue depth status via `BackpressureMetrics`
 
-### Phase 4: Worker Load Shedding (Infrastructure Complete, Production Wiring Pending)
+### Phase 4: Worker Load Shedding ✅ COMPLETE
 
 **Goal**: Enable workers to refuse work when overloaded
 
@@ -402,7 +402,7 @@ Step Execution Idempotency Contract:
 | Add capacity check before step claiming | Medium | High | ✅ Done (`StepExecutorActor::claim_and_dispatch`) |
 | Implement claim refusal metrics | Low | High | ✅ Done (`claims_refused` counter) |
 | Add configurable claim threshold | Low | Medium | ✅ Done (`LoadSheddingConfig`) |
-| Wire CapacityChecker into WorkerActorRegistry | Low | High | **Pending** |
+| Wire CapacityChecker into WorkerActorRegistry | Low | High | ✅ Done |
 | Document worker load shedding patterns | Low | Medium | Planned |
 
 **Implementation Details (TAS-75 Phase 4)**:
@@ -412,10 +412,12 @@ Step Execution Idempotency Contract:
 - `claim_and_dispatch()` (lines 204-217): Checks capacity, refuses claim if exhausted
 - `claims_refused` counter: Tracks load shedding events for metrics
 
-**Critical Gap**: `WorkerActorRegistry::build()` creates `StepExecutorActor::new()` but does NOT call `.with_capacity_checker()`. The infrastructure is complete but effectively disabled in production. Wiring requires:
-1. Add `CapacityChecker` to `WorkerActorRegistry::build()` parameters
-2. Create checker from `HandlerDispatchService`'s semaphore + config
-3. Call `step_executor_actor.with_capacity_checker(checker)` before `Arc::new()`
+**Production Wiring (Completed)**:
+- `WorkerActorRegistry::build()` now creates `CapacityChecker` from shared semaphore
+- `DispatchChannels` exposes shared semaphore via `shared_semaphore()` method
+- `StepExecutorActor` wired with `with_capacity_checker()` during registry build
+- `HandlerDispatchService` uses shared semaphore via `with_semaphore()` constructor
+- Load shedding is now active in production when `max_concurrent_handlers` threshold is reached
 
 ### Phase 5: Circuit Breaker Expansion
 

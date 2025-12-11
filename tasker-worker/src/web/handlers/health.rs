@@ -13,7 +13,7 @@ use tracing::{debug, error, warn};
 
 use crate::web::state::WorkerWebState;
 use tasker_shared::types::api::worker::{
-    BasicHealthResponse, DetailedHealthResponse, HealthCheck, WorkerSystemInfo,
+    BasicHealthResponse, CircuitBreakerState, DetailedHealthResponse, HealthCheck, WorkerSystemInfo,
 };
 use tasker_shared::types::web::*;
 
@@ -128,6 +128,12 @@ pub async fn detailed_health_check(
     checks.insert(
         "step_processing".to_string(),
         check_step_processing_health(&state).await,
+    );
+
+    // TAS-75: Add circuit breaker health check
+    checks.insert(
+        "circuit_breakers".to_string(),
+        check_circuit_breaker_health(&state),
     );
 
     // Determine overall status
@@ -339,5 +345,82 @@ async fn create_system_info(state: &WorkerWebState) -> WorkerSystemInfo {
             crate::worker::core::WorkerCoreStatus::Running
         ),
         supported_namespaces: worker_core.supported_namespaces().await,
+    }
+}
+
+/// TAS-75: Check circuit breaker health
+///
+/// Returns health status of all circuit breakers in the worker.
+/// Circuit breakers protect against cascading failures in:
+/// - FFI completion channel sends (latency-based)
+/// - Task readiness polling (database availability)
+fn check_circuit_breaker_health(state: &WorkerWebState) -> HealthCheck {
+    let start = std::time::Instant::now();
+
+    // Get circuit breaker health from the provider (if configured)
+    let cb_health = state.circuit_breakers_health();
+
+    // Determine status based on circuit breaker states
+    let status = if !state.has_circuit_breaker_provider() {
+        // No circuit breaker provider configured - still healthy (just no CB data)
+        "healthy"
+    } else if cb_health.all_healthy {
+        "healthy"
+    } else if cb_health.open_count > 0 {
+        // At least one circuit breaker is open - unhealthy
+        "unhealthy"
+    } else {
+        // Some circuit breakers in half-open (testing recovery)
+        "degraded"
+    };
+
+    // Build descriptive message
+    let message = if !state.has_circuit_breaker_provider() {
+        "No circuit breakers configured".to_string()
+    } else {
+        let cb_details: Vec<String> = cb_health
+            .circuit_breakers
+            .iter()
+            .map(|cb| {
+                format!(
+                    "{}: {} ({} calls, {} failures)",
+                    cb.name, cb.state, cb.total_calls, cb.failure_count
+                )
+            })
+            .collect();
+
+        if cb_details.is_empty() {
+            "No circuit breakers registered".to_string()
+        } else {
+            format!(
+                "{} circuit breakers: {} closed, {} open, {} half-open. Details: {}",
+                cb_health.circuit_breakers.len(),
+                cb_health.closed_count,
+                cb_health.open_count,
+                cb_health.half_open_count,
+                cb_details.join("; ")
+            )
+        }
+    };
+
+    // Log warnings for unhealthy circuit breakers
+    if cb_health.open_count > 0 {
+        for cb in &cb_health.circuit_breakers {
+            if cb.state == CircuitBreakerState::Open {
+                warn!(
+                    circuit_breaker = %cb.name,
+                    failure_count = cb.failure_count,
+                    consecutive_failures = cb.consecutive_failures,
+                    "Circuit breaker is OPEN - failing fast"
+                );
+            }
+        }
+    }
+
+    HealthCheck {
+        status: status.to_string(),
+        message: Some(message),
+        duration_ms: start.elapsed().as_millis() as u64,
+        last_checked: Utc::now(),
     }
 }

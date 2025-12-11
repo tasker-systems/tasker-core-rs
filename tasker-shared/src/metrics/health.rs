@@ -124,7 +124,9 @@ pub fn queue_depth_current() -> Gauge<i64> {
 pub fn queue_depth_tier() -> Gauge<u64> {
     meter()
         .u64_gauge("tasker.health.queue_depth.tier")
-        .with_description("Current queue depth tier (0=Unknown, 1=Normal, 2=Warning, 3=Critical, 4=Overflow)")
+        .with_description(
+            "Current queue depth tier (0=Unknown, 1=Normal, 2=Warning, 3=Critical, 4=Overflow)",
+        )
         .build()
 }
 

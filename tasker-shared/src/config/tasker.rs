@@ -1749,9 +1749,61 @@ pub struct WorkerConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub web: Option<WorkerWebConfig>,
+
+    /// Circuit breakers configuration
+    #[validate(nested)]
+    #[builder(default)]
+    pub circuit_breakers: WorkerCircuitBreakersConfig,
 }
 
 impl_builder_default!(WorkerConfig);
+
+/// Worker circuit breakers configuration
+///
+/// TAS-75 Phase 5a: Configuration for worker-specific circuit breakers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerCircuitBreakersConfig {
+    /// FFI completion send circuit breaker (latency-based)
+    #[validate(nested)]
+    #[builder(default)]
+    pub ffi_completion_send: FfiCompletionSendCircuitBreakerConfig,
+}
+
+impl_builder_default!(WorkerCircuitBreakersConfig);
+
+/// FFI completion send circuit breaker configuration
+///
+/// TAS-75 Phase 5a: Latency-based circuit breaker for FFI completion channel sends.
+/// Unlike error-based circuit breakers, this breaker treats slow sends as failures.
+/// A send that takes > `slow_send_threshold_ms` counts toward opening the circuit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct FfiCompletionSendCircuitBreakerConfig {
+    /// Number of slow/failed sends before circuit opens
+    #[validate(range(min = 1, max = 100))]
+    #[builder(default = 5)]
+    pub failure_threshold: u32,
+
+    /// How long circuit stays open before testing recovery (seconds)
+    /// Short because channel recovery should be fast once backpressure clears
+    #[validate(range(min = 1, max = 300))]
+    #[builder(default = 5)]
+    pub recovery_timeout_seconds: u32,
+
+    /// Successful fast sends needed in half-open to close circuit
+    #[validate(range(min = 1, max = 100))]
+    #[builder(default = 2)]
+    pub success_threshold: u32,
+
+    /// Send latency above this threshold (ms) counts as "slow" (failure)
+    /// Healthy sends should complete in single-digit milliseconds
+    #[validate(range(min = 10, max = 10000))]
+    #[builder(default = 100)]
+    pub slow_send_threshold_ms: u32,
+}
+
+impl_builder_default!(FfiCompletionSendCircuitBreakerConfig);
 
 /// Worker event systems configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -2569,6 +2621,7 @@ mod tests {
                     log_dropped_events: true,
                 },
             },
+            circuit_breakers: WorkerCircuitBreakersConfig::default(),
             web: None,
             orchestration_client: Some(OrchestrationClientConfig::default()),
         }

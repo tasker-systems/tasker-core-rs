@@ -13,6 +13,7 @@ use tasker_shared::{
     config::tasker::TaskerConfig,
     errors::TaskerResult,
     messaging::clients::UnifiedMessageClient,
+    types::api::worker::CircuitBreakersHealth,
     types::base::CacheStats,
     types::web::{
         DomainEventStats, EventRouterStats as WebEventRouterStats,
@@ -94,6 +95,10 @@ pub struct WorkerWebState {
     /// TAS-65: In-process event bus for domain event stats (cached to avoid mutex lock)
     in_process_bus: Arc<TokioRwLock<InProcessEventBus>>,
 
+    /// TAS-75: Circuit breaker health provider (injected from FFI layer)
+    /// This is set by the Ruby/Python worker binary when it creates the FfiDispatchChannel
+    circuit_breaker_health_provider: Option<Arc<dyn CircuitBreakerHealthProvider>>,
+
     /// Web API configuration
     pub config: WorkerWebConfig,
 
@@ -105,6 +110,15 @@ pub struct WorkerWebState {
 
     /// Cached worker ID (to avoid locking mutex on every status check)
     worker_id: String,
+}
+
+/// TAS-75: Trait for providing circuit breaker health information
+///
+/// This trait allows FFI workers (Ruby/Python) to inject their circuit breaker
+/// health information into the worker web state without exposing implementation details.
+pub trait CircuitBreakerHealthProvider: Send + Sync + std::fmt::Debug {
+    /// Get the current circuit breaker health status
+    fn get_circuit_breakers_health(&self) -> CircuitBreakersHealth;
 }
 
 impl WorkerWebState {
@@ -157,11 +171,47 @@ impl WorkerWebState {
             task_template_manager,
             event_router,
             in_process_bus,
+            circuit_breaker_health_provider: None,
             config,
             start_time: Instant::now(),
             system_config,
             worker_id,
         })
+    }
+
+    /// TAS-75: Set the circuit breaker health provider
+    ///
+    /// Called by FFI workers (Ruby/Python) to inject their circuit breaker health
+    /// information. This should be called after the worker binary creates its
+    /// `FfiDispatchChannel` with circuit breaker.
+    pub fn set_circuit_breaker_health_provider(
+        &mut self,
+        provider: Arc<dyn CircuitBreakerHealthProvider>,
+    ) {
+        info!("Circuit breaker health provider set");
+        self.circuit_breaker_health_provider = Some(provider);
+    }
+
+    /// TAS-75: Get the circuit breaker health status
+    ///
+    /// Returns the current health of all circuit breakers in the worker.
+    /// If no provider is set, returns a default (empty) health status.
+    pub fn circuit_breakers_health(&self) -> CircuitBreakersHealth {
+        self.circuit_breaker_health_provider
+            .as_ref()
+            .map(|p| p.get_circuit_breakers_health())
+            .unwrap_or_else(|| CircuitBreakersHealth {
+                all_healthy: true,
+                closed_count: 0,
+                open_count: 0,
+                half_open_count: 0,
+                circuit_breakers: Vec::new(),
+            })
+    }
+
+    /// TAS-75: Check if a circuit breaker health provider is configured
+    pub fn has_circuit_breaker_provider(&self) -> bool {
+        self.circuit_breaker_health_provider.is_some()
     }
 
     /// Get the uptime in seconds since the worker started

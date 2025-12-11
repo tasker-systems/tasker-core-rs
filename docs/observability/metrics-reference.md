@@ -13,6 +13,7 @@ This document provides a complete reference for all OpenTelemetry metrics instru
 - [Configuration](#configuration)
 - [Orchestration Metrics](#orchestration-metrics)
 - [Worker Metrics](#worker-metrics)
+- [Resilience Metrics](#resilience-metrics)
 - [Database Metrics](#database-metrics)
 - [Messaging Metrics](#messaging-metrics)
 - [Example Queries](#example-queries)
@@ -22,12 +23,13 @@ This document provides a complete reference for all OpenTelemetry metrics instru
 
 ## Overview
 
-The Tasker system exports 39 OpenTelemetry metrics across 4 domains:
+The Tasker system exports 47+ OpenTelemetry metrics across 5 domains:
 
 | Domain | Metrics | Description |
 |--------|---------|-------------|
 | **Orchestration** | 11 | Task lifecycle, step coordination, finalization |
 | **Worker** | 10 | Step execution, claiming, result submission |
+| **Resilience** | 8+ | Circuit breakers (TAS-75), MPSC channels (TAS-51) |
 | **Database** | 7 | SQL query performance, connection pools |
 | **Messaging** | 11 | PGMQ queue operations, message processing |
 
@@ -676,6 +678,225 @@ histogram_quantile(0.95, sum by (le) (rate(tasker_step_result_submission_duratio
 
 ---
 
+## Resilience Metrics
+
+**Module**: `tasker-shared/src/metrics/worker.rs`, `tasker-orchestration/src/web/circuit_breaker.rs`
+**Instrumentation**: Circuit breakers (TAS-75), MPSC channels (TAS-51)
+**Related Docs**: [Circuit Breakers](../circuit-breakers.md) | [Backpressure Architecture](../backpressure-architecture.md)
+
+### Circuit Breaker Metrics
+
+Circuit breakers provide fault isolation and cascade prevention. These metrics track breaker state transitions and related operations.
+
+#### `api_circuit_breaker_state`
+**Description**: Current state of the web API database circuit breaker
+**Type**: Gauge (i64)
+**Values**: 0=Closed, 1=Half-Open, 2=Open
+**Labels**: None
+
+**Instrumented In**: `tasker-orchestration/src/web/circuit_breaker.rs`
+
+**Example Queries**:
+```promql
+# Current state
+api_circuit_breaker_state
+
+# Alert when open
+api_circuit_breaker_state == 2
+```
+
+---
+
+#### `tasker_circuit_breaker_state`
+**Description**: Per-component circuit breaker state
+**Type**: Gauge (i64)
+**Values**: 0=Closed, 1=Half-Open, 2=Open
+**Labels**:
+- `component`: Circuit breaker name (e.g., "ffi_completion", "task_readiness", "pgmq")
+
+**Instrumented In**: Various circuit breaker implementations
+
+**Example Queries**:
+```promql
+# All circuit breaker states
+tasker_circuit_breaker_state
+
+# Check specific component
+tasker_circuit_breaker_state{component="ffi_completion"}
+
+# Count open breakers
+count(tasker_circuit_breaker_state == 2)
+```
+
+---
+
+#### `api_requests_rejected_total`
+**Description**: Total API requests rejected due to open circuit breaker
+**Type**: Counter (u64)
+**Labels**:
+- `endpoint`: The rejected endpoint path
+
+**Instrumented In**: `tasker-orchestration/src/web/circuit_breaker.rs`
+
+**Example Queries**:
+```promql
+# Total rejections
+api_requests_rejected_total
+
+# Rejection rate
+rate(api_requests_rejected_total[5m])
+
+# By endpoint
+sum by (endpoint) (api_requests_rejected_total)
+```
+
+---
+
+#### `ffi_completion_slow_sends_total`
+**Description**: FFI completion channel sends exceeding latency threshold (100ms default)
+**Type**: Counter (u64)
+**Labels**: None
+
+**Instrumented In**: `tasker-worker/src/worker/handlers/ffi_completion_circuit_breaker.rs`
+
+**Example Queries**:
+```promql
+# Total slow sends
+ffi_completion_slow_sends_total
+
+# Slow send rate (alerts at >10/sec)
+rate(ffi_completion_slow_sends_total[5m]) > 10
+```
+
+**Alert Threshold**: Warning when rate exceeds 10/second for 2 minutes
+
+---
+
+#### `ffi_completion_circuit_open_rejections_total`
+**Description**: FFI completion operations rejected due to open circuit breaker
+**Type**: Counter (u64)
+**Labels**: None
+
+**Instrumented In**: `tasker-worker/src/worker/handlers/ffi_completion_circuit_breaker.rs`
+
+**Example Queries**:
+```promql
+# Total rejections
+ffi_completion_circuit_open_rejections_total
+
+# Rejection rate
+rate(ffi_completion_circuit_open_rejections_total[5m])
+```
+
+---
+
+### MPSC Channel Metrics
+
+Bounded MPSC channels provide backpressure control. These metrics track channel utilization and overflow events.
+
+#### `mpsc_channel_usage_percent`
+**Description**: Current fill percentage of a bounded MPSC channel
+**Type**: Gauge (f64)
+**Labels**:
+- `channel`: Channel name (e.g., "orchestration_command", "pgmq_notifications")
+- `component`: Owning component
+
+**Instrumented In**: Channel monitor integration points
+
+**Example Queries**:
+```promql
+# All channel usage
+mpsc_channel_usage_percent
+
+# High usage channels
+mpsc_channel_usage_percent > 80
+
+# By component
+max by (component) (mpsc_channel_usage_percent)
+```
+
+**Alert Thresholds**:
+- Warning: > 80% for 15 minutes
+- Critical: > 90% for 5 minutes
+
+---
+
+#### `mpsc_channel_capacity`
+**Description**: Configured buffer capacity for an MPSC channel
+**Type**: Gauge (u64)
+**Labels**:
+- `channel`: Channel name
+- `component`: Owning component
+
+**Instrumented In**: Channel monitor initialization
+
+**Example Queries**:
+```promql
+# All channel capacities
+mpsc_channel_capacity
+
+# Compare usage to capacity
+mpsc_channel_usage_percent / 100 * mpsc_channel_capacity
+```
+
+---
+
+#### `mpsc_channel_full_events_total`
+**Description**: Count of channel overflow events (backpressure applied)
+**Type**: Counter (u64)
+**Labels**:
+- `channel`: Channel name
+- `component`: Owning component
+
+**Instrumented In**: Channel send operations with backpressure handling
+
+**Example Queries**:
+```promql
+# Total overflow events
+mpsc_channel_full_events_total
+
+# Overflow rate
+rate(mpsc_channel_full_events_total[5m])
+
+# By channel
+sum by (channel) (mpsc_channel_full_events_total)
+```
+
+**Alert Threshold**: Any overflow events indicate backpressure is occurring
+
+---
+
+### Resilience Dashboard Panels
+
+**Circuit Breaker State Timeline**:
+```promql
+# Panel: Time series with state mapping
+api_circuit_breaker_state
+# Value mappings: 0=Closed (green), 1=Half-Open (yellow), 2=Open (red)
+```
+
+**FFI Completion Health**:
+```promql
+# Panel: Multi-stat showing slow sends and rejections
+rate(ffi_completion_slow_sends_total[5m])
+rate(ffi_completion_circuit_open_rejections_total[5m])
+```
+
+**Channel Saturation Overview**:
+```promql
+# Panel: Gauge showing max channel usage
+max(mpsc_channel_usage_percent)
+# Thresholds: Green < 70%, Yellow < 90%, Red >= 90%
+```
+
+**Backpressure Events**:
+```promql
+# Panel: Time series of overflow rate
+rate(mpsc_channel_full_events_total[5m])
+```
+
+---
+
 ## Database Metrics
 
 **Module**: `tasker-shared/src/metrics/database.rs`
@@ -709,8 +930,9 @@ histogram_quantile(0.95, sum by (le) (rate(tasker_step_result_submission_duratio
 - `tasker.queue.age_seconds` - Gauge
 - `tasker.queue.visibility_timeouts.total` - Counter
 - `tasker.queue.errors.total` - Counter
-- `tasker.queue.circuit_breaker.state` - Gauge
 - `tasker.queue.retry_attempts.total` - Counter
+
+> **Note**: Circuit breaker metrics (including queue-related circuit breakers) are documented in the [Resilience Metrics](#resilience-metrics) section.
 
 ---
 
@@ -980,6 +1202,13 @@ Use this checklist to verify metrics are working correctly:
 - [ ] `tasker_steps_results_submitted_total` matches result submissions
 - [ ] `tasker_step_execution_duration_bucket` has histogram data
 
+### Resilience Metrics
+- [ ] `api_circuit_breaker_state` returns 0 (Closed) during normal operation
+- [ ] `/health/detailed` endpoint shows circuit breaker states
+- [ ] `mpsc_channel_usage_percent` returns values < 80% (no saturation)
+- [ ] `mpsc_channel_full_events_total` is 0 or very low (no backpressure)
+- [ ] FFI workers: `ffi_completion_slow_sends_total` is near zero
+
 ### Correlation
 - [ ] All metrics filterable by `correlation_id`
 - [ ] Correlation ID in metrics matches trace ID in Tempo
@@ -1044,6 +1273,10 @@ If histogram queries return no data:
 
 ---
 
-**Last Verified**: 2025-10-08
+**Last Updated**: 2025-12-10
 **Test Task**: `mathematical_sequence` (correlation_id: 0199c3e0-ccdb-7581-87ab-3f67daeaa4a5)
 **Status**: All orchestration and worker metrics verified and producing data ✅
+
+**Recent Updates**:
+- 2025-12-10: Added Resilience Metrics section (TAS-75 circuit breakers, TAS-51 MPSC channels)
+- 2025-10-08: Initial metrics verification completed

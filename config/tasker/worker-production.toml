@@ -138,6 +138,12 @@ service_name = "tasker-core"
 worker_id = "prod-worker-001"
 worker_type = "general"
 
+[worker.circuit_breakers.ffi_completion_send]
+failure_threshold = 5
+recovery_timeout_seconds = 5
+success_threshold = 2
+slow_send_threshold_ms = 100
+
 [worker.event_systems.worker]
 deployment_mode = "Hybrid"
 system_id = "worker-event-system"

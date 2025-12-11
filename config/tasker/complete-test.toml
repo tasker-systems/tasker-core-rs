@@ -307,6 +307,13 @@ circuit_breaker_enabled = true
 worker_id = "test-worker-001"
 worker_type = "general"
 
+# TAS-75: Worker circuit breakers configuration
+[worker.circuit_breakers.ffi_completion_send]
+failure_threshold = 3
+recovery_timeout_seconds = 1
+success_threshold = 1
+slow_send_threshold_ms = 50
+
 [worker.event_systems.worker]
 deployment_mode = "Hybrid"
 system_id = "worker-event-system"

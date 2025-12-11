@@ -3,6 +3,13 @@
 [worker]
 worker_id = "test-worker-001"
 
+# TAS-75: Circuit breakers - faster thresholds for testing
+[worker.circuit_breakers.ffi_completion_send]
+failure_threshold = 3
+recovery_timeout_seconds = 1
+success_threshold = 1
+slow_send_threshold_ms = 50
+
 [worker.event_systems.worker.timing]
 fallback_polling_interval_seconds = 1
 

@@ -18,13 +18,13 @@ use tasker_shared::{system_context::SystemContext, TaskerResult};
 use tokio::sync::{mpsc, Semaphore};
 
 use super::messages::DispatchHandlerMessage;
-use crate::worker::handlers::{CapacityChecker, LoadSheddingConfig};
 use super::traits::WorkerActor;
 use super::{
     DomainEventActor, FFICompletionActor, StepExecutorActor, TemplateCacheActor, WorkerStatusActor,
 };
 use crate::worker::event_publisher::WorkerEventPublisher;
 use crate::worker::event_systems::domain_event_system::DomainEventSystemHandle;
+use crate::worker::handlers::{CapacityChecker, LoadSheddingConfig};
 use crate::worker::task_template_manager::TaskTemplateManager;
 
 /// TAS-67: Configuration for dispatch mode

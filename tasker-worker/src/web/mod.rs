@@ -18,7 +18,7 @@ pub mod middleware;
 pub mod routes;
 pub mod state;
 
-pub use state::WorkerWebState;
+pub use state::{CircuitBreakerHealthProvider, WorkerWebState};
 
 /// Create the worker web application with all routes and middleware
 pub fn create_app(state: Arc<WorkerWebState>) -> Router {
