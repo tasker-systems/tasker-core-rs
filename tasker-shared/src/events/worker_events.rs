@@ -50,7 +50,7 @@ use crate::types::{StepEventPayload, StepExecutionCompletionEvent, StepExecution
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Specialized event system for TAS-40 worker-FFI communication
@@ -217,7 +217,10 @@ impl WorkerEventSystem {
 
     /// Get system statistics for monitoring
     pub fn get_statistics(&self) -> WorkerEventSystemStats {
-        let correlations = self.event_correlations.read().unwrap();
+        let correlations = self
+            .event_correlations
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
 
         let completed_events = correlations
             .values()
@@ -248,7 +251,10 @@ impl WorkerEventSystem {
             return;
         }
 
-        let mut correlations = self.event_correlations.write().unwrap();
+        let mut correlations = self
+            .event_correlations
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
 
         if correlations.len() <= self.config.max_correlation_entries {
             return;
@@ -272,7 +278,10 @@ impl WorkerEventSystem {
 
     /// Track step execution event for correlation
     fn track_execution_event(&self, event: &StepExecutionEvent) {
-        let mut correlations = self.event_correlations.write().unwrap();
+        let mut correlations = self
+            .event_correlations
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
 
         let correlation = EventCorrelation {
             event_id: event.event_id,
@@ -294,7 +303,10 @@ impl WorkerEventSystem {
 
     /// Track step completion event for correlation
     fn track_completion_event(&self, event: &StepExecutionCompletionEvent) {
-        let mut correlations = self.event_correlations.write().unwrap();
+        let mut correlations = self
+            .event_correlations
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
 
         // Update existing correlation if found
         if let Some(correlation) = correlations.get_mut(&event.event_id) {

@@ -101,19 +101,25 @@ impl EventMetricsCollector {
 
                 // Update namespace counter
                 {
-                    let mut by_ns = metrics.by_namespace.write().unwrap();
+                    let mut by_ns = metrics
+                        .by_namespace
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner());
                     *by_ns.entry(event.metadata.namespace.clone()).or_default() += 1;
                 }
 
                 // Update event name counter
                 {
-                    let mut by_name = metrics.by_name.write().unwrap();
+                    let mut by_name = metrics.by_name.write().unwrap_or_else(|p| p.into_inner());
                     *by_name.entry(event.event_name.clone()).or_default() += 1;
                 }
 
                 // Update last event timestamp
                 {
-                    let mut last = metrics.last_event_at.write().unwrap();
+                    let mut last = metrics
+                        .last_event_at
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner());
                     *last = Some(event.metadata.fired_at);
                 }
 
@@ -145,19 +151,25 @@ impl EventMetricsCollector {
 
     /// Get event counts by namespace
     pub fn events_by_namespace(&self) -> HashMap<String, u64> {
-        self.by_namespace.read().unwrap().clone()
+        self.by_namespace
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Get event counts by event name
     pub fn events_by_name(&self) -> HashMap<String, u64> {
-        self.by_name.read().unwrap().clone()
+        self.by_name
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Get event count for a specific namespace
     pub fn namespace_count(&self, namespace: &str) -> u64 {
         self.by_namespace
             .read()
-            .unwrap()
+            .unwrap_or_else(|p| p.into_inner())
             .get(namespace)
             .copied()
             .unwrap_or(0)
@@ -167,7 +179,7 @@ impl EventMetricsCollector {
     pub fn event_name_count(&self, event_name: &str) -> u64 {
         self.by_name
             .read()
-            .unwrap()
+            .unwrap_or_else(|p| p.into_inner())
             .get(event_name)
             .copied()
             .unwrap_or(0)
@@ -175,7 +187,7 @@ impl EventMetricsCollector {
 
     /// Get the timestamp of the last event
     pub fn last_event_at(&self) -> Option<DateTime<Utc>> {
-        *self.last_event_at.read().unwrap()
+        *self.last_event_at.read().unwrap_or_else(|p| p.into_inner())
     }
 
     /// Reset all metrics
@@ -183,9 +195,18 @@ impl EventMetricsCollector {
         self.events_received.store(0, Ordering::Relaxed);
         self.success_events.store(0, Ordering::Relaxed);
         self.failure_events.store(0, Ordering::Relaxed);
-        self.by_namespace.write().unwrap().clear();
-        self.by_name.write().unwrap().clear();
-        *self.last_event_at.write().unwrap() = None;
+        self.by_namespace
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        self.by_name
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        *self
+            .last_event_at
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = None;
     }
 
     /// Generate a summary report

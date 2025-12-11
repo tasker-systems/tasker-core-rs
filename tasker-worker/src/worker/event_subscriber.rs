@@ -223,7 +223,7 @@ impl WorkerEventSubscriber {
 
                 // Update statistics
                 {
-                    let mut stats = stats.lock().unwrap();
+                    let mut stats = stats.lock().unwrap_or_else(|p| p.into_inner());
                     stats.completions_received += 1;
                     if completion_event.success {
                         stats.successful_completions += 1;
@@ -261,7 +261,7 @@ impl WorkerEventSubscriber {
                         );
 
                         // Update error statistics
-                        let mut stats = stats.lock().unwrap();
+                        let mut stats = stats.lock().unwrap_or_else(|p| p.into_inner());
                         stats.conversion_errors += 1;
                     }
                 }
@@ -290,7 +290,7 @@ impl WorkerEventSubscriber {
 
     /// Get event subscriber statistics
     pub fn get_statistics(&self) -> WorkerEventSubscriberStats {
-        let stats = self.stats.lock().unwrap();
+        let stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
 
         // Access shared event system data (available for future enhancement)
         let _system_stats = self.event_system.get_statistics();
@@ -419,7 +419,10 @@ impl CorrelatedCompletionListener {
             started_at: chrono::Utc::now(),
         };
 
-        let mut tracker = self.correlation_tracker.lock().unwrap();
+        let mut tracker = self
+            .correlation_tracker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         tracker.insert(correlation_id, pending);
 
         debug!(
@@ -460,7 +463,9 @@ impl CorrelatedCompletionListener {
 
                 // Check if we have a pending execution for this correlation ID
                 let pending = {
-                    let mut tracker = correlation_tracker.lock().unwrap();
+                    let mut tracker = correlation_tracker
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner());
                     tracker.remove(&event_id)
                 };
 
@@ -529,7 +534,9 @@ impl CorrelatedCompletionListener {
                 let cutoff_time =
                     chrono::Utc::now() - chrono::Duration::seconds(timeout_seconds as i64);
 
-                let mut tracker = correlation_tracker_cleanup.lock().unwrap();
+                let mut tracker = correlation_tracker_cleanup
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
                 let initial_count = tracker.len();
 
                 tracker.retain(|_, pending| pending.started_at > cutoff_time);

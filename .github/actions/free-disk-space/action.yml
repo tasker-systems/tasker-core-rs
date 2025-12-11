@@ -1,0 +1,38 @@
+name: "Free Disk Space"
+description: "Frees up disk space on GitHub Actions runners by removing unused tools"
+author: "Tasker Systems"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Free up disk space
+      shell: bash
+      run: |
+        echo "🧹 Freeing up disk space on runner..."
+        echo "Before cleanup:"
+        df -h /
+
+        # Remove .NET SDK (~5GB)
+        sudo rm -rf /usr/share/dotnet
+
+        # Remove Haskell/GHC (~2GB)
+        sudo rm -rf /opt/ghc
+
+        # Remove Boost libraries (~1GB)
+        sudo rm -rf /usr/local/share/boost
+
+        # Remove tool caches (~5GB)
+        if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        fi
+
+        # Remove Android SDK (if present, ~10GB)
+        sudo rm -rf /usr/local/lib/android
+
+        # Remove Swift (if present, ~2GB)
+        sudo rm -rf /usr/share/swift
+
+        echo ""
+        echo "After cleanup:"
+        df -h /
+        echo "✅ Disk space cleanup complete"
