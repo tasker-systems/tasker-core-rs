@@ -39,12 +39,12 @@ pub fn template_routes() -> Router<Arc<WorkerWebState>> {
         // Template retrieval and listing
         .route("/templates", get(handlers::templates::list_templates))
         .route(
-            "/templates/:namespace/:name/:version",
+            "/templates/{namespace}/{name}/{version}",
             get(handlers::templates::get_template),
         )
         // Template validation
         .route(
-            "/templates/:namespace/:name/:version/validate",
+            "/templates/{namespace}/{name}/{version}/validate",
             post(handlers::templates::validate_template),
         )
         // Cache management
@@ -59,7 +59,7 @@ pub fn template_routes() -> Router<Arc<WorkerWebState>> {
         )
         // Template refresh
         .route(
-            "/templates/:namespace/:name/:version/refresh",
+            "/templates/{namespace}/{name}/{version}/refresh",
             post(handlers::templates::refresh_template),
         )
 }

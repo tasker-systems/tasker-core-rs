@@ -7,9 +7,13 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
+
 /// Execution status returned by the SQL get_task_execution_context function
 /// Matches the execution_status values from the SQL function
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionStatus {
     /// Task has ready steps that can be executed
@@ -80,6 +84,7 @@ impl From<ExecutionStatus> for String {
 /// Recommended action returned by the SQL get_task_execution_context function
 /// Matches the recommended_action values from the SQL function
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum RecommendedAction {
     /// Execute the ready steps

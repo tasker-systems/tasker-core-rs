@@ -20,8 +20,16 @@
 
 use crate::bridge::{RubyBridgeHandle, WORKER_SYSTEM};
 use crate::global_event_system::get_global_event_system;
-use magnus::{value::ReprValue, Error, Value};
+use magnus::{value::ReprValue, Error, ExceptionClass, Ruby, Value};
 use std::sync::Arc;
+
+/// Helper to get RuntimeError exception class
+/// Uses the new magnus 0.8 API pattern
+fn runtime_error_class() -> ExceptionClass {
+    Ruby::get()
+        .expect("Ruby runtime should be available")
+        .exception_runtime_error()
+}
 use tasker_worker::worker::{
     DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, StepEventPublisherRegistry,
 };
@@ -43,17 +51,14 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
     // Check if already running
     let mut handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        Error::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
     if handle_guard.is_some() {
         // Return existing handle info
         let ruby = magnus::Ruby::get().map_err(|err| {
             Error::new(
-                magnus::exception::runtime_error(),
+                runtime_error_class(),
                 format!("Failed to get ruby system: {}", err),
             )
         })?;
@@ -67,10 +72,7 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
     // Create tokio runtime
     let runtime = tokio::runtime::Runtime::new().map_err(|e| {
         error!("Failed to create tokio runtime: {}", e);
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Runtime creation failed",
-        )
+        Error::new(runtime_error_class(), "Runtime creation failed")
     })?;
 
     // TAS-65 Phase 2: Initialize telemetry in Tokio runtime context
@@ -88,7 +90,7 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
             .map_err(|e| {
                 error!("Failed to bootstrap worker system: {}", e);
                 Error::new(
-                    magnus::exception::runtime_error(),
+                    runtime_error_class(),
                     format!("Worker bootstrap failed: {}", e),
                 )
             })
@@ -146,7 +148,7 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
     } else {
         error!("Failed to get dispatch handles from WorkerSystemHandle");
         return Err(Error::new(
-            magnus::exception::runtime_error(),
+            runtime_error_class(),
             "Dispatch handles not available",
         ));
     };
@@ -176,7 +178,7 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
     // Return handle info to Ruby
     let ruby = magnus::Ruby::get().map_err(|err| {
         Error::new(
-            magnus::exception::runtime_error(),
+            runtime_error_class(),
             format!("Failed to get ruby system: {}", err),
         )
     })?;
@@ -193,17 +195,14 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
 pub fn stop_worker() -> Result<String, Error> {
     let mut handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        Error::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
     match handle_guard.as_mut() {
         Some(handle) => {
             handle.stop().map_err(|e| {
                 error!("Failed to stop worker system: {}", e);
-                Error::new(magnus::exception::runtime_error(), e)
+                Error::new(runtime_error_class(), e)
             })?;
             *handle_guard = None;
             Ok("Worker system stopped".to_string())
@@ -216,18 +215,12 @@ pub fn stop_worker() -> Result<String, Error> {
 pub fn get_worker_status() -> Result<Value, Error> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        Error::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
     let ruby = magnus::Ruby::get().map_err(|err| {
         error!("Failed to get ruby system: {err}");
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Failed to get ruby system: {err}",
-        )
+        Error::new(runtime_error_class(), "Failed to get ruby system: {err}")
     })?;
     let hash = ruby.hash_new();
 
@@ -238,7 +231,7 @@ pub fn get_worker_status() -> Result<Value, Error> {
             .map_err(|err| {
                 error!("Failed to get status from runtime: {err}");
                 Error::new(
-                    magnus::exception::runtime_error(),
+                    runtime_error_class(),
                     "Failed to get status from runtime {err}",
                 )
             })?;
@@ -265,18 +258,12 @@ pub fn get_worker_status() -> Result<Value, Error> {
 pub fn transition_to_graceful_shutdown() -> Result<String, Error> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        Error::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
-    let handle = handle_guard.as_ref().ok_or_else(|| {
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Worker system not running",
-        )
-    })?;
+    let handle = handle_guard
+        .as_ref()
+        .ok_or_else(|| Error::new(runtime_error_class(), "Worker system not running"))?;
 
     let runtime = handle.runtime_handle();
     runtime.block_on(async {
@@ -284,7 +271,7 @@ pub fn transition_to_graceful_shutdown() -> Result<String, Error> {
         worker_core.stop().await.map_err(|e| {
             error!("Failed to transition to graceful shutdown: {}", e);
             Error::new(
-                magnus::exception::runtime_error(),
+                runtime_error_class(),
                 format!("Graceful shutdown failed: {}", e),
             )
         })

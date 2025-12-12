@@ -34,8 +34,7 @@ use uuid::Uuid;
 use crate::web::state::AppState;
 use tasker_shared::models::orchestration::dlq::{
     DlqEntry, DlqInvestigationQueueEntry, DlqInvestigationUpdate,
-    DlqListParams as ModelDlqListParams, DlqResolutionStatus, DlqStats as ModelDlqStats,
-    StalenessMonitoring,
+    DlqListParams as ModelDlqListParams, DlqResolutionStatus, DlqStats, StalenessMonitoring,
 };
 use tasker_shared::types::web::{ApiError, ApiResult};
 
@@ -67,6 +66,7 @@ impl From<DlqListQueryParams> for ModelDlqListParams {
 
 /// Request body for updating DLQ investigation status
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct UpdateInvestigationRequest {
     /// New resolution status (optional)
     pub resolution_status: Option<DlqResolutionStatus>,
@@ -111,6 +111,7 @@ pub struct StalenessMonitoringParams {
 
 /// Response for update investigation endpoint
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct UpdateInvestigationResponse {
     pub success: bool,
     pub message: String,
@@ -329,7 +330,7 @@ pub async fn update_dlq_investigation(
     ),
     tag = "dlq"
 ))]
-pub async fn get_dlq_stats(State(state): State<AppState>) -> ApiResult<Json<Vec<ModelDlqStats>>> {
+pub async fn get_dlq_stats(State(state): State<AppState>) -> ApiResult<Json<Vec<DlqStats>>> {
     debug!("Fetching DLQ statistics");
 
     // Delegate to model layer

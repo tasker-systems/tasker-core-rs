@@ -48,6 +48,7 @@ pub struct TaskExecutionContext {
     pub execution_status: ExecutionStatus,
     /// Proper typed recommended action (was raw string)
     pub recommended_action: Option<RecommendedAction>,
+    #[cfg_attr(feature = "web-api", schema(value_type = String))]
     pub completion_percentage: BigDecimal,
     pub health_status: String,
     pub enqueued_steps: i64,

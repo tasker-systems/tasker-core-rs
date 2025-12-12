@@ -3,7 +3,6 @@
 //! Custom extractors for common web API patterns like database connections,
 //! authenticated users, and request context.
 
-use axum::async_trait;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use sqlx::PgPool;
@@ -58,7 +57,6 @@ pub struct AuthenticatedWorker {
     pub claims: WorkerClaims,
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for AuthenticatedWorker
 where
     S: Send + Sync,
@@ -87,7 +85,6 @@ pub struct OptionalAuthenticatedWorker {
     pub claims: Option<WorkerClaims>,
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for OptionalAuthenticatedWorker
 where
     S: Send + Sync,
@@ -113,7 +110,6 @@ pub struct RequestContext {
     pub request_id: String,
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for RequestContext
 where
     S: Send + Sync,

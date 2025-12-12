@@ -23,34 +23,34 @@ pub fn api_v1_routes() -> Router<AppState> {
         // Tasks API
         .route("/tasks", post(handlers::tasks::create_task))
         .route("/tasks", get(handlers::tasks::list_tasks))
-        .route("/tasks/:uuid", get(handlers::tasks::get_task))
-        .route("/tasks/:uuid", delete(handlers::tasks::cancel_task))
+        .route("/tasks/{uuid}", get(handlers::tasks::get_task))
+        .route("/tasks/{uuid}", delete(handlers::tasks::cancel_task))
         // Workflow Steps API
         .route(
-            "/tasks/:uuid/workflow_steps",
+            "/tasks/{uuid}/workflow_steps",
             get(handlers::steps::list_task_steps),
         )
         .route(
-            "/tasks/:uuid/workflow_steps/:step_uuid",
+            "/tasks/{uuid}/workflow_steps/{step_uuid}",
             get(handlers::steps::get_step),
         )
         .route(
-            "/tasks/:uuid/workflow_steps/:step_uuid",
+            "/tasks/{uuid}/workflow_steps/{step_uuid}",
             patch(handlers::steps::resolve_step_manually),
         )
         // TAS-62: Step audit history endpoint
         .route(
-            "/tasks/:uuid/workflow_steps/:step_uuid/audit",
+            "/tasks/{uuid}/workflow_steps/{step_uuid}/audit",
             get(handlers::steps::get_step_audit),
         )
         // Handlers API (read-only)
         .route("/handlers", get(handlers::registry::list_namespaces))
         .route(
-            "/handlers/:namespace",
+            "/handlers/{namespace}",
             get(handlers::registry::list_namespace_handlers),
         )
         .route(
-            "/handlers/:namespace/:name",
+            "/handlers/{namespace}/{name}",
             get(handlers::registry::get_handler_info),
         )
         // Analytics API (read-only)
@@ -64,9 +64,9 @@ pub fn api_v1_routes() -> Router<AppState> {
         )
         // DLQ API - Investigation tracking (TAS-49)
         .route("/dlq", get(handlers::dlq::list_dlq_entries))
-        .route("/dlq/task/:task_uuid", get(handlers::dlq::get_dlq_entry))
+        .route("/dlq/task/{task_uuid}", get(handlers::dlq::get_dlq_entry))
         .route(
-            "/dlq/entry/:dlq_entry_uuid",
+            "/dlq/entry/{dlq_entry_uuid}",
             patch(handlers::dlq::update_dlq_investigation),
         )
         .route("/dlq/stats", get(handlers::dlq::get_dlq_stats))
