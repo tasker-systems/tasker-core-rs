@@ -7,9 +7,13 @@ use tasker_worker::worker::FfiStepEvent;
 
 // Convert TaskSequenceStep to Ruby hash with full fidelity
 fn convert_task_sequence_step_to_ruby(tss: &TaskSequenceStep) -> TaskerResult<RHash> {
-    let ruby_hash: RHash = serialize(tss).map_err(|err| {
+    let ruby = magnus::Ruby::get().map_err(|err| {
+        TaskerError::FFIError(format!("Ruby Magnus FFI Ruby Acquire Error: {err}"))
+    })?;
+
+    let ruby_hash: RHash = serialize(&ruby, tss).map_err(|err| {
         TaskerError::FFIError(format!(
-            "Could not deserialize to StepExecutionCompletionEvent, {err}"
+            "Could not serialize TaskSequenceStep to Ruby hash: {err}"
         ))
     })?;
 
@@ -91,7 +95,11 @@ pub fn convert_ffi_step_event_to_ruby(event: &FfiStepEvent) -> TaskerResult<RHas
 /// The Ruby hash should contain the result data that can be deserialized
 /// into a StepExecutionResult.
 pub fn convert_ruby_completion_to_step_result(value: RValue) -> TaskerResult<StepExecutionResult> {
-    let result: StepExecutionResult = serde_magnus::deserialize(value).map_err(|err| {
+    let ruby = magnus::Ruby::get().map_err(|err| {
+        TaskerError::FFIError(format!("Ruby Magnus FFI Ruby Acquire Error: {err}"))
+    })?;
+
+    let result: StepExecutionResult = serde_magnus::deserialize(&ruby, value).map_err(|err| {
         TaskerError::FFIError(format!(
             "Could not deserialize to StepExecutionResult: {err}"
         ))

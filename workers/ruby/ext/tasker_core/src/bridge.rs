@@ -8,8 +8,22 @@ use crate::bootstrap::{
 };
 use crate::conversions::{convert_ffi_step_event_to_ruby, convert_ruby_completion_to_step_result};
 use crate::ffi_logging::{log_debug, log_error, log_info, log_trace, log_warn};
-use magnus::{function, prelude::*, Error, RModule, Value};
+use magnus::{function, prelude::*, Error, ExceptionClass, RModule, Ruby, Value};
 use std::sync::{Arc, Mutex};
+
+/// Helper to get RuntimeError exception class (magnus 0.8 API)
+fn runtime_error_class() -> ExceptionClass {
+    Ruby::get()
+        .expect("Ruby runtime should be available")
+        .exception_runtime_error()
+}
+
+/// Helper to get ArgumentError exception class (magnus 0.8 API)
+fn arg_error_class() -> ExceptionClass {
+    Ruby::get()
+        .expect("Ruby runtime should be available")
+        .exception_arg_error()
+}
 use tasker_shared::errors::TaskerResult;
 use tasker_shared::events::domain_events::DomainEvent;
 use tasker_worker::worker::{FfiDispatchChannel, FfiDispatchMetrics, FfiStepEvent};
@@ -99,18 +113,12 @@ impl RubyBridgeHandle {
 pub fn poll_step_events() -> Result<Value, Error> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        Error::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
-    let handle = handle_guard.as_ref().ok_or_else(|| {
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Worker system not running",
-        )
-    })?;
+    let handle = handle_guard
+        .as_ref()
+        .ok_or_else(|| Error::new(runtime_error_class(), "Worker system not running"))?;
 
     // Poll for next event via FfiDispatchChannel
     if let Some(event) = handle.poll_step_event() {
@@ -124,7 +132,7 @@ pub fn poll_step_events() -> Result<Value, Error> {
         let ruby_event = convert_ffi_step_event_to_ruby(&event).map_err(|e| {
             error!("Failed to convert event to Ruby: {}", e);
             Error::new(
-                magnus::exception::runtime_error(),
+                runtime_error_class(),
                 format!("Failed to convert event to Ruby: {}", e),
             )
         })?;
@@ -134,7 +142,7 @@ pub fn poll_step_events() -> Result<Value, Error> {
         // Return nil when no events are available
         let ruby = magnus::Ruby::get().map_err(|err| {
             Error::new(
-                magnus::exception::runtime_error(),
+                runtime_error_class(),
                 format!("Failed to get ruby system: {}", err),
             )
         })?;
@@ -152,17 +160,14 @@ pub fn complete_step_event(event_id_str: String, completion_data: Value) -> Resu
     // Parse event_id
     let event_id = Uuid::parse_str(&event_id_str).map_err(|e| {
         error!("Invalid event_id format: {}", e);
-        Error::new(
-            magnus::exception::arg_error(),
-            format!("Invalid event_id format: {}", e),
-        )
+        Error::new(arg_error_class(), format!("Invalid event_id format: {}", e))
     })?;
 
     // Convert Ruby completion to StepExecutionResult
     let result = convert_ruby_completion_to_step_result(completion_data).map_err(|e| {
         error!("Failed to convert completion data: {}", e);
         Error::new(
-            magnus::exception::runtime_error(),
+            runtime_error_class(),
             format!("Failed to convert completion data: {}", e),
         )
     })?;
@@ -170,18 +175,12 @@ pub fn complete_step_event(event_id_str: String, completion_data: Value) -> Resu
     // Get bridge handle and submit completion
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        Error::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
-    let handle = handle_guard.as_ref().ok_or_else(|| {
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Worker system not running",
-        )
-    })?;
+    let handle = handle_guard
+        .as_ref()
+        .ok_or_else(|| Error::new(runtime_error_class(), "Worker system not running"))?;
 
     // Submit completion via FfiDispatchChannel
     let success = handle.complete_step_event(event_id, result);
@@ -208,24 +207,18 @@ pub fn complete_step_event(event_id_str: String, completion_data: Value) -> Resu
 pub fn get_ffi_dispatch_metrics() -> Result<Value, Error> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        Error::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
-    let handle = handle_guard.as_ref().ok_or_else(|| {
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Worker system not running",
-        )
-    })?;
+    let handle = handle_guard
+        .as_ref()
+        .ok_or_else(|| Error::new(runtime_error_class(), "Worker system not running"))?;
 
     let metrics = handle.get_ffi_dispatch_metrics();
 
     let ruby = magnus::Ruby::get().map_err(|err| {
         Error::new(
-            magnus::exception::runtime_error(),
+            runtime_error_class(),
             format!("Failed to get ruby system: {}", err),
         )
     })?;
@@ -256,18 +249,12 @@ pub fn get_ffi_dispatch_metrics() -> Result<Value, Error> {
 pub fn check_starvation_warnings() -> Result<bool, Error> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        Error::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
-    let handle = handle_guard.as_ref().ok_or_else(|| {
-        Error::new(
-            magnus::exception::runtime_error(),
-            "Worker system not running",
-        )
-    })?;
+    let handle = handle_guard
+        .as_ref()
+        .ok_or_else(|| Error::new(runtime_error_class(), "Worker system not running"))?;
 
     handle.check_starvation_warnings();
     Ok(true)

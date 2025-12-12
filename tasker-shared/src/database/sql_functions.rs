@@ -62,6 +62,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::BigDecimal, types::Uuid, FromRow, PgPool};
 use std::collections::HashMap;
+#[cfg(feature = "web-api")]
 use utoipa::ToSchema;
 
 use crate::state_machine::TaskState;
@@ -497,6 +498,7 @@ impl SqlFunctionExecutor {
 /// **IMPORTANT**: Field names match the SQL function `get_system_health_counts()` output exactly.
 /// The SQL function returns detailed task state columns, not an aggregated `in_progress_tasks`.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, Default)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct SystemHealthCounts {
     // Task counts by state - matches SQL function output
     pub pending_tasks: i64,

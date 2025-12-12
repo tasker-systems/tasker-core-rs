@@ -27,12 +27,12 @@ dotenvy = { workspace = true }
 # Once Cell
 once_cell = { workspace = true }
 # Ruby FFI
-magnus = { version = "0.7", features = ["embed"] }
+magnus = { version = "0.8", features = ["embed"] }
 # Serde for serialization/deserialization
 serde = { workspace = true }
 # Serialization for Ruby ↔ Rust data conversion
 serde_json = { workspace = true }
-serde_magnus = "0.9"
+serde_magnus = "0.10"
 serde_yaml = { workspace = true }
 # Database (needed for PgPool)
 sqlx = { workspace = true }

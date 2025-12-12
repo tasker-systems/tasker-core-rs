@@ -10,6 +10,9 @@ use std::fmt;
 use std::str::FromStr;
 use uuid::Uuid;
 
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
+
 /// DLQ Resolution Status
 ///
 /// Tracks the lifecycle of a DLQ investigation (NOT task state).
@@ -23,6 +26,7 @@ use uuid::Uuid;
 /// A task can have multiple DLQ entries over time (investigation history),
 /// but only one pending entry at a time (enforced by unique index).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 #[sqlx(type_name = "dlq_resolution_status", rename_all = "snake_case")]
 pub enum DlqResolutionStatus {
     /// Investigation in progress
@@ -71,6 +75,7 @@ impl DlqResolutionStatus {
 /// Why was a task sent to DLQ? Determines investigation priority and remediation approach.
 /// This enum maps to the PostgreSQL `dlq_reason` enum type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 #[sqlx(type_name = "dlq_reason", rename_all = "snake_case")]
 pub enum DlqReason {
     /// Task exceeded state timeout threshold (TAS-48 staleness detection)
@@ -133,6 +138,7 @@ impl DlqReason {
 ///
 /// Maps to VARCHAR in SQL but provides compile-time validation in Rust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
 pub enum StalenessAction {
     /// Dry run mode - would have transitioned to DLQ and Error state
@@ -240,6 +246,7 @@ impl fmt::Display for StalenessAction {
 /// - Multiple DLQ entries per task allowed (historical trail)
 /// - Only one "pending" investigation per task at a time
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct DlqEntry {
     /// Unique identifier for this DLQ entry
     pub dlq_entry_uuid: Uuid,
@@ -308,6 +315,7 @@ impl Default for DlqListParams {
 ///
 /// Sourced from `v_dlq_dashboard` view for high-level DLQ monitoring.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct DlqStats {
     pub dlq_reason: DlqReason,
     pub total_entries: i64,
@@ -338,6 +346,7 @@ pub struct DlqInvestigationUpdate {
 /// Sourced from `v_dlq_investigation_queue` view for operator triage dashboard.
 /// Entries are sorted by priority score (higher = more urgent).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct DlqInvestigationQueueEntry {
     pub dlq_entry_uuid: Uuid,
     pub task_uuid: Uuid,
@@ -356,6 +365,7 @@ pub struct DlqInvestigationQueueEntry {
 ///
 /// Indicates how close a task is to exceeding its staleness threshold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum StalenessHealthStatus {
@@ -392,6 +402,7 @@ impl StalenessHealthStatus {
 /// Sourced from `v_task_staleness_monitoring` view for real-time health monitoring.
 /// Provides per-task visibility into staleness with health status classification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct StalenessMonitoring {
     /// Task UUID being monitored
     pub task_uuid: Uuid,

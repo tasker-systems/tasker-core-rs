@@ -35,10 +35,20 @@
 
 use crate::bridge::WORKER_SYSTEM;
 use chrono::{DateTime, Utc};
-use magnus::{function, prelude::*, Error as MagnusError, RHash, RModule, Ruby, Value as RValue};
+use magnus::{
+    function, prelude::*, Error as MagnusError, ExceptionClass, RHash, RModule, Ruby,
+    Value as RValue,
+};
 use tasker_shared::events::domain_events::DomainEvent;
 use tokio::sync::broadcast;
 use tracing::{debug, error, trace, warn};
+
+/// Helper to get RuntimeError exception class (magnus 0.8 API)
+fn runtime_error_class() -> ExceptionClass {
+    Ruby::get()
+        .expect("Ruby runtime should be available")
+        .exception_runtime_error()
+}
 
 /// Maximum events to return in a single poll (safety limit)
 const MAX_POLL_BATCH_SIZE: i64 = 100;
@@ -70,7 +80,7 @@ fn domain_event_to_ruby_hash(ruby: &Ruby, event: &DomainEvent) -> Result<RHash, 
     // Using JSON string because Ruby can easily parse it with JSON.parse
     let payload_json = serde_json::to_string(&event.payload.payload).map_err(|e| {
         MagnusError::new(
-            magnus::exception::runtime_error(),
+            runtime_error_class(),
             format!("Failed to serialize payload: {}", e),
         )
     })?;
@@ -88,7 +98,7 @@ fn domain_event_to_ruby_hash(ruby: &Ruby, event: &DomainEvent) -> Result<RHash, 
         // Convert error to JSON string for Ruby consumption
         let error_json = serde_json::to_string(error).map_err(|e| {
             MagnusError::new(
-                magnus::exception::runtime_error(),
+                runtime_error_class(),
                 format!("Failed to serialize error: {}", e),
             )
         })?;
@@ -164,10 +174,7 @@ fn format_datetime(dt: &DateTime<Utc>) -> String {
 /// ```
 pub fn poll_in_process_events(max_events: i64) -> Result<RValue, MagnusError> {
     let ruby = Ruby::get().map_err(|e| {
-        MagnusError::new(
-            magnus::exception::runtime_error(),
-            format!("Failed to get Ruby: {}", e),
-        )
+        MagnusError::new(runtime_error_class(), format!("Failed to get Ruby: {}", e))
     })?;
 
     // Cap max_events for safety (1 to MAX_POLL_BATCH_SIZE)
@@ -175,15 +182,12 @@ pub fn poll_in_process_events(max_events: i64) -> Result<RValue, MagnusError> {
 
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        MagnusError::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        MagnusError::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
     let handle = handle_guard.as_ref().ok_or_else(|| {
         MagnusError::new(
-            magnus::exception::runtime_error(),
+            runtime_error_class(),
             "Worker system not running - call bootstrap_worker first",
         )
     })?;
@@ -191,17 +195,14 @@ pub fn poll_in_process_events(max_events: i64) -> Result<RValue, MagnusError> {
     // Get the FFI receiver
     let ffi_receiver_guard = handle.in_process_event_receiver.as_ref().ok_or_else(|| {
         MagnusError::new(
-            magnus::exception::runtime_error(),
+            runtime_error_class(),
             "In-process event bus not initialized",
         )
     })?;
 
     let mut receiver = ffi_receiver_guard.lock().map_err(|e| {
         error!("Failed to acquire event receiver lock: {}", e);
-        MagnusError::new(
-            magnus::exception::runtime_error(),
-            "Event receiver lock failed",
-        )
+        MagnusError::new(runtime_error_class(), "Event receiver lock failed")
     })?;
 
     // Collect events using try_recv (non-blocking)
@@ -273,20 +274,14 @@ pub fn poll_in_process_events(max_events: i64) -> Result<RValue, MagnusError> {
 /// - Additional stats when available
 pub fn get_in_process_event_stats() -> Result<RValue, MagnusError> {
     let ruby = Ruby::get().map_err(|e| {
-        MagnusError::new(
-            magnus::exception::runtime_error(),
-            format!("Failed to get Ruby: {}", e),
-        )
+        MagnusError::new(runtime_error_class(), format!("Failed to get Ruby: {}", e))
     })?;
 
     let hash = ruby.hash_new();
 
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        MagnusError::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        MagnusError::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
     match handle_guard.as_ref() {

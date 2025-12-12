@@ -17,7 +17,7 @@ fn init(ruby: &Ruby) -> Result<(), MagnusError> {
     // Initialize logging
     ffi_logging::init_ffi_logger().map_err(|err| {
         MagnusError::new(
-            magnus::exception::runtime_error(),
+            ruby.exception_runtime_error(),
             format!("Failed to initialize logging, {err}"),
         )
     })?;

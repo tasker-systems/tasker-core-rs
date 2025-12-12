@@ -15,7 +15,9 @@
 
 use crate::bridge::WORKER_SYSTEM;
 use chrono::{DateTime, Utc};
-use magnus::{function, prelude::*, Error as MagnusError, RModule, Value as RValue};
+use magnus::{
+    function, prelude::*, Error as MagnusError, ExceptionClass, RModule, Ruby, Value as RValue,
+};
 use serde::Deserialize;
 use serde_magnus::deserialize;
 use tasker_shared::events::domain_events::{DomainEventPayload, EventMetadata};
@@ -23,6 +25,20 @@ use tasker_shared::messaging::execution_types::StepExecutionResult;
 use tasker_shared::types::TaskSequenceStep;
 use tracing::{debug, error};
 use uuid::Uuid;
+
+/// Helper to get RuntimeError exception class (magnus 0.8 API)
+fn runtime_error_class() -> ExceptionClass {
+    Ruby::get()
+        .expect("Ruby runtime should be available")
+        .exception_runtime_error()
+}
+
+/// Helper to get ArgumentError exception class (magnus 0.8 API)
+fn arg_error_class() -> ExceptionClass {
+    Ruby::get()
+        .expect("Ruby runtime should be available")
+        .exception_arg_error()
+}
 
 /// FFI input structure for publishing domain events from Ruby
 ///
@@ -102,7 +118,7 @@ impl TryFrom<EventMetadataInput> for EventMetadata {
 fn parse_uuid(s: &str, field_name: &str) -> Result<Uuid, MagnusError> {
     Uuid::parse_str(s).map_err(|e| {
         MagnusError::new(
-            magnus::exception::arg_error(),
+            arg_error_class(),
             format!("Invalid {} format: {}", field_name, e),
         )
     })
@@ -143,11 +159,20 @@ fn parse_uuid(s: &str, field_name: &str) -> Result<Uuid, MagnusError> {
 /// # => "0199c8f0-1234-7abc-9def-0123456789ab"
 /// ```
 pub fn publish_domain_event(event_params: RValue) -> Result<String, MagnusError> {
+    // Get Ruby handle for serde_magnus
+    let ruby = magnus::Ruby::get().map_err(|e| {
+        error!("Failed to acquire Ruby handle: {}", e);
+        MagnusError::new(
+            runtime_error_class(),
+            format!("Failed to acquire Ruby handle: {}", e),
+        )
+    })?;
+
     // Deserialize the entire request using serde_magnus
-    let request: EventPublishRequest = deserialize(event_params).map_err(|e| {
+    let request: EventPublishRequest = deserialize(&ruby, event_params).map_err(|e| {
         error!("Failed to deserialize event publish request: {}", e);
         MagnusError::new(
-            magnus::exception::arg_error(),
+            arg_error_class(),
             format!("Invalid event publish request: {}", e),
         )
     })?;
@@ -173,15 +198,12 @@ pub fn publish_domain_event(event_params: RValue) -> Result<String, MagnusError>
     // Get worker system to access domain event publisher
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
-        MagnusError::new(
-            magnus::exception::runtime_error(),
-            "Lock acquisition failed",
-        )
+        MagnusError::new(runtime_error_class(), "Lock acquisition failed")
     })?;
 
     let handle = handle_guard.as_ref().ok_or_else(|| {
         MagnusError::new(
-            magnus::exception::runtime_error(),
+            runtime_error_class(),
             "Worker system not running - call bootstrap_worker first",
         )
     })?;
@@ -196,7 +218,7 @@ pub fn publish_domain_event(event_params: RValue) -> Result<String, MagnusError>
         .map_err(|e| {
             error!("Failed to publish domain event: {}", e);
             MagnusError::new(
-                magnus::exception::runtime_error(),
+                runtime_error_class(),
                 format!("Event publication failed: {}", e),
             )
         })?;
