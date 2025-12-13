@@ -300,6 +300,9 @@ pub fn init_bridge(module: &RModule) -> Result<(), Error> {
     // TAS-65 Phase 4.1: In-process event polling (fast path)
     crate::in_process_event_ffi::init_in_process_event_ffi(module)?;
 
+    // TAS-77: Observability services FFI (health, metrics, templates, config)
+    crate::observability_ffi::init_observability_ffi(module)?;
+
     info!("✅ Ruby FFI bridge initialized");
     Ok(())
 }

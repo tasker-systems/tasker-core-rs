@@ -7,6 +7,7 @@ mod event_publisher_ffi; // TAS-65 Phase 2.4a: Domain event publishing FFI
 mod ffi_logging;
 mod global_event_system;
 mod in_process_event_ffi; // TAS-65 Phase 4.1: In-process event polling FFI
+mod observability_ffi; // TAS-77: Observability services FFI
 
 // TAS-67: DomainEventCallback is now provided by tasker-worker (shared implementation)
 

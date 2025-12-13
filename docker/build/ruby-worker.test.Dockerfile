@@ -67,29 +67,21 @@ COPY workers/rust/Cargo.toml ./workers/rust/
 COPY workers/ruby/ ./workers/ruby/
 COPY migrations/ ./migrations/
 
-# OPTIMIZATION 2: Build FFI libraries with cache mounts in single layer
-# This avoids the inefficient double-copy pattern
-# Use sharing=locked to prevent concurrent access issues
+# Set working directory and environment for Ruby worker
 ENV SQLX_OFFLINE=true
 WORKDIR /app/workers/ruby
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/app/target,sharing=locked \
-    cargo build --all-features --package tasker-shared --package tasker-client --package tasker-worker --package pgmq-notify && \
-    # Copy compiled libraries from cache mount to persistent location
-    mkdir -p /app/target/debug && \
-    cp -r /app/target/debug/deps /app/target/debug/ && \
-    cp -r /app/target/debug/build /app/target/debug/ 2>/dev/null || true && \
-    find /app/target/debug -name "*.so" -o -name "*.a" -o -name "*.rlib" | xargs -I {} cp {} /app/target/debug/ 2>/dev/null || true
 
 # Install Ruby dependencies
 # Remove deployment mode for test builds - we're testing, not deploying
 RUN bundle config set --local without 'development'
 RUN bundle install
 
-# OPTIMIZATION 3: Compile Ruby FFI extensions with pre-built Rust libraries
-# This stage has both Ruby and Rust toolchain available
-RUN bundle exec rake compile
+# Compile Ruby FFI extensions with cache mounts for incremental builds
+# rb_sys will handle all Rust compilation via bundle exec rake compile
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
+    bundle exec rake compile
 
 # =============================================================================
 # Runtime - Ruby-driven worker image

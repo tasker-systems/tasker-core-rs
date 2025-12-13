@@ -31,22 +31,30 @@
 //!
 //! ## Usage
 //!
-//! ```rust,ignore
+//! ```rust,no_run
 //! use tasker_worker::worker::in_process_event_bus::{InProcessEventBus, InProcessEventBusConfig};
 //! use tasker_shared::events::domain_events::DomainEvent;
+//! use tasker_shared::events::registry::EventHandler;
+//! use std::sync::Arc;
 //!
-//! // Create bus
-//! let config = InProcessEventBusConfig::default();
-//! let mut bus = InProcessEventBus::new(config);
+//! async fn example(event: DomainEvent) -> Result<(), Box<dyn std::error::Error>> {
+//!     // Create bus
+//!     let config = InProcessEventBusConfig::default();
+//!     let mut bus = InProcessEventBus::new(config);
 //!
-//! // Register Rust subscriber
-//! bus.subscribe("payment.*", |event| Box::pin(async move {
-//!     println!("Payment event: {}", event.event_name);
+//!     // Register Rust subscriber (handler wrapped in Arc)
+//!     let handler: EventHandler = Arc::new(|event: DomainEvent| {
+//!         Box::pin(async move {
+//!             println!("Payment event: {}", event.event_name);
+//!             Ok(())
+//!         })
+//!     });
+//!     bus.subscribe("payment.*", handler)?;
+//!
+//!     // Publish event (fire-and-forget)
+//!     bus.publish(event).await;
 //!     Ok(())
-//! }))?;
-//!
-//! // Publish event (fire-and-forget)
-//! bus.publish(event).await;
+//! }
 //! ```
 
 use std::sync::Arc;

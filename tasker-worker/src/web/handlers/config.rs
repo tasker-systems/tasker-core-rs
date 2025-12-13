@@ -3,18 +3,30 @@
 //! Runtime configuration observability endpoints for worker monitoring and debugging.
 //! Provides a unified view of worker configuration (common + worker-specific)
 //! with sensitive data redacted.
+//!
+//! TAS-77: Handlers now delegate to ConfigQueryService for actual config operations,
+//! enabling the same functionality to be accessed via FFI.
 
 use axum::extract::State;
 use axum::Json;
-use chrono::Utc;
 use std::sync::Arc;
-use tracing::debug;
 
 use crate::web::state::WorkerWebState;
-use tasker_shared::types::api::orchestration::{
-    redact_secrets, ConfigMetadata, WorkerConfigResponse,
-};
+use crate::worker::services::ConfigQueryError;
+use tasker_shared::types::api::orchestration::WorkerConfigResponse;
 use tasker_shared::types::web::ApiError;
+
+/// Convert ConfigQueryError to HTTP API error
+fn config_error_to_api_error(error: ConfigQueryError) -> ApiError {
+    match error {
+        ConfigQueryError::WorkerConfigNotFound => {
+            ApiError::internal_server_error("Worker configuration not found".to_string())
+        }
+        ConfigQueryError::SerializationError(msg) => {
+            ApiError::internal_server_error(format!("Failed to serialize configuration: {}", msg))
+        }
+    }
+}
 
 /// Get complete worker configuration: GET /config
 ///
@@ -41,44 +53,9 @@ use tasker_shared::types::web::ApiError;
 pub async fn get_config(
     State(state): State<Arc<WorkerWebState>>,
 ) -> Result<Json<WorkerConfigResponse>, ApiError> {
-    debug!("Retrieving complete worker configuration");
-
-    let system_config = &state.system_config;
-
-    // Build common config JSON (TAS-61 Phase 6D: V2 config structure)
-    let common_json = serde_json::json!({
-        "database": system_config.common.database,
-        "circuit_breakers": system_config.common.circuit_breakers,
-        "telemetry": system_config.common.telemetry,
-        "system": system_config.common.system,
-        "backoff": system_config.common.backoff,
-        "task_templates": system_config.common.task_templates,
-    });
-
-    // Get worker-specific configuration
-    let worker_config = system_config.worker.as_ref().ok_or_else(|| {
-        ApiError::internal_server_error("Worker configuration not found".to_string())
-    })?;
-
-    let worker_json = serde_json::to_value(worker_config).map_err(|e| {
-        ApiError::internal_server_error(format!("Failed to serialize worker configuration: {}", e))
-    })?;
-
-    // Redact sensitive fields from both
-    let (redacted_common, mut redacted_fields) = redact_secrets(common_json);
-    let (redacted_worker, worker_fields) = redact_secrets(worker_json);
-    redacted_fields.extend(worker_fields);
-
-    let response = WorkerConfigResponse {
-        environment: system_config.common.execution.environment.clone(),
-        common: redacted_common,
-        worker: redacted_worker,
-        metadata: ConfigMetadata {
-            timestamp: Utc::now(),
-            source: "runtime".to_string(),
-            redacted_fields,
-        },
-    };
-
-    Ok(Json(response))
+    state
+        .config_query_service()
+        .runtime_config()
+        .map(Json)
+        .map_err(config_error_to_api_error)
 }

@@ -36,20 +36,31 @@
 //!
 //! ## Usage
 //!
-//! ```rust,ignore
+//! ```rust,no_run
 //! use tasker_worker::worker::event_router::EventRouter;
+//! use tasker_worker::worker::in_process_event_bus::InProcessEventBus;
+//! use tasker_shared::events::domain_events::{DomainEventPublisher, DomainEventPayload, EventMetadata};
 //! use tasker_shared::models::core::task_template::EventDeliveryMode;
+//! use std::sync::Arc;
+//! use tokio::sync::RwLock;
 //!
-//! // Create router during worker bootstrap
-//! let router = EventRouter::new(domain_publisher, in_process_bus);
+//! async fn example(
+//!     domain_publisher: Arc<DomainEventPublisher>,
+//!     in_process_bus: Arc<RwLock<InProcessEventBus>>,
+//!     payload: DomainEventPayload,
+//!     metadata: EventMetadata,
+//! ) {
+//!     // Create router during worker bootstrap
+//!     let router = EventRouter::new(domain_publisher, in_process_bus);
 //!
-//! // Route based on delivery mode (determined by YAML config)
-//! router.route_event(
-//!     EventDeliveryMode::Durable,
-//!     "payment.processed",
-//!     payload,
-//!     metadata
-//! ).await;
+//!     // Route based on delivery mode (determined by YAML config)
+//!     let _ = router.route_event(
+//!         EventDeliveryMode::Durable,
+//!         "payment.processed",
+//!         payload,
+//!         metadata
+//!     ).await;
+//! }
 //! ```
 
 use std::sync::Arc;

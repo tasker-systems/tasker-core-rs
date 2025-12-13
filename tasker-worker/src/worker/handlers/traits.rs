@@ -22,21 +22,35 @@
 //! ## Usage
 //!
 //! ```rust,ignore
+//! // StepHandlerRegistry requires interior mutability (RwLock) and multiple methods
 //! use tasker_worker::worker::handlers::{StepHandlerRegistry, StepHandler};
+//! use tasker_shared::types::base::TaskSequenceStep;
+//! use std::collections::HashMap;
+//! use std::sync::{Arc, RwLock};
+//! use async_trait::async_trait;
 //!
-//! // Implement for Rust handlers
+//! // Implement for Rust handlers with interior mutability
 //! struct RustHandlerRegistry {
-//!     handlers: HashMap<String, Arc<dyn StepHandler>>,
+//!     handlers: RwLock<HashMap<String, Arc<dyn StepHandler>>>,
 //! }
 //!
 //! #[async_trait]
 //! impl StepHandlerRegistry for RustHandlerRegistry {
 //!     async fn get(&self, step: &TaskSequenceStep) -> Option<Arc<dyn StepHandler>> {
-//!         self.handlers.get(&step.step_definition.handler_class).cloned()
+//!         let handlers = self.handlers.read().unwrap();
+//!         handlers.get(&step.step_definition.handler).cloned()
 //!     }
 //!
 //!     fn register(&self, name: &str, handler: Arc<dyn StepHandler>) {
-//!         // ...
+//!         self.handlers.write().unwrap().insert(name.to_string(), handler);
+//!     }
+//!
+//!     fn handler_available(&self, name: &str) -> bool {
+//!         self.handlers.read().unwrap().contains_key(name)
+//!     }
+//!
+//!     fn registered_handlers(&self) -> Vec<String> {
+//!         self.handlers.read().unwrap().keys().cloned().collect()
 //!     }
 //! }
 //! ```

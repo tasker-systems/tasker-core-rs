@@ -26,13 +26,21 @@
 //! ## Usage
 //!
 //! ```rust,ignore
-//! use crate::worker::actors::{WorkerActorRegistry, Handler};
+//! // WorkerActorRegistry::build requires multiple dependencies from worker bootstrap
+//! use tasker_worker::worker::actors::{WorkerActorRegistry, Handler};
 //! use tasker_shared::system_context::SystemContext;
 //! use std::sync::Arc;
 //!
 //! async fn example(context: Arc<SystemContext>) -> Result<(), Box<dyn std::error::Error>> {
-//!     // Build registry with all actors
-//!     let registry = WorkerActorRegistry::build(context).await?;
+//!     // Build registry with all actors (requires full worker bootstrap context)
+//!     let (registry, dispatch_channels) = WorkerActorRegistry::build(
+//!         context,
+//!         worker_id,
+//!         task_template_manager,
+//!         event_publisher,
+//!         domain_event_handle,
+//!         dispatch_mode_config,
+//!     ).await?;
 //!
 //!     // Access actors for message handling
 //!     let step_executor = &registry.step_executor_actor;

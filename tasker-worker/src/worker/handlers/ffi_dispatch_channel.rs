@@ -28,23 +28,23 @@
 //! ## Usage
 //!
 //! ```rust,ignore
-//! // Rust side: Create channel from DispatchHandles with domain event callback
-//! let dispatch_handles = worker_handle.take_dispatch_handles().unwrap();
-//! let ffi_channel = FfiDispatchChannel::new(
-//!     dispatch_handles.dispatch_receiver,
-//!     dispatch_handles.completion_sender,
-//!     FfiDispatchChannelConfig::default(),
-//!     domain_event_callback,  // Required for domain event publishing
-//! );
+//! // FfiDispatchChannel is an internal module - accessed via FFI bindings
+//! use tasker_worker::worker::handlers::ffi_dispatch_channel::{
+//!     FfiDispatchChannel, FfiDispatchChannelConfig
+//! };
+//! use tasker_shared::messaging::StepExecutionResult;
+//! use std::time::Duration;
 //!
-//! // FFI side (called from Ruby/Python):
-//! loop {
-//!     if let Some(event) = ffi_channel.poll() {
-//!         // Execute handler
-//!         let result = handler.call(event.step_data);
-//!         ffi_channel.complete(event.event_id, result);
+//! // FFI side polling pattern (called from Ruby/Python):
+//! fn poll_loop(ffi_channel: &FfiDispatchChannel) {
+//!     loop {
+//!         if let Some(event) = ffi_channel.poll() {
+//!             // Execute handler in FFI language
+//!             let result = StepExecutionResult::default();
+//!             ffi_channel.complete(event.event_id, result);
+//!         }
+//!         std::thread::sleep(Duration::from_millis(10));
 //!     }
-//!     std::thread::sleep(Duration::from_millis(10));
 //! }
 //! ```
 

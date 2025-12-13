@@ -15,23 +15,21 @@
 //!
 //! ## Usage
 //!
-//! ```rust,ignore
+//! ```rust,no_run
 //! use std::sync::Arc;
 //! use tasker_shared::events::domain_events::DomainEventPublisher;
 //! use tasker_worker::worker::step_event_publisher_registry::StepEventPublisherRegistry;
 //!
-//! // Create registry with domain publisher for the default generic publisher
-//! let domain_publisher: Arc<DomainEventPublisher> = ...;
-//! let mut registry = StepEventPublisherRegistry::new(domain_publisher.clone());
+//! fn example(domain_publisher: Arc<DomainEventPublisher>) {
+//!     // Create registry with domain publisher for the default generic publisher
+//!     let mut registry = StepEventPublisherRegistry::new(domain_publisher.clone());
 //!
-//! // Register custom publishers (they own their own Arc to domain_publisher)
-//! registry.register(PaymentEventPublisher::new(domain_publisher.clone()));
+//!     // Lookup by name (from YAML `publisher:` field)
+//!     let publisher = registry.get("PaymentEventPublisher");
 //!
-//! // Lookup by name (from YAML `publisher:` field)
-//! let publisher = registry.get("PaymentEventPublisher");
-//!
-//! // Or get the default generic publisher
-//! let generic = registry.get_or_default(Some("UnknownPublisher"));
+//!     // Or get the default generic publisher
+//!     let generic = registry.get_or_default(Some("UnknownPublisher"));
+//! }
 //! ```
 
 use std::collections::HashMap;
