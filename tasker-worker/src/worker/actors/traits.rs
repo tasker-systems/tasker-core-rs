@@ -32,8 +32,8 @@ use tasker_shared::{system_context::SystemContext, TaskerResult};
 ///
 /// ## Example
 ///
-/// ```rust,ignore
-/// use crate::worker::actors::WorkerActor;
+/// ```rust,no_run
+/// use tasker_worker::worker::actors::WorkerActor;
 /// use std::sync::Arc;
 /// use tasker_shared::system_context::SystemContext;
 ///
@@ -155,8 +155,8 @@ pub trait Handler<M: Message>: WorkerActor {
 ///
 /// ## Example
 ///
-/// ```rust,ignore
-/// use crate::worker::actors::Message;
+/// ```rust,no_run
+/// use tasker_worker::worker::actors::Message;
 /// use uuid::Uuid;
 ///
 /// pub struct ExecuteStepMessage {

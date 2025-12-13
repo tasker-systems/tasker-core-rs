@@ -38,20 +38,37 @@ pub type SharedCircuitBreakerProvider =
 ///
 /// ## Example
 ///
-/// ```ignore
-/// let service = HealthService::new(
-///     worker_id,
-///     database_pool,
-///     worker_core,
-///     circuit_breaker_provider,
-///     start_time,
-/// );
+/// ```rust,no_run
+/// use tasker_worker::worker::services::health::{HealthService, SharedCircuitBreakerProvider};
+/// use tasker_worker::worker::core::WorkerCore;
+/// use sqlx::PgPool;
+/// use std::sync::Arc;
+/// use std::time::Instant;
+/// use tokio::sync::{Mutex, RwLock};
 ///
-/// // Get basic health (always succeeds)
-/// let basic = service.basic_health();
+/// async fn example(
+///     worker_id: String,
+///     database_pool: Arc<PgPool>,
+///     worker_core: Arc<Mutex<WorkerCore>>,
+/// ) {
+///     let circuit_breaker_provider: SharedCircuitBreakerProvider =
+///         Arc::new(RwLock::new(None));
+///     let start_time = Instant::now();
 ///
-/// // Get detailed health with all checks
-/// let detailed = service.detailed_health().await;
+///     let service = HealthService::new(
+///         worker_id,
+///         database_pool,
+///         worker_core,
+///         circuit_breaker_provider,
+///         start_time,
+///     );
+///
+///     // Get basic health (always succeeds)
+///     let basic = service.basic_health();
+///
+///     // Get detailed health with all checks
+///     let detailed = service.detailed_health().await;
+/// }
 /// ```
 pub struct HealthService {
     /// Worker identification

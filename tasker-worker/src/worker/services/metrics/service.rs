@@ -34,25 +34,46 @@ use tasker_shared::types::web::{
 ///
 /// ## Example
 ///
-/// ```ignore
-/// let service = MetricsService::new(
-///     worker_id,
-///     database_pool,
-///     message_client,
-///     task_template_manager,
-///     event_router,
-///     in_process_bus,
-///     start_time,
-/// );
+/// ```rust,no_run
+/// use tasker_worker::worker::services::metrics::MetricsService;
+/// use tasker_worker::worker::task_template_manager::TaskTemplateManager;
+/// use tasker_worker::worker::event_router::EventRouter;
+/// use tasker_worker::worker::in_process_event_bus::InProcessEventBus;
+/// use tasker_shared::messaging::clients::UnifiedMessageClient;
+/// use sqlx::PgPool;
+/// use std::sync::Arc;
+/// use std::time::Instant;
+/// use tokio::sync::RwLock;
 ///
-/// // Get Prometheus-format metrics
-/// let prometheus = service.prometheus_format().await;
+/// async fn example(
+///     worker_id: String,
+///     database_pool: Arc<PgPool>,
+///     message_client: Arc<UnifiedMessageClient>,
+///     task_template_manager: Arc<TaskTemplateManager>,
+///     event_router: Option<Arc<EventRouter>>,
+///     in_process_bus: Arc<RwLock<InProcessEventBus>>,
+/// ) {
+///     let start_time = Instant::now();
 ///
-/// // Get JSON metrics
-/// let json_metrics = service.worker_metrics().await;
+///     let service = MetricsService::new(
+///         worker_id,
+///         database_pool,
+///         message_client,
+///         task_template_manager,
+///         event_router,
+///         in_process_bus,
+///         start_time,
+///     );
 ///
-/// // Get domain event statistics
-/// let event_stats = service.domain_event_stats().await;
+///     // Get Prometheus-format metrics
+///     let prometheus = service.prometheus_format().await;
+///
+///     // Get JSON metrics
+///     let json_metrics = service.worker_metrics().await;
+///
+///     // Get domain event statistics
+///     let event_stats = service.domain_event_stats().await;
+/// }
 /// ```
 pub struct MetricsService {
     /// Worker identification

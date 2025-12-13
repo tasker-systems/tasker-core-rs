@@ -37,14 +37,20 @@ pub enum ConfigQueryError {
 ///
 /// ## Example
 ///
-/// ```ignore
-/// let service = ConfigQueryService::new(system_config);
+/// ```rust,no_run
+/// use tasker_worker::worker::services::config_query::ConfigQueryService;
+/// use tasker_shared::config::tasker::TaskerConfig;
 ///
-/// // Get runtime configuration (with sensitive fields redacted)
-/// let config = service.runtime_config()?;
+/// fn example(system_config: TaskerConfig) -> Result<(), Box<dyn std::error::Error>> {
+///     let service = ConfigQueryService::new(system_config);
 ///
-/// // Access configuration components
-/// println!("Environment: {}", config.environment);
+///     // Get runtime configuration (with sensitive fields redacted)
+///     let config = service.runtime_config()?;
+///
+///     // Access configuration components
+///     println!("Environment: {}", config.environment);
+///     Ok(())
+/// }
 /// ```
 pub struct ConfigQueryService {
     /// System configuration reference

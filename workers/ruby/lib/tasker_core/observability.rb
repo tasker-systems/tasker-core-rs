@@ -92,7 +92,8 @@ module TaskerCore
       #
       # @return [Boolean] true if worker is alive
       def alive?
-        health_live.status == 'healthy'
+        # Liveness probe returns 'alive' status, not 'healthy'
+        health_live.status == 'alive'
       rescue StandardError
         false
       end
@@ -196,12 +197,13 @@ module TaskerCore
         json = TaskerCore::FFI.templates_cache_stats
         data = JSON.parse(json)
 
+        # Map Rust field names to Ruby struct names
         Types::CacheStats.new(
-          total_entries: data['total_entries'],
-          hits: data['hits'],
-          misses: data['misses'],
-          evictions: data['evictions'],
-          last_maintenance: data['last_maintenance']
+          total_entries: data['total_cached'] || 0,
+          hits: data['cache_hits'] || 0,
+          misses: data['cache_misses'] || 0,
+          evictions: data['cache_evictions'] || 0,
+          last_maintenance: nil # Not provided by Rust API
         )
       end
 
@@ -212,10 +214,11 @@ module TaskerCore
         json = TaskerCore::FFI.templates_cache_clear
         data = JSON.parse(json)
 
+        # Rust API returns { operation, success, cache_stats }
         Types::CacheOperationResult.new(
-          success: data['success'],
-          message: data['message'],
-          timestamp: data['timestamp']
+          success: data['success'] || false,
+          message: data['operation'] || 'clear',
+          timestamp: Time.now.utc.iso8601
         )
       end
 
@@ -230,9 +233,16 @@ module TaskerCore
         data = JSON.parse(json)
 
         Types::CacheOperationResult.new(
-          success: data['success'],
-          message: data['message'],
-          timestamp: data['timestamp']
+          success: data['success'] || false,
+          message: data['message'] || data['operation'] || 'refresh',
+          timestamp: data['timestamp'] || Time.now.utc.iso8601
+        )
+      rescue RuntimeError => e
+        # Return a structured error response instead of raising
+        Types::CacheOperationResult.new(
+          success: false,
+          message: e.message,
+          timestamp: Time.now.utc.iso8601
         )
       end
 

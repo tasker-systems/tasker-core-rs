@@ -147,9 +147,10 @@ The HTTP server is now optional. Services are always created, but the HTTP serve
 
 ```toml
 # config/tasker/base/worker.toml
-[web]
+[worker.web]
 enabled = true              # Set to false to disable HTTP server
 bind_address = "0.0.0.0:8081"
+request_timeout_ms = 30000
 ```
 
 When `enabled = false`:
@@ -261,6 +262,43 @@ rescue RuntimeError => e
 end
 ```
 
+### Template Operation Errors
+
+Template operations raise `RuntimeError` for missing templates or namespaces:
+
+```ruby
+begin
+  result = TaskerCore::Observability.template_get(
+    namespace: "unknown",
+    name: "missing",
+    version: "1.0.0"
+  )
+rescue RuntimeError => e
+  puts "Template not found: #{e.message}"
+end
+
+# template_refresh handles errors gracefully, returning a result struct
+result = TaskerCore::Observability.template_refresh(
+  namespace: "unknown",
+  name: "missing",
+  version: "1.0.0"
+)
+puts result.success  # => false
+puts result.message  # => error description
+```
+
+### Convenience Methods
+
+The `ready?` and `alive?` methods handle errors gracefully:
+
+```ruby
+# These never raise - they return false on any error
+TaskerCore::Observability.ready?  # => true/false
+TaskerCore::Observability.alive?  # => true/false
+```
+
+**Note:** `alive?` checks for `status == "alive"` (from liveness probe), while `ready?` checks for `status == "healthy"` (from readiness probe).
+
 ## Best Practices
 
 1. **Use type-safe methods when possible** - Methods returning dry-struct types provide better validation
@@ -288,7 +326,7 @@ health = TaskerCore::Observability.health_basic
 
 1. Update configuration:
    ```toml
-   [web]
+   [worker.web]
    enabled = false
    ```
 
@@ -305,6 +343,45 @@ health = TaskerCore::Observability.health_basic
    metrics = TaskerCore::Observability.prometheus_metrics
    # Send to Prometheus pushgateway or custom aggregator
    ```
+
+## API Reference
+
+### Health Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `health_basic` | `Types::BasicHealth` | Basic health status |
+| `health_live` | `Types::BasicHealth` | Liveness probe (status: "alive") |
+| `health_ready` | `Types::DetailedHealth` | Readiness probe with all checks |
+| `health_detailed` | `Types::DetailedHealth` | Full health information |
+| `ready?` | `Boolean` | True if status == "healthy" |
+| `alive?` | `Boolean` | True if status == "alive" |
+
+### Metrics Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `metrics_worker` | `String` (JSON) | Worker metrics as JSON |
+| `event_stats` | `Types::DomainEventStats` | Domain event statistics |
+| `prometheus_metrics` | `String` | Prometheus text format |
+
+### Template Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `templates_list(include_cache_stats: false)` | `String` (JSON) | List all templates |
+| `template_get(namespace:, name:, version:)` | `String` (JSON) | Get specific template (raises on error) |
+| `template_validate(namespace:, name:, version:)` | `Types::TemplateValidation` | Validate template (raises on error) |
+| `cache_stats` | `Types::CacheStats` | Cache statistics |
+| `cache_clear` | `Types::CacheOperationResult` | Clear template cache |
+| `template_refresh(namespace:, name:, version:)` | `Types::CacheOperationResult` | Refresh specific template |
+
+### Config Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `config` | `Types::RuntimeConfig` | Full config (secrets redacted) |
+| `environment` | `String` | Current environment name |
 
 ## Related Documentation
 

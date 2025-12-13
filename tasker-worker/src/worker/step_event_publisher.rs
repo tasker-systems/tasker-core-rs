@@ -35,14 +35,16 @@
 //!
 //! ## Usage
 //!
-//! ```rust,ignore
+//! ```rust,no_run
 //! use async_trait::async_trait;
 //! use std::sync::Arc;
+//! use std::fmt::Debug;
 //! use tasker_shared::events::domain_events::DomainEventPublisher;
 //! use tasker_worker::worker::step_event_publisher::{
 //!     StepEventPublisher, StepEventContext, PublishResult
 //! };
 //!
+//! #[derive(Debug)]
 //! pub struct PaymentEventPublisher {
 //!     domain_publisher: Arc<DomainEventPublisher>,
 //! }
@@ -294,14 +296,16 @@ pub enum StepEventPublisherError {
 ///
 /// ## Example
 ///
-/// ```rust,ignore
+/// ```rust,no_run
 /// use async_trait::async_trait;
 /// use std::sync::Arc;
+/// use std::fmt::Debug;
 /// use tasker_shared::events::domain_events::DomainEventPublisher;
 /// use tasker_worker::worker::step_event_publisher::{
 ///     StepEventPublisher, StepEventContext, PublishResult
 /// };
 ///
+/// #[derive(Debug)]
 /// pub struct InventoryEventPublisher {
 ///     domain_publisher: Arc<DomainEventPublisher>,
 /// }

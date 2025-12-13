@@ -55,17 +55,24 @@ pub enum TemplateQueryError {
 ///
 /// ## Example
 ///
-/// ```ignore
-/// let service = TemplateQueryService::new(task_template_manager);
+/// ```rust,no_run
+/// use tasker_worker::worker::services::template_query::TemplateQueryService;
+/// use tasker_worker::worker::task_template_manager::TaskTemplateManager;
+/// use std::sync::Arc;
 ///
-/// // Get a specific template
-/// let template = service.get_template("payments", "process_order", "1.0.0").await?;
+/// async fn example(task_template_manager: Arc<TaskTemplateManager>) -> Result<(), Box<dyn std::error::Error>> {
+///     let service = TemplateQueryService::new(task_template_manager);
 ///
-/// // List all templates
-/// let list = service.list_templates(true).await;
+///     // Get a specific template
+///     let template = service.get_template("payments", "process_order", "1.0.0").await?;
 ///
-/// // Validate a template
-/// let validation = service.validate_template("payments", "process_order", "1.0.0").await?;
+///     // List all templates
+///     let list = service.list_templates(true).await;
+///
+///     // Validate a template
+///     let validation = service.validate_template("payments", "process_order", "1.0.0").await?;
+///     Ok(())
+/// }
 /// ```
 pub struct TemplateQueryService {
     /// Task template manager for template operations
