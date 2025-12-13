@@ -17,6 +17,12 @@ module TaskerCore
     RetryCount = Types::Integer.constrained(gteq: 0)
     TimeoutMs = Types::Integer.constrained(gt: 0)
 
+    # Lightweight struct for execution context (replaces OpenStruct)
+    ExecutionContext = Struct.new(:step, :task, keyword_init: true)
+
+    # Lightweight struct for queue message envelope (replaces OpenStruct)
+    QueueMessageEnvelope = Struct.new(:msg_id, :read_ct, :enqueued_at, :vt, :message, keyword_init: true)
+
     # Minimal StepMessage stub for registry compatibility only
     # This is a lightweight replacement for the complex 324-line StepMessage class
     # Used only for temporary registry lookup objects in queue_worker.rb
@@ -35,7 +41,7 @@ module TaskerCore
 
       # Minimal interface for registry compatibility
       def execution_context
-        OpenStruct.new(
+        ExecutionContext.new(
           step: {
             step_name: @step_name,
             workflow_step_id: @step_id,
@@ -77,7 +83,7 @@ module TaskerCore
       end
 
       def queue_message
-        @queue_message ||= OpenStruct.new(
+        @queue_message ||= QueueMessageEnvelope.new(
           msg_id: msg_id,
           read_ct: read_ct,
           enqueued_at: enqueued_at,

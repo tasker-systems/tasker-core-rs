@@ -5,6 +5,10 @@
 
 use crate::worker::event_router::EventRouter;
 use crate::worker::in_process_event_bus::InProcessEventBus;
+use crate::worker::services::{
+    ConfigQueryService, HealthService, MetricsService, SharedCircuitBreakerProvider,
+    TemplateQueryService,
+};
 use crate::worker::task_template_manager::TaskTemplateManager;
 use serde::Serialize;
 use sqlx::PgPool;
@@ -96,8 +100,9 @@ pub struct WorkerWebState {
     in_process_bus: Arc<TokioRwLock<InProcessEventBus>>,
 
     /// TAS-75: Circuit breaker health provider (injected from FFI layer)
-    /// This is set by the Ruby/Python worker binary when it creates the FfiDispatchChannel
-    circuit_breaker_health_provider: Option<Arc<dyn CircuitBreakerHealthProvider>>,
+    /// This is set by the Ruby/Python worker binary when it creates the FfiDispatchChannel.
+    /// Shared with HealthService so updates are visible to both.
+    circuit_breaker_health_provider: SharedCircuitBreakerProvider,
 
     /// Web API configuration
     pub config: WorkerWebConfig,
@@ -110,6 +115,21 @@ pub struct WorkerWebState {
 
     /// Cached worker ID (to avoid locking mutex on every status check)
     worker_id: String,
+
+    // =========================================================================
+    // TAS-77: Service instances for handler delegation
+    // =========================================================================
+    /// Health service for health check operations
+    health_service: Arc<HealthService>,
+
+    /// Metrics service for metrics collection operations
+    metrics_service: Arc<MetricsService>,
+
+    /// Template query service for template operations
+    template_query_service: Arc<TemplateQueryService>,
+
+    /// Config query service for configuration operations
+    config_query_service: Arc<ConfigQueryService>,
 }
 
 /// TAS-75: Trait for providing circuit breaker health information
@@ -164,6 +184,40 @@ impl WorkerWebState {
             "WorkerWebState using shared TaskTemplateManager and event components"
         );
 
+        let start_time = Instant::now();
+
+        // TAS-77: Create shared circuit breaker provider reference
+        // This is shared between WorkerWebState and HealthService so that
+        // when set_circuit_breaker_health_provider is called, both see the update.
+        let circuit_breaker_health_provider: SharedCircuitBreakerProvider =
+            Arc::new(TokioRwLock::new(None));
+
+        // TAS-77: Create service instances for handler delegation
+        let health_service = Arc::new(HealthService::new(
+            worker_id.clone(),
+            database_pool.clone(),
+            worker_core.clone(),
+            circuit_breaker_health_provider.clone(), // Shared reference
+            start_time,
+        ));
+
+        let metrics_service = Arc::new(MetricsService::new(
+            worker_id.clone(),
+            database_pool.clone(),
+            message_client.clone(),
+            task_template_manager.clone(),
+            event_router.clone(),
+            in_process_bus.clone(),
+            start_time,
+        ));
+
+        let template_query_service =
+            Arc::new(TemplateQueryService::new(task_template_manager.clone()));
+
+        let config_query_service = Arc::new(ConfigQueryService::new(system_config.clone()));
+
+        info!("TAS-77: Service instances created for web handlers");
+
         Ok(Self {
             worker_core,
             database_pool,
@@ -171,33 +225,25 @@ impl WorkerWebState {
             task_template_manager,
             event_router,
             in_process_bus,
-            circuit_breaker_health_provider: None,
+            circuit_breaker_health_provider, // Shared reference with HealthService
             config,
-            start_time: Instant::now(),
+            start_time,
             system_config,
             worker_id,
+            health_service,
+            metrics_service,
+            template_query_service,
+            config_query_service,
         })
-    }
-
-    /// TAS-75: Set the circuit breaker health provider
-    ///
-    /// Called by FFI workers (Ruby/Python) to inject their circuit breaker health
-    /// information. This should be called after the worker binary creates its
-    /// `FfiDispatchChannel` with circuit breaker.
-    pub fn set_circuit_breaker_health_provider(
-        &mut self,
-        provider: Arc<dyn CircuitBreakerHealthProvider>,
-    ) {
-        info!("Circuit breaker health provider set");
-        self.circuit_breaker_health_provider = Some(provider);
     }
 
     /// TAS-75: Get the circuit breaker health status
     ///
     /// Returns the current health of all circuit breakers in the worker.
     /// If no provider is set, returns a default (empty) health status.
-    pub fn circuit_breakers_health(&self) -> CircuitBreakersHealth {
-        self.circuit_breaker_health_provider
+    pub async fn circuit_breakers_health(&self) -> CircuitBreakersHealth {
+        let guard = self.circuit_breaker_health_provider.read().await;
+        guard
             .as_ref()
             .map(|p| p.get_circuit_breakers_health())
             .unwrap_or_else(|| CircuitBreakersHealth {
@@ -210,8 +256,8 @@ impl WorkerWebState {
     }
 
     /// TAS-75: Check if a circuit breaker health provider is configured
-    pub fn has_circuit_breaker_provider(&self) -> bool {
-        self.circuit_breaker_health_provider.is_some()
+    pub async fn has_circuit_breaker_provider(&self) -> bool {
+        self.circuit_breaker_health_provider.read().await.is_some()
     }
 
     /// Get the uptime in seconds since the worker started
@@ -316,5 +362,29 @@ impl WorkerWebState {
             captured_at: chrono::Utc::now(),
             worker_id: self.worker_id.clone(),
         }
+    }
+
+    // =========================================================================
+    // TAS-77: Service Accessors
+    // =========================================================================
+
+    /// Get the health service for health check operations
+    pub fn health_service(&self) -> &Arc<HealthService> {
+        &self.health_service
+    }
+
+    /// Get the metrics service for metrics collection operations
+    pub fn metrics_service(&self) -> &Arc<MetricsService> {
+        &self.metrics_service
+    }
+
+    /// Get the template query service for template operations
+    pub fn template_query_service(&self) -> &Arc<TemplateQueryService> {
+        &self.template_query_service
+    }
+
+    /// Get the config query service for configuration operations
+    pub fn config_query_service(&self) -> &Arc<ConfigQueryService> {
+        &self.config_query_service
     }
 }

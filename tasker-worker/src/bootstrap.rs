@@ -317,42 +317,38 @@ impl WorkerBootstrap {
 
         info!("WorkerCore started successfully with background processing");
 
-        // Create web API state if enabled (after starting worker core)
-        let web_state = if config.enable_web_api {
-            info!("Creating worker web API state");
+        // TAS-77: Always create WorkerWebState for service access via FFI
+        // The HTTP server is optional, but the services are always needed
+        info!("Creating worker web API state (services always available for FFI)");
 
-            // Clone the Arc<Mutex<WorkerCore>> for web API
-            let web_worker_core = worker_core.clone();
+        // Clone the Arc<Mutex<WorkerCore>> for web API
+        let web_worker_core = worker_core.clone();
 
-            // Get database pool (need to lock briefly to access context)
-            let database_pool = {
-                let core = worker_core.lock().await;
-                Arc::new(core.context.database_pool().clone())
-            };
-
-            let web_state = Arc::new(
-                WorkerWebState::new(
-                    config.web_config.clone(),
-                    web_worker_core,
-                    database_pool,
-                    (*system_context.tasker_config).clone(),
-                )
-                .await?,
-            );
-
-            info!("Worker web API state created successfully");
-            Some(web_state)
-        } else {
-            info!("Web API disabled in configuration");
-            None
+        // Get database pool (need to lock briefly to access context)
+        let database_pool = {
+            let core = worker_core.lock().await;
+            Arc::new(core.context.database_pool().clone())
         };
+
+        let web_state = Arc::new(
+            WorkerWebState::new(
+                config.web_config.clone(),
+                web_worker_core,
+                database_pool,
+                (*system_context.tasker_config).clone(),
+            )
+            .await?,
+        );
+
+        info!("Worker web API state created successfully (services available via FFI)");
 
         // Create runtime handle
         let runtime_handle = tokio::runtime::Handle::current();
 
-        // Start web server if enabled
-        if let Some(ref web_state) = web_state {
-            info!("Starting worker web server");
+        // TAS-77: Only start HTTP server if enabled
+        // Services remain accessible via FFI even without the HTTP server
+        if config.enable_web_api {
+            info!("Starting worker web server (HTTP API enabled)");
 
             let app = crate::web::create_app(web_state.clone());
             let bind_address = web_state.config.bind_address.clone();
@@ -374,7 +370,12 @@ impl WorkerBootstrap {
             });
 
             info!("Worker web server started on {}", bind_address);
+        } else {
+            info!("HTTP server disabled - services accessible via FFI only");
         }
+
+        // TAS-77: web_state is now always Some for FFI access
+        let web_state = Some(web_state);
 
         // Create shutdown channel
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();

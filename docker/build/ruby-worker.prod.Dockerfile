@@ -5,52 +5,6 @@
 # Context: tasker-core/ directory (workspace root)
 # Usage: docker build -f docker/build/ruby-worker.prod.Dockerfile -t tasker-ruby-worker:prod .
 
-FROM rust:1.90-bullseye AS rust_builder
-
-# Install system dependencies for Rust compilation
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    libpq-dev \
-    build-essential \
-    libclang-dev \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set libclang path for bindgen (Debian Bullseye uses LLVM 11)
-ENV LIBCLANG_PATH=/usr/lib/llvm-11/lib
-
-WORKDIR /app
-
-# Copy workspace for Rust FFI extension compilation
-COPY Cargo.toml Cargo.lock ./
-COPY .cargo/ ./.cargo/
-COPY src/ ./src/
-COPY tasker-shared/ ./tasker-shared/
-COPY tasker-worker/ ./tasker-worker/
-COPY tasker-client/ ./tasker-client/
-COPY pgmq-notify/ ./pgmq-notify/
-
-# Copy minimal workspace structure for crates we don't actually need
-# Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
-# We don't copy source code - just enough to satisfy workspace validation
-RUN mkdir -p tasker-orchestration/src && \
-    echo "pub fn main() {}" > tasker-orchestration/src/lib.rs
-COPY tasker-orchestration/Cargo.toml ./tasker-orchestration/
-
-RUN mkdir -p workers/rust/src && \
-    echo "pub fn main() {}" > workers/rust/src/lib.rs
-COPY workers/rust/Cargo.toml ./workers/rust/
-
-# Copy Ruby worker source code to proper workspace location
-COPY workers/ruby/ ./workers/ruby/
-COPY migrations/ ./migrations/
-
-# Build Ruby FFI extensions (not the binary worker)
-WORKDIR /app/workers/ruby
-ENV SQLX_OFFLINE=true
-RUN cargo build --release --all-features --package tasker-shared --package tasker-client --package tasker-worker --package pgmq-notify # Build optimized FFI libraries
-
 # =============================================================================
 # Ruby Builder - Compile Ruby FFI extensions with both Ruby and Rust available
 # =============================================================================
@@ -101,9 +55,6 @@ COPY workers/rust/Cargo.toml ./workers/rust/
 
 # Copy Ruby worker source code to proper workspace location
 COPY workers/ruby/ ./workers/ruby/
-
-# Copy compiled Rust FFI libraries from rust_builder
-COPY --from=rust_builder /app/target ./target/
 COPY migrations/ ./migrations/
 
 # Install Ruby dependencies
@@ -114,8 +65,8 @@ RUN bundle install
 
 ENV SQLX_OFFLINE=true
 ENV RB_SYS_CARGO_PROFILE=release
-# Compile Ruby FFI extensions (links against pre-built Rust libraries)
-# This stage has both Ruby and Rust toolchain available
+# Compile Ruby FFI extensions
+# rb_sys will handle all Rust compilation via bundle exec rake compile
 RUN bundle exec rake compile
 
 # =============================================================================
@@ -141,8 +92,12 @@ RUN apt-get update && apt-get install -y \
 RUN useradd -r -g daemon -u 999 tasker
 
 # Copy Ruby worker source code and compiled extensions from ruby_builder
-COPY --from=ruby_builder /app/ruby_worker ./ruby_worker/
+COPY --from=ruby_builder /app/workers/ruby ./ruby_worker/
 WORKDIR /app/ruby_worker
+
+# Copy bundled gems from builder (includes compiled extensions and all gems)
+# Gems install to /usr/local/bundle by default in Ruby Docker images
+COPY --from=ruby_builder /usr/local/bundle /usr/local/bundle
 
 # Extensions are already compiled in ruby_builder stage
 
