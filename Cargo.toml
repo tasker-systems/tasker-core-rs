@@ -19,7 +19,7 @@ members = [
   "tasker-worker",
   "workers/ruby/ext/tasker_core",
   "workers/rust",
-  # "workers/python",  # Future
+  "workers/python",  # TAS-72: PyO3 Python worker
   # "workers/wasm",    # Future
 ]
 

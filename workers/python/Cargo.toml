@@ -1,0 +1,39 @@
+[package]
+name = "tasker-worker-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python FFI bindings for tasker-core worker"
+license = "MIT"
+rust-version = "1.70"
+
+[lib]
+name = "_tasker_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+# PyO3 with extension-module feature for building Python extension
+# Using abi3-py310 for stable ABI with minimum Python 3.10
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
+
+# Serialization for Python type conversion
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+pythonize = "0.22"
+
+# Async runtime (needed for FFI blocking)
+tokio = { version = "1.0", features = ["rt-multi-thread", "sync"] }
+
+# Logging
+tracing = "0.1"
+
+# Workspace dependencies - will be enabled in later phases
+# tasker-worker = { path = "../../tasker-worker" }
+# tasker-shared = { path = "../../tasker-shared" }
+
+[dev-dependencies]
+pyo3 = { version = "0.22", features = ["auto-initialize"] }
+
+[features]
+default = []
+# Enable when we integrate with tasker-worker in Phase 2+
+# worker-integration = ["tasker-worker", "tasker-shared"]
