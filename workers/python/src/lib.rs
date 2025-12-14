@@ -9,13 +9,25 @@
 //! - `tasker_core` - Public Python package
 //! - `tasker_core._tasker_core` - Internal FFI module (this crate)
 //!
-//! # Phase 1 (TAS-72-P1)
+//! # Phases
 //!
-//! This initial implementation provides minimal FFI to verify the
-//! build pipeline works. Full functionality will be added in
-//! subsequent phases.
+//! - **Phase 1 (TAS-72-P1)**: Basic FFI scaffolding and build pipeline
+//! - **Phase 2 (TAS-72-P2)**: Bootstrap, lifecycle, logging, type conversions
+
+// Allow dead code for functions that will be used in Phase 3+
+#![allow(dead_code)]
+// PyO3 0.22 macros generate code that triggers this lint in Rust 2024
+#![allow(unsafe_op_in_unsafe_fn)]
+// PyO3 macro expansion triggers false positives for useless_conversion
+#![allow(clippy::useless_conversion)]
 
 use pyo3::prelude::*;
+
+mod bootstrap;
+mod bridge;
+mod conversions;
+mod error;
+mod ffi_logging;
 
 /// Returns the version of the tasker-core-py package
 #[pyfunction]
@@ -60,10 +72,32 @@ fn health_check() -> bool {
 /// ```
 #[pymodule]
 fn _tasker_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Version information
+    // Initialize FFI logging (Phase 1 of two-phase initialization)
+    ffi_logging::init_ffi_logger().map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to initialize logging: {}", e))
+    })?;
+
+    // Version information (Phase 1)
     m.add_function(wrap_pyfunction!(get_version, m)?)?;
     m.add_function(wrap_pyfunction!(get_rust_version, m)?)?;
     m.add_function(wrap_pyfunction!(health_check, m)?)?;
+
+    // Bootstrap and lifecycle (Phase 2)
+    m.add_function(wrap_pyfunction!(bootstrap::bootstrap_worker, m)?)?;
+    m.add_function(wrap_pyfunction!(bootstrap::stop_worker, m)?)?;
+    m.add_function(wrap_pyfunction!(bootstrap::get_worker_status, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        bootstrap::transition_to_graceful_shutdown,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(bootstrap::is_worker_running, m)?)?;
+
+    // Logging functions (Phase 2)
+    m.add_function(wrap_pyfunction!(ffi_logging::log_error, m)?)?;
+    m.add_function(wrap_pyfunction!(ffi_logging::log_warn, m)?)?;
+    m.add_function(wrap_pyfunction!(ffi_logging::log_info, m)?)?;
+    m.add_function(wrap_pyfunction!(ffi_logging::log_debug, m)?)?;
+    m.add_function(wrap_pyfunction!(ffi_logging::log_trace, m)?)?;
 
     // Module metadata
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

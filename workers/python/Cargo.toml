@@ -19,27 +19,38 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
 
 # Serialization for Python type conversion
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
 pythonize = "0.22"
 
 # Async runtime (needed for FFI blocking)
-tokio = { version = "1.0", features = ["rt-multi-thread", "sync"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 
 # Logging
-tracing = "0.1"
+tracing = { workspace = true }
 
-# Workspace dependencies - will be enabled in later phases
-# tasker-worker = { path = "../../tasker-worker" }
-# tasker-shared = { path = "../../tasker-shared" }
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# UUID generation
+uuid = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+
+# Environment variable loading
+dotenvy = { workspace = true }
+
+# Workspace dependencies for worker integration
+tasker-worker = { path = "../../tasker-worker" }
+tasker-shared = { path = "../../tasker-shared" }
 
 [dev-dependencies]
 pyo3 = { version = "0.22", features = ["auto-initialize"] }
 
 [features]
 default = []
-# Enable when we integrate with tasker-worker in Phase 2+
-# worker-integration = ["tasker-worker", "tasker-shared"]
 
 [lints]
 workspace = true

@@ -4541,12 +4541,19 @@ dependencies = [
 name = "tasker-worker-py"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "chrono",
+ "dotenvy",
  "pyo3",
  "pythonize",
  "serde",
  "serde_json",
+ "tasker-shared",
+ "tasker-worker",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
