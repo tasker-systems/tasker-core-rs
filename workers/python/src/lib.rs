@@ -14,6 +14,7 @@
 //! - **Phase 1 (TAS-72-P1)**: Basic FFI scaffolding and build pipeline
 //! - **Phase 2 (TAS-72-P2)**: Bootstrap, lifecycle, logging, type conversions
 //! - **Phase 3 (TAS-72-P3)**: Event dispatch system (poll/complete)
+//! - **Phase 5 (TAS-72-P5)**: Domain events and observability
 
 // Allow dead code for functions that will be used in Phase 4+
 #![allow(dead_code)]
@@ -30,6 +31,7 @@ mod conversions;
 mod error;
 mod event_dispatch;
 mod ffi_logging;
+mod observability;
 
 /// Returns the version of the tasker-core-py package
 #[pyfunction]
@@ -107,6 +109,12 @@ fn _tasker_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(event_dispatch::get_ffi_dispatch_metrics, m)?)?;
     m.add_function(wrap_pyfunction!(event_dispatch::check_starvation_warnings, m)?)?;
     m.add_function(wrap_pyfunction!(event_dispatch::cleanup_timeouts, m)?)?;
+
+    // Observability functions (Phase 5)
+    m.add_function(wrap_pyfunction!(observability::poll_in_process_events, m)?)?;
+    m.add_function(wrap_pyfunction!(observability::get_health_check, m)?)?;
+    m.add_function(wrap_pyfunction!(observability::get_metrics, m)?)?;
+    m.add_function(wrap_pyfunction!(observability::get_worker_config, m)?)?;
 
     // Module metadata
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

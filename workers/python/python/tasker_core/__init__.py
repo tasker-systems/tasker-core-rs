@@ -38,9 +38,8 @@ Example:
 
 from __future__ import annotations
 
-# Import from the internal FFI module (Phase 1)
-# Import event dispatch (Phase 3)
-from tasker_core._tasker_core import (
+# Import from the internal FFI module (Phase 1, Phase 3, Phase 5)
+from tasker_core._tasker_core import (  # type: ignore[attr-defined]
     __version__,
     check_starvation_warnings,
     cleanup_timeouts,
@@ -49,6 +48,7 @@ from tasker_core._tasker_core import (
     get_rust_version,
     get_version,
     health_check,
+    poll_in_process_events,
     poll_step_events,
 )
 
@@ -60,6 +60,9 @@ from tasker_core.bootstrap import (
     stop_worker,
     transition_to_graceful_shutdown,
 )
+
+# Import Phase 5: Domain events and observability
+from tasker_core.domain_events import InProcessDomainEventPoller
 
 # Import Phase 4: Handler system
 from tasker_core.event_bridge import EventBridge, EventNames
@@ -84,17 +87,26 @@ from tasker_core.logging import (
     log_trace,
     log_warn,
 )
+from tasker_core.observability import (
+    get_health_check,
+    get_metrics,
+    get_worker_config,
+)
 from tasker_core.step_execution_subscriber import (
     StepExecutionError,
     StepExecutionSubscriber,
 )
 
-# Import types (Phase 2 + Phase 3 + Phase 4)
+# Import types (Phase 2 + Phase 3 + Phase 4 + Phase 5)
 from tasker_core.types import (
     BootstrapConfig,
     BootstrapResult,
+    ComponentHealth,
+    DomainEventMetadata,
     FfiDispatchMetrics,
     FfiStepEvent,
+    HealthCheck,
+    InProcessDomainEvent,
     LogContext,
     ResultStatus,
     StarvationWarning,
@@ -103,6 +115,8 @@ from tasker_core.types import (
     StepExecutionResult,
     StepHandlerCallResult,
     StepHandlerResult,
+    WorkerConfig,
+    WorkerMetrics,
     WorkerState,
     WorkerStatus,
 )
@@ -164,6 +178,19 @@ __all__ = [
     "StepHandlerResult",
     "StepExecutionSubscriber",
     "StepExecutionError",
+    # Domain events (Phase 5)
+    "poll_in_process_events",
+    "InProcessDomainEventPoller",
+    "DomainEventMetadata",
+    "InProcessDomainEvent",
+    # Observability (Phase 5)
+    "get_health_check",
+    "get_metrics",
+    "get_worker_config",
+    "ComponentHealth",
+    "HealthCheck",
+    "WorkerMetrics",
+    "WorkerConfig",
 ]
 
 

@@ -660,6 +660,232 @@ class StepHandlerResult(BaseModel):
         )
 
 
+# =============================================================================
+# Phase 5: Domain Events & Observability Types
+# =============================================================================
+
+
+class DomainEventMetadata(BaseModel):
+    """Metadata for domain events.
+
+    Contains correlation and tracing information for domain events.
+
+    Example:
+        >>> metadata = DomainEventMetadata(
+        ...     task_uuid=UUID("..."),
+        ...     step_uuid=UUID("..."),
+        ...     namespace="payments",
+        ...     correlation_id=UUID("..."),
+        ...     fired_at="2025-01-01T00:00:00Z",
+        ...     fired_by="python-worker",
+        ... )
+    """
+
+    task_uuid: UUID = Field(description="Task UUID.")
+    step_uuid: UUID | None = Field(
+        default=None,
+        description="Step UUID (if step-level event).",
+    )
+    step_name: str | None = Field(
+        default=None,
+        description="Step name.",
+    )
+    namespace: str | None = Field(
+        default=None,
+        description="Task namespace.",
+    )
+    correlation_id: UUID = Field(description="Correlation ID for tracing.")
+    fired_at: str = Field(description="ISO-8601 timestamp when event was fired.")
+    fired_by: str = Field(description="Source that fired the event.")
+
+
+class InProcessDomainEvent(BaseModel):
+    """Domain event received from in-process polling.
+
+    In-process events use the fast path (tokio broadcast channel)
+    for real-time notifications that don't require guaranteed delivery.
+
+    Example:
+        >>> event = InProcessDomainEvent.model_validate(poll_in_process_events())
+        >>> if event:
+        ...     print(f"Received {event.event_name}: {event.payload}")
+    """
+
+    event_id: UUID = Field(description="Unique event ID.")
+    event_name: str = Field(description="Event name (e.g., 'step.completed').")
+    event_version: str = Field(description="Event schema version.")
+    metadata: DomainEventMetadata = Field(description="Event metadata.")
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Event payload data.",
+    )
+
+
+class ComponentHealth(BaseModel):
+    """Health status for a single component.
+
+    Example:
+        >>> component = ComponentHealth(
+        ...     name="database",
+        ...     status="healthy",
+        ...     pool_size=10,
+        ...     pool_idle=5,
+        ... )
+    """
+
+    name: str = Field(description="Component name.")
+    status: str = Field(description="Health status (healthy/unhealthy).")
+    pool_size: int | None = Field(
+        default=None,
+        description="Connection pool size (for database).",
+    )
+    pool_idle: int | None = Field(
+        default=None,
+        description="Idle connections in pool.",
+    )
+
+
+class HealthCheck(BaseModel):
+    """Health check response from the worker.
+
+    Provides comprehensive health status of all worker components.
+
+    Example:
+        >>> health = HealthCheck.model_validate(get_health_check())
+        >>> if health.status == "healthy":
+        ...     print("Worker is healthy")
+    """
+
+    status: str = Field(description="Overall health status (healthy/unhealthy).")
+    is_running: bool = Field(description="Whether the worker is running.")
+    components: dict[str, ComponentHealth] = Field(
+        default_factory=dict,
+        description="Health status of individual components.",
+    )
+    rust: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Rust layer information.",
+    )
+    python: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Python layer information.",
+    )
+
+
+class WorkerMetrics(BaseModel):
+    """Performance metrics from the worker.
+
+    Provides metrics about step execution, timing, channels, and errors.
+
+    Example:
+        >>> metrics = WorkerMetrics.model_validate(get_metrics())
+        >>> print(f"Pending events: {metrics.dispatch_channel_pending}")
+    """
+
+    # FFI dispatch channel metrics
+    dispatch_channel_pending: int = Field(
+        default=0,
+        description="Number of pending events in dispatch channel.",
+    )
+    oldest_pending_age_ms: int | None = Field(
+        default=None,
+        description="Age of oldest pending event in milliseconds.",
+    )
+    newest_pending_age_ms: int | None = Field(
+        default=None,
+        description="Age of newest pending event in milliseconds.",
+    )
+    starvation_detected: bool = Field(
+        default=False,
+        description="Whether event starvation is detected.",
+    )
+    starving_event_count: int = Field(
+        default=0,
+        description="Number of starving events.",
+    )
+
+    # Database metrics
+    database_pool_size: int = Field(
+        default=0,
+        description="Total database connection pool size.",
+    )
+    database_pool_idle: int = Field(
+        default=0,
+        description="Idle database connections.",
+    )
+
+    # Environment
+    environment: str | None = Field(
+        default=None,
+        description="Current environment.",
+    )
+
+    # Step execution metrics (placeholders, populated as worker tracks stats)
+    steps_processed: int = Field(
+        default=0,
+        description="Total steps processed.",
+    )
+    steps_succeeded: int = Field(
+        default=0,
+        description="Steps completed successfully.",
+    )
+    steps_failed: int = Field(
+        default=0,
+        description="Steps that failed.",
+    )
+    steps_in_progress: int = Field(
+        default=0,
+        description="Steps currently in progress.",
+    )
+
+
+class WorkerConfig(BaseModel):
+    """Current worker configuration.
+
+    Provides runtime configuration settings for the worker.
+
+    Example:
+        >>> config = WorkerConfig.model_validate(get_worker_config())
+        >>> print(f"Environment: {config.environment}")
+        >>> print(f"Namespaces: {config.supported_namespaces}")
+    """
+
+    environment: str | None = Field(
+        default=None,
+        description="Current environment (test, development, production).",
+    )
+    supported_namespaces: list[str] = Field(
+        default_factory=list,
+        description="List of task namespaces this worker handles.",
+    )
+    web_api_enabled: bool = Field(
+        default=False,
+        description="Whether the web API is enabled.",
+    )
+    database_pool_size: int = Field(
+        default=0,
+        description="Database connection pool size.",
+    )
+
+    # Configuration defaults
+    polling_interval_ms: int = Field(
+        default=10,
+        description="Event polling interval in milliseconds.",
+    )
+    starvation_threshold_ms: int = Field(
+        default=1000,
+        description="Event starvation detection threshold.",
+    )
+    max_concurrent_handlers: int = Field(
+        default=10,
+        description="Maximum concurrent handler executions.",
+    )
+    handler_timeout_ms: int = Field(
+        default=30000,
+        description="Handler execution timeout in milliseconds.",
+    )
+
+
 __all__ = [
     # Phase 2: Bootstrap and lifecycle
     "WorkerState",
@@ -678,4 +904,11 @@ __all__ = [
     # Phase 4: Handler system
     "StepContext",
     "StepHandlerResult",
+    # Phase 5: Domain events & observability
+    "DomainEventMetadata",
+    "InProcessDomainEvent",
+    "ComponentHealth",
+    "HealthCheck",
+    "WorkerMetrics",
+    "WorkerConfig",
 ]

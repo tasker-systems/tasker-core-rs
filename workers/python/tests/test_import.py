@@ -133,7 +133,24 @@ class TestModuleExports:
             "StepExecutionError",
         }
 
-        expected = phase1_exports | phase2_exports | phase3_exports | phase4_exports
+        # Phase 5 exports
+        phase5_exports = {
+            # Domain events
+            "poll_in_process_events",
+            "InProcessDomainEventPoller",
+            "DomainEventMetadata",
+            "InProcessDomainEvent",
+            # Observability
+            "get_health_check",
+            "get_metrics",
+            "get_worker_config",
+            "ComponentHealth",
+            "HealthCheck",
+            "WorkerMetrics",
+            "WorkerConfig",
+        }
+
+        expected = phase1_exports | phase2_exports | phase3_exports | phase4_exports | phase5_exports
         assert set(tasker_core.__all__) == expected
 
     def test_exports_are_callable(self):
