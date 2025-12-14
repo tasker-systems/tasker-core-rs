@@ -279,6 +279,23 @@ def handle(event_data):
 - All integration tests pass
 - Documentation complete and published
 
+### Phase 6a: E2E & Integration Tests (TAS-72-P6a)
+**Scope**: End-to-end testing infrastructure following Ruby/Rust patterns
+
+**Deliverables**:
+- Task templates in `tests/fixtures/task_templates/python/` (copied from Ruby with `_py` suffix)
+- Example handlers in `workers/python/tests/handlers/examples/` mirroring Ruby patterns
+- Rust E2E tests in `tests/e2e/python/` using IntegrationTestManager
+- Docker Compose configuration for Python worker (port 8083)
+- Test environment loader for auto-discovering example handlers
+- IntegrationTestManager support for `WorkerType::Python`
+
+**Acceptance Criteria**:
+- All Ruby workflow patterns have Python equivalents (linear, diamond, tree, mixed DAG)
+- Mathematical verification produces identical results to Ruby handlers
+- Python E2E tests pass through full orchestration pipeline
+- Docker Compose spins up Python worker alongside Rust/Ruby workers
+
 ### Phase 7: Distribution & CI/CD (TAS-72-P7)
 **Scope**: Package distribution and deployment automation
 
@@ -429,6 +446,7 @@ pyo3 = { version = "0.22", features = ["auto-initialize"] }
 | TAS-72-P4 | Phase 4 | Event Bridge & Handler System |
 | TAS-72-P5 | Phase 5 | Domain Events & Observability |
 | TAS-72-P6 | Phase 6 | Testing & Documentation |
+| TAS-72-P6a | Phase 6a | E2E & Integration Tests |
 | TAS-72-P7 | Phase 7 | Distribution & CI/CD |
 
 ## References
