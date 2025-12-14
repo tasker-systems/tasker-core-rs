@@ -13,8 +13,9 @@
 //!
 //! - **Phase 1 (TAS-72-P1)**: Basic FFI scaffolding and build pipeline
 //! - **Phase 2 (TAS-72-P2)**: Bootstrap, lifecycle, logging, type conversions
+//! - **Phase 3 (TAS-72-P3)**: Event dispatch system (poll/complete)
 
-// Allow dead code for functions that will be used in Phase 3+
+// Allow dead code for functions that will be used in Phase 4+
 #![allow(dead_code)]
 // PyO3 0.22 macros generate code that triggers this lint in Rust 2024
 #![allow(unsafe_op_in_unsafe_fn)]
@@ -27,6 +28,7 @@ mod bootstrap;
 mod bridge;
 mod conversions;
 mod error;
+mod event_dispatch;
 mod ffi_logging;
 
 /// Returns the version of the tasker-core-py package
@@ -98,6 +100,13 @@ fn _tasker_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ffi_logging::log_info, m)?)?;
     m.add_function(wrap_pyfunction!(ffi_logging::log_debug, m)?)?;
     m.add_function(wrap_pyfunction!(ffi_logging::log_trace, m)?)?;
+
+    // Event dispatch functions (Phase 3)
+    m.add_function(wrap_pyfunction!(event_dispatch::poll_step_events, m)?)?;
+    m.add_function(wrap_pyfunction!(event_dispatch::complete_step_event, m)?)?;
+    m.add_function(wrap_pyfunction!(event_dispatch::get_ffi_dispatch_metrics, m)?)?;
+    m.add_function(wrap_pyfunction!(event_dispatch::check_starvation_warnings, m)?)?;
+    m.add_function(wrap_pyfunction!(event_dispatch::cleanup_timeouts, m)?)?;
 
     // Module metadata
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

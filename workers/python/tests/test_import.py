@@ -99,7 +99,26 @@ class TestModuleExports:
             "ConversionError",
         }
 
-        expected = phase1_exports | phase2_exports
+        # Phase 3 exports
+        phase3_exports = {
+            # FFI functions
+            "poll_step_events",
+            "complete_step_event",
+            "get_ffi_dispatch_metrics",
+            "check_starvation_warnings",
+            "cleanup_timeouts",
+            # Types
+            "FfiStepEvent",
+            "StepExecutionResult",
+            "StepError",
+            "ResultStatus",
+            "FfiDispatchMetrics",
+            "StarvationWarning",
+            # EventPoller
+            "EventPoller",
+        }
+
+        expected = phase1_exports | phase2_exports | phase3_exports
         assert set(tasker_core.__all__) == expected
 
     def test_exports_are_callable(self):

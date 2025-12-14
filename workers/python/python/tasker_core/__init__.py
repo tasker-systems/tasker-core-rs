@@ -19,6 +19,12 @@ Example:
     >>> # Use structured logging
     >>> tasker_core.log_info("Processing started", {"correlation_id": "abc-123"})
 
+    >>> # Poll for step events (Phase 3+)
+    >>> from tasker_core import EventPoller
+    >>> poller = EventPoller()
+    >>> poller.on_step_event(handle_step)
+    >>> poller.start()
+
     >>> # Stop the worker
     >>> tasker_core.stop_worker()
 """
@@ -26,11 +32,17 @@ Example:
 from __future__ import annotations
 
 # Import from the internal FFI module (Phase 1)
+# Import event dispatch (Phase 3)
 from tasker_core._tasker_core import (
     __version__,
+    check_starvation_warnings,
+    cleanup_timeouts,
+    complete_step_event,
+    get_ffi_dispatch_metrics,
     get_rust_version,
     get_version,
     health_check,
+    poll_step_events,
 )
 
 # Import bootstrap functions (Phase 2)
@@ -41,6 +53,7 @@ from tasker_core.bootstrap import (
     stop_worker,
     transition_to_graceful_shutdown,
 )
+from tasker_core.event_poller import EventPoller
 
 # Import exceptions (Phase 2)
 from tasker_core.exceptions import (
@@ -65,7 +78,13 @@ from tasker_core.logging import (
 from tasker_core.types import (
     BootstrapConfig,
     BootstrapResult,
+    FfiDispatchMetrics,
+    FfiStepEvent,
     LogContext,
+    ResultStatus,
+    StarvationWarning,
+    StepError,
+    StepExecutionResult,
     StepHandlerCallResult,
     WorkerState,
     WorkerStatus,
@@ -104,6 +123,21 @@ __all__ = [
     "WorkerAlreadyRunningError",
     "FFIError",
     "ConversionError",
+    # Event dispatch FFI functions (Phase 3)
+    "poll_step_events",
+    "complete_step_event",
+    "get_ffi_dispatch_metrics",
+    "check_starvation_warnings",
+    "cleanup_timeouts",
+    # Event dispatch types (Phase 3)
+    "FfiStepEvent",
+    "StepExecutionResult",
+    "StepError",
+    "ResultStatus",
+    "FfiDispatchMetrics",
+    "StarvationWarning",
+    # Event poller (Phase 3)
+    "EventPoller",
 ]
 
 

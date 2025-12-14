@@ -142,3 +142,76 @@ def log_trace(message: str, fields: dict[str, str] | None = None) -> None:
         fields: Optional dict of string key-value pairs for context.
     """
     ...
+
+# Phase 3: Event dispatch functions
+
+def poll_step_events() -> dict[str, Any] | None:
+    """Poll for pending step execution events.
+
+    This is a non-blocking call that returns the next available
+    step event or None if no events are pending.
+
+    Returns:
+        Dict representing FfiStepEvent, or None if no events available.
+        Keys include: event_id, task_uuid, step_uuid, correlation_id,
+        task_sequence_step, trace_id, span_id
+
+    Raises:
+        RuntimeError: If worker system is not running.
+    """
+    ...
+
+def complete_step_event(event_id: str, completion_data: dict[str, Any]) -> bool:
+    """Submit completion result for a step event.
+
+    Args:
+        event_id: The event ID string from the FfiStepEvent.
+        completion_data: Dict with completion result data matching
+            StepExecutionResult structure.
+
+    Returns:
+        True if completion was successfully submitted, False otherwise.
+
+    Raises:
+        ValueError: If event_id format is invalid.
+        RuntimeError: If worker system is not running.
+    """
+    ...
+
+def get_ffi_dispatch_metrics() -> dict[str, Any]:
+    """Get metrics from the FFI dispatch channel.
+
+    Returns:
+        Dict with keys: pending_count, oldest_pending_age_ms,
+        newest_pending_age_ms, oldest_event_id, starvation_detected,
+        starving_event_count
+
+    Raises:
+        RuntimeError: If worker system is not running.
+    """
+    ...
+
+def check_starvation_warnings() -> bool:
+    """Check for starvation warnings and emit logs.
+
+    Emits warning logs for any pending events that exceed the
+    starvation threshold.
+
+    Returns:
+        True after checking.
+
+    Raises:
+        RuntimeError: If worker system is not running.
+    """
+    ...
+
+def cleanup_timeouts() -> int:
+    """Clean up timed-out pending events.
+
+    Returns:
+        Number of events that were cleaned up.
+
+    Raises:
+        RuntimeError: If worker system is not running.
+    """
+    ...
