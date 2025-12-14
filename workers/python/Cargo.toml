@@ -5,6 +5,9 @@ edition = "2021"
 description = "Python FFI bindings for tasker-core worker"
 license = "MIT"
 rust-version = "1.70"
+repository = "https://github.com/tasker-systems/tasker-core"
+keywords = ["python", "ffi", "pyo3", "tasker", "workflow"]
+categories = ["api-bindings", "development-tools::ffi"]
 
 [lib]
 name = "_tasker_core"
@@ -37,3 +40,6 @@ pyo3 = { version = "0.22", features = ["auto-initialize"] }
 default = []
 # Enable when we integrate with tasker-worker in Phase 2+
 # worker-integration = ["tasker-worker", "tasker-shared"]
+
+[lints]
+workspace = true
