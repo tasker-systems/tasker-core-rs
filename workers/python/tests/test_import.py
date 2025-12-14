@@ -118,7 +118,22 @@ class TestModuleExports:
             "EventPoller",
         }
 
-        expected = phase1_exports | phase2_exports | phase3_exports
+        # Phase 4 exports
+        phase4_exports = {
+            # Event bridge
+            "EventBridge",
+            "EventNames",
+            # Handler system
+            "HandlerRegistry",
+            "StepHandler",
+            "StepContext",
+            "StepHandlerResult",
+            # Step execution subscriber
+            "StepExecutionSubscriber",
+            "StepExecutionError",
+        }
+
+        expected = phase1_exports | phase2_exports | phase3_exports | phase4_exports
         assert set(tasker_core.__all__) == expected
 
     def test_exports_are_callable(self):

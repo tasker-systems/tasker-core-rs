@@ -474,6 +474,192 @@ class StarvationWarning(BaseModel):
     threshold_ms: int = Field(description="The starvation threshold.")
 
 
+# =============================================================================
+# Phase 4: Handler System Types
+# =============================================================================
+
+
+class StepContext(BaseModel):
+    """Context provided to step handlers during execution.
+
+    Contains all information needed for a step handler to execute,
+    including input data, dependency results, and configuration.
+
+    Example:
+        >>> context = StepContext(
+        ...     event=ffi_event,
+        ...     task_uuid=UUID("..."),
+        ...     step_uuid=UUID("..."),
+        ...     correlation_id=UUID("..."),
+        ...     handler_name="my_handler",
+        ...     input_data={"key": "value"},
+        ... )
+        >>> result = handler.call(context)
+    """
+
+    event: FfiStepEvent = Field(description="The original FFI step event.")
+    task_uuid: UUID = Field(description="Task UUID.")
+    step_uuid: UUID = Field(description="Step UUID.")
+    correlation_id: UUID = Field(description="Correlation ID for tracing.")
+    handler_name: str = Field(description="Name of the handler being executed.")
+    input_data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Input data for the handler.",
+    )
+    dependency_results: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Results from dependent steps.",
+    )
+    step_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Handler-specific configuration.",
+    )
+    retry_count: int = Field(
+        default=0,
+        description="Current retry attempt number.",
+    )
+    max_retries: int = Field(
+        default=3,
+        description="Maximum retry attempts allowed.",
+    )
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    @classmethod
+    def from_ffi_event(
+        cls,
+        event: FfiStepEvent,
+        handler_name: str,
+    ) -> StepContext:
+        """Create a StepContext from an FFI event.
+
+        Extracts input data, dependency results, and configuration from
+        the task_sequence_step payload.
+
+        Args:
+            event: The FFI step event.
+            handler_name: Name of the handler to execute.
+
+        Returns:
+            A StepContext populated from the event.
+        """
+        tss = event.task_sequence_step
+
+        return cls(
+            event=event,
+            task_uuid=UUID(event.task_uuid),
+            step_uuid=UUID(event.step_uuid),
+            correlation_id=UUID(event.correlation_id),
+            handler_name=handler_name,
+            input_data=tss.get("input_data", {}),
+            dependency_results=tss.get("dependency_results", {}),
+            step_config=tss.get("step_config", {}),
+            retry_count=tss.get("retry_count", 0),
+            max_retries=tss.get("max_retries", 3),
+        )
+
+
+class StepHandlerResult(BaseModel):
+    """Result from a step handler execution.
+
+    Step handlers return this to indicate success or failure,
+    along with any output data or error details.
+
+    Example:
+        >>> # Success case
+        >>> result = StepHandlerResult.success({"processed": 100})
+        >>>
+        >>> # Failure case
+        >>> result = StepHandlerResult.failure(
+        ...     message="Validation failed",
+        ...     error_type="ValidationError",
+        ...     retryable=False,
+        ... )
+    """
+
+    success: bool = Field(description="Whether the handler executed successfully.")
+    result: dict[str, Any] | None = Field(
+        default=None,
+        description="Handler output data (success case).",
+    )
+    error_message: str | None = Field(
+        default=None,
+        description="Error message (failure case).",
+    )
+    error_type: str | None = Field(
+        default=None,
+        description="Error type/category for classification.",
+    )
+    retryable: bool = Field(
+        default=True,
+        description="Whether the error is retryable.",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional execution metadata.",
+    )
+
+    @classmethod
+    def success_handler_result(
+        cls,
+        result: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> StepHandlerResult:
+        """Create a successful handler result.
+
+        Args:
+            result: The handler output data.
+            metadata: Optional additional metadata.
+
+        Returns:
+            A StepHandlerResult indicating success.
+
+        Example:
+            >>> result = StepHandlerResult.success_handler_result(
+            ...     {"processed": 100, "skipped": 5}
+            ... )
+        """
+        return cls(
+            success=True,
+            result=result,
+            metadata=metadata or {},
+        )
+
+    @classmethod
+    def failure_handler_result(
+        cls,
+        message: str,
+        error_type: str = "handler_error",
+        retryable: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> StepHandlerResult:
+        """Create a failure handler result.
+
+        Args:
+            message: Human-readable error message.
+            error_type: Error type/category for classification.
+            retryable: Whether the error is retryable.
+            metadata: Optional additional metadata.
+
+        Returns:
+            A StepHandlerResult indicating failure.
+
+        Example:
+            >>> result = StepHandlerResult.failure_handler_result(
+            ...     message="Invalid input format",
+            ...     error_type="ValidationError",
+            ...     retryable=False,
+            ... )
+        """
+        return cls(
+            success=False,
+            error_message=message,
+            error_type=error_type,
+            retryable=retryable,
+            metadata=metadata or {},
+        )
+
+
 __all__ = [
     # Phase 2: Bootstrap and lifecycle
     "WorkerState",
@@ -489,4 +675,7 @@ __all__ = [
     "FfiStepEvent",
     "FfiDispatchMetrics",
     "StarvationWarning",
+    # Phase 4: Handler system
+    "StepContext",
+    "StepHandlerResult",
 ]

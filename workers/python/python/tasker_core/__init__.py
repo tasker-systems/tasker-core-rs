@@ -25,6 +25,13 @@ Example:
     >>> poller.on_step_event(handle_step)
     >>> poller.start()
 
+    >>> # Create custom step handlers (Phase 4+)
+    >>> from tasker_core import StepHandler, StepContext, StepHandlerResult
+    >>> class MyHandler(StepHandler):
+    ...     handler_name = "my_handler"
+    ...     def call(self, context: StepContext) -> StepHandlerResult:
+    ...         return StepHandlerResult.success_handler_result({"done": True})
+
     >>> # Stop the worker
     >>> tasker_core.stop_worker()
 """
@@ -53,6 +60,9 @@ from tasker_core.bootstrap import (
     stop_worker,
     transition_to_graceful_shutdown,
 )
+
+# Import Phase 4: Handler system
+from tasker_core.event_bridge import EventBridge, EventNames
 from tasker_core.event_poller import EventPoller
 
 # Import exceptions (Phase 2)
@@ -64,6 +74,7 @@ from tasker_core.exceptions import (
     WorkerBootstrapError,
     WorkerNotInitializedError,
 )
+from tasker_core.handler import HandlerRegistry, StepHandler
 
 # Import logging functions (Phase 2)
 from tasker_core.logging import (
@@ -73,8 +84,12 @@ from tasker_core.logging import (
     log_trace,
     log_warn,
 )
+from tasker_core.step_execution_subscriber import (
+    StepExecutionError,
+    StepExecutionSubscriber,
+)
 
-# Import types (Phase 2)
+# Import types (Phase 2 + Phase 3 + Phase 4)
 from tasker_core.types import (
     BootstrapConfig,
     BootstrapResult,
@@ -83,9 +98,11 @@ from tasker_core.types import (
     LogContext,
     ResultStatus,
     StarvationWarning,
+    StepContext,
     StepError,
     StepExecutionResult,
     StepHandlerCallResult,
+    StepHandlerResult,
     WorkerState,
     WorkerStatus,
 )
@@ -138,6 +155,15 @@ __all__ = [
     "StarvationWarning",
     # Event poller (Phase 3)
     "EventPoller",
+    # Handler system (Phase 4)
+    "EventBridge",
+    "EventNames",
+    "HandlerRegistry",
+    "StepHandler",
+    "StepContext",
+    "StepHandlerResult",
+    "StepExecutionSubscriber",
+    "StepExecutionError",
 ]
 
 
