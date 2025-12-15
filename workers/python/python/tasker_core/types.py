@@ -281,9 +281,9 @@ class StepExecutionResult(BaseModel):
     success: bool = Field(description="Whether execution succeeded.")
     status: str = Field(description="Result status string.")
     execution_time_ms: int = Field(description="Execution time in milliseconds.")
-    output: dict[str, Any] | None = Field(
+    result: dict[str, Any] | None = Field(
         default=None,
-        description="Handler output data (success case).",
+        description="Handler output data (success case). Named 'result' to match Rust FFI.",
     )
     error: StepError | None = Field(
         default=None,
@@ -307,7 +307,7 @@ class StepExecutionResult(BaseModel):
         cls,
         step_uuid: UUID,
         task_uuid: UUID,
-        output: dict[str, Any],
+        result: dict[str, Any],
         execution_time_ms: int,
         worker_id: str,
         correlation_id: UUID | None = None,
@@ -318,7 +318,7 @@ class StepExecutionResult(BaseModel):
         Args:
             step_uuid: The step UUID.
             task_uuid: The task UUID.
-            output: Handler output data.
+            result: Handler output data.
             execution_time_ms: Execution time in milliseconds.
             worker_id: Worker that executed this step.
             correlation_id: Optional correlation ID.
@@ -333,7 +333,7 @@ class StepExecutionResult(BaseModel):
             success=True,
             status=ResultStatus.SUCCESS.value,
             execution_time_ms=execution_time_ms,
-            output=output,
+            result=result,
             worker_id=worker_id,
             correlation_id=correlation_id,
             metadata=metadata or {},
@@ -536,6 +536,13 @@ class StepContext(BaseModel):
         Extracts input data, dependency results, and configuration from
         the task_sequence_step payload.
 
+        The FFI data structure mirrors the Ruby TaskSequenceStepWrapper:
+        - task.task.context -> input_data (task context with user inputs)
+        - dependency_results -> results from parent steps
+        - step_definition.handler.initialization -> step_config
+        - workflow_step.attempts -> retry_count
+        - workflow_step.max_attempts -> max_retries
+
         Args:
             event: The FFI step event.
             handler_name: Name of the handler to execute.
@@ -545,18 +552,77 @@ class StepContext(BaseModel):
         """
         tss = event.task_sequence_step
 
+        # Extract task context (input_data) from nested task structure
+        # Ruby: step_data.task.context
+        task_data = tss.get("task", {})
+        inner_task = task_data.get("task", task_data)  # Handle nested structure
+        input_data = inner_task.get("context", {})
+
+        # Extract dependency results
+        # Ruby: step_data.dependency_results
+        dependency_results = tss.get("dependency_results", {})
+
+        # Extract step config from handler initialization
+        # Ruby: step_data.step_definition.handler.initialization
+        step_definition = tss.get("step_definition", {})
+        handler_config = step_definition.get("handler", {})
+        step_config = handler_config.get("initialization", {})
+
+        # Extract retry information from workflow_step
+        # Ruby: step_data.workflow_step.attempts, step_data.workflow_step.max_attempts
+        # Note: Use `or` to handle None values (get returns None if key exists but value is None)
+        workflow_step = tss.get("workflow_step", {})
+        retry_count = workflow_step.get("attempts") or 0
+        max_retries = workflow_step.get("max_attempts") or 3
+
         return cls(
             event=event,
             task_uuid=UUID(event.task_uuid),
             step_uuid=UUID(event.step_uuid),
             correlation_id=UUID(event.correlation_id),
             handler_name=handler_name,
-            input_data=tss.get("input_data", {}),
-            dependency_results=tss.get("dependency_results", {}),
-            step_config=tss.get("step_config", {}),
-            retry_count=tss.get("retry_count", 0),
-            max_retries=tss.get("max_retries", 3),
+            input_data=input_data,
+            dependency_results=dependency_results,
+            step_config=step_config,
+            retry_count=retry_count,
+            max_retries=max_retries,
         )
+
+    def get_dependency_result(self, step_name: str) -> Any:
+        """Get the computed result value from a dependency step.
+
+        This method extracts the actual computed value from a dependency result,
+        unwrapping any nested structure. It mirrors Ruby's get_results() behavior.
+
+        The dependency result structure can be:
+        - {"result": actual_value} - unwraps to actual_value
+        - primitive value - returns as-is
+
+        Args:
+            step_name: Name of the dependency step.
+
+        Returns:
+            The computed result value, or None if not found.
+
+        Example:
+            >>> # Instead of:
+            >>> step1_result = context.dependency_results.get("step_1", {})
+            >>> value = step1_result.get("result")  # Might be nested!
+            >>>
+            >>> # Use:
+            >>> value = context.get_dependency_result("step_1")  # Unwrapped
+        """
+        result_hash = self.dependency_results.get(step_name)
+        if result_hash is None:
+            return None
+
+        # If it's a dict with a 'result' key, extract that value
+        # This handles the nested structure: {"result": {...actual handler output...}}
+        if isinstance(result_hash, dict) and "result" in result_hash:
+            return result_hash["result"]
+
+        # Otherwise return the whole thing (might be a primitive value)
+        return result_hash
 
 
 class StepHandlerResult(BaseModel):

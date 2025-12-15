@@ -20,6 +20,7 @@
 # - Orchestration: http://localhost:8080
 # - Rust Worker: http://localhost:8081
 # - Ruby Worker: http://localhost:8082
+# - Python Worker: http://localhost:8083
 # - OTLP gRPC: localhost:4317
 # - Prometheus: http://localhost:9090
 
@@ -268,6 +269,71 @@ services:
       timeout: 5s
       retries: 5 # More retries for CI environment
       start_period: 60s # Ruby FFI bootstrap + Rust worker + web API binding can take time in CI
+    networks:
+      - tasker-test
+
+  # ==========================================================================
+  # Python Worker Service - Optimized Test Build with PyO3 FFI Support
+  # ==========================================================================
+  python-worker:
+    build:
+      context: ..
+      dockerfile: docker/build/python-worker.test.Dockerfile
+      # OPTIMIZATION: BuildKit cache configuration
+      cache_from:
+        - type=local,src=/tmp/docker-cache/python-worker
+      cache_to:
+        - type=local,dest=/tmp/docker-cache/python-worker,mode=max
+    environment:
+      DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
+      TASKER_ENV: test
+      RUST_LOG: info
+      LOG_LEVEL: info
+      RUST_BACKTRACE: 1
+      WORKER_ID: test-python-worker-001
+      WORKSPACE_PATH: /app
+      # TAS-61 V2: Single-file configuration from v2 directory
+      TASKER_CONFIG_PATH: /app/config/tasker/worker-test.toml
+      # Point to centralized E2E test templates for Python handlers
+      TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/python
+      # Point to fixture files for E2E tests
+      TASKER_FIXTURE_PATH: /app/tests/fixtures
+      # Python environment
+      PYTHON_WORKER_ENABLED: "true"
+      PYTHONPATH: /app/python_worker/python
+      # Override handler path to use volume mount (allows live code updates)
+      PYTHON_HANDLER_PATH: /app/python_worker/tests/handlers
+      # Service configuration - internal port matches Rust worker
+      # External port 8083 is mapped via Docker, internal binding is 8081
+      PORT: 8081
+      # TAS-65 Phase 1: OpenTelemetry configuration
+      TELEMETRY_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://observability:4317
+      OTEL_SERVICE_NAME: tasker-python-worker
+      OTEL_SERVICE_VERSION: "0.1.0"
+    ports:
+      - "8083:8081" # Map to 8083 externally, 8081 internally (same as Rust worker)
+    volumes:
+      - ../config/tasker:/app/config/tasker:ro
+      # Mount centralized test templates
+      - ../tests/fixtures/task_templates/python:/app/tests/fixtures/task_templates/python:ro
+      # Mount test fixtures for CSV and other data files
+      - ../tests/fixtures:/app/tests/fixtures:ro
+      # Mount handler source code for discovery (must match Dockerfile structure)
+      - ../workers/python/tests/handlers:/app/python_worker/tests/handlers:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      observability:
+        condition: service_healthy
+      orchestration:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5 # More retries for CI environment
+      start_period: 60s # Python FFI bootstrap + Rust worker + web API binding can take time in CI
     networks:
       - tasker-test
 

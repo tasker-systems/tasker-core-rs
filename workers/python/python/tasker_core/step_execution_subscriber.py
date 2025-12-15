@@ -34,7 +34,7 @@ from tasker_core._tasker_core import complete_step_event as _complete_step_event
 
 from .event_bridge import EventBridge, EventNames
 from .handler import HandlerRegistry, StepHandler
-from .logging import log_debug, log_error, log_info
+from .logging import log_debug, log_error, log_info, log_warn
 from .types import (
     FfiStepEvent,
     StepContext,
@@ -200,30 +200,46 @@ class StepExecutionSubscriber:
     def _get_handler_name(self, event: FfiStepEvent) -> str:
         """Extract handler name from the event.
 
-        The handler name is in task_sequence_step.handler_name or
-        task_sequence_step.step_template.handler_class.
+        The handler name is the callable string from step_definition.handler.callable.
+        This matches the Ruby worker's implementation which uses:
+            step_data.step_definition.handler.callable
+
+        For batch processing with dynamically created steps, we also check
+        workflow_step.template_step_name as a fallback.
 
         Args:
             event: The FfiStepEvent to extract from.
 
         Returns:
-            The handler name string.
+            The handler name string (fully qualified handler class name).
         """
         tss = event.task_sequence_step
 
-        # Try direct handler_name first
-        handler_name = tss.get("handler_name")
-        if handler_name:
-            return str(handler_name)
+        # Primary: step_definition.handler.callable (matches Ruby implementation)
+        step_definition = tss.get("step_definition", {})
+        handler = step_definition.get("handler", {})
+        callable_name = handler.get("callable")
+        if callable_name:
+            return str(callable_name)
 
-        # Try step_template.handler_class
+        # Fallback for batch processing: workflow_step.template_step_name
+        workflow_step = tss.get("workflow_step", {})
+        template_step_name = workflow_step.get("template_step_name")
+        if template_step_name:
+            return str(template_step_name)
+
+        # Legacy: step_template.handler_class
         step_template = tss.get("step_template", {})
         handler_class = step_template.get("handler_class")
         if handler_class:
             return str(handler_class)
 
-        # Fall back to step name or unknown
-        return str(tss.get("name", "unknown_handler"))
+        # Fall back to unknown
+        log_warn(
+            "Could not resolve handler name from step_definition.handler.callable",
+            {"step_uuid": event.step_uuid, "task_uuid": event.task_uuid},
+        )
+        return "unknown_handler"
 
     def _execute_handler(
         self,
@@ -315,7 +331,7 @@ class StepExecutionSubscriber:
             result = StepExecutionResult.success_result(
                 step_uuid=step_uuid,
                 task_uuid=task_uuid,
-                output=handler_result.result or {},
+                result=handler_result.result or {},
                 execution_time_ms=execution_time_ms,
                 worker_id=self._worker_id,
                 correlation_id=correlation_id,

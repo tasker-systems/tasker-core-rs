@@ -63,6 +63,10 @@ RUN mkdir -p workers/rust/src && \
     echo "pub fn main() {}" > workers/rust/src/lib.rs
 COPY workers/rust/Cargo.toml ./workers/rust/
 
+RUN mkdir -p workers/python/src && \
+    echo "pub fn main() {}" > workers/python/src/lib.rs
+COPY workers/python/Cargo.toml ./workers/python/
+
 # Copy Ruby worker source code to proper workspace location
 COPY workers/ruby/ ./workers/ruby/
 COPY migrations/ ./migrations/

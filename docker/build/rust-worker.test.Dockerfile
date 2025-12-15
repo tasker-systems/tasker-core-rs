@@ -75,6 +75,10 @@ RUN mkdir -p workers/ruby/ext/tasker_core/src && \
     echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
 COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
 
+RUN mkdir -p workers/python/src && \
+    echo "pub fn stub() {}" > workers/python/src/lib.rs
+COPY workers/python/Cargo.toml ./workers/python/
+
 # Generate dependency recipe
 RUN cargo chef prepare --recipe-path recipe.json
 
@@ -117,6 +121,10 @@ COPY tasker-orchestration/Cargo.toml ./tasker-orchestration/
 RUN mkdir -p workers/ruby/ext/tasker_core/src && \
     echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
 COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
+
+RUN mkdir -p workers/python/src && \
+    echo "pub fn stub() {}" > workers/python/src/lib.rs
+COPY workers/python/Cargo.toml ./workers/python/
 
 # Set offline mode for SQLx
 ENV SQLX_OFFLINE=true

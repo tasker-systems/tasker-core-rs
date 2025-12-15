@@ -366,13 +366,16 @@ class HandlerRegistry:
             log_error(f"Failed to import package {package_name}: {e}")
             return 0
 
+        # Always scan the root package itself first (handlers in __init__.py)
+        discovered += self._scan_module_for_handlers(package, base)
+
         # Get package path - handle case where __path__ doesn't exist
         if not hasattr(package, "__path__"):
-            log_warn(f"Package {package_name} has no __path__, cannot scan submodules")
-            # Still try to scan the module itself
-            discovered += self._scan_module_for_handlers(package, base)
+            log_info(f"Package {package_name} has no __path__, cannot scan submodules")
+            log_info(f"Discovered {discovered} handlers in {package_name}")
             return discovered
 
+        # Also scan submodules if they exist
         for _importer, module_name, _is_pkg in pkgutil.walk_packages(
             package.__path__,
             prefix=f"{package_name}.",
