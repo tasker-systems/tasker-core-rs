@@ -344,6 +344,12 @@ class StepExecutionSubscriber:
                 retryable=handler_result.retryable,
                 metadata=handler_result.metadata,
             )
+            # CRITICAL: Include retryable in metadata - Rust reads from metadata.retryable
+            # This matches Ruby worker pattern (subscriber.rb line 110)
+            failure_metadata = {
+                **(handler_result.metadata or {}),
+                "retryable": handler_result.retryable,
+            }
             result = StepExecutionResult.failure_result(
                 step_uuid=step_uuid,
                 task_uuid=task_uuid,
@@ -351,6 +357,7 @@ class StepExecutionSubscriber:
                 execution_time_ms=execution_time_ms,
                 worker_id=self._worker_id,
                 correlation_id=correlation_id,
+                metadata=failure_metadata,
             )
 
         # Submit via FFI
