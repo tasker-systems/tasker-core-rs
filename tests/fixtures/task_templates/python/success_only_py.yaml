@@ -8,13 +8,13 @@
 #
 ---
 name: success_only_py
-namespace_name: test_scenarios
+namespace_name: test_scenarios_py
 version: 1.0.0
 description: "Simple single-step handler that always succeeds (Python)"
 metadata:
   author: Python FFI Implementation
   tags:
-    - namespace:test_scenarios
+    - namespace:test_scenarios_py
     - pattern:single_step
     - implementation:python_ffi
     - language:python

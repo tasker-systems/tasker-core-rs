@@ -27,7 +27,7 @@ async fn test_python_success_scenario() -> Result<()> {
 
     // Create task with Python success-only template
     let task_request = create_task_request(
-        "test_scenarios",
+        "test_scenarios_py",
         "success_only_py",
         json!({ "message": "Hello from Python E2E test" }),
     );
@@ -83,7 +83,7 @@ async fn test_python_permanent_failure_scenario() -> Result<()> {
 
     // Create task with Python permanent-error-only template
     let task_request = create_task_request(
-        "test_scenarios",
+        "test_scenarios_py",
         "permanent_error_only_py",
         json!({ "error_message": "Permanent failure from Python" }),
     );
@@ -151,7 +151,7 @@ async fn test_python_retryable_failure_scenario() -> Result<()> {
 
     // Create task with Python retryable-error-only template
     let task_request = create_task_request(
-        "test_scenarios",
+        "test_scenarios_py",
         "retryable_error_only_py",
         json!({ "error_message": "Temporary failure from Python - will retry" }),
     );

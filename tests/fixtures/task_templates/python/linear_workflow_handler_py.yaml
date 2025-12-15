@@ -15,13 +15,13 @@
 #
 ---
 name: mathematical_sequence_py
-namespace_name: linear_workflow
+namespace_name: linear_workflow_py
 version: 1.0.0
 description: "Sequential mathematical operations: input -> square -> add -> multiply -> divide (Python)"
 metadata:
   author: Python FFI Implementation
   tags:
-    - namespace:linear_workflow
+    - namespace:linear_workflow_py
     - pattern:linear
     - dependencies:simple
     - implementation:python_ffi

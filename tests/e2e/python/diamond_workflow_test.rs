@@ -33,7 +33,7 @@ async fn test_python_diamond_workflow_standard() -> Result<()> {
     // Create task with input 6
     // Expected: 6² = 36, branch_b = 36+25 = 61, branch_c = 36*2 = 72, end = (61+72)/2 = 66.5
     let task_request = create_task_request(
-        "diamond_workflow",
+        "diamond_workflow_py",
         "parallel_computation_py",
         json!({ "even_number": 6 }),
     );
@@ -88,7 +88,7 @@ async fn test_python_diamond_workflow_parallel_branches() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
     let task_request = create_task_request(
-        "diamond_workflow",
+        "diamond_workflow_py",
         "parallel_computation_py",
         json!({ "even_number": 10 }),
     );
@@ -148,7 +148,7 @@ async fn test_python_diamond_workflow_different_input() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
     let task_request = create_task_request(
-        "diamond_workflow",
+        "diamond_workflow_py",
         "parallel_computation_py",
         json!({ "even_number": 4 }),
     );

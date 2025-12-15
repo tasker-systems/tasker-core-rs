@@ -15,13 +15,13 @@
 #
 ---
 name: parallel_computation_py
-namespace_name: diamond_workflow
+namespace_name: diamond_workflow_py
 version: 1.0.0
 description: "Diamond pattern with parallel branches: square -> (add, multiply) -> average (Python)"
 metadata:
   author: Python FFI Implementation
   tags:
-    - namespace:diamond_workflow
+    - namespace:diamond_workflow_py
     - pattern:diamond
     - dependencies:parallel_convergence
     - implementation:python_ffi
