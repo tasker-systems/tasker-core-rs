@@ -29,15 +29,27 @@ def create_context_with_deps(
     input_data: dict | None = None,
     dependency_results: dict | None = None,
 ) -> StepContext:
-    """Create a StepContext with optional input data and dependency results."""
+    """Create a StepContext with optional input data and dependency results.
+
+    Uses Ruby-compatible nested structure:
+    - step_definition.handler.callable -> handler name
+    - task.context -> input data
+    - dependency_results -> results from parent steps
+    """
     event = FfiStepEvent(
         event_id=str(uuid4()),
         task_uuid=str(uuid4()),
         step_uuid=str(uuid4()),
         correlation_id=str(uuid4()),
         task_sequence_step={
-            "handler_name": handler_name,
-            "input_data": input_data or {},
+            "step_definition": {
+                "handler": {
+                    "callable": handler_name,
+                },
+            },
+            "task": {
+                "context": input_data or {},
+            },
             "dependency_results": dependency_results or {},
         },
     )

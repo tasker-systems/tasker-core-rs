@@ -67,13 +67,13 @@ class TestEventDispatchTypes:
             success=True,
             status=ResultStatus.SUCCESS.value,
             execution_time_ms=150,
-            output={"processed": 100},
+            result={"processed": 100},
             worker_id="python-worker-1",
         )
         assert result.success is True
         assert result.status == "success"
         assert result.execution_time_ms == 150
-        assert result.output["processed"] == 100
+        assert result.result["processed"] == 100
         assert result.error is None
 
     def test_step_execution_result_success_factory(self):
@@ -86,13 +86,13 @@ class TestEventDispatchTypes:
         result = StepExecutionResult.success_result(
             step_uuid=step_uuid,
             task_uuid=task_uuid,
-            output={"data": "test"},
+            result={"data": "test"},
             execution_time_ms=100,
             worker_id="test-worker",
         )
         assert result.success is True
         assert result.status == "success"
-        assert result.output["data"] == "test"
+        assert result.result["data"] == "test"
         assert result.worker_id == "test-worker"
 
     def test_step_execution_result_failure_factory(self):

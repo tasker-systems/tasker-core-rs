@@ -523,20 +523,38 @@ class TestStepContext:
     """Tests for StepContext model."""
 
     def create_ffi_event(self) -> FfiStepEvent:
-        """Create a test FfiStepEvent."""
+        """Create a test FfiStepEvent with Ruby-compatible nested structure.
+
+        The structure mirrors Ruby's TaskSequenceStepWrapper:
+        - step_definition.handler.callable -> handler name
+        - step_definition.handler.initialization -> step config
+        - task.context -> input data
+        - dependency_results -> results from parent steps
+        - workflow_step.attempts -> retry count
+        - workflow_step.max_attempts -> max retries
+        """
         return FfiStepEvent(
             event_id=str(uuid4()),
             task_uuid=str(uuid4()),
             step_uuid=str(uuid4()),
             correlation_id=str(uuid4()),
             task_sequence_step={
-                "name": "test_step",
-                "handler_name": "test_handler",
-                "input_data": {"key": "value"},
+                "workflow_step": {
+                    "name": "test_step",
+                    "attempts": 1,
+                    "max_attempts": 5,
+                },
+                "step_definition": {
+                    "name": "test_step",
+                    "handler": {
+                        "callable": "test_handler",
+                        "initialization": {"timeout": 30},
+                    },
+                },
+                "task": {
+                    "context": {"key": "value"},
+                },
                 "dependency_results": {"dep1": {"result": "data"}},
-                "step_config": {"timeout": 30},
-                "retry_count": 1,
-                "max_retries": 5,
             },
         )
 
@@ -739,15 +757,21 @@ class TestHandlerIntegration:
         handler = registry.resolve("process_order")
         assert handler is not None
 
-        # Create mock context
+        # Create mock context with Ruby-compatible nested structure
         event = FfiStepEvent(
             event_id=str(uuid4()),
             task_uuid=str(uuid4()),
             step_uuid=str(uuid4()),
             correlation_id=str(uuid4()),
             task_sequence_step={
-                "handler_name": "process_order",
-                "input_data": {"order_id": "ORD-123"},
+                "step_definition": {
+                    "handler": {
+                        "callable": "process_order",
+                    },
+                },
+                "task": {
+                    "context": {"order_id": "ORD-123"},
+                },
             },
         )
         context = StepContext.from_ffi_event(event, "process_order")

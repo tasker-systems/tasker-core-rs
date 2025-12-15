@@ -2,7 +2,7 @@
 
 **Ticket**: TAS-72 (PyO3 Python Worker Foundations)
 **Date**: December 2025
-**Status**: Phase 6a - E2E Integration Testing
+**Status**: Phases 1-3 Complete ✅ - All E2E tests passing. Wrapper classes and error classification implemented.
 
 ---
 
@@ -10,7 +10,7 @@
 
 This document provides a comprehensive analysis of the differences between the Ruby and Python worker implementations in tasker-core. The analysis identifies critical gaps, missing functionality, and a prioritized implementation plan to achieve feature parity.
 
-### Critical Bugs Found (December 15, 2025)
+### Critical Bugs Found and Fixed (December 15, 2025)
 
 1. **Handler Resolution Bug (FIXED)**: Python was looking at `workflow_step.name` instead of `step_definition.handler.callable`. This caused "Handler not found: unknown_handler" errors.
 
@@ -22,21 +22,31 @@ This document provides a comprehensive analysis of the differences between the R
 
 3. **Dependency Result Unwrapping (FIXED)**: Python handlers needed to unwrap nested dependency results structure. Added `StepContext.get_dependency_result()` convenience method matching Ruby's `get_results()` behavior.
 
-4. **PGMQ Message Processing Issue (UNRESOLVED - Rust layer)**: The Rust worker layer shows "Message not found when processing event" warnings for subsequent steps. This is NOT a Python issue - it's in the `tasker-worker` crate's `StepExecutorActor`.
+4. **Namespace Collision Bug (FIXED)**: Python templates used same namespaces as Ruby (`diamond_workflow`, `linear_workflow`), causing Ruby worker to pick up Python workflow messages and fail.
 
-   - **Symptom**: First two steps complete, step 3+ never executes
-   - **Log Evidence**: `WARN tasker_worker::worker::actors::step_executor_actor: Message not found when processing event msg_id=31`
-   - **Status**: Needs investigation in Rust worker layer
+   - **Symptom**: Multi-step workflows failed when multiple workers running
+   - **Root Cause**: Workers subscribe by namespace - Python and Ruby both subscribed to same queues
+   - **Fix**: Changed Python template namespaces to use `_py` suffix (`diamond_workflow_py`, `linear_workflow_py`, `test_scenarios_py`)
 
-### E2E Test Status (December 15, 2025)
+5. **Metadata Retryable Flag Bug (FIXED)**: Python put `retryable` flag in `error` object but Rust reads from `metadata.retryable`. This caused retryable errors to be treated as non-retryable.
+
+   - **Symptom**: Retryable error test stuck at "waiting_for_dependencies"
+   - **Root Cause**: Rust's `event_subscriber.rs:350-355` reads `metadata.retryable`, not `error.retryable`
+   - **Fix**: Added `retryable` to `failure_metadata` dict in `step_execution_subscriber.py:349-351`
+
+### E2E Test Status (December 15, 2025) - ALL PASSING ✅
 
 | Test | Status | Notes |
 |------|--------|-------|
 | test_python_success_scenario | ✅ PASS | Single-step workflow works |
-| test_python_permanent_failure_scenario | ✅ PASS | Single-step failure works |
-| test_python_linear_workflow_* | ❌ FAIL | Steps 3+ never execute (Rust layer issue) |
-| test_python_diamond_workflow_* | ❌ FAIL | Branch steps never execute (Rust layer issue) |
-| test_python_retryable_failure_scenario | ❌ FAIL | Stuck waiting (Rust layer issue) |
+| test_python_permanent_failure_scenario | ✅ PASS | Permanent error handling works |
+| test_python_retryable_failure_scenario | ✅ PASS | Retry exhaustion works |
+| test_python_linear_workflow_standard | ✅ PASS | 4-step sequential workflow |
+| test_python_linear_workflow_different_input | ✅ PASS | Different input values |
+| test_python_linear_workflow_ordering | ✅ PASS | Step ordering validation |
+| test_python_diamond_workflow_standard | ✅ PASS | Parallel branches workflow |
+| test_python_diamond_workflow_parallel_branches | ✅ PASS | Branch validation |
+| test_python_diamond_workflow_different_input | ✅ PASS | Different input values |
 
 ---
 
@@ -100,18 +110,22 @@ workers/ruby/lib/
         └── in_process_domain_event_poller.rb # Domain event polling
 ```
 
-### Python Worker (11 files)
+### Python Worker (14 files)
 ```
 workers/python/python/
 └── tasker_core/
     ├── __init__.py                         # Package entry + FFI re-exports
     ├── bootstrap.py                        # Lifecycle management
     ├── domain_events.py                    # Domain event polling
+    ├── errors/                             # Error classification (Phase 3)
+    │   ├── __init__.py                     # Error types (RetryableError, etc.)
+    │   └── error_classifier.py             # ErrorClassifier for retryability
     ├── event_bridge.py                     # In-process pub/sub (pyee)
     ├── event_poller.py                     # FFI event polling
-    ├── exceptions.py                       # Exception types
+    ├── exceptions.py                       # Worker exception types
     ├── handler.py                          # Handler base + registry
     ├── logging.py                          # Structured logging
+    ├── models.py                           # FFI wrapper classes (Phase 2)
     ├── observability.py                    # Health/metrics
     ├── step_execution_subscriber.py        # Event routing to handlers
     └── types.py                            # Pydantic models
@@ -388,47 +402,46 @@ class StepContext:
 
 ## Implementation Plan
 
-### Phase 1: Fix Critical Handler Resolution (Immediate)
+### Phase 1: Fix Critical Handler Resolution ✅ COMPLETE
 
-**Files to modify**:
+**Files modified**:
 - `workers/python/python/tasker_core/step_execution_subscriber.py`
 
-**Changes**:
-1. Fix `_get_handler_name()` to use `step_definition.handler.callable`
-2. Log handler resolution for debugging
+**Changes completed**:
+1. ✅ Fixed `_get_handler_name()` to use `step_definition.handler.callable`
+2. ✅ Added logging for handler resolution
+3. ✅ Fixed namespace collision (added `_py` suffix to Python templates)
+4. ✅ Fixed metadata retryable flag (added to `failure_metadata` dict)
 
-**Effort**: 15 minutes
+**Result**: All 9 E2E tests passing
 
 ---
 
-### Phase 2: Add Wrapper Classes (Short-term)
+### Phase 2: Add Wrapper Classes ✅ COMPLETE
 
 **New files**:
 - `workers/python/python/tasker_core/models.py`
 
-**Changes**:
-1. Implement all wrapper dataclasses
-2. Add factory methods (`from_dict()`)
-3. Update `StepContext.from_ffi_event()` to use wrappers
-4. Update `StepExecutionSubscriber._execute_handler()` to pass wrappers
-
-**Effort**: 2-3 hours
+**Implementation** (December 15, 2025):
+1. ✅ Implemented all wrapper dataclasses (`TaskSequenceStepWrapper`, `TaskWrapper`, `WorkflowStepWrapper`, `DependencyResultsWrapper`, `StepDefinitionWrapper`, `HandlerWrapper`)
+2. ✅ Added factory methods (`from_dict()`) for all wrappers
+3. ✅ Added `task_sequence_step` property to `StepContext` for Ruby-like attribute access
+4. ✅ Updated all tests to use Ruby-compatible nested data structure
+5. ✅ Exported wrappers from `tasker_core.__init__`
 
 ---
 
-### Phase 3: Add Error Classification (Short-term)
+### Phase 3: Add Error Classification ✅ COMPLETE
 
 **New files**:
-- `workers/python/python/tasker_core/errors/`
 - `workers/python/python/tasker_core/errors/__init__.py`
 - `workers/python/python/tasker_core/errors/error_classifier.py`
 
-**Changes**:
-1. Implement `ErrorClassifier` with retryability rules
-2. Update `StepExecutionSubscriber._create_error_result()` to use classifier
-3. Ensure `retryable` flag is set correctly in completion metadata
-
-**Effort**: 1 hour
+**Implementation** (December 15, 2025):
+1. ✅ Implemented error class hierarchy (`TaskerError`, `RetryableError`, `PermanentError`, `NetworkError`, `ValidationError`, etc.)
+2. ✅ Implemented `ErrorClassifier` with retryability rules matching Ruby
+3. ✅ Added convenience functions (`is_retryable()`, `is_permanent()`, `get_classifier()`)
+4. ✅ Exported error classes and classifier from `tasker_core.__init__`
 
 ---
 
@@ -472,13 +485,15 @@ class StepContext:
 
 | Feature | Ruby | Python | Priority |
 |---------|------|--------|----------|
-| FFI Event Polling | EventPoller | EventPoller | Complete |
-| Event Bridge (pub/sub) | dry-events | pyee | Complete |
-| Step Execution Subscriber | subscriber.rb | step_execution_subscriber.py | Complete |
-| Handler Registry | HandlerRegistry | HandlerRegistry | Complete |
-| Handler Resolution | `step_definition.handler.callable` | **BROKEN** | **CRITICAL** |
-| Wrapper Classes | 6 classes | None | High |
-| Error Classification | ErrorClassifier | None | High |
+| FFI Event Polling | EventPoller | EventPoller | ✅ Complete |
+| Event Bridge (pub/sub) | dry-events | pyee | ✅ Complete |
+| Step Execution Subscriber | subscriber.rb | step_execution_subscriber.py | ✅ Complete |
+| Handler Registry | HandlerRegistry | HandlerRegistry | ✅ Complete |
+| Handler Resolution | `step_definition.handler.callable` | `step_definition.handler.callable` | ✅ Complete |
+| Namespace Isolation | Per-template | Per-template with `_py` suffix | ✅ Complete |
+| Metadata Retryable Flag | In metadata | In metadata | ✅ Complete |
+| Wrapper Classes | 6 classes | 6 classes (models.py) | ✅ Complete |
+| Error Classification | ErrorClassifier | ErrorClassifier | ✅ Complete |
 | StepHandler::Base | Complete | Basic | Medium |
 | StepHandler::Api | Complete | None | Medium |
 | StepHandler::Decision | Complete | None | Medium |
@@ -486,7 +501,7 @@ class StepContext:
 | Domain Event Publisher | Complete | Consumer only | Low |
 | Batch Processing | Complete | None | Medium |
 | Tracing (OpenTelemetry) | Complete | Basic | Low |
-| Template Discovery | Complete | Via PYTHON_HANDLER_PATH | Complete |
+| Template Discovery | Complete | Via PYTHON_HANDLER_PATH | ✅ Complete |
 
 ---
 

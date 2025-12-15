@@ -64,6 +64,29 @@ from tasker_core.bootstrap import (
 # Import Phase 5: Domain events and observability
 from tasker_core.domain_events import InProcessDomainEventPoller
 
+# Import error classification (Phase 6a - parity with Ruby)
+from tasker_core.errors import (
+    AuthenticationError,
+    AuthorizationError,
+    BusinessLogicError,
+    ConfigurationError,
+    NetworkError,
+    NotFoundError,
+    PermanentError,
+    RateLimitError,
+    ResourceContentionError,
+    RetryableError,
+    ServiceUnavailableError,
+)
+from tasker_core.errors import TimeoutError as StepTimeoutError
+from tasker_core.errors import ValidationError as StepValidationError
+from tasker_core.errors.error_classifier import (
+    ErrorClassifier,
+    get_classifier,
+    is_permanent,
+    is_retryable,
+)
+
 # Import Phase 4: Handler system
 from tasker_core.event_bridge import EventBridge, EventNames
 from tasker_core.event_poller import EventPoller
@@ -86,6 +109,16 @@ from tasker_core.logging import (
     log_info,
     log_trace,
     log_warn,
+)
+
+# Import model wrappers (Phase 6a - parity with Ruby)
+from tasker_core.models import (
+    DependencyResultsWrapper,
+    HandlerWrapper,
+    StepDefinitionWrapper,
+    TaskSequenceStepWrapper,
+    TaskWrapper,
+    WorkflowStepWrapper,
 )
 from tasker_core.observability import (
     get_health_check,
@@ -191,6 +224,31 @@ __all__ = [
     "HealthCheck",
     "WorkerMetrics",
     "WorkerConfig",
+    # Model wrappers (Phase 6a - parity with Ruby)
+    "TaskSequenceStepWrapper",
+    "TaskWrapper",
+    "WorkflowStepWrapper",
+    "DependencyResultsWrapper",
+    "StepDefinitionWrapper",
+    "HandlerWrapper",
+    # Error classification (Phase 6a - parity with Ruby)
+    "RetryableError",
+    "PermanentError",
+    "StepTimeoutError",
+    "NetworkError",
+    "RateLimitError",
+    "ServiceUnavailableError",
+    "ResourceContentionError",
+    "StepValidationError",
+    "NotFoundError",
+    "AuthenticationError",
+    "AuthorizationError",
+    "ConfigurationError",
+    "BusinessLogicError",
+    "ErrorClassifier",
+    "get_classifier",
+    "is_retryable",
+    "is_permanent",
 ]
 
 

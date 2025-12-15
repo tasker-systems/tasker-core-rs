@@ -150,7 +150,36 @@ class TestModuleExports:
             "WorkerConfig",
         }
 
-        expected = phase1_exports | phase2_exports | phase3_exports | phase4_exports | phase5_exports
+        # Phase 6a exports (Ruby parity)
+        phase6a_exports = {
+            # Model wrappers
+            "TaskSequenceStepWrapper",
+            "TaskWrapper",
+            "WorkflowStepWrapper",
+            "DependencyResultsWrapper",
+            "StepDefinitionWrapper",
+            "HandlerWrapper",
+            # Error classification
+            "RetryableError",
+            "PermanentError",
+            "StepTimeoutError",
+            "NetworkError",
+            "RateLimitError",
+            "ServiceUnavailableError",
+            "ResourceContentionError",
+            "StepValidationError",
+            "NotFoundError",
+            "AuthenticationError",
+            "AuthorizationError",
+            "ConfigurationError",
+            "BusinessLogicError",
+            "ErrorClassifier",
+            "get_classifier",
+            "is_retryable",
+            "is_permanent",
+        }
+
+        expected = phase1_exports | phase2_exports | phase3_exports | phase4_exports | phase5_exports | phase6a_exports
         assert set(tasker_core.__all__) == expected
 
     def test_exports_are_callable(self):

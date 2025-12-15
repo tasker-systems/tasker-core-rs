@@ -26,16 +26,35 @@ def create_test_event(
     handler_name: str = "test_handler",
     input_data: dict | None = None,
 ) -> FfiStepEvent:
-    """Create a test FfiStepEvent."""
+    """Create a test FfiStepEvent with Ruby-compatible nested structure.
+
+    The structure mirrors Ruby's TaskSequenceStepWrapper:
+    - step_definition.handler.callable -> handler name
+    - task.context or task.task.context -> input data
+    - workflow_step.attempts -> retry count
+    """
     return FfiStepEvent(
         event_id=str(uuid4()),
         task_uuid=str(uuid4()),
         step_uuid=str(uuid4()),
         correlation_id=str(uuid4()),
         task_sequence_step={
-            "name": "test_step",
-            "handler_name": handler_name,
-            "input_data": input_data or {},
+            "workflow_step": {
+                "name": "test_step",
+                "attempts": 0,
+                "max_attempts": 3,
+            },
+            "step_definition": {
+                "name": "test_step",
+                "handler": {
+                    "callable": handler_name,
+                    "initialization": {},
+                },
+            },
+            "task": {
+                "context": input_data or {},
+            },
+            "dependency_results": {},
         },
     )
 
@@ -53,8 +72,8 @@ class TestGetHandlerName:
         EventBridge.reset_instance()
         HandlerRegistry.reset_instance()
 
-    def test_get_handler_name_from_direct_field(self):
-        """Test extracting handler name from handler_name field."""
+    def test_get_handler_name_from_step_definition(self):
+        """Test extracting handler name from step_definition.handler.callable (primary)."""
         bridge = EventBridge.instance()
         registry = HandlerRegistry.instance()
         subscriber = StepExecutionSubscriber(bridge, registry, "worker-001")
@@ -65,7 +84,11 @@ class TestGetHandlerName:
             step_uuid=str(uuid4()),
             correlation_id=str(uuid4()),
             task_sequence_step={
-                "handler_name": "my_custom_handler",
+                "step_definition": {
+                    "handler": {
+                        "callable": "my_custom_handler",
+                    },
+                },
             },
         )
 
@@ -73,7 +96,7 @@ class TestGetHandlerName:
         assert name == "my_custom_handler"
 
     def test_get_handler_name_from_step_template(self):
-        """Test extracting handler name from step_template.handler_class."""
+        """Test extracting handler name from step_template.handler_class (legacy fallback)."""
         bridge = EventBridge.instance()
         registry = HandlerRegistry.instance()
         subscriber = StepExecutionSubscriber(bridge, registry, "worker-001")
@@ -93,8 +116,8 @@ class TestGetHandlerName:
         name = subscriber._get_handler_name(event)
         assert name == "TemplateHandler"
 
-    def test_get_handler_name_fallback_to_step_name(self):
-        """Test fallback to step name when handler_name not set."""
+    def test_get_handler_name_fallback_to_template_step_name(self):
+        """Test fallback to workflow_step.template_step_name for batch processing."""
         bridge = EventBridge.instance()
         registry = HandlerRegistry.instance()
         subscriber = StepExecutionSubscriber(bridge, registry, "worker-001")
@@ -105,7 +128,9 @@ class TestGetHandlerName:
             step_uuid=str(uuid4()),
             correlation_id=str(uuid4()),
             task_sequence_step={
-                "name": "fallback_step_name",
+                "workflow_step": {
+                    "template_step_name": "fallback_step_name",
+                },
             },
         )
 

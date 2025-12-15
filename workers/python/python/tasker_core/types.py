@@ -624,6 +624,31 @@ class StepContext(BaseModel):
         # Otherwise return the whole thing (might be a primitive value)
         return result_hash
 
+    @property
+    def task_sequence_step(self) -> Any:
+        """Get a TaskSequenceStepWrapper for Ruby-like attribute access.
+
+        This provides a wrapper around the raw task_sequence_step dict
+        that allows attribute-style access instead of dictionary lookups.
+        Matches the Ruby worker's TaskSequenceStepWrapper pattern.
+
+        Returns:
+            TaskSequenceStepWrapper instance wrapping the event data.
+
+        Example:
+            >>> # Ruby-style access
+            >>> task_uuid = context.task_sequence_step.task.task_uuid
+            >>> handler_name = context.task_sequence_step.step_definition.handler.callable
+            >>>
+            >>> # Convenience methods
+            >>> value = context.task_sequence_step.get_task_field("even_number")
+            >>> result = context.task_sequence_step.get_dependency_result("step_1")
+        """
+        # Lazy import to avoid circular dependency
+        from tasker_core.models import TaskSequenceStepWrapper
+
+        return TaskSequenceStepWrapper.from_dict(self.event.task_sequence_step)
+
 
 class StepHandlerResult(BaseModel):
     """Result from a step handler execution.
