@@ -1,4 +1,16 @@
-"""Step handlers for linear workflow."""
+"""Step handlers for linear workflow.
+
+These handlers demonstrate a sequential workflow pattern with mathematical
+operations where each step depends on the previous one in a chain:
+
+    LinearStep1 (square) -> LinearStep2 (add) -> LinearStep3 (multiply) -> LinearStep4 (divide)
+
+For input even_number=4:
+    Step1: 4^2 = 16
+    Step2: 16 + 10 = 26
+    Step3: 26 * 3 = 78
+    Step4: 78 / 2 = 39.0
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,10 @@
-"""Step handlers for test scenarios."""
+"""Step handlers for test scenarios.
+
+These handlers are useful for testing workflow execution behavior:
+- SuccessStepHandler: Always succeeds
+- RetryableErrorStepHandler: Returns retryable errors
+- PermanentErrorStepHandler: Returns permanent (non-retryable) errors
+"""
 
 from __future__ import annotations
 

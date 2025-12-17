@@ -1,4 +1,22 @@
-"""Step handlers for diamond workflow."""
+"""Step handlers for diamond workflow.
+
+These handlers demonstrate a diamond/parallel workflow pattern where:
+1. Start step squares the input
+2. Two branches run in parallel (add and multiply)
+3. End step averages the results from both branches
+
+    DiamondStart (square)
+         /          \\
+   BranchB (+25)  BranchC (*2)
+         \\          /
+     DiamondEnd (average)
+
+For input even_number=4:
+    Start: 4^2 = 16
+    BranchB: 16 + 25 = 41
+    BranchC: 16 * 2 = 32
+    End: (41 + 32) / 2 = 36.5
+"""
 
 from __future__ import annotations
 

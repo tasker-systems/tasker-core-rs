@@ -20,14 +20,14 @@ E2E test handlers (matching Ruby patterns for integration testing):
 """
 
 # Phase 6b handlers - Batch processing
-from .batch_processing import (
+from .batch_processing_handlers import (
     CsvAnalyzerHandler,
     CsvBatchProcessorHandler,
     CsvResultsAggregatorHandler,
 )
 
 # Phase 6b handlers - Conditional approval (decision points)
-from .conditional_approval import (
+from .conditional_approval_handlers import (
     AutoApproveHandler,
     FinalizeApprovalHandler,
     FinanceReviewHandler,
@@ -43,22 +43,22 @@ from .diamond_handlers import (
     DiamondPathAHandler,
     DiamondPathBHandler,
 )
-from .diamond_workflow import (
+
+# E2E test handlers (matching Ruby patterns)
+from .diamond_workflow_handlers import (
     DiamondBranchBHandler,
     DiamondBranchCHandler,
     DiamondEndHandler,
     DiamondStartHandler,
 )
 from .linear_handlers import FetchDataHandler, StoreDataHandler, TransformDataHandler
-
-# E2E test handlers (matching Ruby patterns)
-from .linear_workflow import (
+from .linear_workflow_handlers import (
     LinearStep1Handler,
     LinearStep2Handler,
     LinearStep3Handler,
     LinearStep4Handler,
 )
-from .test_scenarios import (
+from .test_scenarios_handlers import (
     PermanentErrorStepHandler,
     RetryableErrorStepHandler,
     SuccessStepHandler,

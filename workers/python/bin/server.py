@@ -99,20 +99,16 @@ def discover_handlers() -> int:
     if handler_path not in sys.path:
         sys.path.insert(0, handler_path)
 
-    # Discover handlers from the examples subpackage structure
-    # The handlers are organized as examples/<workflow>/step_handlers/__init__.py
+    # Discover handlers from the examples subpackage
+    # Handlers are organized as flat files: examples/<name>_handlers.py
     examples_path = os.path.join(handler_path, "examples")
     if os.path.isdir(examples_path):
-        # Walk through each workflow directory
-        for workflow_dir in os.listdir(examples_path):
-            workflow_path = os.path.join(examples_path, workflow_dir)
-            if not os.path.isdir(workflow_path):
-                continue
-
-            step_handlers_path = os.path.join(workflow_path, "step_handlers")
-            if os.path.isdir(step_handlers_path):
-                # Import the step_handlers module which should register handlers
-                package_name = f"examples.{workflow_dir}.step_handlers"
+        # Look for *_handlers.py files in the examples directory
+        for filename in os.listdir(examples_path):
+            if filename.endswith("_handlers.py"):
+                # Convert filename to module name (e.g., linear_handlers.py -> examples.linear_handlers)
+                module_name = filename[:-3]  # Remove .py extension
+                package_name = f"examples.{module_name}"
                 try:
                     discovered = registry.discover_handlers(package_name)
                     total_discovered += discovered
