@@ -746,10 +746,12 @@ class TestHandlerIntegration:
 
             def call(self, context: StepContext) -> StepHandlerResult:
                 order_id = context.input_data.get("order_id", "unknown")
-                return StepHandlerResult.success_handler_result({
-                    "order_id": order_id,
-                    "status": "processed",
-                })
+                return StepHandlerResult.success_handler_result(
+                    {
+                        "order_id": order_id,
+                        "status": "processed",
+                    }
+                )
 
         registry = HandlerRegistry.instance()
         registry.register("process_order", ProcessOrderHandler)

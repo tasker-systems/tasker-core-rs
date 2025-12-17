@@ -1,3 +1,11 @@
+[alias]
+b = "build"
+r = "run"
+t = "test"
+c = "check"
+fmt = "fmt --all"
+lint = "clippy --all-targets --all-features -- -D warnings"
+
 [env]
 WORKSPACE_PATH = { value = ".", relative = true }
 

@@ -72,9 +72,7 @@ def sample_ffi_step_event() -> FfiStepEvent:
             "name": "test_step",
             "handler_name": "test_handler",
             "input_data": {"key": "value", "count": 5},
-            "dependency_results": {
-                "previous_step": {"result": "success", "data": [1, 2, 3]}
-            },
+            "dependency_results": {"previous_step": {"result": "success", "data": [1, 2, 3]}},
             "step_config": {"timeout": 30, "retry_delay": 1000},
             "retry_count": 0,
             "max_retries": 3,

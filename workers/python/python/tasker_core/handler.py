@@ -4,6 +4,11 @@ This module provides the StepHandler abstract base class that all step
 handlers must inherit from, and the HandlerRegistry for registering
 and resolving handlers.
 
+Note:
+    StepHandler is now defined in tasker_core.step_handler.base and
+    re-exported here for backwards compatibility. New specialized handlers
+    (ApiHandler, DecisionHandler) are available in tasker_core.step_handler.
+
 Example:
     >>> from tasker_core import StepHandler, StepContext, StepHandlerResult
     >>>
@@ -28,118 +33,15 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 from .logging import log_debug, log_error, log_info, log_warn
 
+# Import StepHandler from its new canonical location
+from .step_handler.base import StepHandler
+
 if TYPE_CHECKING:
-    from .types import StepContext, StepHandlerResult
-
-
-class StepHandler(ABC):
-    """Abstract base class for step handlers.
-
-    All step handlers must inherit from this class and implement
-    the `call` method. The handler_name class attribute must be set
-    to a unique identifier for the handler.
-
-    Class Attributes:
-        handler_name: Unique identifier for this handler. Must be set by subclasses.
-        handler_version: Version string for the handler (default: "1.0.0").
-
-    Example:
-        >>> class ProcessOrderHandler(StepHandler):
-        ...     handler_name = "process_order"
-        ...     handler_version = "1.0.0"
-        ...
-        ...     def call(self, context: StepContext) -> StepHandlerResult:
-        ...         order_id = context.input_data.get("order_id")
-        ...         # Process the order...
-        ...         return StepHandlerResult.success_handler_result(
-        ...             {"order_id": order_id, "status": "processed"}
-        ...         )
-    """
-
-    # Class attributes - must be set by subclasses
-    handler_name: str = ""
-    handler_version: str = "1.0.0"
-
-    @abstractmethod
-    def call(self, context: StepContext) -> StepHandlerResult:
-        """Execute the step handler logic.
-
-        This method is called by the execution subscriber when a step
-        event is received that matches this handler's name.
-
-        Args:
-            context: Execution context with input data, dependency results,
-                and configuration.
-
-        Returns:
-            StepHandlerResult indicating success or failure.
-
-        Raises:
-            Any exception will be caught by the execution subscriber
-            and converted to a failure result.
-
-        Example:
-            >>> def call(self, context: StepContext) -> StepHandlerResult:
-            ...     try:
-            ...         # Do work
-            ...         result = process(context.input_data)
-            ...         return StepHandlerResult.success_handler_result(result)
-            ...     except ValidationError as e:
-            ...         return StepHandlerResult.failure_handler_result(
-            ...             message=str(e),
-            ...             error_type="ValidationError",
-            ...             retryable=False,
-            ...         )
-        """
-        ...
-
-    @property
-    def name(self) -> str:
-        """Return the handler name.
-
-        Returns:
-            The handler_name class attribute, or the class name if not set.
-        """
-        return self.handler_name or self.__class__.__name__
-
-    @property
-    def version(self) -> str:
-        """Return the handler version.
-
-        Returns:
-            The handler_version class attribute.
-        """
-        return self.handler_version
-
-    @property
-    def capabilities(self) -> list[str]:
-        """Return handler capabilities.
-
-        Override this to advertise specific capabilities for handler selection.
-
-        Returns:
-            List of capability strings (default: ["process"]).
-        """
-        return ["process"]
-
-    def config_schema(self) -> dict[str, Any] | None:
-        """Return JSON schema for handler configuration.
-
-        Override this to provide a schema for validating step_config.
-
-        Returns:
-            JSON schema dict, or None if no schema is defined.
-        """
-        return None
-
-    def __repr__(self) -> str:
-        """Return a string representation of the handler."""
-        return f"{self.__class__.__name__}(name={self.name!r}, version={self.version!r})"
+    pass
 
 
 class HandlerRegistry:
@@ -221,9 +123,7 @@ class HandlerRegistry:
         Example:
             >>> registry.register("my_handler", MyHandler)
         """
-        if not isinstance(handler_class, type) or not issubclass(
-            handler_class, StepHandler
-        ):
+        if not isinstance(handler_class, type) or not issubclass(handler_class, StepHandler):
             raise ValueError(f"handler_class must be a StepHandler subclass, got {handler_class}")
 
         if name in self._handlers:
@@ -412,7 +312,13 @@ class HandlerRegistry:
             if not isinstance(obj, type):
                 continue
 
-            if not issubclass(obj, base) or obj is base:
+            try:
+                if not issubclass(obj, base):
+                    continue
+            except TypeError:
+                continue
+
+            if obj is base:
                 continue
 
             # Must have handler_name set

@@ -45,11 +45,13 @@ class DiamondStartHandler(StepHandler):
         # Square the even number (initial step operation)
         result = even_number * even_number
 
-        return StepHandlerResult.success_handler_result({
-            "result": result,
-            "operation": "square",
-            "step_type": "initial",
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "result": result,
+                "operation": "square",
+                "step_type": "initial",
+            }
+        )
 
 
 class DiamondBranchBHandler(StepHandler):
@@ -79,7 +81,9 @@ class DiamondBranchBHandler(StepHandler):
             )
 
         # Extract the actual computed value from handler output
-        squared_value = start_output.get("result") if isinstance(start_output, dict) else start_output
+        squared_value = (
+            start_output.get("result") if isinstance(start_output, dict) else start_output
+        )
 
         if squared_value is None:
             return StepHandlerResult.failure_handler_result(
@@ -92,13 +96,15 @@ class DiamondBranchBHandler(StepHandler):
         constant = 25
         result = squared_value + constant
 
-        return StepHandlerResult.success_handler_result({
-            "result": result,
-            "operation": "add",
-            "constant": constant,
-            "input_value": squared_value,
-            "branch": "B",
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "result": result,
+                "operation": "add",
+                "constant": constant,
+                "input_value": squared_value,
+                "branch": "B",
+            }
+        )
 
 
 class DiamondBranchCHandler(StepHandler):
@@ -128,7 +134,9 @@ class DiamondBranchCHandler(StepHandler):
             )
 
         # Extract the actual computed value from handler output
-        squared_value = start_output.get("result") if isinstance(start_output, dict) else start_output
+        squared_value = (
+            start_output.get("result") if isinstance(start_output, dict) else start_output
+        )
 
         if squared_value is None:
             return StepHandlerResult.failure_handler_result(
@@ -141,13 +149,15 @@ class DiamondBranchCHandler(StepHandler):
         factor = 2
         result = squared_value * factor
 
-        return StepHandlerResult.success_handler_result({
-            "result": result,
-            "operation": "multiply",
-            "factor": factor,
-            "input_value": squared_value,
-            "branch": "C",
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "result": result,
+                "operation": "multiply",
+                "factor": factor,
+                "input_value": squared_value,
+                "branch": "C",
+            }
+        )
 
 
 class DiamondEndHandler(StepHandler):
@@ -176,10 +186,18 @@ class DiamondEndHandler(StepHandler):
         c_value = None
 
         if branch_b_output is not None:
-            b_value = branch_b_output.get("result") if isinstance(branch_b_output, dict) else branch_b_output
+            b_value = (
+                branch_b_output.get("result")
+                if isinstance(branch_b_output, dict)
+                else branch_b_output
+            )
 
         if branch_c_output is not None:
-            c_value = branch_c_output.get("result") if isinstance(branch_c_output, dict) else branch_c_output
+            c_value = (
+                branch_c_output.get("result")
+                if isinstance(branch_c_output, dict)
+                else branch_c_output
+            )
 
         if b_value is None or c_value is None:
             missing = []
@@ -196,13 +214,15 @@ class DiamondEndHandler(StepHandler):
         # Average both results (convergence operation)
         result = (b_value + c_value) / 2
 
-        return StepHandlerResult.success_handler_result({
-            "result": result,
-            "operation": "average",
-            "branch_b_value": b_value,
-            "branch_c_value": c_value,
-            "step_type": "convergence",
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "result": result,
+                "operation": "average",
+                "branch_b_value": b_value,
+                "branch_c_value": c_value,
+                "step_type": "convergence",
+            }
+        )
 
 
 __all__ = [

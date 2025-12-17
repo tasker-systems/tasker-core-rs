@@ -52,6 +52,9 @@ from tasker_core._tasker_core import (  # type: ignore[attr-defined]
     poll_step_events,
 )
 
+# Import Phase 6b: Specialized handlers and batch processing
+from tasker_core.batch_processing import Batchable
+
 # Import bootstrap functions (Phase 2)
 from tasker_core.bootstrap import (
     bootstrap_worker,
@@ -129,12 +132,19 @@ from tasker_core.step_execution_subscriber import (
     StepExecutionError,
     StepExecutionSubscriber,
 )
+from tasker_core.step_handler import ApiHandler, ApiResponse, DecisionHandler
 
-# Import types (Phase 2 + Phase 3 + Phase 4 + Phase 5)
+# Import types (Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6b)
 from tasker_core.types import (
+    BatchAnalyzerOutcome,
+    BatchWorkerContext,
+    BatchWorkerOutcome,
     BootstrapConfig,
     BootstrapResult,
     ComponentHealth,
+    CursorConfig,
+    DecisionPointOutcome,
+    DecisionType,
     DomainEventMetadata,
     FfiDispatchMetrics,
     FfiStepEvent,
@@ -249,6 +259,18 @@ __all__ = [
     "get_classifier",
     "is_retryable",
     "is_permanent",
+    # Specialized handlers (Phase 6b)
+    "ApiHandler",
+    "ApiResponse",
+    "DecisionHandler",
+    # Batch processing (Phase 6b)
+    "Batchable",
+    "DecisionType",
+    "DecisionPointOutcome",
+    "CursorConfig",
+    "BatchAnalyzerOutcome",
+    "BatchWorkerContext",
+    "BatchWorkerOutcome",
 ]
 
 

@@ -57,11 +57,13 @@ class FetchDataHandler(StepHandler):
             {"id": 3, "value": "item_3"},
         ]
 
-        return StepHandlerResult.success_handler_result({
-            "source": source,
-            "items": items,
-            "fetch_timestamp": "2025-01-01T00:00:00Z",
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "source": source,
+                "items": items,
+                "fetch_timestamp": "2025-01-01T00:00:00Z",
+            }
+        )
 
 
 class TransformDataHandler(StepHandler):
@@ -97,16 +99,20 @@ class TransformDataHandler(StepHandler):
         # Transform each item
         transformed = []
         for item in items:
-            transformed.append({
-                "id": item.get("id"),
-                "value": item.get("value", "").upper(),
-                "processed": True,
-            })
+            transformed.append(
+                {
+                    "id": item.get("id"),
+                    "value": item.get("value", "").upper(),
+                    "processed": True,
+                }
+            )
 
-        return StepHandlerResult.success_handler_result({
-            "transformed_items": transformed,
-            "transform_count": len(transformed),
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "transformed_items": transformed,
+                "transform_count": len(transformed),
+            }
+        )
 
 
 class StoreDataHandler(StepHandler):
@@ -143,9 +149,11 @@ class StoreDataHandler(StepHandler):
         # Simulate storing data
         stored_ids = [item.get("id") for item in items if item.get("id")]
 
-        return StepHandlerResult.success_handler_result({
-            "stored_count": len(stored_ids),
-            "stored_ids": stored_ids,
-            "storage_location": "database",
-            "store_timestamp": "2025-01-01T00:00:01Z",
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "stored_count": len(stored_ids),
+                "stored_ids": stored_ids,
+                "storage_location": "database",
+                "store_timestamp": "2025-01-01T00:00:01Z",
+            }
+        )

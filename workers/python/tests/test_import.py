@@ -179,7 +179,31 @@ class TestModuleExports:
             "is_permanent",
         }
 
-        expected = phase1_exports | phase2_exports | phase3_exports | phase4_exports | phase5_exports | phase6a_exports
+        # Phase 6b exports (Specialized handlers and batch processing)
+        phase6b_exports = {
+            # Specialized handlers
+            "ApiHandler",
+            "ApiResponse",
+            "DecisionHandler",
+            # Batch processing
+            "Batchable",
+            "DecisionType",
+            "DecisionPointOutcome",
+            "CursorConfig",
+            "BatchAnalyzerOutcome",
+            "BatchWorkerContext",
+            "BatchWorkerOutcome",
+        }
+
+        expected = (
+            phase1_exports
+            | phase2_exports
+            | phase3_exports
+            | phase4_exports
+            | phase5_exports
+            | phase6a_exports
+            | phase6b_exports
+        )
         assert set(tasker_core.__all__) == expected
 
     def test_exports_are_callable(self):

@@ -4,6 +4,8 @@ This package contains example handlers for:
 - Linear workflows (sequential step execution)
 - Diamond workflows (parallel branches that merge)
 - Test scenarios (success, retryable errors, permanent errors)
+- Conditional approval workflows (decision points with dynamic routing)
+- Batch processing workflows (cursor-based parallel batch workers)
 
 Unit test handlers (simple patterns):
 - FetchDataHandler, TransformDataHandler, StoreDataHandler
@@ -13,7 +15,26 @@ E2E test handlers (matching Ruby patterns for integration testing):
 - linear_workflow: LinearStep1Handler through LinearStep4Handler
 - diamond_workflow: DiamondStartHandler, DiamondBranchBHandler, DiamondBranchCHandler, DiamondEndHandler
 - test_scenarios: SuccessStepHandler, RetryableErrorStepHandler, PermanentErrorStepHandler
+- conditional_approval: ValidateRequestHandler, RoutingDecisionHandler, etc. (Phase 6b)
+- batch_processing: CsvAnalyzerHandler, CsvBatchProcessorHandler, etc. (Phase 6b)
 """
+
+# Phase 6b handlers - Batch processing
+from .batch_processing import (
+    CsvAnalyzerHandler,
+    CsvBatchProcessorHandler,
+    CsvResultsAggregatorHandler,
+)
+
+# Phase 6b handlers - Conditional approval (decision points)
+from .conditional_approval import (
+    AutoApproveHandler,
+    FinalizeApprovalHandler,
+    FinanceReviewHandler,
+    ManagerApprovalHandler,
+    RoutingDecisionHandler,
+    ValidateRequestHandler,
+)
 
 # Unit test handlers (simple patterns)
 from .diamond_handlers import (
@@ -67,4 +88,15 @@ __all__ = [
     "SuccessStepHandler",
     "RetryableErrorStepHandler",
     "PermanentErrorStepHandler",
+    # Phase 6b - Conditional approval handlers
+    "ValidateRequestHandler",
+    "RoutingDecisionHandler",
+    "AutoApproveHandler",
+    "ManagerApprovalHandler",
+    "FinanceReviewHandler",
+    "FinalizeApprovalHandler",
+    # Phase 6b - Batch processing handlers
+    "CsvAnalyzerHandler",
+    "CsvBatchProcessorHandler",
+    "CsvResultsAggregatorHandler",
 ]

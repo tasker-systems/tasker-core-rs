@@ -20,8 +20,8 @@ class TestEventDispatchTypes:
         """Test ResultStatus enum values."""
         from tasker_core import ResultStatus
 
-        assert ResultStatus.SUCCESS == "success"
-        assert ResultStatus.FAILURE == "failure"
+        assert ResultStatus.SUCCESS == "completed"
+        assert ResultStatus.FAILURE == "error"
         assert ResultStatus.RETRYABLE_ERROR == "retryable_error"
         assert ResultStatus.PERMANENT_ERROR == "permanent_error"
 
@@ -71,7 +71,7 @@ class TestEventDispatchTypes:
             worker_id="python-worker-1",
         )
         assert result.success is True
-        assert result.status == "success"
+        assert result.status == "completed"
         assert result.execution_time_ms == 150
         assert result.result["processed"] == 100
         assert result.error is None
@@ -91,7 +91,7 @@ class TestEventDispatchTypes:
             worker_id="test-worker",
         )
         assert result.success is True
-        assert result.status == "success"
+        assert result.status == "completed"
         assert result.result["data"] == "test"
         assert result.worker_id == "test-worker"
 

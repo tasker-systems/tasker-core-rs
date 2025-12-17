@@ -45,12 +45,14 @@ class LinearStep1Handler(StepHandler):
         # Square the even number (first step operation)
         result = even_number * even_number
 
-        return StepHandlerResult.success_handler_result({
-            "result": result,
-            "operation": "square",
-            "step_type": "initial",
-            "input_refs": {"even_number": "task.context.even_number"},
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "result": result,
+                "operation": "square",
+                "step_type": "initial",
+                "input_refs": {"even_number": "task.context.even_number"},
+            }
+        )
 
 
 class LinearStep2Handler(StepHandler):
@@ -81,7 +83,9 @@ class LinearStep2Handler(StepHandler):
             )
 
         # Extract the actual computed value from handler output
-        squared_value = step1_output.get("result") if isinstance(step1_output, dict) else step1_output
+        squared_value = (
+            step1_output.get("result") if isinstance(step1_output, dict) else step1_output
+        )
 
         if squared_value is None:
             return StepHandlerResult.failure_handler_result(
@@ -94,12 +98,14 @@ class LinearStep2Handler(StepHandler):
         constant = 10
         result = squared_value + constant
 
-        return StepHandlerResult.success_handler_result({
-            "result": result,
-            "operation": "add",
-            "constant": constant,
-            "input_value": squared_value,
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "result": result,
+                "operation": "add",
+                "constant": constant,
+                "input_value": squared_value,
+            }
+        )
 
 
 class LinearStep3Handler(StepHandler):
@@ -142,12 +148,14 @@ class LinearStep3Handler(StepHandler):
         factor = 3
         result = added_value * factor
 
-        return StepHandlerResult.success_handler_result({
-            "result": result,
-            "operation": "multiply",
-            "factor": factor,
-            "input_value": added_value,
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "result": result,
+                "operation": "multiply",
+                "factor": factor,
+                "input_value": added_value,
+            }
+        )
 
 
 class LinearStep4Handler(StepHandler):
@@ -177,7 +185,9 @@ class LinearStep4Handler(StepHandler):
             )
 
         # Extract the actual computed value from handler output
-        multiplied_value = step3_output.get("result") if isinstance(step3_output, dict) else step3_output
+        multiplied_value = (
+            step3_output.get("result") if isinstance(step3_output, dict) else step3_output
+        )
 
         if multiplied_value is None:
             return StepHandlerResult.failure_handler_result(
@@ -190,12 +200,14 @@ class LinearStep4Handler(StepHandler):
         divisor = 2
         result = multiplied_value / divisor
 
-        return StepHandlerResult.success_handler_result({
-            "result": result,
-            "operation": "divide",
-            "divisor": divisor,
-            "input_value": multiplied_value,
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "result": result,
+                "operation": "divide",
+                "divisor": divisor,
+                "input_value": multiplied_value,
+            }
+        )
 
 
 __all__ = [

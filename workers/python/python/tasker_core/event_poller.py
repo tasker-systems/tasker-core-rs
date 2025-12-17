@@ -232,11 +232,7 @@ class EventPoller:
         Returns:
             True if the polling thread is active.
         """
-        return (
-            self._running
-            and self._thread is not None
-            and self._thread.is_alive()
-        )
+        return self._running and self._thread is not None and self._thread.is_alive()
 
     def get_metrics(self) -> FfiDispatchMetrics | None:
         """Get current FFI dispatch metrics.

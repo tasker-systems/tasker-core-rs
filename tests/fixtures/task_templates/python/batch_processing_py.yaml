@@ -1,0 +1,129 @@
+# TaskTemplate Configuration - Python Batch Processing Implementation
+#
+# CSV Batch Processing with TAS-59 Batchable Pattern
+# Demonstrates cursor-based batch processing with parallel workers
+#
+# Template: csv_processing_py/csv_product_inventory_analyzer_py:1.0.0
+# Implementation: Python FFI with Batchable mixin (Phase 6b)
+# Feature: TAS-59 Batch Processing Pattern
+#
+# Workflow Pattern:
+# 1. analyze_csv_py (batchable): Analyzes CSV and creates batch worker configs
+# 2. process_csv_batch_001...N (batch_worker): Process rows within cursor range
+# 3. aggregate_csv_results_py (deferred_convergence): Aggregate all results
+#
+---
+name: csv_product_inventory_analyzer_py
+namespace_name: csv_processing_py
+version: "1.0.0"
+description: "Process CSV product data in parallel batches (Python implementation)"
+metadata:
+  author: TAS-88 Phase 6b Python Implementation
+  tags:
+    - namespace:csv_processing_py
+    - pattern:batch_processing
+    - feature:batchable
+    - implementation:python_ffi
+    - language:python
+    - tas:TAS-88
+  documentation_url:
+  created_at: "2025-12-16T00:00:00Z"
+  updated_at: "2025-12-16T00:00:00Z"
+  notes: "Demonstrates TAS-59 batch processing with Python handlers"
+task_handler:
+  callable: python_ffi_handler
+  initialization: {}
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - csv_file_path
+  properties:
+    csv_file_path:
+      type: string
+      description: "Path to the CSV file to process"
+    analysis_mode:
+      type: string
+      description: "Analysis mode (inventory, pricing, etc.)"
+      default: "inventory"
+
+steps:
+  # BATCHABLE STEP: CSV Analysis and Batch Planning
+  - name: analyze_csv_py
+    type: batchable
+    description: "Analyze CSV file and create batch worker configurations"
+    dependencies: []
+    handler:
+      callable: batch_processing.step_handlers.CsvAnalyzerHandler
+      initialization:
+        batch_size: 200
+        max_workers: 5
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+
+  # BATCH WORKER TEMPLATE: Single CSV Batch Processing
+  # Orchestration creates N instances from this template
+  - name: process_csv_batch_py
+    type: batch_worker
+    description: "Process a batch of CSV rows based on cursor range"
+    dependencies:
+      - analyze_csv_py
+    lifecycle:
+      max_steps_in_process_minutes: 120
+      max_retries: 3
+      backoff_multiplier: 2.0
+    handler:
+      callable: batch_processing.step_handlers.CsvBatchProcessorHandler
+      initialization:
+        operation: "inventory_analysis"
+    batch_config:
+      batch_size: 200
+      parallelism: 5
+      cursor_field: "row_number"
+      checkpoint_interval: 50
+      worker_template: "process_csv_batch_py"
+      failure_strategy: "continue_on_failure"
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 120
+    publishes_events: []
+
+  # DEFERRED CONVERGENCE STEP: CSV Results Aggregation
+  - name: aggregate_csv_results_py
+    type: deferred_convergence
+    description: "Aggregate results from all batch workers"
+    dependencies:
+      - process_csv_batch_py  # Template dependency - resolves to all worker instances
+    handler:
+      callable: batch_processing.step_handlers.CsvResultsAggregatorHandler
+      initialization:
+        aggregation_type: "inventory_metrics"
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+
+environments:
+  test:
+    steps:
+      - name: ALL
+        timeout_seconds: 30
+        retry:
+          max_attempts: 2

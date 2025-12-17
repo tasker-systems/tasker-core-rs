@@ -707,7 +707,8 @@ CREATE INDEX IF NOT EXISTS idx_workflow_steps_task_covering ON public.tasker_wor
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_processed_at ON public.tasker_workflow_steps USING btree (processed_at);
 
 -- Transitive dependency optimization index
-CREATE INDEX IF NOT EXISTS idx_workflow_steps_transitive_deps ON public.tasker_workflow_steps USING btree (workflow_step_uuid, named_step_uuid) INCLUDE (task_uuid, results, processed);
+-- Note: results intentionally excluded from INCLUDE - it's a large JSONB column that can exceed btree row size limits
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_transitive_deps ON public.tasker_workflow_steps USING btree (workflow_step_uuid, named_step_uuid) INCLUDE (task_uuid, processed);
 
 -- Task orchestration indexes
 CREATE INDEX IF NOT EXISTS idx_tasker_task_annotations_task_uuid ON public.tasker_task_annotations USING btree (task_uuid);

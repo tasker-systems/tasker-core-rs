@@ -214,13 +214,14 @@ class ResultStatus(str, Enum):
     """Step execution result status.
 
     These status values indicate the outcome of a step execution.
+    They must match the values expected by the Rust orchestration layer.
     """
 
-    SUCCESS = "success"
-    """Step completed successfully."""
+    SUCCESS = "completed"
+    """Step completed successfully. Value must be 'completed' to match Rust expectations."""
 
-    FAILURE = "failure"
-    """Step failed with a business logic error."""
+    FAILURE = "error"
+    """Step failed with a business logic error. Value must be 'error' to match Rust expectations."""
 
     RETRYABLE_ERROR = "retryable_error"
     """Step failed with a retryable error (temporary failure)."""
@@ -514,6 +515,10 @@ class StepContext(BaseModel):
         default_factory=dict,
         description="Handler-specific configuration.",
     )
+    step_inputs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Step-specific inputs (from workflow_step.inputs). Used for batch cursor configuration.",
+    )
     retry_count: int = Field(
         default=0,
         description="Current retry attempt number.",
@@ -568,12 +573,14 @@ class StepContext(BaseModel):
         handler_config = step_definition.get("handler", {})
         step_config = handler_config.get("initialization", {})
 
-        # Extract retry information from workflow_step
+        # Extract retry information and step inputs from workflow_step
         # Ruby: step_data.workflow_step.attempts, step_data.workflow_step.max_attempts
+        # Ruby: step_data.workflow_step.inputs (for batch cursor configuration)
         # Note: Use `or` to handle None values (get returns None if key exists but value is None)
         workflow_step = tss.get("workflow_step", {})
         retry_count = workflow_step.get("attempts") or 0
         max_retries = workflow_step.get("max_attempts") or 3
+        step_inputs = workflow_step.get("inputs") or {}
 
         return cls(
             event=event,
@@ -584,6 +591,7 @@ class StepContext(BaseModel):
             input_data=input_data,
             dependency_results=dependency_results,
             step_config=step_config,
+            step_inputs=step_inputs,
             retry_count=retry_count,
             max_retries=max_retries,
         )
@@ -977,6 +985,343 @@ class WorkerConfig(BaseModel):
     )
 
 
+# =============================================================================
+# Phase 6b: Decision Point and Batch Processing Types
+# =============================================================================
+
+
+class DecisionType(str, Enum):
+    """Type of decision point outcome.
+
+    Used by decision handlers to indicate whether to create steps
+    or skip branching.
+    """
+
+    CREATE_STEPS = "create_steps"
+    """Create the specified steps as next steps in the workflow."""
+
+    NO_BRANCHES = "no_branches"
+    """Skip branching, no additional steps needed."""
+
+
+class DecisionPointOutcome(BaseModel):
+    """Outcome from a decision point handler.
+
+    Decision handlers return this to indicate which branch(es) of a workflow
+    to execute. Supports both static step selection and dynamic step creation.
+
+    Example (Create Steps):
+        >>> outcome = DecisionPointOutcome.create_steps(
+        ...     ["process_premium", "send_notification"]
+        ... )
+        >>> result = handler.decision_success(outcome)
+
+    Example (No Branches):
+        >>> outcome = DecisionPointOutcome.no_branches(
+        ...     reason="No items match criteria"
+        ... )
+        >>> result = handler.decision_no_branches(outcome)
+    """
+
+    decision_type: DecisionType = Field(description="Type of decision outcome.")
+    next_step_names: list[str] = Field(
+        default_factory=list,
+        description="Names of steps to execute (for CREATE_STEPS).",
+    )
+    dynamic_steps: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Dynamically generated step definitions.",
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Reason for no branches (for NO_BRANCHES).",
+    )
+    routing_context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context for routing decisions.",
+    )
+
+    @classmethod
+    def create_steps(
+        cls,
+        step_names: list[str],
+        dynamic_steps: list[dict[str, Any]] | None = None,
+        routing_context: dict[str, Any] | None = None,
+    ) -> DecisionPointOutcome:
+        """Create an outcome that executes specified steps.
+
+        Args:
+            step_names: Names of the steps to execute.
+            dynamic_steps: Optional dynamically generated step definitions.
+            routing_context: Optional context data for routing.
+
+        Returns:
+            A DecisionPointOutcome for step creation.
+
+        Example:
+            >>> outcome = DecisionPointOutcome.create_steps(
+            ...     ["validate_premium", "process_premium"],
+            ...     routing_context={"customer_tier": "premium"}
+            ... )
+        """
+        return cls(
+            decision_type=DecisionType.CREATE_STEPS,
+            next_step_names=step_names,
+            dynamic_steps=dynamic_steps,
+            routing_context=routing_context or {},
+        )
+
+    @classmethod
+    def no_branches(
+        cls,
+        reason: str,
+        routing_context: dict[str, Any] | None = None,
+    ) -> DecisionPointOutcome:
+        """Create an outcome that skips branching.
+
+        Args:
+            reason: Human-readable reason for skipping branches.
+            routing_context: Optional context data for routing.
+
+        Returns:
+            A DecisionPointOutcome for no branching.
+
+        Example:
+            >>> outcome = DecisionPointOutcome.no_branches(
+            ...     reason="No items require processing"
+            ... )
+        """
+        return cls(
+            decision_type=DecisionType.NO_BRANCHES,
+            reason=reason,
+            routing_context=routing_context or {},
+        )
+
+
+class CursorConfig(BaseModel):
+    """Configuration for cursor-based batch processing.
+
+    Defines a range of items to process in a batch worker step.
+
+    Example:
+        >>> config = CursorConfig(
+        ...     start_cursor=0,
+        ...     end_cursor=100,
+        ...     step_size=10,
+        ...     metadata={"partition": "A"}
+        ... )
+    """
+
+    start_cursor: int = Field(description="Starting cursor position (inclusive).")
+    end_cursor: int = Field(description="Ending cursor position (exclusive).")
+    step_size: int = Field(
+        default=1,
+        description="Size of each processing step.",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional cursor metadata.",
+    )
+
+
+class BatchAnalyzerOutcome(BaseModel):
+    """Outcome from a batch analyzer handler.
+
+    Batch analyzers return this to define the cursor ranges that will
+    spawn parallel batch worker steps.
+
+    Example:
+        >>> outcome = BatchAnalyzerOutcome(
+        ...     cursor_configs=[
+        ...         CursorConfig(start_cursor=0, end_cursor=100),
+        ...         CursorConfig(start_cursor=100, end_cursor=200),
+        ...     ],
+        ...     total_items=200,
+        ... )
+    """
+
+    cursor_configs: list[CursorConfig] = Field(
+        default_factory=list,
+        description="List of cursor configurations for batch workers.",
+    )
+    total_items: int | None = Field(
+        default=None,
+        description="Total number of items to process.",
+    )
+    batch_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metadata to pass to all batch workers.",
+    )
+
+    @classmethod
+    def from_ranges(
+        cls,
+        ranges: list[tuple[int, int]],
+        step_size: int = 1,
+        total_items: int | None = None,
+        batch_metadata: dict[str, Any] | None = None,
+    ) -> BatchAnalyzerOutcome:
+        """Create an outcome from a list of (start, end) ranges.
+
+        Args:
+            ranges: List of (start_cursor, end_cursor) tuples.
+            step_size: Size of each processing step.
+            total_items: Total number of items to process.
+            batch_metadata: Metadata to pass to all batch workers.
+
+        Returns:
+            A BatchAnalyzerOutcome with cursor configs.
+
+        Example:
+            >>> outcome = BatchAnalyzerOutcome.from_ranges(
+            ...     [(0, 100), (100, 200), (200, 300)],
+            ...     total_items=300,
+            ... )
+        """
+        cursor_configs = [
+            CursorConfig(start_cursor=start, end_cursor=end, step_size=step_size)
+            for start, end in ranges
+        ]
+        return cls(
+            cursor_configs=cursor_configs,
+            total_items=total_items,
+            batch_metadata=batch_metadata or {},
+        )
+
+
+class BatchWorkerContext(BaseModel):
+    """Context for a batch worker step.
+
+    Provides information about the specific batch this worker should process,
+    including cursor position and batch metadata.
+
+    Example:
+        >>> context = BatchWorkerContext(
+        ...     batch_id="batch_001",
+        ...     cursor_config=CursorConfig(start_cursor=0, end_cursor=100),
+        ...     batch_index=0,
+        ...     total_batches=10,
+        ... )
+    """
+
+    batch_id: str = Field(description="Unique identifier for this batch.")
+    cursor_config: CursorConfig = Field(description="Cursor configuration for this batch.")
+    batch_index: int = Field(description="Index of this batch (0-based).")
+    total_batches: int = Field(description="Total number of batches.")
+    batch_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metadata from the analyzer.",
+    )
+
+    @property
+    def start_cursor(self) -> int:
+        """Get the starting cursor position."""
+        return self.cursor_config.start_cursor
+
+    @property
+    def end_cursor(self) -> int:
+        """Get the ending cursor position."""
+        return self.cursor_config.end_cursor
+
+    @property
+    def step_size(self) -> int:
+        """Get the processing step size."""
+        return self.cursor_config.step_size
+
+    @classmethod
+    def from_step_context(cls, step_context: StepContext) -> BatchWorkerContext | None:
+        """Extract batch context from a step context.
+
+        Looks for batch processing information in the step_config
+        and input_data to construct a BatchWorkerContext.
+
+        Args:
+            step_context: The step execution context.
+
+        Returns:
+            BatchWorkerContext if batch info exists, None otherwise.
+
+        Example:
+            >>> batch_context = BatchWorkerContext.from_step_context(context)
+            >>> if batch_context:
+            ...     for i in range(batch_context.start_cursor, batch_context.end_cursor):
+            ...         process_item(i)
+        """
+        # Look for batch context in step_config or input_data
+        batch_data = step_context.step_config.get("batch_context")
+        if batch_data is None:
+            batch_data = step_context.input_data.get("batch_context")
+
+        if batch_data is None:
+            return None
+
+        # Extract cursor config
+        cursor_data = batch_data.get("cursor_config", {})
+        cursor_config = CursorConfig(
+            start_cursor=cursor_data.get("start_cursor", 0),
+            end_cursor=cursor_data.get("end_cursor", 0),
+            step_size=cursor_data.get("step_size", 1),
+            metadata=cursor_data.get("metadata", {}),
+        )
+
+        return cls(
+            batch_id=batch_data.get("batch_id", ""),
+            cursor_config=cursor_config,
+            batch_index=batch_data.get("batch_index", 0),
+            total_batches=batch_data.get("total_batches", 1),
+            batch_metadata=batch_data.get("batch_metadata", {}),
+        )
+
+
+class BatchWorkerOutcome(BaseModel):
+    """Outcome from a batch worker step.
+
+    Batch workers return this to report progress and results
+    for their assigned cursor range.
+
+    Example:
+        >>> outcome = BatchWorkerOutcome(
+        ...     items_processed=95,
+        ...     items_succeeded=90,
+        ...     items_failed=5,
+        ...     results=[{"item_id": i, "status": "ok"} for i in range(90)],
+        ... )
+    """
+
+    items_processed: int = Field(
+        default=0,
+        description="Total items processed in this batch.",
+    )
+    items_succeeded: int = Field(
+        default=0,
+        description="Items successfully processed.",
+    )
+    items_failed: int = Field(
+        default=0,
+        description="Items that failed processing.",
+    )
+    items_skipped: int = Field(
+        default=0,
+        description="Items skipped (e.g., already processed).",
+    )
+    results: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Individual item results (optional).",
+    )
+    errors: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Error details for failed items.",
+    )
+    last_cursor: int | None = Field(
+        default=None,
+        description="Last successfully processed cursor position.",
+    )
+    batch_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional batch result metadata.",
+    )
+
+
 __all__ = [
     # Phase 2: Bootstrap and lifecycle
     "WorkerState",
@@ -1002,4 +1347,11 @@ __all__ = [
     "HealthCheck",
     "WorkerMetrics",
     "WorkerConfig",
+    # Phase 6b: Decision point and batch processing
+    "DecisionType",
+    "DecisionPointOutcome",
+    "CursorConfig",
+    "BatchAnalyzerOutcome",
+    "BatchWorkerContext",
+    "BatchWorkerOutcome",
 ]

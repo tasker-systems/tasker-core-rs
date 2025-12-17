@@ -32,12 +32,14 @@ class SuccessStepHandler(StepHandler):
         """Execute successfully."""
         message = context.input_data.get("message", "Step completed successfully")
 
-        return StepHandlerResult.success_handler_result({
-            "status": "success",
-            "message": message,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "handler": "SuccessStepHandler",
-        })
+        return StepHandlerResult.success_handler_result(
+            {
+                "status": "success",
+                "message": message,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "handler": "SuccessStepHandler",
+            }
+        )
 
 
 class RetryableErrorStepHandler(StepHandler):
@@ -57,10 +59,7 @@ class RetryableErrorStepHandler(StepHandler):
 
     def call(self, context: StepContext) -> StepHandlerResult:
         """Return a retryable error."""
-        error_message = context.input_data.get(
-            "error_message",
-            "Temporary failure - please retry"
-        )
+        error_message = context.input_data.get("error_message", "Temporary failure - please retry")
 
         return StepHandlerResult.failure_handler_result(
             message=error_message,
@@ -90,10 +89,7 @@ class PermanentErrorStepHandler(StepHandler):
 
     def call(self, context: StepContext) -> StepHandlerResult:
         """Return a permanent error."""
-        error_message = context.input_data.get(
-            "error_message",
-            "Permanent failure - do not retry"
-        )
+        error_message = context.input_data.get("error_message", "Permanent failure - do not retry")
 
         return StepHandlerResult.failure_handler_result(
             message=error_message,
