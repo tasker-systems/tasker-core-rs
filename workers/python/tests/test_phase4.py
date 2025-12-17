@@ -589,6 +589,85 @@ class TestStepContext:
         assert context.retry_count == 0
         assert context.max_retries == 3
 
+    def test_step_inputs_from_workflow_step(self):
+        """Test StepContext correctly populates step_inputs from workflow_step.inputs."""
+        event = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "workflow_step": {
+                    "name": "batch_step",
+                    "attempts": 0,
+                    "max_attempts": 3,
+                    "inputs": {
+                        "batch_size": 100,
+                        "start_cursor": 0,
+                        "end_cursor": 1000,
+                        "custom_config": {"key": "value"},
+                    },
+                },
+                "step_definition": {
+                    "name": "batch_step",
+                    "handler": {"callable": "batch_handler"},
+                },
+                "task": {"context": {}},
+            },
+        )
+        context = StepContext.from_ffi_event(event, "batch_handler")
+
+        # Verify step_inputs are correctly extracted from workflow_step.inputs
+        assert context.step_inputs == {
+            "batch_size": 100,
+            "start_cursor": 0,
+            "end_cursor": 1000,
+            "custom_config": {"key": "value"},
+        }
+        assert context.step_inputs["batch_size"] == 100
+        assert context.step_inputs["custom_config"]["key"] == "value"
+
+    def test_step_inputs_defaults_to_empty_dict(self):
+        """Test step_inputs defaults to empty dict when workflow_step.inputs is missing."""
+        event = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "workflow_step": {
+                    "name": "test_step",
+                    "attempts": 0,
+                    "max_attempts": 3,
+                    # No 'inputs' key
+                },
+            },
+        )
+        context = StepContext.from_ffi_event(event, "test_handler")
+
+        assert context.step_inputs == {}
+
+    def test_step_inputs_handles_none_value(self):
+        """Test step_inputs handles None value gracefully."""
+        event = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "workflow_step": {
+                    "name": "test_step",
+                    "attempts": 0,
+                    "max_attempts": 3,
+                    "inputs": None,  # Explicitly None
+                },
+            },
+        )
+        context = StepContext.from_ffi_event(event, "test_handler")
+
+        # Should handle None and default to empty dict
+        assert context.step_inputs == {}
+
 
 # =============================================================================
 # StepHandlerResult Tests

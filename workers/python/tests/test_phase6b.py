@@ -268,6 +268,142 @@ class TestApiResponse:
         assert result["body"] == {"key": "value"}
 
 
+class TestApiHandlerFailureClassification:
+    """Test ApiHandler.api_failure error classification."""
+
+    def test_api_failure_classifies_4xx_as_non_retryable(self):
+        """Test ApiHandler.api_failure correctly classifies 4xx HTTP errors as non-retryable."""
+        from tasker_core import ApiHandler, StepContext
+        from tasker_core.step_handler.api import ApiResponse
+
+        class TestHandler(ApiHandler):
+            handler_name = "test_api"
+
+            def call(self, _context):
+                return self.success({})
+
+        handler = TestHandler()
+
+        # Test 400 Bad Request
+        mock_response_400 = Mock()
+        mock_response_400.status_code = 400
+        mock_response_400.headers = {}
+        mock_response_400.text = "Bad Request"
+        api_response_400 = ApiResponse(mock_response_400)
+
+        result_400 = handler.api_failure(api_response_400)
+        assert result_400.success is False
+        assert result_400.retryable is False
+        assert result_400.error_type == "bad_request"
+
+        # Test 401 Unauthorized
+        mock_response_401 = Mock()
+        mock_response_401.status_code = 401
+        mock_response_401.headers = {}
+        mock_response_401.text = "Unauthorized"
+        api_response_401 = ApiResponse(mock_response_401)
+
+        result_401 = handler.api_failure(api_response_401)
+        assert result_401.success is False
+        assert result_401.retryable is False
+        assert result_401.error_type == "unauthorized"
+
+        # Test 403 Forbidden
+        mock_response_403 = Mock()
+        mock_response_403.status_code = 403
+        mock_response_403.headers = {}
+        mock_response_403.text = "Forbidden"
+        api_response_403 = ApiResponse(mock_response_403)
+
+        result_403 = handler.api_failure(api_response_403)
+        assert result_403.success is False
+        assert result_403.retryable is False
+        assert result_403.error_type == "forbidden"
+
+        # Test 404 Not Found
+        mock_response_404 = Mock()
+        mock_response_404.status_code = 404
+        mock_response_404.headers = {}
+        mock_response_404.text = "Not Found"
+        api_response_404 = ApiResponse(mock_response_404)
+
+        result_404 = handler.api_failure(api_response_404)
+        assert result_404.success is False
+        assert result_404.retryable is False
+        assert result_404.error_type == "not_found"
+
+    def test_api_failure_4xx_error_types(self):
+        """Test api_failure returns specific error types for different 4xx codes."""
+        from tasker_core import ApiHandler
+        from tasker_core.step_handler.api import ApiResponse
+
+        class TestHandler(ApiHandler):
+            handler_name = "test_api"
+
+            def call(self, _context):
+                return self.success({})
+
+        handler = TestHandler()
+
+        # Test 405 Method Not Allowed
+        mock_405 = Mock()
+        mock_405.status_code = 405
+        mock_405.headers = {}
+        mock_405.text = "Method Not Allowed"
+        result_405 = handler.api_failure(ApiResponse(mock_405))
+        assert result_405.error_type == "method_not_allowed"
+        assert result_405.retryable is False
+
+        # Test 409 Conflict
+        mock_409 = Mock()
+        mock_409.status_code = 409
+        mock_409.headers = {}
+        mock_409.text = "Conflict"
+        result_409 = handler.api_failure(ApiResponse(mock_409))
+        assert result_409.error_type == "conflict"
+        assert result_409.retryable is False
+
+        # Test 410 Gone
+        mock_410 = Mock()
+        mock_410.status_code = 410
+        mock_410.headers = {}
+        mock_410.text = "Gone"
+        result_410 = handler.api_failure(ApiResponse(mock_410))
+        assert result_410.error_type == "gone"
+        assert result_410.retryable is False
+
+        # Test 422 Unprocessable Entity
+        mock_422 = Mock()
+        mock_422.status_code = 422
+        mock_422.headers = {}
+        mock_422.text = "Unprocessable Entity"
+        result_422 = handler.api_failure(ApiResponse(mock_422))
+        assert result_422.error_type == "unprocessable_entity"
+        assert result_422.retryable is False
+
+    def test_api_failure_includes_status_code_in_metadata(self):
+        """Test api_failure includes status code in metadata for 4xx errors."""
+        from tasker_core import ApiHandler
+        from tasker_core.step_handler.api import ApiResponse
+
+        class TestHandler(ApiHandler):
+            handler_name = "test_api"
+
+            def call(self, _context):
+                return self.success({})
+
+        handler = TestHandler()
+
+        mock_response = Mock()
+        mock_response.status_code = 400
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {"error": "Invalid input"}
+
+        result = handler.api_failure(ApiResponse(mock_response))
+        assert result.metadata["status_code"] == 400
+        assert result.metadata["response_body"] == {"error": "Invalid input"}
+
+
 class TestDecisionHandler:
     """Test DecisionHandler class."""
 
@@ -398,6 +534,98 @@ class TestBatchable:
         assert len(outcome.cursor_configs) == 5
         assert outcome.total_items == 500
         assert outcome.batch_metadata["source"] == "test"
+
+    def test_batchable_create_cursor_ranges_respects_max_batches(self):
+        """Test Batchable.create_cursor_ranges adjusts batch size to respect max_batches."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+
+        # Test: 10,000 items with batch_size=100 would create 100 batches
+        # With max_batches=10, it should adjust batch_size to 1000
+        configs = handler.create_cursor_ranges(
+            total_items=10000,
+            batch_size=100,
+            max_batches=10,
+        )
+
+        assert len(configs) == 10, "Should create exactly max_batches batches"
+        # Each batch should handle 1000 items (10000 / 10)
+        assert configs[0].start_cursor == 0
+        assert configs[0].end_cursor == 1000
+        assert configs[1].start_cursor == 1000
+        assert configs[1].end_cursor == 2000
+        assert configs[9].start_cursor == 9000
+        assert configs[9].end_cursor == 10000
+
+    def test_batchable_create_cursor_ranges_max_batches_large_items(self):
+        """Test create_cursor_ranges with large total items respects max_batches limit."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+
+        # Test: 1,000,000 items with batch_size=1000 would create 1000 batches
+        # With max_batches=50, it should adjust batch_size to 20000
+        configs = handler.create_cursor_ranges(
+            total_items=1000000,
+            batch_size=1000,
+            max_batches=50,
+        )
+
+        assert len(configs) == 50, "Should create exactly max_batches batches"
+        # Each batch should handle 20000 items (1000000 / 50)
+        assert configs[0].start_cursor == 0
+        assert configs[0].end_cursor == 20000
+        assert configs[1].start_cursor == 20000
+        assert configs[1].end_cursor == 40000
+        assert configs[49].start_cursor == 980000
+        assert configs[49].end_cursor == 1000000
+
+    def test_batchable_create_cursor_ranges_max_batches_no_adjustment_needed(self):
+        """Test create_cursor_ranges when max_batches doesn't require adjustment."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+
+        # Test: 500 items with batch_size=100 creates 5 batches
+        # With max_batches=10, no adjustment needed (5 < 10)
+        configs = handler.create_cursor_ranges(
+            total_items=500,
+            batch_size=100,
+            max_batches=10,
+        )
+
+        assert len(configs) == 5, "Should create 5 batches (no adjustment needed)"
+        assert configs[0].end_cursor - configs[0].start_cursor == 100
+        assert configs[4].end_cursor - configs[4].start_cursor == 100
+
+    def test_batchable_create_cursor_ranges_max_batches_none(self):
+        """Test create_cursor_ranges with max_batches=None uses default behavior."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+
+        # Test: With max_batches=None, should create batches based on batch_size
+        configs = handler.create_cursor_ranges(
+            total_items=10000,
+            batch_size=100,
+            max_batches=None,
+        )
+
+        assert len(configs) == 100, "Should create 100 batches (10000/100)"
+        assert configs[0].end_cursor - configs[0].start_cursor == 100
 
     def test_batchable_create_worker_outcome(self):
         """Test Batchable.create_worker_outcome."""
