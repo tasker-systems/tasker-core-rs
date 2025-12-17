@@ -1,18 +1,17 @@
-"""Phase 4 (TAS-83) Tests: Event Bridge & Handler System.
+"""Step handler tests.
 
-Tests for:
-- EventBridge pub/sub functionality
-- HandlerRegistry registration and resolution
+These tests verify:
 - StepHandler ABC contract
-- StepContext and StepHandlerResult types
+- StepContext model and extraction from FFI events
+- StepHandlerResult factory methods
 - StepExecutionSubscriber event routing
+- StepExecutionError exception
+- Handler integration flow
 """
 
 from __future__ import annotations
 
 from uuid import uuid4
-
-import pytest
 
 from tasker_core import (
     EventBridge,
@@ -25,403 +24,6 @@ from tasker_core import (
     StepHandler,
     StepHandlerResult,
 )
-
-# =============================================================================
-# EventBridge Tests
-# =============================================================================
-
-
-class TestEventBridge:
-    """Tests for EventBridge pub/sub functionality."""
-
-    def setup_method(self):
-        """Reset singleton before each test."""
-        EventBridge.reset_instance()
-
-    def teardown_method(self):
-        """Clean up after each test."""
-        EventBridge.reset_instance()
-
-    def test_singleton_instance(self):
-        """Test EventBridge singleton pattern."""
-        bridge1 = EventBridge.instance()
-        bridge2 = EventBridge.instance()
-        assert bridge1 is bridge2
-
-    def test_reset_instance(self):
-        """Test singleton reset creates new instance."""
-        bridge1 = EventBridge.instance()
-        EventBridge.reset_instance()
-        bridge2 = EventBridge.instance()
-        assert bridge1 is not bridge2
-
-    def test_start_stop(self):
-        """Test start/stop lifecycle."""
-        bridge = EventBridge.instance()
-        assert not bridge.is_active
-
-        bridge.start()
-        assert bridge.is_active
-
-        bridge.stop()
-        assert not bridge.is_active
-
-    def test_start_idempotent(self):
-        """Test start() is idempotent."""
-        bridge = EventBridge.instance()
-        bridge.start()
-        bridge.start()  # Should not raise
-        assert bridge.is_active
-
-    def test_stop_idempotent(self):
-        """Test stop() is idempotent."""
-        bridge = EventBridge.instance()
-        bridge.stop()  # Not started, should not raise
-        assert not bridge.is_active
-
-    def test_subscribe_publish(self):
-        """Test basic subscribe and publish."""
-        bridge = EventBridge.instance()
-        bridge.start()
-
-        received = []
-        bridge.subscribe("test.event", lambda x: received.append(x))
-        bridge.publish("test.event", "data")
-
-        assert received == ["data"]
-
-    def test_subscribe_publish_multiple_args(self):
-        """Test publish with multiple arguments."""
-        bridge = EventBridge.instance()
-        bridge.start()
-
-        received = []
-        bridge.subscribe("test.event", lambda x, y: received.append((x, y)))
-        bridge.publish("test.event", "a", "b")
-
-        assert received == [("a", "b")]
-
-    def test_subscribe_publish_kwargs(self):
-        """Test publish with keyword arguments."""
-        bridge = EventBridge.instance()
-        bridge.start()
-
-        received = []
-        bridge.subscribe("test.event", lambda **kw: received.append(kw))
-        bridge.publish("test.event", key="value")
-
-        assert received == [{"key": "value"}]
-
-    def test_multiple_subscribers(self):
-        """Test multiple subscribers for same event."""
-        bridge = EventBridge.instance()
-        bridge.start()
-
-        received1 = []
-        received2 = []
-        bridge.subscribe("test.event", lambda x: received1.append(x))
-        bridge.subscribe("test.event", lambda x: received2.append(x))
-        bridge.publish("test.event", "data")
-
-        assert received1 == ["data"]
-        assert received2 == ["data"]
-
-    def test_unsubscribe(self):
-        """Test unsubscribing from event."""
-        bridge = EventBridge.instance()
-        bridge.start()
-
-        received = []
-
-        def handler(x):
-            received.append(x)
-
-        bridge.subscribe("test.event", handler)
-        bridge.publish("test.event", "first")
-
-        bridge.unsubscribe("test.event", handler)
-        bridge.publish("test.event", "second")
-
-        assert received == ["first"]
-
-    def test_subscribe_once(self):
-        """Test subscribe_once for single invocation."""
-        bridge = EventBridge.instance()
-        bridge.start()
-
-        received = []
-        bridge.subscribe_once("test.event", lambda x: received.append(x))
-        bridge.publish("test.event", "first")
-        bridge.publish("test.event", "second")
-
-        assert received == ["first"]
-
-    def test_publish_when_inactive_drops_event(self):
-        """Test that events are dropped when bridge is inactive."""
-        bridge = EventBridge.instance()
-        # Don't start the bridge
-
-        received = []
-        bridge.subscribe("test.event", lambda x: received.append(x))
-        bridge.publish("test.event", "data")
-
-        assert received == []
-
-    def test_listener_count(self):
-        """Test listener_count method."""
-        bridge = EventBridge.instance()
-        assert bridge.listener_count("test.event") == 0
-
-        bridge.subscribe("test.event", lambda: None)
-        assert bridge.listener_count("test.event") == 1
-
-        bridge.subscribe("test.event", lambda: None)
-        assert bridge.listener_count("test.event") == 2
-
-    def test_listeners(self):
-        """Test listeners method."""
-        bridge = EventBridge.instance()
-
-        def handler1():
-            pass
-
-        def handler2():
-            pass
-
-        bridge.subscribe("test.event", handler1)
-        bridge.subscribe("test.event", handler2)
-
-        listeners = bridge.listeners("test.event")
-        assert len(listeners) == 2
-
-    def test_event_schema(self):
-        """Test event_schema property."""
-        bridge = EventBridge.instance()
-        schema = bridge.event_schema
-
-        assert EventNames.STEP_EXECUTION_RECEIVED in schema
-        assert EventNames.STEP_COMPLETION_SENT in schema
-        assert EventNames.HANDLER_ERROR in schema
-
-    def test_stop_removes_all_listeners(self):
-        """Test stop() removes all listeners."""
-        bridge = EventBridge.instance()
-        bridge.start()
-        bridge.subscribe("test.event", lambda: None)
-        assert bridge.listener_count("test.event") == 1
-
-        bridge.stop()
-        assert bridge.listener_count("test.event") == 0
-
-
-class TestEventNames:
-    """Tests for EventNames constants."""
-
-    def test_event_names_exist(self):
-        """Test all expected event names exist."""
-        assert EventNames.STEP_EXECUTION_RECEIVED == "step.execution.received"
-        assert EventNames.STEP_COMPLETION_SENT == "step.completion.sent"
-        assert EventNames.HANDLER_REGISTERED == "handler.registered"
-        assert EventNames.HANDLER_ERROR == "handler.error"
-        assert EventNames.POLLER_METRICS == "poller.metrics"
-        assert EventNames.POLLER_ERROR == "poller.error"
-
-
-# =============================================================================
-# HandlerRegistry Tests
-# =============================================================================
-
-
-class TestHandlerRegistry:
-    """Tests for HandlerRegistry."""
-
-    def setup_method(self):
-        """Reset singleton before each test."""
-        HandlerRegistry.reset_instance()
-
-    def teardown_method(self):
-        """Clean up after each test."""
-        HandlerRegistry.reset_instance()
-
-    def test_singleton_instance(self):
-        """Test HandlerRegistry singleton pattern."""
-        reg1 = HandlerRegistry.instance()
-        reg2 = HandlerRegistry.instance()
-        assert reg1 is reg2
-
-    def test_reset_instance(self):
-        """Test singleton reset creates new instance."""
-        reg1 = HandlerRegistry.instance()
-        HandlerRegistry.reset_instance()
-        reg2 = HandlerRegistry.instance()
-        assert reg1 is not reg2
-
-    def test_register_and_resolve(self):
-        """Test handler registration and resolution."""
-        registry = HandlerRegistry()
-
-        class TestHandler(StepHandler):
-            handler_name = "test_handler"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        registry.register("test_handler", TestHandler)
-        handler = registry.resolve("test_handler")
-
-        assert handler is not None
-        assert handler.name == "test_handler"
-
-    def test_resolve_not_found(self):
-        """Test resolving non-existent handler returns None."""
-        registry = HandlerRegistry()
-        handler = registry.resolve("non_existent")
-        assert handler is None
-
-    def test_is_registered(self):
-        """Test is_registered method."""
-        registry = HandlerRegistry()
-
-        class TestHandler(StepHandler):
-            handler_name = "test_handler"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        assert not registry.is_registered("test_handler")
-        registry.register("test_handler", TestHandler)
-        assert registry.is_registered("test_handler")
-
-    def test_list_handlers(self):
-        """Test list_handlers method."""
-        registry = HandlerRegistry()
-
-        class Handler1(StepHandler):
-            handler_name = "handler1"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        class Handler2(StepHandler):
-            handler_name = "handler2"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        registry.register("handler1", Handler1)
-        registry.register("handler2", Handler2)
-
-        handlers = registry.list_handlers()
-        assert set(handlers) == {"handler1", "handler2"}
-
-    def test_unregister(self):
-        """Test unregister method."""
-        registry = HandlerRegistry()
-
-        class TestHandler(StepHandler):
-            handler_name = "test_handler"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        registry.register("test_handler", TestHandler)
-        assert registry.is_registered("test_handler")
-
-        result = registry.unregister("test_handler")
-        assert result is True
-        assert not registry.is_registered("test_handler")
-
-    def test_unregister_not_found(self):
-        """Test unregister returns False for non-existent handler."""
-        registry = HandlerRegistry()
-        result = registry.unregister("non_existent")
-        assert result is False
-
-    def test_handler_count(self):
-        """Test handler_count method."""
-        registry = HandlerRegistry()
-        assert registry.handler_count() == 0
-
-        class TestHandler(StepHandler):
-            handler_name = "test"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        registry.register("test", TestHandler)
-        assert registry.handler_count() == 1
-
-    def test_clear(self):
-        """Test clear method."""
-        registry = HandlerRegistry()
-
-        class TestHandler(StepHandler):
-            handler_name = "test"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        registry.register("test", TestHandler)
-        assert registry.handler_count() == 1
-
-        registry.clear()
-        assert registry.handler_count() == 0
-
-    def test_get_handler_class(self):
-        """Test get_handler_class without instantiation."""
-        registry = HandlerRegistry()
-
-        class TestHandler(StepHandler):
-            handler_name = "test"
-            handler_version = "2.0.0"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        registry.register("test", TestHandler)
-
-        handler_class = registry.get_handler_class("test")
-        assert handler_class is TestHandler
-        assert handler_class.handler_version == "2.0.0"
-
-    def test_register_overwrites_existing(self):
-        """Test registering same name overwrites previous handler."""
-        registry = HandlerRegistry()
-
-        class Handler1(StepHandler):
-            handler_name = "test"
-            handler_version = "1.0.0"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        class Handler2(StepHandler):
-            handler_name = "test"
-            handler_version = "2.0.0"
-
-            def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
-
-        registry.register("test", Handler1)
-        registry.register("test", Handler2)
-
-        handler = registry.resolve("test")
-        assert handler.version == "2.0.0"
-
-    def test_register_invalid_class_raises(self):
-        """Test registering non-StepHandler raises ValueError."""
-        registry = HandlerRegistry()
-
-        class NotAHandler:
-            pass
-
-        with pytest.raises(ValueError):
-            registry.register("test", NotAHandler)
-
-
-# =============================================================================
-# StepHandler Tests
-# =============================================================================
 
 
 class TestStepHandler:
@@ -512,11 +114,6 @@ class TestStepHandler:
         repr_str = repr(handler)
         assert "TestHandler" in repr_str
         assert "test" in repr_str
-
-
-# =============================================================================
-# StepContext Tests
-# =============================================================================
 
 
 class TestStepContext:
@@ -669,11 +266,6 @@ class TestStepContext:
         assert context.step_inputs == {}
 
 
-# =============================================================================
-# StepHandlerResult Tests
-# =============================================================================
-
-
 class TestStepHandlerResult:
     """Tests for StepHandlerResult model."""
 
@@ -713,11 +305,6 @@ class TestStepHandlerResult:
         assert result.error_type == "handler_error"
         assert result.retryable is True
         assert result.metadata == {}
-
-
-# =============================================================================
-# StepExecutionSubscriber Tests
-# =============================================================================
 
 
 class TestStepExecutionSubscriber:
@@ -796,11 +383,6 @@ class TestStepExecutionError:
         )
         assert error.error_type == "validation_error"
         assert error.retryable is False
-
-
-# =============================================================================
-# Integration Tests
-# =============================================================================
 
 
 class TestHandlerIntegration:
