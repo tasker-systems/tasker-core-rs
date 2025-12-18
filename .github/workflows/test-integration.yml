@@ -8,11 +8,14 @@ on:
         type: string
 
 jobs:
-  # Job 1: Build workspace and run unit tests
-  build-and-unit-tests:
-    name: Build + Unit Tests
+  # ============================================================================
+  # Stage 1: Workspace Compile
+  # Build core packages and warm sccache for all downstream jobs
+  # ============================================================================
+  workspace-compile:
+    name: Workspace Compile
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -38,23 +41,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Ruby for FFI extension
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          bundler-cache: true
-          working-directory: workers/ruby
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
 
       - name: Cache Rust build artifacts
         uses: actions/cache@v4
@@ -83,32 +69,113 @@ jobs:
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
-      - name: Build all packages
+      - name: Build core packages
         run: |
-          echo "🔨 Building all packages with full features..."
-          cargo build --all-features --workspace --bins
+          echo "🔨 Building core packages to warm sccache..."
+          cargo build --all-features \
+            --package tasker-shared \
+            --package tasker-orchestration \
+            --package tasker-worker \
+            --package pgmq-notify \
+            --package tasker-client \
+            --bins
           echo "📦 Verifying binaries were created..."
-          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker
+          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
-      - name: Build Ruby FFI extension
+      - name: Create nextest archive
         run: |
-          cd workers/ruby
-          bundle install
-          bundle exec rake compile
+          echo "📦 Creating nextest archive for test partitioning..."
+          cargo nextest archive \
+            --archive-file nextest-archive.tar.zst \
+            --workspace \
+            --all-features
+          ls -lh nextest-archive.tar.zst
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
-      - name: Build Python FFI extension
-        run: |
-          cd workers/python
-          uv sync --dev
-          uv run maturin develop
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: build-artifacts
+          path: |
+            target/debug/tasker-server
+            target/debug/tasker-worker
+            target/debug/tasker-cli
+            target/debug/rust-worker
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload nextest archive
+        uses: actions/upload-artifact@v5
+        with:
+          name: nextest-archive
+          path: nextest-archive.tar.zst
+          retention-days: 1
+
+  # ============================================================================
+  # Stage 2a: Unit Tests (parallel with build-workers)
+  # Run library tests and doctests for core packages
+  # ============================================================================
+  unit-tests:
+    name: Unit Tests + Doctests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    needs: workspace-compile
+
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+            ${{ runner.os }}-cargo-
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install tools
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "nextest sqlx-cli"
+
+      - name: Setup database
+        run: sqlx migrate run
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Run unit tests
         run: |
-          echo "🧪 Running unit tests (with postgres service)..."
+          echo "🧪 Running unit tests..."
           mkdir -p target/nextest/ci
           cargo nextest run \
             --profile ci \
@@ -141,51 +208,134 @@ jobs:
           name: unit-test-results
           path: target/nextest/ci/junit.xml
 
-      - name: Create nextest archive for test partitioning
-        run: |
-          echo "📦 Creating nextest archive for partitioned test execution..."
-          cargo nextest archive \
-            --archive-file nextest-archive.tar.zst \
-            --workspace \
-            --all-features
-          ls -lh nextest-archive.tar.zst
+  # ============================================================================
+  # Stage 2b: Build Workers (parallel with unit-tests)
+  # Build FFI extensions for Ruby and Python workers
+  # ============================================================================
+  build-workers:
+    name: Build Workers (FFI)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    needs: workspace-compile
+
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+          working-directory: workers/ruby
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+            ${{ runner.os }}-cargo-
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres --locked
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
-      - name: Verify artifacts before upload
-        run: |
-          echo "📋 Files to be uploaded:"
-          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker || echo "❌ Binaries missing!"
-          ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extensions not found (expected on some platforms)"
-          ls -lh nextest-archive.tar.zst || echo "❌ Nextest archive missing!"
+      - name: Setup database
+        run: sqlx migrate run
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
-      - name: Upload build artifacts for native execution
+      - name: Build Ruby FFI extension
+        run: |
+          echo "🔨 Building Ruby FFI extension..."
+          cd workers/ruby
+          bundle install
+          bundle exec rake compile
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Build Python FFI extension
+        run: |
+          echo "🔨 Building Python FFI extension..."
+          cd workers/python
+          uv sync --dev
+          uv run maturin develop
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Build Rust worker
+        run: |
+          echo "🔨 Building Rust worker..."
+          cargo build --package rust-worker --all-features
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Verify worker artifacts
+        run: |
+          echo "📋 Worker artifacts:"
+          ls -lh target/debug/rust-worker || echo "❌ Rust worker missing!"
+          ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extension (expected on Linux)"
+          ls -lh workers/python/.venv/lib/python*/site-packages/tasker_core*.so 2>/dev/null || echo "ℹ️  Python extension in venv"
+
+      - name: Upload worker artifacts
         uses: actions/upload-artifact@v5
         with:
-          name: build-artifacts
+          name: worker-artifacts
           path: |
-            target/debug/tasker-server
-            target/debug/tasker-worker
-            target/debug/tasker-cli
             target/debug/rust-worker
             workers/ruby/lib/tasker_core/tasker_worker_rb.bundle
             workers/ruby/lib/tasker_core/tasker_worker_rb.so
           retention-days: 1
-          if-no-files-found: error
+          if-no-files-found: warn
 
-      - name: Upload nextest archive
-        uses: actions/upload-artifact@v5
-        with:
-          name: nextest-archive
-          path: nextest-archive.tar.zst
-          retention-days: 1
-
-  # Job 2: Run integration and E2E tests (partitioned for parallelism)
+  # ============================================================================
+  # Stage 3: Integration Tests (partitioned)
+  # Run E2E tests with all services running
+  # ============================================================================
   integration-tests:
     name: Integration Tests (${{ matrix.partition }}/2)
     runs-on: ubuntu-22.04
     timeout-minutes: 20
-    needs: build-and-unit-tests
+    needs: [build-workers, unit-tests]
     strategy:
       fail-fast: false
       matrix:
@@ -216,6 +366,23 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+          working-directory: workers/ruby
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
       - name: Restore Rust build cache
         uses: actions/cache@v4
         with:
@@ -233,28 +400,18 @@ jobs:
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
 
-      - name: Setup Ruby for FFI worker
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          bundler-cache: true
-          working-directory: workers/ruby
-
-      - name: Set up Python for FFI worker
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
-
       - name: Download build artifacts
         uses: actions/download-artifact@v6
         with:
           name: build-artifacts
-          path: artifacts
+          path: artifacts/build
+
+      - name: Download worker artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: worker-artifacts
+          path: artifacts/workers
+        continue-on-error: true
 
       - name: Download nextest archive
         uses: actions/download-artifact@v6
@@ -265,32 +422,41 @@ jobs:
       - name: Restore artifacts to correct locations
         run: |
           echo "📦 Restoring build artifacts..."
-          echo "Artifacts were uploaded with directory structure preserved"
 
-          # Artifacts are in artifacts/target/debug/ and artifacts/workers/ruby/lib/tasker_core/
-          # Copy artifact binaries into existing target/debug (from cargo test --no-run)
-          if [ -d artifacts/target/debug ]; then
-            mkdir -p target/debug
-            cp -rf artifacts/target/debug/* target/debug/
-            echo "✅ Binaries restored from artifacts/target/debug/"
-            ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
-          else
-            echo "❌ artifacts/target/debug/ not found"
-            ls -laR artifacts/
-            exit 1
+          # Restore core binaries
+          mkdir -p target/debug
+          if [ -d artifacts/build/target/debug ]; then
+            cp -rf artifacts/build/target/debug/* target/debug/
+          elif [ -d artifacts/build ]; then
+            # Flat structure
+            cp -f artifacts/build/tasker-* target/debug/ 2>/dev/null || true
+            cp -f artifacts/build/rust-worker target/debug/ 2>/dev/null || true
+          fi
+          echo "✅ Core binaries restored"
+          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli 2>/dev/null || echo "⚠️  Some binaries missing"
+
+          # Restore Ruby extension
+          if [ -d artifacts/workers/workers/ruby/lib/tasker_core ]; then
+            mkdir -p workers/ruby/lib/tasker_core
+            cp -rf artifacts/workers/workers/ruby/lib/tasker_core/* workers/ruby/lib/tasker_core/
+            echo "✅ Ruby extension restored"
+          elif [ -d artifacts/workers ]; then
+            mkdir -p workers/ruby/lib/tasker_core
+            cp -f artifacts/workers/*.so workers/ruby/lib/tasker_core/ 2>/dev/null || true
+            cp -f artifacts/workers/*.bundle workers/ruby/lib/tasker_core/ 2>/dev/null || true
           fi
 
-          if [ -d artifacts/workers/ruby/lib/tasker_core ]; then
-            mkdir -p workers/ruby/lib/tasker_core
-            cp -rf artifacts/workers/ruby/lib/tasker_core/* workers/ruby/lib/tasker_core/
-            echo "✅ Ruby extension restored"
-            ls -lh workers/ruby/lib/tasker_core/
-          else
-            echo "ℹ️  No Ruby extensions found (may not be built on this platform)"
+          # Restore Rust worker
+          if [ -f artifacts/workers/target/debug/rust-worker ]; then
+            cp -f artifacts/workers/target/debug/rust-worker target/debug/
+          elif [ -f artifacts/workers/rust-worker ]; then
+            cp -f artifacts/workers/rust-worker target/debug/
           fi
 
       - name: Make binaries executable
-        run: chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker
+        run: |
+          chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli 2>/dev/null || true
+          chmod +x target/debug/rust-worker 2>/dev/null || true
 
       - name: Build Python FFI extension
         run: |
@@ -338,7 +504,7 @@ jobs:
 
       - name: Run integration tests (partition ${{ matrix.partition }}/2)
         run: |
-          echo "🏁 Running integration and E2E tests - partition ${{ matrix.partition }} of 2..."
+          echo "🏁 Running integration tests - partition ${{ matrix.partition }} of 2..."
           mkdir -p target/nextest/ci
           cargo nextest run \
             --archive-file nextest-archive.tar.zst \
@@ -365,18 +531,18 @@ jobs:
       - name: Collect service logs on failure
         if: failure()
         run: |
-          mkdir -p native-logs
-          [ -f orchestration.log ] && cp orchestration.log native-logs/
-          [ -f worker.log ] && cp worker.log native-logs/
-          [ -f ruby-worker.log ] && cp ruby-worker.log native-logs/
-          [ -f python-worker.log ] && cp python-worker.log native-logs/
+          mkdir -p service-logs
+          [ -f orchestration.log ] && cp orchestration.log service-logs/
+          [ -f worker.log ] && cp worker.log service-logs/
+          [ -f ruby-worker.log ] && cp ruby-worker.log service-logs/
+          [ -f python-worker.log ] && cp python-worker.log service-logs/
 
       - name: Upload service logs
         if: failure()
         uses: actions/upload-artifact@v5
         with:
           name: service-logs-${{ matrix.partition }}
-          path: native-logs/
+          path: service-logs/
 
       - name: Stop native services
         if: always()
