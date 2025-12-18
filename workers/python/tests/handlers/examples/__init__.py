@@ -17,6 +17,7 @@ E2E test handlers (matching Ruby patterns for integration testing):
 - test_scenarios: SuccessStepHandler, RetryableErrorStepHandler, PermanentErrorStepHandler
 - conditional_approval: ValidateRequestHandler, RoutingDecisionHandler, etc. (Phase 6b)
 - batch_processing: CsvAnalyzerHandler, CsvBatchProcessorHandler, etc. (Phase 6b)
+- domain_events: ValidateOrderHandler, ProcessPaymentHandler, etc. (TAS-65/TAS-69)
 """
 
 # Phase 6b handlers - Batch processing
@@ -24,6 +25,14 @@ from .batch_processing_handlers import (
     CsvAnalyzerHandler,
     CsvBatchProcessorHandler,
     CsvResultsAggregatorHandler,
+)
+
+# TAS-65/TAS-69 - Domain event handlers
+from .domain_event_handlers import (
+    ProcessPaymentHandler,
+    SendNotificationHandler,
+    UpdateInventoryHandler,
+    ValidateOrderHandler,
 )
 
 # Phase 6b handlers - Conditional approval (decision points)
@@ -99,4 +108,9 @@ __all__ = [
     "CsvAnalyzerHandler",
     "CsvBatchProcessorHandler",
     "CsvResultsAggregatorHandler",
+    # TAS-65/TAS-69 - Domain event handlers
+    "ValidateOrderHandler",
+    "ProcessPaymentHandler",
+    "UpdateInventoryHandler",
+    "SendNotificationHandler",
 ]

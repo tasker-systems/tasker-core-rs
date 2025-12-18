@@ -131,6 +131,10 @@ class TestModuleExports:
             # Step execution subscriber
             "StepExecutionSubscriber",
             "StepExecutionError",
+            # Template discovery (for manual usage)
+            "TemplatePath",
+            "TemplateParser",
+            "HandlerDiscovery",
         }
 
         # Phase 5 exports

@@ -417,6 +417,34 @@ impl IntegrationTestManager {
 
         Self::setup_with_config(config).await
     }
+
+    /// Set up integration test environment specifically for Python worker tests
+    ///
+    /// This method explicitly connects to the Python worker (default port 8083).
+    /// Use this for tests that require Python handler execution and event verification.
+    ///
+    /// Worker URL Priority:
+    /// 1. `TASKER_TEST_PYTHON_WORKER_URL` environment variable
+    /// 2. `TASKER_TEST_WORKER_URL` environment variable
+    /// 3. Default: `http://localhost:8083`
+    ///
+    /// Docker port mappings:
+    /// - Rust worker: `8081:8081` (external 8081 → internal 8081)
+    /// - Ruby worker: `8082:8081` (external 8082 → internal 8081)
+    /// - Python worker: `8083:8081` (external 8083 → internal 8081)
+    pub async fn setup_python_worker() -> Result<Self> {
+        // Use Python-specific URL if set, otherwise check generic worker URL, then default to Python port
+        let python_worker_url = std::env::var("TASKER_TEST_PYTHON_WORKER_URL")
+            .or_else(|_| std::env::var("TASKER_TEST_WORKER_URL"))
+            .unwrap_or_else(|_| "http://localhost:8083".to_string());
+
+        let config = IntegrationConfig {
+            worker_url: Some(python_worker_url),
+            ..Default::default()
+        };
+
+        Self::setup_with_config(config).await
+    }
 }
 
 #[cfg(test)]

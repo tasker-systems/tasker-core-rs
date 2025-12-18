@@ -76,49 +76,104 @@ def health_check() -> dict[str, Any]:
         }
 
 
-def discover_handlers() -> int:
-    """Discover and register handlers from configured handler paths.
+def initialize_handler_registry() -> int:
+    """Initialize handler registry with automatic discovery.
+
+    Handler discovery is handled automatically by HandlerRegistry based on:
+    1. Test environment: Scans for preloaded handlers
+    2. YAML template-driven discovery from TASKER_TEMPLATE_PATH or workspace
 
     Returns:
-        Number of handlers discovered.
+        Number of handlers registered.
     """
-    registry = HandlerRegistry.instance()
-    total_discovered = 0
-
-    # Get handler path from environment
+    # Add handler path to Python path for imports (if configured)
     handler_path = os.environ.get("PYTHON_HANDLER_PATH")
-    if not handler_path:
-        logger.info("No PYTHON_HANDLER_PATH configured, skipping handler discovery")
-        return 0
+    if handler_path and os.path.isdir(handler_path):
+        if handler_path not in sys.path:
+            sys.path.insert(0, handler_path)
+        logger.info(f"Added PYTHON_HANDLER_PATH to sys.path: {handler_path}")
 
-    if not os.path.isdir(handler_path):
-        logger.warning(f"Handler path does not exist: {handler_path}")
-        return 0
+        # Pre-import handler modules so they're available for preloaded detection
+        _import_handlers_from_path(handler_path)
 
-    # Add handler path to Python path for imports
-    if handler_path not in sys.path:
-        sys.path.insert(0, handler_path)
+    # HandlerRegistry auto-bootstraps on first instance() call
+    # This uses template-driven discovery (matching Ruby pattern)
+    registry = HandlerRegistry.instance()
 
-    # Discover handlers from the examples subpackage
-    # Handlers are organized as flat files: examples/<name>_handlers.py
-    examples_path = os.path.join(handler_path, "examples")
-    if os.path.isdir(examples_path):
-        # Look for *_handlers.py files in the examples directory
-        for filename in os.listdir(examples_path):
-            if filename.endswith("_handlers.py"):
-                # Convert filename to module name (e.g., linear_handlers.py -> examples.linear_handlers)
-                module_name = filename[:-3]  # Remove .py extension
-                package_name = f"examples.{module_name}"
-                try:
-                    discovered = registry.discover_handlers(package_name)
-                    total_discovered += discovered
-                    logger.info(f"Discovered {discovered} handlers from {package_name}")
-                except Exception as e:
-                    logger.warning(f"Failed to discover handlers from {package_name}: {e}")
-
-    logger.info(f"Total handlers discovered: {total_discovered}")
+    handler_count = registry.handler_count()
+    logger.info(f"Handler registry initialized: {handler_count} handlers registered")
     logger.info(f"Registered handlers: {registry.list_handlers()}")
-    return total_discovered
+
+    return handler_count
+
+
+def _import_handlers_from_path(handler_path: str) -> None:
+    """Import handler modules from a directory path.
+
+    Recursively scans the directory and all subdirectories for Python modules
+    and imports them to make handler classes available for discovery.
+
+    Args:
+        handler_path: Path to directory containing handler modules.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(handler_path)
+    if not path.is_dir():
+        return
+
+    logger.info(f"Scanning for handler modules in: {handler_path}")
+
+    # Find the package name by looking at directory structure
+    # E.g., /app/python_worker/tests/handlers -> handlers
+    package_name = path.name
+
+    def import_package(pkg_path: Path, pkg_name: str) -> None:
+        """Recursively import a package and all its submodules."""
+        init_file = pkg_path / "__init__.py"
+
+        # Import the package's __init__.py if it exists
+        if init_file.exists():
+            try:
+                spec = importlib.util.spec_from_file_location(
+                    pkg_name,
+                    init_file,
+                    submodule_search_locations=[str(pkg_path)],
+                )
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[pkg_name] = module
+                    spec.loader.exec_module(module)
+                    logger.info(f"  Imported package: {pkg_name}")
+            except Exception as e:
+                logger.debug(f"  Could not import {pkg_name}: {e}")
+
+        # Scan for submodules and subpackages
+        for item in pkg_path.iterdir():
+            if item.name.startswith("_") and item.name != "__init__.py":
+                continue  # Skip private modules (except __init__)
+
+            if item.is_dir() and (item / "__init__.py").exists():
+                # It's a subpackage - recurse
+                subpackage_name = f"{pkg_name}.{item.name}"
+                import_package(item, subpackage_name)
+
+            elif item.suffix == ".py" and item.stem != "__init__":
+                # It's a module file
+                module_name = f"{pkg_name}.{item.stem}"
+                try:
+                    spec = importlib.util.spec_from_file_location(module_name, item)
+                    if spec and spec.loader:
+                        module = importlib.util.module_from_spec(spec)
+                        sys.modules[module_name] = module
+                        spec.loader.exec_module(module)
+                        logger.info(f"  Imported module: {module_name}")
+                except Exception as e:
+                    logger.debug(f"  Could not import {module_name}: {e}")
+
+    # Start the recursive import
+    import_package(path, package_name)
 
 
 def main() -> int:
@@ -156,7 +211,7 @@ def main() -> int:
 
         # Discover and register handlers before bootstrap
         logger.info("Discovering Python handlers...")
-        handler_count = discover_handlers()
+        handler_count = initialize_handler_registry()
         logger.info(f"Handler discovery complete: {handler_count} handlers registered")
 
         # Create bootstrap configuration

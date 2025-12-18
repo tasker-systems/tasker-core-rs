@@ -134,6 +134,13 @@ from tasker_core.step_execution_subscriber import (
 )
 from tasker_core.step_handler import ApiHandler, ApiResponse, DecisionHandler
 
+# Import template discovery (for manual usage - auto-bootstrap handles this)
+from tasker_core.template_discovery import (
+    HandlerDiscovery,
+    TemplateParser,
+    TemplatePath,
+)
+
 # Import types (Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6b)
 from tasker_core.types import (
     BatchAnalyzerOutcome,
@@ -217,6 +224,10 @@ __all__ = [
     "EventNames",
     "HandlerRegistry",
     "StepHandler",
+    # Template discovery (for manual usage)
+    "TemplatePath",
+    "TemplateParser",
+    "HandlerDiscovery",
     "StepContext",
     "StepHandlerResult",
     "StepExecutionSubscriber",
