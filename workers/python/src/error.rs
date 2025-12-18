@@ -38,30 +38,20 @@ pub enum PythonFfiError {
 impl From<PythonFfiError> for PyErr {
     fn from(err: PythonFfiError) -> PyErr {
         match err {
-            PythonFfiError::WorkerNotInitialized => {
-                PyRuntimeError::new_err(err.to_string())
-            }
+            PythonFfiError::WorkerNotInitialized => PyRuntimeError::new_err(err.to_string()),
             PythonFfiError::BootstrapFailed(msg) => {
                 PyRuntimeError::new_err(format!("Bootstrap failed: {}", msg))
             }
-            PythonFfiError::WorkerAlreadyRunning => {
-                PyRuntimeError::new_err(err.to_string())
-            }
+            PythonFfiError::WorkerAlreadyRunning => PyRuntimeError::new_err(err.to_string()),
             PythonFfiError::LockError(msg) => {
                 PyRuntimeError::new_err(format!("Lock error: {}", msg))
             }
-            PythonFfiError::RuntimeError(msg) => {
-                PyRuntimeError::new_err(msg)
-            }
-            PythonFfiError::InvalidArgument(msg) => {
-                PyValueError::new_err(msg)
-            }
+            PythonFfiError::RuntimeError(msg) => PyRuntimeError::new_err(msg),
+            PythonFfiError::InvalidArgument(msg) => PyValueError::new_err(msg),
             PythonFfiError::ConversionError(msg) => {
                 PyValueError::new_err(format!("Conversion error: {}", msg))
             }
-            PythonFfiError::FfiError(msg) => {
-                PyRuntimeError::new_err(format!("FFI error: {}", msg))
-            }
+            PythonFfiError::FfiError(msg) => PyRuntimeError::new_err(format!("FFI error: {}", msg)),
         }
     }
 }

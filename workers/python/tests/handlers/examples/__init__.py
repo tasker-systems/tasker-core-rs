@@ -27,14 +27,6 @@ from .batch_processing_handlers import (
     CsvResultsAggregatorHandler,
 )
 
-# TAS-65/TAS-69 - Domain event handlers
-from .domain_event_handlers import (
-    ProcessPaymentHandler,
-    SendNotificationHandler,
-    UpdateInventoryHandler,
-    ValidateOrderHandler,
-)
-
 # Phase 6b handlers - Conditional approval (decision points)
 from .conditional_approval_handlers import (
     AutoApproveHandler,
@@ -59,6 +51,14 @@ from .diamond_workflow_handlers import (
     DiamondBranchCHandler,
     DiamondEndHandler,
     DiamondStartHandler,
+)
+
+# TAS-65/TAS-69 - Domain event handlers
+from .domain_event_handlers import (
+    ProcessPaymentHandler,
+    SendNotificationHandler,
+    UpdateInventoryHandler,
+    ValidateOrderHandler,
 )
 from .linear_handlers import FetchDataHandler, StoreDataHandler, TransformDataHandler
 from .linear_workflow_handlers import (

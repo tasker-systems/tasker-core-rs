@@ -91,7 +91,7 @@ class ApiResponse:
             content_type = response.headers.get("content-type", "")
             if "application/json" in content_type:
                 try:
-                    self.body: dict[str, Any] | str | None = response.json()
+                    self.body = response.json()
                 except ValueError:
                     self.body = response.text
             else:

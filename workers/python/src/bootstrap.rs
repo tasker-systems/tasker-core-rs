@@ -139,10 +139,9 @@ pub fn bootstrap_worker(py: Python<'_>, config: Option<&Bound<'_, PyDict>>) -> P
         Arc::new(channel)
     } else {
         error!("Failed to get dispatch handles from WorkerSystemHandle");
-        return Err(PythonFfiError::BootstrapFailed(
-            "Dispatch handles not available".to_string(),
-        )
-        .into());
+        return Err(
+            PythonFfiError::BootstrapFailed("Dispatch handles not available".to_string()).into(),
+        );
     };
 
     // Get in-process event receiver from WorkerCore's event bus

@@ -92,7 +92,10 @@ pub fn poll_in_process_events(py: Python<'_>) -> PyResult<Option<PyObject>> {
             Ok(None)
         }
         Err(tokio::sync::broadcast::error::TryRecvError::Lagged(count)) => {
-            warn!(count = count, "In-process event receiver lagged, some events dropped");
+            warn!(
+                count = count,
+                "In-process event receiver lagged, some events dropped"
+            );
             // Still return None, next call will get new events
             Ok(None)
         }
@@ -128,12 +131,13 @@ pub fn get_health_check(py: Python<'_>) -> PyResult<PyObject> {
         .ok_or(PythonFfiError::WorkerNotInitialized)?;
 
     // Get status from system handle
-    let status = handle.runtime.block_on(async {
-        handle.system_handle.status().await
-    }).map_err(|e| {
-        error!("Failed to get worker status: {}", e);
-        PythonFfiError::FfiError(format!("Failed to get health check: {}", e))
-    })?;
+    let status = handle
+        .runtime
+        .block_on(async { handle.system_handle.status().await })
+        .map_err(|e| {
+            error!("Failed to get worker status: {}", e);
+            PythonFfiError::FfiError(format!("Failed to get health check: {}", e))
+        })?;
 
     // Build health check dict
     let dict = PyDict::new_bound(py);
@@ -161,7 +165,10 @@ pub fn get_health_check(py: Python<'_>) -> PyResult<PyObject> {
     // Rust layer info
     let rust_info = PyDict::new_bound(py);
     rust_info.set_item("environment", &status.environment)?;
-    rust_info.set_item("worker_core_status", format!("{:?}", status.worker_core_status))?;
+    rust_info.set_item(
+        "worker_core_status",
+        format!("{:?}", status.worker_core_status),
+    )?;
     rust_info.set_item("web_api_enabled", status.web_api_enabled)?;
     dict.set_item("rust", rust_info)?;
 
@@ -199,12 +206,13 @@ pub fn get_metrics(py: Python<'_>) -> PyResult<PyObject> {
     let ffi_metrics = handle.ffi_dispatch_channel.metrics();
 
     // Get status for additional metrics
-    let status = handle.runtime.block_on(async {
-        handle.system_handle.status().await
-    }).map_err(|e| {
-        error!("Failed to get worker status: {}", e);
-        PythonFfiError::FfiError(format!("Failed to get metrics: {}", e))
-    })?;
+    let status = handle
+        .runtime
+        .block_on(async { handle.system_handle.status().await })
+        .map_err(|e| {
+            error!("Failed to get worker status: {}", e);
+            PythonFfiError::FfiError(format!("Failed to get metrics: {}", e))
+        })?;
 
     let dict = PyDict::new_bound(py);
 
@@ -255,12 +263,13 @@ pub fn get_worker_config(py: Python<'_>) -> PyResult<PyObject> {
         .ok_or(PythonFfiError::WorkerNotInitialized)?;
 
     // Get status for configuration info
-    let status = handle.runtime.block_on(async {
-        handle.system_handle.status().await
-    }).map_err(|e| {
-        error!("Failed to get worker status: {}", e);
-        PythonFfiError::FfiError(format!("Failed to get config: {}", e))
-    })?;
+    let status = handle
+        .runtime
+        .block_on(async { handle.system_handle.status().await })
+        .map_err(|e| {
+            error!("Failed to get worker status: {}", e);
+            PythonFfiError::FfiError(format!("Failed to get config: {}", e))
+        })?;
 
     let dict = PyDict::new_bound(py);
     dict.set_item("environment", &status.environment)?;

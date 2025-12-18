@@ -73,7 +73,10 @@ async fn test_python_linear_workflow_standard() -> Result<()> {
         );
     }
 
-    println!("✅ Python linear workflow completed with {} steps", steps.len());
+    println!(
+        "✅ Python linear workflow completed with {} steps",
+        steps.len()
+    );
     Ok(())
 }
 
@@ -120,7 +123,9 @@ async fn test_python_linear_workflow_different_input() -> Result<()> {
 
     assert_eq!(steps.len(), 4, "Should have 4 steps");
     assert!(
-        steps.iter().all(|s| s.current_state.to_uppercase() == "COMPLETE"),
+        steps
+            .iter()
+            .all(|s| s.current_state.to_uppercase() == "COMPLETE"),
         "All steps should be complete"
     );
 

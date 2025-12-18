@@ -423,7 +423,7 @@ class HandlerRegistry:
                 continue
 
             try:
-                registered_count += self._scan_module_for_handlers(module, StepHandler)
+                registered_count += self._scan_module_for_handlers(module, StepHandler)  # type: ignore[type-abstract]
             except Exception:
                 # Skip modules that can't be scanned
                 continue

@@ -447,7 +447,7 @@ class Batchable:
         combined_metadata["batch_analyzer"] = True
 
         # Call the success method from StepHandler (assumes mixin is used with StepHandler)
-        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined]
+        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined, no-any-return]
 
     def no_batches_outcome(
         self,
@@ -488,7 +488,7 @@ class Batchable:
         combined_metadata = {"batch_analyzer": True, "no_batches": True}
 
         # Call the success method from StepHandler (assumes mixin is used with StepHandler)
-        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined]
+        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined, no-any-return]
 
     def batch_worker_success(
         self,
@@ -555,7 +555,7 @@ class Batchable:
             cursor = outcome.last_cursor
             batch_meta = outcome.batch_metadata
         else:
-            return self.failure(  # type: ignore[attr-defined]
+            return self.failure(  # type: ignore[attr-defined, no-any-return]
                 message="batch_worker_success requires either outcome or items_processed",
                 error_type="invalid_args",
                 retryable=False,
@@ -580,7 +580,7 @@ class Batchable:
         combined_metadata["batch_worker"] = True
 
         # Call the success method from StepHandler (assumes mixin is used with StepHandler)
-        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined]
+        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined, no-any-return]
 
     def batch_worker_partial_failure(
         self,
@@ -626,7 +626,7 @@ class Batchable:
         combined_metadata["batch_worker"] = True
         combined_metadata["had_failures"] = True
 
-        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined]
+        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined, no-any-return]
 
     # =========================================================================
     # Aggregation Helpers

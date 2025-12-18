@@ -11,7 +11,9 @@
 //! via `complete_step_event()`.
 
 use crate::bridge::WORKER_SYSTEM;
-use crate::conversions::{convert_ffi_step_event_to_python, convert_python_completion_to_step_result};
+use crate::conversions::{
+    convert_ffi_step_event_to_python, convert_python_completion_to_step_result,
+};
 use crate::error::PythonFfiError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;

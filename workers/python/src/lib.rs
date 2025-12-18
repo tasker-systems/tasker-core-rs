@@ -106,8 +106,14 @@ fn _tasker_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Event dispatch functions (Phase 3)
     m.add_function(wrap_pyfunction!(event_dispatch::poll_step_events, m)?)?;
     m.add_function(wrap_pyfunction!(event_dispatch::complete_step_event, m)?)?;
-    m.add_function(wrap_pyfunction!(event_dispatch::get_ffi_dispatch_metrics, m)?)?;
-    m.add_function(wrap_pyfunction!(event_dispatch::check_starvation_warnings, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        event_dispatch::get_ffi_dispatch_metrics,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        event_dispatch::check_starvation_warnings,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(event_dispatch::cleanup_timeouts, m)?)?;
 
     // Observability functions (Phase 5)

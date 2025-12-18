@@ -33,6 +33,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.8.0",
     "mypy>=1.10.0",
+    "types-PyYAML>=6.0.0",
 ]
 
 # uv dependency groups for native uv sync support
@@ -44,6 +45,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.8.0",
     "mypy>=1.10.0",
+    "types-PyYAML>=6.0.0",
 ]
 
 [build-system]

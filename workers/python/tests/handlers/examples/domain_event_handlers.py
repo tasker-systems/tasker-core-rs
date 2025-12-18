@@ -24,7 +24,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from tasker_core import StepHandler, StepHandlerResult
 
