@@ -30,7 +30,10 @@ pub fn create_app(state: Arc<WorkerWebState>) -> Router {
 
     let middleware = ServiceBuilder::new()
         .layer(TraceLayer::new_for_http())
-        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_millis(30000))) // 30 second timeout
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_millis(30000),
+        )) // 30 second timeout
         .layer(cors);
 
     let app = Router::new()

@@ -33,8 +33,15 @@ jobs:
     with:
       postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
 
+  # Python framework tests run after integration tests (workers are shut down)
+  python-framework-tests:
+    needs: [build-postgres, integration-tests]
+    uses: ./.github/workflows/test-python-framework.yml
+    with:
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
+
   performance-analysis:
-    needs: [integration-tests, ruby-framework-tests]
+    needs: [integration-tests, ruby-framework-tests, python-framework-tests]
     runs-on: ubuntu-22.04
     if: always()
     steps:
@@ -86,5 +93,5 @@ jobs:
             performance-data/
 
   ci-success:
-    needs: [code-quality, integration-tests, ruby-framework-tests, performance-analysis]
+    needs: [code-quality, integration-tests, ruby-framework-tests, python-framework-tests, performance-analysis]
     uses: ./.github/workflows/ci-success.yml

@@ -51,6 +51,16 @@ jobs:
           bundler-cache: true
           working-directory: workers/ruby
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
       - name: Cache Rust build artifacts
         uses: actions/cache@v4
         with:
@@ -92,6 +102,14 @@ jobs:
           cd workers/ruby
           bundle install
           bundle exec rake compile
+
+      - name: Build Python FFI extension
+        run: |
+          cd workers/python
+          uv sync --dev
+          uv run maturin develop --release
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Run unit tests
         run: |
@@ -208,6 +226,16 @@ jobs:
           bundler-cache: true
           working-directory: workers/ruby
 
+      - name: Set up Python for FFI worker
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
       - name: Download build artifacts
         uses: actions/download-artifact@v6
         with:
@@ -243,6 +271,14 @@ jobs:
 
       - name: Make binaries executable
         run: chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker
+
+      - name: Build Python FFI extension
+        run: |
+          cd workers/python
+          uv sync --dev
+          uv run maturin develop --release
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Install tools
         uses: ./.github/actions/install-tools
@@ -298,6 +334,7 @@ jobs:
           TASKER_TEST_ORCHESTRATION_URL: http://localhost:8080
           TASKER_TEST_WORKER_URL: http://localhost:8081
           TASKER_TEST_RUBY_WORKER_URL: http://localhost:8082
+          TASKER_TEST_PYTHON_WORKER_URL: http://localhost:8083
           TASKER_FIXTURE_PATH: ${{ github.workspace }}/tests/fixtures
           RUST_LOG: info
 
@@ -315,6 +352,7 @@ jobs:
           [ -f orchestration.log ] && cp orchestration.log native-logs/
           [ -f worker.log ] && cp worker.log native-logs/
           [ -f ruby-worker.log ] && cp ruby-worker.log native-logs/
+          [ -f python-worker.log ] && cp python-worker.log native-logs/
 
       - name: Upload service logs
         if: failure()
