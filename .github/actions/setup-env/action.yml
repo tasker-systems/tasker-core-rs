@@ -5,15 +5,18 @@ author: "Tasker Systems"
 runs:
   using: "composite"
   steps:
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.9
+
     - name: Set shared environment variables
       shell: bash
       run: |
         # Core Rust and Cargo settings
         echo "CARGO_TERM_COLOR=always" >> $GITHUB_ENV
         echo "RUST_BACKTRACE=1" >> $GITHUB_ENV
-        # Temporarily disabled due to GitHub Actions cache service issues
-        # echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-        # echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+        # sccache for distributed compilation caching
+        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
 
         # Workspace path (needed for config resolution when running from subdirectories)
         echo "WORKSPACE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
@@ -38,8 +41,8 @@ runs:
         echo "✅ Shared environment variables configured:"
         echo "- CARGO_TERM_COLOR: $CARGO_TERM_COLOR"
         echo "- RUST_BACKTRACE: $RUST_BACKTRACE"
-        # echo "- RUSTC_WRAPPER: $RUSTC_WRAPPER"
-        # echo "- SCCACHE_GHA_ENABLED: $SCCACHE_GHA_ENABLED"
+        echo "- RUSTC_WRAPPER: $RUSTC_WRAPPER"
+        echo "- SCCACHE_GHA_ENABLED: $SCCACHE_GHA_ENABLED"
         echo "- WORKSPACE_PATH: $WORKSPACE_PATH"
         echo "- DATABASE_URL: $DATABASE_URL"
         echo "- TASKER_ENV: $TASKER_ENV"

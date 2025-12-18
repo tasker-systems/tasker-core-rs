@@ -84,7 +84,7 @@ jobs:
         run: uv sync --dev
 
       - name: Build Python FFI extension with maturin
-        run: uv run maturin develop --release
+        run: uv run maturin develop
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 

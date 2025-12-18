@@ -48,7 +48,7 @@ jobs:
           bundler-cache: true
           working-directory: workers/ruby
 
-      - name: Setup Rust (for FFI extension)
+      - name: Setup Rust (for sqlx-cli)
         uses: dtolnay/rust-toolchain@stable
 
       - name: Setup shared environment variables
@@ -66,8 +66,26 @@ jobs:
       - name: Install Ruby dependencies
         run: bundle install
 
-      - name: Compile Ruby FFI extension
-        run: bundle exec rake compile
+      - name: Download pre-built Ruby extension
+        uses: actions/download-artifact@v6
+        with:
+          name: build-artifacts
+          path: artifacts
+        continue-on-error: true
+
+      - name: Restore or compile Ruby FFI extension
+        run: |
+          # Try to use pre-built extension from integration tests
+          if [ -d artifacts/workers/ruby/lib/tasker_core ]; then
+            echo "📦 Using pre-built Ruby extension from build artifacts..."
+            mkdir -p lib/tasker_core
+            cp -rf artifacts/workers/ruby/lib/tasker_core/* lib/tasker_core/
+            ls -lh lib/tasker_core/
+            echo "✅ Pre-built extension restored"
+          else
+            echo "🔨 Building Ruby extension from source..."
+            bundle exec rake compile
+          fi
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 

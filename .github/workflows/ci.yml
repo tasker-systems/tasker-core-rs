@@ -17,9 +17,7 @@ jobs:
     with:
       postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
 
-  # Integration tests with dual-mode execution:
-  # - Native binaries by default (fast, ~7 min)
-  # - Docker with "run-docker" label (production-like, ~15 min)
+  # Integration tests with partitioned parallel execution
   integration-tests:
     needs: build-postgres
     uses: ./.github/workflows/test-integration.yml
