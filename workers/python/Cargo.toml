@@ -2,52 +2,44 @@
 name = "tasker-worker-py"
 version = "0.1.0"
 edition = "2021"
-description = "Python FFI bindings for tasker-core worker"
-license = "MIT"
 rust-version = "1.70"
+description = "Python FFI bindings for tasker-core worker"
 repository = "https://github.com/tasker-systems/tasker-core"
-keywords = ["python", "ffi", "pyo3", "tasker", "workflow"]
+license = "MIT"
+keywords = ["ffi", "pyo3", "python", "tasker", "workflow"]
 categories = ["api-bindings", "development-tools::ffi"]
 
 [lib]
-name = "_tasker_core"
 crate-type = ["cdylib"]
+name = "_tasker_core"
 
 [dependencies]
+# Error handling
+anyhow = { workspace = true }
+# Time handling
+chrono = { workspace = true }
+# Environment variable loading
+dotenvy = { workspace = true }
 # PyO3 with extension-module feature for building Python extension
 # Using abi3-py310 for stable ABI with minimum Python 3.10
-pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
-
+pyo3 = { version = "0.27", features = ["abi3-py310", "extension-module"] }
+pythonize = "0.27"
 # Serialization for Python type conversion
 serde = { workspace = true }
 serde_json = { workspace = true }
-pythonize = "0.22"
-
+tasker-shared = { path = "../../tasker-shared" }
+# Workspace dependencies for worker integration
+tasker-worker = { path = "../../tasker-worker" }
+thiserror = { workspace = true }
 # Async runtime (needed for FFI blocking)
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
-
 # Logging
 tracing = { workspace = true }
-
-# Error handling
-anyhow = { workspace = true }
-thiserror = { workspace = true }
-
 # UUID generation
 uuid = { workspace = true }
 
-# Time handling
-chrono = { workspace = true }
-
-# Environment variable loading
-dotenvy = { workspace = true }
-
-# Workspace dependencies for worker integration
-tasker-worker = { path = "../../tasker-worker" }
-tasker-shared = { path = "../../tasker-shared" }
-
 [dev-dependencies]
-pyo3 = { version = "0.22", features = ["auto-initialize"] }
+pyo3 = { version = "0.27", features = ["auto-initialize"] }
 
 [features]
 default = []

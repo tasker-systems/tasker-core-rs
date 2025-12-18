@@ -3,6 +3,7 @@
 //! Provides REST endpoints for worker observability, health checking, and status monitoring.
 //! Follows the same patterns as tasker-orchestration/src/web but tailored for worker operations.
 
+use axum::http::StatusCode;
 use axum::Router;
 use std::{sync::Arc, time::Duration};
 use tower::ServiceBuilder;
@@ -29,7 +30,7 @@ pub fn create_app(state: Arc<WorkerWebState>) -> Router {
 
     let middleware = ServiceBuilder::new()
         .layer(TraceLayer::new_for_http())
-        .layer(TimeoutLayer::new(Duration::from_millis(30000))) // 30 second timeout
+        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_millis(30000))) // 30 second timeout
         .layer(cors);
 
     let app = Router::new()

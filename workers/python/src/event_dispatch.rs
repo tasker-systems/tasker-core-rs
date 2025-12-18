@@ -37,7 +37,7 @@ use uuid::Uuid;
 ///
 /// - `RuntimeError` if the worker system is not running
 #[pyfunction]
-pub fn poll_step_events(py: Python<'_>) -> PyResult<Option<PyObject>> {
+pub fn poll_step_events(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
         PythonFfiError::LockError(e.to_string())
@@ -146,7 +146,7 @@ pub fn complete_step_event(
 ///
 /// - `RuntimeError` if the worker system is not running
 #[pyfunction]
-pub fn get_ffi_dispatch_metrics(py: Python<'_>) -> PyResult<PyObject> {
+pub fn get_ffi_dispatch_metrics(py: Python<'_>) -> PyResult<Py<PyAny>> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
         PythonFfiError::LockError(e.to_string())
@@ -158,7 +158,7 @@ pub fn get_ffi_dispatch_metrics(py: Python<'_>) -> PyResult<PyObject> {
 
     let metrics = handle.ffi_dispatch_channel.metrics();
 
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
     dict.set_item("pending_count", metrics.pending_count)?;
     dict.set_item(
         "oldest_pending_age_ms",

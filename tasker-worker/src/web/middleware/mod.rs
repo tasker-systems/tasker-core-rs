@@ -6,6 +6,7 @@
 
 pub mod request_id;
 
+use axum::http::StatusCode;
 use axum::middleware;
 use axum::Router;
 use std::{sync::Arc, time::Duration};
@@ -43,7 +44,7 @@ pub fn apply_middleware_stack(router: Router<Arc<WorkerWebState>>) -> Router<Arc
         // Request ID generation (outermost)
         .layer(middleware::from_fn(request_id::add_request_id))
         // Request timeout
-        .layer(TimeoutLayer::new(Duration::from_secs(30)))
+        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         // CORS handling
         .layer(create_cors_layer())
         // Request tracing
@@ -61,7 +62,7 @@ pub fn apply_test_middleware_stack(
 ) -> Router<Arc<WorkerWebState>> {
     router
         .layer(middleware::from_fn(request_id::add_request_id))
-        .layer(TimeoutLayer::new(Duration::from_secs(120))) // Longer timeout for tests
+        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(120))) // Longer timeout for tests
         .layer(create_cors_layer())
         .layer(TraceLayer::new_for_http())
 }

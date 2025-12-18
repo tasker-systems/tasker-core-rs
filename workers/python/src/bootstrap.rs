@@ -42,7 +42,7 @@ use uuid::Uuid;
 /// - `worker_id`: Full worker identifier string
 #[pyfunction]
 #[pyo3(signature = (config=None))]
-pub fn bootstrap_worker(py: Python<'_>, config: Option<&Bound<'_, PyDict>>) -> PyResult<PyObject> {
+pub fn bootstrap_worker(py: Python<'_>, config: Option<&Bound<'_, PyDict>>) -> PyResult<Py<PyAny>> {
     let worker_id = Uuid::new_v4();
     let worker_id_str = format!("python-worker-{}", worker_id);
 
@@ -63,7 +63,7 @@ pub fn bootstrap_worker(py: Python<'_>, config: Option<&Bound<'_, PyDict>>) -> P
 
     if handle_guard.is_some() {
         // Return existing handle info
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         result.set_item("handle_id", worker_id.to_string())?;
         result.set_item("status", "already_running")?;
         result.set_item("message", "Worker system already running")?;
@@ -164,7 +164,7 @@ pub fn bootstrap_worker(py: Python<'_>, config: Option<&Bound<'_, PyDict>>) -> P
     ));
 
     // Return handle info to Python
-    let result = PyDict::new_bound(py);
+    let result = PyDict::new(py);
     result.set_item("handle_id", worker_id.to_string())?;
     result.set_item("status", "started")?;
     result.set_item("message", "Python worker system started successfully")?;
@@ -210,12 +210,12 @@ pub fn stop_worker() -> PyResult<String> {
 /// - `database_pool_size`: Database connection pool size
 /// - `database_pool_idle`: Number of idle database connections
 #[pyfunction]
-pub fn get_worker_status(py: Python<'_>) -> PyResult<PyObject> {
+pub fn get_worker_status(py: Python<'_>) -> PyResult<Py<PyAny>> {
     let handle_guard = WORKER_SYSTEM
         .lock()
         .map_err(|e| PythonFfiError::LockError(e.to_string()))?;
 
-    let result = PyDict::new_bound(py);
+    let result = PyDict::new(py);
 
     if let Some(handle) = handle_guard.as_ref() {
         let runtime = handle.runtime_handle();

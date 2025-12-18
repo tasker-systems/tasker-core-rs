@@ -17,8 +17,8 @@ use tasker_worker::worker::FfiStepEvent;
 pub fn convert_ffi_step_event_to_python(
     py: Python<'_>,
     event: &FfiStepEvent,
-) -> PyResult<PyObject> {
-    let dict = PyDict::new_bound(py);
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
 
     // Event ID is critical for completion correlation
     dict.set_item("event_id", event.event_id.to_string())?;

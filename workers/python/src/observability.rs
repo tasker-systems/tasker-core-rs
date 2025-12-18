@@ -28,7 +28,7 @@ use tracing::{debug, error, warn};
 ///
 /// - `RuntimeError` if the worker system is not running
 #[pyfunction]
-pub fn poll_in_process_events(py: Python<'_>) -> PyResult<Option<PyObject>> {
+pub fn poll_in_process_events(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
         PythonFfiError::LockError(e.to_string())
@@ -59,13 +59,13 @@ pub fn poll_in_process_events(py: Python<'_>) -> PyResult<Option<PyObject>> {
             debug!(event_name = %event.event_name, "Received in-process domain event");
 
             // Convert to Python dict
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             dict.set_item("event_id", event.event_id.to_string())?;
             dict.set_item("event_name", &event.event_name)?;
             dict.set_item("event_version", &event.event_version)?;
 
             // Metadata
-            let metadata_dict = PyDict::new_bound(py);
+            let metadata_dict = PyDict::new(py);
             metadata_dict.set_item("task_uuid", event.metadata.task_uuid.to_string())?;
             metadata_dict.set_item(
                 "step_uuid",
@@ -120,7 +120,7 @@ pub fn poll_in_process_events(py: Python<'_>) -> PyResult<Option<PyObject>> {
 /// - `RuntimeError` if the worker system is not running
 /// - `RuntimeError` if health check fails
 #[pyfunction]
-pub fn get_health_check(py: Python<'_>) -> PyResult<PyObject> {
+pub fn get_health_check(py: Python<'_>) -> PyResult<Py<PyAny>> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
         PythonFfiError::LockError(e.to_string())
@@ -140,7 +140,7 @@ pub fn get_health_check(py: Python<'_>) -> PyResult<PyObject> {
         })?;
 
     // Build health check dict
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
 
     // Determine overall health status based on running state
     let is_healthy = status.running;
@@ -148,10 +148,10 @@ pub fn get_health_check(py: Python<'_>) -> PyResult<PyObject> {
     dict.set_item("is_running", status.running)?;
 
     // Components health
-    let components = PyDict::new_bound(py);
+    let components = PyDict::new(py);
 
     // Database component
-    let db_component = PyDict::new_bound(py);
+    let db_component = PyDict::new(py);
     db_component.set_item("name", "database")?;
     // Assume healthy if pool size > 0 and has idle connections
     let db_healthy = status.database_pool_size > 0;
@@ -163,7 +163,7 @@ pub fn get_health_check(py: Python<'_>) -> PyResult<PyObject> {
     dict.set_item("components", components)?;
 
     // Rust layer info
-    let rust_info = PyDict::new_bound(py);
+    let rust_info = PyDict::new(py);
     rust_info.set_item("environment", &status.environment)?;
     rust_info.set_item(
         "worker_core_status",
@@ -173,7 +173,7 @@ pub fn get_health_check(py: Python<'_>) -> PyResult<PyObject> {
     dict.set_item("rust", rust_info)?;
 
     // Python layer info (placeholder - can be extended)
-    let python_info = PyDict::new_bound(py);
+    let python_info = PyDict::new(py);
     python_info.set_item("handler_count", 0)?; // TODO: Get from registry
     dict.set_item("python", python_info)?;
 
@@ -192,7 +192,7 @@ pub fn get_health_check(py: Python<'_>) -> PyResult<PyObject> {
 ///
 /// - `RuntimeError` if the worker system is not running
 #[pyfunction]
-pub fn get_metrics(py: Python<'_>) -> PyResult<PyObject> {
+pub fn get_metrics(py: Python<'_>) -> PyResult<Py<PyAny>> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
         PythonFfiError::LockError(e.to_string())
@@ -214,7 +214,7 @@ pub fn get_metrics(py: Python<'_>) -> PyResult<PyObject> {
             PythonFfiError::FfiError(format!("Failed to get metrics: {}", e))
         })?;
 
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
 
     // FFI dispatch channel metrics
     dict.set_item("dispatch_channel_pending", ffi_metrics.pending_count)?;
@@ -252,7 +252,7 @@ pub fn get_metrics(py: Python<'_>) -> PyResult<PyObject> {
 ///
 /// - `RuntimeError` if the worker system is not running
 #[pyfunction]
-pub fn get_worker_config(py: Python<'_>) -> PyResult<PyObject> {
+pub fn get_worker_config(py: Python<'_>) -> PyResult<Py<PyAny>> {
     let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
         PythonFfiError::LockError(e.to_string())
@@ -271,7 +271,7 @@ pub fn get_worker_config(py: Python<'_>) -> PyResult<PyObject> {
             PythonFfiError::FfiError(format!("Failed to get config: {}", e))
         })?;
 
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
     dict.set_item("environment", &status.environment)?;
 
     // Namespaces
