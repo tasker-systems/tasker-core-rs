@@ -134,6 +134,10 @@ static LOGGER_PROVIDER: OnceLock<SdkLoggerProvider> = OnceLock::new();
 /// Configuration for OpenTelemetry (loaded from environment or defaults)
 struct TelemetryConfig {
     enabled: bool,
+    /// Whether to forward logs to OTEL (in addition to stdout)
+    /// Defaults to false to reduce telemetry volume - logs stay on stdout,
+    /// traces and metrics go to OTEL. Set OTEL_LOGS_ENABLED=true to enable.
+    logs_enabled: bool,
     service_name: String,
     service_version: String,
     deployment_environment: String,
@@ -145,6 +149,12 @@ impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
             enabled: std::env::var("TELEMETRY_ENABLED")
+                .map(|v| v.to_lowercase() == "true")
+                .unwrap_or(false),
+            // Log forwarding disabled by default to reduce OTEL volume
+            // Logs go to stdout (Docker captures them), traces/metrics go to OTEL
+            // This prevents collector OOM from high log volume (TAS-94)
+            logs_enabled: std::env::var("OTEL_LOGS_ENABLED")
                 .map(|v| v.to_lowercase() == "true")
                 .unwrap_or(false),
             service_name: std::env::var("OTEL_SERVICE_NAME")
@@ -379,36 +389,73 @@ pub fn init_tracing() {
         let subscriber = tracing_subscriber::registry().with(console_layer);
 
         if telemetry_config.enabled {
-            // Initialize OpenTelemetry tracer and logger
-            match (init_opentelemetry_tracer(&telemetry_config), init_opentelemetry_logger(&telemetry_config)) {
-                (Ok(tracer_provider), Ok(logger_provider)) => {
-                    // Add trace layer
+            // Initialize OpenTelemetry tracer (always when telemetry enabled)
+            match init_opentelemetry_tracer(&telemetry_config) {
+                Ok(tracer_provider) => {
                     let tracer = tracer_provider.tracer("tasker-core");
                     let telemetry_layer = OpenTelemetryLayer::new(tracer);
 
-                    // Add log layer (bridge tracing logs -> OTEL logs)
-                    let log_layer = OpenTelemetryTracingBridge::new(&logger_provider);
+                    // Optionally add log forwarding to OTEL (disabled by default - TAS-94)
+                    // When disabled, logs go to stdout only, traces go to OTEL
+                    if telemetry_config.logs_enabled {
+                        match init_opentelemetry_logger(&telemetry_config) {
+                            Ok(logger_provider) => {
+                                let log_layer = OpenTelemetryTracingBridge::new(&logger_provider);
+                                let subscriber = subscriber.with(telemetry_layer).with(log_layer);
 
-                    let subscriber = subscriber.with(telemetry_layer).with(log_layer);
-
-                    // Use try_init to avoid panic if global subscriber already set
-                    if subscriber.try_init().is_err() {
-                        tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                                if subscriber.try_init().is_err() {
+                                    tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                                } else {
+                                    tracing::info!(
+                                        environment = %environment,
+                                        ansi_colors = use_ansi,
+                                        opentelemetry_enabled = true,
+                                        otel_logs_enabled = true,
+                                        otlp_endpoint = %telemetry_config.otlp_endpoint,
+                                        service_name = %telemetry_config.service_name,
+                                        "Console logging with OpenTelemetry (traces + logs) initialized"
+                                    );
+                                }
+                            }
+                            Err(log_err) => {
+                                // Logger failed but tracer succeeded - use traces only
+                                let subscriber = subscriber.with(telemetry_layer);
+                                if subscriber.try_init().is_err() {
+                                    tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                                } else {
+                                    tracing::warn!(
+                                        environment = %environment,
+                                        ansi_colors = use_ansi,
+                                        opentelemetry_enabled = true,
+                                        otel_logs_enabled = false,
+                                        error = %log_err,
+                                        otlp_endpoint = %telemetry_config.otlp_endpoint,
+                                        service_name = %telemetry_config.service_name,
+                                        "OpenTelemetry traces enabled, log forwarding failed - logs to stdout only"
+                                    );
+                                }
+                            }
+                        }
                     } else {
-                        tracing::info!(
-                            environment = %environment,
-                            ansi_colors = use_ansi,
-                            opentelemetry_enabled = true,
-                            logs_enabled = true,
-                            otlp_endpoint = %telemetry_config.otlp_endpoint,
-                            service_name = %telemetry_config.service_name,
-                            "Console logging with OpenTelemetry (traces + logs) initialized"
-                        );
+                        // Traces only mode (default) - logs go to stdout, traces to OTEL
+                        let subscriber = subscriber.with(telemetry_layer);
+                        if subscriber.try_init().is_err() {
+                            tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
+                        } else {
+                            tracing::info!(
+                                environment = %environment,
+                                ansi_colors = use_ansi,
+                                opentelemetry_enabled = true,
+                                otel_logs_enabled = false,
+                                otlp_endpoint = %telemetry_config.otlp_endpoint,
+                                service_name = %telemetry_config.service_name,
+                                "Console logging with OpenTelemetry traces initialized (logs to stdout only)"
+                            );
+                        }
                     }
                 }
-                (Err(trace_err), Ok(_)) => {
-                    // Tracer failed but logger succeeded - fall back to console only
-                    let subscriber = subscriber;
+                Err(trace_err) => {
+                    // Tracer failed - fall back to console only
                     if subscriber.try_init().is_err() {
                         tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
                     } else {
@@ -417,35 +464,6 @@ pub fn init_tracing() {
                             ansi_colors = use_ansi,
                             error = %trace_err,
                             "Failed to initialize OpenTelemetry tracer - falling back to console-only logging"
-                        );
-                    }
-                }
-                (Ok(_), Err(log_err)) => {
-                    // Logger failed but tracer succeeded - fall back to console only
-                    let subscriber = subscriber;
-                    if subscriber.try_init().is_err() {
-                        tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
-                    } else {
-                        tracing::warn!(
-                            environment = %environment,
-                            ansi_colors = use_ansi,
-                            error = %log_err,
-                            "Failed to initialize OpenTelemetry logger - falling back to console-only logging"
-                        );
-                    }
-                }
-                (Err(trace_err), Err(log_err)) => {
-                    // Both failed - fall back to console only
-                    let subscriber = subscriber;
-                    if subscriber.try_init().is_err() {
-                        tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
-                    } else {
-                        tracing::warn!(
-                            environment = %environment,
-                            ansi_colors = use_ansi,
-                            trace_error = %trace_err,
-                            log_error = %log_err,
-                            "Failed to initialize OpenTelemetry tracer and logger - falling back to console-only logging"
                         );
                     }
                 }

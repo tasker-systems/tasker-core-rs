@@ -1,0 +1,89 @@
+# =============================================================================
+# OpenTelemetry Collector Configuration - Test Environment
+# =============================================================================
+# Optimized for local testing with grafana/otel-lgtm:
+# - Minimal retry to avoid backpressure buildup
+# - Drop on failure rather than block senders
+# - Smaller queue sizes to reduce memory pressure
+# - Fast timeout to fail quickly
+#
+# This configuration prioritizes stability over data completeness.
+# For production, use default settings with proper retry/backoff.
+# =============================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Batch processor with smaller batches for test environment
+  batch:
+    send_batch_size: 512
+    send_batch_max_size: 1024
+    timeout: 5s
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+
+exporters:
+  # Export traces to Tempo
+  otlp/tempo:
+    endpoint: localhost:4317
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 100
+
+  # Export metrics to Prometheus
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    send_timestamps: true
+
+  # Export logs to Loki
+  loki:
+    endpoint: http://localhost:3100/loki/api/v1/push
+
+  # Debug exporter for troubleshooting (disabled by default)
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1888
+
+service:
+  extensions: [health_check, pprof]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [loki]
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      level: basic
