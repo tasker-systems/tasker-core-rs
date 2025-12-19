@@ -112,7 +112,7 @@ services:
     environment:
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
       TASKER_ENV: test
-      RUST_LOG: info,tasker_orchestration::orchestration::lifecycle::batch_processing=debug
+      RUST_LOG: info
       LOG_LEVEL: info
       RUST_BACKTRACE: 1
       PORT: 8080
@@ -127,7 +127,9 @@ services:
       DB_MIGRATION_RETRY_DELAY: "5"
       DB_MIGRATION_TIMEOUT: "120"
       # TAS-65 Phase 1: OpenTelemetry configuration
-      TELEMETRY_ENABLED: "true"
+      # NOTE: Disabled due to grafana/otel-lgtm collector stability issues (TAS-94)
+      # The collector gets OOM killed under load from multiple services
+      TELEMETRY_ENABLED: "false"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://observability:4317
       OTEL_SERVICE_NAME: tasker-orchestration
       OTEL_SERVICE_VERSION: "0.1.0"
@@ -164,7 +166,7 @@ services:
     environment:
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
       TASKER_ENV: test
-      RUST_LOG: info,tasker_worker_rust::step_handlers=debug
+      RUST_LOG: info
       LOG_LEVEL: info
       RUST_BACKTRACE: 1
       WORKER_ID: test-worker-001
@@ -177,8 +179,8 @@ services:
       TASKER_FIXTURE_PATH: /app/tests/fixtures
       PORT: 8081
       # TAS-65 Phase 1: OpenTelemetry configuration
-      # Testing: Rust worker has #[tokio::main] so should work
-      TELEMETRY_ENABLED: "true"
+      # NOTE: Disabled due to grafana/otel-lgtm collector stability issues (TAS-94)
+      TELEMETRY_ENABLED: "false"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://observability:4317
       OTEL_SERVICE_NAME: tasker-rust-worker
       OTEL_SERVICE_VERSION: "0.1.0"
@@ -239,10 +241,8 @@ services:
       # External port 8082 is mapped via Docker, internal binding is 8081
       PORT: 8081
       # TAS-65 Phase 1: OpenTelemetry configuration
-      # ENABLED: Two-phase FFI telemetry initialization pattern implemented
-      # Phase 1: Magnus init skips telemetry (no runtime)
-      # Phase 2: bootstrap_worker() initializes telemetry in Tokio context
-      TELEMETRY_ENABLED: "true"
+      # NOTE: Disabled due to grafana/otel-lgtm collector stability issues (TAS-94)
+      TELEMETRY_ENABLED: "false"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://observability:4317
       OTEL_SERVICE_NAME: tasker-ruby-worker
       OTEL_SERVICE_VERSION: "0.1.0"
@@ -307,7 +307,8 @@ services:
       # External port 8083 is mapped via Docker, internal binding is 8081
       PORT: 8081
       # TAS-65 Phase 1: OpenTelemetry configuration
-      TELEMETRY_ENABLED: "true"
+      # NOTE: Disabled due to grafana/otel-lgtm collector stability issues (TAS-94)
+      TELEMETRY_ENABLED: "false"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://observability:4317
       OTEL_SERVICE_NAME: tasker-python-worker
       OTEL_SERVICE_VERSION: "0.1.0"
