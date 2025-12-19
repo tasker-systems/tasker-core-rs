@@ -79,6 +79,21 @@ jobs:
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
+      - name: Build core packages (warm cache for all downstream jobs)
+        run: |
+          echo "🔨 Building core packages to warm sccache..."
+          cargo build --all-features \
+            --package tasker-shared \
+            --package tasker-orchestration \
+            --package tasker-worker \
+            --package pgmq-notify \
+            --package tasker-client \
+            --bins
+          echo "📦 Verifying binaries were created..."
+          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
       - name: Build Ruby FFI extension
         run: |
           echo "🔨 Building Ruby FFI extension..."
@@ -104,11 +119,25 @@ jobs:
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
-      - name: Verify worker artifacts
+      - name: Verify build artifacts
         run: |
+          echo "📋 Core binaries:"
+          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
+          echo ""
           echo "📋 Worker artifacts:"
           ls -lh target/debug/rust-worker || echo "❌ Rust worker missing!"
           ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extension (expected on Linux)"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: build-artifacts
+          path: |
+            target/debug/tasker-server
+            target/debug/tasker-worker
+            target/debug/tasker-cli
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Upload worker artifacts
         uses: actions/upload-artifact@v5

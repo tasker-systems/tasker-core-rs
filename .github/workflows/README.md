@@ -19,25 +19,24 @@ The main orchestrator implementing a multi-stage DAG with maximum parallelism.
                  ▼                  ▼                  ▼
           code-quality       build-workers        (parallel)
           ┌─────────┐       ┌──────────────────┐
-          │ fmt     │       │ workers/rust     │
-          │ clippy  │       │ workers/ruby FFI │
-          │ audit   │       │ workers/python   │
-          │ doc     │       │ uploads artifacts│
-          └─────────┘       └────────┬─────────┘
+          │ fmt     │       │ 1. core packages │
+          │ clippy  │       │ 2. workers/rust  │
+          │ audit   │       │ 3. workers/ruby  │
+          │ doc     │       │ 4. workers/python│
+          └─────────┘       │ (warms sccache)  │
+                            └────────┬─────────┘
                                      │
                  ┌───────────────────┼───────────────────┐
                  │                   │                   │
                  ▼                   ▼                   ▼
         integration-tests    ruby-framework     python-framework
        ┌─────────────────┐   ┌─────────────┐   ┌───────────────┐
-       │ workspace-compile│   │ bundle exec │   │ uv run pytest │
-       │       │         │   │ rspec       │   │               │
-       │       ▼         │   │ (77 tests)  │   └───────────────┘
-       │   unit-tests    │   └─────────────┘           │
-       │       │         │           │                 │
-       │       ▼         │           │                 │
+       │   unit-tests    │   │ bundle exec │   │ uv run pytest │
+       │  (uses cache)   │   │ rspec       │   │ (rebuilds FFI │
+       │       │         │   │ (77 tests)  │   │  with cache)  │
+       │       ▼         │   └─────────────┘   └───────────────┘
        │   E2E tests     │           │                 │
-       │ (all workers)   │           │                 │
+       │ (uses artifacts)│           │                 │
        └────────┬────────┘           │                 │
                 │                    │                 │
                 └────────────────────┴─────────────────┘
@@ -51,12 +50,12 @@ The main orchestrator implementing a multi-stage DAG with maximum parallelism.
 ```
 
 **Key Optimizations (TAS-88)**:
-- **Separate build-workers workflow**: FFI builds run once, artifacts shared with all test jobs
+- **Unified build-workers workflow**: Builds core packages + all workers, warms sccache for everything
 - **Maximum parallelism**: After build-workers, three test workflows run in parallel
 - **Code quality parallel**: Runs alongside build-workers (no dependency on it)
-- **No nextest partitioning**: Simpler execution, unit tests fast enough without overhead
-- **Test separation**: Framework tests (rspec/pytest) run independently from E2E tests
-- **Reduced duplication**: Worker artifacts built once, reused across all jobs
+- **Cache sharing**: All downstream jobs benefit from build-workers' warm cache
+- **Artifact reuse**: Pre-built binaries shared across jobs (Ruby ext, Rust worker, core binaries)
+- **Python FFI rebuild**: Uses warm cache for fast rebuild (venvs not portable)
 - **Native-only execution**: Removed Docker mode for simplicity
 
 **Core Packages** (compiled in workspace-compile):
