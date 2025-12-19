@@ -1,0 +1,122 @@
+name: Build Workers
+
+on:
+  workflow_call:
+    inputs:
+      postgres-image:
+        required: true
+        type: string
+
+jobs:
+  build-workers:
+    name: Build Worker Extensions
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+          working-directory: workers/ruby
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+            ${{ runner.os }}-cargo-
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install tools
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "sqlx-cli"
+
+      - name: Setup database
+        run: sqlx migrate run
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Build Ruby FFI extension
+        run: |
+          echo "🔨 Building Ruby FFI extension..."
+          cd workers/ruby
+          bundle install
+          bundle exec rake compile
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Build Python FFI extension
+        run: |
+          echo "🔨 Building Python FFI extension..."
+          cd workers/python
+          uv sync --dev
+          uv run maturin develop
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Build Rust worker
+        run: |
+          echo "🔨 Building Rust worker..."
+          cargo build --package tasker-worker-rust
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Verify worker artifacts
+        run: |
+          echo "📋 Worker artifacts:"
+          ls -lh target/debug/rust-worker || echo "❌ Rust worker missing!"
+          ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extension (expected on Linux)"
+
+      - name: Upload worker artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: worker-artifacts
+          path: |
+            target/debug/rust-worker
+            workers/ruby/lib/tasker_core/tasker_worker_rb.bundle
+            workers/ruby/lib/tasker_core/tasker_worker_rb.so
+          retention-days: 1
+          if-no-files-found: warn

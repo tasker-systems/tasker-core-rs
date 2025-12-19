@@ -17,54 +17,47 @@ The main orchestrator implementing a multi-stage DAG with maximum parallelism.
                  ┌──────────────────┼──────────────────┐
                  │                  │                  │
                  ▼                  ▼                  ▼
-          code-quality      workspace-compile     (parallel)
-          ┌─────────┐       ┌──────────────┐
-          │ fmt     │       │ cargo build  │
-          │ clippy  │       │ --workspace  │
-          │ audit   │       │ (core crates)│
-          │ doc     │       │ warms sccache│
-          └─────────┘       └──────┬───────┘
-                                   │
-                      ┌────────────┴────────────┐
-                      │                         │
-                      ▼                         ▼
-                unit-tests               build-workers
-           ┌───────────────┐          ┌──────────────────┐
-           │ nextest --lib │          │ workers/rust     │
-           │ + doctests    │          │ workers/ruby FFI │
-           │ (core pkgs)   │          │ workers/python   │
-           └───────────────┘          └────────┬─────────┘
-                                               │
-                           ┌───────────────────┴───────────────────┐
-                           │                                       │
-                           ▼                                       ▼
-                    worker-tests                          integration-tests
-               ┌───────────────────┐                  ┌─────────────────────┐
-               │ Ruby: rspec       │                  │ start-native-services│
-               │ Python: pytest    │                  │ nextest matrix (2)  │
-               │ Rust: worker tests│                  │   - partition 1/2   │
-               └───────────────────┘                  │   - partition 2/2   │
-                           │                          └──────────┬──────────┘
-                           │                                     │
-                           └──────────────┬──────────────────────┘
-                                          │
-                                          ▼
-                                 performance-analysis
-                                          │
-                                          ▼
-                                      ci-success
-                                 (requires all above)
+          code-quality       build-workers        (parallel)
+          ┌─────────┐       ┌──────────────────┐
+          │ fmt     │       │ workers/rust     │
+          │ clippy  │       │ workers/ruby FFI │
+          │ audit   │       │ workers/python   │
+          │ doc     │       │ uploads artifacts│
+          └─────────┘       └────────┬─────────┘
+                                     │
+                 ┌───────────────────┼───────────────────┐
+                 │                   │                   │
+                 ▼                   ▼                   ▼
+        integration-tests    ruby-framework     python-framework
+       ┌─────────────────┐   ┌─────────────┐   ┌───────────────┐
+       │ workspace-compile│   │ bundle exec │   │ uv run pytest │
+       │       │         │   │ rspec       │   │               │
+       │       ▼         │   │ (77 tests)  │   └───────────────┘
+       │   unit-tests    │   └─────────────┘           │
+       │       │         │           │                 │
+       │       ▼         │           │                 │
+       │   E2E tests     │           │                 │
+       │ (all workers)   │           │                 │
+       └────────┬────────┘           │                 │
+                │                    │                 │
+                └────────────────────┴─────────────────┘
+                                     │
+                                     ▼
+                            performance-analysis
+                                     │
+                                     ▼
+                                 ci-success
+                            (requires all above)
 ```
 
 **Key Optimizations (TAS-88)**:
-- **sccache warming**: `workspace-compile` builds shared dependencies first, warming cache for all subsequent jobs
-- **Maximum parallelism**: `code-quality` runs alongside `workspace-compile`
-- **Fast feedback**: `unit-tests` start immediately after core compilation (no waiting for FFI builds)
-- **Worker isolation**: FFI builds happen in parallel with unit tests
-- **Test separation**: Framework tests (rspec/pytest) run independently from integration tests
-- **Nextest partitioning**: Integration tests split across 2 parallel runners
-- **Reduced duplication**: Each job reuses sccache artifacts from prior jobs
-- **Native-only execution**: Removed Docker mode for simplicity (~50% faster CI)
+- **Separate build-workers workflow**: FFI builds run once, artifacts shared with all test jobs
+- **Maximum parallelism**: After build-workers, three test workflows run in parallel
+- **Code quality parallel**: Runs alongside build-workers (no dependency on it)
+- **No nextest partitioning**: Simpler execution, unit tests fast enough without overhead
+- **Test separation**: Framework tests (rspec/pytest) run independently from E2E tests
+- **Reduced duplication**: Worker artifacts built once, reused across all jobs
+- **Native-only execution**: Removed Docker mode for simplicity
 
 **Core Packages** (compiled in workspace-compile):
 - tasker-orchestration
@@ -130,7 +123,7 @@ cargo test --doc \
 
 ---
 
-### Build Workers (`test-integration.yml` - build-workers job)
+### Build Workers (`build-workers.yml`)
 
 **Purpose**: Compile FFI extensions for Ruby and Python workers
 
@@ -140,27 +133,33 @@ cargo test --doc \
 - `workers/python` - Python FFI extension (maturin/pyo3)
 
 **Key Features**:
-- Runs in parallel with unit-tests
-- Benefits from sccache warmed by workspace-compile
-- Uploads artifacts for integration tests
+- **Separate workflow**: Runs as its own workflow, not a job within test-integration
+- All three test workflows (integration, ruby-framework, python-framework) run in parallel after this completes
+- Uploads artifacts for downstream test jobs
 
-**Duration**: ~6-8 minutes
+**Duration**: ~8-10 minutes
 
 ---
 
-### Integration Tests (`test-integration.yml` - integration-tests job)
+### Integration Tests (`test-integration.yml`)
 
 **Purpose**: End-to-end testing with all services running
 
+**Internal Structure**:
+1. **workspace-compile**: Build core packages, warm sccache
+2. **unit-tests**: Run library tests and doctests
+3. **integration-tests**: E2E tests with all workers
+
 **Execution**:
 - **Mode**: Native binary execution only (Docker mode removed for simplicity)
-- **Partitioning**: Tests split across 2 parallel runners via nextest
-- **Duration**: ~5-7 minutes per partition
+- **Duration**: ~20-25 minutes total
 
 **How it works**:
-1. Downloads pre-compiled binaries and nextest archive from build jobs
-2. Starts native services (orchestration, rust-worker, ruby-worker, python-worker)
-3. Runs partitioned tests against native services
+1. Workspace-compile builds core packages
+2. Unit tests run after compilation
+3. Downloads worker artifacts from build-workers workflow
+4. Starts native services (orchestration, rust-worker, ruby-worker, python-worker)
+5. Runs E2E tests against native services
 
 **Command**:
 ```bash
@@ -173,11 +172,9 @@ cargo run --package tasker-client --bin tasker-cli -- config generate \
 # Start native services
 .github/scripts/start-native-services.sh
 
-# Run partitioned tests
+# Run integration tests
 cargo nextest run \
-  --archive-file nextest-archive.tar.zst \
   --profile ci \
-  --partition count:1/2 \  # or 2/2 for second partition
   --test '*' --no-fail-fast
 
 # Stop services
@@ -185,8 +182,8 @@ cargo nextest run \
 ```
 
 **Key Features**:
-- **Nextest partitioning**: 2 parallel runners for faster execution
 - **Native-only**: Simplified architecture, no Docker complexity
+- Uses worker artifacts from build-workers workflow
 - Health checks for all services before testing
 - Comprehensive service logs on failure
 - JUnit XML output for CI reporting
@@ -549,22 +546,19 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 | Stage | Target Duration | Test Count | Notes |
 |-------|----------------|------------|-------|
 | Build PostgreSQL | < 2 min | N/A | Cached image |
-| Code Quality | < 4 min | N/A | Parallel with compile |
-| Workspace Compile | < 8 min | N/A | Warms sccache |
-| Unit Tests + Doctests | < 3 min | ~200 | Parallel with build-workers |
-| Build Workers | < 8 min | N/A | FFI extensions |
-| Worker Tests | < 3 min | ~150 | Ruby + Python + Rust |
-| Integration Tests (x2) | < 7 min each | ~800 | Partitioned |
-| **Total CI** | **< 15 min** | **~1150 tests** | **With warm cache** |
+| Code Quality | < 4 min | N/A | Parallel with build-workers |
+| Build Workers | < 10 min | N/A | FFI extensions for all languages |
+| Integration Tests | < 25 min | ~1000+ | workspace-compile → unit-tests → E2E |
+| Ruby Framework | < 5 min | ~77 | Parallel with integration |
+| Python Framework | < 5 min | TBD | Parallel with integration |
+| **Total CI** | **< 30 min** | **~1100+ tests** | **With warm cache** |
 
 **Key Optimizations (TAS-88)**:
-- **sccache**: Distributed compilation caching across jobs
-- **DAG parallelism**: Maximum concurrent job execution
-- **Nextest partitioning**: Integration tests split across 2 runners
-- **Deferred FFI builds**: Workers build in parallel with unit tests
-- **Native-only**: Removed Docker mode (~50% faster)
-- **Artifact reuse**: Pre-built binaries shared across jobs
-- **Cache warming**: workspace-compile primes cache for all downstream jobs
+- **Separate build-workers workflow**: FFI builds run once, artifacts shared
+- **DAG parallelism**: Three test workflows run in parallel after build-workers
+- **Native-only**: Removed Docker mode for simplicity
+- **Artifact reuse**: Pre-built worker binaries shared across jobs
+- **No partitioning overhead**: Simpler execution model
 
 **Cache Strategy**:
 - sccache: Compilation artifacts shared via GitHub Actions cache
@@ -599,24 +593,19 @@ build-postgres                      build-postgres
     ├─→ code-quality                ┌─────┼─────┐
     └─→ build + unit + FFI          │     │     │
               │                     ▼     ▼     ▼
-              ▼                   code  compile workers
-         integration              quality   │     │
-              │                            ├─────┤
-              ▼                            ▼     ▼
-         framework                     unit   build-workers
-                                      tests        │
-                                             ┌─────┴─────┐
-                                             ▼           ▼
-                                         worker    integration
-                                         tests     (partitioned)
+              ▼                   code  build-workers
+         integration              quality    │
+              │                         ┌────┼────┐
+              ▼                         ▼    ▼    ▼
+         framework                 integration ruby  python
+                                     tests     fw    fw
 ```
 
 **Performance Impact**:
-- **Cold cache**: ~20-25 minutes (first run)
-- **Warm cache**: ~12-15 minutes (subsequent runs)
-- **Parallelism gain**: ~40% faster through DAG optimization
-- **Nextest partitioning**: ~30% faster integration tests
-- **Native-only**: ~50% faster than Docker mode
+- **Cold cache**: ~25-30 minutes (first run)
+- **Warm cache**: ~20-25 minutes (subsequent runs)
+- **Parallelism gain**: Three test workflows run simultaneously after build-workers
+- **Native-only**: Simpler than Docker mode
 
 ---
 
