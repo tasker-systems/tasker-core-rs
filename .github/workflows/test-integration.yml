@@ -305,7 +305,7 @@ jobs:
       - name: Build Rust worker
         run: |
           echo "🔨 Building Rust worker..."
-          cargo build --package rust-worker --all-features
+          cargo build --package tasker-worker-rust
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
