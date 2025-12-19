@@ -574,6 +574,84 @@ impl StepExecutionResult {
             "metadata": self.metadata
         })
     }
+
+    // ============================================================================
+    // Cross-language API alignment helpers (TAS-92)
+    // ============================================================================
+
+    /// Set error_code via builder pattern for ergonomic failure construction
+    ///
+    /// This is a convenience method for the cross-language standard API.
+    /// The error_code is stored in `metadata.error_code`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_shared::messaging::StepExecutionResult;
+    /// use uuid::Uuid;
+    ///
+    /// let result = StepExecutionResult::failure(
+    ///     Uuid::now_v7(),
+    ///     "Payment gateway timeout".to_string(),
+    ///     None,  // error_code can be set via builder instead
+    ///     Some("timeout".to_string()),
+    ///     true,
+    ///     1500,
+    ///     None,
+    /// )
+    /// .with_error_code("PAYMENT_GATEWAY_TIMEOUT");
+    ///
+    /// assert_eq!(result.error_code(), Some("PAYMENT_GATEWAY_TIMEOUT"));
+    /// ```
+    pub fn with_error_code(mut self, code: impl Into<String>) -> Self {
+        self.metadata.error_code = Some(code.into());
+        self
+    }
+
+    /// Get error_code from metadata (convenience accessor)
+    ///
+    /// Returns the error code if set, typically for failed results.
+    /// This is part of the cross-language standard API.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_shared::messaging::StepExecutionResult;
+    /// use uuid::Uuid;
+    ///
+    /// let result = StepExecutionResult::failure(
+    ///     Uuid::now_v7(),
+    ///     "Validation failed".to_string(),
+    ///     Some("INVALID_INPUT".to_string()),
+    ///     Some("validation_error".to_string()),
+    ///     false,
+    ///     100,
+    ///     None,
+    /// );
+    ///
+    /// assert_eq!(result.error_code(), Some("INVALID_INPUT"));
+    /// ```
+    pub fn error_code(&self) -> Option<&str> {
+        self.metadata.error_code.as_deref()
+    }
+
+    /// Get error_type from metadata (convenience accessor)
+    ///
+    /// Returns the error type classification if set, typically for failed results.
+    /// Standard values: `permanent_error`, `retryable_error`, `validation_error`,
+    /// `timeout`, `handler_error`.
+    pub fn error_type(&self) -> Option<&str> {
+        self.metadata.error_type.as_deref()
+    }
+
+    /// Set error_type via builder pattern
+    ///
+    /// Standard values: `permanent_error`, `retryable_error`, `validation_error`,
+    /// `timeout`, `handler_error`.
+    pub fn with_error_type(mut self, error_type: impl Into<String>) -> Self {
+        self.metadata.error_type = Some(error_type.into());
+        self
+    }
 }
 
 /// Decision Point Outcome
@@ -1295,5 +1373,99 @@ mod tests {
 
         assert_eq!(original, deserialized);
         assert_eq!(original.step_names(), deserialized.step_names());
+    }
+
+    // ============================================================================
+    // TAS-92: Cross-language API alignment tests
+    // ============================================================================
+
+    #[test]
+    fn test_step_execution_result_with_error_code_builder() {
+        let step_uuid = Uuid::now_v7();
+        let result = StepExecutionResult::failure(
+            step_uuid,
+            "Payment gateway timeout".to_string(),
+            None, // error_code set via builder
+            Some("timeout".to_string()),
+            true,
+            1500,
+            None,
+        )
+        .with_error_code("PAYMENT_GATEWAY_TIMEOUT");
+
+        assert_eq!(result.error_code(), Some("PAYMENT_GATEWAY_TIMEOUT"));
+        assert_eq!(result.error_type(), Some("timeout"));
+    }
+
+    #[test]
+    fn test_step_execution_result_error_code_getter() {
+        let step_uuid = Uuid::now_v7();
+        let result = StepExecutionResult::failure(
+            step_uuid,
+            "Validation failed".to_string(),
+            Some("INVALID_INPUT".to_string()),
+            Some("validation_error".to_string()),
+            false,
+            100,
+            None,
+        );
+
+        assert_eq!(result.error_code(), Some("INVALID_INPUT"));
+        assert_eq!(result.error_type(), Some("validation_error"));
+    }
+
+    #[test]
+    fn test_step_execution_result_success_no_error_code() {
+        let step_uuid = Uuid::now_v7();
+        let result = StepExecutionResult::success(
+            step_uuid,
+            serde_json::json!({"status": "ok"}),
+            100,
+            None,
+        );
+
+        assert_eq!(result.error_code(), None);
+        assert_eq!(result.error_type(), None);
+    }
+
+    #[test]
+    fn test_step_execution_result_with_error_type_builder() {
+        let step_uuid = Uuid::now_v7();
+        let result = StepExecutionResult::failure(
+            step_uuid,
+            "Database connection failed".to_string(),
+            None,
+            None, // error_type set via builder
+            true,
+            500,
+            None,
+        )
+        .with_error_type("retryable_error")
+        .with_error_code("DB_CONNECTION_FAILED");
+
+        assert_eq!(result.error_type(), Some("retryable_error"));
+        assert_eq!(result.error_code(), Some("DB_CONNECTION_FAILED"));
+    }
+
+    #[test]
+    fn test_step_execution_result_builder_chaining() {
+        let step_uuid = Uuid::now_v7();
+        let result = StepExecutionResult::failure(
+            step_uuid,
+            "API rate limited".to_string(),
+            None,
+            None,
+            true,
+            200,
+            None,
+        )
+        .with_error_type("retryable_error")
+        .with_error_code("RATE_LIMITED");
+
+        // Verify both were set via chaining
+        assert_eq!(result.error_type(), Some("retryable_error"));
+        assert_eq!(result.error_code(), Some("RATE_LIMITED"));
+        assert!(result.is_retryable());
+        assert!(!result.is_success());
     }
 }

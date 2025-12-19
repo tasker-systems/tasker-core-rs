@@ -268,19 +268,24 @@ pub struct StepEventContext {
 
 ## Verification Checklist
 
-- [ ] `with_error_code()` helper method works
-- [ ] `error_code()` getter returns value from metadata
-- [ ] Registry `is_registered()` method works
-- [ ] Registry `list_handlers()` method works
-- [ ] Error type constants defined and exported
-- [ ] Batch processing examples use standard field names
-- [ ] API handler pattern documented
-- [ ] Decision handler pattern documented
-- [ ] `StepEventPublisher` documented as reference implementation
-- [ ] All unit tests pass
-- [ ] All integration tests pass
-- [ ] Clippy passes
-- [ ] Documentation builds
+- [x] `with_error_code()` helper method works
+- [x] `error_code()` getter returns value from metadata
+- [x] `with_error_type()` helper method works (bonus)
+- [x] `error_type()` getter returns value from metadata (bonus)
+- [x] Registry `is_registered()` method works
+- [x] Registry `list_handlers()` method works
+- [x] Error type constants defined and exported
+- [x] `is_standard()` helper validates error types
+- [x] `is_typically_retryable()` helper for default retry behavior
+- [x] Batch processing examples use standard field names (CursorConfig already aligned)
+- [x] API handler pattern documented
+- [x] Decision handler pattern documented
+- [x] Batch processing pattern documented
+- [x] `StepEventPublisher` verified as already aligned
+- [x] All unit tests pass
+- [x] All integration tests pass
+- [x] Clippy passes
+- [ ] Documentation builds (deferred to TAS-98)
 
 ## Risk Assessment
 
