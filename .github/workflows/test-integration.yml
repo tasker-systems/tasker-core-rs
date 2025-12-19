@@ -227,7 +227,7 @@ jobs:
             bundle exec rake compile
           fi
         env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SQLX_OFFLINE: "true"
 
       - name: Build Python FFI extension
         run: |
@@ -236,7 +236,7 @@ jobs:
           uv sync --dev
           uv run maturin develop
         env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SQLX_OFFLINE: "true"
 
       - name: Build Rust worker (if not from artifacts)
         run: |
@@ -247,7 +247,7 @@ jobs:
             cargo build --package tasker-worker-rust
           fi
         env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SQLX_OFFLINE: "true"
 
       - name: Run database migrations
         run: sqlx migrate run

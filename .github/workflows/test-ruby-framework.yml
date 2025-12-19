@@ -51,11 +51,27 @@ jobs:
       - name: Setup Rust (for sqlx-cli)
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+            ${{ runner.os }}-cargo-
+
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
 
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+      - name: Install tools
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "sqlx-cli"
 
       - name: Run database migrations
         run: cargo sqlx migrate run
@@ -96,7 +112,7 @@ jobs:
             bundle exec rake compile
           fi
         env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SQLX_OFFLINE: "true"
 
       - name: Create test results directory
         run: mkdir -p ../../target
