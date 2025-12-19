@@ -34,7 +34,7 @@ class TestStepHandler:
 
         class NoNameHandler(StepHandler):
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         handler = NoNameHandler()
         assert handler.name == "NoNameHandler"
@@ -46,7 +46,7 @@ class TestStepHandler:
             handler_name = "custom_handler"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         handler = CustomHandler()
         assert handler.name == "custom_handler"
@@ -58,7 +58,7 @@ class TestStepHandler:
             handler_name = "test"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         handler = TestHandler()
         assert handler.version == "1.0.0"
@@ -71,7 +71,7 @@ class TestStepHandler:
             handler_version = "2.5.0"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         handler = TestHandler()
         assert handler.version == "2.5.0"
@@ -83,7 +83,7 @@ class TestStepHandler:
             handler_name = "test"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         handler = TestHandler()
         assert handler.capabilities == ["process"]
@@ -95,7 +95,7 @@ class TestStepHandler:
             handler_name = "test"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         handler = TestHandler()
         assert handler.config_schema() is None
@@ -108,7 +108,7 @@ class TestStepHandler:
             handler_version = "1.0.0"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         handler = TestHandler()
         repr_str = repr(handler)
@@ -269,42 +269,76 @@ class TestStepContext:
 class TestStepHandlerResult:
     """Tests for StepHandlerResult model."""
 
-    def test_success_handler_result(self):
-        """Test creating success result."""
-        result = StepHandlerResult.success_handler_result(
+    def test_ok(self):
+        """Test creating success result with ok()."""
+        result = StepHandlerResult.success(
             {"key": "value"},
             {"duration_ms": 100},
         )
 
-        assert result.success is True
+        assert result.is_success is True
         assert result.result == {"key": "value"}
         assert result.metadata == {"duration_ms": 100}
         assert result.error_message is None
         assert result.error_type is None
 
-    def test_failure_handler_result(self):
+    def test_success_handler_result_alias(self):
+        """Test success_handler_result alias for backward compatibility."""
+        result = StepHandlerResult.success_handler_result(
+            {"key": "value"},
+            {"duration_ms": 100},
+        )
+
+        assert result.is_success is True
+        assert result.result == {"key": "value"}
+
+    def test_failure(self):
         """Test creating failure result."""
-        result = StepHandlerResult.failure_handler_result(
+        result = StepHandlerResult.failure(
             message="Something went wrong",
             error_type="ValidationError",
             retryable=False,
             metadata={"field": "email"},
         )
 
-        assert result.success is False
+        assert result.is_success is False
         assert result.error_message == "Something went wrong"
         assert result.error_type == "ValidationError"
         assert result.retryable is False
         assert result.metadata == {"field": "email"}
 
-    def test_failure_handler_result_defaults(self):
-        """Test failure result defaults."""
-        result = StepHandlerResult.failure_handler_result("Error")
+    def test_failure_with_error_code(self):
+        """Test failure result with error_code."""
+        result = StepHandlerResult.failure(
+            message="Something went wrong",
+            error_type="ValidationError",
+            retryable=False,
+            error_code="ERR_VALIDATION_001",
+        )
 
-        assert result.success is False
+        assert result.is_success is False
+        assert result.error_code == "ERR_VALIDATION_001"
+
+    def test_failure_handler_result_alias(self):
+        """Test failure_handler_result alias for backward compatibility."""
+        result = StepHandlerResult.failure_handler_result(
+            message="Something went wrong",
+            error_type="ValidationError",
+            retryable=False,
+        )
+
+        assert result.is_success is False
+        assert result.error_message == "Something went wrong"
+
+    def test_failure_defaults(self):
+        """Test failure result defaults."""
+        result = StepHandlerResult.failure("Error")
+
+        assert result.is_success is False
         assert result.error_type == "handler_error"
         assert result.retryable is True
         assert result.metadata == {}
+        assert result.error_code is None
 
 
 class TestStepExecutionSubscriber:
@@ -407,7 +441,7 @@ class TestHandlerIntegration:
 
             def call(self, context: StepContext) -> StepHandlerResult:
                 order_id = context.input_data.get("order_id", "unknown")
-                return StepHandlerResult.success_handler_result(
+                return StepHandlerResult.success(
                     {
                         "order_id": order_id,
                         "status": "processed",
@@ -440,7 +474,7 @@ class TestHandlerIntegration:
         context = StepContext.from_ffi_event(event, "process_order")
 
         result = handler.call(context)
-        assert result.success is True
+        assert result.is_success is True
         assert result.result["order_id"] == "ORD-123"
         assert result.result["status"] == "processed"
 
@@ -459,7 +493,7 @@ class TestHandlerIntegration:
             handler_name = "test"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         # Simulate handler registration notification
         bridge.publish(EventNames.HANDLER_REGISTERED, "test", TestHandler)

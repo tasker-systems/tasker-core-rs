@@ -38,7 +38,7 @@ class SuccessStepHandler(StepHandler):
         """Execute successfully."""
         message = context.input_data.get("message", "Step completed successfully")
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "status": "success",
                 "message": message,
@@ -67,7 +67,7 @@ class RetryableErrorStepHandler(StepHandler):
         """Return a retryable error."""
         error_message = context.input_data.get("error_message", "Temporary failure - please retry")
 
-        return StepHandlerResult.failure_handler_result(
+        return StepHandlerResult.failure(
             message=error_message,
             error_type="temporary_error",
             retryable=True,
@@ -97,7 +97,7 @@ class PermanentErrorStepHandler(StepHandler):
         """Return a permanent error."""
         error_message = context.input_data.get("error_message", "Permanent failure - do not retry")
 
-        return StepHandlerResult.failure_handler_result(
+        return StepHandlerResult.failure(
             message=error_message,
             error_type="permanent_error",
             retryable=False,

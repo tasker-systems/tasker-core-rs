@@ -1,7 +1,10 @@
-"""In-process domain event poller for real-time notifications.
+"""Domain events module for real-time notifications and event publishing.
 
-This module provides the InProcessDomainEventPoller class that polls for
-domain events from the in-process broadcast channel (fast path).
+This module provides:
+- InProcessDomainEventPoller: Polls for domain events from the broadcast channel
+- BasePublisher: Abstract base class for step event publishers
+- BaseSubscriber: Abstract base class for event subscribers
+- StepEventContext: Context data for publishing step events
 
 In-process events are used for real-time notifications that don't require
 guaranteed delivery, such as:
@@ -13,24 +16,43 @@ guaranteed delivery, such as:
 For durable domain events (guaranteed delivery), the Rust orchestration
 layer publishes events to PGMQ automatically after step completion.
 
-Example:
+Example (Publishing):
+    >>> from tasker_core.domain_events import BasePublisher, StepEventContext
+    >>>
+    >>> class PaymentEventPublisher(BasePublisher):
+    ...     def name(self) -> str:
+    ...         return "payment_event_publisher"
+    ...
+    ...     def publish(self, ctx: StepEventContext) -> None:
+    ...         # Publish to external system (e.g., Kafka, webhook)
+    ...         send_to_kafka("payments", ctx.task_uuid, self.transform_payload(ctx))
+
+Example (Subscribing):
+    >>> from tasker_core.domain_events import BaseSubscriber
+    >>>
+    >>> class OrderCompletedSubscriber(BaseSubscriber):
+    ...     @classmethod
+    ...     def subscribes_to(cls) -> list[str]:
+    ...         return ["order.completed", "order.updated"]
+    ...
+    ...     def handle(self, event: dict) -> None:
+    ...         print(f"Order event: {event}")
+
+Example (Polling):
     >>> from tasker_core import InProcessDomainEventPoller
     >>>
-    >>> def on_event(event):
-    ...     print(f"Received {event.event_name}: {event.payload}")
-    ...
     >>> poller = InProcessDomainEventPoller()
-    >>> poller.on_event(on_event)
+    >>> poller.on_event(lambda e: print(f"Received {e.event_name}"))
     >>> poller.start()
-    >>> # ... events flow to handlers ...
-    >>> poller.stop()
 """
 
 from __future__ import annotations
 
 import threading
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from tasker_core._tasker_core import (  # type: ignore[attr-defined]
@@ -39,6 +61,230 @@ from tasker_core._tasker_core import (  # type: ignore[attr-defined]
 
 from .logging import log_debug, log_error, log_info
 from .types import InProcessDomainEvent
+
+# =============================================================================
+# Step Event Context and Base Classes
+# =============================================================================
+
+
+@dataclass
+class StepEventContext:
+    """Context for publishing step events.
+
+    This dataclass provides all the information needed to publish an event
+    after a step completes. It matches the cross-language StepEventContext
+    structure used in Ruby and Rust workers.
+
+    Example:
+        >>> ctx = StepEventContext(
+        ...     task_uuid="abc-123",
+        ...     step_uuid="def-456",
+        ...     step_name="process_payment",
+        ...     namespace="payments",
+        ...     correlation_id="corr-789",
+        ...     result={"amount": 100.00},
+        ... )
+    """
+
+    task_uuid: str
+    """The task UUID."""
+
+    step_uuid: str
+    """The step UUID."""
+
+    step_name: str
+    """The step handler name."""
+
+    namespace: str
+    """The task namespace."""
+
+    correlation_id: str
+    """Correlation ID for tracing."""
+
+    result: dict[str, Any] | None = None
+    """The step result data (on success)."""
+
+    metadata: dict[str, Any] = field(default_factory=dict)
+    """Additional metadata about the execution."""
+
+    @classmethod
+    def from_step_context(
+        cls,
+        step_context: Any,
+        result: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> StepEventContext:
+        """Create from a StepContext.
+
+        Args:
+            step_context: The step execution context.
+            result: Optional result data.
+            metadata: Optional additional metadata.
+
+        Returns:
+            A StepEventContext populated from the step context.
+        """
+        return cls(
+            task_uuid=str(step_context.task_uuid),
+            step_uuid=str(step_context.step_uuid),
+            step_name=step_context.handler_name,
+            namespace=step_context.event.task_sequence_step.get("task", {})
+            .get("task", {})
+            .get("namespace", "default"),
+            correlation_id=str(step_context.correlation_id),
+            result=result,
+            metadata=metadata or {},
+        )
+
+
+class BasePublisher(ABC):
+    """Abstract base class for step event publishers.
+
+    Publishers are responsible for emitting domain events after step completion.
+    They can publish to external systems like Kafka, webhooks, or message queues.
+
+    Subclasses must implement:
+    - name(): Return the publisher name
+    - publish(ctx): Publish an event with the given context
+
+    Optional overrides:
+    - should_publish(ctx): Conditionally publish based on context
+    - transform_payload(ctx): Transform the event payload before publishing
+
+    Example:
+        >>> class SlackNotificationPublisher(BasePublisher):
+        ...     def name(self) -> str:
+        ...         return "slack_notification"
+        ...
+        ...     def publish(self, ctx: StepEventContext) -> None:
+        ...         if ctx.result and ctx.result.get("notify"):
+        ...             send_slack_message(f"Step {ctx.step_name} completed")
+        ...
+        ...     def should_publish(self, ctx: StepEventContext) -> bool:
+        ...         # Only publish for production namespace
+        ...         return ctx.namespace == "production"
+    """
+
+    @abstractmethod
+    def name(self) -> str:
+        """Return the publisher name.
+
+        Returns:
+            A unique identifier for this publisher.
+        """
+        ...
+
+    @abstractmethod
+    def publish(self, ctx: StepEventContext) -> None:
+        """Publish an event with the given context.
+
+        This method is called after a step completes to publish the event
+        to external systems.
+
+        Args:
+            ctx: The step event context with all event data.
+        """
+        ...
+
+    def should_publish(self, ctx: StepEventContext) -> bool:  # noqa: ARG002
+        """Determine whether to publish for this context.
+
+        Override this to conditionally publish based on the step name,
+        namespace, or other context attributes.
+
+        Args:
+            ctx: The step event context.
+
+        Returns:
+            True if the event should be published (default: True).
+        """
+        return True
+
+    def transform_payload(self, ctx: StepEventContext) -> dict[str, Any]:
+        """Transform the event payload before publishing.
+
+        Override this to customize the payload structure for your
+        external system.
+
+        Args:
+            ctx: The step event context.
+
+        Returns:
+            A dictionary payload for the event.
+        """
+        return {
+            "task_uuid": ctx.task_uuid,
+            "step_uuid": ctx.step_uuid,
+            "step_name": ctx.step_name,
+            "namespace": ctx.namespace,
+            "correlation_id": ctx.correlation_id,
+            "result": ctx.result,
+            "metadata": ctx.metadata,
+        }
+
+
+class BaseSubscriber(ABC):
+    """Abstract base class for domain event subscribers.
+
+    Subscribers listen for domain events and handle them accordingly.
+    They define which event patterns they subscribe to and how to handle
+    incoming events.
+
+    Subclasses must implement:
+    - subscribes_to(): Return list of event patterns to subscribe to
+    - handle(event): Handle the received event
+
+    Event patterns can be:
+    - Exact names: "order.completed"
+    - Wildcard patterns: "order.*" or "*.completed"
+
+    Example:
+        >>> class MetricsCollectorSubscriber(BaseSubscriber):
+        ...     @classmethod
+        ...     def subscribes_to(cls) -> list[str]:
+        ...         return ["step.completed", "step.failed"]
+        ...
+        ...     def handle(self, event: dict) -> None:
+        ...         event_name = event.get("event_name")
+        ...         if event_name == "step.completed":
+        ...             metrics.increment("steps_completed")
+        ...         else:
+        ...             metrics.increment("steps_failed")
+    """
+
+    @classmethod
+    @abstractmethod
+    def subscribes_to(cls) -> list[str]:
+        """Return list of event patterns to subscribe to.
+
+        Returns:
+            List of event name patterns (e.g., ["order.completed", "payment.*"]).
+        """
+        ...
+
+    @abstractmethod
+    def handle(self, event: dict[str, Any]) -> None:
+        """Handle the received event.
+
+        Args:
+            event: The event data dictionary containing event_name, payload, etc.
+        """
+        ...
+
+    def matches(self, event_name: str) -> bool:
+        """Check if this subscriber should handle the given event name.
+
+        Supports wildcard matching with "*".
+
+        Args:
+            event_name: The event name to check.
+
+        Returns:
+            True if this subscriber handles the event.
+        """
+        import fnmatch
+
+        return any(fnmatch.fnmatch(event_name, pattern) for pattern in self.subscribes_to())
 
 # Type aliases for callbacks
 DomainEventCallback = Callable[[InProcessDomainEvent], None]
@@ -295,4 +541,9 @@ class InProcessDomainEventPoller:
                 callback(error)
 
 
-__all__ = ["InProcessDomainEventPoller"]
+__all__ = [
+    "InProcessDomainEventPoller",
+    "StepEventContext",
+    "BasePublisher",
+    "BaseSubscriber",
+]

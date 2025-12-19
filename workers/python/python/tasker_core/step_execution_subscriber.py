@@ -327,7 +327,7 @@ class StepExecutionSubscriber:
         task_uuid = UUID(event.task_uuid)
         correlation_id = UUID(event.correlation_id)
 
-        if handler_result.success:
+        if handler_result.is_success:
             result = StepExecutionResult.success_result(
                 step_uuid=step_uuid,
                 task_uuid=task_uuid,
@@ -368,7 +368,7 @@ class StepExecutionSubscriber:
             if success:
                 log_debug(
                     "Step completion submitted",
-                    {"event_id": event.event_id, "success": str(handler_result.success)},
+                    {"event_id": event.event_id, "success": str(handler_result.is_success)},
                 )
                 self._event_bridge.publish(EventNames.STEP_COMPLETION_SENT, result)
             else:

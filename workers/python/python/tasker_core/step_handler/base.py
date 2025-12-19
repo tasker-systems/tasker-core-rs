@@ -5,13 +5,13 @@ handlers must inherit from.
 
 Example:
     >>> from tasker_core.step_handler import StepHandler
-    >>> from tasker_core import StepContext, StepHandlerResult
+    >>> from tasker_core import StepContext, StepHandlerResult, ErrorType
     >>>
     >>> class MyHandler(StepHandler):
     ...     handler_name = "my_handler"
     ...
     ...     def call(self, context: StepContext) -> StepHandlerResult:
-    ...         return StepHandlerResult.success_handler_result({"processed": True})
+    ...         return StepHandlerResult.success({"processed": True})
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class StepHandler(ABC):
         ...     def call(self, context: StepContext) -> StepHandlerResult:
         ...         order_id = context.input_data.get("order_id")
         ...         # Process the order...
-        ...         return StepHandlerResult.success_handler_result(
+        ...         return StepHandlerResult.success(
         ...             {"order_id": order_id, "status": "processed"}
         ...         )
     """
@@ -73,11 +73,11 @@ class StepHandler(ABC):
             >>> def call(self, context: StepContext) -> StepHandlerResult:
             ...     try:
             ...         result = process(context.input_data)
-            ...         return StepHandlerResult.success_handler_result(result)
+            ...         return StepHandlerResult.success(result)
             ...     except ValidationError as e:
-            ...         return StepHandlerResult.failure_handler_result(
+            ...         return StepHandlerResult.failure(
             ...             message=str(e),
-            ...             error_type="ValidationError",
+            ...             error_type=ErrorType.VALIDATION_ERROR,
             ...             retryable=False,
             ...         )
         """
@@ -136,11 +136,11 @@ class StepHandler(ABC):
             metadata: Optional metadata dictionary.
 
         Returns:
-            StepHandlerResult with success=True.
+            StepHandlerResult with is_success=True.
         """
         from tasker_core.types import StepHandlerResult
 
-        return StepHandlerResult.success_handler_result(result or {}, metadata)
+        return StepHandlerResult.success(result or {}, metadata)
 
     def failure(
         self,
@@ -148,6 +148,7 @@ class StepHandler(ABC):
         error_type: str = "handler_error",
         retryable: bool = True,
         metadata: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ) -> StepHandlerResult:
         """Create a failure result.
 
@@ -155,20 +156,22 @@ class StepHandler(ABC):
 
         Args:
             message: Error message.
-            error_type: Error type classification.
+            error_type: Error type classification. Use ErrorType enum for consistency.
             retryable: Whether the error is retryable.
             metadata: Optional metadata dictionary.
+            error_code: Optional application-specific error code.
 
         Returns:
             StepHandlerResult with success=False.
         """
         from tasker_core.types import StepHandlerResult
 
-        return StepHandlerResult.failure_handler_result(
+        return StepHandlerResult.failure(
             message=message,
             error_type=error_type,
             retryable=retryable,
             metadata=metadata,
+            error_code=error_code,
         )
 
     def __repr__(self) -> str:

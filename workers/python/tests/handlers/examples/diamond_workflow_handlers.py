@@ -47,14 +47,14 @@ class DiamondStartHandler(StepHandler):
         even_number = context.input_data.get("even_number")
 
         if even_number is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Task context must contain an even_number",
                 error_type="validation_error",
                 retryable=False,
             )
 
         if not isinstance(even_number, int) or even_number % 2 != 0:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message=f"even_number must be an even integer, got: {even_number}",
                 error_type="validation_error",
                 retryable=False,
@@ -63,7 +63,7 @@ class DiamondStartHandler(StepHandler):
         # Square the even number (initial step operation)
         result = even_number * even_number
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "result": result,
                 "operation": "square",
@@ -92,7 +92,7 @@ class DiamondBranchBHandler(StepHandler):
         start_output = context.get_dependency_result("diamond_start_py")
 
         if start_output is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing result from diamond_start_py",
                 error_type="dependency_error",
                 retryable=True,
@@ -104,7 +104,7 @@ class DiamondBranchBHandler(StepHandler):
         )
 
         if squared_value is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing 'result' field in diamond_start_py output",
                 error_type="dependency_error",
                 retryable=True,
@@ -114,7 +114,7 @@ class DiamondBranchBHandler(StepHandler):
         constant = 25
         result = squared_value + constant
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "result": result,
                 "operation": "add",
@@ -145,7 +145,7 @@ class DiamondBranchCHandler(StepHandler):
         start_output = context.get_dependency_result("diamond_start_py")
 
         if start_output is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing result from diamond_start_py",
                 error_type="dependency_error",
                 retryable=True,
@@ -157,7 +157,7 @@ class DiamondBranchCHandler(StepHandler):
         )
 
         if squared_value is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing 'result' field in diamond_start_py output",
                 error_type="dependency_error",
                 retryable=True,
@@ -167,7 +167,7 @@ class DiamondBranchCHandler(StepHandler):
         factor = 2
         result = squared_value * factor
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "result": result,
                 "operation": "multiply",
@@ -223,7 +223,7 @@ class DiamondEndHandler(StepHandler):
                 missing.append("diamond_branch_b_py")
             if c_value is None:
                 missing.append("diamond_branch_c_py")
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message=f"Missing results from: {', '.join(missing)}",
                 error_type="dependency_error",
                 retryable=True,
@@ -232,7 +232,7 @@ class DiamondEndHandler(StepHandler):
         # Average both results (convergence operation)
         result = (b_value + c_value) / 2
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "result": result,
                 "operation": "average",

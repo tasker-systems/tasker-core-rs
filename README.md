@@ -16,7 +16,7 @@ High-performance Rust workflow orchestration built on PostgreSQL with PGMQ messa
 - **DAG-Based Workflows** - Define complex workflows as directed acyclic graphs with dependencies
 - **PostgreSQL-Native** - Database as coordination layer with PGMQ for reliable messaging
 - **Event-Driven** - Real-time step discovery via LISTEN/NOTIFY with polling fallback
-- **Multi-Language Workers** - Rust native, Ruby via FFI, Python/WASM planned
+- **Multi-Language Workers** - Rust native, Ruby via FFI, Python via PyO3, Node / Bun FFI under development
 - **Production-Ready** - Circuit breakers, health monitoring, zero race conditions, 50+ metrics
 
 ### Ideal For
@@ -128,6 +128,7 @@ Task: order_fulfillment_#{order_id}
 | `tasker-client` | REST client and CLI |
 | `workers/rust` | Native Rust workers |
 | `workers/ruby` | Ruby FFI bindings |
+| `workers/python` | Python FFI bindings |
 
 ---
 
@@ -183,20 +184,13 @@ cargo fmt && cargo clippy --all-targets --all-features
 cargo run --bin tasker-server
 ```
 
-See **[CLAUDE.md](CLAUDE.md)** for complete development context.
-
----
-
-## Related Projects
-
-- **[tasker-engine](https://github.com/tasker-systems/tasker-engine)** - Production Rails engine
-- **[tasker-blog](https://github.com/tasker-systems/tasker-blog)** - Documentation and engineering stories
+See **[AGENTS.md](AGENTS.md)** for complete development context.
 
 ---
 
 ## Contributing
 
-1. Review [CLAUDE.md](CLAUDE.md) for project context
+1. Review [AGENTS.md](AGENTS.md) for project context
 2. Run tests: `cargo test --all-features`
 3. Format and lint before PR
 4. See [docs/README.md](docs/README.md) for documentation structure

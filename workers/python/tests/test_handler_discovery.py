@@ -225,7 +225,7 @@ class TestHandlerRegistryEdgeCases:
         context = StepContext.from_ffi_event(event, "fetch_data")
 
         result = handler.call(context)
-        assert result.success is True
+        assert result.is_success is True
 
     def test_get_handler_class_not_found(self):
         """Test get_handler_class returns None for unknown handler."""

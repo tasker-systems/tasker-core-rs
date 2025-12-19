@@ -255,17 +255,17 @@ Align Python worker APIs with cross-language standards. Python is already well-a
 
 ## Verification Checklist
 
-- [ ] `success()` and `failure()` methods work correctly
-- [ ] `error_code` field properly serializes/deserializes
-- [ ] `error_type` Literal hints provide IDE support
-- [ ] `decision_success(steps, routing_context)` works
-- [ ] `BasePublisher` can be subclassed and used
-- [ ] `BaseSubscriber` can be subclassed and used
-- [ ] All example handlers updated and functional
-- [ ] All unit tests pass
+- [x] `success()` and `failure()` methods work correctly
+- [x] `error_code` field properly serializes/deserializes
+- [x] `error_type` Literal hints provide IDE support (via `ErrorType` enum)
+- [x] `decision_success(steps, routing_context)` works
+- [x] `BasePublisher` can be subclassed and used
+- [x] `BaseSubscriber` can be subclassed and used
+- [x] All example handlers updated and functional
+- [x] All unit tests pass (271 passed)
 - [ ] All integration tests pass
-- [ ] Type checking passes (`mypy`)
-- [ ] Linting passes (`ruff`)
+- [x] Type checking passes (`mypy`)
+- [x] Linting passes (`ruff`)
 
 ## Risk Assessment
 
@@ -279,3 +279,39 @@ Align Python worker APIs with cross-language standards. Python is already well-a
 - **New lines**: ~150 (domain events base classes)
 - **Modified lines**: ~100 (renames and enhancements)
 - **Test additions**: ~100
+
+## Implementation Notes
+
+### Pydantic Field Aliasing for `success` Method
+
+In Pydantic v2, a field named `success` conflicts with a classmethod of the same name. When you access `StepHandlerResult.success(...)`, Python finds the field descriptor before the classmethod.
+
+**Solution**: The field is named `is_success` in Python with `alias="success"` for JSON serialization:
+
+```python
+class StepHandlerResult(BaseModel):
+    is_success: bool = Field(
+        alias="success",
+        description="Whether the handler executed successfully.",
+    )
+
+    model_config = {"populate_by_name": True}
+
+    @classmethod
+    def success(cls, result, metadata=None) -> StepHandlerResult:
+        return cls(
+            is_success=True,  # type: ignore[call-arg]
+            result=result,
+            metadata=metadata or {},
+        )
+```
+
+This allows:
+- `StepHandlerResult.success(...)` classmethod works as expected
+- `result.is_success` attribute access works
+- JSON serialization uses `"success"` key for compatibility
+- `populate_by_name=True` allows creating with either `is_success=` or `success=`
+
+### Domain Events Location
+
+Instead of creating separate files (`domain_events/base_publisher.py`, `domain_events/base_subscriber.py`), the classes were added to the existing `domain_events.py` module for simplicity. This can be refactored later if the module grows too large.

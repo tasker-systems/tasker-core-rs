@@ -57,7 +57,7 @@ class FetchDataHandler(StepHandler):
             {"id": 3, "value": "item_3"},
         ]
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "source": source,
                 "items": items,
@@ -90,7 +90,7 @@ class TransformDataHandler(StepHandler):
         items = fetch_result.get("items", [])
 
         if not items:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="No items to transform",
                 error_type="validation_error",
                 retryable=False,
@@ -107,7 +107,7 @@ class TransformDataHandler(StepHandler):
                 }
             )
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "transformed_items": transformed,
                 "transform_count": len(transformed),
@@ -140,7 +140,7 @@ class StoreDataHandler(StepHandler):
         items = transform_result.get("transformed_items", [])
 
         if not items:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="No items to store",
                 error_type="validation_error",
                 retryable=False,
@@ -149,7 +149,7 @@ class StoreDataHandler(StepHandler):
         # Simulate storing data
         stored_ids = [item.get("id") for item in items if item.get("id")]
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "stored_count": len(stored_ids),
                 "stored_ids": stored_ids,
