@@ -83,7 +83,7 @@ jobs:
         run: bundle install
 
       - name: Download pre-built Ruby extension
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: worker-artifacts
           path: artifacts
