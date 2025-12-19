@@ -28,7 +28,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 # Web framework and HTTP server (TAS-28)
 axum = "0.8"
-axum-extra = { version = "0.10", features = ["typed-header"] }
+axum-extra = { version = "0.12", features = ["typed-header"] }
 bigdecimal = { version = "0.4", features = ["serde"] }
 # Builder pattern with inline defaults for configuration structs
 bon = "3.8"
