@@ -6,16 +6,15 @@ on:
       postgres-image:
         required: true
         type: string
-      use-docker:
-        description: "Force Docker execution (overrides PR label check)"
-        required: false
-        type: boolean
-        default: false
 
 jobs:
-  # Job 1: Build once, shared by both execution modes
-  build-and-unit-tests:
-    name: Build + Unit Tests
+  # ============================================================================
+  # Stage 1: Unit Tests
+  # Run library tests and doctests for core packages
+  # Uses cache warmed by build-workers workflow
+  # ============================================================================
+  unit-tests:
+    name: Unit Tests + Doctests
     runs-on: ubuntu-22.04
     timeout-minutes: 15
 
@@ -38,20 +37,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Free up disk space
-        uses: ./.github/actions/free-disk-space
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup Ruby for FFI extension
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          bundler-cache: true
-          working-directory: workers/ruby
-
-      - name: Cache Rust build artifacts
+      - name: Restore Rust build cache
         uses: actions/cache@v4
         with:
           path: |
@@ -78,24 +67,9 @@ jobs:
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
-      - name: Build all packages
-        run: |
-          echo "🔨 Building all packages with full features..."
-          cargo build --all-features --workspace --bins
-          echo "📦 Verifying binaries were created..."
-          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker
-        env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
-
-      - name: Build Ruby FFI extension
-        run: |
-          cd workers/ruby
-          bundle install
-          bundle exec rake compile
-
       - name: Run unit tests
         run: |
-          echo "🧪 Running unit tests (with postgres service)..."
+          echo "🧪 Running unit tests..."
           mkdir -p target/nextest/ci
           cargo nextest run \
             --profile ci \
@@ -128,36 +102,16 @@ jobs:
           name: unit-test-results
           path: target/nextest/ci/junit.xml
 
-      - name: Verify artifacts before upload
-        run: |
-          echo "📋 Files to be uploaded:"
-          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker || echo "❌ Binaries missing!"
-          ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extensions not found (expected on some platforms)"
-
-      - name: Upload build artifacts for native execution
-        uses: actions/upload-artifact@v5
-        with:
-          name: build-artifacts
-          path: |
-            target/debug/tasker-server
-            target/debug/tasker-worker
-            target/debug/tasker-cli
-            target/debug/rust-worker
-            workers/ruby/lib/tasker_core/tasker_worker_rb.bundle
-            workers/ruby/lib/tasker_core/tasker_worker_rb.so
-          retention-days: 1
-          if-no-files-found: error
-
-  # Job 2a: Native binary execution (default)
-  integration-tests-native:
-    name: Integration Tests (Native Binaries)
+  # ============================================================================
+  # Stage 2: Integration Tests (E2E)
+  # Run E2E tests with all services running
+  # Uses artifacts from build-workers workflow
+  # ============================================================================
+  integration-tests:
+    name: Integration Tests (E2E)
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
-    needs: build-and-unit-tests
-    # Run if: no "run-docker" label AND not forced to use Docker
-    if: |
-      !contains(github.event.pull_request.labels.*.name, 'run-docker') &&
-      !inputs.use-docker
+    timeout-minutes: 25
+    needs: unit-tests
 
     services:
       postgres:
@@ -184,6 +138,23 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+          working-directory: workers/ruby
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
       - name: Restore Rust build cache
         uses: actions/cache@v4
         with:
@@ -201,53 +172,82 @@ jobs:
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
 
-      - name: Setup Ruby for FFI worker
-        uses: ruby/setup-ruby@v1
+      - name: Install tools
+        uses: ./.github/actions/install-tools
         with:
-          ruby-version: "3.4"
-          bundler-cache: true
-          working-directory: workers/ruby
+          tools: "nextest sqlx-cli"
 
       - name: Download build artifacts
         uses: actions/download-artifact@v6
         with:
           name: build-artifacts
-          path: artifacts
+          path: artifacts/build
+
+      - name: Download worker artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: worker-artifacts
+          path: artifacts/workers
+        continue-on-error: true
 
       - name: Restore artifacts to correct locations
         run: |
           echo "📦 Restoring build artifacts..."
-          echo "Artifacts were uploaded with directory structure preserved"
 
-          # Artifacts are in artifacts/target/debug/ and artifacts/workers/ruby/lib/tasker_core/
-          # Copy artifact binaries into existing target/debug (from cargo test --no-run)
-          if [ -d artifacts/target/debug ]; then
-            mkdir -p target/debug
-            cp -rf artifacts/target/debug/* target/debug/
-            echo "✅ Binaries restored from artifacts/target/debug/"
-            ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli
-          else
-            echo "❌ artifacts/target/debug/ not found"
-            ls -laR artifacts/
-            exit 1
+          # Restore core binaries
+          mkdir -p target/debug
+          if [ -d artifacts/build ]; then
+            cp -f artifacts/build/tasker-* target/debug/ 2>/dev/null || true
+            chmod +x target/debug/tasker-* 2>/dev/null || true
           fi
+          echo "✅ Core binaries restored"
+          ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli 2>/dev/null || echo "⚠️  Some binaries missing"
 
-          if [ -d artifacts/workers/ruby/lib/tasker_core ]; then
+          # Restore Ruby extension from worker-artifacts
+          if [ -d artifacts/workers ]; then
             mkdir -p workers/ruby/lib/tasker_core
-            cp -rf artifacts/workers/ruby/lib/tasker_core/* workers/ruby/lib/tasker_core/
-            echo "✅ Ruby extension restored"
-            ls -lh workers/ruby/lib/tasker_core/
-          else
-            echo "ℹ️  No Ruby extensions found (may not be built on this platform)"
+            # Handle nested path structure
+            find artifacts/workers -name "*.so" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
+            find artifacts/workers -name "*.bundle" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
+            # Restore rust-worker binary
+            find artifacts/workers -name "rust-worker" -exec cp {} target/debug/ \; 2>/dev/null || true
+            chmod +x target/debug/rust-worker 2>/dev/null || true
+            echo "✅ Worker artifacts restored"
           fi
 
-      - name: Make binaries executable
-        run: chmod +x target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli target/debug/rust-worker
+      - name: Build Ruby FFI extension (if not from artifacts)
+        run: |
+          cd workers/ruby
+          if ls lib/tasker_core/*.so 2>/dev/null || ls lib/tasker_core/*.bundle 2>/dev/null; then
+            echo "✅ Ruby extension already available from artifacts"
+            ls -lh lib/tasker_core/
+          else
+            echo "🔨 Building Ruby extension from source..."
+            bundle install
+            bundle exec rake compile
+          fi
+        env:
+          SQLX_OFFLINE: "true"
 
-      - name: Install tools
-        uses: ./.github/actions/install-tools
-        with:
-          tools: "nextest sqlx-cli"
+      - name: Build Python FFI extension
+        run: |
+          echo "🔨 Building Python FFI extension (uses warm cache)..."
+          cd workers/python
+          uv sync --dev
+          uv run maturin develop
+        env:
+          SQLX_OFFLINE: "true"
+
+      - name: Build Rust worker (if not from artifacts)
+        run: |
+          if [ -f target/debug/rust-worker ]; then
+            echo "✅ Rust worker already available from artifacts"
+          else
+            echo "🔨 Building Rust worker from source..."
+            cargo build --package tasker-worker-rust
+          fi
+        env:
+          SQLX_OFFLINE: "true"
 
       - name: Run database migrations
         run: sqlx migrate run
@@ -282,15 +282,10 @@ jobs:
 
       - name: Run integration tests
         run: |
-          echo "🏁 Running integration and E2E tests with native binaries..."
+          echo "🏁 Running integration tests..."
           mkdir -p target/nextest/ci
           cargo nextest run \
             --profile ci \
-            --package tasker-shared \
-            --package tasker-orchestration \
-            --package tasker-worker \
-            --package tasker-client \
-            --package tasker-core \
             --test '*' \
             --no-fail-fast
         env:
@@ -298,6 +293,7 @@ jobs:
           TASKER_TEST_ORCHESTRATION_URL: http://localhost:8080
           TASKER_TEST_WORKER_URL: http://localhost:8081
           TASKER_TEST_RUBY_WORKER_URL: http://localhost:8082
+          TASKER_TEST_PYTHON_WORKER_URL: http://localhost:8083
           TASKER_FIXTURE_PATH: ${{ github.workspace }}/tests/fixtures
           RUST_LOG: info
 
@@ -305,174 +301,27 @@ jobs:
         uses: actions/upload-artifact@v5
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
-          name: integration-test-results-native
+          name: integration-test-results
           path: target/nextest/ci/junit.xml
 
       - name: Collect service logs on failure
         if: failure()
         run: |
-          mkdir -p native-logs
-          [ -f orchestration.log ] && cp orchestration.log native-logs/
-          [ -f worker.log ] && cp worker.log native-logs/
-          [ -f ruby-worker.log ] && cp ruby-worker.log native-logs/
+          mkdir -p service-logs
+          [ -f orchestration.log ] && cp orchestration.log service-logs/
+          [ -f worker.log ] && cp worker.log service-logs/
+          [ -f ruby-worker.log ] && cp ruby-worker.log service-logs/
+          [ -f python-worker.log ] && cp python-worker.log service-logs/
 
       - name: Upload service logs
         if: failure()
         uses: actions/upload-artifact@v5
         with:
-          name: native-service-logs
-          path: native-logs/
+          name: service-logs
+          path: service-logs/
 
       - name: Stop native services
         if: always()
         run: |
           chmod +x .github/scripts/stop-native-services.sh
           .github/scripts/stop-native-services.sh
-
-  # Job 2b: Docker execution (conditional)
-  integration-tests-docker:
-    name: Integration Tests (Docker - Production-Like)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    needs: build-and-unit-tests
-    # Run if: "run-docker" label OR forced to use Docker
-    if: |
-      contains(github.event.pull_request.labels.*.name, 'run-docker') ||
-      inputs.use-docker
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Free up disk space
-        uses: ./.github/actions/free-disk-space
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Restore Rust build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
-
-      - name: Setup shared environment variables
-        uses: ./.github/actions/setup-env
-
-      - name: Install tools
-        uses: ./.github/actions/install-tools
-        with:
-          tools: "nextest"
-
-      - name: Clean Docker resources
-        run: docker system prune -af --volumes
-
-      - name: Build and start Docker services
-        run: |
-          echo "🐳 Building and starting Docker services..."
-          echo "   Note: Using cached Rust compilation from build job!"
-          docker compose -f docker/docker-compose.ci.yml up --build -d
-          echo "✅ All services started"
-
-      - name: Wait for services with health checks
-        run: |
-          timeout 180 bash -c '
-            echo "🚀 Starting service health checks..."
-
-            # Fast check for orchestration service
-            until curl -f http://localhost:8080/health 2>/dev/null; do
-              echo "⏳ Waiting for orchestration service..."
-              sleep 2
-            done
-            echo "✅ Orchestration service ready"
-
-            # Fast check for Rust worker
-            until curl -f http://localhost:8081/health 2>/dev/null; do
-              echo "⏳ Waiting for Rust worker service..."
-              sleep 2
-            done
-            echo "✅ Rust worker ready"
-
-            # Extended check for Ruby worker (FFI bootstrap takes time)
-            echo "⏳ Waiting for Ruby worker (FFI bootstrap may take 30-60 seconds)..."
-            until curl -f http://localhost:8082/health 2>/dev/null; do
-              echo "⏳ Ruby worker still bootstrapping FFI..."
-              sleep 5
-            done
-            echo "✅ Ruby worker ready with FFI"
-
-            echo "🎉 All services ready for E2E testing!"
-          '
-
-      - name: Validate handler discovery
-        run: |
-          echo "🔍 Validating handler discovery across all workers..."
-
-          # Check Rust worker handlers
-          rust_handler_count=$(curl -s http://localhost:8081/worker/handlers 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
-          echo "✅ Rust worker handlers: $rust_handler_count"
-
-          # Check Ruby worker handlers
-          ruby_handler_count=$(curl -s http://localhost:8082/worker/handlers 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
-          echo "✅ Ruby worker handlers: $ruby_handler_count"
-
-          # Verify handlers discovered
-          if [ "$ruby_handler_count" -eq "0" ]; then
-            echo "⚠️ Warning: No Ruby handlers discovered"
-          fi
-
-      - name: Run integration and E2E tests
-        run: |
-          echo "🏁 Running integration and E2E tests with Docker..."
-          mkdir -p target/nextest/ci
-          cargo nextest run \
-            --profile ci \
-            --package tasker-shared \
-            --package tasker-orchestration \
-            --package tasker-worker \
-            --package tasker-client \
-            --package tasker-core \
-            --test '*' \
-            --no-fail-fast
-        env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
-          TASKER_TEST_ORCHESTRATION_URL: http://localhost:8080
-          TASKER_TEST_WORKER_URL: http://localhost:8081
-          TASKER_TEST_RUBY_WORKER_URL: http://localhost:8082
-          RUST_LOG: info
-
-      - name: Upload integration test results
-        uses: actions/upload-artifact@v5
-        if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
-        with:
-          name: integration-test-results-docker
-          path: target/nextest/ci/junit.xml
-
-      - name: Collect service logs on failure
-        if: failure()
-        run: |
-          echo "📋 Collecting service logs for debugging..."
-          mkdir -p docker-logs
-          docker compose -f docker/docker-compose.ci.yml logs postgres > docker-logs/postgres.log
-          docker compose -f docker/docker-compose.ci.yml logs orchestration > docker-logs/orchestration.log
-          docker compose -f docker/docker-compose.ci.yml logs worker > docker-logs/rust-worker.log
-          docker compose -f docker/docker-compose.ci.yml logs ruby-worker > docker-logs/ruby-worker.log
-
-      - name: Upload service logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v5
-        with:
-          name: docker-service-logs
-          path: docker-logs/
-
-      - name: Shutdown services
-        if: always()
-        run: docker compose -f docker/docker-compose.ci.yml down -v

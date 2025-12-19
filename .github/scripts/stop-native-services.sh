@@ -18,5 +18,10 @@ if [ -f .pids/ruby-worker.pid ]; then
   echo "Stopped Ruby worker"
 fi
 
+if [ -f .pids/python-worker.pid ]; then
+  kill $(cat .pids/python-worker.pid) 2>/dev/null || true
+  echo "Stopped Python worker"
+fi
+
 rm -rf .pids
 echo "✅ All services stopped"

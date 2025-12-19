@@ -7,34 +7,60 @@ on:
     branches: [main]
 
 jobs:
+  # ============================================================================
+  # Stage 0: Build PostgreSQL image with PGMQ extension
+  # ============================================================================
   build-postgres:
     uses: ./.github/workflows/build-postgres.yml
 
-  # Code quality checks run in parallel with comprehensive tests
+  # ============================================================================
+  # Stage 1: Build Worker Extensions
+  # Builds Ruby/Python FFI extensions and Rust worker binary
+  # ============================================================================
+  build-workers:
+    needs: build-postgres
+    uses: ./.github/workflows/build-workers.yml
+    with:
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
+
+  # ============================================================================
+  # Stage 2: Parallel Test Execution
+  # All three test workflows run in parallel after build-workers completes:
+  #   - integration-tests: workspace-compile → unit-tests → E2E tests
+  #   - ruby-framework-tests: Ruby FFI tests (rspec)
+  #   - python-framework-tests: Python FFI tests (pytest)
+  # ============================================================================
+  integration-tests:
+    needs: [build-postgres, build-workers]
+    uses: ./.github/workflows/test-integration.yml
+    with:
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
+
+  ruby-framework-tests:
+    needs: [build-postgres, build-workers]
+    uses: ./.github/workflows/test-ruby-framework.yml
+    with:
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
+
+  python-framework-tests:
+    needs: [build-postgres, build-workers]
+    uses: ./.github/workflows/test-python-framework.yml
+    with:
+      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
+
+  # Code quality runs in parallel with everything after postgres is ready
   code-quality:
     needs: build-postgres
     uses: ./.github/workflows/code-quality.yml
     with:
       postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
 
-  # Integration tests with dual-mode execution:
-  # - Native binaries by default (fast, ~7 min)
-  # - Docker with "run-docker" label (production-like, ~15 min)
-  integration-tests:
-    needs: build-postgres
-    uses: ./.github/workflows/test-integration.yml
-    with:
-      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
-
-  # Ruby framework tests run after integration tests (workers are shut down)
-  ruby-framework-tests:
-    needs: [build-postgres, integration-tests]
-    uses: ./.github/workflows/test-ruby-framework.yml
-    with:
-      postgres-image: ${{ needs.build-postgres.outputs.postgres-image }}
-
+  # ============================================================================
+  # Stage 3: Performance Analysis
+  # Aggregates test results from all test stages
+  # ============================================================================
   performance-analysis:
-    needs: [integration-tests, ruby-framework-tests]
+    needs: [integration-tests, ruby-framework-tests, python-framework-tests]
     runs-on: ubuntu-22.04
     if: always()
     steps:
@@ -46,36 +72,15 @@ jobs:
           path: performance-data/
         continue-on-error: true
 
+      - name: Checkout for scripts
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Aggregate performance metrics
         run: |
-          echo "📊 Aggregating test performance metrics..."
-
-          # Create performance dashboard
-          cat > performance-summary.md << 'EOF'
-          # Test Performance Summary
-
-          ## Overview
-          This report summarizes performance metrics from comprehensive and Ruby framework tests.
-
-          EOF
-
-          # Process comprehensive test performance
-          if [ -f "performance-data/unit-test-results/junit.xml" ] || [ -f "performance-data/integration-test-results/junit.xml" ]; then
-            echo "## Comprehensive Test Performance" >> performance-summary.md
-            echo "Comprehensive tests (unit + integration + E2E) completed successfully." >> performance-summary.md
-            echo "" >> performance-summary.md
-          fi
-
-          # Process Ruby framework test performance
-          if [ -f "performance-data/ruby-framework-perf-summary.txt" ]; then
-            echo "## Ruby Framework Test Performance" >> performance-summary.md
-            echo '```' >> performance-summary.md
-            cat performance-data/ruby-framework-perf-summary.txt >> performance-summary.md
-            echo '```' >> performance-summary.md
-            echo "" >> performance-summary.md
-          fi
-
-          echo "✅ Performance summary created"
+          chmod +x .github/scripts/aggregate-performance-metrics.sh
+          .github/scripts/aggregate-performance-metrics.sh performance-data performance-summary.md
 
       - name: Upload performance analysis
         uses: actions/upload-artifact@v5
@@ -85,6 +90,10 @@ jobs:
             performance-summary.md
             performance-data/
 
+  # ============================================================================
+  # Stage 4: CI Success Gate
+  # Final status check - all jobs must pass for CI to succeed
+  # ============================================================================
   ci-success:
-    needs: [code-quality, integration-tests, ruby-framework-tests, performance-analysis]
+    needs: [code-quality, integration-tests, ruby-framework-tests, python-framework-tests, performance-analysis]
     uses: ./.github/workflows/ci-success.yml

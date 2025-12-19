@@ -1,0 +1,60 @@
+# TaskTemplate Configuration - Python Implementation
+#
+# Permanent Error Handler for E2E Testing
+# Demonstrates non-retryable error behavior via Python FFI
+#
+# Template: test_scenarios/permanent_error_only_py:1.0.0
+# Implementation: Python FFI with tasker-worker-py (PyO3)
+#
+---
+name: permanent_error_only_py
+namespace_name: test_scenarios_py
+version: 1.0.0
+description: "Single-step handler that returns permanent errors (Python)"
+metadata:
+  author: Python FFI Implementation
+  tags:
+    - namespace:test_scenarios_py
+    - pattern:single_step
+    - implementation:python_ffi
+    - language:python
+    - test_type:permanent_error
+  created_at: "2025-12-13T00:00:00Z"
+  updated_at: "2025-12-13T00:00:00Z"
+task_handler:
+  callable: test_scenarios.PermanentErrorHandler
+  initialization: {}
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  properties:
+    error_message:
+      type: string
+      description: "Error message to return"
+steps:
+  - name: permanent_error_step_py
+    description: "A step that returns a permanent (non-retryable) error"
+    handler:
+      callable: test_scenarios.step_handlers.PermanentErrorStepHandler
+      initialization:
+        expected_outcome: permanent_error
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: false
+      max_attempts: 1
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 1000
+    timeout_seconds: 30
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: permanent_error_step_py
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1

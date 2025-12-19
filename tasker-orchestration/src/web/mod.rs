@@ -61,7 +61,10 @@ pub fn create_app(app_state: AppState) -> Router {
         .layer(axum::middleware::from_fn(
             middleware::request_id::add_request_id,
         ))
-        .layer(tower_http::timeout::TimeoutLayer::new(request_timeout))
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            request_timeout,
+        ))
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
@@ -107,7 +110,10 @@ pub fn create_test_app(app_state: AppState) -> Router {
         .layer(axum::middleware::from_fn(
             middleware::request_id::add_request_id,
         ))
-        .layer(tower_http::timeout::TimeoutLayer::new(test_timeout))
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            test_timeout,
+        ))
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)

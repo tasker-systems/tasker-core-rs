@@ -47,6 +47,7 @@ jobs:
           key: ${{ runner.os }}-cargo-quality-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-quality-
+            ${{ runner.os }}-cargo-integration-
             ${{ runner.os }}-cargo-
 
       - name: Setup shared environment variables

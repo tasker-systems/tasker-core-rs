@@ -1,0 +1,220 @@
+# TaskTemplate Configuration - Python Implementation with Decision Points
+#
+# Conditional Approval Workflow with TAS-53 Decision Point Routing
+# Demonstrates dynamic workflow step creation based on runtime conditions
+#
+# Template: conditional_approval_py/approval_routing_py:1.0.0
+# Implementation: Python FFI with decision point support (Phase 6b)
+# Feature: TAS-53 Dynamic Workflows & DecisionPoint Steps
+#
+# Workflow Pattern:
+# 1. validate_request_py: Validate approval request data
+# 2. routing_decision_py: DECISION POINT - route based on amount
+#    - Creates different approval steps dynamically:
+#      * < $1,000: auto_approve_py
+#      * $1,000-$4,999: manager_approval_py
+#      * >= $5,000: manager_approval_py + finance_review_py
+# 3. Dynamic Steps (created by decision point):
+#    - auto_approve_py: Auto-approval for small amounts
+#    - manager_approval_py: Manager review
+#    - finance_review_py: Finance review for large amounts
+# 4. finalize_approval_py: Convergence step processing all approvals
+#
+---
+name: approval_routing_py
+namespace_name: conditional_approval_py
+version: 1.0.0
+description: "Decision point workflow with conditional routing: amount-based approval paths (Python)"
+metadata:
+  author: TAS-88 Phase 6b Python Implementation
+  tags:
+    - namespace:conditional_approval_py
+    - pattern:decision_point
+    - feature:dynamic_workflows
+    - implementation:python_ffi
+    - language:python
+    - tas:TAS-88
+  documentation_url:
+  created_at: "2025-12-16T00:00:00Z"
+  updated_at: "2025-12-16T00:00:00Z"
+  notes: "Demonstrates TAS-53 decision point functionality with Python handlers"
+task_handler:
+  callable: conditional_approval.ConditionalApprovalHandler
+  initialization:
+    input_validation:
+      required_fields:
+        - amount
+        - requester
+        - purpose
+      amount_constraint: must_be_positive
+    routing_thresholds:
+      small: 1000
+      large: 5000
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - amount
+    - requester
+    - purpose
+  properties:
+    amount:
+      type: number
+      minimum: 0.01
+      maximum: 1000000
+      description: "Amount requiring approval"
+    requester:
+      type: string
+      minLength: 1
+      description: "Person requesting approval"
+    purpose:
+      type: string
+      minLength: 1
+      description: "Purpose of the approval request"
+steps:
+  # ========================================================================
+  # STATIC WORKFLOW STRUCTURE
+  # These steps are always created at task initialization
+  # ========================================================================
+
+  - name: validate_request_py
+    description: "Validate approval request data (initial step)"
+    handler:
+      callable: conditional_approval.step_handlers.ValidateRequestHandler
+      initialization:
+        operation: validate
+        description: "Validate request fields and constraints"
+    system_dependency:
+    dependencies: []
+    type: standard
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: routing_decision_py
+    description: "DECISION POINT: Route to appropriate approval path based on amount"
+    handler:
+      callable: conditional_approval.step_handlers.RoutingDecisionHandler
+      initialization:
+        operation: routing
+        description: "Determine approval path based on amount thresholds"
+        thresholds:
+          small: 1000
+          large: 5000
+    system_dependency:
+    dependencies:
+      - validate_request_py
+    type: decision
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: finalize_approval_py
+    description: "Finalize approval after all required approvals received (convergence)"
+    handler:
+      callable: conditional_approval.step_handlers.FinalizeApprovalHandler
+      initialization:
+        operation: finalize
+        description: "Process and record final approval decision"
+    system_dependency:
+    dependencies:
+      - auto_approve_py
+      - manager_approval_py
+      - finance_review_py
+    type: deferred_convergence
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  # ========================================================================
+  # DYNAMICALLY CREATED STEP DEFINITIONS
+  # These steps are NOT created at task initialization.
+  # They are created at runtime when the routing_decision_py step executes
+  # and returns a DecisionPointOutcome with step names.
+  # ========================================================================
+
+  - name: auto_approve_py
+    description: "Automatic approval for small amounts (< $1,000)"
+    handler:
+      callable: conditional_approval.step_handlers.AutoApproveHandler
+      initialization:
+        operation: auto_approve
+        description: "Automatically approve small requests"
+    system_dependency:
+    dependencies:
+      - routing_decision_py
+    type: standard
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: manager_approval_py
+    description: "Manager approval for medium amounts ($1,000-$4,999)"
+    handler:
+      callable: conditional_approval.step_handlers.ManagerApprovalHandler
+      initialization:
+        operation: manager_approval
+        description: "Route to manager for approval"
+    system_dependency:
+    dependencies:
+      - routing_decision_py
+    type: standard
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: finance_review_py
+    description: "Finance review for large amounts (>= $5,000)"
+    handler:
+      callable: conditional_approval.step_handlers.FinanceReviewHandler
+      initialization:
+        operation: finance_review
+        description: "Route to finance for additional review"
+    system_dependency:
+    dependencies:
+      - routing_decision_py
+    type: standard
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+environments:
+  test:
+    steps:
+      - name: ALL
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2

@@ -1,6 +1,6 @@
 # GitHub Actions CI/CD Workflows
 
-This directory contains the CI/CD pipeline for tasker-core, implementing TAS-42's unified testing architecture.
+This directory contains the CI/CD pipeline for tasker-core, implementing an optimized DAG-based architecture for maximum parallelism and cache efficiency.
 
 ## Workflow Overview
 
@@ -8,109 +8,182 @@ This directory contains the CI/CD pipeline for tasker-core, implementing TAS-42'
 
 **File**: `ci.yml`
 
-The main orchestrator that runs all CI checks in parallel where possible.
+The main orchestrator implementing a multi-stage DAG with maximum parallelism.
 
-**Job Flow**:
+**Pipeline DAG**:
 ```
-build-postgres
-    ├─→ code-quality (parallel)
-    └─→ integration-tests (parallel)
-
-integration-tests
-    └─→ ruby-framework-tests (needs build-postgres)
-
-integration-tests + ruby-framework-tests
-    └─→ performance-analysis
-
-code-quality + integration-tests + ruby-framework-tests + performance-analysis
-    └─→ ci-success
+                              build-postgres
+                                    │
+                 ┌──────────────────┼──────────────────┐
+                 │                  │                  │
+                 ▼                  ▼                  ▼
+          code-quality       build-workers        (parallel)
+          ┌─────────┐       ┌──────────────────┐
+          │ fmt     │       │ 1. core packages │
+          │ clippy  │       │ 2. workers/rust  │
+          │ audit   │       │ 3. workers/ruby  │
+          │ doc     │       │ 4. workers/python│
+          └─────────┘       │ (warms sccache)  │
+                            └────────┬─────────┘
+                                     │
+                 ┌───────────────────┼───────────────────┐
+                 │                   │                   │
+                 ▼                   ▼                   ▼
+        integration-tests    ruby-framework     python-framework
+       ┌─────────────────┐   ┌─────────────┐   ┌───────────────┐
+       │   unit-tests    │   │ bundle exec │   │ uv run pytest │
+       │  (uses cache)   │   │ rspec       │   │ (rebuilds FFI │
+       │       │         │   │ (77 tests)  │   │  with cache)  │
+       │       ▼         │   └─────────────┘   └───────────────┘
+       │   E2E tests     │           │                 │
+       │ (uses artifacts)│           │                 │
+       └────────┬────────┘           │                 │
+                │                    │                 │
+                └────────────────────┴─────────────────┘
+                                     │
+                                     ▼
+                            performance-analysis
+                                     │
+                                     ▼
+                                 ci-success
+                            (requires all above)
 ```
 
-**Key Improvements (TAS-56)**:
-- PostgreSQL image built once and reused across all jobs
-- Code quality and integration tests run in parallel for faster CI
-- **Native binary execution by default** (~7 min vs ~15 min Docker)
-- Optional Docker execution via "run-docker" PR label for production-like testing
-- Single test suite covers unit + integration + E2E (all 482 tests)
-- Ruby framework tests use PostgreSQL service for FFI compilation
-- Dependency cleanup removed 4 unused crates (5-10% compilation speedup)
-- Dual-mode architecture: fast by default, thorough when needed
+**Key Optimizations (TAS-88)**:
+- **Unified build-workers workflow**: Builds core packages + all workers, warms sccache for everything
+- **Maximum parallelism**: After build-workers, three test workflows run in parallel
+- **Code quality parallel**: Runs alongside build-workers (no dependency on it)
+- **Cache sharing**: All downstream jobs benefit from build-workers' warm cache
+- **Artifact reuse**: Pre-built binaries shared across jobs (Ruby ext, Rust worker, core binaries)
+- **Python FFI rebuild**: Uses warm cache for fast rebuild (venvs not portable)
+- **Native-only execution**: Removed Docker mode for simplicity
+
+**Core Packages** (compiled in workspace-compile):
+- tasker-orchestration
+- tasker-shared
+- tasker-worker
+- pgmq-notify
+- tasker-client
+
+**Worker Packages** (compiled in build-workers):
+- workers/rust
+- workers/ruby (FFI extension via magnus)
+- workers/python (FFI extension via maturin/pyo3)
 
 ---
 
 ## Test Workflows
 
+### Workspace Compile (`test-integration.yml` - build-and-unit-tests job)
+
+**Purpose**: Compile core packages and warm sccache for downstream jobs
+
+**Compiles**:
+- tasker-orchestration
+- tasker-shared
+- tasker-worker
+- pgmq-notify
+- tasker-client
+
+**Key Features**:
+- Uses sccache for distributed compilation caching
+- Uploads compiled binaries as artifacts
+- Creates nextest archive for partitioned test execution
+- Does NOT build FFI extensions (deferred to build-workers)
+
+**Duration**: ~5-8 minutes (faster on cache hit)
+
+---
+
+### Unit Tests (`test-integration.yml` - unit-tests job)
+
+**Purpose**: Run library tests and doctests for core packages
+
+**Runs**:
+```bash
+# Unit tests via nextest
+cargo nextest run --profile ci --lib \
+  --package tasker-shared \
+  --package tasker-orchestration \
+  --package tasker-worker \
+  --package pgmq-notify \
+  --package tasker-client
+
+# Documentation tests
+cargo test --doc \
+  --package tasker-shared \
+  --package tasker-orchestration \
+  --package tasker-worker \
+  --package pgmq-notify \
+  --package tasker-client
+```
+
+**Duration**: ~2-3 minutes
+
+---
+
+### Build Workers (`build-workers.yml`)
+
+**Purpose**: Compile FFI extensions for Ruby and Python workers
+
+**Builds**:
+- `workers/rust` - Rust worker binary
+- `workers/ruby` - Ruby FFI extension (magnus)
+- `workers/python` - Python FFI extension (maturin/pyo3)
+
+**Key Features**:
+- **Separate workflow**: Runs as its own workflow, not a job within test-integration
+- All three test workflows (integration, ruby-framework, python-framework) run in parallel after this completes
+- Uploads artifacts for downstream test jobs
+
+**Duration**: ~8-10 minutes
+
+---
+
 ### Integration Tests (`test-integration.yml`)
 
-**Purpose**: Complete test suite with dual-mode execution (native or Docker)
+**Purpose**: End-to-end testing with all services running
 
-**Execution Modes**:
+**Internal Structure**:
+1. **workspace-compile**: Build core packages, warm sccache
+2. **unit-tests**: Run library tests and doctests
+3. **integration-tests**: E2E tests with all workers
 
-#### Mode 1: Native Binary Execution (Default)
-- **Trigger**: No "run-docker" label on PR
-- **Duration**: ~7 minutes
-- **How it works**:
-  1. Uses pre-compiled binaries from build job
-  2. Starts services natively against GitHub Actions postgres
-  3. Generates test config with config-builder
-  4. Runs all 482 tests against native services
+**Execution**:
+- **Mode**: Native binary execution only (Docker mode removed for simplicity)
+- **Duration**: ~20-25 minutes total
 
-**Requirements**:
-- PostgreSQL service container
-- Pre-compiled binaries (target/debug/*)
-- Ruby FFI extension compiled
+**How it works**:
+1. Workspace-compile builds core packages
+2. Unit tests run after compilation
+3. Downloads worker artifacts from build-workers workflow
+4. Starts native services (orchestration, rust-worker, ruby-worker, python-worker)
+5. Runs E2E tests against native services
 
 **Command**:
 ```bash
 # Generate test configurations
-mkdir -p config/v2
-cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
+cargo run --package tasker-client --bin tasker-cli -- config generate \
   --context orchestration --environment test \
-  --source-dir config/v2 \
-  --output config/v2/orchestration-test.toml
-cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
-  --context worker --environment test \
-  --source-dir config/v2 \
-  --output config/v2/worker-test.toml
+  --source-dir config/tasker \
+  --output config/tasker/orchestration-test.toml
 
 # Start native services
 .github/scripts/start-native-services.sh
 
-# Run all tests
-cargo nextest run --profile ci \
-  --package tasker-shared --package tasker-orchestration \
-  --package tasker-worker --package pgmq-notify \
-  --package tasker-client --package tasker-core \
+# Run integration tests
+cargo nextest run \
+  --profile ci \
   --test '*' --no-fail-fast
 
 # Stop services
 .github/scripts/stop-native-services.sh
 ```
 
-#### Mode 2: Docker Execution (Conditional)
-- **Trigger**: "run-docker" label on PR (`gh pr edit --add-label "run-docker"`)
-- **Duration**: ~15 minutes
-- **How it works**:
-  1. Builds Docker images for all services
-  2. Starts services via Docker Compose
-  3. Runs same 482 tests against Docker services
-
-**Use When**:
-- Changing Docker configuration
-- Modifying deployment scripts
-- Adding/removing system dependencies
-- Final validation before merge
-- Debugging production-like issues
-
-**Test Count**: 482 tests (same tests, different execution environment)
-
 **Key Features**:
-- **Dual-mode architecture**: Fast native by default, Docker when needed
-- **Label-based switching**: Simple PR label controls execution mode
-- **Shared build step**: Both modes use same compiled binaries
-- **Same test coverage**: Tests are environment-agnostic
+- **Native-only**: Simplified architecture, no Docker complexity
+- Uses worker artifacts from build-workers workflow
 - Health checks for all services before testing
-- Handler discovery validation
 - Comprehensive service logs on failure
 - JUnit XML output for CI reporting
 
@@ -469,54 +542,69 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 
 ## CI Performance Targets
 
-| Workflow | Target Duration | Actual | Test Count |
-|----------|----------------|--------|------------|
-| Build PostgreSQL | < 5 minutes | ~3-5 min | N/A |
-| Code Quality | < 3 minutes | ~2-3 min | N/A |
-| Integration Tests (Native) | < 10 minutes | ~7 min | 482 tests |
-| Integration Tests (Docker) | < 20 minutes | ~15 min | 482 tests |
-| Ruby Framework | < 3 minutes | ~2-3 min | 77 tests |
-| **Total CI (Native)** | **< 15 minutes** | **~12-13 min** | **559 tests** |
-| **Total CI (Docker)** | **< 25 minutes** | **~20-23 min** | **559 tests** |
+| Stage | Target Duration | Test Count | Notes |
+|-------|----------------|------------|-------|
+| Build PostgreSQL | < 2 min | N/A | Cached image |
+| Code Quality | < 4 min | N/A | Parallel with build-workers |
+| Build Workers | < 10 min | N/A | FFI extensions for all languages |
+| Integration Tests | < 25 min | ~1000+ | workspace-compile → unit-tests → E2E |
+| Ruby Framework | < 5 min | ~77 | Parallel with integration |
+| Python Framework | < 5 min | TBD | Parallel with integration |
+| **Total CI** | **< 30 min** | **~1100+ tests** | **With warm cache** |
 
-**Key Optimizations (TAS-56)**:
-- **Native binary execution by default** (~7 min vs ~15 min Docker)
-- Optional Docker via "run-docker" label for production-like testing
-- Dependency cleanup removed 4 unused crates (5-10% faster builds)
-- PostgreSQL image built once and reused across all jobs
-- Code quality and integration tests run in parallel
-- Shared build step for both native and Docker modes
-- config-builder generates test configuration dynamically
-- Native services start in <30 seconds vs 3-5 minutes for Docker
-- Ruby framework tests use lightweight PostgreSQL service
+**Key Optimizations (TAS-88)**:
+- **Separate build-workers workflow**: FFI builds run once, artifacts shared
+- **DAG parallelism**: Three test workflows run in parallel after build-workers
+- **Native-only**: Removed Docker mode for simplicity
+- **Artifact reuse**: Pre-built worker binaries shared across jobs
+- **No partitioning overhead**: Simpler execution model
+
+**Cache Strategy**:
+- sccache: Compilation artifacts shared via GitHub Actions cache
+- Cargo registry: Dependencies cached per Cargo.lock hash
+- Bundler: Ruby gems cached per Gemfile.lock
+- uv: Python packages cached per pyproject.toml
 
 ---
 
 ## Migration from Old Structure
 
-**Previous (TAS-42)**: Unified `test-e2e.yml` with Docker-only execution
+**Previous (TAS-56)**: Dual-mode execution with optional Docker
 
-**Now (TAS-56)**: Dual-mode `test-integration.yml` with native execution by default
+**Now (TAS-88)**: DAG-based pipeline with maximum parallelism
 
 **Changes**:
-- ✅ Native binary execution as default (~7 min vs ~15 min Docker)
-- ✅ Conditional Docker execution via "run-docker" PR label
-- ✅ Service startup scripts for native execution (.github/scripts/)
-- ✅ Dynamic test configuration generation (config-builder)
-- ✅ Removed 4 unused dependencies (factori, mockall, proptest, insta)
-- ✅ Dependency analysis tools (analyze-unused-deps.sh, remove-unused-deps.sh)
-- ✅ Shared build step for both native and Docker modes
-- ✅ Updated sqlx query cache after dependency changes
-- ✅ Renamed `test-e2e.yml` → `test-integration.yml` (more accurate)
-- ✅ Updated all CI workflow references
+- ✅ **DAG architecture**: Multi-stage pipeline with parallel job execution
+- ✅ **sccache enabled**: Distributed compilation caching via mozilla-actions/sccache-action
+- ✅ **Nextest partitioning**: Integration tests split across 2 parallel runners
+- ✅ **Deferred FFI builds**: Workers build in parallel with unit tests (not blocking)
+- ✅ **Docker mode removed**: Native-only execution for simplicity
+- ✅ **Python worker support**: Full Python FFI worker in CI pipeline
+- ✅ **Artifact reuse**: Ruby framework tests reuse pre-built FFI extension
+- ✅ **Cache optimization**: code-quality uses integration cache fallback
+
+**Architecture Changes**:
+```
+Before (TAS-56):                    After (TAS-88):
+
+build-postgres                      build-postgres
+    │                                     │
+    ├─→ code-quality                ┌─────┼─────┐
+    └─→ build + unit + FFI          │     │     │
+              │                     ▼     ▼     ▼
+              ▼                   code  build-workers
+         integration              quality    │
+              │                         ┌────┼────┐
+              ▼                         ▼    ▼    ▼
+         framework                 integration ruby  python
+                                     tests     fw    fw
+```
 
 **Performance Impact**:
-- **Default (Native)**: ~12-13 minutes total CI time (53% faster)
-- **With Docker**: ~20-23 minutes total CI time (when needed)
-- 559 total tests (482 Rust + 77 Ruby)
-- 5-10% faster builds from dependency cleanup
-- 50% GitHub Actions cost reduction for most PRs
-- Same test coverage, different execution environment
+- **Cold cache**: ~25-30 minutes (first run)
+- **Warm cache**: ~20-25 minutes (subsequent runs)
+- **Parallelism gain**: Three test workflows run simultaneously after build-workers
+- **Native-only**: Simpler than Docker mode
 
 ---
 
@@ -579,4 +667,4 @@ If needed, create:
 
 ---
 
-**Last Updated**: 2025-10-25 (TAS-56 native binary execution + dependency cleanup)
+**Last Updated**: 2025-12-18 (TAS-88 DAG-based pipeline with sccache and nextest partitioning)

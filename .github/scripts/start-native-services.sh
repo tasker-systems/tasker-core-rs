@@ -7,10 +7,13 @@ ORCHESTRATION_CONFIG="${ORCHESTRATION_CONFIG:-$(pwd)/config/tasker/orchestration
 WORKER_CONFIG="${WORKER_CONFIG:-$(pwd)/config/tasker/worker-test.toml}"
 RUST_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
 RUBY_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/ruby"
+PYTHON_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/python"
+PYTHON_HANDLER_PATH="$(pwd)/workers/python/tests/handlers"
 FIXTURE_PATH="$(pwd)/tests/fixtures"
 ORCHESTRATION_PORT="${ORCHESTRATION_PORT:-8080}"
 WORKER_PORT="${WORKER_PORT:-8081}"
 RUBY_WORKER_PORT="${RUBY_WORKER_PORT:-8082}"
+PYTHON_WORKER_PORT="${PYTHON_WORKER_PORT:-8083}"
 
 # Export fixture path for E2E tests
 export TASKER_FIXTURE_PATH="$FIXTURE_PATH"
@@ -63,7 +66,23 @@ RUBY_WORKER_PID=$!
 echo "Ruby worker PID: $RUBY_WORKER_PID"
 cd ../..
 
-# 5. Wait for health checks
+# 5. Start Python FFI worker in background
+echo "🐍 Starting Python FFI worker on port $PYTHON_WORKER_PORT..."
+cd workers/python
+TASKER_CONFIG_PATH="$WORKER_CONFIG" \
+  DATABASE_URL="$POSTGRES_URL" \
+  TASKER_ENV=test \
+  TASKER_TEMPLATE_PATH="$PYTHON_TEMPLATE_PATH" \
+  PYTHON_HANDLER_PATH="$PYTHON_HANDLER_PATH" \
+  TASKER_WEB_BIND_ADDRESS="0.0.0.0:$PYTHON_WORKER_PORT" \
+  RUST_LOG=info \
+  uv run python bin/server.py \
+  > ../../python-worker.log 2>&1 &
+PYTHON_WORKER_PID=$!
+echo "Python worker PID: $PYTHON_WORKER_PID"
+cd ../..
+
+# 6. Wait for health checks
 echo "🏥 Waiting for services to be healthy..."
 timeout 60 bash -c "
   until curl -sf http://localhost:$ORCHESTRATION_PORT/health > /dev/null; do
@@ -83,15 +102,23 @@ timeout 60 bash -c "
     sleep 2
   done
   echo '✅ Ruby worker ready'
+
+  until curl -sf http://localhost:$PYTHON_WORKER_PORT/health > /dev/null; do
+    echo '⏳ Waiting for Python worker...'
+    sleep 2
+  done
+  echo '✅ Python worker ready'
 "
 
-# 6. Save PIDs for cleanup
+# 7. Save PIDs for cleanup
 mkdir -p .pids
 echo "$ORCHESTRATION_PID" > .pids/orchestration.pid
 echo "$WORKER_PID" > .pids/worker.pid
 echo "$RUBY_WORKER_PID" > .pids/ruby-worker.pid
+echo "$PYTHON_WORKER_PID" > .pids/python-worker.pid
 
 echo "✅ All services started and healthy!"
-echo "   - Orchestration: http://localhost:$ORCHESTRATION_PORT (PID $ORCHESTRATION_PID)"
-echo "   - Rust Worker:   http://localhost:$WORKER_PORT (PID $WORKER_PID)"
-echo "   - Ruby Worker:   http://localhost:$RUBY_WORKER_PORT (PID $RUBY_WORKER_PID)"
+echo "   - Orchestration:  http://localhost:$ORCHESTRATION_PORT (PID $ORCHESTRATION_PID)"
+echo "   - Rust Worker:    http://localhost:$WORKER_PORT (PID $WORKER_PID)"
+echo "   - Ruby Worker:    http://localhost:$RUBY_WORKER_PORT (PID $RUBY_WORKER_PID)"
+echo "   - Python Worker:  http://localhost:$PYTHON_WORKER_PORT (PID $PYTHON_WORKER_PID)"

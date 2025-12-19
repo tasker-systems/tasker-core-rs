@@ -88,6 +88,10 @@ RUN mkdir -p workers/rust/src && \
     echo "pub fn stub() {}" > workers/rust/src/lib.rs
 COPY workers/rust/Cargo.toml ./workers/rust/
 
+RUN mkdir -p workers/python/src && \
+    echo "pub fn stub() {}" > workers/python/src/lib.rs
+COPY workers/python/Cargo.toml ./workers/python/
+
 # Generate dependency recipe
 RUN cargo chef prepare --recipe-path recipe.json
 
@@ -132,6 +136,10 @@ COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
 RUN mkdir -p workers/rust/src && \
     echo "pub fn stub() {}" > workers/rust/src/lib.rs
 COPY workers/rust/Cargo.toml ./workers/rust/
+
+RUN mkdir -p workers/python/src && \
+    echo "pub fn stub() {}" > workers/python/src/lib.rs
+COPY workers/python/Cargo.toml ./workers/python/
 
 # Set offline mode for SQLx
 ENV SQLX_OFFLINE=true

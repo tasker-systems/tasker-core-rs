@@ -48,14 +48,30 @@ jobs:
           bundler-cache: true
           working-directory: workers/ruby
 
-      - name: Setup Rust (for FFI extension)
+      - name: Setup Rust (for sqlx-cli)
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+            ${{ runner.os }}-cargo-
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
 
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+      - name: Install tools
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "sqlx-cli"
 
       - name: Run database migrations
         run: cargo sqlx migrate run
@@ -66,10 +82,37 @@ jobs:
       - name: Install Ruby dependencies
         run: bundle install
 
-      - name: Compile Ruby FFI extension
-        run: bundle exec rake compile
+      - name: Download pre-built Ruby extension
+        uses: actions/download-artifact@v6
+        with:
+          name: worker-artifacts
+          path: artifacts
+        continue-on-error: true
+
+      - name: Restore or compile Ruby FFI extension
+        run: |
+          # Try to use pre-built extension from integration tests (build-workers job)
+          # Artifact path: workers/ruby/lib/tasker_core/tasker_worker_rb.{bundle,so}
+          if [ -d artifacts/workers/ruby/lib/tasker_core ]; then
+            echo "📦 Using pre-built Ruby extension from worker artifacts..."
+            mkdir -p lib/tasker_core
+            cp -rf artifacts/workers/ruby/lib/tasker_core/* lib/tasker_core/
+            ls -lh lib/tasker_core/
+            echo "✅ Pre-built extension restored"
+          elif ls artifacts/*.{bundle,so} 2>/dev/null; then
+            # Handle flat artifact structure
+            echo "📦 Using pre-built Ruby extension (flat structure)..."
+            mkdir -p lib/tasker_core
+            cp -f artifacts/*.bundle lib/tasker_core/ 2>/dev/null || true
+            cp -f artifacts/*.so lib/tasker_core/ 2>/dev/null || true
+            ls -lh lib/tasker_core/
+            echo "✅ Pre-built extension restored"
+          else
+            echo "🔨 Building Ruby extension from source..."
+            bundle exec rake compile
+          fi
         env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SQLX_OFFLINE: "true"
 
       - name: Create test results directory
         run: mkdir -p ../../target

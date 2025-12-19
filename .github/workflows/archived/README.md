@@ -1,16 +1,28 @@
 # Archived GitHub Actions Workflows
 
-This directory contains workflows that are temporarily disabled during development.
+This directory contains workflows that have been superseded or temporarily disabled.
 
-## Currently Archived
+## Superseded Workflows (December 2024)
+
+These workflows were replaced by the DAG-based CI pipeline restructure.
+
+### `test-e2e.yml`
+**Replaced by**: `test-integration.yml` (integration-tests job with 2-way partitioning)
+
+### `test-unit.yml`
+**Replaced by**: `test-integration.yml` (unit-tests job runs in parallel with build-workers)
+
+### `test-ruby-unit.yml`
+**Replaced by**: `test-ruby-framework.yml` (comprehensive Ruby framework tests)
+
+## Previously Archived
 
 ### `release.yml.disabled`
-
 **Reason**: Prevents accidental publishing to crates.io during active development
 
-**Original Purpose**: 
+**Original Purpose**:
 - Automated release workflow with cross-platform binaries
-- Publishes to crates.io and generates documentation  
+- Publishes to crates.io and generates documentation
 - Creates GitHub releases with multi-platform binary builds
 
 **When to Re-enable**:
@@ -18,14 +30,17 @@ This directory contains workflows that are temporarily disabled during developme
 - Rename back to `release.yml` and move to `.github/workflows/`
 - Ensure version numbers and release strategy are finalized
 
-**Re-activation Steps**:
-```bash
-# When ready for releases
-mv .github/workflows/archived/release.yml.disabled .github/workflows/release.yml
-```
+### `ci-backup.yml`
+**Reason**: Backup of previous CI structure before pipeline restructure
+
+### Other archived files
+- `claude-code-review.yml` / `claude-code-review.yml.disabled` - Claude code review integration
+- `claude.yml` - Claude integration
+- `integration-tests.yml` - Old integration test structure
+- `ruby-gem.yml` - Ruby gem publishing
 
 ## Safety Notes
 
-- Archived workflows with `.disabled` extension will not run
-- GitHub Actions ignores files outside `.github/workflows/` directory
+- Archived workflows will not run (GitHub ignores files outside `.github/workflows/`)
+- Files with `.disabled` extension are explicitly marked as inactive
 - This prevents accidental triggers from tags or manual workflow runs
