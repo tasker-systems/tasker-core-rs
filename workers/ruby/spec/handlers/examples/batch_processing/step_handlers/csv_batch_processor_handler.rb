@@ -31,16 +31,17 @@ module TaskerCore
           keyword_init: true
         )
 
-        def call(_task, sequence, step)
-          # Extract cursor context from step data
-          context = extract_cursor_context(step)
+        def call(context)
+          # Extract cursor context from step data using new context-based API
+          batch_context = get_batch_context(context)
 
           # Handle no-op placeholder scenario
-          no_op_result = handle_no_op_worker(context)
+          no_op_result = handle_no_op_worker(batch_context)
           return no_op_result if no_op_result
 
-          # Get CSV file path from analyzer dependency
-          csv_file_path = get_dependency_result(sequence, 'analyze_csv', 'csv_file_path')
+          # Get CSV file path from analyzer dependency using new context-based API
+          csv_result = context.get_dependency_result('analyze_csv')
+          csv_file_path = csv_result&.dig('csv_file_path') || csv_result&.dig(:csv_file_path)
           raise ArgumentError, 'csv_file_path not found in analyze_csv results' if csv_file_path.nil?
 
           # TODO (SECURITY): In production, validate CSV file path to prevent path traversal
@@ -51,10 +52,10 @@ module TaskerCore
           # Example: validate_csv_path(csv_file_path, allowed_dir: '/app/data/csv')
           validate_csv_path(csv_file_path)
 
-          # Extract cursor range
-          start_row = context.start_cursor
-          end_row = context.end_cursor
-          batch_id = context.batch_id
+          # Extract cursor range from batch context
+          start_row = batch_context.start_cursor
+          end_row = batch_context.end_cursor
+          batch_id = batch_context.batch_id
 
           # Process CSV rows in range
           metrics = process_csv_range(csv_file_path, start_row, end_row)

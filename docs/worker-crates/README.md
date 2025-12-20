@@ -257,8 +257,8 @@ class MyHandler(StepHandler):
 HTTP/REST API integration with automatic error classification:
 ```ruby
 class FetchDataHandler < TaskerCore::StepHandler::Api
-  def call(task, sequence, step)
-    user_id = task.context['user_id']
+  def call(context)
+    user_id = context.get_task_field('user_id')
     response = connection.get("/users/#{user_id}")
     process_response(response)
     success(result: response.body)
@@ -286,13 +286,13 @@ Large dataset processing. Note: Ruby uses subclass inheritance, Python uses mixi
 **Ruby** (subclass of Base):
 ```ruby
 class CsvBatchProcessorHandler < TaskerCore::StepHandler::Batchable
-  def call(task, sequence, step)
-    context = extract_cursor_context(step)
-    no_op_result = handle_no_op_worker(context)
+  def call(context)
+    batch_ctx = get_batch_context(context)
+    no_op_result = handle_no_op_worker(batch_ctx)
     return no_op_result if no_op_result
 
-    # Process batch using context.start_cursor, context.end_cursor
-    batch_worker_complete(processed_count: context.batch_size)
+    # Process batch using batch_ctx.start_cursor, batch_ctx.end_cursor
+    batch_worker_complete(processed_count: batch_ctx.batch_size)
   end
 end
 ```

@@ -45,11 +45,11 @@ module Microservices
         }
       }.freeze
 
-      def call(task, sequence, _step)
-        logger.info "⚙️  InitializePreferencesHandler: Initializing user preferences - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "⚙️  InitializePreferencesHandler: Initializing user preferences - task_uuid=#{context.task_uuid}"
 
         # Get user_id from create_user_account step
-        user_data = sequence.get_results('create_user_account')
+        user_data = context.get_dependency_result('create_user_account')
         unless user_data
           raise TaskerCore::Errors::PermanentError.new(
             'User data not found from create_user_account step',
@@ -64,8 +64,8 @@ module Microservices
         logger.info "   Plan: #{plan}"
 
         # Get custom preferences from task context (if any)
-        context = task.context.deep_symbolize_keys
-        custom_prefs = context.dig(:user_info, :preferences) || {}
+        task_context = context.task.context.deep_symbolize_keys
+        custom_prefs = task_context.dig(:user_info, :preferences) || {}
 
         # Simulate preferences service API call
         result = simulate_preferences_service_initialize(user_id, plan, custom_prefs)

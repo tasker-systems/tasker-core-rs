@@ -21,11 +21,11 @@ module DomainEvents
       # @param _sequence [Object] The workflow sequence (unused)
       # @param _step [Object] The current step (unused)
       # @return [TaskerCore::Types::StepHandlerCallResult] The step result
-      def call(task, _sequence, _step)
+      def call(context)
         start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
         # Extract context data
-        context = task.context || {}
+        context = context.task.context || {}
         order_id = context['order_id'] || 'unknown'
 
         # Get configuration from handler config

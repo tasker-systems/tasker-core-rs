@@ -7,10 +7,10 @@ module ConditionalApproval
     # This step is dynamically created by the routing_decision decision point
     # when the amount is >= $5,000 (in addition to manager_approval).
     class FinanceReviewHandler < TaskerCore::StepHandler::Base
-      def call(task, _sequence, _step)
-        amount = task.context['amount']
-        requester = task.context['requester']
-        purpose = task.context['purpose']
+      def call(context)
+        amount = context.task.context['amount']
+        requester = context.task.context['requester']
+        purpose = context.task.context['purpose']
 
         logger.info "Finance reviewing approval request: #{requester} requesting $#{amount} for #{purpose}"
 

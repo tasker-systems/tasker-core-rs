@@ -9,13 +9,13 @@ module DataPipeline
     # - Accessing results from multiple parallel branches
     # - Data aggregation across sources
     class AggregateMetricsHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
-        logger.info "📊 AggregateMetricsHandler: Aggregating metrics from all sources - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "📊 AggregateMetricsHandler: Aggregating metrics from all sources - task_uuid=#{context.task_uuid}"
 
         # Get results from all transform steps (3 parallel branches converge here)
-        sales_data = sequence.get_results('transform_sales')
-        inventory_data = sequence.get_results('transform_inventory')
-        customer_data = sequence.get_results('transform_customers')
+        sales_data = context.get_dependency_result('transform_sales')
+        inventory_data = context.get_dependency_result('transform_inventory')
+        customer_data = context.get_dependency_result('transform_customers')
 
         # Validate all sources present
         validate_all_sources_present!(sales_data, inventory_data, customer_data)

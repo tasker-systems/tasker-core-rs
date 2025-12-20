@@ -354,3 +354,190 @@ end
 - **Modified lines**: ~200 (base.rb, registry, api.rb, batchable.rb)
 - **Handler updates**: ~89 files (mostly mechanical signature change)
 - **Doc updates**: ~60 references in .md files
+
+---
+
+TAS-96: Ruby Worker API Alignment - Implementation Plan
+
+**Ticket**: [TAS-96](https://linear.app/tasker-systems/issue/TAS-96)
+**Branch**: `jcoletaylor/tas-96-ruby-worker-api-alignment`
+**Parent**: TAS-92 (Consistent Developer-space APIs and Ergonomics)
+
+## Objective
+
+Align Ruby worker APIs with cross-language standards (Python/Rust). Primary change: handler signature migration from `call(task, sequence, step)` to `call(context)`.
+
+## Key Discovery
+
+**`TaskSequenceStepWrapper` already exists** in `workers/ruby/lib/tasker_core/models.rb` as the unified context containing all step data. The current subscriber (`subscriber.rb:53-57`) passes components separately:
+```ruby
+result = handler.call(
+  step_data.task,              # TaskWrapper
+  step_data.dependency_results, # DependencyResultsWrapper
+  step_data.workflow_step       # WorkflowStepWrapper
+)
+```
+
+We'll create `StepContext` wrapping `step_data` and pass it as a single argument.
+
+---
+
+## Implementation Phases
+
+### Phase 1: Create StepContext Type (~100 lines)
+
+**New File**: `workers/ruby/lib/tasker_core/types/step_context.rb`
+
+Cross-language standard fields (matching Python):
+| Field | Source | Description |
+|-------|--------|-------------|
+| `task_uuid` | `task.task_uuid` | Task UUID |
+| `step_uuid` | `workflow_step.workflow_step_uuid` | Step UUID |
+| `input_data` | `workflow_step.inputs` | Step inputs |
+| `step_config` | `step_definition.handler.initialization` | Handler config |
+| `step_inputs` | Alias for `input_data` | Cross-language alias |
+| `retry_count` | `workflow_step.attempts` | Current retry |
+| `max_retries` | `workflow_step.max_attempts` | Max retries |
+| `dependency_results` | Delegated | Parent step results |
+
+Ruby-specific accessors (backward compat):
+- `task`, `workflow_step`, `step_definition` - Direct wrapper access
+- `get_task_field(name)`, `get_dependency_result(step_name)` - Convenience methods
+
+### Phase 2: Create ErrorTypes Module (~25 lines)
+
+**New File**: `workers/ruby/lib/tasker_core/types/error_types.rb`
+
+Constants: `PERMANENT_ERROR`, `RETRYABLE_ERROR`, `VALIDATION_ERROR`, `TIMEOUT`, `HANDLER_ERROR`
+
+### Phase 3: Update Base Handler Signature
+
+**File**: `workers/ruby/lib/tasker_core/step_handler/base.rb`
+
+- Line 30: Change `def call(task, sequence, step)` → `def call(context)`
+- Update docstrings and examples
+
+### Phase 4: Update FFI Dispatch Layer
+
+**File**: `workers/ruby/lib/tasker_core/subscriber.rb`
+
+Lines 53-57, change from:
+```ruby
+result = handler.call(
+  step_data.task,
+  step_data.dependency_results,
+  step_data.workflow_step
+)
+```
+To:
+```ruby
+context = TaskerCore::Types::StepContext.new(step_data)
+result = handler.call(context)
+```
+
+### Phase 5: Add Registry Aliases
+
+**File**: `workers/ruby/lib/tasker_core/registry/handler_registry.rb`
+
+Add aliases after existing methods:
+```ruby
+alias register register_handler
+alias is_registered handler_available?
+alias list_handlers registered_handlers
+alias resolve resolve_handler
+```
+
+### Phase 6: Update Batchable Handler
+
+**File**: `workers/ruby/lib/tasker_core/step_handler/batchable.rb`
+
+- Add `get_batch_context(context)` that extracts from `context.workflow_step`
+- Add `batch_worker_success(...)` as alias/wrapper for success with batch fields
+- Keep existing methods as aliases for backward compat
+
+### Phase 7: Add Domain Events `publish(ctx)` Method
+
+**File**: `workers/ruby/lib/tasker_core/domain_events/base_publisher.rb`
+
+Add new method:
+```ruby
+def publish(ctx)
+  # Wrapper coordinating: should_publish?, transform_payload, additional_metadata
+  # before_publish/after_publish hooks
+end
+```
+
+### Phase 8: Update Example Handlers (80 files)
+
+**Location**: `workers/ruby/spec/handlers/examples/**/*_handler.rb`
+
+Mechanical signature change from:
+```ruby
+def call(task, sequence, step)       # or
+def call(task, _sequence, _step)     # or
+def call(_task, sequence, _step)
+```
+To:
+```ruby
+def call(context)
+```
+
+Migration patterns:
+- `task.context['field']` → `context.get_task_field('field')`
+- `sequence.get_results('step')` → `context.get_dependency_result('step')`
+- `step.name` → `context.workflow_step.name`
+
+### Phase 9: Update Tests
+
+Update test fixtures to use context-based API:
+- `spec/step_handler/*.rb`
+- `spec/types/*.rb`
+- `spec/batch_processing/*.rb`
+- `spec/domain_events/*.rb`
+- `spec/ffi/*.rb`
+
+---
+
+## Critical Files
+
+| File | Change Type | Lines |
+|------|-------------|-------|
+| `lib/tasker_core/types/step_context.rb` | New | ~100 |
+| `lib/tasker_core/types/error_types.rb` | New | ~25 |
+| `lib/tasker_core/step_handler/base.rb` | Modify | ~30 |
+| `lib/tasker_core/subscriber.rb` | Modify | ~15 |
+| `lib/tasker_core/registry/handler_registry.rb` | Modify | ~10 |
+| `lib/tasker_core/step_handler/batchable.rb` | Modify | ~40 |
+| `lib/tasker_core/domain_events/base_publisher.rb` | Modify | ~30 |
+| `spec/handlers/examples/**/*.rb` (80 files) | Modify | ~160 total |
+
+---
+
+## Verification
+
+After each phase, run:
+```bash
+cd workers/ruby
+bundle exec rspec
+```
+
+After Phase 4 (FFI changes), run integration tests:
+```bash
+DATABASE_URL=postgresql://tasker:tasker@localhost/tasker_rust_test \
+TASKER_ENV=test bundle exec rspec spec/integration/
+```
+
+---
+
+## Checklist
+
+- [ ] StepContext class with cross-language standard fields
+- [ ] StepContext convenience methods (get_task_field, get_dependency_result)
+- [ ] ErrorTypes module with constants
+- [ ] Base#call(context) signature
+- [ ] FFI dispatch creates StepContext
+- [ ] Registry aliases: register, is_registered, resolve, list_handlers
+- [ ] Batchable: get_batch_context, batch_worker_success
+- [ ] BasePublisher: publish(ctx) method
+- [ ] All 80 example handlers updated
+- [ ] All tests pass

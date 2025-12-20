@@ -309,11 +309,18 @@ export interface FfiDispatchMetrics {
   starvation_detected: boolean;
   starving_event_count: number;
 }
+
+/**
+ * Structured logging fields
+ */
+export interface LogFields {
+  [key: string]: string;
+}
 ```
 
-### Phase 4: FFI Adapter Interface
+### Phase 4: Strongly-Typed Runtime Interface
 
-**File**: `src/ffi/adapter.ts`
+**File**: `src/ffi/runtime-interface.ts`
 
 ```typescript
 import type {
@@ -322,71 +329,570 @@ import type {
   BootstrapResult,
   WorkerStatus,
   FfiDispatchMetrics,
-} from './types.js';
+  LogFields,
+} from './types.ts';
 
 /**
- * Unified FFI adapter interface for all runtimes
+ * Strongly-typed runtime interface for FFI calls.
  * 
- * This interface abstracts over Bun's dlopen and Node's ffi-napi,
- * providing a consistent API for interacting with libtasker_worker.
+ * This interface provides type-safe access to all Rust FFI functions,
+ * replacing the generic callFfiFunction pattern with explicit methods
+ * that have proper TypeScript return types.
+ * 
+ * Benefits:
+ * - Full type safety for all FFI calls
+ * - IDE autocomplete support
+ * - Clear API surface
+ * - Runtime abstraction (Bun/Node/Deno)
  */
-export interface FfiAdapter {
-  /**
-   * Poll for the next step event from Rust
-   * Returns null if no events are pending
-   */
-  pollStepEvents(): FfiStepEvent | null;
+export interface TaskerRuntime {
+  // ============================================================
+  // Step Execution
+  // ============================================================
 
   /**
-   * Send step completion result back to Rust
+   * Poll for pending step events from the FFI dispatch channel.
+   * 
+   * Returns an array of step events ready for handler execution.
+   * Returns empty array if no events are pending.
+   * 
+   * @returns Array of step events
    */
-  completeStepEvent(eventId: string, resultJson: string): void;
+  pollStepEvents(): FfiStepEvent[];
 
   /**
-   * Bootstrap the worker system
+   * Complete a step event by sending the execution result back to Rust.
+   * 
+   * @param eventId - The event ID from the FfiStepEvent
+   * @param result - Execution result (will be JSON serialized)
+   */
+  completeStepEvent(eventId: string, result: StepExecutionResult): void;
+
+  // ============================================================
+  // Worker Lifecycle
+  // ============================================================
+
+  /**
+   * Bootstrap the Rust worker foundation.
+   * 
+   * Initializes Tokio runtime, database connections, PGMQ channels,
+   * and starts internal worker services.
+   * 
+   * @param config - Bootstrap configuration
+   * @returns Bootstrap result with worker details
+   * @throws Error if bootstrap fails or worker already running
    */
   bootstrapWorker(config: BootstrapConfig): BootstrapResult;
 
   /**
-   * Get current worker status
+   * Get current worker status and metrics.
+   * 
+   * @returns Worker status including resource usage
    */
   getWorkerStatus(): WorkerStatus;
 
   /**
-   * Stop the worker system
+   * Stop the worker system gracefully.
+   * 
+   * Safe to call even if worker is not running.
+   * 
+   * @returns Status message
    */
   stopWorker(): string;
 
   /**
-   * Transition to graceful shutdown
+   * Initiate graceful shutdown transition.
+   * 
+   * Allows in-flight operations to complete before full shutdown.
+   * 
+   * @returns Status message
    */
   transitionToGracefulShutdown(): string;
 
   /**
-   * Check if worker is running
+   * Check if the worker system is currently running.
+   * 
+   * Lightweight check without full status query.
+   * 
+   * @returns True if worker is running
    */
   isWorkerRunning(): boolean;
 
+  // ============================================================
+  // Structured Logging
+  // ============================================================
+
   /**
-   * Get FFI dispatch metrics
+   * Log an ERROR level message via Rust tracing.
+   * 
+   * @param message - Log message
+   * @param fields - Optional structured fields
+   */
+  logError(message: string, fields?: LogFields): void;
+
+  /**
+   * Log a WARN level message via Rust tracing.
+   * 
+   * @param message - Log message
+   * @param fields - Optional structured fields
+   */
+  logWarn(message: string, fields?: LogFields): void;
+
+  /**
+   * Log an INFO level message via Rust tracing.
+   * 
+   * @param message - Log message
+   * @param fields - Optional structured fields
+   */
+  logInfo(message: string, fields?: LogFields): void;
+
+  /**
+   * Log a DEBUG level message via Rust tracing.
+   * 
+   * @param message - Log message
+   * @param fields - Optional structured fields
+   */
+  logDebug(message: string, fields?: LogFields): void;
+
+  /**
+   * Log a TRACE level message via Rust tracing.
+   * 
+   * @param message - Log message
+   * @param fields - Optional structured fields
+   */
+  logTrace(message: string, fields?: LogFields): void;
+
+  // ============================================================
+  // FFI Dispatch Metrics
+  // ============================================================
+
+  /**
+   * Get FFI dispatch channel metrics.
+   * 
+   * @returns Metrics including pending/in-flight/completed counts
    */
   getFfiDispatchMetrics(): FfiDispatchMetrics;
 
   /**
-   * Check for starvation warnings
+   * Check for event starvation and log warnings if detected.
+   * 
+   * Should be called periodically (e.g., every 100 poll iterations).
    */
   checkStarvationWarnings(): void;
 
   /**
-   * Clean up timed-out events
+   * Clean up timed-out events from the dispatch channel.
+   * 
+   * Should be called periodically (e.g., every 1000 poll iterations).
    */
   cleanupTimeouts(): void;
 
+  // ============================================================
+  // Resource Management
+  // ============================================================
+
   /**
-   * Close the FFI library handle
+   * Close the FFI library handle and release resources.
+   * 
+   * Should be called during shutdown.
    */
   close(): void;
 }
+
+/**
+ * Step execution result sent back to Rust.
+ */
+export interface StepExecutionResult {
+  step_uuid: string;
+  task_uuid: string;
+  success: boolean;
+  status: 'completed' | 'error';
+  execution_time_ms: number;
+  result?: any;
+  error?: {
+    message: string;
+    error_type: string;
+    error_code?: string;
+    retryable: boolean;
+  };
+  worker_id: string;
+  correlation_id?: string;
+  metadata: Record<string, any>;
+}
+```
+
+---
+
+### Phase 5: Runtime Adapter Factory
+
+**File**: `src/ffi/runtime-factory.ts`
+
+```typescript
+import type { TaskerRuntime } from './runtime-interface.ts';
+import { BunTaskerRuntime } from './bun-runtime.ts';
+import { NodeTaskerRuntime } from './node-runtime.ts';
+import { detectRuntime, assertSupportedRuntime } from './runtime.ts';
+
+/**
+ * Singleton instance of the runtime
+ */
+let runtimeInstance: TaskerRuntime | null = null;
+
+/**
+ * Get the TaskerRuntime instance for the current JavaScript runtime.
+ * 
+ * Automatically detects Bun vs Node.js and returns the appropriate
+ * implementation.
+ * 
+ * @param libraryPath - Optional path to libtasker_worker (auto-detected if not provided)
+ * @returns TaskerRuntime instance
+ * @throws Error if runtime is not supported
+ * 
+ * @example
+ * const runtime = getTaskerRuntime();
+ * const result = runtime.bootstrapWorker({ namespace: 'payments' });
+ */
+export function getTaskerRuntime(libraryPath?: string): TaskerRuntime {
+  if (runtimeInstance) {
+    return runtimeInstance;
+  }
+
+  const runtime = assertSupportedRuntime();
+
+  if (runtime === 'bun') {
+    runtimeInstance = new BunTaskerRuntime(libraryPath);
+  } else if (runtime === 'node') {
+    runtimeInstance = new NodeTaskerRuntime(libraryPath);
+  } else {
+    throw new Error(`Unsupported runtime: ${runtime}`);
+  }
+
+  return runtimeInstance;
+}
+
+/**
+ * Reset the runtime instance (primarily for testing).
+ */
+export function resetTaskerRuntime(): void {
+  if (runtimeInstance) {
+    runtimeInstance.close();
+    runtimeInstance = null;
+  }
+}
+```
+
+---
+
+### Phase 6: Bun Implementation
+
+**File**: `src/ffi/bun-runtime.ts`
+
+```typescript
+import { dlopen, FFIType, suffix, type Pointer } from 'bun:ffi';
+import type { TaskerRuntime, StepExecutionResult } from './runtime-interface.ts';
+import type {
+  FfiStepEvent,
+  BootstrapConfig,
+  BootstrapResult,
+  WorkerStatus,
+  FfiDispatchMetrics,
+  LogFields,
+} from './types.ts';
+
+/**
+ * Bun implementation of TaskerRuntime using bun:ffi.
+ */
+export class BunTaskerRuntime implements TaskerRuntime {
+  private lib: ReturnType<typeof dlopen>;
+
+  constructor(libraryPath?: string) {
+    const path = libraryPath || this.findLibraryPath();
+    
+    this.lib = dlopen(path, {
+      // Step execution
+      poll_step_events: {
+        args: [],
+        returns: FFIType.ptr,
+      },
+      complete_step_event: {
+        args: [FFIType.cstring, FFIType.cstring],
+        returns: FFIType.void,
+      },
+      
+      // Worker lifecycle
+      bootstrap_worker: {
+        args: [FFIType.cstring],
+        returns: FFIType.ptr,
+      },
+      get_worker_status: {
+        args: [],
+        returns: FFIType.ptr,
+      },
+      stop_worker: {
+        args: [],
+        returns: FFIType.ptr,
+      },
+      transition_to_graceful_shutdown: {
+        args: [],
+        returns: FFIType.ptr,
+      },
+      is_worker_running: {
+        args: [],
+        returns: FFIType.bool,
+      },
+      
+      // Logging
+      log_error: {
+        args: [FFIType.cstring, FFIType.cstring],
+        returns: FFIType.void,
+      },
+      log_warn: {
+        args: [FFIType.cstring, FFIType.cstring],
+        returns: FFIType.void,
+      },
+      log_info: {
+        args: [FFIType.cstring, FFIType.cstring],
+        returns: FFIType.void,
+      },
+      log_debug: {
+        args: [FFIType.cstring, FFIType.cstring],
+        returns: FFIType.void,
+      },
+      log_trace: {
+        args: [FFIType.cstring, FFIType.cstring],
+        returns: FFIType.void,
+      },
+      
+      // FFI dispatch metrics
+      get_ffi_dispatch_metrics: {
+        args: [],
+        returns: FFIType.ptr,
+      },
+      check_starvation_warnings: {
+        args: [],
+        returns: FFIType.void,
+      },
+      cleanup_timeouts: {
+        args: [],
+        returns: FFIType.void,
+      },
+      
+      // Memory management
+      free_rust_string: {
+        args: [FFIType.ptr],
+        returns: FFIType.void,
+      },
+    });
+  }
+
+  pollStepEvents(): FfiStepEvent[] {
+    const ptr = this.lib.symbols.poll_step_events() as Pointer;
+    if (!ptr) {
+      return [];
+    }
+    
+    const json = new CString(ptr);
+    const events = JSON.parse(json);
+    this.lib.symbols.free_rust_string(ptr);
+    return events;
+  }
+
+  completeStepEvent(eventId: string, result: StepExecutionResult): void {
+    const resultJson = JSON.stringify(result);
+    this.lib.symbols.complete_step_event(eventId, resultJson);
+  }
+
+  bootstrapWorker(config: BootstrapConfig): BootstrapResult {
+    const configJson = JSON.stringify(config);
+    const ptr = this.lib.symbols.bootstrap_worker(configJson) as Pointer;
+    const json = new CString(ptr);
+    const result = JSON.parse(json);
+    this.lib.symbols.free_rust_string(ptr);
+    return result;
+  }
+
+  getWorkerStatus(): WorkerStatus {
+    const ptr = this.lib.symbols.get_worker_status() as Pointer;
+    const json = new CString(ptr);
+    const status = JSON.parse(json);
+    this.lib.symbols.free_rust_string(ptr);
+    return status;
+  }
+
+  stopWorker(): string {
+    const ptr = this.lib.symbols.stop_worker() as Pointer;
+    const json = new CString(ptr);
+    this.lib.symbols.free_rust_string(ptr);
+    return json;
+  }
+
+  transitionToGracefulShutdown(): string {
+    const ptr = this.lib.symbols.transition_to_graceful_shutdown() as Pointer;
+    const json = new CString(ptr);
+    this.lib.symbols.free_rust_string(ptr);
+    return json;
+  }
+
+  isWorkerRunning(): boolean {
+    return this.lib.symbols.is_worker_running() as boolean;
+  }
+
+  logError(message: string, fields?: LogFields): void {
+    const fieldsJson = fields ? JSON.stringify(fields) : null;
+    this.lib.symbols.log_error(message, fieldsJson);
+  }
+
+  logWarn(message: string, fields?: LogFields): void {
+    const fieldsJson = fields ? JSON.stringify(fields) : null;
+    this.lib.symbols.log_warn(message, fieldsJson);
+  }
+
+  logInfo(message: string, fields?: LogFields): void {
+    const fieldsJson = fields ? JSON.stringify(fields) : null;
+    this.lib.symbols.log_info(message, fieldsJson);
+  }
+
+  logDebug(message: string, fields?: LogFields): void {
+    const fieldsJson = fields ? JSON.stringify(fields) : null;
+    this.lib.symbols.log_debug(message, fieldsJson);
+  }
+
+  logTrace(message: string, fields?: LogFields): void {
+    const fieldsJson = fields ? JSON.stringify(fields) : null;
+    this.lib.symbols.log_trace(message, fieldsJson);
+  }
+
+  getFfiDispatchMetrics(): FfiDispatchMetrics {
+    const ptr = this.lib.symbols.get_ffi_dispatch_metrics() as Pointer;
+    const json = new CString(ptr);
+    const metrics = JSON.parse(json);
+    this.lib.symbols.free_rust_string(ptr);
+    return metrics;
+  }
+
+  checkStarvationWarnings(): void {
+    this.lib.symbols.check_starvation_warnings();
+  }
+
+  cleanupTimeouts(): void {
+    this.lib.symbols.cleanup_timeouts();
+  }
+
+  close(): void {
+    this.lib.close();
+  }
+
+  private findLibraryPath(): string {
+    // Auto-detect library path based on platform
+    const platform = process.platform;
+    const ext = suffix; // From bun:ffi
+    
+    // Try common locations
+    const paths = [
+      `./target/debug/libtasker_worker.${ext}`,
+      `./target/release/libtasker_worker.${ext}`,
+      `/usr/local/lib/libtasker_worker.${ext}`,
+    ];
+    
+    for (const path of paths) {
+      if (Bun.file(path).exists) {
+        return path;
+      }
+    }
+    
+    throw new Error(
+      'Could not find libtasker_worker. ' +
+      'Set TASKER_LIBRARY_PATH or ensure library is in target/debug or target/release'
+    );
+  }
+}
+```
+
+---
+
+### Phase 7: Usage Examples
+
+**Strongly-typed bootstrap:**
+```typescript
+import { getTaskerRuntime } from './ffi/runtime-factory';
+
+const runtime = getTaskerRuntime();
+
+// Type-safe bootstrap with full return type
+const result = runtime.bootstrapWorker({
+  namespace: 'payments',
+  log_level: 'info',
+});
+
+// result.status is typed as 'started' | 'already_running'
+if (result.status === 'started') {
+  console.log(`Worker ${result.worker_id} started`);
+}
+```
+
+**Strongly-typed logging:**
+```typescript
+const runtime = getTaskerRuntime();
+
+// Full type safety and autocomplete
+runtime.logInfo('Processing payment', {
+  component: 'payment_handler',
+  operation: 'process',
+  correlation_id: 'abc-123',
+  task_uuid: 'task-456',
+});
+```
+
+**Strongly-typed step polling:**
+```typescript
+const runtime = getTaskerRuntime();
+
+// pollStepEvents() returns FfiStepEvent[] - fully typed
+const events = runtime.pollStepEvents();
+
+for (const event of events) {
+  // event.task_uuid is string
+  // event.task_sequence_step is TaskSequenceStep
+  // Full IDE autocomplete available
+  console.log(`Processing step ${event.step_uuid}`);
+}
+```
+
+**Strongly-typed metrics:**
+```typescript
+const runtime = getTaskerRuntime();
+
+// getFfiDispatchMetrics() returns FfiDispatchMetrics - fully typed
+const metrics = runtime.getFfiDispatchMetrics();
+
+if (metrics.starvation_detected) {
+  console.warn(`Starvation detected: ${metrics.starving_event_count} events`);
+}
+```
+
+---
+
+### Benefits of TaskerRuntime Interface
+
+1. **Type Safety**: Every FFI call has explicit TypeScript types
+   - Before: `adapter.callFfiFunction('bootstrap_worker', config)` → `any`
+   - After: `runtime.bootstrapWorker(config)` → `BootstrapResult`
+
+2. **IDE Support**: Full autocomplete for all FFI functions
+   - IntelliSense shows all available methods
+   - Parameter types and return types are clear
+
+3. **Refactoring Safety**: Compiler catches breaking changes
+   - Rename a method → TypeScript finds all usages
+   - Change return type → TypeScript validates all call sites
+
+4. **Runtime Abstraction**: Easy to add Deno support
+   - Create `DenoTaskerRuntime implements TaskerRuntime`
+   - No changes needed to calling code
+
+5. **Clear API Surface**: One place to see all FFI functions
+   - `TaskerRuntime` interface documents the entire API
+   - No need to grep for `callFfiFunction` calls
 
 /**
  * Base error for FFI operations
@@ -425,15 +931,15 @@ export class FfiCallError extends FfiError {
 
 ```typescript
 import { dlopen, FFIType, suffix, type Pointer } from 'bun:ffi';
-import type { FfiAdapter } from './adapter.js';
+import type { FfiAdapter } from './adapter.ts';
 import type {
   FfiStepEvent,
   BootstrapConfig,
   BootstrapResult,
   WorkerStatus,
   FfiDispatchMetrics,
-} from './types.js';
-import { FfiLibraryError, FfiCallError } from './adapter.js';
+} from './types.ts';
+import { FfiLibraryError, FfiCallError } from './adapter.ts';
 
 /**
  * Bun FFI adapter using bun:ffi dlopen
@@ -673,15 +1179,15 @@ class CString {
 ```typescript
 import ffi from 'ffi-napi';
 import ref from 'ref-napi';
-import type { FfiAdapter } from './adapter.js';
+import type { FfiAdapter } from './adapter.ts';
 import type {
   FfiStepEvent,
   BootstrapConfig,
   BootstrapResult,
   WorkerStatus,
   FfiDispatchMetrics,
-} from './types.js';
-import { FfiLibraryError, FfiCallError } from './adapter.js';
+} from './types.ts';
+import { FfiLibraryError, FfiCallError } from './adapter.ts';
 
 /**
  * Node.js FFI adapter using ffi-napi
@@ -942,8 +1448,8 @@ export type EventName = (typeof EventNames)[keyof typeof EventNames];
 **File**: `src/events/event-poller.ts`
 
 ```typescript
-import type { FfiAdapter } from '../ffi/adapter.js';
-import type { FfiStepEvent, FfiDispatchMetrics } from '../ffi/types.js';
+import type { FfiAdapter } from '../ffi/adapter.ts';
+import type { FfiStepEvent, FfiDispatchMetrics } from '../ffi/types.ts';
 
 /**
  * EventPoller polls Rust FFI for step events at 10ms intervals

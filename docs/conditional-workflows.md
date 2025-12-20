@@ -659,9 +659,9 @@ The `TaskerCore::StepHandler::Decision` base class provides type-safe helpers:
 
 ```ruby
 class MyDecisionHandler < TaskerCore::StepHandler::Decision
-  def call(task, sequence, step)
+  def call(context)
     # Your business logic here
-    amount = task.context['amount']
+    amount = context.get_task_field('amount')
 
     if amount < 1000
       # Create single step
@@ -885,8 +885,8 @@ impl DecisionPointOutcome {
 
 ```ruby
 # ✅ Good: Deterministic decision based on input
-def call(task, sequence, step)
-  amount = task.context['amount']
+def call(context)
+  amount = context.get_task_field('amount')
 
   steps = if amount < 1000
     ['auto_approve']
@@ -898,7 +898,7 @@ def call(task, sequence, step)
 end
 
 # ❌ Bad: Non-deterministic (time-based, random)
-def call(task, sequence, step)
+def call(context)
   # Decision changes based on when it runs
   steps = if Time.now.hour < 9
     ['emergency_approval']
@@ -917,8 +917,8 @@ Ensure all step names in decision outcomes exist in template:
 ```ruby
 VALID_STEPS = %w[auto_approve manager_approval finance_review].freeze
 
-def call(task, sequence, step)
-  steps_to_create = determine_steps(task)
+def call(context)
+  steps_to_create = determine_steps(context)
 
   # Validate step names
   invalid = steps_to_create - VALID_STEPS
@@ -977,10 +977,10 @@ routing_decision creates steps that create more routing decisions...
 Explicitly return `no_branches` when no steps needed:
 
 ```ruby
-def call(task, sequence, step)
-  amount = task.context['amount']
+def call(context)
+  amount = context.get_task_field('amount')
 
-  if task.context['skip_approval']
+  if context.get_task_field('skip_approval')
     # No additional steps needed
     decision_no_branches(
       result_data: { reason: 'approval_skipped' }

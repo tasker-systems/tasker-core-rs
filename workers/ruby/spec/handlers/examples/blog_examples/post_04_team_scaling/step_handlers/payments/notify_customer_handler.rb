@@ -3,11 +3,11 @@
 module Payments
   module StepHandlers
     class NotifyCustomerHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Extract and validate inputs
-        inputs = extract_and_validate_inputs(task, sequence, _step)
+        inputs = extract_and_validate_inputs(context)
 
-        logger.info "📧 NotifyCustomerHandler: Sending refund confirmation - task_uuid=#{task.task_uuid}, customer_email=#{inputs[:customer_email]}"
+        logger.info "📧 NotifyCustomerHandler: Sending refund confirmation - task_uuid=#{context.task_uuid}, customer_email=#{inputs[:customer_email]}"
 
         # Simulate sending notification
         notification_result = simulate_notification_sending(inputs)
@@ -56,11 +56,11 @@ module Payments
       private
 
       # Extract and validate inputs from task and previous steps
-      def extract_and_validate_inputs(task, sequence, _step)
-        context = task.context.deep_symbolize_keys
+      def extract_and_validate_inputs(context)
+        task_context = context.task.context.deep_symbolize_keys
 
         # Get refund results
-        refund_result = sequence.get_results('process_gateway_refund')
+        refund_result = context.get_dependency_result('process_gateway_refund')
         refund_result = refund_result.deep_symbolize_keys if refund_result
 
         unless refund_result&.dig(:refund_processed)
@@ -71,7 +71,7 @@ module Payments
         end
 
         # Get customer email from context
-        customer_email = context[:customer_email]
+        customer_email = task_context[:customer_email]
         unless customer_email
           raise TaskerCore::Errors::PermanentError.new(
             'Customer email is required for notification',
@@ -93,7 +93,7 @@ module Payments
           refund_amount: refund_result[:refund_amount],
           payment_id: refund_result[:payment_id],
           estimated_arrival: refund_result[:estimated_arrival],
-          refund_reason: context[:refund_reason] || 'customer_request'
+          refund_reason: task_context[:refund_reason] || 'customer_request'
         }
       end
 

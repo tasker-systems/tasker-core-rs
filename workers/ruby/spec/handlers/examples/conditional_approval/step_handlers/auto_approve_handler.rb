@@ -7,9 +7,9 @@ module ConditionalApproval
     # This step is dynamically created by the routing_decision decision point
     # when the amount is below the small threshold ($1,000).
     class AutoApproveHandler < TaskerCore::StepHandler::Base
-      def call(task, _sequence, _step)
-        amount = task.context['amount']
-        requester = task.context['requester']
+      def call(context)
+        amount = context.task.context['amount']
+        requester = context.task.context['requester']
 
         logger.info "Auto-approving request: #{requester} for $#{amount}"
 

@@ -9,6 +9,7 @@
 //! use tasker_shared::types::error_types;
 //!
 //! // Use constants for error classification
+//! let is_transient_failure = true;
 //! let error_type = if is_transient_failure {
 //!     error_types::RETRYABLE_ERROR
 //! } else {

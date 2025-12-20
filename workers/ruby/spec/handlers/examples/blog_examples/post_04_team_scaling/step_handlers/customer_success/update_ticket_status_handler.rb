@@ -3,11 +3,11 @@
 module CustomerSuccess
   module StepHandlers
     class UpdateTicketStatusHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Extract and validate inputs
-        inputs = extract_and_validate_inputs(task, sequence, _step)
+        inputs = extract_and_validate_inputs(context)
 
-        logger.info "🎫 UpdateTicketStatusHandler: Updating ticket status - task_uuid=#{task.task_uuid}, ticket_id=#{inputs[:ticket_id]}"
+        logger.info "🎫 UpdateTicketStatusHandler: Updating ticket status - task_uuid=#{context.task_uuid}, ticket_id=#{inputs[:ticket_id]}"
 
         # Simulate ticket status update
         update_result = simulate_ticket_update(inputs)
@@ -43,7 +43,7 @@ module CustomerSuccess
               'X-Ticket-Status' => update_result[:new_status]
             },
             input_refs: {
-              ticket_id: 'task.context.ticket_id',
+              ticket_id: 'context.task.context.ticket_id',
               workflow_delegation: 'sequence.execute_refund_workflow.result'
             }
           }
@@ -56,11 +56,11 @@ module CustomerSuccess
       private
 
       # Extract and validate inputs from task and previous steps
-      def extract_and_validate_inputs(task, sequence, _step)
-        context = task.context.deep_symbolize_keys
+      def extract_and_validate_inputs(context)
+        task_context = context.task.context.deep_symbolize_keys
 
         # Get workflow delegation results
-        delegation_result = sequence.get_results('execute_refund_workflow')
+        delegation_result = context.get_dependency_result('execute_refund_workflow')
         delegation_result = delegation_result.deep_symbolize_keys if delegation_result
 
         unless delegation_result&.dig(:task_delegated)
@@ -71,14 +71,14 @@ module CustomerSuccess
         end
 
         # Get validation results for ticket info
-        validation_result = sequence.get_results('validate_refund_request')
+        validation_result = context.get_dependency_result('validate_refund_request')
         validation_result = validation_result.deep_symbolize_keys if validation_result
 
         {
           ticket_id: validation_result[:ticket_id],
           customer_id: validation_result[:customer_id],
-          refund_amount: context[:refund_amount],
-          refund_reason: context[:refund_reason],
+          refund_amount: task_context[:refund_amount],
+          refund_reason: task_context[:refund_reason],
           delegated_task_id: delegation_result[:delegated_task_id],
           correlation_id: delegation_result[:correlation_id]
         }

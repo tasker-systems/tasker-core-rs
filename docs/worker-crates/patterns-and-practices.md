@@ -88,9 +88,9 @@ All implementations follow the same registration pattern:
 **Ruby Example**:
 ```ruby
 class ProcessOrderHandler < TaskerCore::StepHandler::Base
-  def call(task, sequence, step)
-    # Access data from task.context and step
-    order_id = task.context['order_id']
+  def call(context)
+    # Access data via cross-language standard methods
+    order_id = context.get_task_field('order_id')
 
     # Business logic here...
 
@@ -514,8 +514,8 @@ For dynamic workflow routing:
 
 ```ruby
 class RoutingDecisionHandler < TaskerCore::StepHandler::Decision
-  def call(task, sequence, step)
-    amount = task.context['amount']
+  def call(context)
+    amount = context.get_task_field('amount')
 
     if amount < 1000
       decision_success(steps: ['auto_approve'], result_data: { route: 'auto' })
@@ -533,13 +533,13 @@ For processing large datasets in chunks. **Note**: Ruby uses subclass inheritanc
 **Ruby** (subclass):
 ```ruby
 class CsvBatchProcessorHandler < TaskerCore::StepHandler::Batchable
-  def call(task, sequence, step)
-    context = extract_cursor_context(step)
-    no_op_result = handle_no_op_worker(context)
+  def call(context)
+    batch_ctx = get_batch_context(context)
+    no_op_result = handle_no_op_worker(batch_ctx)
     return no_op_result if no_op_result
 
-    # Process records using context.start_cursor, context.end_cursor
-    batch_worker_complete(processed_count: context.batch_size)
+    # Process records using batch_ctx.start_cursor, batch_ctx.end_cursor
+    batch_worker_complete(processed_count: batch_ctx.batch_size)
   end
 end
 ```

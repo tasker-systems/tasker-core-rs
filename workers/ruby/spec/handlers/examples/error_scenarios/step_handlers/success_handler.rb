@@ -15,12 +15,12 @@ module ErrorScenarios
     # @param sequence [TaskerCore::Types::TaskSequenceStep] The sequence context
     # @param step [TaskerCore::Types::TaskSequenceStep] The current step
     # @return [Hash] Success result
-    def call(_task, _sequence, step)
+    def call(context)
       TaskerCore::Logger.instance.log_step(
         :info,
         'success_handler_execution',
-        step_uuid: step.workflow_step_uuid,
-        step_name: step.name,
+        step_uuid: context.step_uuid,
+        step_name: context.workflow_step.name,
         message: 'Success handler executed successfully'
       )
 
@@ -31,7 +31,7 @@ module ErrorScenarios
           timestamp: Time.now.utc.iso8601
         },
         metadata: {
-          step_name: step.name,
+          step_name: context.workflow_step.name,
           handler: 'SuccessHandler'
         }
       )

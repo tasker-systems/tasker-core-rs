@@ -5,11 +5,11 @@ require_relative '../../../../../lib/tasker_core/errors'
 module OrderFulfillment
   module StepHandlers
     class ProcessPaymentHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
+      def call(context)
         # Extract and validate all required inputs
-        payment_inputs = extract_and_validate_inputs(task, sequence, step)
+        payment_inputs = extract_and_validate_inputs(context)
 
-        logger.info "🔍 ProcessPaymentHandler: Processing payment - task_uuid=#{task.task_uuid}, amount=$#{payment_inputs[:amount_to_charge]}"
+        logger.info "🔍 ProcessPaymentHandler: Processing payment - task_uuid=#{context.task_uuid}, amount=$#{payment_inputs[:amount_to_charge]}"
 
         # Process payment through payment gateway
         payment_results = process_payment_transaction(payment_inputs)
@@ -45,7 +45,7 @@ module OrderFulfillment
             input_refs: {
               amount: 'sequence.validate_order.result.order_total',
               reservation_id: 'sequence.reserve_inventory.result.reservation_id',
-              payment_info: 'task.context.payment_info'
+              payment_info: 'context.task.context.payment_info'
             }
           }
         )
@@ -53,11 +53,11 @@ module OrderFulfillment
 
       private
 
-      def extract_and_validate_inputs(task, sequence, step)
+      def extract_and_validate_inputs(context)
         # Get order validation results
-        logger.info "🔍 ProcessPaymentHandler: Extracting and validating inputs - task=#{task}, sequence=#{sequence}, step=#{step}"
-        validate_order_results = sequence.get_results('validate_order')
-        reserve_inventory_results = sequence.get_results('reserve_inventory')
+        logger.info "🔍 ProcessPaymentHandler: Extracting and validating inputs"
+        validate_order_results = context.get_dependency_result('validate_order')
+        reserve_inventory_results = context.get_dependency_result('reserve_inventory')
 
         unless validate_order_results
           raise TaskerCore::Errors::PermanentError.new(
@@ -74,8 +74,8 @@ module OrderFulfillment
         end
 
         # Extract payment info from task context
-        context = deep_symbolize_keys(task.context)
-        payment_info = context[:payment_info]
+        task_context = deep_symbolize_keys(context.task.context)
+        payment_info = task_context[:payment_info]
 
         unless payment_info
           raise TaskerCore::Errors::PermanentError.new(

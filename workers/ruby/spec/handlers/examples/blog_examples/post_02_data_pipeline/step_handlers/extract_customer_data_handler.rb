@@ -18,8 +18,8 @@ module DataPipeline
         { customer_id: 'CUST-005', name: 'Eve Davis', tier: 'gold', lifetime_value: 7500.00, join_date: '2024-06-12' }
       ].freeze
 
-      def call(task, _sequence, _step)
-        logger.info "👥 ExtractCustomerDataHandler: Extracting customer data - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "👥 ExtractCustomerDataHandler: Extracting customer data - task_uuid=#{context.task_uuid}"
 
         # Simulate data extraction from CRM
         customer_data = extract_customers_from_source

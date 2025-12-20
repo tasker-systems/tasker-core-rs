@@ -18,9 +18,9 @@ module ConditionalApproval
       SMALL_AMOUNT_THRESHOLD = 1_000
       LARGE_AMOUNT_THRESHOLD = 5_000
 
-      def call(task, _sequence, _step)
+      def call(context)
         # Get amount from validated request
-        amount = task.context['amount']
+        amount = context.task.context['amount']
         raise 'Amount is required for routing decision' unless amount
 
         # Make routing decision based on amount

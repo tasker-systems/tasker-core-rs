@@ -4,9 +4,9 @@ module LinearWorkflow
   module StepHandlers
     # Second step in linear workflow: square the result from step 1
     class LinearStep2Handler < TaskerCore::StepHandler::Base
-      def call(_task, sequence, _step)
+      def call(context)
         # Get result from previous step (linear_step_1)
-        previous_result = sequence.get_results('linear_step_1')
+        previous_result = context.get_dependency_result('linear_step_1')
         raise 'Previous step result not found' unless previous_result
 
         result = previous_result * previous_result

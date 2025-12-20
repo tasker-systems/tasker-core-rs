@@ -23,10 +23,10 @@ module Microservices
         @timeout_seconds = context[:timeout_seconds] || 120
       end
 
-      def call(task, sequence)
+      def call(context)
         @logger.info "🚀 UserRegistrationHandler: Starting user registration workflow for task #{task.task_uuid}"
 
-        user_info = task.context.deep_symbolize_keys[:user_info] || {}
+        user_info = context.task.context.deep_symbolize_keys[:user_info] || {}
 
         @logger.info "   User: #{user_info[:email]}"
         @logger.info "   Plan: #{user_info[:plan] || 'free'}"

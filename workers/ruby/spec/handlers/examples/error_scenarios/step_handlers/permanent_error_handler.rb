@@ -17,12 +17,12 @@ module ErrorScenarios
     # @param sequence [TaskerCore::Types::TaskSequenceStep] The sequence context
     # @param step [TaskerCore::Types::TaskSequenceStep] The current step
     # @raise [TaskerCore::Errors::PermanentError] Always raises permanent error
-    def call(_task, _sequence, step)
+    def call(context)
       TaskerCore::Logger.instance.log_step(
         :error,
         'permanent_failure_injection',
-        step_uuid: step.workflow_step_uuid,
-        step_name: step.name,
+        step_uuid: context.step_uuid,
+        step_name: context.workflow_step.name,
         message: 'Simulating permanent business logic failure'
       )
 

@@ -4,9 +4,9 @@ module MixedDagWorkflow
   module StepHandlers
     # DAG Analyze: Squares the right process result (step F in mixed DAG)
     class DagAnalyzeHandler < TaskerCore::StepHandler::Base
-      def call(_task, sequence, _step)
+      def call(context)
         # Get result from dag_process_right (single parent)
-        right_result = sequence.get_results('dag_process_right')
+        right_result = context.get_dependency_result('dag_process_right')
         raise 'Process right result not found' unless right_result
 
         # Square the right result (single parent operation)

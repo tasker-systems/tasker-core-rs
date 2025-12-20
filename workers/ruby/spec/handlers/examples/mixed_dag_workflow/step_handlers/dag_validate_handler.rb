@@ -4,10 +4,10 @@ module MixedDagWorkflow
   module StepHandlers
     # DAG Validate: Convergence step that multiplies results from both process branches
     class DagValidateHandler < TaskerCore::StepHandler::Base
-      def call(_task, sequence, _step)
+      def call(context)
         # Get results from both process branches (multiple parents)
-        left_result = sequence.get_results('dag_process_left')
-        right_result = sequence.get_results('dag_process_right')
+        left_result = context.get_dependency_result('dag_process_left')
+        right_result = context.get_dependency_result('dag_process_right')
 
         raise 'Process left result not found' unless left_result
         raise 'Process right result not found' unless right_result

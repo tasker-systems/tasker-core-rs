@@ -80,9 +80,9 @@ Step handlers implement business logic for individual workflow steps:
 module Ecommerce
   module StepHandlers
     class ProcessPaymentHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
+      def call(context)
         # Extract inputs from prior steps
-        inputs = extract_and_validate_inputs(task, sequence, step)
+        inputs = extract_and_validate_inputs(context)
 
         # Execute business logic
         payment_result = process_payment_transaction(inputs)
@@ -108,9 +108,9 @@ module Ecommerce
 
       private
 
-      def extract_and_validate_inputs(task, sequence, step)
+      def extract_and_validate_inputs(context)
         # Get results from prior steps
-        validate_results = sequence.get_results('validate_cart')
+        validate_results = context.get_dependency_result('validate_cart')
 
         unless validate_results
           raise TaskerCore::Errors::PermanentError.new(
@@ -228,7 +228,7 @@ end
 
 **tasker-core:**
 ```ruby
-def call(task, sequence, step)
+def call(context)
   # Business logic
   TaskerCore::Types::StepHandlerCallResult.success(
     result: { payment_id: result.id },

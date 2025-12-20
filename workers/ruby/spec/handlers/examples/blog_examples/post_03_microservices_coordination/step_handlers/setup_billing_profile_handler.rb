@@ -17,11 +17,11 @@ module Microservices
         'enterprise' => { price: 299.99, features: ['basic_features', 'advanced_analytics', 'priority_support', 'custom_integrations'], billing_required: true }
       }.freeze
 
-      def call(task, sequence, _step)
-        logger.info "💳 SetupBillingProfileHandler: Setting up billing profile - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "💳 SetupBillingProfileHandler: Setting up billing profile - task_uuid=#{context.task_uuid}"
 
         # Get user_id from create_user_account step
-        user_data = sequence.get_results('create_user_account')
+        user_data = context.get_dependency_result('create_user_account')
         unless user_data
           raise TaskerCore::Errors::PermanentError.new(
             'User data not found from create_user_account step',

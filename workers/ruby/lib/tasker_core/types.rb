@@ -12,6 +12,8 @@ require_relative 'types/task_template' # TaskTemplate and StepTemplate types
 require_relative 'types/step_handler_call_result' # NEW: standardized handler results
 require_relative 'types/decision_point_outcome' # TAS-53: decision point outcomes
 require_relative 'types/batch_processing_outcome' # TAS-59: batch processing outcomes
+require_relative 'types/step_context' # TAS-96: cross-language standard step context
+require_relative 'types/error_types' # TAS-96: cross-language standard error types
 
 module TaskerCore
   # Centralized type definitions for TaskerCore domain objects

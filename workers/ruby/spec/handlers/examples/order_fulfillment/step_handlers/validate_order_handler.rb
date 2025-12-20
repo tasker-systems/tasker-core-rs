@@ -5,11 +5,11 @@ require_relative '../../../../../lib/tasker_core/errors'
 module OrderFulfillment
   module StepHandlers
     class ValidateOrderHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
-        logger.info "🎯 VALIDATE_ORDER: Starting order validation - task_uuid=#{task.task_uuid}, step_name=#{step.name}"
+      def call(context)
+        logger.info "🎯 VALIDATE_ORDER: Starting order validation - task_uuid=#{context.task_uuid}, step_name=#{context.workflow_step.name}"
 
         # Extract and validate all required inputs
-        order_inputs = extract_and_validate_inputs(task, sequence, step)
+        order_inputs = extract_and_validate_inputs(context)
         logger.info "✅ VALIDATE_ORDER: Input validation complete - customer_id=#{order_inputs[:customer_id]}, item_count=#{order_inputs[:order_items]&.length}"
 
         # Validate order data - let Rust orchestration handle general error wrapping
@@ -30,8 +30,8 @@ module OrderFulfillment
             operation: 'validate_order',
             item_count: validation_results[:items]&.length || 0,
             input_refs: {
-              customer_id: 'task.context.customer_info.id',
-              order_items: 'task.context.order_items'
+              customer_id: 'context.task.context.customer_info.id',
+              order_items: 'context.task.context.order_items'
             }
           }
         )
@@ -39,13 +39,13 @@ module OrderFulfillment
 
       private
 
-      def extract_and_validate_inputs(task, _sequence, _step)
-        logger.info "📋 VALIDATE_ORDER: Extracting task context - task.context.class=#{task.context.class}"
-        context = deep_symbolize_keys(task.context)
-        logger.info "🔍 VALIDATE_ORDER: Task context keys - #{context.keys.inspect}" if context.respond_to?(:keys)
+      def extract_and_validate_inputs(context)
+        logger.info "📋 VALIDATE_ORDER: Extracting task context - context.task.context.class=#{context.task.context.class}"
+        task_context = deep_symbolize_keys(context.task.context)
+        logger.info "🔍 VALIDATE_ORDER: Task context keys - #{task_context.keys.inspect}" if task_context.respond_to?(:keys)
 
-        customer_info = context[:customer_info]
-        order_items = context[:order_items]
+        customer_info = task_context[:customer_info]
+        order_items = task_context[:order_items]
         logger.debug "🔍 VALIDATE_ORDER: Extracted data - customer_info=#{customer_info.inspect}, order_items.count=#{order_items&.length}"
 
         unless customer_info&.dig(:id)

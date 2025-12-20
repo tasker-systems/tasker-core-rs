@@ -75,9 +75,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'concurrent-ruby', '~> 1.3.5'
   spec.add_dependency 'concurrent-ruby-ext', '~> 1.3.5'
 
-  spec.add_dependency 'opentelemetry-exporter-otlp', '~> 0.30.0'
-  spec.add_dependency 'opentelemetry-sdk', '~> 1.8.0'
-
   # Ensure we have a Rust toolchain for compilation
   spec.metadata['allowed_push_host'] = 'https://rubygems.org'
   spec.metadata['rubygems_mfa_required'] = 'true'

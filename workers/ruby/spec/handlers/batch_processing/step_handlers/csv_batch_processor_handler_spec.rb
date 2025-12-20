@@ -6,9 +6,25 @@ require 'csv'
 
 RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandler do
   let(:handler) { described_class.new }
-  let(:mock_task) { instance_double(TaskerCore::Models::TaskWrapper) }
+  let(:mock_task) { instance_double(TaskerCore::Models::TaskWrapper, task_uuid: 'task-123', context: {}) }
   let(:mock_dependency_results) { instance_double(TaskerCore::Models::DependencyResultsWrapper) }
   let(:mock_workflow_step) { instance_double(TaskerCore::Models::WorkflowStepWrapper) }
+  let(:mock_step_definition) do
+    handler_def = double('handler', callable: 'CsvBatchProcessorHandler', initialization: {})
+    double('step_definition', handler: handler_def)
+  end
+  let(:mock_context) do
+    ctx = double('context',
+                 task: mock_task,
+                 workflow_step: mock_workflow_step,
+                 dependency_results: mock_dependency_results,
+                 step_definition: mock_step_definition)
+    # Mock get_dependency_result to delegate to the dependency_results mock
+    allow(ctx).to receive(:get_dependency_result) do |step_name|
+      mock_dependency_results.get_results(step_name)
+    end
+    ctx
+  end
 
   describe '#call' do
     context 'with no-op placeholder worker' do
@@ -19,7 +35,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
       end
 
       it 'returns success with no-op metadata' do
-        result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+        result = handler.call(mock_context)
 
         expect(result.success?).to be true
         expect(result.result['no_op']).to be true
@@ -28,7 +44,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
       end
 
       it 'does not process any CSV data' do
-        result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+        result = handler.call(mock_context)
 
         expect(result.result.keys).to contain_exactly(
           'batch_id',
@@ -72,7 +88,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
       end
 
       it 'processes CSV rows in specified range' do
-        result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+        result = handler.call(mock_context)
 
         expect(result.success?).to be true
         expect(result.result['batch_id']).to eq('001')
@@ -82,7 +98,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
       end
 
       it 'calculates inventory metrics correctly' do
-        result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+        result = handler.call(mock_context)
 
         # Product 1: 100 * 50 = 5000
         # Product 2: 150 * 30 = 4500
@@ -91,7 +107,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
       end
 
       it 'counts products by category' do
-        result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+        result = handler.call(mock_context)
 
         expect(result.result['category_counts']).to eq({
                                                          'Electronics' => 2
@@ -99,14 +115,14 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
       end
 
       it 'tracks maximum price product' do
-        result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+        result = handler.call(mock_context)
 
         expect(result.result['max_price']).to eq(150.00)
         expect(result.result['max_price_product']).to eq('Product 2')
       end
 
       it 'calculates average rating' do
-        result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+        result = handler.call(mock_context)
 
         # (4.5 + 4.8) / 2 = 4.65
         expect(result.result['average_rating']).to eq(4.65)
@@ -124,7 +140,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
         end
 
         it 'processes different rows correctly' do
-          result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+          result = handler.call(mock_context)
 
           expect(result.success?).to be true
           expect(result.result['batch_id']).to eq('002')
@@ -148,7 +164,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
         end
 
         it 'handles empty range gracefully' do
-          result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+          result = handler.call(mock_context)
 
           expect(result.success?).to be true
           expect(result.result['processed_count']).to eq(0)
@@ -174,7 +190,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
 
       it 'raises ArgumentError' do
         expect do
-          handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+          handler.call(mock_context)
         end.to raise_error(ArgumentError, 'csv_file_path not found in analyze_csv results')
       end
     end
@@ -195,7 +211,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
 
       it 'raises ArgumentError when csv_file_path is missing' do
         expect do
-          handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+          handler.call(mock_context)
         end.to raise_error(ArgumentError, 'csv_file_path not found in analyze_csv results')
       end
     end
@@ -249,7 +265,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
     end
 
     it 'parses all CSV fields correctly' do
-      result = handler.call(mock_task, mock_dependency_results, mock_workflow_step)
+      result = handler.call(mock_context)
 
       expect(result.success?).to be true
       expect(result.result['processed_count']).to eq(1)

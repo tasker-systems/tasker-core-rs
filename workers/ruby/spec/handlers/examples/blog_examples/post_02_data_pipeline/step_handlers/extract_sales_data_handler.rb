@@ -18,8 +18,8 @@ module DataPipeline
         { order_id: 'ORD-005', date: '2025-11-18', product_id: 'PROD-B', quantity: 7, amount: 699.93 }
       ].freeze
 
-      def call(task, _sequence, _step)
-        logger.info "📦 ExtractSalesDataHandler: Extracting sales data - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "📦 ExtractSalesDataHandler: Extracting sales data - task_uuid=#{context.task_uuid}"
 
         # Simulate data extraction from sales database
         sales_data = extract_sales_from_source

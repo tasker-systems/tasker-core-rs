@@ -5,11 +5,11 @@ require_relative '../../../../../lib/tasker_core/errors'
 module OrderFulfillment
   module StepHandlers
     class ReserveInventoryHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
+      def call(context)
         # Extract and validate all required inputs
-        reservation_inputs = extract_and_validate_inputs(task, sequence, step)
+        reservation_inputs = extract_and_validate_inputs(context)
 
-        puts "Reserving inventory: task_uuid=#{task.task_uuid}, items=#{reservation_inputs[:validated_items].length}"
+        puts "Reserving inventory: task_uuid=#{context.task_uuid}, items=#{reservation_inputs[:validated_items].length}"
 
         # Reserve inventory for validated items
         reservation_results = reserve_inventory_items(reservation_inputs)
@@ -38,9 +38,9 @@ module OrderFulfillment
 
       private
 
-      def extract_and_validate_inputs(_task, sequence, _step)
+      def extract_and_validate_inputs(context)
         # Get validated items from the validate_order step
-        validate_order_results = sequence.get_results('validate_order')
+        validate_order_results = context.get_dependency_result('validate_order')
 
         unless validate_order_results
           raise TaskerCore::Errors::PermanentError.new(

@@ -1190,21 +1190,22 @@ end
 ```ruby
 module BatchProcessing
   class CsvBatchProcessorHandler < TaskerCore::StepHandler::Batchable
-    def call(task, sequence, step)
-      # Use helper to check for no-op worker
-      return handle_no_op_worker if no_op_worker?(step)
+    def call(context)
+      # Extract batch context using helper
+      batch_ctx = get_batch_context(context)
 
-      # Extract cursor context using helper
-      context = extract_batch_worker_context(step)
+      # Use helper to check for no-op worker
+      no_op_result = handle_no_op_worker(batch_ctx)
+      return no_op_result if no_op_result
 
       # Get CSV file path from dependency results
-      csv_file_path = sequence.dependency_results.dig('analyze_csv', 'result', 'csv_file_path')
+      csv_file_path = context.get_dependency_result('analyze_csv')&.dig('csv_file_path')
 
       # Process CSV rows in cursor range
       metrics = process_csv_batch(
         csv_file_path,
-        context[:start_position],
-        context[:end_position]
+        batch_ctx.start_cursor,
+        batch_ctx.end_cursor
       )
 
       # Return results for aggregation
@@ -1213,7 +1214,7 @@ module BatchProcessing
           'processed_count' => metrics[:processed_count],
           'total_inventory_value' => metrics[:total_inventory_value],
           'category_counts' => metrics[:category_counts],
-          'batch_id' => context[:batch_id]
+          'batch_id' => batch_ctx.batch_id
         }
       )
     end
@@ -2298,27 +2299,28 @@ module BatchProcessing
         keyword_init: true
       )
 
-      def call(task, sequence, step)
-        # Use helper to check for no-op worker
-        return handle_no_op_worker if no_op_worker?(step)
+      def call(context)
+        # Extract batch context using helper
+        batch_ctx = get_batch_context(context)
 
-        # Extract cursor context using helper
-        context = extract_batch_worker_context(step)
+        # Use helper to check for no-op worker
+        no_op_result = handle_no_op_worker(batch_ctx)
+        return no_op_result if no_op_result
 
         # Get CSV file path from dependency results
-        csv_file_path = sequence.dependency_results.dig('analyze_csv', 'result', 'csv_file_path')
+        csv_file_path = context.get_dependency_result('analyze_csv')&.dig('csv_file_path')
         raise ArgumentError, 'Missing csv_file_path from analyze_csv' unless csv_file_path
 
-        Rails.logger.info("Processing batch #{context[:batch_id]} (rows #{context[:start_position]}-#{context[:end_position]})")
+        Rails.logger.info("Processing batch #{batch_ctx.batch_id} (rows #{batch_ctx.start_cursor}-#{batch_ctx.end_cursor})")
 
         # Process CSV rows in cursor range
         metrics = process_csv_batch(
           csv_file_path,
-          context[:start_position],
-          context[:end_position]
+          batch_ctx.start_cursor,
+          batch_ctx.end_cursor
         )
 
-        Rails.logger.info("Batch #{context[:batch_id]} complete: #{metrics[:processed_count]} items processed")
+        Rails.logger.info("Batch #{batch_ctx.batch_id} complete: #{metrics[:processed_count]} items processed")
 
         # Return results for aggregation
         success(
@@ -2329,9 +2331,9 @@ module BatchProcessing
             'max_price' => metrics[:max_price],
             'max_price_product' => metrics[:max_price_product],
             'average_rating' => metrics[:average_rating],
-            'batch_id' => context[:batch_id],
-            'start_row' => context[:start_position],
-            'end_row' => context[:end_position]
+            'batch_id' => batch_ctx.batch_id,
+            'start_row' => batch_ctx.start_cursor,
+            'end_row' => batch_ctx.end_cursor
           }
         )
       end

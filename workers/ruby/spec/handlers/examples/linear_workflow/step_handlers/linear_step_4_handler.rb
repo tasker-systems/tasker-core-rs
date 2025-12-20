@@ -4,9 +4,9 @@ module LinearWorkflow
   module StepHandlers
     # Fourth step in linear workflow: square the result from step 3 (final step)
     class LinearStep4Handler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Get result from previous step (linear_step_3)
-        previous_result = sequence.get_results('linear_step_3')
+        previous_result = context.get_dependency_result('linear_step_3')
         raise 'Previous step result not found' unless previous_result
 
         # Square the previous result (single parent operation)
@@ -15,7 +15,7 @@ module LinearWorkflow
         logger.info "Linear Step 4 (Final): #{previous_result}² = #{result}"
 
         # Calculate the full chain for verification
-        original_number = task.context['even_number']
+        original_number = context.task.context['even_number']
         expected = original_number**8 # 2^4 = 8 (squaring 4 times)
 
         logger.info "Linear Workflow Complete: #{original_number} -> #{result}"

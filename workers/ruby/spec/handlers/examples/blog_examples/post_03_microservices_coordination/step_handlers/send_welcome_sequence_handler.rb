@@ -32,13 +32,13 @@ module Microservices
         }
       }.freeze
 
-      def call(task, sequence, _step)
-        logger.info "📧 SendWelcomeSequenceHandler: Sending welcome sequence - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "📧 SendWelcomeSequenceHandler: Sending welcome sequence - task_uuid=#{context.task_uuid}"
 
         # Get results from prior steps
-        user_data = sequence.get_results('create_user_account')
-        billing_data = sequence.get_results('setup_billing_profile')
-        preferences_data = sequence.get_results('initialize_preferences')
+        user_data = context.get_dependency_result('create_user_account')
+        billing_data = context.get_dependency_result('setup_billing_profile')
+        preferences_data = context.get_dependency_result('initialize_preferences')
 
         # Validate required data
         validate_prior_step_results!(user_data, billing_data, preferences_data)

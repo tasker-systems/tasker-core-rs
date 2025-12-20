@@ -782,8 +782,8 @@ Task: conditional_approval
 
 ```ruby
 class RoutingDecisionHandler < TaskerCore::StepHandler::Decision
-  def call(task, sequence, step)
-    amount = task.context['amount']
+  def call(context)
+    amount = context.get_task_field('amount')
 
     # Business logic determines which steps to create
     steps = if amount < 1_000

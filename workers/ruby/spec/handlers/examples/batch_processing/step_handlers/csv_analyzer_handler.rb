@@ -23,8 +23,8 @@ module TaskerCore
       # Returns:
       #   Success with batch_processing_outcome in result_data
       class CsvAnalyzerHandler < StepHandler::Batchable
-        def call(task, _sequence, _step)
-          csv_file_path = task.context['csv_file_path']
+        def call(context)
+          csv_file_path = context.task.context['csv_file_path']
           raise ArgumentError, 'csv_file_path required in task context' if csv_file_path.nil?
 
           total_rows = count_csv_rows(csv_file_path)

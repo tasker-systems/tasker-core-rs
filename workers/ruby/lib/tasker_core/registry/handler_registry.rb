@@ -138,6 +138,26 @@ module TaskerCore
         @handlers.keys.sort
       end
 
+      # ========================================================================
+      # CROSS-LANGUAGE STANDARD ALIASES (TAS-96)
+      # ========================================================================
+
+      # Cross-language standard: register(name, handler_class)
+      # @see #register_handler
+      alias register register_handler
+
+      # Cross-language standard: is_registered(name)
+      # @see #handler_available?
+      alias is_registered handler_available?
+
+      # Cross-language standard: list_handlers
+      # @see #registered_handlers
+      alias list_handlers registered_handlers
+
+      # Cross-language standard: resolve(name)
+      # @see #resolve_handler
+      alias resolve resolve_handler
+
       # Get template discovery information for debugging
       def template_discovery_info
         template_path = TaskerCore::TemplateDiscovery::TemplatePath.find_template_config_directory

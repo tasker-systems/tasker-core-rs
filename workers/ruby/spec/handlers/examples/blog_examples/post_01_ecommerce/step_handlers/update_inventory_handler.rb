@@ -11,17 +11,17 @@ module Ecommerce
         4 => { id: 4, name: 'Widget D', stock: 0 },
         5 => { id: 5, name: 'Widget E', stock: 10 }
       }.freeze
-      def call(task, sequence, step)
+      def call(context)
         # Extract and validate all required inputs
-        inventory_inputs = extract_and_validate_inputs(task, sequence, step)
+        inventory_inputs = extract_and_validate_inputs(context)
 
-        logger.info "📦 UpdateInventoryHandler: Updating inventory - task_uuid=#{task.task_uuid}, item_count=#{inventory_inputs[:validated_items].length}"
+        logger.info "📦 UpdateInventoryHandler: Updating inventory - task_uuid=#{context.task_uuid}, item_count=#{inventory_inputs[:validated_items].length}"
 
         # Process inventory reservations - this is the core integration
         reservation_response = process_inventory_reservations(
           inventory_inputs[:validated_items],
           inventory_inputs[:customer_info],
-          task.task_uuid
+          context.task_uuid
         )
 
         # Extract results from reservation response
@@ -53,7 +53,7 @@ module Ecommerce
             },
             input_refs: {
               validated_items: 'sequence.validate_cart.result.validated_items',
-              customer_info: 'task.context.customer_info'
+              customer_info: 'context.task.context.customer_info'
             }
           }
         )
@@ -65,11 +65,11 @@ module Ecommerce
       private
 
       # Extract and validate all required inputs for inventory processing
-      def extract_and_validate_inputs(task, sequence, _step)
+      def extract_and_validate_inputs(context)
         # Normalize all hash keys to symbols for consistent access
-        cart_validation = sequence.get_results('validate_cart')
+        cart_validation = context.get_dependency_result('validate_cart')
         cart_validation = cart_validation.deep_symbolize_keys if cart_validation
-        customer_info = task.context.deep_symbolize_keys[:customer_info]
+        customer_info = context.task.context.deep_symbolize_keys[:customer_info]
 
         unless cart_validation&.dig(:validated_items)&.any?
           raise TaskerCore::Errors::PermanentError.new(

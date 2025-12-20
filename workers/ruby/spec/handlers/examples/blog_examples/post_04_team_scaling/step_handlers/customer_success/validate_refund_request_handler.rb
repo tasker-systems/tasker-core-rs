@@ -3,11 +3,11 @@
 module CustomerSuccess
   module StepHandlers
     class ValidateRefundRequestHandler < TaskerCore::StepHandler::Base
-      def call(task, _sequence, _step)
+      def call(context)
         # Extract and validate inputs
-        inputs = extract_and_validate_inputs(task, _sequence, _step)
+        inputs = extract_and_validate_inputs(context)
 
-        logger.info "🎫 ValidateRefundRequestHandler: Validating refund request - task_uuid=#{task.task_uuid}, ticket_id=#{inputs[:ticket_id]}"
+        logger.info "🎫 ValidateRefundRequestHandler: Validating refund request - task_uuid=#{context.task_uuid}, ticket_id=#{inputs[:ticket_id]}"
 
         # Simulate customer service system validation
         service_response = simulate_customer_service_validation(inputs)
@@ -43,8 +43,8 @@ module CustomerSuccess
               'X-Customer-Tier' => service_response[:customer_tier]
             },
             input_refs: {
-              ticket_id: 'task.context.ticket_id',
-              customer_id: 'task.context.customer_id'
+              ticket_id: 'context.task.context.ticket_id',
+              customer_id: 'context.task.context.customer_id'
             }
           }
         )
@@ -56,12 +56,12 @@ module CustomerSuccess
       private
 
       # Extract and validate inputs
-      def extract_and_validate_inputs(task, _sequence, _step)
-        context = task.context.deep_symbolize_keys
+      def extract_and_validate_inputs(context)
+        task_context = context.task.context.deep_symbolize_keys
 
         # Validate required fields
         required_fields = %i[ticket_id customer_id refund_amount]
-        missing_fields = required_fields.select { |field| context[field].blank? }
+        missing_fields = required_fields.select { |field| task_context[field].blank? }
 
         if missing_fields.any?
           raise TaskerCore::Errors::PermanentError.new(
@@ -71,10 +71,10 @@ module CustomerSuccess
         end
 
         {
-          ticket_id: context[:ticket_id],
-          customer_id: context[:customer_id],
-          refund_amount: context[:refund_amount],
-          refund_reason: context[:refund_reason]
+          ticket_id: task_context[:ticket_id],
+          customer_id: task_context[:customer_id],
+          refund_amount: task_context[:refund_amount],
+          refund_reason: task_context[:refund_reason]
         }
       end
 
