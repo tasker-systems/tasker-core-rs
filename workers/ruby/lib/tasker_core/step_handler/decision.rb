@@ -23,9 +23,9 @@ module TaskerCore
     #
     # ```ruby
     # class MyDecisionHandler < TaskerCore::StepHandler::Decision
-    #   def call(task, sequence, step)
+    #   def call(context)
     #     # Business logic to determine routing
-    #     amount = task.context['amount']
+    #     amount = context.get_task_field('amount')
     #
     #     if amount < 1000
     #       # Use helper to create single-step outcome
@@ -55,8 +55,8 @@ module TaskerCore
     # Sometimes a decision point may determine that no additional steps are needed:
     #
     # ```ruby
-    # def call(task, sequence, step)
-    #   if task.context['skip_approval']
+    # def call(context)
+    #   if context.get_task_field('skip_approval')
     #     # No additional steps needed - proceed directly to next step
     #     decision_no_branches(
     #       result_data: { reason: 'approval_skipped' }

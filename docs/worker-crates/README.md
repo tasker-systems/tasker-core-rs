@@ -15,6 +15,8 @@ The tasker-core workspace provides three worker implementations for executing wo
 
 | Document | Description |
 |----------|-------------|
+| [API Convergence Matrix](api-convergence-matrix.md) | Quick reference for aligned APIs across languages |
+| [Example Handlers](example-handlers.md) | Side-by-side handler examples |
 | [Patterns and Practices](patterns-and-practices.md) | Common patterns across all workers |
 | [Rust Worker](rust.md) | Native Rust implementation |
 | [Ruby Worker](ruby.md) | Ruby gem for Rails integration |
@@ -404,6 +406,8 @@ For detailed architectural documentation:
 
 ## See Also
 
+- [API Convergence Matrix](api-convergence-matrix.md) - Quick reference tables
+- [Example Handlers](example-handlers.md) - Side-by-side code examples
 - [Patterns and Practices](patterns-and-practices.md) - Common patterns
 - [Rust Worker](rust.md) - Native implementation details
 - [Ruby Worker](ruby.md) - Ruby gem documentation

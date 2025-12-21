@@ -40,9 +40,9 @@ module TaskerCore
     # Batch processing handlers should return this outcome in their result:
     #
     # ```ruby
-    # def call(task, sequence, step)
+    # def call(context)
     #   # Business logic to determine if batching is needed
-    #   total_records = task.context['total_records']
+    #   total_records = context.get_task_field('total_records')
     #
     #   outcome = if total_records > 1000
     #     # Create batches for parallel processing

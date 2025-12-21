@@ -1417,12 +1417,8 @@ mod tests {
     #[test]
     fn test_step_execution_result_success_no_error_code() {
         let step_uuid = Uuid::now_v7();
-        let result = StepExecutionResult::success(
-            step_uuid,
-            serde_json::json!({"status": "ok"}),
-            100,
-            None,
-        );
+        let result =
+            StepExecutionResult::success(step_uuid, serde_json::json!({"status": "ok"}), 100, None);
 
         assert_eq!(result.error_code(), None);
         assert_eq!(result.error_type(), None);

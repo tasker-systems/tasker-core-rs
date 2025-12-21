@@ -40,12 +40,9 @@ module TaskerCore
     #     handler_class = event[:task_sequence_step].handler_class
     #     handler = registry.resolve_handler(handler_class)
     #
-    #     # Execute handler
-    #     result = handler.call(
-    #       event[:task_sequence_step].task,
-    #       event[:task_sequence_step].sequence,
-    #       event[:task_sequence_step].workflow_step
-    #     )
+    #     # Create context and execute handler
+    #     context = TaskerCore::Types::StepContext.new(event[:task_sequence_step])
+    #     result = handler.call(context)
     #
     #     # Send completion back to Rust
     #     bridge.publish_step_completion({
@@ -73,7 +70,7 @@ module TaskerCore
     #
     # @example Handling errors in step execution
     #   begin
-    #     result = handler.call(task, sequence, step)
+    #     result = handler.call(context)
     #     bridge.publish_step_completion({
     #       event_id: event_id,
     #       task_uuid: task_uuid,

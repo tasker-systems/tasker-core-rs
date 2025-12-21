@@ -24,7 +24,7 @@ module TaskerCore
     #   # => Instance of ValidateOrderHandler or nil if not found
     #
     #   if handler
-    #     result = handler.call(task, sequence, step)
+    #     result = handler.call(context)
     #   else
     #     raise "Handler not found: ValidateOrderHandler"
     #   end

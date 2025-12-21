@@ -10,15 +10,15 @@ module TaskerCore
     # is ready for execution.
     #
     # @example Accessing task context in a handler
-    #   def call(task, sequence, step)
-    #     even_number = task.context['even_number']
+    #   def call(context)
+    #     even_number = context.task.context['even_number']
     #     # or use the convenience method
-    #     even_number = sequence.get_task_field('even_number')
+    #     even_number = context.get_task_field('even_number')
     #   end
     #
     # @example Accessing dependency results
-    #   def call(task, sequence, step)
-    #     previous_result = sequence.get_dependency_result('previous_step_name')
+    #   def call(context)
+    #     previous_result = context.get_dependency_result('previous_step_name')
     #   end
     class TaskSequenceStepWrapper
       # @return [TaskWrapper] Wrapped task with context and metadata

@@ -36,9 +36,9 @@ module TaskerCore
     # Decision point handlers should return this outcome in their result:
     #
     # ```ruby
-    # def call(task, sequence, step)
+    # def call(context)
     #   # Business logic to determine which steps to create
-    #   steps_to_create = if task.context['amount'] > 1000
+    #   steps_to_create = if context.get_task_field('amount') > 1000
     #     ['manager_approval', 'finance_review']
     #   else
     #     ['auto_approve']
