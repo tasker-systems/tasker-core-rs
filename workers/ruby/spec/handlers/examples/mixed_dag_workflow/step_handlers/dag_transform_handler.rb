@@ -4,9 +4,9 @@ module MixedDagWorkflow
   module StepHandlers
     # DAG Transform: Squares the left process result (step E in mixed DAG)
     class DagTransformHandler < TaskerCore::StepHandler::Base
-      def call(_task, sequence, _step)
+      def call(context)
         # Get result from dag_process_left (single parent)
-        left_result = sequence.get_results('dag_process_left')
+        left_result = context.get_dependency_result('dag_process_left')
         raise 'Process left result not found' unless left_result
 
         # Square the left result (single parent operation)

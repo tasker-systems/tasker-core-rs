@@ -9,11 +9,11 @@ module DataPipeline
     # - Business intelligence generation
     # - Actionable insights from aggregated data
     class GenerateInsightsHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
-        logger.info "💡 GenerateInsightsHandler: Generating business insights - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "💡 GenerateInsightsHandler: Generating business insights - task_uuid=#{context.task_uuid}"
 
         # Get aggregated metrics from prior step
-        metrics = sequence.get_results('aggregate_metrics')
+        metrics = context.get_dependency_result('aggregate_metrics')
         unless metrics
           raise TaskerCore::Errors::PermanentError.new(
             'Aggregated metrics not found',

@@ -75,7 +75,7 @@ class ValidateOrderHandler(StepHandler):
         validation_checks = ["order_id_present", "customer_id_present"]
 
         if validation_mode == "strict" and amount <= 0:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Amount must be positive in strict mode",
                 error_type="ValidationError",
                 retryable=False,
@@ -88,7 +88,7 @@ class ValidateOrderHandler(StepHandler):
         execution_time_ms = int((time.perf_counter() - start_time) * 1000)
 
         # Return success - event publishing is handled by worker callback
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "order_id": order_id,
                 "validation_timestamp": datetime.now(timezone.utc).isoformat(),
@@ -141,7 +141,7 @@ class ProcessPaymentHandler(StepHandler):
         if simulate_failure:
             execution_time_ms = int((time.perf_counter() - start_time) * 1000)
 
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Simulated payment failure",
                 error_type="PaymentError",
                 retryable=True,
@@ -157,7 +157,7 @@ class ProcessPaymentHandler(StepHandler):
         execution_time_ms = int((time.perf_counter() - start_time) * 1000)
 
         # Return success - event publishing is handled by worker callback
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "transaction_id": transaction_id,
                 "amount": amount,
@@ -216,7 +216,7 @@ class UpdateInventoryHandler(StepHandler):
 
         # Return success - event publishing is handled by worker callback
         # Note: inventory.updated event is published with condition: always
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "order_id": order_id,
                 "items": items,
@@ -266,7 +266,7 @@ class SendNotificationHandler(StepHandler):
         execution_time_ms = int((time.perf_counter() - start_time) * 1000)
 
         # Return success - event publishing is handled by worker callback
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "notification_id": notification_id,
                 "channel": notification_type,

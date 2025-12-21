@@ -4,10 +4,10 @@ module LinearWorkflow
   module StepHandlers
     # First step in linear workflow: square the initial even number
     class LinearStep1Handler < TaskerCore::StepHandler::Base
-      def call(task, _sequence, _step)
-        logger.info("Starting Linear Step 1, with task context: #{task.context.inspect}")
+      def call(context)
+        logger.info("Starting Linear Step 1, with task context: #{context.task.context.inspect}")
         # Get the even number from task context
-        even_number = task.context['even_number']
+        even_number = context.task.context['even_number']
         raise 'Task context must contain an even number' unless even_number&.even?
 
         # Square the even number (first step operation)
@@ -22,7 +22,7 @@ module LinearWorkflow
             operation: 'square',
             step_type: 'initial',
             input_refs: {
-              even_number: 'task.context.even_number'
+              even_number: 'context.task.context.even_number'
             }
           }
         )

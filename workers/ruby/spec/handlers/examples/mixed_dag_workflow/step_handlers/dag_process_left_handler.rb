@@ -4,9 +4,9 @@ module MixedDagWorkflow
   module StepHandlers
     # DAG Process Left: Squares the init result (step B in mixed DAG)
     class DagProcessLeftHandler < TaskerCore::StepHandler::Base
-      def call(_task, sequence, _step)
+      def call(context)
         # Get result from dag_init
-        init_result = sequence.get_results('dag_init')
+        init_result = context.get_dependency_result('dag_init')
         raise 'Init result not found' unless init_result
 
         # Square the init result (single parent operation)

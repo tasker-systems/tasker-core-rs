@@ -3,11 +3,11 @@
 module Payments
   module StepHandlers
     class ProcessGatewayRefundHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Extract and validate inputs
-        inputs = extract_and_validate_inputs(task, sequence, _step)
+        inputs = extract_and_validate_inputs(context)
 
-        logger.info "💰 ProcessGatewayRefundHandler: Processing gateway refund - task_uuid=#{task.task_uuid}, payment_id=#{inputs[:payment_id]}"
+        logger.info "💰 ProcessGatewayRefundHandler: Processing gateway refund - task_uuid=#{context.task_uuid}, payment_id=#{inputs[:payment_id]}"
 
         # Simulate gateway refund processing
         refund_result = simulate_gateway_refund(inputs)
@@ -44,7 +44,7 @@ module Payments
               'X-Gateway-Transaction-ID' => refund_result[:gateway_transaction_id]
             },
             input_refs: {
-              payment_id: 'task.context.payment_id',
+              payment_id: 'context.task.context.payment_id',
               validation_result: 'sequence.validate_payment_eligibility.result'
             }
           }
@@ -57,11 +57,11 @@ module Payments
       private
 
       # Extract and validate inputs from task and previous step
-      def extract_and_validate_inputs(task, sequence, _step)
-        context = task.context.deep_symbolize_keys
+      def extract_and_validate_inputs(context)
+        task_context = context.task.context.deep_symbolize_keys
 
         # Get validation results from previous step
-        validation_result = sequence.get_results('validate_payment_eligibility')
+        validation_result = context.get_dependency_result('validate_payment_eligibility')
         validation_result = validation_result.deep_symbolize_keys if validation_result
 
         unless validation_result&.dig(:payment_validated)
@@ -74,8 +74,8 @@ module Payments
         {
           payment_id: validation_result[:payment_id],
           refund_amount: validation_result[:refund_amount],
-          refund_reason: context[:refund_reason] || 'customer_request',
-          partial_refund: context[:partial_refund] || false,
+          refund_reason: task_context[:refund_reason] || 'customer_request',
+          partial_refund: task_context[:partial_refund] || false,
           original_amount: validation_result[:original_amount]
         }
       end

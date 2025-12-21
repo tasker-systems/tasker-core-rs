@@ -6,7 +6,7 @@ branches of a workflow to execute based on input data or conditions.
 
 Example:
     >>> from tasker_core.step_handler import DecisionHandler
-    >>> from tasker_core import StepContext, StepHandlerResult, DecisionPointOutcome
+    >>> from tasker_core import StepContext, StepHandlerResult
     >>>
     >>> class RouteOrderHandler(DecisionHandler):
     ...     handler_name = "route_order"
@@ -14,20 +14,15 @@ Example:
     ...     def call(self, context: StepContext) -> StepHandlerResult:
     ...         order_type = context.input_data.get("order_type")
     ...         if order_type == "premium":
-    ...             outcome = DecisionPointOutcome.create_steps(
-    ...                 ["validate_premium", "process_premium"]
+    ...             # Simplified cross-language API
+    ...             return self.decision_success(
+    ...                 ["validate_premium", "process_premium"],
+    ...                 routing_context={"order_type": order_type}
     ...             )
-    ...             return self.decision_success(outcome)
     ...         elif order_type == "standard":
-    ...             outcome = DecisionPointOutcome.create_steps(
-    ...                 ["process_standard"]
-    ...             )
-    ...             return self.decision_success(outcome)
+    ...             return self.decision_success(["process_standard"])
     ...         else:
-    ...             outcome = DecisionPointOutcome.no_branches(
-    ...                 reason="Unknown order type"
-    ...             )
-    ...             return self.decision_no_branches(outcome)
+    ...             return self.skip_branches(reason="Unknown order type")
 """
 
 from __future__ import annotations
@@ -48,7 +43,10 @@ class DecisionHandler(StepHandler):
     They evaluate conditions and determine which steps should execute next.
 
     Subclasses should implement the `call` method and use the helper methods
-    `decision_success` and `decision_no_branches` to return outcomes.
+    to return outcomes:
+    - `decision_success(steps, routing_context)` - simplified cross-language API
+    - `decision_success_with_outcome(outcome)` - for complex DecisionPointOutcome
+    - `skip_branches(reason)` - when no steps should execute
 
     Class Attributes:
         handler_name: Unique identifier for this handler.
@@ -62,19 +60,13 @@ class DecisionHandler(StepHandler):
         ...         tier = context.input_data.get("customer_tier")
         ...         if tier == "enterprise":
         ...             return self.decision_success(
-        ...                 DecisionPointOutcome.create_steps(
-        ...                     ["enterprise_validation", "enterprise_processing"],
-        ...                     routing_context={"tier": tier}
-        ...                 )
+        ...                 ["enterprise_validation", "enterprise_processing"],
+        ...                 routing_context={"tier": tier}
         ...             )
         ...         elif tier == "premium":
-        ...             return self.decision_success(
-        ...                 DecisionPointOutcome.create_steps(["premium_processing"])
-        ...             )
+        ...             return self.decision_success(["premium_processing"])
         ...         else:
-        ...             return self.decision_success(
-        ...                 DecisionPointOutcome.create_steps(["standard_processing"])
-        ...             )
+        ...             return self.decision_success(["standard_processing"])
     """
 
     @property
@@ -84,12 +76,45 @@ class DecisionHandler(StepHandler):
 
     def decision_success(
         self,
+        steps: list[str],
+        routing_context: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> StepHandlerResult:
+        """Simplified decision success helper (cross-language standard API).
+
+        Use this when routing to one or more steps based on a decision.
+        This is the recommended method for most decision handlers.
+
+        Args:
+            steps: List of step names to activate.
+            routing_context: Optional context for routing decisions.
+            metadata: Optional additional metadata.
+
+        Returns:
+            A success StepHandlerResult with the decision outcome.
+
+        Example:
+            >>> # Simple routing
+            >>> return self.decision_success(["process_order"])
+            >>>
+            >>> # With routing context
+            >>> return self.decision_success(
+            ...     ["validate_premium", "process_premium"],
+            ...     routing_context={"tier": "premium"}
+            ... )
+        """
+        outcome = DecisionPointOutcome.create_steps(steps, routing_context=routing_context)
+        return self.decision_success_with_outcome(outcome, metadata=metadata)
+
+    def decision_success_with_outcome(
+        self,
         outcome: DecisionPointOutcome,
         metadata: dict[str, Any] | None = None,
     ) -> StepHandlerResult:
-        """Create a success result for a decision that creates steps.
+        """Create a success result with a DecisionPointOutcome.
 
-        Use this when the decision results in executing one or more next steps.
+        Use this for complex decision outcomes that require dynamic steps
+        or advanced routing. For simple step routing, use `decision_success()`.
 
         Args:
             outcome: The decision point outcome specifying next steps.
@@ -100,9 +125,10 @@ class DecisionHandler(StepHandler):
 
         Example:
             >>> outcome = DecisionPointOutcome.create_steps(
-            ...     ["process_premium", "send_notification"]
+            ...     ["process_premium"],
+            ...     dynamic_steps=[{"name": "custom_step", ...}],
             ... )
-            >>> return self.decision_success(outcome)
+            >>> return self.decision_success_with_outcome(outcome)
         """
         # Build decision_point_outcome in format Rust expects
         # (matches Ruby's DecisionPointOutcome.to_h structure)
@@ -177,9 +203,10 @@ class DecisionHandler(StepHandler):
         routing_context: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> StepHandlerResult:
-        """Convenience method to route to specific steps.
+        """Alias for decision_success(). Use decision_success() instead.
 
-        A shorthand for creating a DecisionPointOutcome and calling decision_success.
+        This method is kept for backward compatibility. Prefer using
+        `decision_success(steps, routing_context)` for cross-language consistency.
 
         Args:
             step_names: Names of the steps to execute.
@@ -188,19 +215,8 @@ class DecisionHandler(StepHandler):
 
         Returns:
             A success StepHandlerResult routing to the specified steps.
-
-        Example:
-            >>> if order_total > 1000:
-            ...     return self.route_to_steps(
-            ...         ["high_value_verification", "premium_processing"],
-            ...         routing_context={"order_total": order_total}
-            ...     )
         """
-        outcome = DecisionPointOutcome.create_steps(
-            step_names,
-            routing_context=routing_context,
-        )
-        return self.decision_success(outcome, metadata=metadata)
+        return self.decision_success(step_names, routing_context, metadata)
 
     def skip_branches(
         self,

@@ -4,9 +4,9 @@ module TreeWorkflow
   module StepHandlers
     # Tree Branch Right: Right main branch that squares the input
     class TreeBranchRightHandler < TaskerCore::StepHandler::Base
-      def call(_task, sequence, _step)
+      def call(context)
         # Get result from tree_root
-        root_result = sequence.get_results('tree_root')
+        root_result = context.get_dependency_result('tree_root')
         raise 'Tree root result not found' unless root_result
 
         # Square the root result (single parent operation)

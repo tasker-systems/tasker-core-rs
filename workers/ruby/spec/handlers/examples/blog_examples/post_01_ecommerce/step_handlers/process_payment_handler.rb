@@ -3,11 +3,11 @@
 module Ecommerce
   module StepHandlers
     class ProcessPaymentHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
+      def call(context)
         # Extract and validate all required inputs
-        payment_inputs = extract_and_validate_inputs(task, sequence, step)
+        payment_inputs = extract_and_validate_inputs(context)
 
-        logger.info "💳 ProcessPaymentHandler: Processing payment - task_uuid=#{task.task_uuid}, amount=$#{payment_inputs[:amount_to_charge]}"
+        logger.info "💳 ProcessPaymentHandler: Processing payment - task_uuid=#{context.task_uuid}, amount=$#{payment_inputs[:amount_to_charge]}"
 
         # Simulate payment processing - this is the core integration
         payment_result = simulate_payment_processing(
@@ -47,7 +47,7 @@ module Ecommerce
             },
             input_refs: {
               amount: 'sequence.validate_cart.result.total',
-              payment_info: 'task.context.payment_info'
+              payment_info: 'context.task.context.payment_info'
             }
           }
         )
@@ -112,11 +112,11 @@ module Ecommerce
       end
 
       # Extract and validate all required inputs for payment processing
-      def extract_and_validate_inputs(task, sequence, _step)
+      def extract_and_validate_inputs(context)
         # Normalize all hash keys to symbols for consistent access
-        context = task.context.deep_symbolize_keys
-        payment_info = context[:payment_info]
-        cart_validation = sequence.get_results('validate_cart')
+        task_context = context.task.context.deep_symbolize_keys
+        payment_info = task_context[:payment_info]
+        cart_validation = context.get_dependency_result('validate_cart')
 
         # Ensure cart_validation is symbolized
         cart_validation = cart_validation.deep_symbolize_keys if cart_validation

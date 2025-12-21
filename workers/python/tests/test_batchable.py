@@ -319,7 +319,7 @@ class TestBatchableWithStepHandler:
         outcome = handler.create_batch_outcome(total_items=100, batch_size=25)
         result = handler.batch_analyzer_success(outcome)
 
-        assert result.success is True
+        assert result.is_success is True
         # Result now uses batch_processing_outcome wrapper (matches Rust expectations)
         assert result.result["worker_count"] == 4
         assert result.result["total_items"] == 100
@@ -350,7 +350,7 @@ class TestBatchableWithStepHandler:
         )
         result = handler.batch_worker_success(outcome)
 
-        assert result.success is True
+        assert result.is_success is True
         assert result.result["items_processed"] == 25
         assert result.result["items_succeeded"] == 24
         assert result.result["items_failed"] == 1

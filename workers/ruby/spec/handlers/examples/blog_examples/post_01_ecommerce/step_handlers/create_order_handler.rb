@@ -3,14 +3,14 @@
 module Ecommerce
   module StepHandlers
     class CreateOrderHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
+      def call(context)
         # Extract and validate all required inputs
-        order_inputs = extract_and_validate_inputs(task, sequence, step)
+        order_inputs = extract_and_validate_inputs(context)
 
-        logger.info "📝 CreateOrderHandler: Creating order - task_uuid=#{task.task_uuid}, customer=#{order_inputs[:customer_info][:email]}"
+        logger.info "📝 CreateOrderHandler: Creating order - task_uuid=#{context.task_uuid}, customer=#{order_inputs[:customer_info][:email]}"
 
         # Create the order record - this is the core integration
-        order_response = create_order_record(order_inputs, task)
+        order_response = create_order_record(order_inputs, context)
         order = order_response[:order]
 
         logger.info "✅ CreateOrderHandler: Order created - order_id=#{order[:id]}, order_number=#{order[:order_number]}"
@@ -42,7 +42,7 @@ module Ecommerce
               'X-Order-Status' => order[:status]
             },
             input_refs: {
-              customer_info: 'task.context.customer_info',
+              customer_info: 'context.task.context.customer_info',
               cart_validation: 'sequence.validate_cart.result',
               payment_result: 'sequence.process_payment.result',
               inventory_result: 'sequence.update_inventory.result'
@@ -57,18 +57,18 @@ module Ecommerce
       private
 
       # Extract and validate all required inputs for order creation
-      def extract_and_validate_inputs(task, sequence, _step)
+      def extract_and_validate_inputs(context)
         # Normalize all hash keys to symbols for consistent access
-        context = task.context.deep_symbolize_keys
-        customer_info = context[:customer_info]
+        task_context = context.task.context.deep_symbolize_keys
+        customer_info = task_context[:customer_info]
 
-        cart_validation = sequence.get_results('validate_cart')
+        cart_validation = context.get_dependency_result('validate_cart')
         cart_validation = cart_validation.deep_symbolize_keys if cart_validation
 
-        payment_result = sequence.get_results('process_payment')
+        payment_result = context.get_dependency_result('process_payment')
         payment_result = payment_result.deep_symbolize_keys if payment_result
 
-        inventory_result = sequence.get_results('update_inventory')
+        inventory_result = context.get_dependency_result('update_inventory')
         inventory_result = inventory_result.deep_symbolize_keys if inventory_result
 
         unless customer_info
@@ -108,7 +108,7 @@ module Ecommerce
       end
 
       # Create the order record using validated inputs
-      def create_order_record(order_inputs, task)
+      def create_order_record(order_inputs, context)
         customer_info = order_inputs[:customer_info]
         cart_validation = order_inputs[:cart_validation]
         payment_result = order_inputs[:payment_result]
@@ -146,7 +146,7 @@ module Ecommerce
           inventory_log_id: inventory_result[:inventory_log_id],
 
           # Tracking
-          task_uuid: task.task_uuid,
+          task_uuid: context.task_uuid,
           workflow_version: '1.0.0',
 
           # Timestamps

@@ -42,7 +42,7 @@ class CsvAnalyzerHandler(StepHandler, Batchable):
 
         csv_file_path = input_data.get("csv_file_path")
         if not csv_file_path:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="csv_file_path is required",
                 error_type="validation_error",
                 retryable=False,
@@ -73,7 +73,7 @@ class CsvAnalyzerHandler(StepHandler, Batchable):
                 next(reader)  # Skip header
                 row_count = sum(1 for _ in reader)
         except Exception as e:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message=f"Failed to read CSV file: {e}",
                 error_type="file_error",
                 retryable=True,
@@ -145,7 +145,7 @@ class CsvBatchProcessorHandler(StepHandler, Batchable):
         # Get the CSV file path from analyzer result
         analyzer_result = context.get_dependency_result("analyze_csv_py")
         if analyzer_result is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing analyze_csv_py result",
                 error_type="dependency_error",
                 retryable=True,
@@ -155,7 +155,7 @@ class CsvBatchProcessorHandler(StepHandler, Batchable):
         csv_file_path = batch_metadata.get("csv_file_path")
 
         if not csv_file_path:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="csv_file_path not found in batch metadata",
                 error_type="dependency_error",
                 retryable=False,
@@ -165,7 +165,7 @@ class CsvBatchProcessorHandler(StepHandler, Batchable):
         try:
             results = self._process_csv_batch(csv_file_path, start_cursor, end_cursor)
         except Exception as e:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message=f"Batch processing failed: {e}",
                 error_type="processing_error",
                 retryable=True,
@@ -288,7 +288,7 @@ class CsvResultsAggregatorHandler(StepHandler, Batchable):
         # aggregate_worker_results returns "batch_count", not "worker_count"
         worker_count = aggregated.get("batch_count", len(worker_results))
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "total_processed": aggregated.get("total_processed", 0),
                 "total_succeeded": aggregated.get("total_succeeded", 0),

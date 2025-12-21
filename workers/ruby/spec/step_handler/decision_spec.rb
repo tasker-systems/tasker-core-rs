@@ -5,7 +5,7 @@ require 'spec_helper'
 RSpec.describe TaskerCore::StepHandler::Decision do
   # Test implementation of Decision handler
   class TestDecisionHandler < described_class
-    def call(_task, _sequence, _step)
+    def call(_context)
       decision_success(
         steps: ['test_step'],
         result_data: { test: 'data' }
@@ -373,8 +373,8 @@ RSpec.describe TaskerCore::StepHandler::Decision do
       SMALL_THRESHOLD = 1000
       LARGE_THRESHOLD = 5000
 
-      def call(task, _sequence, _step)
-        amount = task.context['amount']
+      def call(context)
+        amount = context.task.context['amount']
 
         if amount < SMALL_THRESHOLD
           decision_success(
@@ -397,14 +397,18 @@ RSpec.describe TaskerCore::StepHandler::Decision do
 
     let(:routing_handler) { AmountBasedRoutingHandler.new }
     let(:task_wrapper) { double('task', context: { 'amount' => amount }) }
-    let(:sequence) { double('sequence') }
-    let(:step) { double('step') }
+    let(:mock_context) do
+      double('context',
+             task: task_wrapper,
+             workflow_step: double('workflow_step'),
+             dependency_results: double('dependency_results'))
+    end
 
     context 'with small amount' do
       let(:amount) { 500 }
 
       it 'routes to auto_approve' do
-        result = routing_handler.call(task_wrapper, sequence, step)
+        result = routing_handler.call(mock_context)
 
         expect(result.result[:route_type]).to eq('auto')
         expect(result.result[:decision_point_outcome][:step_names]).to eq(['auto_approve'])
@@ -415,7 +419,7 @@ RSpec.describe TaskerCore::StepHandler::Decision do
       let(:amount) { 3000 }
 
       it 'routes to manager_approval only' do
-        result = routing_handler.call(task_wrapper, sequence, step)
+        result = routing_handler.call(mock_context)
 
         expect(result.result[:route_type]).to eq('manager_only')
         expect(result.result[:decision_point_outcome][:step_names]).to eq(['manager_approval'])
@@ -426,7 +430,7 @@ RSpec.describe TaskerCore::StepHandler::Decision do
       let(:amount) { 10_000 }
 
       it 'routes to dual approval path' do
-        result = routing_handler.call(task_wrapper, sequence, step)
+        result = routing_handler.call(mock_context)
 
         expect(result.result[:route_type]).to eq('dual_approval')
         expect(result.result[:decision_point_outcome][:step_names]).to eq(%w[manager_approval finance_review])

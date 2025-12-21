@@ -96,6 +96,74 @@ class TestPhase5Exports:
         assert hasattr(tasker_core, "WorkerConfig")
 
 
+class TestTAS95Exports:
+    """Test that TAS-95 API alignment exports are available."""
+
+    def test_error_type_enum_exported(self):
+        """Test ErrorType enum is exported from tasker_core."""
+        from tasker_core import ErrorType
+
+        assert ErrorType is not None
+        assert ErrorType.PERMANENT_ERROR == "permanent_error"
+        assert ErrorType.RETRYABLE_ERROR == "retryable_error"
+        assert ErrorType.VALIDATION_ERROR == "validation_error"
+        assert ErrorType.TIMEOUT == "timeout"
+        assert ErrorType.HANDLER_ERROR == "handler_error"
+
+    def test_error_type_helper_methods(self):
+        """Test ErrorType helper methods."""
+        from tasker_core import ErrorType
+
+        assert ErrorType.is_standard("permanent_error") is True
+        assert ErrorType.is_standard("custom_error") is False
+        assert ErrorType.is_typically_retryable("retryable_error") is True
+        assert ErrorType.is_typically_retryable("permanent_error") is False
+
+    def test_base_publisher_exported(self):
+        """Test BasePublisher is exported from tasker_core."""
+        from tasker_core import BasePublisher
+
+        assert BasePublisher is not None
+        # Verify it's an abstract class
+        from abc import ABC
+        assert issubclass(BasePublisher, ABC)
+
+    def test_base_subscriber_exported(self):
+        """Test BaseSubscriber is exported from tasker_core."""
+        from tasker_core import BaseSubscriber
+
+        assert BaseSubscriber is not None
+        # Verify it's an abstract class
+        from abc import ABC
+        assert issubclass(BaseSubscriber, ABC)
+
+    def test_step_event_context_exported(self):
+        """Test StepEventContext is exported from tasker_core."""
+        from tasker_core import StepEventContext
+
+        assert StepEventContext is not None
+        # Verify it can be instantiated
+        ctx = StepEventContext(
+            task_uuid="task-123",
+            step_uuid="step-456",
+            step_name="test_step",
+            namespace="test",
+            correlation_id="corr-789",
+        )
+        assert ctx.task_uuid == "task-123"
+        assert ctx.step_name == "test_step"
+
+    def test_all_exports_includes_tas95(self):
+        """Test __all__ includes TAS-95 exports."""
+        tas95_exports = {
+            "ErrorType",
+            "BasePublisher",
+            "BaseSubscriber",
+            "StepEventContext",
+        }
+        assert tas95_exports.issubset(set(tasker_core.__all__))
+
+
 class TestPhase6bExports:
     """Test that Phase 6b exports are available."""
 

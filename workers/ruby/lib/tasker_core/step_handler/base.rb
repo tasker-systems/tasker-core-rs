@@ -21,14 +21,43 @@ module TaskerCore
       # MAIN STEP EXECUTION INTERFACE (implemented by subclasses)
       # ========================================================================
 
-      # Main business logic method - Rails engine signature: process(task, sequence, step)
-      # Subclasses implement the actual business logic in this method
-      # @param task [Tasker::Task] Task model instance with context data
-      # @param sequence [Tasker::Types::StepSequence] Step sequence for navigation
-      # @param step [Tasker::WorkflowStep] Current step being processed
-      # @return [Object] Step results (Hash, Array, String, etc.)
-      def call(task, sequence, step)
-        raise NotImplementedError, 'Subclasses must implement #call(task, sequence, step)'
+      # Main business logic method - cross-language standard signature
+      #
+      # Subclasses implement the actual business logic in this method.
+      # The context provides unified access to all step execution data.
+      #
+      # @param context [TaskerCore::Types::StepContext] Unified step execution context
+      # @return [TaskerCore::Types::StepHandlerCallResult] Step execution result
+      #
+      # @example Basic handler
+      #   def call(context)
+      #     even_number = context.get_task_field('even_number')
+      #     result = even_number * 2
+      #     success(result: result)
+      #   end
+      #
+      # @example Handler with dependencies
+      #   def call(context)
+      #     prev_result = context.get_dependency_result('step_1')
+      #     success(result: prev_result + 1)
+      #   end
+      #
+      # @example Accessing context fields
+      #   def call(context)
+      #     # Cross-language standard fields
+      #     context.task_uuid      # Task UUID
+      #     context.step_uuid      # Step UUID
+      #     context.input_data     # Step inputs
+      #     context.step_config    # Handler configuration
+      #     context.retry_count    # Current retry attempt
+      #     context.max_retries    # Maximum retries allowed
+      #
+      #     # Ruby-specific accessors (backward compat)
+      #     context.task           # TaskWrapper
+      #     context.workflow_step  # WorkflowStepWrapper
+      #   end
+      def call(context)
+        raise NotImplementedError, 'Subclasses must implement #call(context)'
       end
 
       # ========================================================================

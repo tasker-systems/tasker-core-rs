@@ -26,11 +26,11 @@ Example:
     >>> poller.start()
 
     >>> # Create custom step handlers (Phase 4+)
-    >>> from tasker_core import StepHandler, StepContext, StepHandlerResult
+    >>> from tasker_core import StepHandler, StepContext, StepHandlerResult, ErrorType
     >>> class MyHandler(StepHandler):
     ...     handler_name = "my_handler"
     ...     def call(self, context: StepContext) -> StepHandlerResult:
-    ...         return StepHandlerResult.success_handler_result({"done": True})
+    ...         return StepHandlerResult.success({"done": True})
 
     >>> # Stop the worker
     >>> tasker_core.stop_worker()
@@ -65,7 +65,12 @@ from tasker_core.bootstrap import (
 )
 
 # Import Phase 5: Domain events and observability
-from tasker_core.domain_events import InProcessDomainEventPoller
+from tasker_core.domain_events import (
+    BasePublisher,
+    BaseSubscriber,
+    InProcessDomainEventPoller,
+    StepEventContext,
+)
 
 # Import error classification (Phase 6a - parity with Ruby)
 from tasker_core.errors import (
@@ -153,6 +158,7 @@ from tasker_core.types import (
     DecisionPointOutcome,
     DecisionType,
     DomainEventMetadata,
+    ErrorType,
     FfiDispatchMetrics,
     FfiStepEvent,
     HealthCheck,
@@ -215,6 +221,7 @@ __all__ = [
     "StepExecutionResult",
     "StepError",
     "ResultStatus",
+    "ErrorType",
     "FfiDispatchMetrics",
     "StarvationWarning",
     # Event poller (Phase 3)
@@ -237,6 +244,9 @@ __all__ = [
     "InProcessDomainEventPoller",
     "DomainEventMetadata",
     "InProcessDomainEvent",
+    "StepEventContext",
+    "BasePublisher",
+    "BaseSubscriber",
     # Observability (Phase 5)
     "get_health_check",
     "get_metrics",

@@ -73,12 +73,32 @@ class TestDecisionHandler:
 
             def call(self, _context):
                 outcome = DecisionPointOutcome.create_steps(["next_step"])
-                return self.decision_success(outcome)
+                return self.decision_success_with_outcome(outcome)
 
         handler = TestDecisionHandler()
         assert handler.handler_name == "test_decision"
         assert "decision" in handler.capabilities
         assert "routing" in handler.capabilities
+
+    def test_decision_handler_simplified_api(self):
+        """Test DecisionHandler with simplified decision_success API."""
+        from tasker_core import DecisionHandler
+
+        class TestDecisionHandler(DecisionHandler):
+            handler_name = "test_decision"
+
+            def call(self, _context):
+                # Use simplified cross-language API
+                return self.decision_success(
+                    ["step_a", "step_b"],
+                    routing_context={"reason": "test"},
+                )
+
+        handler = TestDecisionHandler()
+        result = handler.decision_success(["next_step"], routing_context={"x": 1})
+        assert result.is_success is True
+        assert result.result["decision_point_outcome"]["step_names"] == ["next_step"]
+        assert result.result["decision_point_outcome"]["type"] == "create_steps"
 
     def test_decision_handler_route_to_steps(self):
         """Test DecisionHandler.route_to_steps helper."""
@@ -96,7 +116,7 @@ class TestDecisionHandler:
         handler = TestHandler()
         # Mock a context just enough to call the method
         result = handler.route_to_steps(["step_a"], routing_context={"x": 1})
-        assert result.success is True
+        assert result.is_success is True
         # Result now uses decision_point_outcome wrapper (matches Rust expectations)
         assert result.result["decision_point_outcome"]["step_names"] == ["step_a"]
         assert result.result["decision_point_outcome"]["type"] == "create_steps"
@@ -113,7 +133,7 @@ class TestDecisionHandler:
 
         handler = TestHandler()
         result = handler.skip_branches(reason="Nothing to do")
-        assert result.success is True
+        assert result.is_success is True
         # Result now uses decision_point_outcome wrapper (matches Rust expectations)
         assert result.result["decision_point_outcome"]["type"] == "no_branches"
         assert result.result["reason"] == "Nothing to do"
@@ -136,7 +156,7 @@ class TestDecisionHandler:
             message="Invalid input",
             error_type="invalid_input",
         )
-        assert result.success is False
+        assert result.is_success is False
         assert result.error_message == "Invalid input"
         assert result.error_type == "invalid_input"
         assert result.retryable is False  # Decision failures default to not retryable

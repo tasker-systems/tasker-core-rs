@@ -10,14 +10,14 @@ module Microservices
     # - Workflow completion validation
     # - Summary generation
     class UpdateUserStatusHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
-        logger.info "✔️  UpdateUserStatusHandler: Updating user status to active - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "✔️  UpdateUserStatusHandler: Updating user status to active - task_uuid=#{context.task_uuid}"
 
         # Collect results from all prior steps
-        user_data = sequence.get_results('create_user_account')
-        billing_data = sequence.get_results('setup_billing_profile')
-        preferences_data = sequence.get_results('initialize_preferences')
-        welcome_data = sequence.get_results('send_welcome_sequence')
+        user_data = context.get_dependency_result('create_user_account')
+        billing_data = context.get_dependency_result('setup_billing_profile')
+        preferences_data = context.get_dependency_result('initialize_preferences')
+        welcome_data = context.get_dependency_result('send_welcome_sequence')
 
         # Validate all prior steps completed
         validate_workflow_completion!(user_data, billing_data, preferences_data, welcome_data)

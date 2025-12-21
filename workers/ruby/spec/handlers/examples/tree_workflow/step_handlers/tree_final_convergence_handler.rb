@@ -4,12 +4,12 @@ module TreeWorkflow
   module StepHandlers
     # Tree Final Convergence: Ultimate convergence step that processes all leaf results
     class TreeFinalConvergenceHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Get results from all leaf nodes
-        leaf_d_result = sequence.get_results('tree_leaf_d')
-        leaf_e_result = sequence.get_results('tree_leaf_e')
-        leaf_f_result = sequence.get_results('tree_leaf_f')
-        leaf_g_result = sequence.get_results('tree_leaf_g')
+        leaf_d_result = context.get_dependency_result('tree_leaf_d')
+        leaf_e_result = context.get_dependency_result('tree_leaf_e')
+        leaf_f_result = context.get_dependency_result('tree_leaf_f')
+        leaf_g_result = context.get_dependency_result('tree_leaf_g')
 
         raise 'Leaf D result not found' unless leaf_d_result
         raise 'Leaf E result not found' unless leaf_e_result
@@ -23,7 +23,7 @@ module TreeWorkflow
         logger.info "Tree Final Convergence: (#{leaf_d_result} × #{leaf_e_result} × #{leaf_f_result} × #{leaf_g_result})² = #{multiplied}² = #{result}"
 
         # Calculate verification for tree workflow
-        original_number = task.context['even_number']
+        original_number = context.task.context['even_number']
         # Path: n -> n² -> (n²)² for both branches -> 4 leaves each (n²)² -> final convergence ((n²)²)^4 squared = n^32
         expected = original_number**32
 

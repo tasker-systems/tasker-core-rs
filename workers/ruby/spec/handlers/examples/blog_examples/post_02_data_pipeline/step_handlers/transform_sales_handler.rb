@@ -6,14 +6,14 @@ module DataPipeline
     #
     # This handler demonstrates:
     # - Sequential execution (depends on extract_sales_data)
-    # - Accessing prior step results via sequence.get_results()
+    # - Accessing prior step results via context.get_dependency_result()
     # - Data transformation logic
     class TransformSalesHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
-        logger.info "🔄 TransformSalesHandler: Transforming sales data - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "🔄 TransformSalesHandler: Transforming sales data - task_uuid=#{context.task_uuid}"
 
         # Get extracted sales data from prior step
-        extract_results = sequence.get_results('extract_sales_data')
+        extract_results = context.get_dependency_result('extract_sales_data')
         unless extract_results
           raise TaskerCore::Errors::PermanentError.new(
             'Sales extraction results not found',

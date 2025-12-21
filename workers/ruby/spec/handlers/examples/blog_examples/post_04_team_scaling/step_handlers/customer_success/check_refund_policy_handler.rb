@@ -10,11 +10,11 @@ module CustomerSuccess
         premium: { window_days: 90, requires_approval: false, max_amount: 100_000 }
       }.freeze
 
-      def call(task, sequence, _step)
+      def call(context)
         # Extract and validate inputs
-        inputs = extract_and_validate_inputs(task, sequence, _step)
+        inputs = extract_and_validate_inputs(context)
 
-        logger.info "📋 CheckRefundPolicyHandler: Checking refund policy - task_uuid=#{task.task_uuid}, customer_tier=#{inputs[:customer_tier]}"
+        logger.info "📋 CheckRefundPolicyHandler: Checking refund policy - task_uuid=#{context.task_uuid}, customer_tier=#{inputs[:customer_tier]}"
 
         # Check policy compliance
         policy_check_result = check_policy_compliance(inputs)
@@ -64,11 +64,11 @@ module CustomerSuccess
       private
 
       # Extract and validate inputs from task and previous step
-      def extract_and_validate_inputs(task, sequence, _step)
-        context = task.context.deep_symbolize_keys
+      def extract_and_validate_inputs(context)
+        task_context = context.task.context.deep_symbolize_keys
 
         # Get validation results from previous step
-        validation_result = sequence.get_results('validate_refund_request')
+        validation_result = context.get_dependency_result('validate_refund_request')
         validation_result = validation_result.deep_symbolize_keys if validation_result
 
         unless validation_result&.dig(:request_validated)
@@ -80,9 +80,9 @@ module CustomerSuccess
 
         {
           customer_tier: validation_result[:customer_tier] || 'standard',
-          refund_amount: context[:refund_amount],
+          refund_amount: task_context[:refund_amount],
           purchase_date: validation_result[:original_purchase_date],
-          refund_reason: context[:refund_reason]
+          refund_reason: task_context[:refund_reason]
         }
       end
 

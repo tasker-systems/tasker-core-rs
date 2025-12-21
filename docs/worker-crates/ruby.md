@@ -105,7 +105,7 @@ Ruby communicates with the Rust foundation via FFI polling:
           ▼
    ┌─────────────┐
    │  Handler    │
-   │  Execution  │──→ handler.call(task, sequence, step)
+   │  Execution  │──→ handler.call(context)
    └─────────────┘
           │
           │ FFI (complete_step_event)
@@ -125,10 +125,10 @@ All handlers inherit from `TaskerCore::StepHandler::Base`:
 
 ```ruby
 class ProcessOrderHandler < TaskerCore::StepHandler::Base
-  def call(task, sequence, step)
-    # Access task context
-    order_id = task.context['order_id']
-    amount = task.context['amount']
+  def call(context)
+    # Access task context via cross-language standard methods
+    order_id = context.get_task_field('order_id')
+    amount = context.get_task_field('amount')
 
     # Business logic
     result = process_order(order_id, amount)
@@ -146,10 +146,16 @@ end
 ### Handler Signature
 
 ```ruby
-def call(task, sequence, step)
-  # task     - Task wrapper with context data (access via task.context)
-  # sequence - DependencyResultsWrapper for accessing parent step results
-  # step     - Current WorkflowStepWrapper being executed
+def call(context)
+  # context - StepContext with cross-language standard fields:
+  #   context.task_uuid       - Task UUID
+  #   context.step_uuid       - Step UUID
+  #   context.input_data      - Step inputs from workflow_step.inputs
+  #   context.step_config     - Handler config from step_definition
+  #   context.retry_count     - Current retry attempt
+  #   context.max_retries     - Maximum retry attempts
+  #   context.get_task_field('field')       - Get field from task context
+  #   context.get_dependency_result('step') - Get result from parent step
 end
 ```
 
@@ -177,9 +183,9 @@ failure(
 ### Accessing Dependencies
 
 ```ruby
-def call(task, sequence, step)
+def call(context)
   # Get result from a dependency step
-  validation_result = sequence.dependency_results['validate_order']
+  validation_result = context.get_dependency_result('validate_order')
 
   if validation_result && validation_result['valid']
     # Process with validated data
@@ -199,8 +205,8 @@ For HTTP API integration with automatic error classification:
 
 ```ruby
 class FetchUserHandler < TaskerCore::StepHandler::Api
-  def call(task, sequence, step)
-    user_id = task.context['user_id']
+  def call(context)
+    user_id = context.get_task_field('user_id')
 
     # Automatic error classification (429 → retryable, 404 → permanent)
     response = connection.get("/users/#{user_id}")
@@ -243,8 +249,8 @@ For dynamic workflow routing (TAS-53):
 
 ```ruby
 class RoutingDecisionHandler < TaskerCore::StepHandler::Decision
-  def call(task, sequence, step)
-    amount = task.context['amount']
+  def call(context)
+    amount = context.get_task_field('amount')
 
     if amount < 1000
       # Auto-approve small amounts
@@ -281,17 +287,17 @@ For processing large datasets in chunks (TAS-59):
 
 ```ruby
 class CsvBatchProcessorHandler < TaskerCore::StepHandler::Batchable
-  def call(task, sequence, step)
+  def call(context)
     # Extract batch context from step inputs
-    context = extract_cursor_context(step)
+    batch_ctx = get_batch_context(context)
 
     # Handle no-op placeholder batches
-    no_op_result = handle_no_op_worker(context)
+    no_op_result = handle_no_op_worker(batch_ctx)
     return no_op_result if no_op_result
 
     # Process this batch
-    csv_file = get_dependency_result(sequence, 'analyze_csv', 'csv_file_path')
-    records = read_csv_batch(csv_file, context.start_cursor, context.batch_size)
+    csv_file = context.get_dependency_result('analyze_csv')&.dig('csv_file_path')
+    records = read_csv_batch(csv_file, batch_ctx.start_cursor, batch_ctx.batch_size)
 
     processed = records.map { |record| transform_record(record) }
 
@@ -305,8 +311,8 @@ end
 ```
 
 **Batch Helper Methods**:
-- `extract_cursor_context(step)` - Get batch boundaries
-- `handle_no_op_worker(context)` - Handle placeholder batches
+- `get_batch_context(context)` - Get batch boundaries from StepContext
+- `handle_no_op_worker(batch_ctx)` - Handle placeholder batches
 - `batch_worker_complete(processed_count:, result_data:)` - Complete batch
 
 ---
@@ -441,7 +447,7 @@ TaskerCore::Errors::Error                  # Base class
 ### Raising Errors
 
 ```ruby
-def call(task, sequence, step)
+def call(context)
   # Retryable error (will be retried)
   raise TaskerCore::Errors::RetryableError.new(
     'Database connection timeout',
@@ -583,8 +589,8 @@ bundle exec rspec spec/handlers/
 module LinearWorkflow
   module StepHandlers
     class LinearStep1Handler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
-        input = task.context
+      def call(context)
+        input = context.context  # Full task context
         success(result: {
           step1_processed: true,
           input_received: input,
@@ -600,8 +606,8 @@ end
 
 ```ruby
 class ValidateOrderHandler < TaskerCore::StepHandler::Base
-  def call(task, sequence, step)
-    order = task.context
+  def call(context)
+    order = context.context  # Full task context
 
     unless order['items']&.any?
       return failure(
@@ -630,8 +636,8 @@ class RoutingDecisionHandler < TaskerCore::StepHandler::Decision
     manager_only: 5000
   }.freeze
 
-  def call(task, sequence, step)
-    amount = task.context['amount'].to_f
+  def call(context)
+    amount = context.get_task_field('amount').to_f
 
     if amount < THRESHOLDS[:auto_approve]
       decision_success(steps: ['auto_approve'])

@@ -18,8 +18,8 @@ module DataPipeline
         { product_id: 'PROD-B', sku: 'SKU-B-002', warehouse: 'WH-03', quantity_on_hand: 50, reorder_point: 25 }
       ].freeze
 
-      def call(task, _sequence, _step)
-        logger.info "📦 ExtractInventoryDataHandler: Extracting inventory data - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "📦 ExtractInventoryDataHandler: Extracting inventory data - task_uuid=#{context.task_uuid}"
 
         # Simulate data extraction from inventory system
         inventory_data = extract_inventory_from_source

@@ -15,6 +15,8 @@ The tasker-core workspace provides three worker implementations for executing wo
 
 | Document | Description |
 |----------|-------------|
+| [API Convergence Matrix](api-convergence-matrix.md) | Quick reference for aligned APIs across languages |
+| [Example Handlers](example-handlers.md) | Side-by-side handler examples |
 | [Patterns and Practices](patterns-and-practices.md) | Common patterns across all workers |
 | [Rust Worker](rust.md) | Native Rust implementation |
 | [Ruby Worker](ruby.md) | Ruby gem for Rails integration |
@@ -257,8 +259,8 @@ class MyHandler(StepHandler):
 HTTP/REST API integration with automatic error classification:
 ```ruby
 class FetchDataHandler < TaskerCore::StepHandler::Api
-  def call(task, sequence, step)
-    user_id = task.context['user_id']
+  def call(context)
+    user_id = context.get_task_field('user_id')
     response = connection.get("/users/#{user_id}")
     process_response(response)
     success(result: response.body)
@@ -286,13 +288,13 @@ Large dataset processing. Note: Ruby uses subclass inheritance, Python uses mixi
 **Ruby** (subclass of Base):
 ```ruby
 class CsvBatchProcessorHandler < TaskerCore::StepHandler::Batchable
-  def call(task, sequence, step)
-    context = extract_cursor_context(step)
-    no_op_result = handle_no_op_worker(context)
+  def call(context)
+    batch_ctx = get_batch_context(context)
+    no_op_result = handle_no_op_worker(batch_ctx)
     return no_op_result if no_op_result
 
-    # Process batch using context.start_cursor, context.end_cursor
-    batch_worker_complete(processed_count: context.batch_size)
+    # Process batch using batch_ctx.start_cursor, batch_ctx.end_cursor
+    batch_worker_complete(processed_count: batch_ctx.batch_size)
   end
 end
 ```
@@ -404,6 +406,8 @@ For detailed architectural documentation:
 
 ## See Also
 
+- [API Convergence Matrix](api-convergence-matrix.md) - Quick reference tables
+- [Example Handlers](example-handlers.md) - Side-by-side code examples
 - [Patterns and Practices](patterns-and-practices.md) - Common patterns
 - [Rust Worker](rust.md) - Native implementation details
 - [Ruby Worker](ruby.md) - Ruby gem documentation

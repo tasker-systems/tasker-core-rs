@@ -3,11 +3,11 @@
 module CustomerSuccess
   module StepHandlers
     class ExecuteRefundWorkflowHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Extract and validate inputs
-        inputs = extract_and_validate_inputs(task, sequence, _step)
+        inputs = extract_and_validate_inputs(context)
 
-        logger.info "🔄 ExecuteRefundWorkflowHandler: Executing cross-namespace refund workflow - task_uuid=#{task.task_uuid}, target=#{inputs[:namespace]}.#{inputs[:workflow_name]}"
+        logger.info "🔄 ExecuteRefundWorkflowHandler: Executing cross-namespace refund workflow - task_uuid=#{context.task_uuid}, target=#{inputs[:namespace]}.#{inputs[:workflow_name]}"
 
         # This is the key Post 04 pattern: Cross-namespace workflow coordination
         # Customer Success team calls Payments team's workflow via internal task creation
@@ -56,11 +56,11 @@ module CustomerSuccess
       private
 
       # Extract and validate inputs from task and previous steps
-      def extract_and_validate_inputs(task, sequence, _step)
-        context = task.context.deep_symbolize_keys
+      def extract_and_validate_inputs(context)
+        task_context = context.task.context.deep_symbolize_keys
 
         # Get approval results from previous step
-        approval_result = sequence.get_results('get_manager_approval')
+        approval_result = context.get_dependency_result('get_manager_approval')
         approval_result = approval_result.deep_symbolize_keys if approval_result
 
         unless approval_result&.dig(:approval_obtained)
@@ -71,7 +71,7 @@ module CustomerSuccess
         end
 
         # Get validation results to extract payment_id
-        validation_result = sequence.get_results('validate_refund_request')
+        validation_result = context.get_dependency_result('validate_refund_request')
         validation_result = validation_result.deep_symbolize_keys if validation_result
 
         payment_id = validation_result&.dig(:payment_id)
@@ -91,14 +91,14 @@ module CustomerSuccess
           context: {
             # Map customer service ticket to payment ID
             payment_id: payment_id,
-            refund_amount: context[:refund_amount],
-            refund_reason: context[:refund_reason] || 'customer_request',
-            customer_email: context[:customer_email] || 'customer@example.com',
+            refund_amount: task_context[:refund_amount],
+            refund_reason: task_context[:refund_reason] || 'customer_request',
+            customer_email: task_context[:customer_email] || 'customer@example.com',
             # Include cross-team coordination metadata
             initiated_by: 'customer_success',
             approval_id: approval_result[:approval_id],
-            ticket_id: context[:ticket_id],
-            correlation_id: context[:correlation_id] || generate_correlation_id
+            ticket_id: task_context[:ticket_id],
+            correlation_id: task_context[:correlation_id] || generate_correlation_id
           }
         }
       end

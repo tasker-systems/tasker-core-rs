@@ -186,7 +186,7 @@ class TestExecuteHandler:
 
         result = subscriber._execute_handler(event, handler)
 
-        assert result.success is True
+        assert result.is_success is True
         assert result.result == {"success": True}
 
     def test_execute_handler_with_input_data(self):
@@ -208,7 +208,7 @@ class TestExecuteHandler:
 
         result = subscriber._execute_handler(event, handler)
 
-        assert result.success is True
+        assert result.is_success is True
         assert result.result == {"doubled": 10}
 
 
@@ -233,7 +233,7 @@ class TestCreateErrorResults:
 
         result = subscriber._create_handler_not_found_result("missing_handler")
 
-        assert result.success is False
+        assert result.is_success is False
         assert result.error_type == "handler_not_found"
         assert "missing_handler" in result.error_message
         assert result.retryable is False
@@ -247,7 +247,7 @@ class TestCreateErrorResults:
         error = ValueError("Something went wrong")
         result = subscriber._create_error_result(error)
 
-        assert result.success is False
+        assert result.is_success is False
         assert result.error_type == "ValueError"
         assert "Something went wrong" in result.error_message
         assert result.retryable is True

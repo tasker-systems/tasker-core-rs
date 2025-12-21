@@ -41,6 +41,8 @@ module TaskerCore
     #
     # Captures all events published through it for later assertions.
     # Can be configured to simulate failures.
+    #
+    # TAS-96: Updated to support both old direct-call pattern and new publish(ctx) pattern.
     class MockEventPublisher < DomainEvents::BasePublisher
       attr_reader :published_events, :should_fail, :failure_error
 
@@ -85,12 +87,26 @@ module TaskerCore
       end
 
       # Override transform_payload to capture the full event
-      def transform_payload(step_result, event_declaration, step_context)
+      def transform_payload(step_result, event_declaration, step_context = nil)
         step_result[:result] || {}
       end
 
-      # Override before_publish to capture events
-      def before_publish(step_result, event_declaration, step_context)
+      # TAS-96: Updated signature to match BasePublisher (event_name, payload, metadata)
+      # This captures events when using the new publish(ctx) flow
+      def before_publish(event_name, payload, metadata)
+        raise @failure_error if @should_fail
+
+        @published_events << {
+          event_name: event_name,
+          payload: payload,
+          metadata: metadata,
+          published_at: Time.now
+        }
+      end
+
+      # Legacy capture method for direct testing
+      # @deprecated Use publish(ctx) flow instead
+      def capture_event(step_result, event_declaration, step_context = nil)
         raise @failure_error if @should_fail
 
         @published_events << {

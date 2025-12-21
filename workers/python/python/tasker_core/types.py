@@ -230,6 +230,79 @@ class ResultStatus(str, Enum):
     """Step failed with a permanent error (no retry possible)."""
 
 
+class ErrorType(str, Enum):
+    """Standard error types for cross-language consistency.
+
+    Using str, Enum allows the value to serialize as a string while
+    providing type safety and IDE support. These values align with
+    the Rust and Ruby worker implementations.
+
+    Example:
+        >>> from tasker_core import ErrorType, StepHandlerResult
+        >>> result = StepHandlerResult.failure(
+        ...     message="Payment gateway timeout",
+        ...     error_type=ErrorType.TIMEOUT,
+        ...     retryable=True,
+        ... )
+    """
+
+    PERMANENT_ERROR = "permanent_error"
+    """Error indicating a permanent, non-recoverable failure.
+    Examples: invalid input, resource not found, authentication failure."""
+
+    RETRYABLE_ERROR = "retryable_error"
+    """Error indicating a transient failure that may succeed on retry.
+    Examples: network timeout, service unavailable, rate limiting."""
+
+    VALIDATION_ERROR = "validation_error"
+    """Error indicating input validation failure.
+    Examples: missing required field, invalid format, constraint violation."""
+
+    TIMEOUT = "timeout"
+    """Error indicating an operation timed out.
+    Examples: HTTP request timeout, database query timeout."""
+
+    HANDLER_ERROR = "handler_error"
+    """Error indicating a failure within the step handler itself.
+    Examples: unhandled exception, handler misconfiguration."""
+
+    @classmethod
+    def is_standard(cls, error_type: str) -> bool:
+        """Check if an error type is one of the standard values.
+
+        Args:
+            error_type: The error type string to check.
+
+        Returns:
+            True if the error type matches one of the standard values.
+
+        Example:
+            >>> ErrorType.is_standard("permanent_error")
+            True
+            >>> ErrorType.is_standard("custom_error")
+            False
+        """
+        return error_type in [e.value for e in cls]
+
+    @classmethod
+    def is_typically_retryable(cls, error_type: str) -> bool:
+        """Get the recommended retryable flag for a given error type.
+
+        Args:
+            error_type: The error type string.
+
+        Returns:
+            True if the error type is typically retryable.
+
+        Example:
+            >>> ErrorType.is_typically_retryable("timeout")
+            True
+            >>> ErrorType.is_typically_retryable("permanent_error")
+            False
+        """
+        return error_type in [cls.RETRYABLE_ERROR.value, cls.TIMEOUT.value]
+
+
 class StepError(BaseModel):
     """Error details for failed step execution.
 
@@ -671,12 +744,26 @@ class StepHandlerResult(BaseModel):
         >>> # Failure case
         >>> result = StepHandlerResult.failure(
         ...     message="Validation failed",
-        ...     error_type="ValidationError",
+        ...     error_type=ErrorType.VALIDATION_ERROR,
         ...     retryable=False,
+        ... )
+        >>>
+        >>> # Failure with error code
+        >>> result = StepHandlerResult.failure(
+        ...     message="Payment gateway timeout",
+        ...     error_type=ErrorType.TIMEOUT,
+        ...     retryable=True,
+        ...     error_code="GATEWAY_TIMEOUT",
         ... )
     """
 
-    success: bool = Field(description="Whether the handler executed successfully.")
+    # Note: Field is named `is_success` in Python to avoid conflict with the `success()`
+    # classmethod. The alias="success" ensures JSON serialization uses "success" for compatibility.
+    # populate_by_name=True allows using either "is_success" or "success" when creating instances.
+    is_success: bool = Field(
+        alias="success",
+        description="Whether the handler executed successfully.",
+    )
     result: dict[str, Any] | None = Field(
         default=None,
         description="Handler output data (success case).",
@@ -687,7 +774,11 @@ class StepHandlerResult(BaseModel):
     )
     error_type: str | None = Field(
         default=None,
-        description="Error type/category for classification.",
+        description="Error type/category for classification. Use ErrorType enum values.",
+    )
+    error_code: str | None = Field(
+        default=None,
+        description="Optional application-specific error code.",
     )
     retryable: bool = Field(
         default=True,
@@ -698,13 +789,18 @@ class StepHandlerResult(BaseModel):
         description="Additional execution metadata.",
     )
 
+    model_config = {"populate_by_name": True}
+
     @classmethod
-    def success_handler_result(
+    def success(
         cls,
         result: dict[str, Any],
         metadata: dict[str, Any] | None = None,
     ) -> StepHandlerResult:
         """Create a successful handler result.
+
+        This is the primary factory method for creating success results.
+        Aligned with Ruby and Rust worker APIs.
 
         Args:
             result: The handler output data.
@@ -714,15 +810,71 @@ class StepHandlerResult(BaseModel):
             A StepHandlerResult indicating success.
 
         Example:
-            >>> result = StepHandlerResult.success_handler_result(
-            ...     {"processed": 100, "skipped": 5}
-            ... )
+            >>> result = StepHandlerResult.success({"processed": 100, "skipped": 5})
         """
         return cls(
-            success=True,
+            is_success=True,  # type: ignore[call-arg]  # populate_by_name=True allows this
             result=result,
             metadata=metadata or {},
         )
+
+    @classmethod
+    def failure(
+        cls,
+        message: str,
+        error_type: str | ErrorType = ErrorType.HANDLER_ERROR,
+        retryable: bool = True,
+        metadata: dict[str, Any] | None = None,
+        error_code: str | None = None,
+    ) -> StepHandlerResult:
+        """Create a failure handler result.
+
+        Args:
+            message: Human-readable error message.
+            error_type: Error type/category for classification. Use ErrorType enum
+                for cross-language consistency.
+            retryable: Whether the error is retryable.
+            metadata: Optional additional metadata.
+            error_code: Optional application-specific error code (e.g., "PAYMENT_GATEWAY_TIMEOUT").
+
+        Returns:
+            A StepHandlerResult indicating failure.
+
+        Example:
+            >>> result = StepHandlerResult.failure(
+            ...     message="Invalid input format",
+            ...     error_type=ErrorType.VALIDATION_ERROR,
+            ...     retryable=False,
+            ... )
+            >>>
+            >>> # With error code
+            >>> result = StepHandlerResult.failure(
+            ...     message="Gateway timeout",
+            ...     error_type=ErrorType.TIMEOUT,
+            ...     retryable=True,
+            ...     error_code="GATEWAY_TIMEOUT",
+            ... )
+        """
+        # Convert ErrorType enum to string value if needed
+        error_type_str = error_type.value if isinstance(error_type, ErrorType) else error_type
+        return cls(
+            is_success=False,  # type: ignore[call-arg]  # populate_by_name=True allows this
+            error_message=message,
+            error_type=error_type_str,
+            error_code=error_code,
+            retryable=retryable,
+            metadata=metadata or {},
+        )
+
+    # Aliases for backward compatibility (pre-alpha, can be removed later)
+    @classmethod
+    def success_handler_result(
+        cls,
+        result: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> StepHandlerResult:
+        """Alias for success(). Deprecated - use success() instead."""
+        return cls.success(result, metadata)
 
     @classmethod
     def failure_handler_result(
@@ -732,31 +884,8 @@ class StepHandlerResult(BaseModel):
         retryable: bool = True,
         metadata: dict[str, Any] | None = None,
     ) -> StepHandlerResult:
-        """Create a failure handler result.
-
-        Args:
-            message: Human-readable error message.
-            error_type: Error type/category for classification.
-            retryable: Whether the error is retryable.
-            metadata: Optional additional metadata.
-
-        Returns:
-            A StepHandlerResult indicating failure.
-
-        Example:
-            >>> result = StepHandlerResult.failure_handler_result(
-            ...     message="Invalid input format",
-            ...     error_type="ValidationError",
-            ...     retryable=False,
-            ... )
-        """
-        return cls(
-            success=False,
-            error_message=message,
-            error_type=error_type,
-            retryable=retryable,
-            metadata=metadata or {},
-        )
+        """Alias for failure(). Deprecated - use failure() instead."""
+        return cls.failure(message, error_type, retryable, metadata)
 
 
 # =============================================================================
@@ -1332,6 +1461,7 @@ __all__ = [
     "LogContext",
     # Phase 3: Event dispatch
     "ResultStatus",
+    "ErrorType",
     "StepError",
     "StepExecutionResult",
     "FfiStepEvent",

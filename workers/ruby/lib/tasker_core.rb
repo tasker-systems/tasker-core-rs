@@ -32,16 +32,16 @@ require 'active_support/core_ext'
 #
 #   # 2. Define a step handler for your business logic
 #   class ProcessPaymentHandler < TaskerCore::StepHandler::Base
-#     def call(task, sequence, step)
+#     def call(context)
 #       # Access task context data
-#       amount = task.context['amount']
-#       currency = task.context['currency']
+#       amount = context.get_task_field('amount')
+#       currency = context.get_task_field('currency')
 #
 #       # Your business logic here
 #       payment_result = charge_payment(amount, currency)
 #
-#       # Return results to be stored in step.results
-#       { payment_id: payment_result.id, status: 'succeeded' }
+#       # Return results
+#       success(result: { payment_id: payment_result.id, status: 'succeeded' })
 #     end
 #   end
 #
@@ -63,13 +63,13 @@ require 'active_support/core_ext'
 #
 # @example Using the API step handler for HTTP calls
 #   class FetchUserHandler < TaskerCore::StepHandler::Api
-#     def call(task, sequence, step)
-#       user_id = task.context['user_id']
+#     def call(context)
+#       user_id = context.get_task_field('user_id')
 #
 #       # Automatic error classification and retry logic
 #       response = get("/users/#{user_id}")
 #
-#       response.body # Stored in step.results
+#       success(result: response.body)
 #     end
 #   end
 #

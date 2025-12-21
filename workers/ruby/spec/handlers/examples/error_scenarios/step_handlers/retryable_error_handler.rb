@@ -17,14 +17,14 @@ module ErrorScenarios
     # @param sequence [TaskerCore::Types::TaskSequenceStep] The sequence context
     # @param step [TaskerCore::Types::TaskSequenceStep] The current step
     # @raise [TaskerCore::Errors::RetryableError] Always raises retryable error
-    def call(_task, _sequence, step)
-      retry_count = step.results&.dig('retry_count') || 0
+    def call(context)
+      retry_count = context.workflow_step.results&.dig('retry_count') || 0
 
       TaskerCore::Logger.instance.log_step(
         :warn,
         'retryable_failure_injection',
-        step_uuid: step.workflow_step_uuid,
-        step_name: step.name,
+        step_uuid: context.step_uuid,
+        step_name: context.workflow_step.name,
         retry_count: retry_count,
         message: 'Simulating retryable transient failure'
       )

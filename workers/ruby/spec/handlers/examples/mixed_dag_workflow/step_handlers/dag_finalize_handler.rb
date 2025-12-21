@@ -4,11 +4,11 @@ module MixedDagWorkflow
   module StepHandlers
     # DAG Finalize: Final convergence step that processes results from D, E, and F
     class DagFinalizeHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Get results from all convergence inputs: D (multiple parent), E (single parent), F (single parent)
-        validate_result = sequence.get_results('dag_validate')
-        transform_result = sequence.get_results('dag_transform')
-        analyze_result = sequence.get_results('dag_analyze')
+        validate_result = context.get_dependency_result('dag_validate')
+        transform_result = context.get_dependency_result('dag_transform')
+        analyze_result = context.get_dependency_result('dag_analyze')
 
         raise 'Validate result (D) not found' unless validate_result
         raise 'Transform result (E) not found' unless transform_result
@@ -21,7 +21,7 @@ module MixedDagWorkflow
         logger.info "DAG Finalize: (#{validate_result} × #{transform_result} × #{analyze_result})² = #{multiplied}² = #{result}"
 
         # Calculate verification for mixed DAG workflow
-        original_number = task.context['even_number']
+        original_number = context.task.context['even_number']
         # Complex path calculation:
         # A(n²) -> B(n⁴), C(n⁴) -> D((n⁴ × n⁴)²=n¹⁶), E(n⁸), F(n⁸) -> G((n¹⁶ × n⁸ × n⁸)²=(n³²)²=n⁶⁴)
         expected = original_number**64

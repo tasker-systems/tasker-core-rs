@@ -3,11 +3,11 @@
 module Payments
   module StepHandlers
     class UpdatePaymentRecordsHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Extract and validate inputs
-        inputs = extract_and_validate_inputs(task, sequence, _step)
+        inputs = extract_and_validate_inputs(context)
 
-        logger.info "📝 UpdatePaymentRecordsHandler: Updating payment records - task_uuid=#{task.task_uuid}, payment_id=#{inputs[:payment_id]}"
+        logger.info "📝 UpdatePaymentRecordsHandler: Updating payment records - task_uuid=#{context.task_uuid}, payment_id=#{inputs[:payment_id]}"
 
         # Simulate updating payment records
         update_result = simulate_payment_record_update(inputs)
@@ -43,7 +43,7 @@ module Payments
               'X-Payment-Status' => update_result[:payment_status]
             },
             input_refs: {
-              payment_id: 'task.context.payment_id',
+              payment_id: 'context.task.context.payment_id',
               refund_result: 'sequence.process_gateway_refund.result'
             }
           }
@@ -56,11 +56,11 @@ module Payments
       private
 
       # Extract and validate inputs from task and previous steps
-      def extract_and_validate_inputs(task, sequence, _step)
-        context = task.context.deep_symbolize_keys
+      def extract_and_validate_inputs(context)
+        task_context = context.task.context.deep_symbolize_keys
 
         # Get refund results from previous step
-        refund_result = sequence.get_results('process_gateway_refund')
+        refund_result = context.get_dependency_result('process_gateway_refund')
         refund_result = refund_result.deep_symbolize_keys if refund_result
 
         unless refund_result&.dig(:refund_processed)
@@ -71,14 +71,14 @@ module Payments
         end
 
         # Get validation results for additional context
-        validation_result = sequence.get_results('validate_payment_eligibility')
+        validation_result = context.get_dependency_result('validate_payment_eligibility')
         validation_result = validation_result.deep_symbolize_keys if validation_result
 
         {
           payment_id: refund_result[:payment_id],
           refund_id: refund_result[:refund_id],
           refund_amount: refund_result[:refund_amount],
-          refund_reason: context[:refund_reason] || 'customer_request',
+          refund_reason: task_context[:refund_reason] || 'customer_request',
           gateway_transaction_id: refund_result[:gateway_transaction_id],
           original_amount: validation_result&.dig(:original_amount)
         }

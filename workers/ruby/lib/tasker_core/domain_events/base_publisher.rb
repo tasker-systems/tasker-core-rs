@@ -145,6 +145,76 @@ module TaskerCore
       def on_publish_error(event_name, error, payload)
         logger.error "Failed to publish event #{event_name}: #{error.message}"
       end
+
+      # ========================================================================
+      # CROSS-LANGUAGE STANDARD API (TAS-96)
+      # ========================================================================
+
+      # Cross-language standard: Publish an event with unified context
+      #
+      # This method coordinates the existing hooks (should_publish?, transform_payload,
+      # additional_metadata, before_publish, after_publish) into a single publish call.
+      #
+      # @param ctx [Hash] Step event context containing:
+      #   - :event_name [String] The event name (e.g., "payment.processed")
+      #   - :step_result [Hash] The step execution result
+      #   - :event_declaration [Hash] The event declaration from YAML
+      #   - :step_context [Hash, TaskerCore::Types::StepContext] Step execution context
+      # @return [Boolean] true if event was published, false if skipped
+      #
+      # @example Publishing with context
+      #   ctx = {
+      #     event_name: 'payment.processed',
+      #     step_result: { success: true, result: { payment_id: '123' } },
+      #     event_declaration: { name: 'payment.processed', delivery_mode: 'durable' },
+      #     step_context: step_context
+      #   }
+      #   publisher.publish(ctx)
+      def publish(ctx)
+        event_name = ctx[:event_name]
+        step_result = ctx[:step_result]
+        event_declaration = ctx[:event_declaration] || {}
+        step_context = ctx[:step_context]
+
+        # Check publishing conditions
+        return false unless should_publish?(step_result, event_declaration, step_context)
+
+        # Transform payload
+        payload = transform_payload(step_result, event_declaration, step_context)
+
+        # Build metadata
+        base_metadata = {
+          publisher: name,
+          published_at: Time.now.utc.iso8601
+        }
+
+        # Add step context info if available
+        if step_context.respond_to?(:task_uuid)
+          base_metadata[:task_uuid] = step_context.task_uuid
+          base_metadata[:step_uuid] = step_context.step_uuid
+          base_metadata[:step_name] = step_context.step_name if step_context.respond_to?(:step_name)
+          base_metadata[:namespace] = step_context.namespace_name if step_context.respond_to?(:namespace_name)
+        end
+
+        metadata = base_metadata.merge(additional_metadata(step_result, event_declaration, step_context))
+
+        begin
+          # Pre-publish hook
+          before_publish(event_name, payload, metadata)
+
+          # Actual publishing is handled by the event router/bridge
+          # This method just prepares and validates the event
+          # Subclasses can override to perform actual publishing
+
+          # Post-publish hook
+          after_publish(event_name, payload, metadata)
+
+          true
+        rescue StandardError => e
+          on_publish_error(event_name, e, payload)
+          false
+        end
+      end
     end
   end
 end

@@ -24,7 +24,7 @@ module TaskerCore
     #   # => Instance of ValidateOrderHandler or nil if not found
     #
     #   if handler
-    #     result = handler.call(task, sequence, step)
+    #     result = handler.call(context)
     #   else
     #     raise "Handler not found: ValidateOrderHandler"
     #   end
@@ -137,6 +137,26 @@ module TaskerCore
       def registered_handlers
         @handlers.keys.sort
       end
+
+      # ========================================================================
+      # CROSS-LANGUAGE STANDARD ALIASES (TAS-96)
+      # ========================================================================
+
+      # Cross-language standard: register(name, handler_class)
+      # @see #register_handler
+      alias register register_handler
+
+      # Cross-language standard: is_registered(name)
+      # @see #handler_available?
+      alias is_registered handler_available?
+
+      # Cross-language standard: list_handlers
+      # @see #registered_handlers
+      alias list_handlers registered_handlers
+
+      # Cross-language standard: resolve(name)
+      # @see #resolve_handler
+      alias resolve resolve_handler
 
       # Get template discovery information for debugging
       def template_discovery_info

@@ -41,14 +41,14 @@ class LinearStep1Handler(StepHandler):
         even_number = context.input_data.get("even_number")
 
         if even_number is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Task context must contain an even_number",
                 error_type="validation_error",
                 retryable=False,
             )
 
         if not isinstance(even_number, int) or even_number % 2 != 0:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message=f"even_number must be an even integer, got: {even_number}",
                 error_type="validation_error",
                 retryable=False,
@@ -57,7 +57,7 @@ class LinearStep1Handler(StepHandler):
         # Square the even number (first step operation)
         result = even_number * even_number
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "result": result,
                 "operation": "square",
@@ -88,7 +88,7 @@ class LinearStep2Handler(StepHandler):
         step1_output = context.get_dependency_result("linear_step_1_py")
 
         if step1_output is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing result from linear_step_1_py",
                 error_type="dependency_error",
                 retryable=True,
@@ -100,7 +100,7 @@ class LinearStep2Handler(StepHandler):
         )
 
         if squared_value is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing 'result' field in linear_step_1_py output",
                 error_type="dependency_error",
                 retryable=True,
@@ -110,7 +110,7 @@ class LinearStep2Handler(StepHandler):
         constant = 10
         result = squared_value + constant
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "result": result,
                 "operation": "add",
@@ -140,7 +140,7 @@ class LinearStep3Handler(StepHandler):
         step2_output = context.get_dependency_result("linear_step_2_py")
 
         if step2_output is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing result from linear_step_2_py",
                 error_type="dependency_error",
                 retryable=True,
@@ -150,7 +150,7 @@ class LinearStep3Handler(StepHandler):
         added_value = step2_output.get("result") if isinstance(step2_output, dict) else step2_output
 
         if added_value is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing 'result' field in linear_step_2_py output",
                 error_type="dependency_error",
                 retryable=True,
@@ -160,7 +160,7 @@ class LinearStep3Handler(StepHandler):
         factor = 3
         result = added_value * factor
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "result": result,
                 "operation": "multiply",
@@ -190,7 +190,7 @@ class LinearStep4Handler(StepHandler):
         step3_output = context.get_dependency_result("linear_step_3_py")
 
         if step3_output is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing result from linear_step_3_py",
                 error_type="dependency_error",
                 retryable=True,
@@ -202,7 +202,7 @@ class LinearStep4Handler(StepHandler):
         )
 
         if multiplied_value is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing 'result' field in linear_step_3_py output",
                 error_type="dependency_error",
                 retryable=True,
@@ -212,7 +212,7 @@ class LinearStep4Handler(StepHandler):
         divisor = 2
         result = multiplied_value / divisor
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "result": result,
                 "operation": "divide",

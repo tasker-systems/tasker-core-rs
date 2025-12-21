@@ -59,7 +59,7 @@ class DiamondInitHandler(StepHandler):
         """Initialize the diamond workflow."""
         initial_value = context.input_data.get("initial_value", 100)
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "initialized": True,
                 "value": initial_value,
@@ -96,7 +96,7 @@ class DiamondPathAHandler(StepHandler):
         # Path A: multiply by 2
         result = value * 2
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "path_a_result": result,
                 "operation": "multiply_by_2",
@@ -130,7 +130,7 @@ class DiamondPathBHandler(StepHandler):
         # Path B: add 50
         result = value + 50
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "path_b_result": result,
                 "operation": "add_50",
@@ -169,7 +169,7 @@ class DiamondMergeHandler(StepHandler):
 
         # Validate we have results from both paths
         if a_result == 0 and b_result == 0:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing results from both paths",
                 error_type="dependency_error",
                 retryable=True,
@@ -177,7 +177,7 @@ class DiamondMergeHandler(StepHandler):
 
         merged = a_result + b_result
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "merged_result": merged,
                 "path_a_value": a_result,

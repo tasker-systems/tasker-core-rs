@@ -4,10 +4,10 @@ module DiamondWorkflow
   module StepHandlers
     # Diamond End: Convergence step that multiplies results from both branches and squares
     class DiamondEndHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Get results from both parallel branches
-        branch_b_result = sequence.get_results('diamond_branch_b')
-        branch_c_result = sequence.get_results('diamond_branch_c')
+        branch_b_result = context.get_dependency_result('diamond_branch_b')
+        branch_c_result = context.get_dependency_result('diamond_branch_c')
 
         raise 'Branch B result not found' unless branch_b_result
         raise 'Branch C result not found' unless branch_c_result
@@ -19,7 +19,7 @@ module DiamondWorkflow
         logger.info "Diamond End: (#{branch_b_result} × #{branch_c_result})² = #{multiplied}² = #{result}"
 
         # Calculate verification
-        original_number = task.context['even_number']
+        original_number = context.task.context['even_number']
         # Path: n -> n² -> (n²)² and (n²)² -> ((n²)² × (n²)²)² = (n^8)² = n^16
         expected = original_number**16
 

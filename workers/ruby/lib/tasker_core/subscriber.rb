@@ -49,12 +49,9 @@ module TaskerCore
                   "No handler found for #{step_data.step_definition.handler.callable}"
           end
 
-          # Execute handler with step data
-          result = handler.call(
-            step_data.task,
-            step_data.dependency_results,
-            step_data.workflow_step
-          )
+          # Execute handler with unified context (TAS-96: cross-language standard)
+          context = TaskerCore::Types::StepContext.new(step_data)
+          result = handler.call(context)
 
           # Convert handler output to standardized result
           standardized_result = TaskerCore::Types::StepHandlerCallResult.from_handler_output(result)

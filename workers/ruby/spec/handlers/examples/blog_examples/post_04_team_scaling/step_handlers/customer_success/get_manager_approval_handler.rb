@@ -3,11 +3,11 @@
 module CustomerSuccess
   module StepHandlers
     class GetManagerApprovalHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
+      def call(context)
         # Extract and validate inputs
-        inputs = extract_and_validate_inputs(task, sequence, _step)
+        inputs = extract_and_validate_inputs(context)
 
-        logger.info "👨‍💼 GetManagerApprovalHandler: Getting manager approval - task_uuid=#{task.task_uuid}, requires_approval=#{inputs[:requires_approval]}"
+        logger.info "👨‍💼 GetManagerApprovalHandler: Getting manager approval - task_uuid=#{context.task_uuid}, requires_approval=#{inputs[:requires_approval]}"
 
         # Check if approval is required
         if inputs[:requires_approval]
@@ -66,11 +66,11 @@ module CustomerSuccess
       private
 
       # Extract and validate inputs from task and previous steps
-      def extract_and_validate_inputs(task, sequence, _step)
-        context = task.context.deep_symbolize_keys
+      def extract_and_validate_inputs(context)
+        task_context = context.task.context.deep_symbolize_keys
 
         # Get policy check results
-        policy_result = sequence.get_results('check_refund_policy')
+        policy_result = context.get_dependency_result('check_refund_policy')
         policy_result = policy_result.deep_symbolize_keys if policy_result
 
         unless policy_result&.dig(:policy_checked)
@@ -81,14 +81,14 @@ module CustomerSuccess
         end
 
         # Get validation results for ticket info
-        validation_result = sequence.get_results('validate_refund_request')
+        validation_result = context.get_dependency_result('validate_refund_request')
         validation_result = validation_result.deep_symbolize_keys if validation_result
 
         {
           requires_approval: policy_result[:requires_approval],
           customer_tier: policy_result[:customer_tier],
-          refund_amount: context[:refund_amount],
-          refund_reason: context[:refund_reason],
+          refund_amount: task_context[:refund_amount],
+          refund_reason: task_context[:refund_reason],
           ticket_id: validation_result[:ticket_id],
           customer_id: validation_result[:customer_id]
         }

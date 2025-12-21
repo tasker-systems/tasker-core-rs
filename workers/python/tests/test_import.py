@@ -199,6 +199,14 @@ class TestModuleExports:
             "BatchWorkerOutcome",
         }
 
+        # TAS-95 exports (Cross-language API alignment)
+        tas95_exports = {
+            "ErrorType",
+            "BasePublisher",
+            "BaseSubscriber",
+            "StepEventContext",
+        }
+
         expected = (
             phase1_exports
             | phase2_exports
@@ -207,6 +215,7 @@ class TestModuleExports:
             | phase5_exports
             | phase6a_exports
             | phase6b_exports
+            | tas95_exports
         )
         assert set(tasker_core.__all__) == expected
 

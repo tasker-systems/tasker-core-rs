@@ -158,6 +158,15 @@ impl RustStepHandlerRegistry {
         self.handlers.contains_key(name)
     }
 
+    /// Check if a handler is registered (cross-language standard API)
+    ///
+    /// This is an alias for `has_handler()` to match the cross-language standard
+    /// defined in TAS-92. All languages use `is_registered(name)`.
+    #[must_use]
+    pub fn is_registered(&self, name: &str) -> bool {
+        self.has_handler(name)
+    }
+
     /// Get all registered handler names
     ///
     /// Returns a sorted vector of all handler names for debugging and introspection.
@@ -166,6 +175,15 @@ impl RustStepHandlerRegistry {
         let mut names: Vec<String> = self.handlers.keys().cloned().collect();
         names.sort();
         names
+    }
+
+    /// List all registered handler names (cross-language standard API)
+    ///
+    /// This is an alias for `get_all_handler_names()` to match the cross-language
+    /// standard defined in TAS-92. All languages use `list_handlers()`.
+    #[must_use]
+    pub fn list_handlers(&self) -> Vec<String> {
+        self.get_all_handler_names()
     }
 
     /// Get the number of registered handlers

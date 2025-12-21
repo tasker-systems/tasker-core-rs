@@ -11,11 +11,11 @@ module Ecommerce
         4 => { id: 4, name: 'Widget D', price: 39.99, stock: 0, active: true },  # Out of stock
         5 => { id: 5, name: 'Widget E', price: 59.99, stock: 10, active: false } # Inactive
       }.freeze
-      def call(task, sequence, step)
+      def call(context)
         # Extract and validate all required inputs
-        cart_inputs = extract_and_validate_inputs(task, sequence, step)
+        cart_inputs = extract_and_validate_inputs(context)
 
-        logger.info "🛒 ValidateCartHandler: Validating cart - task_uuid=#{task.task_uuid}, item_count=#{cart_inputs[:cart_items].length}"
+        logger.info "🛒 ValidateCartHandler: Validating cart - task_uuid=#{context.task_uuid}, item_count=#{cart_inputs[:cart_items].length}"
 
         # Validate each item and build validated items list
         validated_items = validate_cart_items(cart_inputs[:cart_items])
@@ -49,7 +49,7 @@ module Ecommerce
               shipping_cost: shipping
             },
             input_refs: {
-              cart_items: 'task.context.cart_items'
+              cart_items: 'context.task.context.cart_items'
             }
           }
         )
@@ -61,10 +61,10 @@ module Ecommerce
       private
 
       # Extract and validate all required inputs for cart validation
-      def extract_and_validate_inputs(task, _sequence, _step)
+      def extract_and_validate_inputs(context)
         # Normalize all hash keys to symbols for consistent access
-        context = task.context.deep_symbolize_keys
-        cart_items = context[:cart_items]
+        task_context = context.task.context.deep_symbolize_keys
+        cart_items = task_context[:cart_items]
 
         unless cart_items&.any?
           raise TaskerCore::Errors::PermanentError.new(

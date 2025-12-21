@@ -4,9 +4,9 @@ module DiamondWorkflow
   module StepHandlers
     # Diamond Branch B: Left parallel branch that squares the input
     class DiamondBranchBHandler < TaskerCore::StepHandler::Base
-      def call(_task, sequence, _step)
+      def call(context)
         # Get result from diamond_start
-        start_result = sequence.get_results('diamond_start')
+        start_result = context.get_dependency_result('diamond_start')
         raise 'Diamond start result not found' unless start_result
 
         # Square the start result (single parent operation)

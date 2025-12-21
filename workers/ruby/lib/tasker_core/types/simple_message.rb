@@ -43,8 +43,9 @@ module TaskerCore
     #     step_uuid: message.ready_dependency_step_uuids
     #   ).includes(:results)
     #
-    #   # 2. Call handler with real ActiveRecord models
-    #   handler.call(task, sequence, step)
+    #   # 2. Create context and call handler
+    #   context = TaskerCore::Types::StepContext.new(step_data)
+    #   handler.call(context)
     class SimpleStepMessage < Dry::Struct
       # Make the struct flexible for additional attributes if needed
       transform_keys(&:to_sym)

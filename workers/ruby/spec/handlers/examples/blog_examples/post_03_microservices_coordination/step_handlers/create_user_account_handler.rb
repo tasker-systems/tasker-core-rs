@@ -21,11 +21,11 @@ module Microservices
         }
       }.freeze
 
-      def call(task, _sequence, _step)
-        logger.info "👤 CreateUserAccountHandler: Creating user account - task_uuid=#{task.task_uuid}"
+      def call(context)
+        logger.info "👤 CreateUserAccountHandler: Creating user account - task_uuid=#{context.task_uuid}"
 
         # Extract and validate user info
-        user_info = extract_and_validate_user_info(task)
+        user_info = extract_and_validate_user_info(context)
 
         logger.info "   Email: #{user_info[:email]}"
         logger.info "   Plan: #{user_info[:plan]}"
@@ -52,9 +52,9 @@ module Microservices
 
       private
 
-      def extract_and_validate_user_info(task)
-        context = task.context.deep_symbolize_keys
-        user_info = context[:user_info] || {}
+      def extract_and_validate_user_info(context)
+        task_context = context.task.context.deep_symbolize_keys
+        user_info = task_context[:user_info] || {}
 
         # Validate required fields - these are PERMANENT errors (don't retry)
         unless user_info[:email]

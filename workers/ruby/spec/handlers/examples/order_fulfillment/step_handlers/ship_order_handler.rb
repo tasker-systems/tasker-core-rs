@@ -5,11 +5,11 @@ require_relative '../../../../../lib/tasker_core/errors'
 module OrderFulfillment
   module StepHandlers
     class ShipOrderHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
+      def call(context)
         # Extract and validate all required inputs
-        shipping_inputs = extract_and_validate_inputs(task, sequence, step)
+        shipping_inputs = extract_and_validate_inputs(context)
 
-        puts "Processing shipment: task_uuid=#{task.task_uuid}, items=#{shipping_inputs[:items_to_ship].length}"
+        puts "Processing shipment: task_uuid=#{context.task_uuid}, items=#{shipping_inputs[:items_to_ship].length}"
 
         # Create shipping label and process shipment
         shipping_results = create_shipment(shipping_inputs)
@@ -48,7 +48,7 @@ module OrderFulfillment
               items: 'sequence.validate_order.result.validated_items',
               reservation_id: 'sequence.reserve_inventory.result.reservation_id',
               payment_id: 'sequence.process_payment.result.payment_id',
-              shipping_info: 'task.context.shipping_info'
+              shipping_info: 'context.task.context.shipping_info'
             }
           }
         )
@@ -56,11 +56,11 @@ module OrderFulfillment
 
       private
 
-      def extract_and_validate_inputs(task, sequence, _step)
+      def extract_and_validate_inputs(context)
         # Get results from previous steps
-        validate_order_results = sequence.get_results('validate_order')
-        reserve_inventory_results = sequence.get_results('reserve_inventory')
-        process_payment_results = sequence.get_results('process_payment')
+        validate_order_results = context.get_dependency_result('validate_order')
+        reserve_inventory_results = context.get_dependency_result('reserve_inventory')
+        process_payment_results = context.get_dependency_result('process_payment')
 
         unless validate_order_results
           raise TaskerCore::Errors::PermanentError.new(
@@ -84,9 +84,9 @@ module OrderFulfillment
         end
 
         # Extract shipping info from task context
-        context = deep_symbolize_keys(task.context)
-        shipping_info = context[:shipping_info]
-        customer_info = context[:customer_info]
+        task_context = deep_symbolize_keys(context.task.context)
+        shipping_info = task_context[:shipping_info]
+        customer_info = task_context[:customer_info]
 
         unless shipping_info
           raise TaskerCore::Errors::PermanentError.new(

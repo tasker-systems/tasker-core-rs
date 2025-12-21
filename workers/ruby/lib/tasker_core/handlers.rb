@@ -14,16 +14,16 @@ module TaskerCore
   # @example Creating and using a step handler
   #   # Define a handler class
   #   class ProcessPaymentHandler < TaskerCore::Handlers::Steps::Base
-  #     def call(task, sequence, step)
+  #     def call(context)
   #       # Access task context
-  #       amount = task.context['amount']
-  #       currency = task.context['currency']
+  #       amount = context.get_task_field('amount')
+  #       currency = context.get_task_field('currency')
   #
   #       # Process payment logic
   #       result = charge_payment(amount, currency)
   #
-  #       # Return results to be stored in step.results
-  #       { payment_id: result.id, status: "succeeded" }
+  #       # Return results
+  #       success(result: { payment_id: result.id, status: "succeeded" })
   #     end
   #   end
   #
@@ -50,13 +50,13 @@ module TaskerCore
   #
   # @example Using API handlers for HTTP operations
   #   class FetchUserHandler < TaskerCore::Handlers::Steps::API
-  #     def call(task, sequence, step)
-  #       user_id = task.context['user_id']
+  #     def call(context)
+  #       user_id = context.get_task_field('user_id')
   #
   #       # Automatic error classification and retry logic
   #       response = get("/users/#{user_id}")
   #
-  #       response.body # Stored in step.results
+  #       success(result: response.body)
   #     end
   #   end
   #
@@ -70,11 +70,12 @@ module TaskerCore
   # - **Tasks**: Workflow orchestration and step coordination
   # - **API**: Specialized step handlers for HTTP operations with automatic retry
   #
-  # Method Signature Preservation:
-  # This namespace preserves Rails engine method signatures for compatibility:
-  # - `call(task, sequence, step)` - Primary handler execution
-  # - `process(task, sequence, step)` - Alias for call (Rails compatibility)
-  # - `process_results(task, sequence, step)` - Optional results processing hook
+  # Method Signature:
+  # Cross-language standard handler signature (TAS-96):
+  # - `call(context)` - Primary handler execution with unified StepContext
+  # - `context.task` - Task wrapper with context data
+  # - `context.workflow_step` - Workflow step wrapper with execution state
+  # - `context.dependency_results` - Results from parent steps
   #
   # @see TaskerCore::Handlers::Steps For step-level business logic
   # @see TaskerCore::Handlers::Tasks For task-level orchestration

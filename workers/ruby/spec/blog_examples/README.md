@@ -145,7 +145,7 @@ RSpec.describe Ecommerce::StepHandlers::ProcessPaymentHandler do
   describe '#call' do
     context 'with valid payment information' do
       it 'processes payment successfully' do
-        result = handler.call(task, sequence, step)
+        result = handler.call(context)
 
         expect(result).to be_success
         expect(result.result[:payment_processed]).to be true
@@ -153,7 +153,7 @@ RSpec.describe Ecommerce::StepHandlers::ProcessPaymentHandler do
       end
 
       it 'calls payment service with correct amount' do
-        handler.call(task, sequence, step)
+        handler.call(context)
 
         verify_payment_processing(amount: 74.98, method: 'credit_card')
       end
@@ -170,7 +170,7 @@ RSpec.describe Ecommerce::StepHandlers::ProcessPaymentHandler do
 
       it 'raises retryable error' do
         expect {
-          handler.call(task, sequence, step)
+          handler.call(context)
         }.to raise_error(TaskerCore::Errors::RetryableError)
       end
     end
@@ -185,7 +185,7 @@ RSpec.describe Ecommerce::StepHandlers::ProcessPaymentHandler do
 
       it 'raises permanent error' do
         expect {
-          handler.call(task, sequence, step)
+          handler.call(context)
         }.to raise_error(TaskerCore::Errors::PermanentError)
       end
     end

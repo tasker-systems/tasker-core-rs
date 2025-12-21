@@ -4,9 +4,9 @@ module TreeWorkflow
   module StepHandlers
     # Tree Leaf G: Right-right leaf that squares the input from right branch
     class TreeLeafGHandler < TaskerCore::StepHandler::Base
-      def call(_task, sequence, _step)
+      def call(context)
         # Get result from tree_branch_right
-        branch_result = sequence.get_results('tree_branch_right')
+        branch_result = context.get_dependency_result('tree_branch_right')
         raise 'Tree branch right result not found' unless branch_result
 
         # Square the branch result (single parent operation)

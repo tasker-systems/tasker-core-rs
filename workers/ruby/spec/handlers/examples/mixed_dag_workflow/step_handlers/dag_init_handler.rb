@@ -4,9 +4,9 @@ module MixedDagWorkflow
   module StepHandlers
     # DAG Init: Initial step that squares the even number for mixed DAG
     class DagInitHandler < TaskerCore::StepHandler::Base
-      def call(task, _sequence, _step)
+      def call(context)
         # Get the even number from task context
-        even_number = task.context['even_number']
+        even_number = context.task.context['even_number']
         raise 'Task context must contain an even number' unless even_number&.even?
 
         # Square the even number (first step operation)
@@ -21,7 +21,7 @@ module MixedDagWorkflow
             operation: 'square',
             step_type: 'initial',
             input_refs: {
-              even_number: 'task.context.even_number'
+              even_number: 'context.task.context.even_number'
             },
             branches: %w[dag_process_left dag_process_right]
           }

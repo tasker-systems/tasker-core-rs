@@ -140,7 +140,7 @@ class TestApiHandlerFailureClassification:
         api_response_400 = ApiResponse(mock_response_400)
 
         result_400 = handler.api_failure(api_response_400)
-        assert result_400.success is False
+        assert result_400.is_success is False
         assert result_400.retryable is False
         assert result_400.error_type == "bad_request"
 
@@ -152,7 +152,7 @@ class TestApiHandlerFailureClassification:
         api_response_401 = ApiResponse(mock_response_401)
 
         result_401 = handler.api_failure(api_response_401)
-        assert result_401.success is False
+        assert result_401.is_success is False
         assert result_401.retryable is False
         assert result_401.error_type == "unauthorized"
 
@@ -164,7 +164,7 @@ class TestApiHandlerFailureClassification:
         api_response_403 = ApiResponse(mock_response_403)
 
         result_403 = handler.api_failure(api_response_403)
-        assert result_403.success is False
+        assert result_403.is_success is False
         assert result_403.retryable is False
         assert result_403.error_type == "forbidden"
 
@@ -176,7 +176,7 @@ class TestApiHandlerFailureClassification:
         api_response_404 = ApiResponse(mock_response_404)
 
         result_404 = handler.api_failure(api_response_404)
-        assert result_404.success is False
+        assert result_404.is_success is False
         assert result_404.retryable is False
         assert result_404.error_type == "not_found"
 

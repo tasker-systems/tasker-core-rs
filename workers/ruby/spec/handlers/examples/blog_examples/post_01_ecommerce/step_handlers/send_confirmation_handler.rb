@@ -3,11 +3,11 @@
 module Ecommerce
   module StepHandlers
     class SendConfirmationHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
+      def call(context)
         # Extract and validate all required inputs
-        email_inputs = extract_and_validate_inputs(task, sequence, step)
+        email_inputs = extract_and_validate_inputs(context)
 
-        logger.info "📧 SendConfirmationHandler: Sending confirmation email - task_uuid=#{task.task_uuid}, recipient=#{email_inputs[:customer_info][:email]}"
+        logger.info "📧 SendConfirmationHandler: Sending confirmation email - task_uuid=#{context.task_uuid}, recipient=#{email_inputs[:customer_info][:email]}"
 
         # Send confirmation email - this is the core integration
         email_response = send_confirmation_email(email_inputs)
@@ -40,7 +40,7 @@ module Ecommerce
               'X-Recipient' => customer_email
             },
             input_refs: {
-              customer_info: 'task.context.customer_info',
+              customer_info: 'context.task.context.customer_info',
               order_result: 'sequence.create_order.result',
               cart_validation: 'sequence.validate_cart.result'
             }
@@ -54,15 +54,15 @@ module Ecommerce
       private
 
       # Extract and validate all required inputs for email sending
-      def extract_and_validate_inputs(task, sequence, _step)
+      def extract_and_validate_inputs(context)
         # Normalize all hash keys to symbols for consistent access
-        context = task.context.deep_symbolize_keys
-        customer_info = context[:customer_info]
+        task_context = context.task.context.deep_symbolize_keys
+        customer_info = task_context[:customer_info]
 
-        order_result = sequence.get_results('create_order')
+        order_result = context.get_dependency_result('create_order')
         order_result = order_result.deep_symbolize_keys if order_result
 
-        cart_validation = sequence.get_results('validate_cart')
+        cart_validation = context.get_dependency_result('validate_cart')
         cart_validation = cart_validation.deep_symbolize_keys if cart_validation
 
         unless customer_info&.dig(:email)

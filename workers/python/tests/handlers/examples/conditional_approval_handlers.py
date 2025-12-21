@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from tasker_core import DecisionPointOutcome, StepHandler, StepHandlerResult
+from tasker_core import StepHandler, StepHandlerResult
 from tasker_core.step_handler import DecisionHandler
 
 if TYPE_CHECKING:
@@ -55,13 +55,13 @@ class ValidateRequestHandler(StepHandler):
             errors.append("purpose is required")
 
         if errors:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message=f"Validation failed: {', '.join(errors)}",
                 error_type="validation_error",
                 retryable=False,
             )
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "validated": True,
                 "amount": amount,
@@ -107,7 +107,7 @@ class RoutingDecisionHandler(DecisionHandler):
         # Determine routing based on amount thresholds
         if amount < self.SMALL_THRESHOLD:
             # Small amount: auto-approve only
-            outcome = DecisionPointOutcome.create_steps(
+            return self.decision_success(
                 ["auto_approve_py"],
                 routing_context={
                     "approval_path": "auto",
@@ -115,11 +115,10 @@ class RoutingDecisionHandler(DecisionHandler):
                     "threshold_used": "small",
                 },
             )
-            return self.decision_success(outcome)
 
         elif amount < self.LARGE_THRESHOLD:
             # Medium amount: manager approval only
-            outcome = DecisionPointOutcome.create_steps(
+            return self.decision_success(
                 ["manager_approval_py"],
                 routing_context={
                     "approval_path": "manager",
@@ -127,11 +126,10 @@ class RoutingDecisionHandler(DecisionHandler):
                     "threshold_used": "medium",
                 },
             )
-            return self.decision_success(outcome)
 
         else:
             # Large amount: dual approval (manager + finance)
-            outcome = DecisionPointOutcome.create_steps(
+            return self.decision_success(
                 ["manager_approval_py", "finance_review_py"],
                 routing_context={
                     "approval_path": "dual",
@@ -139,7 +137,6 @@ class RoutingDecisionHandler(DecisionHandler):
                     "threshold_used": "large",
                 },
             )
-            return self.decision_success(outcome)
 
 
 class AutoApproveHandler(StepHandler):
@@ -157,7 +154,7 @@ class AutoApproveHandler(StepHandler):
         routing_result = context.get_dependency_result("routing_decision_py")
 
         if routing_result is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing routing decision result",
                 error_type="dependency_error",
                 retryable=True,
@@ -166,7 +163,7 @@ class AutoApproveHandler(StepHandler):
         routing_context = routing_result.get("routing_context", {})
         amount = routing_context.get("amount", 0)
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "approved": True,
                 "approval_type": "auto",
@@ -191,7 +188,7 @@ class ManagerApprovalHandler(StepHandler):
         routing_result = context.get_dependency_result("routing_decision_py")
 
         if routing_result is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing routing decision result",
                 error_type="dependency_error",
                 retryable=True,
@@ -200,7 +197,7 @@ class ManagerApprovalHandler(StepHandler):
         routing_context = routing_result.get("routing_context", {})
         amount = routing_context.get("amount", 0)
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "approved": True,
                 "approval_type": "manager",
@@ -225,7 +222,7 @@ class FinanceReviewHandler(StepHandler):
         routing_result = context.get_dependency_result("routing_decision_py")
 
         if routing_result is None:
-            return StepHandlerResult.failure_handler_result(
+            return StepHandlerResult.failure(
                 message="Missing routing decision result",
                 error_type="dependency_error",
                 retryable=True,
@@ -234,7 +231,7 @@ class FinanceReviewHandler(StepHandler):
         routing_context = routing_result.get("routing_context", {})
         amount = routing_context.get("amount", 0)
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "approved": True,
                 "approval_type": "finance",
@@ -297,7 +294,7 @@ class FinalizeApprovalHandler(StepHandler):
         # Determine final approval status
         all_approved = all(a.get("approved", False) for a in approvals)
 
-        return StepHandlerResult.success_handler_result(
+        return StepHandlerResult.success(
             {
                 "final_status": "approved" if all_approved else "rejected",
                 "approval_count": len(approvals),

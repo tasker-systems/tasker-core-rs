@@ -31,9 +31,9 @@ module TaskerCore
       # Returns:
       #   Success with aggregated metrics and worker_count
       class CsvResultsAggregatorHandler < StepHandler::Batchable
-        def call(_task, sequence, _step)
+        def call(context)
           # Detect batch processing scenario
-          scenario = detect_aggregation_scenario(sequence, 'analyze_csv', 'process_csv_batch_')
+          scenario = detect_aggregation_scenario(context.dependency_results, 'analyze_csv', 'process_csv_batch_')
 
           # Aggregate batch worker results (handles both NoBatches and WithBatches scenarios)
           aggregate_batch_worker_results(

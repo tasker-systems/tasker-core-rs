@@ -17,7 +17,7 @@ module TaskerCore
     #
     # ✅ CORRECT: Return helper result directly
     # ```ruby
-    # def call(_task, sequence, step)
+    # def call(context)
     #   if dataset_empty?
     #     return no_batches_outcome(reason: 'empty_dataset')  # Returns Success
     #   end
@@ -26,7 +26,7 @@ module TaskerCore
     #
     # ❌ INCORRECT: Double-wrapping (wrapping Success in Success)
     # ```ruby
-    # def call(_task, sequence, step)
+    # def call(context)
     #   outcome = no_batches_outcome(reason: 'empty_dataset')  # Returns Success
     #   success(result: outcome)  # WRONG: Double wrapping!
     # end
@@ -36,16 +36,16 @@ module TaskerCore
     #
     # ```ruby
     # class CsvBatchProcessorHandler < TaskerCore::StepHandler::Batchable
-    #   def call(_task, sequence, step)
-    #     # Extract cursor context
-    #     context = extract_cursor_context(step)
+    #   def call(context)
+    #     # Extract batch context (cross-language standard)
+    #     batch_ctx = get_batch_context(context)
     #
     #     # Handle no-op placeholder
-    #     no_op_result = handle_no_op_worker(context)
+    #     no_op_result = handle_no_op_worker(batch_ctx)
     #     return no_op_result if no_op_result
     #
     #     # Get dependency results
-    #     csv_file = get_dependency_result(sequence, 'analyze_csv', 'csv_file_path')
+    #     csv_file = context.get_dependency_result('analyze_csv')&.dig('csv_file_path')
     #
     #     # Handler-specific processing...
     #   end
@@ -61,15 +61,29 @@ module TaskerCore
 
       # Category 1: Context Extraction Helpers
 
-      # Extract cursor context from workflow step
+      # Cross-language standard: Extract batch context from step context
       #
+      # @param context [TaskerCore::Types::StepContext] Step execution context
+      # @return [BatchWorkerContext] Extracted batch context
+      #
+      # @example
+      #   batch_ctx = get_batch_context(context)
+      #   batch_id = batch_ctx.batch_id
+      #   start = batch_ctx.start_cursor
+      def get_batch_context(context)
+        BatchProcessing::BatchWorkerContext.from_step_data(context.workflow_step)
+      end
+
+      # Extract cursor context from workflow step (legacy method)
+      #
+      # @deprecated Use {#get_batch_context} instead
       # @param step [WorkflowStepWrapper] Workflow step containing cursor configuration
       # @return [BatchWorkerContext] Extracted cursor context
       #
       # @example
-      #   context = extract_cursor_context(step)
-      #   batch_id = context.batch_id
-      #   start = context.start_cursor
+      #   batch_ctx = extract_cursor_context(step)
+      #   batch_id = batch_ctx.batch_id
+      #   start = batch_ctx.start_cursor
       def extract_cursor_context(step)
         BatchProcessing::BatchWorkerContext.from_step_data(step)
       end
@@ -299,6 +313,53 @@ module TaskerCore
             'worker_count' => cursor_configs.size,
             'total_items' => total_items
           }.merge(metadata)
+        )
+      end
+
+      # Cross-language standard: Return success result for batch worker
+      #
+      # @param items_processed [Integer] Number of items processed
+      # @param items_succeeded [Integer] Number of items that succeeded
+      # @param items_failed [Integer] Number of items that failed (default 0)
+      # @param items_skipped [Integer] Number of items skipped (default 0)
+      # @param last_cursor [Object, nil] Last cursor position processed
+      # @param results [Array, nil] Optional array of result items
+      # @param errors [Array, nil] Optional array of error items
+      # @param metadata [Hash] Additional metadata
+      # @return [StepHandlerCallResult::Success] Success result with batch worker outcome
+      #
+      # @example
+      #   batch_worker_success(
+      #     items_processed: 100,
+      #     items_succeeded: 98,
+      #     items_failed: 2,
+      #     last_cursor: 500,
+      #     metadata: { batch_id: '001' }
+      #   )
+      def batch_worker_success(
+        items_processed:,
+        items_succeeded:,
+        items_failed: 0,
+        items_skipped: 0,
+        last_cursor: nil,
+        results: nil,
+        errors: nil,
+        metadata: {}
+      )
+        result_data = {
+          'items_processed' => items_processed,
+          'items_succeeded' => items_succeeded,
+          'items_failed' => items_failed,
+          'items_skipped' => items_skipped
+        }
+
+        result_data['last_cursor'] = last_cursor if last_cursor
+        result_data['results'] = results if results
+        result_data['errors'] = errors if errors
+
+        success(
+          result: result_data.merge(metadata),
+          metadata: { batch_worker: true }
         )
       end
 

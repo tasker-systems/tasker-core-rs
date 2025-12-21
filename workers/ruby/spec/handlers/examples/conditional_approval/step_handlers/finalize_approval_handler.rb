@@ -11,13 +11,13 @@ module ConditionalApproval
     #
     # It consolidates the approval decisions and creates the final approval record.
     class FinalizeApprovalHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, _step)
-        amount = task.context['amount']
-        requester = task.context['requester']
-        purpose = task.context['purpose']
+      def call(context)
+        amount = context.task.context['amount']
+        requester = context.task.context['requester']
+        purpose = context.task.context['purpose']
 
         # Collect all approval results from dependencies
-        approvals = collect_approval_results(sequence)
+        approvals = collect_approval_results(context)
 
         logger.info "Finalizing approval for #{requester}: $#{amount} - #{approvals.size} approval(s) received"
 
@@ -52,24 +52,24 @@ module ConditionalApproval
             operation: 'finalize_approval',
             step_type: 'convergence',
             approval_count: approvals.size,
-            total_processing_steps: sequence.keys.size
+            total_processing_steps: context.dependency_results.keys.size
           }
         )
       end
 
       private
 
-      def collect_approval_results(sequence)
+      def collect_approval_results(context)
         # Get results from all parent steps
         # In a real system, we'd parse the step results to extract approval data
         approval_steps = %w[auto_approve manager_approval finance_review]
 
         # Iterate through all dependency keys and filter for approval steps
-        sequence.keys.select do |step_name|
+        context.dependency_results.keys.select do |step_name|
           approval_steps.include?(step_name)
         end.map do |step_name|
           # Get the result data for this step
-          result_data = sequence.get_results(step_name)
+          result_data = context.get_dependency_result(step_name)
           result_data if result_data.is_a?(Hash) && result_data['approved'] == true
         end.compact
       end
