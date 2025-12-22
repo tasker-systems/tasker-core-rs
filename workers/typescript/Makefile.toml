@@ -1,0 +1,174 @@
+# =============================================================================
+# Tasker TypeScript Worker - cargo-make Task Definitions
+# =============================================================================
+#
+# This file defines build, test, and quality tasks for the TypeScript worker.
+# Uses Bun for package management and Biome for linting.
+#
+# Usage:
+#   cargo make check       # Run all checks (lint, typecheck, test)
+#   cargo make build       # Build FFI + TypeScript
+#   cargo make test        # Run tests
+#   cargo make fix         # Auto-fix linting issues
+#
+# =============================================================================
+
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+[env]
+# Respect CARGO_TARGET_DIR if set, otherwise use workspace default
+TARGET_DIR = { value = "../../target", condition = { env_not_set = ["CARGO_TARGET_DIR"] } }
+
+# =============================================================================
+# Composite Tasks
+# =============================================================================
+
+[tasks.default]
+description = "Default: run all checks"
+alias = "check"
+
+[tasks.check]
+description = "Run all quality checks (lint, typecheck, test)"
+dependencies = ["lint", "typecheck", "test"]
+
+[tasks.build]
+description = "Build FFI library and TypeScript package"
+dependencies = ["build-ffi", "build-ts"]
+
+[tasks.fix]
+description = "Auto-fix all fixable issues"
+dependencies = ["format-fix", "lint-fix"]
+
+# =============================================================================
+# Setup Tasks
+# =============================================================================
+
+[tasks.install]
+description = "Install npm dependencies"
+script = '''
+if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules" ]; then
+    echo "📦 Installing dependencies..."
+    bun install --frozen-lockfile
+else
+    echo "✓ Dependencies up to date"
+fi
+'''
+
+[tasks.setup]
+description = "Full setup: install dependencies"
+alias = "install"
+
+# =============================================================================
+# Build Tasks
+# =============================================================================
+
+[tasks.build-ffi]
+description = "Build Rust FFI library (release)"
+command = "cargo"
+args = ["build", "-p", "tasker-worker-ts", "--release"]
+
+[tasks.build-ffi-debug]
+description = "Build Rust FFI library (debug, faster)"
+command = "cargo"
+args = ["build", "-p", "tasker-worker-ts"]
+
+[tasks.build-ts]
+description = "Build TypeScript package"
+dependencies = ["install"]
+command = "bun"
+args = ["run", "build"]
+
+# =============================================================================
+# Quality Tasks
+# =============================================================================
+
+[tasks.lint]
+description = "Run Biome linter"
+dependencies = ["install"]
+command = "bun"
+args = ["run", "lint"]
+
+[tasks.lint-fix]
+description = "Fix linting issues with Biome"
+dependencies = ["install"]
+script = '''
+bun run biome check --write .
+'''
+
+[tasks.format-check]
+description = "Check code formatting"
+dependencies = ["install"]
+script = '''
+bun run biome format --check .
+'''
+
+[tasks.format-fix]
+description = "Format code with Biome"
+dependencies = ["install"]
+script = '''
+bun run biome format --write .
+'''
+
+[tasks.typecheck]
+description = "Run TypeScript type checking"
+dependencies = ["install"]
+command = "bun"
+args = ["run", "typecheck"]
+
+# =============================================================================
+# Test Tasks
+# =============================================================================
+
+[tasks.test]
+description = "Run all tests"
+dependencies = ["install"]
+command = "bun"
+args = ["test"]
+
+[tasks.test-watch]
+description = "Run tests in watch mode"
+dependencies = ["install"]
+command = "bun"
+args = ["test", "--watch"]
+
+[tasks.test-coverage]
+description = "Run tests with coverage"
+dependencies = ["install"]
+command = "bun"
+args = ["test", "--coverage"]
+
+# =============================================================================
+# Clean Tasks
+# =============================================================================
+
+[tasks.clean]
+description = "Clean all build artifacts"
+script = '''
+echo "🧹 Cleaning build artifacts..."
+rm -rf dist/
+rm -rf node_modules/
+cargo clean -p tasker-worker-ts
+echo "✓ Clean complete"
+'''
+
+[tasks.clean-ts]
+description = "Clean TypeScript artifacts only"
+script = '''
+rm -rf dist/
+'''
+
+# =============================================================================
+# Development Tasks
+# =============================================================================
+
+[tasks.watch]
+description = "Watch mode for TypeScript development"
+dependencies = ["install"]
+command = "bun"
+args = ["run", "build:watch"]
+
+[tasks.dev]
+description = "Development mode: build debug FFI and watch TS"
+dependencies = ["build-ffi-debug", "watch"]

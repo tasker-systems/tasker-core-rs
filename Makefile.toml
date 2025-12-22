@@ -1,0 +1,448 @@
+# =============================================================================
+# Tasker Core - cargo-make Task Definitions
+# =============================================================================
+#
+# Unified task runner for the tasker-core workspace.
+# Provides consistent commands across Rust core and polyglot workers.
+#
+# Quick Start:
+#   cargo make check       # Run all quality checks
+#   cargo make test        # Run all tests
+#   cargo make fix         # Auto-fix all fixable issues
+#   cargo make build       # Build everything
+#
+# Language-Specific:
+#   cargo make check-rust       # Rust core only
+#   cargo make check-python     # Python worker only
+#   cargo make check-ruby       # Ruby worker only
+#   cargo make check-typescript # TypeScript worker only
+#
+# Infrastructure:
+#   cargo make db-setup    # Setup database and run migrations
+#   cargo make sqlx-prepare # Prepare SQLX query cache
+#
+# See: docs/development-patterns.md for full documentation
+#
+# =============================================================================
+
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+[env]
+# Database configuration (can be overridden)
+DATABASE_URL = { value = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test", condition = { env_not_set = ["DATABASE_URL"] } }
+TASKER_ENV = { value = "test", condition = { env_not_set = ["TASKER_ENV"] } }
+
+# =============================================================================
+# Top-Level Composite Tasks
+# =============================================================================
+
+[tasks.default]
+description = "Default: show available tasks"
+script = '''
+echo "Tasker Core - cargo-make Tasks"
+echo "==============================="
+echo ""
+echo "Common Tasks:"
+echo "  cargo make check         Run all quality checks"
+echo "  cargo make test          Run all tests"
+echo "  cargo make fix           Auto-fix all issues"
+echo "  cargo make build         Build everything"
+echo ""
+echo "Language-Specific:"
+echo "  cargo make check-rust"
+echo "  cargo make check-python"
+echo "  cargo make check-ruby"
+echo "  cargo make check-typescript"
+echo ""
+echo "Infrastructure:"
+echo "  cargo make db-setup      Setup database"
+echo "  cargo make sqlx-prepare  Prepare SQLX cache"
+echo ""
+echo "Run 'cargo make --list-all-steps' for all tasks"
+'''
+
+[tasks.check]
+description = "Run all quality checks across workspace"
+dependencies = [
+    "check-rust",
+    "check-python",
+    "check-ruby",
+    "check-typescript"
+]
+
+[tasks.test]
+description = "Run all tests across workspace"
+dependencies = [
+    "test-rust",
+    "test-python",
+    "test-ruby",
+    "test-typescript"
+]
+
+[tasks.fix]
+description = "Auto-fix all fixable issues"
+dependencies = [
+    "fix-rust",
+    "fix-python",
+    "fix-ruby",
+    "fix-typescript"
+]
+
+[tasks.build]
+description = "Build everything"
+dependencies = [
+    "build-rust",
+    "build-python",
+    "build-ruby",
+    "build-typescript"
+]
+
+# =============================================================================
+# Rust Core Tasks
+# =============================================================================
+
+[tasks.check-rust]
+description = "Run all Rust quality checks"
+dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-doctests"]
+
+[tasks.test-rust]
+description = "Run Rust tests with nextest"
+script = '''
+cargo nextest run --all-features
+'''
+
+[tasks.test-rust-verbose]
+description = "Run Rust tests with output"
+script = '''
+cargo nextest run --all-features --no-capture
+'''
+
+[tasks.fix-rust]
+description = "Fix Rust formatting and clippy issues"
+dependencies = ["rust-fmt-fix", "rust-clippy-fix"]
+
+[tasks.build-rust]
+description = "Build all Rust crates"
+command = "cargo"
+args = ["build", "--all-features"]
+
+[tasks.build-rust-release]
+description = "Build all Rust crates (release)"
+command = "cargo"
+args = ["build", "--all-features", "--release"]
+
+# --- Rust Sub-Tasks ---
+
+[tasks.rust-fmt-check]
+description = "Check Rust formatting"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.rust-fmt-fix]
+description = "Fix Rust formatting"
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.rust-clippy]
+description = "Run Clippy lints"
+command = "cargo"
+args = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]
+
+[tasks.rust-clippy-fix]
+description = "Fix Clippy issues"
+command = "cargo"
+args = ["clippy", "--all-targets", "--all-features", "--fix", "--allow-dirty", "--allow-staged"]
+
+[tasks.rust-docs]
+description = "Check documentation builds"
+command = "cargo"
+args = ["doc", "--no-deps", "--document-private-items"]
+
+[tasks.rust-audit]
+description = "Run security audit"
+command = "cargo"
+args = ["audit"]
+
+[tasks.rust-bench-check]
+description = "Check benchmarks compile"
+command = "cargo"
+args = ["check", "--benches", "--features", "benchmarks"]
+
+[tasks.rust-doctests]
+description = "Run documentation tests"
+command = "cargo"
+args = ["test", "--doc", "--all-features"]
+
+# =============================================================================
+# Python Worker Tasks
+# =============================================================================
+
+[tasks.check-python]
+description = "Run Python worker quality checks"
+cwd = "workers/python"
+command = "cargo"
+args = ["make", "check"]
+
+[tasks.test-python]
+description = "Run Python worker tests"
+cwd = "workers/python"
+command = "cargo"
+args = ["make", "test"]
+
+[tasks.fix-python]
+description = "Fix Python worker issues"
+cwd = "workers/python"
+command = "cargo"
+args = ["make", "fix"]
+
+[tasks.build-python]
+description = "Build Python worker"
+cwd = "workers/python"
+command = "cargo"
+args = ["make", "build"]
+
+# =============================================================================
+# Ruby Worker Tasks
+# =============================================================================
+
+[tasks.check-ruby]
+description = "Run Ruby worker quality checks"
+cwd = "workers/ruby"
+command = "cargo"
+args = ["make", "check"]
+
+[tasks.test-ruby]
+description = "Run Ruby worker tests"
+cwd = "workers/ruby"
+command = "cargo"
+args = ["make", "test"]
+
+[tasks.fix-ruby]
+description = "Fix Ruby worker issues"
+cwd = "workers/ruby"
+command = "cargo"
+args = ["make", "fix"]
+
+[tasks.build-ruby]
+description = "Build Ruby worker"
+cwd = "workers/ruby"
+command = "cargo"
+args = ["make", "build"]
+
+# =============================================================================
+# TypeScript Worker Tasks
+# =============================================================================
+
+[tasks.check-typescript]
+description = "Run TypeScript worker quality checks"
+cwd = "workers/typescript"
+command = "cargo"
+args = ["make", "check"]
+
+[tasks.test-typescript]
+description = "Run TypeScript worker tests"
+cwd = "workers/typescript"
+command = "cargo"
+args = ["make", "test"]
+
+[tasks.fix-typescript]
+description = "Fix TypeScript worker issues"
+cwd = "workers/typescript"
+command = "cargo"
+args = ["make", "fix"]
+
+[tasks.build-typescript]
+description = "Build TypeScript worker"
+cwd = "workers/typescript"
+command = "cargo"
+args = ["make", "build"]
+
+# =============================================================================
+# Database & Infrastructure Tasks
+# =============================================================================
+
+[tasks.db-setup]
+description = "Setup database with migrations"
+dependencies = ["db-check", "db-migrate"]
+
+[tasks.db-check]
+description = "Check database connectivity"
+script = '''
+echo "🔍 Checking database connectivity..."
+if pg_isready -h localhost -p 5432 -U tasker; then
+    echo "✓ Database is ready"
+else
+    echo "✗ Database is not available"
+    echo "  Start it with: docker-compose up -d postgres"
+    exit 1
+fi
+'''
+
+[tasks.db-migrate]
+description = "Run database migrations"
+script = '''
+echo "📦 Running migrations..."
+sqlx migrate run
+echo "✓ Migrations complete"
+'''
+
+[tasks.db-reset]
+description = "Reset database (drop and recreate)"
+script = '''
+echo "⚠️  Resetting database..."
+sqlx database drop -y 2>/dev/null || true
+sqlx database create
+sqlx migrate run
+echo "✓ Database reset complete"
+'''
+
+# =============================================================================
+# SQLX Cache Tasks
+# =============================================================================
+
+[tasks.sqlx-prepare]
+description = "Prepare SQLX query cache for offline compilation"
+script = '''
+echo "📦 Preparing SQLX cache..."
+cargo sqlx prepare --workspace -- --all-targets --all-features
+echo "✓ SQLX cache prepared"
+echo ""
+echo "Don't forget to commit the .sqlx directories!"
+'''
+
+[tasks.sqlx-check]
+description = "Verify SQLX cache is up to date"
+script = '''
+echo "🔍 Checking SQLX cache..."
+SQLX_OFFLINE=true cargo check --all-features
+echo "✓ SQLX cache is valid"
+'''
+
+# =============================================================================
+# Docker Tasks
+# =============================================================================
+
+[tasks.docker-up]
+description = "Start Docker services (postgres with PGMQ)"
+script = '''
+echo "🐳 Starting Docker services..."
+docker-compose up -d postgres
+echo "⏳ Waiting for PostgreSQL..."
+sleep 3
+cargo make db-check
+'''
+
+[tasks.docker-down]
+description = "Stop Docker services"
+command = "docker-compose"
+args = ["down"]
+
+[tasks.docker-logs]
+description = "Show Docker logs"
+command = "docker-compose"
+args = ["logs", "-f"]
+
+# =============================================================================
+# Clean Tasks
+# =============================================================================
+
+[tasks.clean]
+description = "Clean all build artifacts"
+dependencies = [
+    "clean-rust",
+    "clean-workers"
+]
+
+[tasks.clean-rust]
+description = "Clean Rust build artifacts"
+command = "cargo"
+args = ["clean"]
+
+[tasks.clean-workers]
+description = "Clean all worker build artifacts"
+script = '''
+echo "🧹 Cleaning workers..."
+(cd workers/python && cargo make clean) 2>/dev/null || true
+(cd workers/ruby && cargo make clean) 2>/dev/null || true
+(cd workers/typescript && cargo make clean) 2>/dev/null || true
+echo "✓ Workers cleaned"
+'''
+
+# =============================================================================
+# CI Tasks (for GitHub Actions)
+# =============================================================================
+
+[tasks.ci-check]
+description = "CI: Run all quality checks"
+dependencies = [
+    "rust-fmt-check",
+    "rust-clippy",
+    "rust-docs",
+    "rust-audit"
+]
+
+[tasks.ci-test]
+description = "CI: Run all tests"
+script = '''
+cargo nextest run --all-features --profile ci
+'''
+
+[tasks.ci-prepare]
+description = "CI: Prepare for offline builds"
+dependencies = ["sqlx-prepare"]
+
+# =============================================================================
+# Development Convenience Tasks
+# =============================================================================
+
+[tasks.setup]
+description = "Full development setup"
+dependencies = [
+    "docker-up",
+    "db-setup",
+    "setup-workers"
+]
+
+[tasks.setup-workers]
+description = "Setup all workers"
+script = '''
+echo "📦 Setting up workers..."
+(cd workers/python && cargo make setup)
+(cd workers/ruby && cargo make setup)
+(cd workers/typescript && cargo make install)
+echo "✓ All workers setup"
+'''
+
+[tasks.watch]
+description = "Watch for changes and run tests"
+script = '''
+cargo watch -x "nextest run --all-features"
+'''
+
+[tasks.watch-check]
+description = "Watch for changes and run checks"
+script = '''
+cargo watch -x "clippy --all-targets --all-features"
+'''
+
+# =============================================================================
+# Quick Shortcuts
+# =============================================================================
+
+[tasks.c]
+description = "Alias for check"
+alias = "check"
+
+[tasks.t]
+description = "Alias for test"
+alias = "test"
+
+[tasks.f]
+description = "Alias for fix"
+alias = "fix"
+
+[tasks.b]
+description = "Alias for build"
+alias = "build"

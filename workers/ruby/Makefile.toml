@@ -1,0 +1,224 @@
+# =============================================================================
+# Tasker Ruby Worker - cargo-make Task Definitions
+# =============================================================================
+#
+# This file defines build, test, and quality tasks for the Ruby worker.
+# Uses Bundler for package management and RuboCop for linting.
+# The Rust FFI extension is at ext/tasker_core.
+#
+# Usage:
+#   cargo make check       # Run all checks (lint, compile, test)
+#   cargo make build       # Compile Rust extension
+#   cargo make test        # Run rspec
+#   cargo make fix         # Auto-fix linting issues
+#
+# =============================================================================
+
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+# =============================================================================
+# Composite Tasks
+# =============================================================================
+
+[tasks.default]
+description = "Default: run all checks"
+alias = "check"
+
+[tasks.check]
+description = "Run all quality checks (lint, rust-check, build, test)"
+dependencies = ["lint", "rust-check", "build", "test"]
+
+[tasks.build]
+description = "Compile Rust extension"
+dependencies = ["setup", "compile"]
+
+[tasks.fix]
+description = "Auto-fix all fixable issues"
+dependencies = ["lint-fix", "rust-fmt-fix"]
+
+# =============================================================================
+# Setup Tasks
+# =============================================================================
+
+[tasks.setup]
+description = "Install Ruby dependencies with Bundler"
+script = '''
+if ! bundle check &>/dev/null; then
+    echo "📦 Installing Ruby dependencies..."
+    bundle install
+else
+    echo "✓ Dependencies up to date"
+fi
+'''
+
+[tasks.install]
+description = "Alias for setup"
+alias = "setup"
+
+# =============================================================================
+# Build Tasks
+# =============================================================================
+
+[tasks.compile]
+description = "Compile Rust extension with rake"
+dependencies = ["setup"]
+script = '''
+echo "🔨 Compiling Rust extension..."
+bundle exec rake compile
+echo "✓ Extension compiled"
+'''
+
+[tasks.compile-clean]
+description = "Clean and recompile extension"
+dependencies = ["setup"]
+script = '''
+bundle exec rake clean compile
+'''
+
+# =============================================================================
+# Quality Tasks
+# =============================================================================
+
+[tasks.lint]
+description = "Run RuboCop linter"
+dependencies = ["setup"]
+script = '''
+bundle exec rubocop
+'''
+
+[tasks.lint-fix]
+description = "Auto-fix RuboCop issues"
+dependencies = ["setup"]
+script = '''
+bundle exec rubocop --auto-correct
+'''
+
+[tasks.lint-fix-all]
+description = "Aggressively auto-fix RuboCop issues"
+dependencies = ["setup"]
+script = '''
+bundle exec rubocop --auto-correct-all
+'''
+
+# =============================================================================
+# Rust Extension Quality Tasks
+# =============================================================================
+
+[tasks.rust-check]
+description = "Check Rust extension compiles"
+cwd = "ext/tasker_core"
+command = "cargo"
+args = ["check"]
+
+[tasks.rust-clippy]
+description = "Run clippy on Rust extension"
+cwd = "ext/tasker_core"
+command = "cargo"
+args = ["clippy", "--all-targets", "--", "-D", "warnings"]
+
+[tasks.rust-fmt]
+description = "Check Rust extension formatting"
+cwd = "ext/tasker_core"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.rust-fmt-fix]
+description = "Format Rust extension code"
+cwd = "ext/tasker_core"
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.rust-all]
+description = "Run all Rust extension checks"
+dependencies = ["rust-fmt", "rust-clippy"]
+
+# =============================================================================
+# Test Tasks
+# =============================================================================
+
+[tasks.test]
+description = "Run all tests with rspec"
+dependencies = ["setup", "compile"]
+script = '''
+bundle exec rspec
+'''
+
+[tasks.test-verbose]
+description = "Run tests with verbose output"
+dependencies = ["setup", "compile"]
+script = '''
+bundle exec rspec --format documentation
+'''
+
+[tasks.test-unit]
+description = "Run unit tests only"
+dependencies = ["setup", "compile"]
+script = '''
+bundle exec rspec spec/unit/
+'''
+
+[tasks.test-integration]
+description = "Run integration tests only"
+dependencies = ["setup", "compile"]
+script = '''
+bundle exec rspec spec/integration/
+'''
+
+[tasks.test-failed]
+description = "Re-run only failed tests"
+dependencies = ["setup", "compile"]
+script = '''
+bundle exec rspec --only-failures
+'''
+
+# =============================================================================
+# Documentation Tasks
+# =============================================================================
+
+[tasks.docs]
+description = "Generate YARD documentation"
+dependencies = ["setup"]
+script = '''
+bundle exec yard doc
+'''
+
+# =============================================================================
+# Clean Tasks
+# =============================================================================
+
+[tasks.clean]
+description = "Clean all build artifacts"
+script = '''
+echo "🧹 Cleaning build artifacts..."
+bundle exec rake clean 2>/dev/null || true
+rm -rf tmp/
+rm -rf lib/*.bundle lib/*.so lib/*.dylib 2>/dev/null || true
+(cd ext/tasker_core && cargo clean) 2>/dev/null || true
+echo "✓ Clean complete"
+'''
+
+[tasks.clean-full]
+description = "Clean everything including vendor"
+script = '''
+echo "🧹 Full clean..."
+bundle exec rake clean 2>/dev/null || true
+rm -rf tmp/
+rm -rf vendor/
+rm -rf .bundle/
+rm -rf lib/*.bundle lib/*.so lib/*.dylib 2>/dev/null || true
+(cd ext/tasker_core && cargo clean) 2>/dev/null || true
+echo "✓ Full clean complete"
+'''
+
+# =============================================================================
+# Development Tasks
+# =============================================================================
+
+[tasks.console]
+description = "Start an IRB console with the gem loaded"
+dependencies = ["setup", "compile"]
+script = '''
+bundle exec bin/console
+'''

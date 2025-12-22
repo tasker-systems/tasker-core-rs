@@ -4,10 +4,12 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.70"
 description = "TypeScript FFI bindings for tasker-core worker"
+readme = "AGENTS.md"
 repository = "https://github.com/tasker-systems/tasker-core"
 license = "MIT"
 keywords = ["ffi", "typescript", "nodejs", "bun", "tasker", "workflow"]
 categories = ["api-bindings", "development-tools::ffi"]
+publish = false  # Internal crate, not published to crates.io
 
 [lib]
 crate-type = ["cdylib"]
