@@ -51,7 +51,7 @@ fastrand = "2.0"
 futures = "0.3"
 # TTY detection for ANSI colors
 is-terminal = "0.4"
-jsonwebtoken = { version = "9" }
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 # FFI support to be added in bindings and workers
 magnus = "0.8"
 # Utility dependencies
