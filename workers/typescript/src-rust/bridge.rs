@@ -13,8 +13,7 @@ use uuid::Uuid;
 
 use tasker_shared::events::domain_events::{DomainEvent, DomainEventPublisher};
 use tasker_worker::worker::{
-    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig,
-    StepEventPublisherRegistry,
+    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, StepEventPublisherRegistry,
 };
 use tasker_worker::{WorkerBootstrap, WorkerSystemHandle};
 use tokio::sync::broadcast;
@@ -323,10 +322,10 @@ pub fn complete_step_event_internal(event_id_str: &str, result_json: &str) -> Re
         .map_err(|e| TypeScriptFfiError::InvalidArgument(format!("Invalid event ID: {}", e)))?;
 
     // Parse result
-    let result: tasker_shared::messaging::StepExecutionResult =
-        serde_json::from_str(result_json).map_err(|e| {
-            TypeScriptFfiError::ConversionError(format!("Invalid result JSON: {}", e))
-        })?;
+    let result: tasker_shared::messaging::StepExecutionResult = serde_json::from_str(result_json)
+        .map_err(|e| {
+        TypeScriptFfiError::ConversionError(format!("Invalid result JSON: {}", e))
+    })?;
 
     // Complete the event
     Ok(handle.ffi_dispatch_channel.complete(event_id, result))

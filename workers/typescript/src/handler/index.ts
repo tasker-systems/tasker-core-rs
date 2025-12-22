@@ -13,3 +13,10 @@ export type { StepHandlerClass } from './base';
 
 // Handler registry
 export { HandlerRegistry } from './registry';
+
+// Specialized handlers (TAS-103)
+export { ApiHandler, ApiResponse } from './api';
+export { DecisionHandler, DecisionType } from './decision';
+export type { DecisionPointOutcome } from './decision';
+export { BatchableMixin, applyBatchable } from './batchable';
+export type { Batchable } from './batchable';
