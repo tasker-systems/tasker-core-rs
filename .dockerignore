@@ -64,6 +64,12 @@ scripts/local_*
 # Ruby bindings build artifacts (keep source but exclude built artifacts)
 workers/ruby/target/
 workers/ruby/ext/tasker_core/target/
+workers/ruby/tmp/
+workers/ruby/pkg/
+workers/ruby/.bundle/
+workers/ruby/vendor/bundle/
+workers/ruby/spec/
+workers/ruby/doc/
 
 # Cargo registry cache
 .cargo/registry/

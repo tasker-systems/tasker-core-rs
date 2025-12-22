@@ -1,0 +1,43 @@
+[package]
+name = "tasker-worker-ts"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "TypeScript FFI bindings for tasker-core worker"
+repository = "https://github.com/tasker-systems/tasker-core"
+license = "MIT"
+keywords = ["ffi", "typescript", "nodejs", "bun", "tasker", "workflow"]
+categories = ["api-bindings", "development-tools::ffi"]
+
+[lib]
+crate-type = ["cdylib"]
+name = "tasker_worker"
+path = "src-rust/lib.rs"
+
+[dependencies]
+# Error handling
+anyhow = { workspace = true }
+# Time handling
+chrono = { workspace = true }
+# Environment variable loading
+dotenvy = { workspace = true }
+# Serialization for FFI type conversion
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Core tasker libraries
+tasker-shared = { path = "../../tasker-shared" }
+tasker-worker = { path = "../../tasker-worker" }
+# Error handling
+thiserror = { workspace = true }
+# Async runtime (needed for FFI blocking)
+tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+# Logging
+tracing = { workspace = true }
+# UUID generation and handling
+uuid = { workspace = true }
+
+[features]
+default = []
+
+[lints]
+workspace = true

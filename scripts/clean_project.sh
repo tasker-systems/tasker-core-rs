@@ -13,6 +13,9 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# External cache configuration
+EXTERNAL_CACHE_ROOT="/Volumes/Expansion/Development/Cache"
+
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BLUE}  Tasker Core Project Cleanup Script${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -51,14 +54,39 @@ ensure_cargo_tools() {
     echo
 }
 
+# Function to check if path is on external storage
+is_external_path() {
+    local path="$1"
+    # Resolve to absolute path
+    local abs_path="$(cd "$(dirname "$path")" 2>/dev/null && pwd)/$(basename "$path")" 2>/dev/null || echo "$path"
+    [[ "$abs_path" == "$EXTERNAL_CACHE_ROOT"* ]]
+}
+
 # Function to clean Cargo artifacts
 clean_cargo() {
     echo -e "${BLUE}━━━ Cleaning Cargo Artifacts ━━━${NC}"
 
     cd "$PROJECT_ROOT"
 
+    # Determine target directory to clean
+    local target_dir="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
+    
+    # Safety check: skip if target is on external storage
+    if is_external_path "$target_dir"; then
+        echo -e "${YELLOW}⚠️  Target directory is on external storage ($target_dir)${NC}"
+        echo -e "${YELLOW}   Skipping Cargo cleanup to preserve external cache.${NC}"
+        echo -e "${BLUE}   Use ~/bin/development_cache.sh clean to manage external storage.${NC}"
+        echo
+        return
+    fi
+    
+    # If using local target directory
+    if [[ "$target_dir" != "$PROJECT_ROOT/target" ]]; then
+        echo -e "${YELLOW}Cleaning custom target directory: $target_dir${NC}"
+    fi
+
     # Show initial size
-    echo -e "${YELLOW}Current target/ size:${NC} $(show_size target)"
+    echo -e "${YELLOW}Current target/ size:${NC} $(show_size "$target_dir")"
     echo
 
     # Sweep old artifacts (older than 30 days by default)
@@ -68,12 +96,12 @@ clean_cargo() {
 
     # Clean incremental compilation artifacts
     echo -e "${YELLOW}Cleaning incremental compilation artifacts...${NC}"
-    if [ -d "target/debug/incremental" ]; then
-        rm -rf target/debug/incremental
+    if [ -d "$target_dir/debug/incremental" ]; then
+        rm -rf "$target_dir/debug/incremental"
         echo -e "${GREEN}✓ Removed debug incremental artifacts${NC}"
     fi
-    if [ -d "target/release/incremental" ]; then
-        rm -rf target/release/incremental
+    if [ -d "$target_dir/release/incremental" ]; then
+        rm -rf "$target_dir/release/incremental"
         echo -e "${GREEN}✓ Removed release incremental artifacts${NC}"
     fi
 
@@ -83,7 +111,7 @@ clean_cargo() {
 
     # Show final size
     echo
-    echo -e "${GREEN}Final target/ size:${NC} $(show_size target)"
+    echo -e "${GREEN}Final target/ size:${NC} $(show_size "$target_dir")"
     echo
 }
 
@@ -171,18 +199,27 @@ clean_test_artifacts() {
     echo -e "${BLUE}━━━ Cleaning Test Artifacts ━━━${NC}"
 
     cd "$PROJECT_ROOT"
+    
+    local target_dir="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
+    
+    # Safety check: skip if target is on external storage
+    if is_external_path "$target_dir"; then
+        echo -e "${YELLOW}⚠️  Target directory is on external storage, skipping test artifacts cleanup${NC}"
+        echo
+        return
+    fi
 
     # Clean nextest cache
-    if [ -d "target/nextest" ]; then
+    if [ -d "$target_dir/nextest" ]; then
         echo -e "${YELLOW}Removing nextest cache...${NC}"
-        rm -rf target/nextest
+        rm -rf "$target_dir/nextest"
         echo -e "${GREEN}✓ Removed nextest cache${NC}"
     fi
 
     # Clean coverage artifacts
-    if [ -d "target/llvm-cov-target" ]; then
+    if [ -d "$target_dir/llvm-cov-target" ]; then
         echo -e "${YELLOW}Removing coverage artifacts...${NC}"
-        rm -rf target/llvm-cov-target
+        rm -rf "$target_dir/llvm-cov-target"
         echo -e "${GREEN}✓ Removed coverage artifacts${NC}"
     fi
 
@@ -232,8 +269,14 @@ show_summary() {
     echo -e "${GREEN}  Cleanup Complete!${NC}"
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo
+    local target_dir="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
+    
     echo -e "${BLUE}Current sizes:${NC}"
-    echo -e "  target/:           $(show_size "$PROJECT_ROOT/target")"
+    if is_external_path "$target_dir"; then
+        echo -e "  target/:           ${YELLOW}On external storage (not cleaned)${NC}"
+    else
+        echo -e "  target/:           $(show_size "$target_dir")"
+    fi
     echo -e "  ~/.cargo/:         $(show_size ~/.cargo 2>/dev/null || echo "N/A")"
     echo
 }

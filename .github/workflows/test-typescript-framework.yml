@@ -1,0 +1,111 @@
+name: TypeScript Framework Tests
+
+on:
+  workflow_call:
+    inputs:
+      postgres-image:
+        description: "PostgreSQL with PGMQ image tag"
+        required: true
+        type: string
+
+jobs:
+  typescript-framework:
+    name: TypeScript Framework Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    # PostgreSQL service for future FFI tests (TAS-105)
+    # Currently coherence tests don't require database, but we include it
+    # for consistency with other framework tests and future FFI compilation
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        env:
+          POSTGRES_DB: tasker_rust_test
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tasker -d tasker_rust_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: workers/typescript
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Free up disk space
+        uses: ./.github/actions/free-disk-space
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run linting
+        run: |
+          echo "🔍 Running Biome lint checks..."
+          bun run lint
+
+      - name: Run type checking
+        run: |
+          echo "📝 Running TypeScript type checks..."
+          bun run typecheck
+
+      - name: Create test results directory
+        run: mkdir -p ../../target
+
+      - name: Run TypeScript framework tests
+        run: |
+          echo "🧪 Running TypeScript framework tests (FFI types, events, runtime)..."
+          echo "   - tests/unit/ffi/ - FFI types and runtime detection"
+          echo "   - tests/unit/events/ - Event emitter and poller"
+          echo ""
+
+          # Run tests with Bun's test runner
+          # Note: Bun doesn't have native JUnit output; using text output for now
+          bun test 2>&1 | tee ../../target/typescript-framework-results.txt
+
+          # Check exit code
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "❌ Tests failed"
+            exit 1
+          fi
+        env:
+          TASKER_ENV: test
+
+      - name: Run build
+        run: |
+          echo "📦 Building TypeScript package..."
+          bun run build
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: typescript-framework-test-results
+          path: target/typescript-framework-results.txt
+          if-no-files-found: warn
+
+      - name: Display test summary
+        if: always()
+        run: |
+          echo "📊 TypeScript Framework Test Summary"
+          echo "====================================="
+          if [ -f "../../target/typescript-framework-results.txt" ]; then
+            # Extract pass/fail counts from Bun output
+            tail -5 ../../target/typescript-framework-results.txt
+            echo "✅ Framework tests completed"
+          else
+            echo "⚠️ No test results file found"
+          fi

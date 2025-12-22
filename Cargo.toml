@@ -19,8 +19,9 @@ members = [
   "tasker-worker",
   "workers/ruby/ext/tasker_core",
   "workers/rust",
-  "workers/python",  # TAS-72: PyO3 Python worker
-  # "workers/wasm",    # Future
+  "workers/python",      # TAS-72: PyO3 Python worker
+  "workers/typescript",  # TAS-100: TypeScript FFI worker
+  # "workers/wasm",      # Future
 ]
 
 [workspace.dependencies]

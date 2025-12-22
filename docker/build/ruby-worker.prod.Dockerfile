@@ -53,6 +53,14 @@ RUN mkdir -p workers/rust/src && \
     echo "pub fn main() {}" > workers/rust/src/lib.rs
 COPY workers/rust/Cargo.toml ./workers/rust/
 
+RUN mkdir -p workers/python/src && \
+    echo "pub fn main() {}" > workers/python/src/lib.rs
+COPY workers/python/Cargo.toml ./workers/python/
+
+RUN mkdir -p workers/typescript/src && \
+    echo "pub fn main() {}" > workers/typescript/src/lib.rs
+COPY workers/typescript/Cargo.toml ./workers/typescript/
+
 # Copy Ruby worker source code to proper workspace location
 COPY workers/ruby/ ./workers/ruby/
 COPY migrations/ ./migrations/
@@ -70,9 +78,9 @@ ENV RB_SYS_CARGO_PROFILE=release
 RUN bundle exec rake compile
 
 # =============================================================================
-# Runtime - Ruby-driven worker image
+# Runtime - Ruby-driven worker image (OPTIMIZED - using slim base)
 # =============================================================================
-FROM ruby:3.4.4-bullseye AS runtime
+FROM ruby:3.4.4-slim-bullseye AS runtime
 
 WORKDIR /app
 
@@ -91,9 +99,14 @@ RUN apt-get update && apt-get install -y \
 # Create non-root user
 RUN useradd -r -g daemon -u 999 tasker
 
-# Copy Ruby worker source code and compiled extensions from ruby_builder
-COPY --from=ruby_builder /app/workers/ruby ./ruby_worker/
+# OPTIMIZATION: Copy only necessary Ruby worker files (exclude tmp/, spec/, doc/, etc.)
+# This avoids copying 1.3GB of Rust build artifacts from tmp/ directory
 WORKDIR /app/ruby_worker
+COPY --from=ruby_builder /app/workers/ruby/bin ./bin
+COPY --from=ruby_builder /app/workers/ruby/lib ./lib
+COPY --from=ruby_builder /app/workers/ruby/Gemfile* ./
+COPY --from=ruby_builder /app/workers/ruby/*.gemspec ./
+COPY --from=ruby_builder /app/workers/ruby/Rakefile ./
 
 # Copy bundled gems from builder (includes compiled extensions and all gems)
 # Gems install to /usr/local/bundle by default in Ruby Docker images
