@@ -20,7 +20,10 @@
       "types": "./dist/events/index.d.ts"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsup",
     "build:watch": "tsup --watch",
@@ -58,11 +61,11 @@
     "eventemitter3": "^5.0.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@types/node": "^22.10.2",
-    "bun-types": "^1.1.38",
-    "tsup": "^8.3.5",
-    "typescript": "^5.7.2"
+    "@biomejs/biome": "^2.3.10",
+    "@types/bun": "^1.3.5",
+    "@types/node": "^22.19.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "ffi-napi": "^4.0.3"

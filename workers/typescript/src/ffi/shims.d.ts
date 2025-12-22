@@ -32,7 +32,6 @@ declare module "bun:ffi" {
   export function dlopen(path: string, symbols: Record<string, any>): any;
   // biome-ignore lint/suspicious/noExplicitAny: FFI pointer types
   export function ptr(buffer: Uint8Array): any;
-  // biome-ignore lint/suspicious/noExplicitAny: FFI CString type
   export class CString {
     // biome-ignore lint/suspicious/noExplicitAny: FFI pointer input
     constructor(ptr: any);
