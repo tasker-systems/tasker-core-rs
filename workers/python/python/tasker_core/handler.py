@@ -417,8 +417,7 @@ class HandlerRegistry:
 
             # Only scan relevant packages (test handlers, etc.)
             if not any(
-                term in module_name
-                for term in ("handlers", "step_handler", "workflow", "test")
+                term in module_name for term in ("handlers", "step_handler", "workflow", "test")
             ):
                 continue
 
@@ -574,9 +573,7 @@ class HandlerRegistry:
                 else []
             ),
             "discovered_handlers": (
-                HandlerDiscovery.discover_all_handlers(template_path)
-                if template_path
-                else []
+                HandlerDiscovery.discover_all_handlers(template_path) if template_path else []
             ),
             "handlers_by_namespace": (
                 HandlerDiscovery.discover_handlers_by_namespace(template_path)

@@ -60,6 +60,14 @@ runs:
           fi
         fi
 
+        if echo "${{ inputs.tools }}" | grep -q "make"; then
+          if command -v cargo-make &> /dev/null; then
+            echo "✅ cargo-make available from cache ($(cargo-make --version))"
+          else
+            echo "⚠️ cargo-make not found in cache"
+          fi
+        fi
+
         if echo "${{ inputs.tools }}" | grep -q "llvm-cov"; then
           if command -v cargo-llvm-cov &> /dev/null; then
             echo "✅ cargo-llvm-cov available from cache ($(cargo-llvm-cov --version))"
@@ -114,6 +122,19 @@ runs:
           fi
         fi
 
+        if echo "${{ inputs.tools }}" | grep -q "make"; then
+          if command -v cargo-make &> /dev/null; then
+            echo "✅ cargo-make already installed ($(cargo-make --version))"
+          else
+            echo "Installing cargo-make with cargo binstall -y..."
+            if ! cargo binstall cargo-make -y; then
+              echo "❌ Failed to install cargo-make"
+              exit 1
+            fi
+            echo "✅ cargo-make installed successfully"
+          fi
+        fi
+
         if echo "${{ inputs.tools }}" | grep -q "llvm-cov"; then
           if command -v cargo-llvm-cov &> /dev/null; then
             echo "✅ cargo-llvm-cov already installed ($(cargo-llvm-cov --version))"
@@ -141,6 +162,9 @@ runs:
         fi
         if command -v cargo-audit &> /dev/null; then
           echo "- cargo-audit: $(cargo audit --version)"
+        fi
+        if command -v cargo-make &> /dev/null; then
+          echo "- cargo-make: $(cargo make --version)"
         fi
         if command -v cargo-llvm-cov &> /dev/null; then
           echo "- cargo-llvm-cov: $(cargo llvm-cov --version)"
