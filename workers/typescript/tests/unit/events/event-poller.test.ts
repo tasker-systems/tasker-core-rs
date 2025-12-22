@@ -6,11 +6,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { TaskerEventEmitter, clearGlobalEmitter } from '../../../src/events/event-emitter.js';
+import { clearGlobalEmitter, TaskerEventEmitter } from '../../../src/events/event-emitter.js';
 import {
+  createEventPoller,
   EventPoller,
   type EventPollerConfig,
-  createEventPoller,
 } from '../../../src/events/event-poller.js';
 import type { TaskerRuntime } from '../../../src/ffi/runtime-interface.js';
 import type { FfiStepEvent } from '../../../src/ffi/types.js';

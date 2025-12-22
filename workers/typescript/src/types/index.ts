@@ -7,22 +7,19 @@
  * @module types
  */
 
-// Error types
-export { ErrorType, isStandardErrorType, isTypicallyRetryable } from './error-type';
-
-// Step context
-export { StepContext } from './step-context';
-export type { StepContextParams } from './step-context';
-
-// Step handler result
-export { StepHandlerResult } from './step-handler-result';
-export type { StepHandlerResultParams } from './step-handler-result';
-
-// Batch processing types (TAS-103)
-export { createBatchWorkerContext } from './batch';
 export type {
-  CursorConfig,
   BatchAnalyzerOutcome,
   BatchWorkerContext,
   BatchWorkerOutcome,
+  CursorConfig,
 } from './batch';
+// Batch processing types (TAS-103)
+export { createBatchWorkerContext } from './batch';
+// Error types
+export { ErrorType, isStandardErrorType, isTypicallyRetryable } from './error-type';
+export type { StepContextParams } from './step-context';
+// Step context
+export { StepContext } from './step-context';
+export type { StepHandlerResultParams } from './step-handler-result';
+// Step handler result
+export { StepHandlerResult } from './step-handler-result';

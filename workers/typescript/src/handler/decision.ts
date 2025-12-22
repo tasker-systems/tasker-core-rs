@@ -1,5 +1,5 @@
-import { StepHandler } from './base';
 import type { StepHandlerResult } from '../types/step-handler-result';
+import { StepHandler } from './base';
 
 /**
  * Type of decision point outcome.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+
 /**
  * TypeScript Worker Server.
  *
@@ -18,27 +19,77 @@
  *   TASKER_TEMPLATE_PATH - Path to task template directory
  */
 
-import { getTaskerRuntime, setFfiLibraryPath } from '../src/ffi/runtime-factory.js';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import {
   bootstrapWorker,
-  stopWorker,
-  getWorkerStatus,
-  transitionToGracefulShutdown,
-  isWorkerRunning,
-  healthCheck,
   getVersion,
+  getWorkerStatus,
+  healthCheck,
+  isWorkerRunning,
+  stopWorker,
+  transitionToGracefulShutdown,
 } from '../src/bootstrap/bootstrap.js';
-import type { BootstrapConfig } from '../src/bootstrap/types.js';
-import { EventPoller, createEventPoller } from '../src/events/event-poller.js';
-import { getGlobalEmitter } from '../src/events/event-emitter.js';
-import { StepExecutionSubscriber } from '../src/subscriber/step-execution-subscriber.js';
+import type { BootstrapConfig, BootstrapResult } from '../src/bootstrap/types.js';
+import { getGlobalEmitter, type TaskerEventEmitter } from '../src/events/event-emitter.js';
+import { createEventPoller, type EventPoller } from '../src/events/event-poller.js';
+import { getTaskerRuntime, type TaskerRuntime } from '../src/ffi/runtime-factory.js';
 import { HandlerRegistry } from '../src/handler/registry.js';
-import { logError, logInfo, logWarn, logDebug, createLogger } from '../src/logging/index.js';
-import { join, dirname } from 'node:path';
-import { existsSync } from 'node:fs';
+import { createLogger, logDebug, logWarn } from '../src/logging/index.js';
+import { StepExecutionSubscriber } from '../src/subscriber/step-execution-subscriber.js';
 
 // Server-specific logger
 const log = createLogger({ component: 'server' });
+
+// Environment helpers
+const isProduction = (): boolean => process.env.TASKER_ENV === 'production';
+const getNamespace = (): string => process.env.TASKER_NAMESPACE || 'default';
+const getLogLevel = (): BootstrapConfig['logLevel'] =>
+  (process.env.RUST_LOG as BootstrapConfig['logLevel']) || 'info';
+
+/**
+ * Shutdown controller for coordinating graceful shutdown.
+ */
+class ShutdownController {
+  private shutdownRequested = false;
+  private resolver: (() => void) | null = null;
+  readonly promise: Promise<void>;
+
+  constructor() {
+    this.promise = new Promise<void>((resolve) => {
+      this.resolver = resolve;
+    });
+  }
+
+  get isRequested(): boolean {
+    return this.shutdownRequested;
+  }
+
+  trigger(signal: string): void {
+    log.info(`Received ${signal} signal, initiating shutdown...`, {
+      operation: 'shutdown',
+      signal,
+    });
+    this.shutdownRequested = true;
+    this.resolver?.();
+  }
+}
+
+/**
+ * Server components for lifecycle management.
+ */
+interface ServerComponents {
+  runtime: TaskerRuntime;
+  emitter: TaskerEventEmitter;
+  registry: HandlerRegistry;
+  eventPoller: EventPoller;
+  stepSubscriber: StepExecutionSubscriber;
+  workerId: string;
+}
+
+// =============================================================================
+// Initialization Functions
+// =============================================================================
 
 /**
  * Find the FFI library path.
@@ -87,7 +138,7 @@ function showBanner(): void {
     `Database URL: ${process.env.DATABASE_URL ? '[REDACTED]' : 'Not set'}`,
     `Template Path: ${process.env.TASKER_TEMPLATE_PATH || 'Not set'}`,
     `Config Path: ${process.env.TASKER_CONFIG_PATH || 'Not set'}`,
-    `Namespace: ${process.env.TASKER_NAMESPACE || 'default'}`,
+    `Namespace: ${getNamespace()}`,
   ];
 
   for (const line of info) {
@@ -99,12 +150,144 @@ function showBanner(): void {
   console.log('  TypeScript will initialize Rust foundation via FFI');
   console.log('  Worker will process tasks by calling TypeScript handlers');
 
-  if (process.env.TASKER_ENV === 'production') {
+  if (isProduction()) {
     console.log('  Production optimizations: Enabled');
   }
 
   console.log('='.repeat(60));
 }
+
+/**
+ * Load FFI library and initialize runtime.
+ */
+async function loadFfiLibrary(): Promise<{ runtime: TaskerRuntime; path: string } | null> {
+  log.info('Loading FFI library...', { operation: 'load_ffi' });
+  const libraryPath = findLibraryPath();
+
+  if (!libraryPath) {
+    log.error('FFI library not found. Build with: cargo build -p tasker-worker-ts --release', {
+      operation: 'load_ffi',
+    });
+    return null;
+  }
+
+  log.info(`FFI library found: ${libraryPath}`, { operation: 'load_ffi' });
+
+  const runtime = await getTaskerRuntime();
+  await runtime.load(libraryPath);
+
+  log.info(`FFI library loaded successfully (version: ${getVersion()})`, {
+    operation: 'load_ffi',
+  });
+
+  return { runtime, path: libraryPath };
+}
+
+/**
+ * Initialize the handler registry.
+ */
+function initializeHandlerRegistry(): { registry: HandlerRegistry; count: number } {
+  log.info('Discovering TypeScript handlers...', { operation: 'discover_handlers' });
+
+  const registry = HandlerRegistry.instance();
+  const count = registry.handlerCount();
+
+  log.info(`Handler registry initialized: ${count} handlers registered`, {
+    operation: 'initialize_registry',
+    handler_count: String(count),
+  });
+
+  if (count > 0) {
+    log.info(`Registered handlers: ${registry.listHandlers().join(', ')}`, {
+      operation: 'list_handlers',
+    });
+  } else {
+    log.warn('No handlers registered. Did you register handlers before starting?', {
+      operation: 'discover_handlers',
+    });
+  }
+
+  return { registry, count };
+}
+
+/**
+ * Bootstrap the Rust worker.
+ */
+async function bootstrapRustWorker(): Promise<BootstrapResult> {
+  const config: BootstrapConfig = {
+    namespace: getNamespace(),
+    logLevel: getLogLevel(),
+    configPath: process.env.TASKER_CONFIG_PATH,
+    databaseUrl: process.env.DATABASE_URL,
+  };
+
+  log.info('Bootstrapping Rust worker...', { operation: 'bootstrap' });
+  return bootstrapWorker(config);
+}
+
+/**
+ * Start the TypeScript event dispatch system.
+ */
+function startEventSystem(
+  runtime: TaskerRuntime,
+  registry: HandlerRegistry,
+  workerId: string
+): { emitter: TaskerEventEmitter; eventPoller: EventPoller; stepSubscriber: StepExecutionSubscriber } {
+  log.info('Starting TypeScript event dispatch system...', {
+    operation: 'start_event_system',
+  });
+
+  // 1. Get the global event emitter
+  const emitter = getGlobalEmitter();
+  log.info('  EventEmitter: Ready', { operation: 'start_event_system' });
+
+  // 2. Create and start StepExecutionSubscriber
+  const stepSubscriber = new StepExecutionSubscriber(emitter, registry, {
+    workerId,
+    maxConcurrent: 10,
+    handlerTimeoutMs: 300000, // 5 minutes
+  });
+  stepSubscriber.start();
+  log.info(`  StepExecutionSubscriber: Started (worker_id=${workerId})`, {
+    operation: 'start_event_system',
+  });
+
+  // 3. Create and start EventPoller
+  const eventPoller = createEventPoller(runtime, {
+    pollIntervalMs: 10,
+    starvationCheckInterval: 100,
+    cleanupInterval: 1000,
+    metricsInterval: 100,
+  });
+  eventPoller.start();
+  log.info('  EventPoller: Started (10ms polling interval)', {
+    operation: 'start_event_system',
+  });
+
+  return { emitter, eventPoller, stepSubscriber };
+}
+
+/**
+ * Display success banner after startup.
+ */
+function showSuccessBanner(): void {
+  console.log('');
+  console.log('='.repeat(60));
+  console.log('TypeScript worker system started successfully');
+  console.log('  Rust foundation: Bootstrapped via FFI');
+  console.log('  TypeScript handlers: Registered and ready');
+  console.log('  Event dispatch: Active (polling -> handlers -> completion)');
+  console.log('  Worker status: Running and processing tasks');
+  console.log('');
+  console.log('Worker ready and processing tasks');
+  console.log('Press Ctrl+C to stop');
+  console.log('='.repeat(60));
+  console.log('');
+}
+
+// =============================================================================
+// Runtime Functions
+// =============================================================================
 
 /**
  * Perform a health check on the worker.
@@ -117,10 +300,7 @@ function performHealthCheck(): { healthy: boolean; status?: unknown; error?: str
     }
 
     const status = getWorkerStatus();
-    return {
-      healthy: status.running,
-      status,
-    };
+    return { healthy: status.running, status };
   } catch (error) {
     return {
       healthy: false,
@@ -130,28 +310,111 @@ function performHealthCheck(): { healthy: boolean; status?: unknown; error?: str
 }
 
 /**
- * Initialize the handler registry.
- *
- * Handlers should be registered before starting the server.
- * For now, we just get the singleton instance which may auto-discover handlers.
+ * Run the main worker loop with periodic health checks.
  */
-function initializeHandlerRegistry(): number {
-  const registry = HandlerRegistry.instance();
-  const handlerCount = registry.handlerCount();
+async function runMainLoop(shutdown: ShutdownController): Promise<void> {
+  const sleepInterval = isProduction() ? 5000 : 1000;
+  const healthCheckInterval = isProduction() ? 300 : 60;
+  let loopCount = 0;
 
-  log.info(`Handler registry initialized: ${handlerCount} handlers registered`, {
-    operation: 'initialize_registry',
-    handler_count: String(handlerCount),
-  });
+  while (!shutdown.isRequested) {
+    await new Promise((resolve) => setTimeout(resolve, sleepInterval));
 
-  if (handlerCount > 0) {
-    log.info(`Registered handlers: ${registry.listHandlers().join(', ')}`, {
-      operation: 'list_handlers',
-    });
+    if (shutdown.isRequested) {
+      break;
+    }
+
+    loopCount++;
+    if (loopCount % healthCheckInterval === 0) {
+      const checkNumber = loopCount / healthCheckInterval;
+      const healthStatus = performHealthCheck();
+
+      if (healthStatus.healthy) {
+        logDebug(`Health check #${checkNumber}: OK`, {
+          component: 'server',
+          operation: 'health_check',
+        });
+      } else {
+        logWarn(`Health check #${checkNumber}: UNHEALTHY - ${healthStatus.error}`, {
+          component: 'server',
+          operation: 'health_check',
+          error: healthStatus.error ?? 'unknown',
+        });
+      }
+    }
+  }
+}
+
+// =============================================================================
+// Shutdown Functions
+// =============================================================================
+
+/**
+ * Execute the graceful shutdown sequence.
+ */
+async function executeShutdown(components: ServerComponents): Promise<void> {
+  console.log('');
+  log.info('Starting shutdown sequence...', { operation: 'shutdown' });
+
+  // 1. Stop EventPoller (no new events)
+  log.info('  Stopping EventPoller...', { operation: 'shutdown' });
+  await components.eventPoller.stop();
+  log.info('  EventPoller stopped', { operation: 'shutdown' });
+
+  // 2. Stop StepExecutionSubscriber (no new handler invocations)
+  log.info('  Stopping StepExecutionSubscriber...', { operation: 'shutdown' });
+  components.stepSubscriber.stop();
+  await components.stepSubscriber.waitForCompletion(5000);
+  log.info('  StepExecutionSubscriber stopped', { operation: 'shutdown' });
+
+  // 3. Clear EventEmitter listeners
+  log.info('  Clearing event listeners...', { operation: 'shutdown' });
+  components.emitter.removeAllListeners();
+  log.info('  Event listeners cleared', { operation: 'shutdown' });
+
+  // 4. Transition to graceful shutdown and stop worker
+  if (isWorkerRunning()) {
+    log.info('  Transitioning to graceful shutdown...', { operation: 'shutdown' });
+    transitionToGracefulShutdown();
+
+    log.info('  Stopping Rust worker...', { operation: 'shutdown' });
+    stopWorker();
+    log.info('  Rust worker stopped', { operation: 'shutdown' });
   }
 
-  return handlerCount;
+  log.info('TypeScript worker shutdown completed successfully', {
+    operation: 'shutdown',
+  });
+
+  console.log('');
+  console.log('TypeScript Worker Server terminated gracefully');
 }
+
+/**
+ * Cleanup on error.
+ */
+async function cleanupOnError(
+  eventPoller: EventPoller | null,
+  stepSubscriber: StepExecutionSubscriber | null
+): Promise<void> {
+  try {
+    if (eventPoller) {
+      await eventPoller.stop();
+    }
+    if (stepSubscriber) {
+      stepSubscriber.stop();
+    }
+    if (isWorkerRunning()) {
+      stopWorker();
+    }
+  } catch {
+    // Ignore cleanup errors
+  }
+}
+
+// =============================================================================
+// Main Entry Point
+// =============================================================================
 
 /**
  * Main server function.
@@ -159,27 +422,13 @@ function initializeHandlerRegistry(): number {
 async function main(): Promise<number> {
   showBanner();
 
-  // Track shutdown state
-  let shutdownRequested = false;
-  let shutdownResolver: (() => void) | null = null;
+  // Set up shutdown controller
+  const shutdown = new ShutdownController();
 
-  const shutdownPromise = new Promise<void>((resolve) => {
-    shutdownResolver = resolve;
-  });
-
-  // Signal handlers
-  const handleShutdown = (signal: string): void => {
-    log.info(`Received ${signal} signal, initiating shutdown...`, {
-      operation: 'shutdown',
-      signal,
-    });
-    shutdownRequested = true;
-    if (shutdownResolver) {
-      shutdownResolver();
-    }
-  };
-
-  const handleStatus = (): void => {
+  // Set up signal handlers
+  process.on('SIGTERM', () => shutdown.trigger('SIGTERM'));
+  process.on('SIGINT', () => shutdown.trigger('SIGINT'));
+  process.on('SIGUSR1', () => {
     log.info('Received SIGUSR1 signal, reporting worker status...', {
       operation: 'status_check',
     });
@@ -193,61 +442,24 @@ async function main(): Promise<number> {
         operation: 'status_check',
       });
     }
-  };
+  });
 
-  // Set up signal handlers
-  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
-  process.on('SIGINT', () => handleShutdown('SIGINT'));
-  process.on('SIGUSR1', handleStatus);
-
-  // Components for cleanup
+  // Track components for cleanup
   let eventPoller: EventPoller | null = null;
   let stepSubscriber: StepExecutionSubscriber | null = null;
 
   try {
-    // Find and load FFI library
-    log.info('Loading FFI library...', { operation: 'load_ffi' });
-    const libraryPath = findLibraryPath();
-
-    if (!libraryPath) {
-      log.error('FFI library not found. Build with: cargo build -p tasker-worker-ts --release', {
-        operation: 'load_ffi',
-      });
+    // Load FFI library
+    const ffiResult = await loadFfiLibrary();
+    if (!ffiResult) {
       return 2;
     }
 
-    log.info(`FFI library found: ${libraryPath}`, { operation: 'load_ffi' });
-    setFfiLibraryPath(libraryPath);
-
-    const runtime = getTaskerRuntime();
-    await runtime.load(libraryPath);
-
-    log.info(`FFI library loaded successfully (version: ${getVersion()})`, {
-      operation: 'load_ffi',
-    });
-
     // Initialize handler registry
-    log.info('Discovering TypeScript handlers...', { operation: 'discover_handlers' });
-    const handlerCount = initializeHandlerRegistry();
+    const { registry } = initializeHandlerRegistry();
 
-    if (handlerCount === 0) {
-      log.warn('No handlers registered. Did you register handlers before starting?', {
-        operation: 'discover_handlers',
-      });
-    }
-
-    // Create bootstrap configuration
-    const config: BootstrapConfig = {
-      namespace: process.env.TASKER_NAMESPACE || 'default',
-      logLevel: (process.env.RUST_LOG as BootstrapConfig['logLevel']) || 'info',
-      configPath: process.env.TASKER_CONFIG_PATH,
-      databaseUrl: process.env.DATABASE_URL,
-    };
-
-    // Bootstrap the Rust worker
-    log.info('Bootstrapping Rust worker...', { operation: 'bootstrap' });
-    const result = bootstrapWorker(config);
-
+    // Bootstrap Rust worker
+    const result = await bootstrapRustWorker();
     if (!result.success) {
       log.error(`Failed to bootstrap worker: ${result.message}`, {
         operation: 'bootstrap',
@@ -256,138 +468,32 @@ async function main(): Promise<number> {
       return 3;
     }
 
-    log.info(`Worker bootstrapped successfully (ID: ${result.workerId})`, {
+    const workerId = result.workerId ?? `typescript-worker-${process.pid}`;
+    log.info(`Worker bootstrapped successfully (ID: ${workerId})`, {
       operation: 'bootstrap',
-      worker_id: result.workerId ?? 'unknown',
+      worker_id: workerId,
     });
 
-    // Initialize TypeScript event dispatch system
-    log.info('Starting TypeScript event dispatch system...', {
-      operation: 'start_event_system',
+    // Start event system
+    const eventSystem = startEventSystem(ffiResult.runtime, registry, workerId);
+    eventPoller = eventSystem.eventPoller;
+    stepSubscriber = eventSystem.stepSubscriber;
+
+    showSuccessBanner();
+
+    // Run main loop until shutdown
+    await Promise.race([runMainLoop(shutdown), shutdown.promise]);
+
+    // Execute shutdown sequence
+    await executeShutdown({
+      runtime: ffiResult.runtime,
+      emitter: eventSystem.emitter,
+      registry,
+      eventPoller,
+      stepSubscriber,
+      workerId,
     });
 
-    // 1. Get the global event emitter
-    const emitter = getGlobalEmitter();
-    log.info('  EventEmitter: Ready', { operation: 'start_event_system' });
-
-    // 2. Create and start StepExecutionSubscriber
-    const registry = HandlerRegistry.instance();
-    stepSubscriber = new StepExecutionSubscriber(emitter, registry, {
-      workerId: result.workerId ?? `typescript-worker-${process.pid}`,
-      maxConcurrent: 10,
-      handlerTimeoutMs: 300000, // 5 minutes
-    });
-    stepSubscriber.start();
-    log.info(`  StepExecutionSubscriber: Started (worker_id=${result.workerId})`, {
-      operation: 'start_event_system',
-    });
-
-    // 3. Create and start EventPoller
-    eventPoller = createEventPoller(runtime, {
-      pollIntervalMs: 10,
-      starvationCheckInterval: 100,
-      cleanupInterval: 1000,
-      metricsInterval: 100,
-    });
-    eventPoller.start();
-    log.info('  EventPoller: Started (10ms polling interval)', {
-      operation: 'start_event_system',
-    });
-
-    console.log('');
-    console.log('='.repeat(60));
-    console.log('TypeScript worker system started successfully');
-    console.log('  Rust foundation: Bootstrapped via FFI');
-    console.log('  TypeScript handlers: Registered and ready');
-    console.log('  Event dispatch: Active (polling -> handlers -> completion)');
-    console.log('  Worker status: Running and processing tasks');
-    console.log('');
-    console.log('Worker ready and processing tasks');
-    console.log('Press Ctrl+C to stop');
-    console.log('='.repeat(60));
-    console.log('');
-
-    // Main worker loop
-    const sleepInterval = process.env.TASKER_ENV === 'production' ? 5000 : 1000;
-    let loopCount = 0;
-
-    const mainLoop = async (): Promise<void> => {
-      while (!shutdownRequested) {
-        await new Promise((resolve) => setTimeout(resolve, sleepInterval));
-
-        if (shutdownRequested) {
-          break;
-        }
-
-        // Periodic health check (every 60 iterations in development, every 300 in production)
-        loopCount++;
-        const healthCheckInterval = process.env.TASKER_ENV === 'production' ? 300 : 60;
-
-        if (loopCount % healthCheckInterval === 0) {
-          const healthStatus = performHealthCheck();
-          if (healthStatus.healthy) {
-            logDebug(`Health check #${loopCount / healthCheckInterval}: OK`, {
-              component: 'server',
-              operation: 'health_check',
-            });
-          } else {
-            logWarn(
-              `Health check #${loopCount / healthCheckInterval}: UNHEALTHY - ${healthStatus.error}`,
-              {
-                component: 'server',
-                operation: 'health_check',
-                error: healthStatus.error ?? 'unknown',
-              }
-            );
-          }
-        }
-      }
-    };
-
-    // Race between main loop and shutdown signal
-    await Promise.race([mainLoop(), shutdownPromise]);
-
-    // Shutdown sequence
-    console.log('');
-    log.info('Starting shutdown sequence...', { operation: 'shutdown' });
-
-    // 1. Stop EventPoller (no new events)
-    log.info('  Stopping EventPoller...', { operation: 'shutdown' });
-    if (eventPoller) {
-      await eventPoller.stop();
-    }
-    log.info('  EventPoller stopped', { operation: 'shutdown' });
-
-    // 2. Stop StepExecutionSubscriber (no new handler invocations)
-    log.info('  Stopping StepExecutionSubscriber...', { operation: 'shutdown' });
-    if (stepSubscriber) {
-      stepSubscriber.stop();
-      // Wait for in-flight handlers
-      await stepSubscriber.waitForCompletion(5000);
-    }
-    log.info('  StepExecutionSubscriber stopped', { operation: 'shutdown' });
-
-    // 3. Clear EventEmitter listeners
-    log.info('  Clearing event listeners...', { operation: 'shutdown' });
-    emitter.removeAllListeners();
-    log.info('  Event listeners cleared', { operation: 'shutdown' });
-
-    // 4. Transition to graceful shutdown and stop worker
-    if (isWorkerRunning()) {
-      log.info('  Transitioning to graceful shutdown...', { operation: 'shutdown' });
-      transitionToGracefulShutdown();
-
-      log.info('  Stopping Rust worker...', { operation: 'shutdown' });
-      stopWorker();
-      log.info('  Rust worker stopped', { operation: 'shutdown' });
-    }
-
-    log.info('TypeScript worker shutdown completed successfully', {
-      operation: 'shutdown',
-    });
-
-    console.log('');
-    console.log('TypeScript Worker Server terminated gracefully');
     return 0;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -400,21 +506,7 @@ async function main(): Promise<number> {
       console.error(error.stack);
     }
 
-    // Cleanup on error
-    try {
-      if (eventPoller) {
-        await eventPoller.stop();
-      }
-      if (stepSubscriber) {
-        stepSubscriber.stop();
-      }
-      if (isWorkerRunning()) {
-        stopWorker();
-      }
-    } catch {
-      // Ignore cleanup errors
-    }
-
+    await cleanupOnError(eventPoller, stepSubscriber);
     return 4;
   }
 }

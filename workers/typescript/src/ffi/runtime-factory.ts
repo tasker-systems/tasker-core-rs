@@ -5,8 +5,8 @@
  * FFI adapter. Uses a singleton pattern for efficiency.
  */
 
+import { detectRuntime, type RuntimeType } from './runtime.js';
 import type { TaskerRuntime } from './runtime-interface.js';
-import { type RuntimeType, detectRuntime } from './runtime.js';
 
 /**
  * Cached runtime instance (singleton)

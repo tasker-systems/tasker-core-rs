@@ -4,44 +4,43 @@
  * Provides event names, emitter, and polling infrastructure.
  */
 
-// Event names
-export {
-  EventNames,
-  StepEventNames,
-  WorkerEventNames,
-  PollerEventNames,
-  MetricsEventNames,
-  type EventName,
-  type StepEventName,
-  type WorkerEventName,
-  type PollerEventName,
-  type MetricsEventName,
-} from './event-names.js';
-
 // Event emitter
 export {
-  TaskerEventEmitter,
-  getGlobalEmitter,
   clearGlobalEmitter,
-  type TaskerEventMap,
-  type StepExecutionReceivedPayload,
-  type StepExecutionStartedPayload,
+  getGlobalEmitter,
+  type MetricsPayload,
+  type PollerCyclePayload,
+  type StepCompletionSentPayload,
   type StepExecutionCompletedPayload,
   type StepExecutionFailedPayload,
-  type StepCompletionSentPayload,
-  type WorkerEventPayload,
+  type StepExecutionReceivedPayload,
+  type StepExecutionStartedPayload,
+  TaskerEventEmitter,
+  type TaskerEventMap,
   type WorkerErrorPayload,
-  type PollerCyclePayload,
-  type MetricsPayload,
+  type WorkerEventPayload,
 } from './event-emitter.js';
+// Event names
+export {
+  type EventName,
+  EventNames,
+  type MetricsEventName,
+  MetricsEventNames,
+  type PollerEventName,
+  PollerEventNames,
+  type StepEventName,
+  StepEventNames,
+  type WorkerEventName,
+  WorkerEventNames,
+} from './event-names.js';
 
 // Event poller
 export {
-  EventPoller,
   createEventPoller,
-  type EventPollerConfig,
-  type StepEventCallback,
   type ErrorCallback,
+  EventPoller,
+  type EventPollerConfig,
   type MetricsCallback,
   type PollerState,
+  type StepEventCallback,
 } from './event-poller.js';

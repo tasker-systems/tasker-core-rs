@@ -91,9 +91,7 @@ export class HandlerRegistry {
 
     // Validate it's a constructor function
     if (typeof handlerClass !== 'function') {
-      throw new Error(
-        `handlerClass must be a StepHandler subclass, got ${typeof handlerClass}`
-      );
+      throw new Error(`handlerClass must be a StepHandler subclass, got ${typeof handlerClass}`);
     }
 
     // Log warning if overwriting
@@ -102,9 +100,7 @@ export class HandlerRegistry {
     }
 
     this._handlers.set(name, handlerClass);
-    console.info(
-      `[HandlerRegistry] Registered handler: ${name} -> ${handlerClass.name}`
-    );
+    console.info(`[HandlerRegistry] Registered handler: ${name} -> ${handlerClass.name}`);
   }
 
   /**
@@ -153,10 +149,7 @@ export class HandlerRegistry {
     try {
       return new handlerClass();
     } catch (error) {
-      console.error(
-        `[HandlerRegistry] Failed to instantiate handler ${name}:`,
-        error
-      );
+      console.error(`[HandlerRegistry] Failed to instantiate handler ${name}:`, error);
       return null;
     }
   }

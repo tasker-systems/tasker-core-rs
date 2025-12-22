@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { StepContext } from '../../../src/types/step-context.js';
 import type { FfiStepEvent } from '../../../src/ffi/types.js';
+import { StepContext } from '../../../src/types/step-context.js';
 
 describe('StepContext', () => {
   describe('constructor', () => {
@@ -90,7 +90,13 @@ describe('StepContext', () => {
     it('extracts dependency results from event', () => {
       const event = createValidFfiStepEvent();
       event.dependency_results = {
-        step_1: { step_uuid: 's1', success: true, result: { value: 42 }, status: 'completed', error: null },
+        step_1: {
+          step_uuid: 's1',
+          success: true,
+          result: { value: 42 },
+          status: 'completed',
+          error: null,
+        },
       };
       const context = StepContext.fromFfiEvent(event, 'my_handler');
 

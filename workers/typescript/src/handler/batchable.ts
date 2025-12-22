@@ -1,12 +1,12 @@
-import type { StepContext } from '../types/step-context';
-import { StepHandlerResult } from '../types/step-handler-result';
 import type {
-  CursorConfig,
   BatchAnalyzerOutcome,
   BatchWorkerContext,
   BatchWorkerOutcome,
+  CursorConfig,
 } from '../types/batch';
 import { createBatchWorkerContext } from '../types/batch';
+import type { StepContext } from '../types/step-context';
+import { StepHandlerResult } from '../types/step-handler-result';
 
 /**
  * Mixin interface for batch processing capabilities.

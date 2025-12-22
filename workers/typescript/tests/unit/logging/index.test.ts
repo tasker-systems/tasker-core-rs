@@ -2,15 +2,15 @@
  * Tests for the structured logging API.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import {
-  logError,
-  logWarn,
-  logInfo,
-  logDebug,
-  logTrace,
   createLogger,
   type LogFields,
+  logDebug,
+  logError,
+  logInfo,
+  logTrace,
+  logWarn,
 } from '../../../src/logging/index';
 
 describe('Logging API', () => {
@@ -131,9 +131,7 @@ describe('Logging API', () => {
       const logger = createLogger({ component: 'default_component' });
 
       // Override component with call-time field
-      expect(() =>
-        logger.info('Info message', { component: 'override_component' })
-      ).not.toThrow();
+      expect(() => logger.info('Info message', { component: 'override_component' })).not.toThrow();
     });
 
     test('should work with empty default fields', () => {

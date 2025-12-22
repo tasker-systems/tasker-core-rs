@@ -5,17 +5,16 @@
  * status checks, and graceful shutdown.
  */
 
-// Types
-export type { BootstrapConfig, BootstrapResult, WorkerStatus, StopResult } from './types.js';
-
 // Bootstrap API
 export {
   bootstrapWorker,
-  stopWorker,
-  getWorkerStatus,
-  transitionToGracefulShutdown,
-  isWorkerRunning,
-  getVersion,
   getRustVersion,
+  getVersion,
+  getWorkerStatus,
   healthCheck,
+  isWorkerRunning,
+  stopWorker,
+  transitionToGracefulShutdown,
 } from './bootstrap.js';
+// Types
+export type { BootstrapConfig, BootstrapResult, StopResult, WorkerStatus } from './types.js';

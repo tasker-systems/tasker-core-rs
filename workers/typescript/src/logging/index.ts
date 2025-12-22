@@ -8,7 +8,7 @@
  * Matches Python's logging module and Ruby's tracing module (TAS-92 aligned).
  */
 
-import { getTaskerRuntime } from '../ffi/runtime-factory.js';
+import { getCachedRuntime } from '../ffi/runtime-factory.js';
 import type { LogFields as FfiLogFields } from '../ffi/types.js';
 
 /**
@@ -47,18 +47,6 @@ function toFfiFields(fields?: LogFields): FfiLogFields {
 }
 
 /**
- * Check if the FFI runtime is available and loaded.
- */
-function isRuntimeAvailable(): boolean {
-  try {
-    const runtime = getTaskerRuntime();
-    return runtime.isLoaded;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Fallback console logging when FFI is not available.
  */
 function fallbackLog(level: string, message: string, fields?: LogFields): void {
@@ -83,13 +71,13 @@ function fallbackLog(level: string, message: string, fields?: LogFields): void {
  * });
  */
 export function logError(message: string, fields?: LogFields): void {
-  if (!isRuntimeAvailable()) {
+  const runtime = getCachedRuntime();
+  if (!runtime?.isLoaded) {
     fallbackLog('error', message, fields);
     return;
   }
 
   try {
-    const runtime = getTaskerRuntime();
     runtime.logError(message, toFfiFields(fields));
   } catch {
     fallbackLog('error', message, fields);
@@ -112,13 +100,13 @@ export function logError(message: string, fields?: LogFields): void {
  * });
  */
 export function logWarn(message: string, fields?: LogFields): void {
-  if (!isRuntimeAvailable()) {
+  const runtime = getCachedRuntime();
+  if (!runtime?.isLoaded) {
     fallbackLog('warn', message, fields);
     return;
   }
 
   try {
-    const runtime = getTaskerRuntime();
     runtime.logWarn(message, toFfiFields(fields));
   } catch {
     fallbackLog('warn', message, fields);
@@ -142,13 +130,13 @@ export function logWarn(message: string, fields?: LogFields): void {
  * });
  */
 export function logInfo(message: string, fields?: LogFields): void {
-  if (!isRuntimeAvailable()) {
+  const runtime = getCachedRuntime();
+  if (!runtime?.isLoaded) {
     fallbackLog('info', message, fields);
     return;
   }
 
   try {
-    const runtime = getTaskerRuntime();
     runtime.logInfo(message, toFfiFields(fields));
   } catch {
     fallbackLog('info', message, fields);
@@ -171,13 +159,13 @@ export function logInfo(message: string, fields?: LogFields): void {
  * });
  */
 export function logDebug(message: string, fields?: LogFields): void {
-  if (!isRuntimeAvailable()) {
+  const runtime = getCachedRuntime();
+  if (!runtime?.isLoaded) {
     fallbackLog('debug', message, fields);
     return;
   }
 
   try {
-    const runtime = getTaskerRuntime();
     runtime.logDebug(message, toFfiFields(fields));
   } catch {
     fallbackLog('debug', message, fields);
@@ -200,13 +188,13 @@ export function logDebug(message: string, fields?: LogFields): void {
  * });
  */
 export function logTrace(message: string, fields?: LogFields): void {
-  if (!isRuntimeAvailable()) {
+  const runtime = getCachedRuntime();
+  if (!runtime?.isLoaded) {
     fallbackLog('trace', message, fields);
     return;
   }
 
   try {
-    const runtime = getTaskerRuntime();
     runtime.logTrace(message, toFfiFields(fields));
   } catch {
     fallbackLog('trace', message, fields);

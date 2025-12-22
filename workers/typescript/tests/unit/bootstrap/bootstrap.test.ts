@@ -4,30 +4,30 @@
  * Note: These tests run without the FFI library loaded, testing fallback behavior.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import {
   bootstrapWorker,
-  stopWorker,
-  getWorkerStatus,
-  transitionToGracefulShutdown,
-  isWorkerRunning,
-  getVersion,
   getRustVersion,
+  getVersion,
+  getWorkerStatus,
   healthCheck,
+  isWorkerRunning,
+  stopWorker,
+  transitionToGracefulShutdown,
 } from '../../../src/bootstrap/bootstrap';
 
 describe('Bootstrap API (No FFI)', () => {
   describe('bootstrapWorker', () => {
-    test('should return error result when runtime not loaded', () => {
-      const result = bootstrapWorker();
+    test('should return error result when runtime not loaded', async () => {
+      const result = await bootstrapWorker();
 
       expect(result.success).toBe(false);
       expect(result.status).toBe('error');
       expect(result.error).toBeDefined();
     });
 
-    test('should accept config options', () => {
-      const result = bootstrapWorker({
+    test('should accept config options', async () => {
+      const result = await bootstrapWorker({
         namespace: 'test',
         logLevel: 'debug',
       });
@@ -36,8 +36,8 @@ describe('Bootstrap API (No FFI)', () => {
       expect(result.success).toBe(false);
     });
 
-    test('should handle all config options', () => {
-      const result = bootstrapWorker({
+    test('should handle all config options', async () => {
+      const result = await bootstrapWorker({
         workerId: 'test-worker-1',
         namespace: 'payments',
         configPath: '/path/to/config.toml',
@@ -111,8 +111,8 @@ describe('Bootstrap API (No FFI)', () => {
 });
 
 describe('Bootstrap API Return Types', () => {
-  test('BootstrapResult should have required fields', () => {
-    const result = bootstrapWorker();
+  test('BootstrapResult should have required fields', async () => {
+    const result = await bootstrapWorker();
 
     expect(typeof result.success).toBe('boolean');
     expect(typeof result.status).toBe('string');

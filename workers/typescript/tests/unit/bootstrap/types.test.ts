@@ -2,16 +2,16 @@
  * Tests for bootstrap types and conversion functions.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import {
-  toFfiBootstrapConfig,
-  fromFfiBootstrapResult,
-  fromFfiWorkerStatus,
-  fromFfiStopResult,
   type BootstrapConfig,
   type FfiBootstrapResult,
-  type FfiWorkerStatus,
   type FfiStopResult,
+  type FfiWorkerStatus,
+  fromFfiBootstrapResult,
+  fromFfiStopResult,
+  fromFfiWorkerStatus,
+  toFfiBootstrapConfig,
 } from '../../../src/bootstrap/types';
 
 describe('Bootstrap Types', () => {

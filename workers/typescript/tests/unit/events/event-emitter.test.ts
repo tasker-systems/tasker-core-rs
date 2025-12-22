@@ -7,14 +7,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
+  clearGlobalEmitter,
+  getGlobalEmitter,
   type MetricsPayload,
   type StepExecutionCompletedPayload,
   type StepExecutionReceivedPayload,
   type StepExecutionStartedPayload,
   TaskerEventEmitter,
   type WorkerEventPayload,
-  clearGlobalEmitter,
-  getGlobalEmitter,
 } from '../../../src/events/event-emitter.js';
 import { EventNames } from '../../../src/events/event-names.js';
 import type { FfiStepEvent, StepExecutionResult } from '../../../src/ffi/types.js';

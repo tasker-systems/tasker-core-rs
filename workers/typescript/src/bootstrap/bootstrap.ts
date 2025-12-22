@@ -7,13 +7,13 @@
  * Matches Python's bootstrap.py and Ruby's bootstrap.rb (TAS-92 aligned).
  */
 
-import { getTaskerRuntime } from '../ffi/runtime-factory.js';
-import type { BootstrapConfig, BootstrapResult, WorkerStatus, StopResult } from './types.js';
+import { getTaskerRuntime, getCachedRuntime } from '../ffi/runtime-factory.js';
+import type { BootstrapConfig, BootstrapResult, StopResult, WorkerStatus } from './types.js';
 import {
-  toFfiBootstrapConfig,
   fromFfiBootstrapResult,
-  fromFfiWorkerStatus,
   fromFfiStopResult,
+  fromFfiWorkerStatus,
+  toFfiBootstrapConfig,
 } from './types.js';
 
 /**
@@ -31,31 +31,31 @@ import {
  *
  * @example Bootstrap with defaults
  * ```typescript
- * const result = bootstrapWorker();
+ * const result = await bootstrapWorker();
  * console.log(`Worker ${result.workerId} started`);
  * ```
  *
  * @example Bootstrap with custom config
  * ```typescript
- * const result = bootstrapWorker({
+ * const result = await bootstrapWorker({
  *   namespace: 'payments',
  *   logLevel: 'debug',
  * });
  * ```
  */
-export function bootstrapWorker(config?: BootstrapConfig): BootstrapResult {
-  const runtime = getTaskerRuntime();
-
-  if (!runtime.isLoaded) {
-    return {
-      success: false,
-      status: 'error',
-      message: 'Runtime not loaded. Ensure the FFI library is available.',
-      error: 'Runtime not loaded',
-    };
-  }
-
+export async function bootstrapWorker(config?: BootstrapConfig): Promise<BootstrapResult> {
   try {
+    const runtime = await getTaskerRuntime();
+
+    if (!runtime.isLoaded) {
+      return {
+        success: false,
+        status: 'error',
+        message: 'Runtime not loaded. Ensure the FFI library is available.',
+        error: 'Runtime not loaded',
+      };
+    }
+
     const ffiConfig = toFfiBootstrapConfig(config);
     const ffiResult = runtime.bootstrapWorker(ffiConfig);
     return fromFfiBootstrapResult(ffiResult);
@@ -86,9 +86,9 @@ export function bootstrapWorker(config?: BootstrapConfig): BootstrapResult {
  * ```
  */
 export function stopWorker(): StopResult {
-  const runtime = getTaskerRuntime();
+  const runtime = getCachedRuntime();
 
-  if (!runtime.isLoaded) {
+  if (!runtime?.isLoaded) {
     return {
       success: true,
       status: 'not_running',
@@ -128,9 +128,9 @@ export function stopWorker(): StopResult {
  * ```
  */
 export function getWorkerStatus(): WorkerStatus {
-  const runtime = getTaskerRuntime();
+  const runtime = getCachedRuntime();
 
-  if (!runtime.isLoaded) {
+  if (!runtime?.isLoaded) {
     return {
       success: false,
       running: false,
@@ -141,7 +141,7 @@ export function getWorkerStatus(): WorkerStatus {
   try {
     const ffiStatus = runtime.getWorkerStatus();
     return fromFfiWorkerStatus(ffiStatus);
-  } catch (error) {
+  } catch (_error) {
     return {
       success: false,
       running: false,
@@ -172,9 +172,9 @@ export function getWorkerStatus(): WorkerStatus {
  * ```
  */
 export function transitionToGracefulShutdown(): StopResult {
-  const runtime = getTaskerRuntime();
+  const runtime = getCachedRuntime();
 
-  if (!runtime.isLoaded) {
+  if (!runtime?.isLoaded) {
     return {
       success: true,
       status: 'not_running',
@@ -205,14 +205,14 @@ export function transitionToGracefulShutdown(): StopResult {
  * @example
  * ```typescript
  * if (!isWorkerRunning()) {
- *   bootstrapWorker();
+ *   await bootstrapWorker();
  * }
  * ```
  */
 export function isWorkerRunning(): boolean {
-  const runtime = getTaskerRuntime();
+  const runtime = getCachedRuntime();
 
-  if (!runtime.isLoaded) {
+  if (!runtime?.isLoaded) {
     return false;
   }
 
@@ -229,9 +229,9 @@ export function isWorkerRunning(): boolean {
  * @returns Version string from the Rust library
  */
 export function getVersion(): string {
-  const runtime = getTaskerRuntime();
+  const runtime = getCachedRuntime();
 
-  if (!runtime.isLoaded) {
+  if (!runtime?.isLoaded) {
     return 'unknown (runtime not loaded)';
   }
 
@@ -248,9 +248,9 @@ export function getVersion(): string {
  * @returns Detailed version information
  */
 export function getRustVersion(): string {
-  const runtime = getTaskerRuntime();
+  const runtime = getCachedRuntime();
 
-  if (!runtime.isLoaded) {
+  if (!runtime?.isLoaded) {
     return 'unknown (runtime not loaded)';
   }
 
@@ -267,9 +267,9 @@ export function getRustVersion(): string {
  * @returns True if the FFI module is functional
  */
 export function healthCheck(): boolean {
-  const runtime = getTaskerRuntime();
+  const runtime = getCachedRuntime();
 
-  if (!runtime.isLoaded) {
+  if (!runtime?.isLoaded) {
     return false;
   }
 

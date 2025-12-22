@@ -7,13 +7,13 @@
 
 import { describe, expect, it } from 'bun:test';
 import {
-  type RuntimeType,
   detectRuntime,
   getLibraryPath,
   getRuntimeInfo,
   isBun,
   isDeno,
   isNode,
+  type RuntimeType,
 } from '../../../src/ffi/runtime.js';
 
 describe('Runtime Detection', () => {

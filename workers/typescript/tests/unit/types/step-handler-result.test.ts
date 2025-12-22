@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { StepHandlerResult } from '../../../src/types/step-handler-result.js';
 import { ErrorType } from '../../../src/types/error-type.js';
+import { StepHandlerResult } from '../../../src/types/step-handler-result.js';
 
 describe('StepHandlerResult', () => {
   describe('constructor', () => {
@@ -64,10 +64,7 @@ describe('StepHandlerResult', () => {
     });
 
     it('creates a success result with metadata', () => {
-      const result = StepHandlerResult.success(
-        { value: 'output' },
-        { execution_time_ms: 150 }
-      );
+      const result = StepHandlerResult.success({ value: 'output' }, { execution_time_ms: 150 });
 
       expect(result.success).toBe(true);
       expect(result.result).toEqual({ value: 'output' });
@@ -99,11 +96,7 @@ describe('StepHandlerResult', () => {
     });
 
     it('creates a failure with ErrorType enum', () => {
-      const result = StepHandlerResult.failure(
-        'Invalid input',
-        ErrorType.VALIDATION_ERROR,
-        false
-      );
+      const result = StepHandlerResult.failure('Invalid input', ErrorType.VALIDATION_ERROR, false);
 
       expect(result.success).toBe(false);
       expect(result.errorMessage).toBe('Invalid input');
@@ -112,11 +105,7 @@ describe('StepHandlerResult', () => {
     });
 
     it('creates a failure with string error type', () => {
-      const result = StepHandlerResult.failure(
-        'Custom error',
-        'custom_error_type',
-        true
-      );
+      const result = StepHandlerResult.failure('Custom error', 'custom_error_type', true);
 
       expect(result.errorType).toBe('custom_error_type');
     });
@@ -139,12 +128,9 @@ describe('StepHandlerResult', () => {
     });
 
     it('defaults error code to null', () => {
-      const result = StepHandlerResult.failure(
-        'Error',
-        ErrorType.HANDLER_ERROR,
-        true,
-        { key: 'value' }
-      );
+      const result = StepHandlerResult.failure('Error', ErrorType.HANDLER_ERROR, true, {
+        key: 'value',
+      });
 
       expect(result.errorCode).toBeNull();
     });
@@ -182,10 +168,7 @@ describe('StepHandlerResult', () => {
 
   describe('toJSON', () => {
     it('serializes success result with snake_case keys', () => {
-      const result = StepHandlerResult.success(
-        { output: 'data' },
-        { timing: 100 }
-      );
+      const result = StepHandlerResult.success({ output: 'data' }, { timing: 100 });
       const json = result.toJSON();
 
       expect(json).toEqual({

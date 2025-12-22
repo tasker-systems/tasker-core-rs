@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import type {
+  BatchAnalyzerOutcome,
+  BatchWorkerOutcome,
+  CursorConfig,
+} from '../../../src/types/batch';
 import { createBatchWorkerContext } from '../../../src/types/batch';
-import type { CursorConfig, BatchAnalyzerOutcome, BatchWorkerOutcome } from '../../../src/types/batch';
 
 describe('Batch Types', () => {
   describe('CursorConfig type', () => {

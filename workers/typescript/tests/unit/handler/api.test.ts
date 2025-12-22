@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, mock } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { ApiHandler, ApiResponse } from '../../../src/handler/api';
 import { StepContext } from '../../../src/types/step-context';
 import type { StepHandlerResult } from '../../../src/types/step-handler-result';
@@ -17,11 +17,7 @@ class TestApiHandler extends ApiHandler {
   static defaultTimeout = 5000;
 
   // Expose protected methods for testing
-  async testGet(
-    path: string,
-    params?: Record<string, unknown>,
-    headers?: Record<string, string>
-  ) {
+  async testGet(path: string, params?: Record<string, unknown>, headers?: Record<string, string>) {
     return this.get(path, params, headers);
   }
 
@@ -50,11 +46,7 @@ class TestApiHandler extends ApiHandler {
     return this.delete(path, headers);
   }
 
-  testApiSuccess(
-    response: ApiResponse,
-    result?: Record<string, unknown>,
-    includeResponse = true
-  ) {
+  testApiSuccess(response: ApiResponse, result?: Record<string, unknown>, includeResponse = true) {
     return this.apiSuccess(response, result, includeResponse);
   }
 
@@ -307,9 +299,7 @@ describe('ApiHandler', () => {
     });
 
     test('POST should make request with JSON body', async () => {
-      const mockFetch = mock(async () =>
-        createMockResponse({ status: 201, body: { id: 1 } })
-      );
+      const mockFetch = mock(async () => createMockResponse({ status: 201, body: { id: 1 } }));
       global.fetch = mockFetch;
 
       await handler.testPost('/users', { body: { name: 'Alice' } });
@@ -319,9 +309,7 @@ describe('ApiHandler', () => {
       expect(url).toBe('https://api.example.com/users');
       expect(options.method).toBe('POST');
       expect(options.body).toBe('{"name":"Alice"}');
-      expect((options.headers as Record<string, string>)['Content-Type']).toBe(
-        'application/json'
-      );
+      expect((options.headers as Record<string, string>)['Content-Type']).toBe('application/json');
 
       global.fetch = originalFetch;
     });
@@ -534,7 +522,9 @@ describe('ApiHandler', () => {
 
       const result = handler.testTimeoutError(error, 'processing payment');
 
-      expect(result.errorMessage).toBe('Request timeout while processing payment: Request timed out');
+      expect(result.errorMessage).toBe(
+        'Request timeout while processing payment: Request timed out'
+      );
     });
   });
 

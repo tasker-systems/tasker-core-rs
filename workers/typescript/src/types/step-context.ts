@@ -110,14 +110,12 @@ export class StepContext {
     const inputData = (task.context as Record<string, unknown>) ?? {};
 
     // Extract dependency results
-    const dependencyResults =
-      (event.dependency_results as Record<string, unknown>) ?? {};
+    const dependencyResults = (event.dependency_results as Record<string, unknown>) ?? {};
 
     // Extract step config from handler initialization
     const stepDefinition = event.step_definition ?? {};
     const handlerConfig = stepDefinition.handler ?? {};
-    const stepConfig =
-      (handlerConfig.initialization as Record<string, unknown>) ?? {};
+    const stepConfig = (handlerConfig.initialization as Record<string, unknown>) ?? {};
 
     // Extract retry information and step inputs from workflow_step
     const workflowStep = event.workflow_step ?? {};
@@ -170,11 +168,7 @@ export class StepContext {
     }
 
     // If it's an object with a 'result' key, extract that value
-    if (
-      typeof resultHash === 'object' &&
-      resultHash !== null &&
-      'result' in resultHash
-    ) {
+    if (typeof resultHash === 'object' && resultHash !== null && 'result' in resultHash) {
       return (resultHash as Record<string, unknown>).result;
     }
 

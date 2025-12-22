@@ -5,11 +5,11 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import type { FfiStepEvent } from '../../../src/ffi/types.js';
 import { StepHandler } from '../../../src/handler/base.js';
+import { ErrorType } from '../../../src/types/error-type.js';
 import { StepContext } from '../../../src/types/step-context.js';
 import type { StepHandlerResult } from '../../../src/types/step-handler-result.js';
-import { ErrorType } from '../../../src/types/error-type.js';
-import type { FfiStepEvent } from '../../../src/ffi/types.js';
 
 // Concrete implementation for testing
 class TestHandler extends StepHandler {

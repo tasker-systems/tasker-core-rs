@@ -8,7 +8,7 @@
 
 import type { TaskerRuntime } from '../ffi/runtime-interface.js';
 import type { FfiDispatchMetrics, FfiStepEvent } from '../ffi/types.js';
-import { type TaskerEventEmitter, getGlobalEmitter } from './event-emitter.js';
+import { getGlobalEmitter, type TaskerEventEmitter } from './event-emitter.js';
 
 /**
  * Configuration for the event poller

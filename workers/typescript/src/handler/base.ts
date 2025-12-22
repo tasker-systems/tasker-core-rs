@@ -1,6 +1,6 @@
-import type { StepContext } from "../types/step-context";
-import { StepHandlerResult } from "../types/step-handler-result";
-import { ErrorType } from "../types/error-type";
+import { ErrorType } from '../types/error-type';
+import type { StepContext } from '../types/step-context';
+import { StepHandlerResult } from '../types/step-handler-result';
 
 /**
  * Interface for step handler class metadata.
@@ -52,7 +52,7 @@ export abstract class StepHandler {
    * Version string for the handler.
    * Default: "1.0.0"
    */
-  static handlerVersion = "1.0.0";
+  static handlerVersion = '1.0.0';
 
   /**
    * Execute the step handler logic.
@@ -110,7 +110,7 @@ export abstract class StepHandler {
    * @returns List of capability strings (default: ["process"])
    */
   get capabilities(): string[] {
-    return ["process"];
+    return ['process'];
   }
 
   /**
@@ -140,7 +140,7 @@ export abstract class StepHandler {
    */
   protected success(
     result: Record<string, unknown>,
-    metadata?: Record<string, unknown>,
+    metadata?: Record<string, unknown>
   ): StepHandlerResult {
     return StepHandlerResult.success(result, metadata);
   }
@@ -171,15 +171,9 @@ export abstract class StepHandler {
     errorType: ErrorType | string = ErrorType.HANDLER_ERROR,
     retryable = true,
     metadata?: Record<string, unknown>,
-    errorCode?: string,
+    errorCode?: string
   ): StepHandlerResult {
-    return StepHandlerResult.failure(
-      message,
-      errorType,
-      retryable,
-      metadata,
-      errorCode,
-    );
+    return StepHandlerResult.failure(message, errorType, retryable, metadata, errorCode);
   }
 
   /**

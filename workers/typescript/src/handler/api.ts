@@ -1,6 +1,6 @@
-import { StepHandler } from './base';
-import type { StepHandlerResult } from '../types/step-handler-result';
 import { ErrorType } from '../types/error-type';
+import type { StepHandlerResult } from '../types/step-handler-result';
+import { StepHandler } from './base';
 
 /**
  * HTTP status codes that indicate client errors (4xx).
@@ -279,7 +279,11 @@ export abstract class ApiHandler extends StepHandler {
   /**
    * Make an arbitrary HTTP request.
    */
-  protected async request(method: string, path: string, options?: RequestInit): Promise<ApiResponse> {
+  protected async request(
+    method: string,
+    path: string,
+    options?: RequestInit
+  ): Promise<ApiResponse> {
     const url = this.buildUrl(path);
     return this.fetch(url, {
       ...options,
@@ -452,7 +456,10 @@ export abstract class ApiHandler extends StepHandler {
     return url;
   }
 
-  private mergeHeaders(additional?: Record<string, string>, isJson = false): Record<string, string> {
+  private mergeHeaders(
+    additional?: Record<string, string>,
+    isJson = false
+  ): Record<string, string> {
     const headers = { ...this.defaultHeaders };
 
     if (isJson && !headers['Content-Type']) {

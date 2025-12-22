@@ -63,7 +63,5 @@ export function isStandardErrorType(errorType: string): boolean {
  * isTypicallyRetryable('permanent_error');  // false
  */
 export function isTypicallyRetryable(errorType: string): boolean {
-  return [ErrorType.RETRYABLE_ERROR, ErrorType.TIMEOUT].includes(
-    errorType as ErrorType
-  );
+  return [ErrorType.RETRYABLE_ERROR, ErrorType.TIMEOUT].includes(errorType as ErrorType);
 }

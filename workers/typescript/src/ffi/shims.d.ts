@@ -7,12 +7,12 @@
  */
 
 // Node.js FFI modules (optional peer dependencies)
-declare module "ffi-napi" {
+declare module 'ffi-napi' {
   // biome-ignore lint/suspicious/noExplicitAny: FFI types are dynamic
   export function Library(path: string, functions: Record<string, any>): any;
 }
 
-declare module "ref-napi" {
+declare module 'ref-napi' {
   export const types: {
     CString: unknown;
     int: unknown;
@@ -21,11 +21,11 @@ declare module "ref-napi" {
 }
 
 // Bun FFI module
-declare module "bun:ffi" {
+declare module 'bun:ffi' {
   export enum FFIType {
-    ptr = "ptr",
-    i32 = "i32",
-    void = "void",
+    ptr = 'ptr',
+    i32 = 'i32',
+    void = 'void',
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: FFI types are dynamic

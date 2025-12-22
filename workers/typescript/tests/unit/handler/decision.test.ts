@@ -1,6 +1,6 @@
-import { describe, expect, test, beforeEach } from 'bun:test';
-import { DecisionHandler, DecisionType } from '../../../src/handler/decision';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type { DecisionPointOutcome } from '../../../src/handler/decision';
+import { DecisionHandler, DecisionType } from '../../../src/handler/decision';
 import { StepContext } from '../../../src/types/step-context';
 import type { StepHandlerResult } from '../../../src/types/step-handler-result';
 
@@ -30,10 +30,7 @@ class TestDecisionHandler extends DecisionHandler {
     return this.decisionSuccessWithOutcome(outcome, metadata);
   }
 
-  testDecisionNoBranches(
-    outcome: DecisionPointOutcome,
-    metadata?: Record<string, unknown>
-  ) {
+  testDecisionNoBranches(outcome: DecisionPointOutcome, metadata?: Record<string, unknown>) {
     return this.decisionNoBranches(outcome, metadata);
   }
 
@@ -170,9 +167,7 @@ describe('DecisionHandler', () => {
       const outcome: DecisionPointOutcome = {
         decisionType: DecisionType.CREATE_STEPS,
         nextStepNames: ['dynamic_step'],
-        dynamicSteps: [
-          { name: 'dynamic_step', handler: 'process_item' },
-        ],
+        dynamicSteps: [{ name: 'dynamic_step', handler: 'process_item' }],
         routingContext: {},
       };
 
@@ -323,10 +318,7 @@ describe('DecisionHandler real-world scenarios', () => {
         const tier = context.inputData.customer_tier as string;
 
         if (tier === 'enterprise') {
-          return this.decisionSuccess(
-            ['enterprise_validation', 'enterprise_processing'],
-            { tier }
-          );
+          return this.decisionSuccess(['enterprise_validation', 'enterprise_processing'], { tier });
         }
         if (tier === 'premium') {
           return this.decisionSuccess(['premium_processing'], { tier });

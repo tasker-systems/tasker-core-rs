@@ -4,9 +4,9 @@
  * Verifies handler registration, resolution, and lifecycle.
  */
 
-import { describe, expect, it, beforeEach, spyOn } from 'bun:test';
-import { HandlerRegistry } from '../../../src/handler/registry.js';
+import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { StepHandler } from '../../../src/handler/base.js';
+import { HandlerRegistry } from '../../../src/handler/registry.js';
 import { StepContext } from '../../../src/types/step-context.js';
 import type { StepHandlerResult } from '../../../src/types/step-handler-result.js';
 
@@ -298,9 +298,7 @@ describe('HandlerRegistry', () => {
 
       registry.clear();
 
-      expect(debugSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Cleared all handlers')
-      );
+      expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('Cleared all handlers'));
 
       debugSpy.mockRestore();
     });

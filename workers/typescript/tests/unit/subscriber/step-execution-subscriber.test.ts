@@ -2,19 +2,19 @@
  * Tests for StepExecutionSubscriber.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { EventEmitter } from 'events';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { EventEmitter } from 'node:events';
+import type { TaskerEventEmitter } from '../../../src/events/event-emitter';
+import { StepEventNames } from '../../../src/events/event-names';
+import type { FfiStepEvent } from '../../../src/ffi/types';
+import { StepHandler } from '../../../src/handler/base';
+import { HandlerRegistry } from '../../../src/handler/registry';
 import {
   StepExecutionSubscriber,
   type StepExecutionSubscriberConfig,
 } from '../../../src/subscriber/step-execution-subscriber';
-import { StepEventNames } from '../../../src/events/event-names';
-import { HandlerRegistry } from '../../../src/handler/registry';
-import { StepHandler } from '../../../src/handler/base';
-import { StepHandlerResult } from '../../../src/types/step-handler-result';
 import type { StepContext } from '../../../src/types/step-context';
-import type { FfiStepEvent } from '../../../src/ffi/types';
-import type { TaskerEventEmitter } from '../../../src/events/event-emitter';
+import type { StepHandlerResult } from '../../../src/types/step-handler-result';
 
 // Test handler implementation
 class TestHandler extends StepHandler {
@@ -54,10 +54,7 @@ class ThrowingHandler extends StepHandler {
 }
 
 // Create a mock FFI step event
-function createMockEvent(
-  handlerName: string,
-  overrides: Partial<FfiStepEvent> = {}
-): FfiStepEvent {
+function createMockEvent(handlerName: string, overrides: Partial<FfiStepEvent> = {}): FfiStepEvent {
   return {
     event_id: `event-${Date.now()}`,
     task_uuid: 'task-123',

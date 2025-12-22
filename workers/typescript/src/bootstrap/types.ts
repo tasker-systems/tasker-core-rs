@@ -8,8 +8,8 @@
 import type {
   BootstrapConfig as FfiBootstrapConfig,
   BootstrapResult as FfiBootstrapResult,
-  WorkerStatus as FfiWorkerStatus,
   StopResult as FfiStopResult,
+  WorkerStatus as FfiWorkerStatus,
 } from '../ffi/types.js';
 
 // Re-export FFI types for convenience
@@ -124,56 +124,100 @@ export function toFfiBootstrapConfig(config?: BootstrapConfig): FfiBootstrapConf
     return {};
   }
 
-  return {
-    worker_id: config.workerId,
-    log_level: config.logLevel,
-    database_url: config.databaseUrl,
-    // Additional config can be passed through
-    namespace: config.namespace,
-    config_path: config.configPath,
-  };
+  const result: FfiBootstrapConfig = {};
+
+  if (config.workerId !== undefined) {
+    result.worker_id = config.workerId;
+  }
+  if (config.logLevel !== undefined) {
+    result.log_level = config.logLevel;
+  }
+  if (config.databaseUrl !== undefined) {
+    result.database_url = config.databaseUrl;
+  }
+  if (config.namespace !== undefined) {
+    result.namespace = config.namespace;
+  }
+  if (config.configPath !== undefined) {
+    result.config_path = config.configPath;
+  }
+
+  return result;
 }
 
 /**
  * Convert FFI BootstrapResult to TypeScript format.
  */
 export function fromFfiBootstrapResult(result: FfiBootstrapResult): BootstrapResult {
-  return {
+  const converted: BootstrapResult = {
     success: result.success,
     status: result.status,
     message: result.message,
-    workerId: result.worker_id,
-    error: result.error,
   };
+
+  if (result.worker_id !== undefined) {
+    converted.workerId = result.worker_id;
+  }
+  if (result.error !== undefined) {
+    converted.error = result.error;
+  }
+
+  return converted;
 }
 
 /**
  * Convert FFI WorkerStatus to TypeScript format.
  */
 export function fromFfiWorkerStatus(status: FfiWorkerStatus): WorkerStatus {
-  return {
+  const converted: WorkerStatus = {
     success: status.success,
     running: status.running,
-    status: status.status,
-    workerId: status.worker_id,
-    environment: status.environment,
-    workerCoreStatus: status.worker_core_status,
-    webApiEnabled: status.web_api_enabled,
-    supportedNamespaces: status.supported_namespaces,
-    databasePoolSize: status.database_pool_size,
-    databasePoolIdle: status.database_pool_idle,
   };
+
+  if (status.status !== undefined) {
+    converted.status = status.status;
+  }
+  if (status.worker_id !== undefined) {
+    converted.workerId = status.worker_id;
+  }
+  if (status.environment !== undefined) {
+    converted.environment = status.environment;
+  }
+  if (status.worker_core_status !== undefined) {
+    converted.workerCoreStatus = status.worker_core_status;
+  }
+  if (status.web_api_enabled !== undefined) {
+    converted.webApiEnabled = status.web_api_enabled;
+  }
+  if (status.supported_namespaces !== undefined) {
+    converted.supportedNamespaces = status.supported_namespaces;
+  }
+  if (status.database_pool_size !== undefined) {
+    converted.databasePoolSize = status.database_pool_size;
+  }
+  if (status.database_pool_idle !== undefined) {
+    converted.databasePoolIdle = status.database_pool_idle;
+  }
+
+  return converted;
 }
 
 /**
  * Convert FFI StopResult to TypeScript format.
  */
 export function fromFfiStopResult(result: FfiStopResult): StopResult {
-  return {
+  const converted: StopResult = {
     success: result.success,
     status: result.status,
     message: result.message,
-    workerId: result.worker_id,
-    error: result.error,
   };
+
+  if (result.worker_id !== undefined) {
+    converted.workerId = result.worker_id;
+  }
+  if (result.error !== undefined) {
+    converted.error = result.error;
+  }
+
+  return converted;
 }

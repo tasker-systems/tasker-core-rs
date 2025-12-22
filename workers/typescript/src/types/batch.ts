@@ -97,9 +97,7 @@ export interface BatchWorkerOutcome {
  *
  * @internal
  */
-export function createBatchWorkerContext(
-  batchData: Record<string, unknown>
-): BatchWorkerContext {
+export function createBatchWorkerContext(batchData: Record<string, unknown>): BatchWorkerContext {
   // Handle both nested cursor_config and flat format
   const cursorData = (batchData.cursor_config as Record<string, unknown>) || batchData;
   const cursorConfig: CursorConfig = {

@@ -9,12 +9,12 @@
 
 import type { TaskerEventEmitter } from '../events/event-emitter.js';
 import { StepEventNames } from '../events/event-names.js';
+import { getCachedRuntime } from '../ffi/runtime-factory.js';
 import type { FfiStepEvent, StepExecutionResult } from '../ffi/types.js';
-import { getTaskerRuntime } from '../ffi/runtime-factory.js';
 import type { HandlerRegistry } from '../handler/registry.js';
+import { logDebug, logError, logInfo, logWarn } from '../logging/index.js';
 import { StepContext } from '../types/step-context.js';
 import type { StepHandlerResult } from '../types/step-handler-result.js';
-import { logDebug, logError, logInfo, logWarn } from '../logging/index.js';
 
 /**
  * Configuration for the step execution subscriber.
@@ -226,11 +226,7 @@ export class StepExecutionSubscriber {
       // Extract handler name from step definition
       const handlerName = this.extractHandlerName(event);
       if (!handlerName) {
-        await this.submitErrorResult(
-          event,
-          'No handler name found in step definition',
-          startTime
-        );
+        await this.submitErrorResult(event, 'No handler name found in step definition', startTime);
         return;
       }
 
@@ -252,11 +248,7 @@ export class StepExecutionSubscriber {
       // Resolve handler from registry
       const handler = this.registry.resolve(handlerName);
       if (!handler) {
-        await this.submitErrorResult(
-          event,
-          `Handler not found: ${handlerName}`,
-          startTime
-        );
+        await this.submitErrorResult(event, `Handler not found: ${handlerName}`, startTime);
         return;
       }
 
@@ -323,10 +315,7 @@ export class StepExecutionSubscriber {
   /**
    * Execute a function with a timeout.
    */
-  private async executeWithTimeout<T>(
-    fn: () => Promise<T>,
-    timeoutMs: number
-  ): Promise<T> {
+  private async executeWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
     return Promise.race([
       fn(),
       new Promise<never>((_, reject) =>
@@ -365,8 +354,16 @@ export class StepExecutionSubscriber {
     result: StepHandlerResult,
     executionTimeMs: number
   ): Promise<void> {
-    const runtime = getTaskerRuntime();
+    const runtime = getCachedRuntime();
+    if (!runtime?.isLoaded) {
+      logError('Cannot submit result: runtime not available', {
+        component: 'subscriber',
+        event_id: event.event_id,
+      });
+      return;
+    }
 
+    // Build the execution result, only adding error if not successful
     const executionResult: StepExecutionResult = {
       step_uuid: event.step_uuid,
       success: result.success,
@@ -379,16 +376,18 @@ export class StepExecutionSubscriber {
         ...result.metadata,
       },
       status: result.success ? 'completed' : 'failed',
-      error: result.success
-        ? undefined
-        : {
-            message: result.errorMessage ?? 'Unknown error',
-            error_type: result.errorType ?? 'handler_error',
-            retryable: result.retryable,
-            status_code: null,
-            backtrace: null,
-          },
     };
+
+    // Only add error field when not successful
+    if (!result.success) {
+      executionResult.error = {
+        message: result.errorMessage ?? 'Unknown error',
+        error_type: result.errorType ?? 'handler_error',
+        retryable: result.retryable,
+        status_code: null,
+        backtrace: null,
+      };
+    }
 
     try {
       runtime.completeStepEvent(event.event_id, executionResult);
@@ -424,7 +423,15 @@ export class StepExecutionSubscriber {
     errorMessage: string,
     startTime: number
   ): Promise<void> {
-    const runtime = getTaskerRuntime();
+    const runtime = getCachedRuntime();
+    if (!runtime?.isLoaded) {
+      logError('Cannot submit error result: runtime not available', {
+        component: 'subscriber',
+        event_id: event.event_id,
+      });
+      return;
+    }
+
     const executionTimeMs = Date.now() - startTime;
 
     const executionResult: StepExecutionResult = {

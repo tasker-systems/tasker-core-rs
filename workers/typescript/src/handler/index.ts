@@ -7,16 +7,14 @@
  * @module handler
  */
 
-// Base handler class
-export { StepHandler } from './base';
-export type { StepHandlerClass } from './base';
-
-// Handler registry
-export { HandlerRegistry } from './registry';
-
 // Specialized handlers (TAS-103)
 export { ApiHandler, ApiResponse } from './api';
-export { DecisionHandler, DecisionType } from './decision';
-export type { DecisionPointOutcome } from './decision';
-export { BatchableMixin, applyBatchable } from './batchable';
+export type { StepHandlerClass } from './base';
+// Base handler class
+export { StepHandler } from './base';
 export type { Batchable } from './batchable';
+export { applyBatchable, BatchableMixin } from './batchable';
+export type { DecisionPointOutcome } from './decision';
+export { DecisionHandler, DecisionType } from './decision';
+// Handler registry
+export { HandlerRegistry } from './registry';

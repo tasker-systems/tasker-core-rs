@@ -1,10 +1,10 @@
-import { describe, expect, test, beforeEach } from 'bun:test';
-import { BatchableMixin, applyBatchable } from '../../../src/handler/batchable';
-import type { Batchable } from '../../../src/handler/batchable';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { StepHandler } from '../../../src/handler/base';
+import type { Batchable } from '../../../src/handler/batchable';
+import { applyBatchable, BatchableMixin } from '../../../src/handler/batchable';
+import type { BatchAnalyzerOutcome, BatchWorkerOutcome } from '../../../src/types/batch';
 import { StepContext } from '../../../src/types/step-context';
 import type { StepHandlerResult } from '../../../src/types/step-handler-result';
-import type { BatchAnalyzerOutcome, BatchWorkerOutcome } from '../../../src/types/batch';
 
 // =============================================================================
 // Test Fixtures
@@ -433,7 +433,9 @@ describe('Batchable integration', () => {
       createBatchOutcome = BatchableMixin.prototype.createBatchOutcome.bind(new BatchableMixin());
       createWorkerOutcome = BatchableMixin.prototype.createWorkerOutcome.bind(new BatchableMixin());
       getBatchContext = BatchableMixin.prototype.getBatchContext.bind(new BatchableMixin());
-      batchAnalyzerSuccess = BatchableMixin.prototype.batchAnalyzerSuccess.bind(new BatchableMixin());
+      batchAnalyzerSuccess = BatchableMixin.prototype.batchAnalyzerSuccess.bind(
+        new BatchableMixin()
+      );
       batchWorkerSuccess = BatchableMixin.prototype.batchWorkerSuccess.bind(new BatchableMixin());
 
       async call(context: StepContext): Promise<StepHandlerResult> {
@@ -470,7 +472,9 @@ describe('Batchable integration', () => {
       createBatchOutcome = BatchableMixin.prototype.createBatchOutcome.bind(new BatchableMixin());
       createWorkerOutcome = BatchableMixin.prototype.createWorkerOutcome.bind(new BatchableMixin());
       getBatchContext = BatchableMixin.prototype.getBatchContext.bind(new BatchableMixin());
-      batchAnalyzerSuccess = BatchableMixin.prototype.batchAnalyzerSuccess.bind(new BatchableMixin());
+      batchAnalyzerSuccess = BatchableMixin.prototype.batchAnalyzerSuccess.bind(
+        new BatchableMixin()
+      );
       batchWorkerSuccess = BatchableMixin.prototype.batchWorkerSuccess.bind(new BatchableMixin());
 
       async call(context: StepContext): Promise<StepHandlerResult> {
