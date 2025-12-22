@@ -15,5 +15,14 @@ export * from './events/index.js';
 // Types module (TAS-102)
 export * from './types/index.js';
 
-// Handler module (TAS-102)
+// Handler module (TAS-102/103)
 export * from './handler/index.js';
+
+// Bootstrap module (TAS-104)
+export * from './bootstrap/index.js';
+
+// Logging module (TAS-104)
+export * from './logging/index.js';
+
+// Subscriber module (TAS-104)
+export * from './subscriber/index.js';
