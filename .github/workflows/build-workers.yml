@@ -129,7 +129,7 @@ jobs:
           ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extension (expected on Linux)"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: build-artifacts
           path: |
@@ -140,7 +140,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload worker artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: worker-artifacts
           path: |
