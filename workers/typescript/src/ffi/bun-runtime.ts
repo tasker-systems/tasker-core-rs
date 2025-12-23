@@ -289,15 +289,18 @@ export class BunRuntime extends BaseTaskerRuntime {
     if (result !== 0n) symbols.free_rust_string(result);
 
     const parsed = this.parseJson<FfiDispatchMetrics>(jsonStr);
-    return (
-      parsed ?? {
-        pending_count: 0,
-        starvation_detected: false,
-        starving_event_count: 0,
-        oldest_pending_age_ms: null,
-        newest_pending_age_ms: null,
-      }
-    );
+    // Check if we got a valid metrics object (not an error response)
+    if (parsed && typeof parsed.pending_count === 'number') {
+      return parsed;
+    }
+    // Return default metrics when worker not initialized or error
+    return {
+      pending_count: 0,
+      starvation_detected: false,
+      starving_event_count: 0,
+      oldest_pending_age_ms: null,
+      newest_pending_age_ms: null,
+    };
   }
 
   checkStarvationWarnings(): void {

@@ -172,3 +172,98 @@ args = ["run", "build:watch"]
 [tasks.dev]
 description = "Development mode: build debug FFI and watch TS"
 dependencies = ["build-ffi-debug", "watch"]
+
+# =============================================================================
+# FFI Integration Test Tasks
+# =============================================================================
+# These tests exercise the TaskerRuntime interface against the actual FFI library.
+# Each runtime (Bun, Node.js, Deno) is tested independently.
+#
+# Prerequisites:
+#   - cargo make build-ffi  (build the FFI library)
+#   - Optional: DATABASE_URL for bootstrap tests
+#
+# Usage:
+#   cargo make test-ffi-bun     # Run Bun FFI integration tests
+#   cargo make test-ffi-node    # Run Node.js FFI integration tests
+#   cargo make test-ffi-deno    # Run Deno FFI integration tests
+#   cargo make test-ffi-all     # Run all FFI integration tests
+
+[tasks.test-ffi-bun]
+description = "Run FFI integration tests with Bun"
+dependencies = ["build-ffi", "install"]
+script = '''
+echo "🧪 Running Bun FFI integration tests..."
+bun test tests/integration/ffi/bun-runtime.test.ts
+'''
+
+[tasks.test-ffi-node]
+description = "Run FFI integration tests with Node.js"
+dependencies = ["build-ffi", "install"]
+script = '''
+echo "🧪 Running Node.js FFI integration tests..."
+if ! command -v node &> /dev/null; then
+    echo "⚠️  Node.js not found, skipping Node.js FFI tests"
+    exit 0
+fi
+# Node requires tsx for TypeScript support
+npx tsx --test tests/integration/ffi/node-runtime.test.ts
+'''
+
+[tasks.test-ffi-deno]
+description = "Run FFI integration tests with Deno"
+dependencies = ["build-ffi"]
+script = '''
+echo "🧪 Running Deno FFI integration tests..."
+if ! command -v deno &> /dev/null; then
+    echo "⚠️  Deno not found, skipping Deno FFI tests"
+    exit 0
+fi
+# Deno requires FFI and environment permissions
+deno test --allow-ffi --allow-env --allow-read tests/integration/ffi/deno-runtime.test.ts
+'''
+
+[tasks.test-ffi-all]
+description = "Run FFI integration tests for all available runtimes"
+dependencies = ["build-ffi", "install"]
+script = '''
+FAILED=0
+
+echo "🧪 Running Bun FFI integration tests..."
+if bun test tests/integration/ffi/bun-runtime.test.ts; then
+    echo "✅ Bun FFI tests passed"
+else
+    echo "❌ Bun FFI tests failed"
+    FAILED=1
+fi
+
+echo ""
+echo "🧪 Running Node.js FFI integration tests..."
+if ! command -v node &> /dev/null; then
+    echo "⚠️  Node.js not found, skipping"
+elif npx tsx --test tests/integration/ffi/node-runtime.test.ts; then
+    echo "✅ Node.js FFI tests passed"
+else
+    echo "❌ Node.js FFI tests failed"
+    FAILED=1
+fi
+
+echo ""
+echo "🧪 Running Deno FFI integration tests..."
+if ! command -v deno &> /dev/null; then
+    echo "⚠️  Deno not found, skipping"
+elif deno test --allow-ffi --allow-env --allow-read tests/integration/ffi/deno-runtime.test.ts; then
+    echo "✅ Deno FFI tests passed"
+else
+    echo "❌ Deno FFI tests failed"
+    FAILED=1
+fi
+
+echo ""
+if [ $FAILED -eq 0 ]; then
+    echo "✅ All FFI integration tests completed successfully"
+else
+    echo "❌ Some FFI integration tests failed"
+    exit 1
+fi
+'''

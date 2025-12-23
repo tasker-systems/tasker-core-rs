@@ -769,7 +769,7 @@ impl WorkerCore {
     /// TAS-65: Get domain event statistics for observability
     ///
     /// Returns combined statistics from the EventRouter and InProcessEventBus.
-    /// Used by the `/debug/events` endpoint for E2E test verification.
+    /// Used by the `/metrics/events` endpoint for E2E test verification.
     ///
     /// # Returns
     ///

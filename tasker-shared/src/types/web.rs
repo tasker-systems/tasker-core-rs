@@ -540,7 +540,7 @@ pub struct ErrorResponse {
 // Re-export canonical stats types from metrics::worker
 pub use crate::metrics::worker::{EventRouterStats, InProcessEventBusStats};
 
-/// Domain event statistics response for /debug/events endpoint
+/// Domain event statistics response for /metrics/events endpoint
 ///
 /// Composite type that combines event router and in-process bus statistics.
 /// Exposes event routing and delivery statistics for E2E test verification.

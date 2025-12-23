@@ -12,11 +12,9 @@ jobs:
   typescript-framework:
     name: TypeScript Framework Tests
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 15
 
-    # PostgreSQL service for future FFI tests (TAS-105)
-    # Currently coherence tests don't require database, but we include it
-    # for consistency with other framework tests and future FFI compilation
+    # PostgreSQL service for FFI bootstrap tests
     services:
       postgres:
         image: ${{ inputs.postgres-image }}
@@ -44,6 +42,19 @@ jobs:
       - name: Free up disk space
         uses: ./.github/actions/free-disk-space
 
+      # ========================================================================
+      # Setup all JavaScript runtimes for multi-runtime FFI testing
+      # ========================================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 'latest'
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -52,6 +63,37 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # ========================================================================
+      # Download FFI library artifact from build-workers
+      # ========================================================================
+      - name: Download worker artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: worker-artifacts
+          path: artifacts/
+
+      - name: Setup FFI library path
+        run: |
+          echo "📦 Setting up FFI library..."
+          mkdir -p target/release
+
+          # Copy FFI library from artifacts
+          if [ -f "../../artifacts/target/release/libtasker_worker.so" ]; then
+            cp ../../artifacts/target/release/libtasker_worker.so ../../target/release/
+            echo "✅ Copied libtasker_worker.so"
+          elif [ -f "../../artifacts/libtasker_worker.so" ]; then
+            cp ../../artifacts/libtasker_worker.so ../../target/release/
+            echo "✅ Copied libtasker_worker.so (flat)"
+          else
+            echo "⚠️ FFI library not found in artifacts, FFI tests will skip"
+            find ../../artifacts -name "*.so" -o -name "*.dylib" 2>/dev/null || true
+          fi
+
+          ls -la ../../target/release/ || true
+
+      # ========================================================================
+      # Unit Tests (no FFI required)
+      # ========================================================================
       - name: Run linting
         run: |
           echo "🔍 Running Biome lint checks..."
@@ -65,25 +107,79 @@ jobs:
       - name: Create test results directory
         run: mkdir -p ../../target
 
-      - name: Run TypeScript framework tests
+      - name: Run TypeScript unit tests
         run: |
-          echo "🧪 Running TypeScript framework tests (FFI types, events, runtime)..."
+          echo "🧪 Running TypeScript unit tests (FFI types, events, runtime)..."
           echo "   - tests/unit/ffi/ - FFI types and runtime detection"
           echo "   - tests/unit/events/ - Event emitter and poller"
           echo ""
 
-          # Run tests with Bun's test runner
-          # Note: Bun doesn't have native JUnit output; using text output for now
-          bun test 2>&1 | tee ../../target/typescript-framework-results.txt
+          # Run unit tests with Bun's test runner
+          bun test tests/unit/ 2>&1 | tee ../../target/typescript-unit-results.txt
 
           # Check exit code
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ Tests failed"
+            echo "❌ Unit tests failed"
             exit 1
           fi
         env:
           TASKER_ENV: test
 
+      # ========================================================================
+      # FFI Integration Tests (multi-runtime)
+      # ========================================================================
+      - name: Run FFI integration tests (Bun)
+        run: |
+          echo "🧪 Running Bun FFI integration tests..."
+          bun test tests/integration/ffi/bun-runtime.test.ts 2>&1 | tee ../../target/typescript-ffi-bun-results.txt
+
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "❌ Bun FFI tests failed"
+            exit 1
+          fi
+          echo "✅ Bun FFI tests passed"
+        env:
+          TASKER_ENV: test
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          FFI_BOOTSTRAP_TESTS: "true"
+
+      - name: Run FFI integration tests (Node.js)
+        run: |
+          echo "🧪 Running Node.js FFI integration tests..."
+          # Node.js requires tsx for TypeScript support
+          npx tsx --test tests/integration/ffi/node-runtime.test.ts 2>&1 | tee ../../target/typescript-ffi-node-results.txt
+
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "⚠️ Node.js FFI tests failed (may be due to ffi-napi not installed)"
+          else
+            echo "✅ Node.js FFI tests passed"
+          fi
+        env:
+          TASKER_ENV: test
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          FFI_BOOTSTRAP_TESTS: "true"
+        continue-on-error: true  # Node.js FFI is optional (requires ffi-napi)
+
+      - name: Run FFI integration tests (Deno)
+        run: |
+          echo "🧪 Running Deno FFI integration tests..."
+          # Deno requires explicit permissions for FFI, environment, and file access
+          deno test --allow-ffi --allow-env --allow-read tests/integration/ffi/deno-runtime.test.ts 2>&1 | tee ../../target/typescript-ffi-deno-results.txt
+
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "⚠️ Deno FFI tests failed"
+          else
+            echo "✅ Deno FFI tests passed"
+          fi
+        env:
+          TASKER_ENV: test
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          FFI_BOOTSTRAP_TESTS: "true"
+        continue-on-error: true  # Deno FFI may have compatibility issues
+
+      # ========================================================================
+      # Build and Summary
+      # ========================================================================
       - name: Run build
         run: |
           echo "📦 Building TypeScript package..."
@@ -94,7 +190,11 @@ jobs:
         if: always()
         with:
           name: typescript-framework-test-results
-          path: target/typescript-framework-results.txt
+          path: |
+            target/typescript-unit-results.txt
+            target/typescript-ffi-bun-results.txt
+            target/typescript-ffi-node-results.txt
+            target/typescript-ffi-deno-results.txt
           if-no-files-found: warn
 
       - name: Display test summary
@@ -102,10 +202,17 @@ jobs:
         run: |
           echo "📊 TypeScript Framework Test Summary"
           echo "====================================="
-          if [ -f "../../target/typescript-framework-results.txt" ]; then
-            # Extract pass/fail counts from Bun output
-            tail -5 ../../target/typescript-framework-results.txt
-            echo "✅ Framework tests completed"
+          echo ""
+          echo "Unit Tests:"
+          if [ -f "../../target/typescript-unit-results.txt" ]; then
+            tail -5 ../../target/typescript-unit-results.txt
           else
-            echo "⚠️ No test results file found"
+            echo "⚠️ No unit test results"
           fi
+          echo ""
+          echo "FFI Integration Tests:"
+          echo "  Bun:     $(grep -c 'pass' ../../target/typescript-ffi-bun-results.txt 2>/dev/null || echo '?') tests"
+          echo "  Node.js: $(grep -c 'pass' ../../target/typescript-ffi-node-results.txt 2>/dev/null || echo 'skipped/failed')"
+          echo "  Deno:    $(grep -c 'pass' ../../target/typescript-ffi-deno-results.txt 2>/dev/null || echo 'skipped/failed')"
+          echo ""
+          echo "✅ TypeScript framework tests completed"

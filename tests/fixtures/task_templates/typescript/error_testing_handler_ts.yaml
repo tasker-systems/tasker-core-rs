@@ -1,0 +1,121 @@
+# TaskTemplate Configuration - TypeScript Implementation
+#
+# Error Testing Workflow for TypeScript Workers
+# Tests retryable errors, permanent errors, and mixed outcomes
+#
+# Template: test_errors/error_testing_handler_ts:1.0.0
+# Implementation: TypeScript FFI with tasker-worker-ts
+#
+---
+name: error_testing_handler_ts
+namespace_name: test_errors
+version: 1.0.0
+description: "Error testing workflow for TypeScript integration testing"
+metadata:
+  author: TypeScript FFI Implementation
+  tags:
+    - namespace:test_errors
+    - pattern:error_testing
+    - implementation:typescript_ffi
+    - language:typescript
+    - type_safety:compile_time
+  documentation_url:
+  created_at: "2025-12-23T00:00:00Z"
+  updated_at: "2025-12-23T00:00:00Z"
+  notes: "TypeScript FFI implementation for error scenario testing"
+task_handler:
+  callable: TestErrors.ErrorTestingHandler
+  initialization:
+    expected_scenarios:
+      - success
+      - permanent_error
+      - retryable_error
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - error_type
+  properties:
+    error_type:
+      type: string
+      enum:
+        - success
+        - permanent
+        - retryable
+      description: "Type of error to simulate"
+    message:
+      type: string
+      description: "Optional message to include in error"
+steps:
+  # Success scenario step
+  - name: success_step
+    description: "Step that always succeeds"
+    handler:
+      callable: TestErrors.StepHandlers.SuccessHandler
+      initialization:
+        operation: success
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  # Permanent error step
+  - name: permanent_error_step
+    description: "Step that always fails with permanent error"
+    handler:
+      callable: TestErrors.StepHandlers.PermanentErrorHandler
+      initialization:
+        operation: permanent_error
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: false
+      max_attempts: 1
+    timeout_seconds: 30
+    publishes_events: []
+
+  # Retryable error step
+  - name: retryable_error_step
+    description: "Step that fails with retryable error until retry limit"
+    handler:
+      callable: TestErrors.StepHandlers.RetryableErrorHandler
+      initialization:
+        operation: retryable_error
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 500
+    timeout_seconds: 30
+    publishes_events: []
+
+environments:
+  test:
+    steps:
+      - name: success_step
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2
+      - name: permanent_error_step
+        timeout_seconds: 10
+        retry:
+          retryable: false
+          max_attempts: 1
+      - name: retryable_error_step
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2
+          backoff_base_ms: 50
+          max_backoff_ms: 200

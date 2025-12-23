@@ -382,7 +382,7 @@ pub static DOMAIN_EVENT_CHANNEL_DEPTH: OnceLock<Gauge<u64>> = OnceLock::new();
 ///
 /// Used for:
 /// - Internal tracking via atomic counters
-/// - API responses via /debug/events endpoint
+/// - API responses via /metrics/events endpoint
 /// - GetStats command responses
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct DomainEventSystemStats {
@@ -426,7 +426,7 @@ pub struct DomainEventShutdownResult {
 /// Statistics for the event router
 ///
 /// Tracks how events are routed based on delivery mode.
-/// Used by both the event router implementation and the /debug/events API.
+/// Used by both the event router implementation and the /metrics/events API.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct EventRouterStats {
     /// Total events routed through the router
@@ -450,7 +450,7 @@ pub struct EventRouterStats {
 /// Statistics for the in-process event bus
 ///
 /// Tracks event delivery to in-memory subscribers.
-/// Used by both the event bus implementation and the /debug/events API.
+/// Used by both the event bus implementation and the /metrics/events API.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct InProcessEventBusStats {
     /// Total events dispatched through the bus

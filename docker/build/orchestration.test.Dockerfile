@@ -76,21 +76,15 @@ COPY migrations/ ./migrations/
 
 # Copy minimal workspace structure for crates we don't actually need
 # Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
-RUN mkdir -p tasker-worker/src && \
-    echo "pub fn stub() {}" > tasker-worker/src/lib.rs
+# Uses shared stub script to reduce maintenance burden
+COPY docker/scripts/create-workspace-stubs.sh /tmp/
+RUN chmod +x /tmp/create-workspace-stubs.sh && \
+    /tmp/create-workspace-stubs.sh tasker-worker workers/rust workers/ruby workers/python workers/typescript
 COPY tasker-worker/Cargo.toml ./tasker-worker/
-
-RUN mkdir -p workers/ruby/ext/tasker_core/src && \
-    echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
-COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
-
-RUN mkdir -p workers/rust/src && \
-    echo "pub fn stub() {}" > workers/rust/src/lib.rs
 COPY workers/rust/Cargo.toml ./workers/rust/
-
-RUN mkdir -p workers/python/src && \
-    echo "pub fn stub() {}" > workers/python/src/lib.rs
+COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
 COPY workers/python/Cargo.toml ./workers/python/
+COPY workers/typescript/Cargo.toml ./workers/typescript/
 
 # Generate dependency recipe
 RUN cargo chef prepare --recipe-path recipe.json
@@ -125,21 +119,14 @@ COPY pgmq-notify/ ./pgmq-notify/
 COPY migrations/ ./migrations/
 
 # Copy minimal workspace structure for crates we don't actually need
-RUN mkdir -p tasker-worker/src && \
-    echo "pub fn stub() {}" > tasker-worker/src/lib.rs
+COPY docker/scripts/create-workspace-stubs.sh /tmp/
+RUN chmod +x /tmp/create-workspace-stubs.sh && \
+    /tmp/create-workspace-stubs.sh tasker-worker workers/rust workers/ruby workers/python workers/typescript
 COPY tasker-worker/Cargo.toml ./tasker-worker/
-
-RUN mkdir -p workers/ruby/ext/tasker_core/src && \
-    echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
-COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
-
-RUN mkdir -p workers/rust/src && \
-    echo "pub fn stub() {}" > workers/rust/src/lib.rs
 COPY workers/rust/Cargo.toml ./workers/rust/
-
-RUN mkdir -p workers/python/src && \
-    echo "pub fn stub() {}" > workers/python/src/lib.rs
+COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
 COPY workers/python/Cargo.toml ./workers/python/
+COPY workers/typescript/Cargo.toml ./workers/typescript/
 
 # Set offline mode for SQLx
 ENV SQLX_OFFLINE=true

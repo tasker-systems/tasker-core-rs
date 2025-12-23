@@ -169,10 +169,11 @@ export class RuntimeFactory {
    *
    * Searches for the native library in the following order:
    * 1. TASKER_FFI_LIBRARY_PATH environment variable (if set and file exists)
-   * 2. Relative to caller's directory: ../../target/release/
-   * 3. Relative to caller's directory: ../../target/debug/
-   * 4. Relative to cwd: ../../target/release/
-   * 5. Relative to cwd: ../../target/debug/
+   * 2. CARGO_TARGET_DIR environment variable (release, then debug)
+   * 3. Relative to caller's directory: ../../target/release/
+   * 4. Relative to caller's directory: ../../target/debug/
+   * 5. Relative to cwd: ../../target/release/
+   * 6. Relative to cwd: ../../target/debug/
    *
    * @param callerDir Optional directory to search relative to (defaults to cwd)
    * @returns Path to the library if found, null otherwise
@@ -191,20 +192,30 @@ export class RuntimeFactory {
           ? 'tasker_worker.dll'
           : 'libtasker_worker.so';
 
-    // Build search paths
+    const searchPaths: string[] = [];
+
+    // Check CARGO_TARGET_DIR if set (custom target directory)
+    const cargoTargetDir = process.env.CARGO_TARGET_DIR;
+    if (cargoTargetDir) {
+      searchPaths.push(join(cargoTargetDir, 'release', libName));
+      searchPaths.push(join(cargoTargetDir, 'debug', libName));
+    }
+
+    // Build search paths relative to caller/cwd
     const baseDir = callerDir ?? process.cwd();
-    const searchPaths = [
+    searchPaths.push(
       // Relative to caller directory
       join(baseDir, '..', '..', 'target', 'release', libName),
-      join(baseDir, '..', '..', 'target', 'debug', libName),
-      // Relative to cwd (if different from callerDir)
-      ...(callerDir
-        ? [
-            join(process.cwd(), '..', '..', 'target', 'release', libName),
-            join(process.cwd(), '..', '..', 'target', 'debug', libName),
-          ]
-        : []),
-    ];
+      join(baseDir, '..', '..', 'target', 'debug', libName)
+    );
+
+    // Relative to cwd (if different from callerDir)
+    if (callerDir) {
+      searchPaths.push(
+        join(process.cwd(), '..', '..', 'target', 'release', libName),
+        join(process.cwd(), '..', '..', 'target', 'debug', libName)
+      );
+    }
 
     for (const path of searchPaths) {
       if (existsSync(path)) {

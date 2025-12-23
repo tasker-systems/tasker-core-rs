@@ -259,6 +259,12 @@ cwd = "workers/typescript"
 command = "cargo"
 args = ["make", "build"]
 
+[tasks.test-typescript-ffi]
+description = "Run TypeScript FFI integration tests (all runtimes)"
+cwd = "workers/typescript"
+command = "cargo"
+args = ["make", "test-ffi-all"]
+
 # =============================================================================
 # Database & Infrastructure Tasks
 # =============================================================================

@@ -251,28 +251,46 @@ cargo test --doc --all-features \
 
 ### TypeScript Framework Tests (`test-typescript-framework.yml`)
 
-**Purpose**: TypeScript-specific framework testing
+**Purpose**: TypeScript-specific framework testing with multi-runtime FFI integration
 
 **Runs**:
-- FFI type tests (`workers/typescript/tests/unit/ffi/`)
-- Event system tests (`workers/typescript/tests/unit/events/`)
-- Runtime detection tests
+- Unit tests (`workers/typescript/tests/unit/`)
+  - FFI type tests (`tests/unit/ffi/`)
+  - Event system tests (`tests/unit/events/`)
+  - Runtime detection tests
+- FFI integration tests (`workers/typescript/tests/integration/ffi/`)
+  - Bun FFI tests (required)
+  - Node.js FFI tests (optional - requires ffi-napi)
+  - Deno FFI tests (optional)
 
 **Requirements**:
-- Bun runtime (latest)
-- PostgreSQL service (for future FFI tests)
+- Bun runtime (latest) - primary runtime
+- Node.js 20 - for Node.js FFI tests
+- Deno (latest) - for Deno FFI tests
+- PostgreSQL service (for FFI bootstrap tests)
+- FFI library artifact from build-workers
 
-**Command**: `bun test`
+**Commands**:
+```bash
+# Unit tests
+bun test tests/unit/
 
-**Test Count**: 122 tests
+# FFI integration tests
+bun test tests/integration/ffi/bun-runtime.test.ts
+npx tsx --test tests/integration/ffi/node-runtime.test.ts
+deno test --allow-ffi --allow-env --allow-read tests/integration/ffi/deno-runtime.test.ts
+```
 
-**Duration**: ~1-2 minutes
+**Test Count**: ~142 tests (122 unit + 20 FFI per runtime)
+
+**Duration**: ~3-5 minutes
 
 **Key Features**:
+- **Multi-runtime FFI testing**: Tests Rust FFI bindings across Bun, Node.js, and Deno
 - Uses Bun's native test runner (jest-compatible API)
-- Fast execution with zero external test framework dependencies
-- Tests TypeScript types, event emitter, and runtime detection
-- Validates type coherence and JSON serialization
+- Downloads pre-built FFI library from build-workers artifact
+- Node.js and Deno tests are optional (continue-on-error)
+- Validates type coherence, JSON serialization, and FFI interop
 - Runs in parallel with Ruby and Python framework tests
 
 ---
@@ -373,10 +391,15 @@ workers/typescript/tests/
 │   └── events/    # Event emitter and poller
 │       ├── event-emitter.test.ts
 │       └── event-poller.test.ts
-└── integration/   # (TAS-105: FFI integration tests)
+└── integration/
+    └── ffi/       # Multi-runtime FFI integration tests (TAS-105)
+        ├── common.ts              # Shared test utilities
+        ├── bun-runtime.test.ts    # Bun FFI tests (bun:ffi)
+        ├── node-runtime.test.ts   # Node.js FFI tests (ffi-napi)
+        └── deno-runtime.test.ts   # Deno FFI tests (Deno.dlopen)
 ```
 
-**Philosophy**: Tests TypeScript code for type coherence, event handling, and runtime detection. FFI integration tests added in TAS-105.
+**Philosophy**: Tests TypeScript code for type coherence, event handling, and runtime detection. FFI integration tests verify Rust FFI bindings work correctly across all supported JavaScript runtimes.
 
 ---
 
@@ -493,11 +516,37 @@ bun run lint
 # Run type checking
 bun run typecheck
 
-# Run tests
-bun test
+# Run unit tests
+bun test tests/unit/
 
 # Build package
 bun run build
+```
+
+### TypeScript FFI Integration Tests
+
+```bash
+# Requires FFI library to be built first
+cargo build -p tasker-worker-ts --release
+
+cd workers/typescript
+
+# Run all FFI tests with cargo-make (recommended)
+cargo make test-ffi-all
+
+# Or run individual runtimes:
+cargo make test-ffi-bun     # Bun FFI tests
+cargo make test-ffi-node    # Node.js FFI tests (requires ffi-napi)
+cargo make test-ffi-deno    # Deno FFI tests
+
+# Or run directly:
+bun test tests/integration/ffi/bun-runtime.test.ts
+npx tsx --test tests/integration/ffi/node-runtime.test.ts
+deno test --allow-ffi --allow-env --allow-read tests/integration/ffi/deno-runtime.test.ts
+
+# Enable bootstrap tests (requires running PostgreSQL)
+FFI_BOOTSTRAP_TESTS=true DATABASE_URL=postgresql://tasker:tasker@localhost:5432/tasker_rust_test \
+  cargo make test-ffi-all
 ```
 
 ---
@@ -773,4 +822,4 @@ If needed, create:
 
 ---
 
-**Last Updated**: 2025-12-22 (TAS-100 TypeScript worker added to CI pipeline)
+**Last Updated**: 2025-12-23 (TAS-105 Multi-runtime FFI integration tests added)

@@ -1,0 +1,142 @@
+# TaskTemplate Configuration - TypeScript Implementation
+#
+# Batch Processing Pattern with TypeScript Step Handlers via FFI
+# Demonstrates TAS-59 batch processing with batchable, batch_worker, and deferred_convergence
+#
+# Template: csv_processing/csv_product_inventory_analyzer_ts:1.0.0
+# Implementation: TypeScript FFI with tasker-worker-ts (Bun FFI)
+# Updated: 2025-12-23
+#
+# Batch Processing Pattern:
+# 1. Batchable: Analyze CSV, create batch configurations
+# 2. Batch Worker: Process CSV rows in parallel batches
+# 3. Deferred Convergence: Aggregate results from all workers
+#
+---
+name: csv_product_inventory_analyzer_ts
+namespace_name: csv_processing_ts
+version: 1.0.0
+description: "Process CSV product data in parallel batches (TypeScript implementation)"
+metadata:
+  author: TypeScript FFI Implementation
+  tags:
+    - namespace:csv_processing_ts
+    - pattern:batch_processing
+    - feature:batchable
+    - feature:batch_worker
+    - feature:deferred_convergence
+    - implementation:typescript_ffi
+    - language:typescript
+    - tas:TAS-59
+    - tas:TAS-105
+  documentation_url:
+  created_at: "2025-12-23T00:00:00Z"
+  updated_at: "2025-12-23T00:00:00Z"
+  notes: "TypeScript FFI implementation demonstrating TAS-59 batch processing pattern"
+task_handler:
+  callable: typescript_ffi_handler
+  initialization: {}
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - csv_file_path
+  properties:
+    csv_file_path:
+      type: string
+      description: "Path to the CSV file to process"
+    analysis_mode:
+      type: string
+      default: inventory
+      description: "Analysis mode: inventory, pricing, or full"
+steps:
+  # Step 1: Batchable - Analyze CSV and create batch configurations
+  - name: analyze_csv_ts
+    type: batchable
+    description: "Analyze CSV file and create batch worker configurations"
+    handler:
+      callable: batch_processing.step_handlers.CsvAnalyzerHandler
+      initialization:
+        batch_size: 200
+        max_workers: 5
+        csv_parser_options:
+          has_header: true
+          delimiter: ","
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+
+  # Step 2: Batch Worker Template - Process batches of CSV rows
+  - name: process_csv_batch_ts
+    type: batch_worker
+    description: "Process a batch of CSV rows using cursor range"
+    handler:
+      callable: batch_processing.step_handlers.CsvBatchProcessorHandler
+      initialization:
+        processing_mode: inventory_analysis
+    system_dependency:
+    dependencies:
+      - analyze_csv_ts
+    batch_config:
+      batch_size: 200
+      parallelism: 5
+      cursor_field: row_number
+      checkpoint_interval: 50
+      worker_template: process_csv_batch_ts
+      failure_strategy: continue_on_failure
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 120
+    lifecycle:
+      max_steps_in_process_minutes: 120
+      max_retries: 3
+      backoff_multiplier: 2.0
+    publishes_events: []
+
+  # Step 3: Deferred Convergence - Aggregate results from all batch workers
+  - name: aggregate_csv_results_ts
+    type: deferred_convergence
+    description: "Aggregate results from all batch worker instances"
+    handler:
+      callable: batch_processing.step_handlers.CsvResultsAggregatorHandler
+      initialization:
+        aggregation_type: inventory_metrics
+        metrics_to_collect:
+          - total_rows_processed
+          - valid_products
+          - invalid_products
+          - low_stock_items
+          - out_of_stock_items
+    system_dependency:
+    dependencies:
+      - process_csv_batch_ts
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+
+environments:
+  test:
+    steps:
+      - name: ALL
+        timeout_seconds: 30
+        retry:
+          max_attempts: 2

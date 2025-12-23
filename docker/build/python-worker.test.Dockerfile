@@ -65,18 +65,14 @@ COPY pgmq-notify/ ./pgmq-notify/
 
 # Copy minimal workspace structure for crates we don't actually need
 # Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
-# We don't copy source code - just enough to satisfy workspace validation
-RUN mkdir -p tasker-orchestration/src && \
-    echo "pub fn main() {}" > tasker-orchestration/src/lib.rs
+# Uses shared stub script to reduce maintenance burden
+COPY docker/scripts/create-workspace-stubs.sh /tmp/
+RUN chmod +x /tmp/create-workspace-stubs.sh && \
+    /tmp/create-workspace-stubs.sh tasker-orchestration workers/rust workers/ruby workers/typescript
 COPY tasker-orchestration/Cargo.toml ./tasker-orchestration/
-
-RUN mkdir -p workers/rust/src && \
-    echo "pub fn main() {}" > workers/rust/src/lib.rs
 COPY workers/rust/Cargo.toml ./workers/rust/
-
-RUN mkdir -p workers/ruby/ext/tasker_core/src && \
-    echo "pub fn stub() {}" > workers/ruby/ext/tasker_core/src/lib.rs
 COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
+COPY workers/typescript/Cargo.toml ./workers/typescript/
 
 # Copy Python worker source code to proper workspace location
 COPY workers/python/ ./workers/python/

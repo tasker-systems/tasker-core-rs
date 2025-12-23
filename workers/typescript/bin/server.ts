@@ -6,6 +6,10 @@
  * Production-ready server script that bootstraps Rust foundation via FFI
  * and manages TypeScript handler execution for workflow orchestration.
  *
+ * The Rust worker provides HTTP endpoints for health/metrics via FFI.
+ * This script handles TypeScript-specific concerns: handler registration,
+ * event dispatch, and graceful shutdown.
+ *
  * Usage:
  *   bun run bin/server.ts
  *   TASKER_ENV=production bun run bin/server.ts
@@ -228,8 +232,9 @@ async function main(): Promise<number> {
   });
 
   try {
-    // Start the server
+    // Start the worker server (Rust provides HTTP endpoints via FFI)
     await server.start(getConfig());
+
     showSuccessBanner();
 
     // Run main loop until shutdown
