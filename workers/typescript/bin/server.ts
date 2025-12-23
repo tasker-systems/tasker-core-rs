@@ -96,6 +96,12 @@ interface ServerComponents {
  * Find the FFI library path.
  */
 function findLibraryPath(): string | null {
+  // Environment variable takes precedence
+  const envPath = process.env.TASKER_FFI_LIBRARY_PATH;
+  if (envPath && existsSync(envPath)) {
+    return envPath;
+  }
+
   const libName =
     process.platform === 'darwin'
       ? 'libtasker_worker.dylib'
@@ -103,7 +109,7 @@ function findLibraryPath(): string | null {
         ? 'tasker_worker.dll'
         : 'libtasker_worker.so';
 
-  // Search paths in order of preference
+  // Fallback search paths
   const searchPaths = [
     // Relative to bin directory (development)
     join(dirname(import.meta.dir), '..', '..', 'target', 'release', libName),
@@ -111,9 +117,7 @@ function findLibraryPath(): string | null {
     // Workspace target (running from workers/typescript)
     join(process.cwd(), '..', '..', 'target', 'release', libName),
     join(process.cwd(), '..', '..', 'target', 'debug', libName),
-    // Environment variable override
-    process.env.TASKER_FFI_LIBRARY_PATH ?? '',
-  ].filter(Boolean);
+  ];
 
   for (const path of searchPaths) {
     if (existsSync(path)) {
