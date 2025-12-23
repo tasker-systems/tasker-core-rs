@@ -33,7 +33,8 @@ import {
 import type { BootstrapConfig, BootstrapResult } from '../src/bootstrap/types.js';
 import { getGlobalEmitter, type TaskerEventEmitter } from '../src/events/event-emitter.js';
 import { createEventPoller, type EventPoller } from '../src/events/event-poller.js';
-import { getTaskerRuntime, type TaskerRuntime } from '../src/ffi/runtime-factory.js';
+import { getTaskerRuntime } from '../src/ffi/runtime-factory.js';
+import type { TaskerRuntime } from '../src/ffi/runtime-interface.js';
 import { HandlerRegistry } from '../src/handler/registry.js';
 import { createLogger, logDebug, logWarn } from '../src/logging/index.js';
 import { StepExecutionSubscriber } from '../src/subscriber/step-execution-subscriber.js';
@@ -160,7 +161,10 @@ function showBanner(): void {
 /**
  * Load FFI library and initialize runtime.
  */
-async function loadFfiLibrary(): Promise<{ runtime: TaskerRuntime; path: string } | null> {
+async function loadFfiLibrary(): Promise<{
+  runtime: TaskerRuntime;
+  path: string;
+} | null> {
   log.info('Loading FFI library...', { operation: 'load_ffi' });
   const libraryPath = findLibraryPath();
 
@@ -186,8 +190,13 @@ async function loadFfiLibrary(): Promise<{ runtime: TaskerRuntime; path: string 
 /**
  * Initialize the handler registry.
  */
-function initializeHandlerRegistry(): { registry: HandlerRegistry; count: number } {
-  log.info('Discovering TypeScript handlers...', { operation: 'discover_handlers' });
+function initializeHandlerRegistry(): {
+  registry: HandlerRegistry;
+  count: number;
+} {
+  log.info('Discovering TypeScript handlers...', {
+    operation: 'discover_handlers',
+  });
 
   const registry = HandlerRegistry.instance();
   const count = registry.handlerCount();
@@ -232,7 +241,11 @@ function startEventSystem(
   runtime: TaskerRuntime,
   registry: HandlerRegistry,
   workerId: string
-): { emitter: TaskerEventEmitter; eventPoller: EventPoller; stepSubscriber: StepExecutionSubscriber } {
+): {
+  emitter: TaskerEventEmitter;
+  eventPoller: EventPoller;
+  stepSubscriber: StepExecutionSubscriber;
+} {
   log.info('Starting TypeScript event dispatch system...', {
     operation: 'start_event_system',
   });
@@ -292,7 +305,11 @@ function showSuccessBanner(): void {
 /**
  * Perform a health check on the worker.
  */
-function performHealthCheck(): { healthy: boolean; status?: unknown; error?: string } {
+function performHealthCheck(): {
+  healthy: boolean;
+  status?: unknown;
+  error?: string;
+} {
   try {
     const ffiHealthy = healthCheck();
     if (!ffiHealthy) {
@@ -374,7 +391,9 @@ async function executeShutdown(components: ServerComponents): Promise<void> {
 
   // 4. Transition to graceful shutdown and stop worker
   if (isWorkerRunning()) {
-    log.info('  Transitioning to graceful shutdown...', { operation: 'shutdown' });
+    log.info('  Transitioning to graceful shutdown...', {
+      operation: 'shutdown',
+    });
     transitionToGracefulShutdown();
 
     log.info('  Stopping Rust worker...', { operation: 'shutdown' });

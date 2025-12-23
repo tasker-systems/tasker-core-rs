@@ -37,28 +37,28 @@ export * from './events/index.js';
 // FFI module - Runtime and low-level types
 // =============================================================================
 export {
-  // Runtime detection
-  detectRuntime,
-  getLibraryPath,
-  getRuntimeInfo,
-  isBun,
-  isDeno,
-  isNode,
-  type RuntimeInfo,
-  type RuntimeType,
+  // Runtime interface
+  BaseTaskerRuntime,
+  // Runtime implementations
+  BunRuntime,
   // Runtime factory
   clearRuntimeCache,
   createRuntime,
+  DenoRuntime,
+  // Runtime detection
+  detectRuntime,
   getCachedRuntime,
+  getLibraryPath,
+  getRuntimeInfo,
   getTaskerRuntime,
   hasRuntimeCached,
-  // Runtime interface
-  BaseTaskerRuntime,
-  type TaskerRuntime,
-  // Runtime implementations
-  BunRuntime,
-  DenoRuntime,
+  isBun,
+  isDeno,
+  isNode,
   NodeRuntime,
+  type RuntimeInfo,
+  type RuntimeType,
+  type TaskerRuntime,
 } from './ffi/index.js';
 
 // Export FFI types under Ffi prefix to avoid conflicts
@@ -92,12 +92,12 @@ export * from './handler/index.js';
 // =============================================================================
 export {
   createLogger,
+  type LogFields,
   logDebug,
   logError,
   logInfo,
   logTrace,
   logWarn,
-  type LogFields,
 } from './logging/index.js';
 
 // =============================================================================

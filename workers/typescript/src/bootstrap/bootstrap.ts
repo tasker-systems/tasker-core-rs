@@ -7,7 +7,7 @@
  * Matches Python's bootstrap.py and Ruby's bootstrap.rb (TAS-92 aligned).
  */
 
-import { getTaskerRuntime, getCachedRuntime } from '../ffi/runtime-factory.js';
+import { getCachedRuntime, getTaskerRuntime } from '../ffi/runtime-factory.js';
 import type { BootstrapConfig, BootstrapResult, StopResult, WorkerStatus } from './types.js';
 import {
   fromFfiBootstrapResult,

@@ -85,10 +85,10 @@ args = ["run", "build"]
 # =============================================================================
 
 [tasks.lint]
-description = "Run Biome linter"
+description = "Run Biome checks (lint + format)"
 dependencies = ["install"]
 command = "bun"
-args = ["run", "lint"]
+args = ["run", "check"]
 
 [tasks.lint-fix]
 description = "Fix linting issues with Biome"
