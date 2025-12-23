@@ -7,7 +7,7 @@
  * Matches Python's bootstrap.py and Ruby's bootstrap.rb (TAS-92 aligned).
  */
 
-import { getCachedRuntime, getTaskerRuntime } from '../ffi/runtime-factory.js';
+import { RuntimeFactory } from '../ffi/runtime-factory.js';
 import type { BootstrapConfig, BootstrapResult, StopResult, WorkerStatus } from './types.js';
 import {
   fromFfiBootstrapResult,
@@ -45,9 +45,10 @@ import {
  */
 export async function bootstrapWorker(config?: BootstrapConfig): Promise<BootstrapResult> {
   try {
-    const runtime = await getTaskerRuntime();
+    const factory = RuntimeFactory.instance();
+    const runtime = await factory.getRuntime();
 
-    if (!runtime.isLoaded) {
+    if (!factory.isLoaded()) {
       return {
         success: false,
         status: 'error',
@@ -86,15 +87,17 @@ export async function bootstrapWorker(config?: BootstrapConfig): Promise<Bootstr
  * ```
  */
 export function stopWorker(): StopResult {
-  const runtime = getCachedRuntime();
+  const factory = RuntimeFactory.instance();
 
-  if (!runtime?.isLoaded) {
+  if (!factory.isLoaded()) {
     return {
       success: true,
       status: 'not_running',
       message: 'Runtime not loaded',
     };
   }
+
+  const runtime = factory.getLoadedRuntime();
 
   try {
     const ffiResult = runtime.stopWorker();
@@ -128,15 +131,17 @@ export function stopWorker(): StopResult {
  * ```
  */
 export function getWorkerStatus(): WorkerStatus {
-  const runtime = getCachedRuntime();
+  const factory = RuntimeFactory.instance();
 
-  if (!runtime?.isLoaded) {
+  if (!factory.isLoaded()) {
     return {
       success: false,
       running: false,
       status: 'stopped',
     };
   }
+
+  const runtime = factory.getLoadedRuntime();
 
   try {
     const ffiStatus = runtime.getWorkerStatus();
@@ -172,15 +177,17 @@ export function getWorkerStatus(): WorkerStatus {
  * ```
  */
 export function transitionToGracefulShutdown(): StopResult {
-  const runtime = getCachedRuntime();
+  const factory = RuntimeFactory.instance();
 
-  if (!runtime?.isLoaded) {
+  if (!factory.isLoaded()) {
     return {
       success: true,
       status: 'not_running',
       message: 'Runtime not loaded',
     };
   }
+
+  const runtime = factory.getLoadedRuntime();
 
   try {
     const ffiResult = runtime.transitionToGracefulShutdown();
@@ -210,11 +217,13 @@ export function transitionToGracefulShutdown(): StopResult {
  * ```
  */
 export function isWorkerRunning(): boolean {
-  const runtime = getCachedRuntime();
+  const factory = RuntimeFactory.instance();
 
-  if (!runtime?.isLoaded) {
+  if (!factory.isLoaded()) {
     return false;
   }
+
+  const runtime = factory.getLoadedRuntime();
 
   try {
     return runtime.isWorkerRunning();
@@ -229,11 +238,13 @@ export function isWorkerRunning(): boolean {
  * @returns Version string from the Rust library
  */
 export function getVersion(): string {
-  const runtime = getCachedRuntime();
+  const factory = RuntimeFactory.instance();
 
-  if (!runtime?.isLoaded) {
+  if (!factory.isLoaded()) {
     return 'unknown (runtime not loaded)';
   }
+
+  const runtime = factory.getLoadedRuntime();
 
   try {
     return runtime.getVersion();
@@ -248,11 +259,13 @@ export function getVersion(): string {
  * @returns Detailed version information
  */
 export function getRustVersion(): string {
-  const runtime = getCachedRuntime();
+  const factory = RuntimeFactory.instance();
 
-  if (!runtime?.isLoaded) {
+  if (!factory.isLoaded()) {
     return 'unknown (runtime not loaded)';
   }
+
+  const runtime = factory.getLoadedRuntime();
 
   try {
     return runtime.getRustVersion();
@@ -267,11 +280,13 @@ export function getRustVersion(): string {
  * @returns True if the FFI module is functional
  */
 export function healthCheck(): boolean {
-  const runtime = getCachedRuntime();
+  const factory = RuntimeFactory.instance();
 
-  if (!runtime?.isLoaded) {
+  if (!factory.isLoaded()) {
     return false;
   }
+
+  const runtime = factory.getLoadedRuntime();
 
   try {
     return runtime.healthCheck();

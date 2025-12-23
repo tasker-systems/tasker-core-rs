@@ -20,13 +20,7 @@ export {
   type RuntimeType,
 } from './runtime.js';
 // Runtime factory
-export {
-  clearRuntimeCache,
-  createRuntime,
-  getCachedRuntime,
-  getTaskerRuntime,
-  hasRuntimeCached,
-} from './runtime-factory.js';
+export { RuntimeFactory } from './runtime-factory.js';
 // Runtime interface
 export { BaseTaskerRuntime, type TaskerRuntime } from './runtime-interface.js';
 

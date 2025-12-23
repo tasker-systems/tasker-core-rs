@@ -8,7 +8,7 @@
  * Matches Python's logging module and Ruby's tracing module (TAS-92 aligned).
  */
 
-import { getCachedRuntime } from '../ffi/runtime-factory.js';
+import { RuntimeFactory } from '../ffi/runtime-factory.js';
 import type { LogFields as FfiLogFields } from '../ffi/types.js';
 
 /**
@@ -71,14 +71,14 @@ function fallbackLog(level: string, message: string, fields?: LogFields): void {
  * });
  */
 export function logError(message: string, fields?: LogFields): void {
-  const runtime = getCachedRuntime();
-  if (!runtime?.isLoaded) {
+  const factory = RuntimeFactory.instance();
+  if (!factory.isLoaded()) {
     fallbackLog('error', message, fields);
     return;
   }
 
   try {
-    runtime.logError(message, toFfiFields(fields));
+    factory.getCachedRuntime()?.logError(message, toFfiFields(fields));
   } catch {
     fallbackLog('error', message, fields);
   }
@@ -100,14 +100,14 @@ export function logError(message: string, fields?: LogFields): void {
  * });
  */
 export function logWarn(message: string, fields?: LogFields): void {
-  const runtime = getCachedRuntime();
-  if (!runtime?.isLoaded) {
+  const factory = RuntimeFactory.instance();
+  if (!factory.isLoaded()) {
     fallbackLog('warn', message, fields);
     return;
   }
 
   try {
-    runtime.logWarn(message, toFfiFields(fields));
+    factory.getCachedRuntime()?.logWarn(message, toFfiFields(fields));
   } catch {
     fallbackLog('warn', message, fields);
   }
@@ -130,14 +130,14 @@ export function logWarn(message: string, fields?: LogFields): void {
  * });
  */
 export function logInfo(message: string, fields?: LogFields): void {
-  const runtime = getCachedRuntime();
-  if (!runtime?.isLoaded) {
+  const factory = RuntimeFactory.instance();
+  if (!factory.isLoaded()) {
     fallbackLog('info', message, fields);
     return;
   }
 
   try {
-    runtime.logInfo(message, toFfiFields(fields));
+    factory.getCachedRuntime()?.logInfo(message, toFfiFields(fields));
   } catch {
     fallbackLog('info', message, fields);
   }
@@ -159,14 +159,14 @@ export function logInfo(message: string, fields?: LogFields): void {
  * });
  */
 export function logDebug(message: string, fields?: LogFields): void {
-  const runtime = getCachedRuntime();
-  if (!runtime?.isLoaded) {
+  const factory = RuntimeFactory.instance();
+  if (!factory.isLoaded()) {
     fallbackLog('debug', message, fields);
     return;
   }
 
   try {
-    runtime.logDebug(message, toFfiFields(fields));
+    factory.getCachedRuntime()?.logDebug(message, toFfiFields(fields));
   } catch {
     fallbackLog('debug', message, fields);
   }
@@ -188,14 +188,14 @@ export function logDebug(message: string, fields?: LogFields): void {
  * });
  */
 export function logTrace(message: string, fields?: LogFields): void {
-  const runtime = getCachedRuntime();
-  if (!runtime?.isLoaded) {
+  const factory = RuntimeFactory.instance();
+  if (!factory.isLoaded()) {
     fallbackLog('trace', message, fields);
     return;
   }
 
   try {
-    runtime.logTrace(message, toFfiFields(fields));
+    factory.getCachedRuntime()?.logTrace(message, toFfiFields(fields));
   } catch {
     fallbackLog('trace', message, fields);
   }

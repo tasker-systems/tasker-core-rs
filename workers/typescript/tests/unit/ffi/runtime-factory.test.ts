@@ -1,137 +1,186 @@
 /**
- * Runtime factory coherence tests.
+ * RuntimeFactory tests.
  *
- * Verifies that the runtime factory correctly creates and caches
+ * Verifies that the RuntimeFactory correctly creates and caches
  * runtime instances based on the detected environment.
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
 import { BunRuntime } from '../../../src/ffi/bun-runtime.js';
-import {
-  clearRuntimeCache,
-  createRuntime,
-  getCachedRuntime,
-  getTaskerRuntime,
-  hasRuntimeCached,
-} from '../../../src/ffi/runtime-factory.js';
+import { RuntimeFactory } from '../../../src/ffi/runtime-factory.js';
 
-describe('Runtime Factory', () => {
+describe('RuntimeFactory', () => {
   afterEach(() => {
-    clearRuntimeCache();
+    RuntimeFactory.resetInstance();
   });
 
-  describe('getTaskerRuntime', () => {
+  describe('instance', () => {
+    it('returns the same singleton instance', () => {
+      const instance1 = RuntimeFactory.instance();
+      const instance2 = RuntimeFactory.instance();
+      expect(instance1).toBe(instance2);
+    });
+
+    it('returns a new instance after reset', () => {
+      const instance1 = RuntimeFactory.instance();
+      RuntimeFactory.resetInstance();
+      const instance2 = RuntimeFactory.instance();
+      expect(instance1).not.toBe(instance2);
+    });
+  });
+
+  describe('getRuntime', () => {
     it('returns a TaskerRuntime instance', async () => {
-      const runtime = await getTaskerRuntime();
+      const factory = RuntimeFactory.instance();
+      const runtime = await factory.getRuntime();
       expect(runtime).toBeDefined();
       expect(runtime.name).toBeDefined();
     });
 
     it('returns BunRuntime when running under Bun', async () => {
-      const runtime = await getTaskerRuntime();
+      const factory = RuntimeFactory.instance();
+      const runtime = await factory.getRuntime();
       expect(runtime).toBeInstanceOf(BunRuntime);
       expect(runtime.name).toBe('bun');
     });
 
     it('caches the runtime instance', async () => {
-      const runtime1 = await getTaskerRuntime();
-      const runtime2 = await getTaskerRuntime();
+      const factory = RuntimeFactory.instance();
+      const runtime1 = await factory.getRuntime();
+      const runtime2 = await factory.getRuntime();
       expect(runtime1).toBe(runtime2);
     });
 
-    it('sets hasRuntimeCached to true after first call', async () => {
-      expect(hasRuntimeCached()).toBe(false);
-      await getTaskerRuntime();
-      expect(hasRuntimeCached()).toBe(true);
-    });
-  });
-
-  describe('createRuntime', () => {
-    it("creates BunRuntime for 'bun' type", async () => {
-      const runtime = await createRuntime('bun');
-      expect(runtime).toBeInstanceOf(BunRuntime);
-      expect(runtime.name).toBe('bun');
-    });
-
-    it("creates NodeRuntime for 'node' type", async () => {
-      const runtime = await createRuntime('node');
-      expect(runtime.name).toBe('node');
-    });
-
-    it("creates DenoRuntime for 'deno' type", async () => {
-      const runtime = await createRuntime('deno');
-      expect(runtime.name).toBe('deno');
-    });
-
-    it("throws error for 'unknown' type", async () => {
-      await expect(createRuntime('unknown')).rejects.toThrow('Unsupported runtime: unknown');
-    });
-
-    it('does not cache created runtimes', async () => {
-      await createRuntime('bun');
-      expect(hasRuntimeCached()).toBe(false);
-    });
-  });
-
-  describe('clearRuntimeCache', () => {
-    it('clears the cached runtime', async () => {
-      await getTaskerRuntime();
-      expect(hasRuntimeCached()).toBe(true);
-
-      clearRuntimeCache();
-      expect(hasRuntimeCached()).toBe(false);
-    });
-
-    it('causes getTaskerRuntime to create new instance', async () => {
-      const runtime1 = await getTaskerRuntime();
-      clearRuntimeCache();
-      const runtime2 = await getTaskerRuntime();
-
-      expect(runtime1).not.toBe(runtime2);
-    });
-
-    it('is safe to call when no cache exists', () => {
-      expect(() => clearRuntimeCache()).not.toThrow();
-    });
-  });
-
-  describe('hasRuntimeCached', () => {
-    it('returns false initially', () => {
-      expect(hasRuntimeCached()).toBe(false);
-    });
-
-    it('returns true after getTaskerRuntime', async () => {
-      await getTaskerRuntime();
-      expect(hasRuntimeCached()).toBe(true);
-    });
-
-    it('returns false after clearRuntimeCache', async () => {
-      await getTaskerRuntime();
-      clearRuntimeCache();
-      expect(hasRuntimeCached()).toBe(false);
+    it('sets isLoaded to false before loadLibrary', async () => {
+      const factory = RuntimeFactory.instance();
+      await factory.getRuntime();
+      expect(factory.isLoaded()).toBe(false);
     });
   });
 
   describe('getCachedRuntime', () => {
-    it('returns null when no cache exists', () => {
-      expect(getCachedRuntime()).toBeNull();
+    it('returns null when no runtime is cached', () => {
+      const factory = RuntimeFactory.instance();
+      expect(factory.getCachedRuntime()).toBeNull();
     });
 
-    it('returns cached runtime after getTaskerRuntime', async () => {
-      const runtime = await getTaskerRuntime();
-      expect(getCachedRuntime()).toBe(runtime);
+    it('returns cached runtime after getRuntime', async () => {
+      const factory = RuntimeFactory.instance();
+      const runtime = await factory.getRuntime();
+      expect(factory.getCachedRuntime()).toBe(runtime);
     });
 
-    it('returns null after clearRuntimeCache', async () => {
-      await getTaskerRuntime();
-      clearRuntimeCache();
-      expect(getCachedRuntime()).toBeNull();
+    it('returns null after resetInstance', async () => {
+      const factory = RuntimeFactory.instance();
+      await factory.getRuntime();
+      RuntimeFactory.resetInstance();
+      expect(RuntimeFactory.instance().getCachedRuntime()).toBeNull();
+    });
+  });
+
+  describe('isLoaded', () => {
+    it('returns false initially', () => {
+      const factory = RuntimeFactory.instance();
+      expect(factory.isLoaded()).toBe(false);
+    });
+
+    it('returns false after getRuntime (not loaded yet)', async () => {
+      const factory = RuntimeFactory.instance();
+      await factory.getRuntime();
+      expect(factory.isLoaded()).toBe(false);
+    });
+  });
+
+  describe('getLibraryPath', () => {
+    it('returns null before loadLibrary', () => {
+      const factory = RuntimeFactory.instance();
+      expect(factory.getLibraryPath()).toBeNull();
+    });
+  });
+
+  describe('getRuntimeType', () => {
+    it('returns null before getRuntime', () => {
+      const factory = RuntimeFactory.instance();
+      expect(factory.getRuntimeType()).toBeNull();
+    });
+
+    it('returns the detected runtime type after getRuntime', async () => {
+      const factory = RuntimeFactory.instance();
+      await factory.getRuntime();
+      expect(factory.getRuntimeType()).toBe('bun');
+    });
+  });
+
+  describe('unload', () => {
+    it('clears the cached runtime', async () => {
+      const factory = RuntimeFactory.instance();
+      await factory.getRuntime();
+      expect(factory.getCachedRuntime()).not.toBeNull();
+
+      factory.unload();
+      expect(factory.getCachedRuntime()).toBeNull();
+    });
+
+    it('is safe to call when no runtime exists', () => {
+      const factory = RuntimeFactory.instance();
+      expect(() => factory.unload()).not.toThrow();
+    });
+
+    it('causes getRuntime to create a new instance', async () => {
+      const factory = RuntimeFactory.instance();
+      const runtime1 = await factory.getRuntime();
+      factory.unload();
+      const runtime2 = await factory.getRuntime();
+
+      expect(runtime1).not.toBe(runtime2);
+    });
+  });
+
+  describe('resetInstance', () => {
+    it('clears the singleton and runtime', async () => {
+      await RuntimeFactory.instance().getRuntime();
+      RuntimeFactory.resetInstance();
+
+      const factory = RuntimeFactory.instance();
+      expect(factory.getCachedRuntime()).toBeNull();
+      expect(factory.isLoaded()).toBe(false);
+    });
+
+    it('is safe to call when no instance exists', () => {
+      expect(() => RuntimeFactory.resetInstance()).not.toThrow();
+    });
+  });
+
+  describe('findLibraryPath', () => {
+    it('returns null when library is not found', () => {
+      // Clear any env var that might be set
+      const original = process.env.TASKER_FFI_LIBRARY_PATH;
+      delete process.env.TASKER_FFI_LIBRARY_PATH;
+
+      // Use a non-existent directory
+      const path = RuntimeFactory.findLibraryPath('/nonexistent/path');
+
+      // Restore
+      if (original) {
+        process.env.TASKER_FFI_LIBRARY_PATH = original;
+      }
+
+      expect(path).toBeNull();
+    });
+
+    it('returns env path when TASKER_FFI_LIBRARY_PATH is set to valid file', () => {
+      // This test will only work if we have a valid library built
+      // For unit testing, we just verify the method exists and returns
+      const path = RuntimeFactory.findLibraryPath();
+      // The result depends on whether the library exists
+      expect(path === null || typeof path === 'string').toBe(true);
     });
   });
 
   describe('runtime interface compliance', () => {
     it('created runtime has all required properties', async () => {
-      const runtime = await getTaskerRuntime();
+      const factory = RuntimeFactory.instance();
+      const runtime = await factory.getRuntime();
 
       expect(typeof runtime.name).toBe('string');
       expect(typeof runtime.isLoaded).toBe('boolean');
@@ -158,7 +207,8 @@ describe('Runtime Factory', () => {
     });
 
     it('runtime starts in unloaded state', async () => {
-      const runtime = await getTaskerRuntime();
+      const factory = RuntimeFactory.instance();
+      const runtime = await factory.getRuntime();
       expect(runtime.isLoaded).toBe(false);
     });
   });

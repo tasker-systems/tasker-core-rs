@@ -9,7 +9,7 @@
 
 import type { TaskerEventEmitter } from '../events/event-emitter.js';
 import { StepEventNames } from '../events/event-names.js';
-import { getCachedRuntime } from '../ffi/runtime-factory.js';
+import { RuntimeFactory } from '../ffi/runtime-factory.js';
 import type { FfiStepEvent, StepExecutionResult } from '../ffi/types.js';
 import type { HandlerRegistry } from '../handler/registry.js';
 import { logDebug, logError, logInfo, logWarn } from '../logging/index.js';
@@ -354,14 +354,16 @@ export class StepExecutionSubscriber {
     result: StepHandlerResult,
     executionTimeMs: number
   ): Promise<void> {
-    const runtime = getCachedRuntime();
-    if (!runtime?.isLoaded) {
+    const factory = RuntimeFactory.instance();
+    if (!factory.isLoaded()) {
       logError('Cannot submit result: runtime not available', {
         component: 'subscriber',
         event_id: event.event_id,
       });
       return;
     }
+
+    const runtime = factory.getLoadedRuntime();
 
     // Build the execution result, only adding error if not successful
     const executionResult: StepExecutionResult = {
@@ -423,14 +425,16 @@ export class StepExecutionSubscriber {
     errorMessage: string,
     startTime: number
   ): Promise<void> {
-    const runtime = getCachedRuntime();
-    if (!runtime?.isLoaded) {
+    const factory = RuntimeFactory.instance();
+    if (!factory.isLoaded()) {
       logError('Cannot submit error result: runtime not available', {
         component: 'subscriber',
         event_id: event.event_id,
       });
       return;
     }
+
+    const runtime = factory.getLoadedRuntime();
 
     const executionTimeMs = Date.now() - startTime;
 

@@ -41,21 +41,17 @@ export {
   BaseTaskerRuntime,
   // Runtime implementations
   BunRuntime,
-  // Runtime factory
-  clearRuntimeCache,
-  createRuntime,
   DenoRuntime,
   // Runtime detection
   detectRuntime,
-  getCachedRuntime,
   getLibraryPath,
   getRuntimeInfo,
-  getTaskerRuntime,
-  hasRuntimeCached,
   isBun,
   isDeno,
   isNode,
   NodeRuntime,
+  // Runtime factory
+  RuntimeFactory,
   type RuntimeInfo,
   type RuntimeType,
   type TaskerRuntime,
@@ -99,6 +95,24 @@ export {
   logTrace,
   logWarn,
 } from './logging/index.js';
+
+// =============================================================================
+// Server module (TAS-104)
+// =============================================================================
+export {
+  ShutdownController,
+  type ShutdownHandler,
+  WorkerServer,
+} from './server/index.js';
+
+// Export server types under Server prefix to avoid conflicts with bootstrap
+export type {
+  HealthCheckResult as ServerHealthCheckResult,
+  ServerComponents,
+  ServerState,
+  ServerStatus,
+  WorkerServerConfig,
+} from './server/types.js';
 
 // =============================================================================
 // Subscriber module (TAS-104)
