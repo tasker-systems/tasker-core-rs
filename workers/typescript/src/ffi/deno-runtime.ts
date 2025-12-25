@@ -24,27 +24,30 @@ declare const Deno: any;
 // Generic pointer type (Deno.PointerValue is bigint | null at runtime)
 type PointerValue = bigint | null;
 
-// FFI symbol result type
+// Buffer type for 'buffer' parameters (Uint8Array or null)
+type BufferValue = Uint8Array | null;
+
+// FFI symbol result type - Deno 2.x uses direct function calls
 interface DenoFfiSymbols {
-  get_version: { call: () => PointerValue };
-  get_rust_version: { call: () => PointerValue };
-  health_check: { call: () => number };
-  is_worker_running: { call: () => number };
-  bootstrap_worker: { call: (configJson: PointerValue) => PointerValue };
-  get_worker_status: { call: () => PointerValue };
-  stop_worker: { call: () => PointerValue };
-  transition_to_graceful_shutdown: { call: () => PointerValue };
-  poll_step_events: { call: () => PointerValue };
-  complete_step_event: { call: (eventId: PointerValue, resultJson: PointerValue) => number };
-  get_ffi_dispatch_metrics: { call: () => PointerValue };
-  check_starvation_warnings: { call: () => void };
-  cleanup_timeouts: { call: () => void };
-  log_error: { call: (message: PointerValue, fieldsJson: PointerValue) => void };
-  log_warn: { call: (message: PointerValue, fieldsJson: PointerValue) => void };
-  log_info: { call: (message: PointerValue, fieldsJson: PointerValue) => void };
-  log_debug: { call: (message: PointerValue, fieldsJson: PointerValue) => void };
-  log_trace: { call: (message: PointerValue, fieldsJson: PointerValue) => void };
-  free_rust_string: { call: (ptr: PointerValue) => void };
+  get_version: () => PointerValue;
+  get_rust_version: () => PointerValue;
+  health_check: () => number;
+  is_worker_running: () => number;
+  bootstrap_worker: (configJson: BufferValue) => PointerValue;
+  get_worker_status: () => PointerValue;
+  stop_worker: () => PointerValue;
+  transition_to_graceful_shutdown: () => PointerValue;
+  poll_step_events: () => PointerValue;
+  complete_step_event: (eventId: BufferValue, resultJson: BufferValue) => number;
+  get_ffi_dispatch_metrics: () => PointerValue;
+  check_starvation_warnings: () => void;
+  cleanup_timeouts: () => void;
+  log_error: (message: BufferValue, fieldsJson: BufferValue) => void;
+  log_warn: (message: BufferValue, fieldsJson: BufferValue) => void;
+  log_info: (message: BufferValue, fieldsJson: BufferValue) => void;
+  log_debug: (message: BufferValue, fieldsJson: BufferValue) => void;
+  log_trace: (message: BufferValue, fieldsJson: BufferValue) => void;
+  free_rust_string: (ptr: PointerValue) => void;
 }
 
 // Deno dynamic library handle
@@ -94,7 +97,7 @@ export class DenoRuntime extends BaseTaskerRuntime {
         result: 'i32',
       },
       bootstrap_worker: {
-        parameters: ['pointer'],
+        parameters: ['buffer'],
         result: 'pointer',
       },
       get_worker_status: {
@@ -114,7 +117,7 @@ export class DenoRuntime extends BaseTaskerRuntime {
         result: 'pointer',
       },
       complete_step_event: {
-        parameters: ['pointer', 'pointer'],
+        parameters: ['buffer', 'buffer'],
         result: 'i32',
       },
       get_ffi_dispatch_metrics: {
@@ -130,23 +133,23 @@ export class DenoRuntime extends BaseTaskerRuntime {
         result: 'void',
       },
       log_error: {
-        parameters: ['pointer', 'pointer'],
+        parameters: ['buffer', 'buffer'],
         result: 'void',
       },
       log_warn: {
-        parameters: ['pointer', 'pointer'],
+        parameters: ['buffer', 'buffer'],
         result: 'void',
       },
       log_info: {
-        parameters: ['pointer', 'pointer'],
+        parameters: ['buffer', 'buffer'],
         result: 'void',
       },
       log_debug: {
-        parameters: ['pointer', 'pointer'],
+        parameters: ['buffer', 'buffer'],
         result: 'void',
       },
       log_trace: {
-        parameters: ['pointer', 'pointer'],
+        parameters: ['buffer', 'buffer'],
         result: 'void',
       },
       free_rust_string: {
@@ -170,11 +173,12 @@ export class DenoRuntime extends BaseTaskerRuntime {
     return this.lib.symbols;
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: Deno PointerValue type
-  private toCString(str: string): any {
-    // Create null-terminated C string buffer
-    const bytes = this.encoder.encode(`${str}\0`);
-    return Deno.UnsafePointer.of(bytes);
+  /**
+   * Creates a null-terminated C string buffer.
+   * With 'buffer' FFI type, we return Uint8Array directly.
+   */
+  private toCString(str: string): Uint8Array {
+    return this.encoder.encode(`${str}\0`);
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: Deno PointerValue type
@@ -189,31 +193,31 @@ export class DenoRuntime extends BaseTaskerRuntime {
 
   getVersion(): string {
     const symbols = this.ensureLoaded();
-    const result = symbols.get_version.call();
+    const result = symbols.get_version();
     const version = this.fromCString(result) ?? 'unknown';
-    if (result !== null) symbols.free_rust_string.call(result);
+    if (result !== null) symbols.free_rust_string(result);
     return version;
   }
 
   getRustVersion(): string {
     const symbols = this.ensureLoaded();
-    const result = symbols.get_rust_version.call();
+    const result = symbols.get_rust_version();
     const version = this.fromCString(result) ?? 'unknown';
-    if (result !== null) symbols.free_rust_string.call(result);
+    if (result !== null) symbols.free_rust_string(result);
     return version;
   }
 
   healthCheck(): boolean {
     const symbols = this.ensureLoaded();
-    return symbols.health_check.call() === 1;
+    return symbols.health_check() === 1;
   }
 
   bootstrapWorker(config?: BootstrapConfig): BootstrapResult {
     const symbols = this.ensureLoaded();
-    const configPtr = config ? this.toCString(this.toJson(config)) : null;
-    const result = symbols.bootstrap_worker.call(configPtr);
+    const configBuf = config ? this.toCString(this.toJson(config)) : null;
+    const result = symbols.bootstrap_worker(configBuf);
     const jsonStr = this.fromCString(result);
-    if (result !== null) symbols.free_rust_string.call(result);
+    if (result !== null) symbols.free_rust_string(result);
 
     const parsed = this.parseJson<BootstrapResult>(jsonStr);
     return (
@@ -228,14 +232,14 @@ export class DenoRuntime extends BaseTaskerRuntime {
 
   isWorkerRunning(): boolean {
     const symbols = this.ensureLoaded();
-    return symbols.is_worker_running.call() === 1;
+    return symbols.is_worker_running() === 1;
   }
 
   getWorkerStatus(): WorkerStatus {
     const symbols = this.ensureLoaded();
-    const result = symbols.get_worker_status.call();
+    const result = symbols.get_worker_status();
     const jsonStr = this.fromCString(result);
-    if (result !== null) symbols.free_rust_string.call(result);
+    if (result !== null) symbols.free_rust_string(result);
 
     const parsed = this.parseJson<WorkerStatus>(jsonStr);
     return parsed ?? { success: false, running: false };
@@ -243,9 +247,9 @@ export class DenoRuntime extends BaseTaskerRuntime {
 
   stopWorker(): StopResult {
     const symbols = this.ensureLoaded();
-    const result = symbols.stop_worker.call();
+    const result = symbols.stop_worker();
     const jsonStr = this.fromCString(result);
-    if (result !== null) symbols.free_rust_string.call(result);
+    if (result !== null) symbols.free_rust_string(result);
 
     const parsed = this.parseJson<StopResult>(jsonStr);
     return (
@@ -260,9 +264,9 @@ export class DenoRuntime extends BaseTaskerRuntime {
 
   transitionToGracefulShutdown(): StopResult {
     const symbols = this.ensureLoaded();
-    const result = symbols.transition_to_graceful_shutdown.call();
+    const result = symbols.transition_to_graceful_shutdown();
     const jsonStr = this.fromCString(result);
-    if (result !== null) symbols.free_rust_string.call(result);
+    if (result !== null) symbols.free_rust_string(result);
 
     const parsed = this.parseJson<StopResult>(jsonStr);
     return (
@@ -277,84 +281,88 @@ export class DenoRuntime extends BaseTaskerRuntime {
 
   pollStepEvents(): FfiStepEvent | null {
     const symbols = this.ensureLoaded();
-    const result = symbols.poll_step_events.call();
+    const result = symbols.poll_step_events();
     if (result === null || Deno.UnsafePointer.equals(result, null)) {
       return null;
     }
 
     const jsonStr = this.fromCString(result);
-    symbols.free_rust_string.call(result);
+    symbols.free_rust_string(result);
 
     return this.parseJson<FfiStepEvent>(jsonStr);
   }
 
   completeStepEvent(eventId: string, result: StepExecutionResult): boolean {
     const symbols = this.ensureLoaded();
-    const eventIdPtr = this.toCString(eventId);
-    const resultJsonPtr = this.toCString(this.toJson(result));
-    return symbols.complete_step_event.call(eventIdPtr, resultJsonPtr) === 1;
+    const eventIdBuf = this.toCString(eventId);
+    const resultJsonBuf = this.toCString(this.toJson(result));
+    return symbols.complete_step_event(eventIdBuf, resultJsonBuf) === 1;
   }
 
   getFfiDispatchMetrics(): FfiDispatchMetrics {
     const symbols = this.ensureLoaded();
-    const result = symbols.get_ffi_dispatch_metrics.call();
+    const result = symbols.get_ffi_dispatch_metrics();
     const jsonStr = this.fromCString(result);
-    if (result !== null) symbols.free_rust_string.call(result);
+    if (result !== null) symbols.free_rust_string(result);
 
     const parsed = this.parseJson<FfiDispatchMetrics>(jsonStr);
-    return (
-      parsed ?? {
-        pending_count: 0,
-        starvation_detected: false,
-        starving_event_count: 0,
-        oldest_pending_age_ms: null,
-        newest_pending_age_ms: null,
-      }
-    );
+    // Check if we got a valid metrics object (not an error response)
+    if (parsed && typeof parsed.pending_count === 'number') {
+      return parsed;
+    }
+    // Return default metrics when worker not initialized or error
+    return {
+      pending_count: 0,
+      starvation_detected: false,
+      starving_event_count: 0,
+      oldest_pending_age_ms: null,
+      newest_pending_age_ms: null,
+      oldest_event_id: null,
+    };
   }
 
   checkStarvationWarnings(): void {
     const symbols = this.ensureLoaded();
-    symbols.check_starvation_warnings.call();
+    symbols.check_starvation_warnings();
   }
 
   cleanupTimeouts(): void {
     const symbols = this.ensureLoaded();
-    symbols.cleanup_timeouts.call();
+    symbols.cleanup_timeouts();
   }
 
   logError(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : null;
-    symbols.log_error.call(msgPtr, fieldsPtr);
+    const msgBuf = this.toCString(message);
+    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
+    symbols.log_error(msgBuf, fieldsBuf);
   }
 
   logWarn(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : null;
-    symbols.log_warn.call(msgPtr, fieldsPtr);
+    const msgBuf = this.toCString(message);
+    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
+    symbols.log_warn(msgBuf, fieldsBuf);
   }
 
   logInfo(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : null;
-    symbols.log_info.call(msgPtr, fieldsPtr);
+    const msgBuf = this.toCString(message);
+    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
+    symbols.log_info(msgBuf, fieldsBuf);
   }
 
   logDebug(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : null;
-    symbols.log_debug.call(msgPtr, fieldsPtr);
+    const msgBuf = this.toCString(message);
+    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
+    symbols.log_debug(msgBuf, fieldsBuf);
   }
 
   logTrace(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : null;
-    symbols.log_trace.call(msgPtr, fieldsPtr);
+    const msgBuf = this.toCString(message);
+    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
+    symbols.log_trace(msgBuf, fieldsBuf);
   }
 }

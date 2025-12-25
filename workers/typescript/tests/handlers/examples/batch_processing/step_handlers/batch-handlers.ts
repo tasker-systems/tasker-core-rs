@@ -25,7 +25,7 @@ import type {
  * configurations based on the input file path.
  */
 export class CsvAnalyzerHandler extends BatchableStepHandler {
-  static handlerName = 'BatchProcessing.StepHandlers.CsvAnalyzerHandler';
+  static handlerName = 'batch_processing.step_handlers.CsvAnalyzerHandler';
   static handlerVersion = '1.0.0';
 
   private static readonly DEFAULT_BATCH_SIZE = 200;
@@ -90,7 +90,7 @@ export class CsvAnalyzerHandler extends BatchableStepHandler {
  * mock inventory analysis results.
  */
 export class CsvBatchProcessorHandler extends StepHandler {
-  static handlerName = 'BatchProcessing.StepHandlers.CsvBatchProcessorHandler';
+  static handlerName = 'batch_processing.step_handlers.CsvBatchProcessorHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -128,7 +128,7 @@ export class CsvBatchProcessorHandler extends StepHandler {
  * Deferred Convergence: Aggregate results from all batch workers.
  */
 export class CsvResultsAggregatorHandler extends StepHandler {
-  static handlerName = 'BatchProcessing.StepHandlers.CsvResultsAggregatorHandler';
+  static handlerName = 'batch_processing.step_handlers.CsvResultsAggregatorHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {

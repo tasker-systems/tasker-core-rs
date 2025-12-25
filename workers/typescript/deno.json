@@ -1,0 +1,8 @@
+{
+  "$schema": "https://deno.land/x/deno/cli/schemas/config-file.v1.json",
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.window", "deno.unstable", "esnext"]
+  },
+  "exclude": ["src/ffi/node-runtime.ts", "src/ffi/bun-runtime.ts", "node_modules", "dist"]
+}

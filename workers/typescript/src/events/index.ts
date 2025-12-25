@@ -6,8 +6,6 @@
 
 // Event emitter
 export {
-  clearGlobalEmitter,
-  getGlobalEmitter,
   type MetricsPayload,
   type PollerCyclePayload,
   type StepCompletionSentPayload,
@@ -33,7 +31,6 @@ export {
   type WorkerEventName,
   WorkerEventNames,
 } from './event-names.js';
-
 // Event poller
 export {
   createEventPoller,
@@ -44,3 +41,5 @@ export {
   type PollerState,
   type StepEventCallback,
 } from './event-poller.js';
+// Event system (owns emitter, poller, subscriber)
+export { EventSystem, type EventSystemConfig, type EventSystemStats } from './event-system.js';

@@ -133,12 +133,9 @@ describe('StepExecutionSubscriber', () => {
   let subscriber: StepExecutionSubscriber;
 
   beforeEach(() => {
-    // Reset singleton
-    HandlerRegistry.resetInstance();
-
-    // Create fresh instances
+    // Create fresh instances (explicit construction)
     emitter = new EventEmitter() as TaskerEventEmitter;
-    registry = HandlerRegistry.instance();
+    registry = new HandlerRegistry();
 
     // Register test handlers
     registry.register('test_handler', TestHandler);
@@ -154,10 +151,9 @@ describe('StepExecutionSubscriber', () => {
   });
 
   afterEach(() => {
-    if (subscriber.isRunning()) {
+    if (subscriber?.isRunning()) {
       subscriber.stop();
     }
-    HandlerRegistry.resetInstance();
   });
 
   describe('constructor', () => {
@@ -237,12 +233,108 @@ describe('StepExecutionSubscriber', () => {
 
   describe('event handling', () => {
     test('should ignore events when not running', () => {
-      // Emit event without starting subscriber
+      // Emit event without starting subscriber (using correct payload format)
       const event = createMockEvent('test_handler');
-      emitter.emit(StepEventNames.STEP_EXECUTION_RECEIVED, event);
+      emitter.emit(StepEventNames.STEP_EXECUTION_RECEIVED, {
+        event,
+        receivedAt: new Date(),
+      });
 
-      // Should not process (no handlers active)
+      // Should not process (subscriber not started)
       expect(subscriber.getActiveHandlers()).toBe(0);
+    });
+
+    test('should receive and process events when running', async () => {
+      subscriber.start();
+
+      const event = createMockEvent('test_handler');
+
+      // Emit event with correct payload format (matches TaskerEventEmitter.emitStepReceived)
+      emitter.emit(StepEventNames.STEP_EXECUTION_RECEIVED, {
+        event,
+        receivedAt: new Date(),
+      });
+
+      // Give time for async handler to execute
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify event was processed
+      expect(subscriber.getProcessedCount()).toBe(1);
+      expect(subscriber.getErrorCount()).toBe(0);
+    });
+
+    test('should dispatch to correct handler based on callable name', async () => {
+      let handlerCalled = false;
+
+      // Create a tracking handler
+      class TrackingHandler extends StepHandler {
+        static handlerName = 'tracking_handler';
+
+        async call(_context: StepContext): Promise<StepHandlerResult> {
+          handlerCalled = true;
+          return this.success({ tracked: true });
+        }
+      }
+
+      registry.register('tracking_handler', TrackingHandler);
+      subscriber.start();
+
+      const event = createMockEvent('tracking_handler');
+      emitter.emit(StepEventNames.STEP_EXECUTION_RECEIVED, {
+        event,
+        receivedAt: new Date(),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(handlerCalled).toBe(true);
+      expect(subscriber.getProcessedCount()).toBe(1);
+    });
+
+    test('should handle unknown handler gracefully', async () => {
+      subscriber.start();
+
+      const event = createMockEvent('unknown_handler_that_does_not_exist');
+      emitter.emit(StepEventNames.STEP_EXECUTION_RECEIVED, {
+        event,
+        receivedAt: new Date(),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Handler not found doesn't increment processedCount
+      // (errorCount only incremented if runtime is available for result submission)
+      expect(subscriber.getProcessedCount()).toBe(0);
+    });
+
+    test('should handle failing handler and count as processed', async () => {
+      subscriber.start();
+
+      const event = createMockEvent('failing_handler');
+      emitter.emit(StepEventNames.STEP_EXECUTION_RECEIVED, {
+        event,
+        receivedAt: new Date(),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Handler returned failure result (not an exception)
+      expect(subscriber.getProcessedCount()).toBe(1);
+    });
+
+    test('should handle throwing handler and count as error', async () => {
+      subscriber.start();
+
+      const event = createMockEvent('throwing_handler');
+      emitter.emit(StepEventNames.STEP_EXECUTION_RECEIVED, {
+        event,
+        receivedAt: new Date(),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Handler threw exception
+      expect(subscriber.getErrorCount()).toBeGreaterThan(0);
     });
   });
 

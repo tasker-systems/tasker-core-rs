@@ -38,6 +38,10 @@ tracing = { workspace = true }
 # UUID generation and handling
 uuid = { workspace = true }
 
+[dev-dependencies]
+# TypeScript binding generation (dev-only for export_bindings tests)
+ts-rs = { workspace = true }
+
 [features]
 default = []
 

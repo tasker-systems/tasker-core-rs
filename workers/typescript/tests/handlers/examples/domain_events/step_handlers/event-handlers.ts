@@ -22,7 +22,7 @@ import type { StepHandlerResult } from '../../../../../src/types/step-handler-re
  * Publishes: order.validated (condition: success, delivery: fast)
  */
 export class ValidateOrderHandler extends StepHandler {
-  static handlerName = 'DomainEvents.StepHandlers.ValidateOrderHandler';
+  static handlerName = 'domain_events.step_handlers.ValidateOrderHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -64,7 +64,7 @@ export class ValidateOrderHandler extends StepHandler {
  * Publishes: payment.failed (condition: failure, delivery: durable)
  */
 export class ProcessPaymentHandler extends StepHandler {
-  static handlerName = 'DomainEvents.StepHandlers.ProcessPaymentHandler';
+  static handlerName = 'domain_events.step_handlers.ProcessPaymentHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -99,7 +99,7 @@ export class ProcessPaymentHandler extends StepHandler {
  * Publishes: inventory.updated (condition: always, delivery: fast)
  */
 export class UpdateInventoryHandler extends StepHandler {
-  static handlerName = 'DomainEvents.StepHandlers.UpdateInventoryHandler';
+  static handlerName = 'domain_events.step_handlers.UpdateInventoryHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -141,7 +141,7 @@ export class UpdateInventoryHandler extends StepHandler {
  * Publishes: notification.sent (condition: success, delivery: fast)
  */
 export class SendNotificationHandler extends StepHandler {
-  static handlerName = 'DomainEvents.StepHandlers.SendNotificationHandler';
+  static handlerName = 'domain_events.step_handlers.SendNotificationHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {

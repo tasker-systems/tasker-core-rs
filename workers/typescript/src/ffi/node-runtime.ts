@@ -1,8 +1,11 @@
+/// <reference types="node" />
 /**
- * Node.js FFI runtime adapter using ffi-napi.
+ * Node.js FFI runtime adapter using koffi.
  *
- * This adapter uses the ffi-napi package to interface with the Rust native library.
- * It's designed to work with Node.js and provides the same interface as other runtimes.
+ * This adapter uses the koffi package to interface with the Rust native library.
+ * Koffi is a modern, actively maintained FFI library with prebuilt binaries.
+ *
+ * Install: npm install koffi
  */
 
 import { BaseTaskerRuntime } from './runtime-interface.js';
@@ -17,37 +20,37 @@ import type {
   WorkerStatus,
 } from './types.js';
 
-// FFI type definitions for ffi-napi
-interface FfiLibrary {
-  get_version: () => Buffer;
-  get_rust_version: () => Buffer;
+// Koffi library type
+interface KoffiLib {
+  get_version: () => unknown;
+  get_rust_version: () => unknown;
   health_check: () => number;
   is_worker_running: () => number;
-  bootstrap_worker: (configJson: Buffer | null) => Buffer;
-  get_worker_status: () => Buffer;
-  stop_worker: () => Buffer;
-  transition_to_graceful_shutdown: () => Buffer;
-  poll_step_events: () => Buffer | null;
-  complete_step_event: (eventId: Buffer, resultJson: Buffer) => number;
-  get_ffi_dispatch_metrics: () => Buffer;
+  bootstrap_worker: (configJson: string | null) => unknown;
+  get_worker_status: () => unknown;
+  stop_worker: () => unknown;
+  transition_to_graceful_shutdown: () => unknown;
+  poll_step_events: () => unknown;
+  complete_step_event: (eventId: string, resultJson: string) => number;
+  get_ffi_dispatch_metrics: () => unknown;
   check_starvation_warnings: () => void;
   cleanup_timeouts: () => void;
-  log_error: (message: Buffer, fieldsJson: Buffer | null) => void;
-  log_warn: (message: Buffer, fieldsJson: Buffer | null) => void;
-  log_info: (message: Buffer, fieldsJson: Buffer | null) => void;
-  log_debug: (message: Buffer, fieldsJson: Buffer | null) => void;
-  log_trace: (message: Buffer, fieldsJson: Buffer | null) => void;
-  free_rust_string: (ptr: Buffer) => void;
+  log_error: (message: string, fieldsJson: string | null) => void;
+  log_warn: (message: string, fieldsJson: string | null) => void;
+  log_info: (message: string, fieldsJson: string | null) => void;
+  log_debug: (message: string, fieldsJson: string | null) => void;
+  log_trace: (message: string, fieldsJson: string | null) => void;
+  free_rust_string: (ptr: unknown) => void;
 }
 
 /**
- * Node.js FFI runtime implementation using ffi-napi
+ * Node.js FFI runtime implementation using koffi
  */
 export class NodeRuntime extends BaseTaskerRuntime {
   readonly name = 'node';
-  private lib: FfiLibrary | null = null;
-  private ffi: typeof import('ffi-napi') | null = null;
-  private ref: typeof import('ref-napi') | null = null;
+  private lib: KoffiLib | null = null;
+  // biome-ignore lint/suspicious/noExplicitAny: koffi module type
+  private koffi: any = null;
 
   get isLoaded(): boolean {
     return this.lib !== null;
@@ -58,79 +61,79 @@ export class NodeRuntime extends BaseTaskerRuntime {
       return; // Already loaded
     }
 
-    // Dynamically import ffi-napi
-    const [ffiModule, refModule] = await Promise.all([import('ffi-napi'), import('ref-napi')]);
+    // Dynamically import koffi
+    const koffiModule = await import('koffi');
+    this.koffi = koffiModule.default ?? koffiModule;
 
-    this.ffi = ffiModule;
-    this.ref = refModule;
+    // Load the native library
+    const lib = this.koffi.load(libraryPath);
 
-    const CString = this.ref.types.CString;
-    const int = this.ref.types.int;
-    const voidType = this.ref.types.void;
-
-    // Define the FFI bindings
-    this.lib = this.ffi.Library(libraryPath, {
-      get_version: [CString, []],
-      get_rust_version: [CString, []],
-      health_check: [int, []],
-      is_worker_running: [int, []],
-      bootstrap_worker: [CString, [CString]],
-      get_worker_status: [CString, []],
-      stop_worker: [CString, []],
-      transition_to_graceful_shutdown: [CString, []],
-      poll_step_events: [CString, []],
-      complete_step_event: [int, [CString, CString]],
-      get_ffi_dispatch_metrics: [CString, []],
-      check_starvation_warnings: [voidType, []],
-      cleanup_timeouts: [voidType, []],
-      log_error: [voidType, [CString, CString]],
-      log_warn: [voidType, [CString, CString]],
-      log_info: [voidType, [CString, CString]],
-      log_debug: [voidType, [CString, CString]],
-      log_trace: [voidType, [CString, CString]],
-      free_rust_string: [voidType, [CString]],
-    }) as unknown as FfiLibrary;
+    // Define FFI functions
+    // Functions returning strings return pointers that we need to free
+    this.lib = {
+      get_version: lib.func('void* get_version()'),
+      get_rust_version: lib.func('void* get_rust_version()'),
+      health_check: lib.func('int health_check()'),
+      is_worker_running: lib.func('int is_worker_running()'),
+      bootstrap_worker: lib.func('void* bootstrap_worker(str)'),
+      get_worker_status: lib.func('void* get_worker_status()'),
+      stop_worker: lib.func('void* stop_worker()'),
+      transition_to_graceful_shutdown: lib.func('void* transition_to_graceful_shutdown()'),
+      poll_step_events: lib.func('void* poll_step_events()'),
+      complete_step_event: lib.func('int complete_step_event(str, str)'),
+      get_ffi_dispatch_metrics: lib.func('void* get_ffi_dispatch_metrics()'),
+      check_starvation_warnings: lib.func('void check_starvation_warnings()'),
+      cleanup_timeouts: lib.func('void cleanup_timeouts()'),
+      log_error: lib.func('void log_error(str, str)'),
+      log_warn: lib.func('void log_warn(str, str)'),
+      log_info: lib.func('void log_info(str, str)'),
+      log_debug: lib.func('void log_debug(str, str)'),
+      log_trace: lib.func('void log_trace(str, str)'),
+      free_rust_string: lib.func('void free_rust_string(void*)'),
+    };
   }
 
   unload(): void {
     this.lib = null;
+    this.koffi = null;
   }
 
-  private ensureLoaded(): FfiLibrary {
+  private ensureLoaded(): KoffiLib {
     if (!this.lib) {
       throw new Error('Native library not loaded. Call load() first.');
     }
     return this.lib;
   }
 
-  private toCString(str: string): Buffer {
-    return Buffer.from(`${str}\0`, 'utf8');
-  }
+  /**
+   * Read a C string from a pointer and free the Rust-allocated memory.
+   *
+   * Uses koffi.decode with 'char' type and -1 length for null-terminated strings.
+   */
+  private readAndFreeRustString(ptr: unknown): string | null {
+    if (!ptr) return null;
+    const lib = this.ensureLoaded();
 
-  private fromCString(buf: Buffer | null): string | null {
-    if (!buf) return null;
-    // Find null terminator and convert to string
-    const nullIndex = buf.indexOf(0);
-    if (nullIndex >= 0) {
-      return buf.slice(0, nullIndex).toString('utf8');
-    }
-    return buf.toString('utf8');
+    // Decode the null-terminated C string from pointer
+    // Using 'char' with -1 length reads until null terminator
+    const str = this.koffi.decode(ptr, 'char', -1);
+
+    // Free the Rust-allocated memory
+    lib.free_rust_string(ptr);
+
+    return str;
   }
 
   getVersion(): string {
     const lib = this.ensureLoaded();
-    const result = lib.get_version();
-    const version = this.fromCString(result) ?? 'unknown';
-    if (result) lib.free_rust_string(result);
-    return version;
+    const ptr = lib.get_version();
+    return this.readAndFreeRustString(ptr) ?? 'unknown';
   }
 
   getRustVersion(): string {
     const lib = this.ensureLoaded();
-    const result = lib.get_rust_version();
-    const version = this.fromCString(result) ?? 'unknown';
-    if (result) lib.free_rust_string(result);
-    return version;
+    const ptr = lib.get_rust_version();
+    return this.readAndFreeRustString(ptr) ?? 'unknown';
   }
 
   healthCheck(): boolean {
@@ -140,10 +143,9 @@ export class NodeRuntime extends BaseTaskerRuntime {
 
   bootstrapWorker(config?: BootstrapConfig): BootstrapResult {
     const lib = this.ensureLoaded();
-    const configJson = config ? this.toCString(this.toJson(config)) : null;
-    const result = lib.bootstrap_worker(configJson);
-    const jsonStr = this.fromCString(result);
-    if (result) lib.free_rust_string(result);
+    const configJson = config ? this.toJson(config) : null;
+    const ptr = lib.bootstrap_worker(configJson);
+    const jsonStr = this.readAndFreeRustString(ptr);
 
     const parsed = this.parseJson<BootstrapResult>(jsonStr);
     return (
@@ -163,9 +165,8 @@ export class NodeRuntime extends BaseTaskerRuntime {
 
   getWorkerStatus(): WorkerStatus {
     const lib = this.ensureLoaded();
-    const result = lib.get_worker_status();
-    const jsonStr = this.fromCString(result);
-    if (result) lib.free_rust_string(result);
+    const ptr = lib.get_worker_status();
+    const jsonStr = this.readAndFreeRustString(ptr);
 
     const parsed = this.parseJson<WorkerStatus>(jsonStr);
     return parsed ?? { success: false, running: false };
@@ -173,9 +174,8 @@ export class NodeRuntime extends BaseTaskerRuntime {
 
   stopWorker(): StopResult {
     const lib = this.ensureLoaded();
-    const result = lib.stop_worker();
-    const jsonStr = this.fromCString(result);
-    if (result) lib.free_rust_string(result);
+    const ptr = lib.stop_worker();
+    const jsonStr = this.readAndFreeRustString(ptr);
 
     const parsed = this.parseJson<StopResult>(jsonStr);
     return (
@@ -190,9 +190,8 @@ export class NodeRuntime extends BaseTaskerRuntime {
 
   transitionToGracefulShutdown(): StopResult {
     const lib = this.ensureLoaded();
-    const result = lib.transition_to_graceful_shutdown();
-    const jsonStr = this.fromCString(result);
-    if (result) lib.free_rust_string(result);
+    const ptr = lib.transition_to_graceful_shutdown();
+    const jsonStr = this.readAndFreeRustString(ptr);
 
     const parsed = this.parseJson<StopResult>(jsonStr);
     return (
@@ -207,38 +206,37 @@ export class NodeRuntime extends BaseTaskerRuntime {
 
   pollStepEvents(): FfiStepEvent | null {
     const lib = this.ensureLoaded();
-    const result = lib.poll_step_events();
-    if (!result) return null;
+    const ptr = lib.poll_step_events();
+    if (!ptr) return null;
 
-    const jsonStr = this.fromCString(result);
-    lib.free_rust_string(result);
-
+    const jsonStr = this.readAndFreeRustString(ptr);
     return this.parseJson<FfiStepEvent>(jsonStr);
   }
 
   completeStepEvent(eventId: string, result: StepExecutionResult): boolean {
     const lib = this.ensureLoaded();
-    const eventIdBuf = this.toCString(eventId);
-    const resultJsonBuf = this.toCString(this.toJson(result));
-    return lib.complete_step_event(eventIdBuf, resultJsonBuf) === 1;
+    return lib.complete_step_event(eventId, this.toJson(result)) === 1;
   }
 
   getFfiDispatchMetrics(): FfiDispatchMetrics {
     const lib = this.ensureLoaded();
-    const result = lib.get_ffi_dispatch_metrics();
-    const jsonStr = this.fromCString(result);
-    if (result) lib.free_rust_string(result);
+    const ptr = lib.get_ffi_dispatch_metrics();
+    const jsonStr = this.readAndFreeRustString(ptr);
 
     const parsed = this.parseJson<FfiDispatchMetrics>(jsonStr);
-    return (
-      parsed ?? {
-        pending_count: 0,
-        starvation_detected: false,
-        starving_event_count: 0,
-        oldest_pending_age_ms: null,
-        newest_pending_age_ms: null,
-      }
-    );
+    // Check if we got a valid metrics object (not an error response)
+    if (parsed && typeof parsed.pending_count === 'number') {
+      return parsed;
+    }
+    // Return default metrics when worker not initialized or error
+    return {
+      pending_count: 0,
+      starvation_detected: false,
+      starving_event_count: 0,
+      oldest_pending_age_ms: null,
+      newest_pending_age_ms: null,
+      oldest_event_id: null,
+    };
   }
 
   checkStarvationWarnings(): void {
@@ -253,36 +251,26 @@ export class NodeRuntime extends BaseTaskerRuntime {
 
   logError(message: string, fields?: LogFields): void {
     const lib = this.ensureLoaded();
-    const msgBuf = this.toCString(message);
-    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
-    lib.log_error(msgBuf, fieldsBuf);
+    lib.log_error(message, fields ? this.toJson(fields) : null);
   }
 
   logWarn(message: string, fields?: LogFields): void {
     const lib = this.ensureLoaded();
-    const msgBuf = this.toCString(message);
-    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
-    lib.log_warn(msgBuf, fieldsBuf);
+    lib.log_warn(message, fields ? this.toJson(fields) : null);
   }
 
   logInfo(message: string, fields?: LogFields): void {
     const lib = this.ensureLoaded();
-    const msgBuf = this.toCString(message);
-    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
-    lib.log_info(msgBuf, fieldsBuf);
+    lib.log_info(message, fields ? this.toJson(fields) : null);
   }
 
   logDebug(message: string, fields?: LogFields): void {
     const lib = this.ensureLoaded();
-    const msgBuf = this.toCString(message);
-    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
-    lib.log_debug(msgBuf, fieldsBuf);
+    lib.log_debug(message, fields ? this.toJson(fields) : null);
   }
 
   logTrace(message: string, fields?: LogFields): void {
     const lib = this.ensureLoaded();
-    const msgBuf = this.toCString(message);
-    const fieldsBuf = fields ? this.toCString(this.toJson(fields)) : null;
-    lib.log_trace(msgBuf, fieldsBuf);
+    lib.log_trace(message, fields ? this.toJson(fields) : null);
   }
 }

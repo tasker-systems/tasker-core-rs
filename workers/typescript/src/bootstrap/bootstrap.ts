@@ -5,9 +5,12 @@
  * Wraps FFI calls with type-safe interfaces and error handling.
  *
  * Matches Python's bootstrap.py and Ruby's bootstrap.rb (TAS-92 aligned).
+ *
+ * All functions require an explicit runtime parameter. Use FfiLayer to load
+ * the runtime before calling these functions.
  */
 
-import { RuntimeFactory } from '../ffi/runtime-factory.js';
+import type { TaskerRuntime } from '../ffi/runtime-interface.js';
 import type { BootstrapConfig, BootstrapResult, StopResult, WorkerStatus } from './types.js';
 import {
   fromFfiBootstrapResult,
@@ -26,29 +29,24 @@ import {
  * - Subscribing to domain events
  *
  * @param config - Optional bootstrap configuration
+ * @param runtime - The loaded FFI runtime (required)
  * @returns BootstrapResult with worker details and status
  * @throws Error if bootstrap fails critically
  *
- * @example Bootstrap with defaults
+ * @example
  * ```typescript
- * const result = await bootstrapWorker();
+ * const ffiLayer = new FfiLayer();
+ * await ffiLayer.load();
+ * const result = await bootstrapWorker({ namespace: 'payments' }, ffiLayer.getRuntime());
  * console.log(`Worker ${result.workerId} started`);
  * ```
- *
- * @example Bootstrap with custom config
- * ```typescript
- * const result = await bootstrapWorker({
- *   namespace: 'payments',
- *   logLevel: 'debug',
- * });
- * ```
  */
-export async function bootstrapWorker(config?: BootstrapConfig): Promise<BootstrapResult> {
+export async function bootstrapWorker(
+  config: BootstrapConfig | undefined,
+  runtime: TaskerRuntime
+): Promise<BootstrapResult> {
   try {
-    const factory = RuntimeFactory.instance();
-    const runtime = await factory.getRuntime();
-
-    if (!factory.isLoaded()) {
+    if (!runtime?.isLoaded) {
       return {
         success: false,
         status: 'error',
@@ -76,28 +74,25 @@ export async function bootstrapWorker(config?: BootstrapConfig): Promise<Bootstr
  * This function stops the worker system and releases all resources.
  * Safe to call even if the worker is not running.
  *
+ * @param runtime - The loaded FFI runtime (optional - returns success if not loaded)
  * @returns StopResult indicating the outcome
  *
  * @example
  * ```typescript
- * const result = stopWorker();
+ * const result = stopWorker(runtime);
  * if (result.success) {
  *   console.log('Worker stopped successfully');
  * }
  * ```
  */
-export function stopWorker(): StopResult {
-  const factory = RuntimeFactory.instance();
-
-  if (!factory.isLoaded()) {
+export function stopWorker(runtime?: TaskerRuntime): StopResult {
+  if (!runtime?.isLoaded) {
     return {
       success: true,
       status: 'not_running',
       message: 'Runtime not loaded',
     };
   }
-
-  const runtime = factory.getLoadedRuntime();
 
   try {
     const ffiResult = runtime.stopWorker();
@@ -118,11 +113,12 @@ export function stopWorker(): StopResult {
  * Returns detailed information about the worker's current state,
  * including resource usage and operational status.
  *
+ * @param runtime - The loaded FFI runtime (optional - returns stopped if not loaded)
  * @returns WorkerStatus with current state and metrics
  *
  * @example
  * ```typescript
- * const status = getWorkerStatus();
+ * const status = getWorkerStatus(runtime);
  * if (status.running) {
  *   console.log(`Pool size: ${status.databasePoolSize}`);
  * } else {
@@ -130,18 +126,14 @@ export function stopWorker(): StopResult {
  * }
  * ```
  */
-export function getWorkerStatus(): WorkerStatus {
-  const factory = RuntimeFactory.instance();
-
-  if (!factory.isLoaded()) {
+export function getWorkerStatus(runtime?: TaskerRuntime): WorkerStatus {
+  if (!runtime?.isLoaded) {
     return {
       success: false,
       running: false,
       status: 'stopped',
     };
   }
-
-  const runtime = factory.getLoadedRuntime();
 
   try {
     const ffiStatus = runtime.getWorkerStatus();
@@ -162,32 +154,29 @@ export function getWorkerStatus(): WorkerStatus {
  * in-flight operations to complete before fully stopping.
  * Call stopWorker() after this to fully stop the worker.
  *
+ * @param runtime - The loaded FFI runtime (optional - returns success if not loaded)
  * @returns StopResult indicating the transition status
  *
  * @example
  * ```typescript
  * // Start graceful shutdown
- * transitionToGracefulShutdown();
+ * transitionToGracefulShutdown(runtime);
  *
  * // Wait for in-flight operations...
  * await new Promise(resolve => setTimeout(resolve, 5000));
  *
  * // Fully stop
- * stopWorker();
+ * stopWorker(runtime);
  * ```
  */
-export function transitionToGracefulShutdown(): StopResult {
-  const factory = RuntimeFactory.instance();
-
-  if (!factory.isLoaded()) {
+export function transitionToGracefulShutdown(runtime?: TaskerRuntime): StopResult {
+  if (!runtime?.isLoaded) {
     return {
       success: true,
       status: 'not_running',
       message: 'Runtime not loaded',
     };
   }
-
-  const runtime = factory.getLoadedRuntime();
 
   try {
     const ffiResult = runtime.transitionToGracefulShutdown();
@@ -207,23 +196,20 @@ export function transitionToGracefulShutdown(): StopResult {
  *
  * Lightweight check that doesn't query the full status.
  *
+ * @param runtime - The loaded FFI runtime (optional - returns false if not loaded)
  * @returns True if the worker is running
  *
  * @example
  * ```typescript
- * if (!isWorkerRunning()) {
- *   await bootstrapWorker();
+ * if (!isWorkerRunning(runtime)) {
+ *   await bootstrapWorker(config, runtime);
  * }
  * ```
  */
-export function isWorkerRunning(): boolean {
-  const factory = RuntimeFactory.instance();
-
-  if (!factory.isLoaded()) {
+export function isWorkerRunning(runtime?: TaskerRuntime): boolean {
+  if (!runtime?.isLoaded) {
     return false;
   }
-
-  const runtime = factory.getLoadedRuntime();
 
   try {
     return runtime.isWorkerRunning();
@@ -235,16 +221,13 @@ export function isWorkerRunning(): boolean {
 /**
  * Get version information for the worker system.
  *
+ * @param runtime - The loaded FFI runtime (optional)
  * @returns Version string from the Rust library
  */
-export function getVersion(): string {
-  const factory = RuntimeFactory.instance();
-
-  if (!factory.isLoaded()) {
+export function getVersion(runtime?: TaskerRuntime): string {
+  if (!runtime?.isLoaded) {
     return 'unknown (runtime not loaded)';
   }
-
-  const runtime = factory.getLoadedRuntime();
 
   try {
     return runtime.getVersion();
@@ -256,16 +239,13 @@ export function getVersion(): string {
 /**
  * Get detailed Rust library version.
  *
+ * @param runtime - The loaded FFI runtime (optional)
  * @returns Detailed version information
  */
-export function getRustVersion(): string {
-  const factory = RuntimeFactory.instance();
-
-  if (!factory.isLoaded()) {
+export function getRustVersion(runtime?: TaskerRuntime): string {
+  if (!runtime?.isLoaded) {
     return 'unknown (runtime not loaded)';
   }
-
-  const runtime = factory.getLoadedRuntime();
 
   try {
     return runtime.getRustVersion();
@@ -277,16 +257,13 @@ export function getRustVersion(): string {
 /**
  * Perform a health check on the FFI module.
  *
+ * @param runtime - The loaded FFI runtime (optional - returns false if not loaded)
  * @returns True if the FFI module is functional
  */
-export function healthCheck(): boolean {
-  const factory = RuntimeFactory.instance();
-
-  if (!factory.isLoaded()) {
+export function healthCheck(runtime?: TaskerRuntime): boolean {
+  if (!runtime?.isLoaded) {
     return false;
   }
-
-  const runtime = factory.getLoadedRuntime();
 
   try {
     return runtime.healthCheck();

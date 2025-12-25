@@ -230,3 +230,10 @@ export abstract class DecisionHandler extends StepHandler {
     return this.failure(message, errorType, retryable, combinedMetadata);
   }
 }
+
+/**
+ * Alias for DecisionHandler for backwards compatibility.
+ *
+ * @deprecated Use DecisionHandler instead
+ */
+export { DecisionHandler as DecisionStepHandler };

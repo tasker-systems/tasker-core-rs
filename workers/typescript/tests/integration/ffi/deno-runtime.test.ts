@@ -24,13 +24,13 @@ const isDeno = typeof Deno !== 'undefined';
 import {
   assertVersionString,
   findLibraryPath,
-  shouldRunBootstrapTests,
   SKIP_BOOTSTRAP_MESSAGE,
   SKIP_LIBRARY_MESSAGE,
+  shouldRunBootstrapTests,
 } from './common.ts';
 
 // Dynamic import for DenoRuntime
-let DenoRuntime: typeof import('../../../src/ffi/deno-runtime.js').DenoRuntime;
+let DenoRuntime: typeof import('../../../src/ffi/deno-runtime.ts').DenoRuntime;
 let runtime: InstanceType<typeof DenoRuntime> | null = null;
 let libraryPath: string | null = null;
 
@@ -408,15 +408,16 @@ if (isDeno) {
       }
 
       runtime.unload();
-      if (runtime.isLoaded !== false) {
+      if (runtime.isLoaded) {
         throw new Error('Expected isLoaded to be false after unload');
       }
 
       await runtime.load(libraryPath);
-      if (runtime.isLoaded !== true) {
+      // biome-ignore lint/complexity/noExtraBooleanCast: Needed to avoid TypeScript narrowing issues with getter
+      if (!Boolean(runtime.isLoaded)) {
         throw new Error('Expected isLoaded to be true after reload');
       }
-      if (runtime.healthCheck() !== true) {
+      if (!runtime.healthCheck()) {
         throw new Error('Expected healthCheck to return true after reload');
       }
     },

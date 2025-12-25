@@ -1,145 +1,57 @@
 /**
  * FFI type definitions for TypeScript/JavaScript workers.
  *
- * These types mirror the Rust FFI structures and provide strongly-typed
- * access to the worker functionality.
- */
-
-/**
- * Task information from TaskForOrchestration
- */
-export interface Task {
-  task_uuid: string;
-  named_task_uuid: string;
-  name: string;
-  namespace: string;
-  version: string;
-  context: Record<string, unknown> | null;
-  correlation_id: string;
-  parent_correlation_id: string | null;
-  complete: boolean;
-  priority: number;
-  initiator: string | null;
-  source_system: string | null;
-  reason: string | null;
-  tags: Record<string, unknown> | null;
-  identity_hash: string;
-  created_at: string;
-  updated_at: string;
-  requested_at: string;
-}
-
-/**
- * Workflow step information from WorkflowStepWithName
- */
-export interface WorkflowStep {
-  workflow_step_uuid: string;
-  task_uuid: string;
-  named_step_uuid: string;
-  name: string;
-  template_step_name: string;
-  retryable: boolean;
-  max_attempts: number | null;
-  attempts: number | null;
-  in_process: boolean;
-  processed: boolean;
-  skippable: boolean;
-  inputs: Record<string, unknown> | null;
-  results: Record<string, unknown> | null;
-  backoff_request_seconds: number | null;
-  processed_at: string | null;
-  last_attempted_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-/**
- * Handler definition from StepDefinition
- */
-export interface HandlerDefinition {
-  callable: string;
-  initialization: Record<string, unknown>;
-}
-
-/**
- * Retry configuration from RetryConfiguration
- */
-export interface RetryConfiguration {
-  retryable: boolean;
-  max_attempts: number;
-  backoff: string;
-  backoff_base_ms: number | null;
-  max_backoff_ms: number | null;
-}
-
-/**
- * Step definition from StepDefinition
- */
-export interface StepDefinition {
-  name: string;
-  description: string | null;
-  handler: HandlerDefinition;
-  system_dependency: string | null;
-  dependencies: string[];
-  timeout_seconds: number | null;
-  retry: RetryConfiguration;
-}
-
-/**
- * Step execution error from StepExecutionError
- */
-export interface StepExecutionError {
-  message: string;
-  error_type: string | null;
-  retryable: boolean;
-  status_code: number | null;
-  backtrace: string[] | null;
-}
-
-/**
- * Dependency step result from StepExecutionResult
- */
-export interface DependencyResult {
-  step_uuid: string;
-  success: boolean;
-  result: unknown;
-  status: string;
-  error: StepExecutionError | null;
-}
-
-/**
- * Full step event from FfiStepEvent
+ * These types are automatically generated from Rust DTOs using ts-rs.
+ * Run `cargo make generate-bindings` to regenerate the base types.
  *
- * This is the primary structure received when polling for step events.
- * Contains all information needed to execute a step handler.
+ * This file re-exports generated types with API-friendly names and adds
+ * runtime-specific types that aren't part of the DTO layer.
  */
-export interface FfiStepEvent {
-  // Event identification
-  event_id: string;
-  task_uuid: string;
-  step_uuid: string;
-  correlation_id: string;
 
-  // Trace context
-  trace_id: string | null;
-  span_id: string | null;
+// =============================================================================
+// Generated Types (from ts-rs)
+// =============================================================================
+// These types are automatically generated from Rust DTOs in src-rust/dto.rs.
+// Re-exported with API-friendly names (without Dto suffix).
 
-  // Task correlation IDs
-  task_correlation_id: string;
-  parent_correlation_id: string | null;
+import type { DependencyResultDto } from './generated/DependencyResultDto';
+import type { FfiDispatchMetricsDto } from './generated/FfiDispatchMetricsDto';
+import type { FfiStepEventDto } from './generated/FfiStepEventDto';
+import type { HandlerDefinitionDto } from './generated/HandlerDefinitionDto';
+import type { RetryConfigurationDto } from './generated/RetryConfigurationDto';
+import type { StepDefinitionDto } from './generated/StepDefinitionDto';
+import type { StepExecutionErrorDto } from './generated/StepExecutionErrorDto';
+import type { TaskDto } from './generated/TaskDto';
+import type { WorkflowStepDto } from './generated/WorkflowStepDto';
 
-  // Task information
-  task: Task;
+// Re-export with API-friendly names
+export type Task = TaskDto;
+export type WorkflowStep = WorkflowStepDto;
+export type HandlerDefinition = HandlerDefinitionDto;
+export type RetryConfiguration = RetryConfigurationDto;
+export type StepDefinition = StepDefinitionDto;
+export type StepExecutionError = StepExecutionErrorDto;
+export type DependencyResult = DependencyResultDto;
+export type FfiStepEvent = FfiStepEventDto;
+export type FfiDispatchMetrics = FfiDispatchMetricsDto;
 
-  // Workflow step information
-  workflow_step: WorkflowStep;
+// Also export the Dto-suffixed types for explicit usage
+export type {
+  DependencyResultDto,
+  FfiDispatchMetricsDto,
+  FfiStepEventDto,
+  HandlerDefinitionDto,
+  RetryConfigurationDto,
+  StepDefinitionDto,
+  StepExecutionErrorDto,
+  TaskDto,
+  WorkflowStepDto,
+};
 
-  // Step definition
-  step_definition: StepDefinition;
-
-  // Dependency results from parent steps
-  dependency_results: Record<string, DependencyResult>;
-}
+// =============================================================================
+// Runtime Types (not generated)
+// =============================================================================
+// These types are specific to the TypeScript runtime and don't exist in Rust DTOs.
 
 /**
  * Bootstrap configuration for the worker
@@ -187,17 +99,6 @@ export interface StopResult {
   message: string;
   worker_id?: string;
   error?: string;
-}
-
-/**
- * FFI dispatch metrics from FfiDispatchMetrics
- */
-export interface FfiDispatchMetrics {
-  pending_count: number;
-  starvation_detected: boolean;
-  starving_event_count: number;
-  oldest_pending_age_ms: number | null;
-  newest_pending_age_ms: number | null;
 }
 
 /**

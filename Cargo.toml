@@ -99,6 +99,8 @@ sysinfo = "0.37"
 tempfile = "3.0"
 # Error handling
 thiserror = "2.0"
+# TypeScript binding generation from Rust types
+ts-rs = { version = "11.1", features = ["serde-json-impl", "chrono-impl"] }
 # Async runtime and utilities
 tokio = { version = "1.46", features = ["full"] }
 # Testing tools

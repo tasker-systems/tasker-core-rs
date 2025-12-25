@@ -16,9 +16,9 @@ import { BunRuntime } from '../../../src/ffi/bun-runtime.js';
 import {
   assertVersionString,
   findLibraryPath,
-  shouldRunBootstrapTests,
   SKIP_BOOTSTRAP_MESSAGE,
   SKIP_LIBRARY_MESSAGE,
+  shouldRunBootstrapTests,
 } from './common.js';
 
 describe('BunRuntime FFI Integration', () => {

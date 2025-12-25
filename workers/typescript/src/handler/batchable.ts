@@ -6,7 +6,12 @@ import type {
 } from '../types/batch';
 import { createBatchWorkerContext } from '../types/batch';
 import type { StepContext } from '../types/step-context';
-import { StepHandlerResult } from '../types/step-handler-result';
+import {
+  type BatchableResult,
+  type BatchWorkerConfig,
+  StepHandlerResult,
+} from '../types/step-handler-result';
+import { StepHandler } from './base';
 
 /**
  * Mixin interface for batch processing capabilities.
@@ -366,4 +371,156 @@ export function applyBatchable<T extends object>(target: T): T & Batchable {
   (target as T & Batchable).batchWorkerSuccess = mixin.batchWorkerSuccess.bind(mixin);
 
   return target as T & Batchable;
+}
+
+/**
+ * Base class for batch-enabled step handlers.
+ *
+ * Extends StepHandler with batch processing capabilities.
+ * Use this class when implementing handlers that need to create
+ * batch worker configurations.
+ *
+ * @example
+ * ```typescript
+ * export class CsvAnalyzerHandler extends BatchableStepHandler {
+ *   static handlerName = 'MyNamespace.CsvAnalyzer';
+ *
+ *   async call(context: StepContext): Promise<BatchableResult> {
+ *     const totalRows = 1000;
+ *     const batchConfigs: BatchWorkerConfig[] = [];
+ *
+ *     for (let i = 0; i < 5; i++) {
+ *       batchConfigs.push({
+ *         batch_id: `batch_${i + 1}`,
+ *         cursor_start: i * 200,
+ *         cursor_end: (i + 1) * 200,
+ *         row_count: 200,
+ *         worker_index: i,
+ *         total_workers: 5,
+ *       });
+ *     }
+ *
+ *     return this.batchSuccess(batchConfigs, {
+ *       total_rows: totalRows,
+ *       analyzed_at: new Date().toISOString(),
+ *     });
+ *   }
+ * }
+ * ```
+ */
+export abstract class BatchableStepHandler extends StepHandler implements Batchable {
+  private readonly _batchMixin = new BatchableMixin();
+
+  // Delegate Batchable interface methods to mixin
+  createCursorConfig(
+    start: number,
+    end: number,
+    stepSize?: number,
+    metadata?: Record<string, unknown>
+  ): CursorConfig {
+    return this._batchMixin.createCursorConfig(start, end, stepSize, metadata);
+  }
+
+  createCursorRanges(
+    totalItems: number,
+    batchSize: number,
+    stepSize?: number,
+    maxBatches?: number
+  ): CursorConfig[] {
+    return this._batchMixin.createCursorRanges(totalItems, batchSize, stepSize, maxBatches);
+  }
+
+  createBatchOutcome(
+    totalItems: number,
+    batchSize: number,
+    stepSize?: number,
+    batchMetadata?: Record<string, unknown>
+  ): BatchAnalyzerOutcome {
+    return this._batchMixin.createBatchOutcome(totalItems, batchSize, stepSize, batchMetadata);
+  }
+
+  createWorkerOutcome(
+    itemsProcessed: number,
+    itemsSucceeded?: number,
+    itemsFailed?: number,
+    itemsSkipped?: number,
+    results?: Array<Record<string, unknown>>,
+    errors?: Array<Record<string, unknown>>,
+    lastCursor?: number | null,
+    batchMetadata?: Record<string, unknown>
+  ): BatchWorkerOutcome {
+    return this._batchMixin.createWorkerOutcome(
+      itemsProcessed,
+      itemsSucceeded,
+      itemsFailed,
+      itemsSkipped,
+      results,
+      errors,
+      lastCursor,
+      batchMetadata
+    );
+  }
+
+  getBatchContext(context: StepContext): BatchWorkerContext | null {
+    return this._batchMixin.getBatchContext(context);
+  }
+
+  batchAnalyzerSuccess(
+    outcome: BatchAnalyzerOutcome,
+    metadata?: Record<string, unknown>
+  ): StepHandlerResult {
+    return this._batchMixin.batchAnalyzerSuccess(outcome, metadata);
+  }
+
+  batchWorkerSuccess(
+    outcome: BatchWorkerOutcome,
+    metadata?: Record<string, unknown>
+  ): StepHandlerResult {
+    return this._batchMixin.batchWorkerSuccess(outcome, metadata);
+  }
+
+  /**
+   * Create a successful batch analyzer result with batch worker configurations.
+   *
+   * This is a convenience method that wraps batch configurations in the format
+   * expected by the orchestration layer.
+   *
+   * @param batchConfigs - Array of batch worker configurations
+   * @param metadata - Additional metadata to include in the result
+   * @returns A BatchableResult (StepHandlerResult) indicating success
+   *
+   * @example
+   * ```typescript
+   * return this.batchSuccess(batchConfigs, {
+   *   total_rows: 1000,
+   *   analyzed_at: new Date().toISOString(),
+   * });
+   * ```
+   */
+  batchSuccess(
+    batchConfigs: BatchWorkerConfig[],
+    metadata?: Record<string, unknown>
+  ): BatchableResult {
+    // Convert BatchWorkerConfig[] to the format expected by orchestration
+    const cursorConfigs: CursorConfig[] = batchConfigs.map((config) => ({
+      startCursor: config.cursor_start,
+      endCursor: config.cursor_end,
+      stepSize: 1,
+      metadata: {
+        batch_id: config.batch_id,
+        row_count: config.row_count,
+        worker_index: config.worker_index,
+        total_workers: config.total_workers,
+        ...config.metadata,
+      },
+    }));
+
+    const outcome: BatchAnalyzerOutcome = {
+      cursorConfigs,
+      totalItems: batchConfigs.reduce((sum, c) => sum + c.row_count, 0),
+      batchMetadata: metadata || {},
+    };
+
+    return this.batchAnalyzerSuccess(outcome, metadata);
+  }
 }

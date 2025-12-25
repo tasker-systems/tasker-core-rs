@@ -7,14 +7,22 @@
  * Matches Python's StepExecutionSubscriber pattern (TAS-92 aligned).
  */
 
-import type { TaskerEventEmitter } from '../events/event-emitter.js';
+import type { StepExecutionReceivedPayload, TaskerEventEmitter } from '../events/event-emitter.js';
 import { StepEventNames } from '../events/event-names.js';
-import { RuntimeFactory } from '../ffi/runtime-factory.js';
+import type { TaskerRuntime } from '../ffi/runtime-interface.js';
 import type { FfiStepEvent, StepExecutionResult } from '../ffi/types.js';
-import type { HandlerRegistry } from '../handler/registry.js';
+import type { StepHandler } from '../handler/base.js';
 import { logDebug, logError, logInfo, logWarn } from '../logging/index.js';
 import { StepContext } from '../types/step-context.js';
 import type { StepHandlerResult } from '../types/step-handler-result.js';
+
+/**
+ * Interface for handler registry required by StepExecutionSubscriber.
+ */
+export interface HandlerRegistryInterface {
+  /** Resolve and instantiate a handler by name */
+  resolve(name: string): StepHandler | null;
+}
 
 /**
  * Configuration for the step execution subscriber.
@@ -46,6 +54,7 @@ export interface StepExecutionSubscriberConfig {
  * const subscriber = new StepExecutionSubscriber(
  *   eventEmitter,
  *   handlerRegistry,
+ *   runtime,
  *   { workerId: 'worker-1' }
  * );
  *
@@ -57,7 +66,8 @@ export interface StepExecutionSubscriberConfig {
  */
 export class StepExecutionSubscriber {
   private readonly emitter: TaskerEventEmitter;
-  private readonly registry: HandlerRegistry;
+  private readonly registry: HandlerRegistryInterface;
+  private readonly runtime: TaskerRuntime;
   private readonly workerId: string;
   private readonly maxConcurrent: number;
   private readonly handlerTimeoutMs: number;
@@ -67,13 +77,23 @@ export class StepExecutionSubscriber {
   private processedCount = 0;
   private errorCount = 0;
 
+  /**
+   * Create a new StepExecutionSubscriber.
+   *
+   * @param emitter - The event emitter to subscribe to (required, no fallback)
+   * @param registry - The handler registry for resolving step handlers
+   * @param runtime - The FFI runtime for submitting results (required, no fallback)
+   * @param config - Optional configuration for execution behavior
+   */
   constructor(
     emitter: TaskerEventEmitter,
-    registry: HandlerRegistry,
+    registry: HandlerRegistryInterface,
+    runtime: TaskerRuntime,
     config: StepExecutionSubscriberConfig = {}
   ) {
     this.emitter = emitter;
     this.registry = registry;
+    this.runtime = runtime;
     this.workerId = config.workerId ?? `typescript-worker-${process.pid}`;
     this.maxConcurrent = config.maxConcurrent ?? 10;
     this.handlerTimeoutMs = config.handlerTimeoutMs ?? 300000;
@@ -95,11 +115,13 @@ export class StepExecutionSubscriber {
     this.errorCount = 0;
 
     // Subscribe to step events
-    this.emitter.on(StepEventNames.STEP_EXECUTION_RECEIVED, (payload) => {
-      // Extract the event from the payload
-      const event = payload as FfiStepEvent;
-      this.handleEvent(event);
-    });
+    this.emitter.on(
+      StepEventNames.STEP_EXECUTION_RECEIVED,
+      (payload: StepExecutionReceivedPayload) => {
+        // Extract the event from the payload wrapper
+        this.handleEvent(payload.event);
+      }
+    );
 
     logInfo('StepExecutionSubscriber started', {
       component: 'subscriber',
@@ -354,16 +376,13 @@ export class StepExecutionSubscriber {
     result: StepHandlerResult,
     executionTimeMs: number
   ): Promise<void> {
-    const factory = RuntimeFactory.instance();
-    if (!factory.isLoaded()) {
+    if (!this.runtime.isLoaded) {
       logError('Cannot submit result: runtime not available', {
         component: 'subscriber',
         event_id: event.event_id,
       });
       return;
     }
-
-    const runtime = factory.getLoadedRuntime();
 
     // Build the execution result, only adding error if not successful
     const executionResult: StepExecutionResult = {
@@ -392,7 +411,7 @@ export class StepExecutionSubscriber {
     }
 
     try {
-      runtime.completeStepEvent(event.event_id, executionResult);
+      this.runtime.completeStepEvent(event.event_id, executionResult);
 
       this.emitter.emit(StepEventNames.STEP_COMPLETION_SENT, {
         eventId: event.event_id,
@@ -425,16 +444,13 @@ export class StepExecutionSubscriber {
     errorMessage: string,
     startTime: number
   ): Promise<void> {
-    const factory = RuntimeFactory.instance();
-    if (!factory.isLoaded()) {
+    if (!this.runtime.isLoaded) {
       logError('Cannot submit error result: runtime not available', {
         component: 'subscriber',
         event_id: event.event_id,
       });
       return;
     }
-
-    const runtime = factory.getLoadedRuntime();
 
     const executionTimeMs = Date.now() - startTime;
 
@@ -457,7 +473,7 @@ export class StepExecutionSubscriber {
     };
 
     try {
-      runtime.completeStepEvent(event.event_id, executionResult);
+      this.runtime.completeStepEvent(event.event_id, executionResult);
       this.errorCount++;
 
       logDebug('Error result submitted', {

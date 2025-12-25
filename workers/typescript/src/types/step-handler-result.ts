@@ -1,6 +1,36 @@
 import { ErrorType } from './error-type';
 
 /**
+ * Configuration for a batch worker instance.
+ *
+ * Used by batchable handlers to define the work partition for each worker.
+ */
+export interface BatchWorkerConfig {
+  /** Unique identifier for this batch */
+  batch_id: string;
+  /** Starting cursor position (inclusive) */
+  cursor_start: number;
+  /** Ending cursor position (exclusive) */
+  cursor_end: number;
+  /** Number of rows/items in this batch */
+  row_count: number;
+  /** Index of this worker (0-based) */
+  worker_index: number;
+  /** Total number of workers processing this data */
+  total_workers: number;
+  /** Optional additional metadata for this batch */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Result type alias for batchable handlers.
+ *
+ * Batchable handlers return this type which is a StepHandlerResult
+ * with batch-specific metadata.
+ */
+export type BatchableResult = StepHandlerResult;
+
+/**
  * Parameters for constructing a StepHandlerResult.
  */
 export interface StepHandlerResultParams {

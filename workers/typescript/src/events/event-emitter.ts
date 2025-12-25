@@ -263,28 +263,3 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
     });
   }
 }
-
-/**
- * Global event emitter instance (singleton)
- */
-let globalEmitter: TaskerEventEmitter | null = null;
-
-/**
- * Get the global event emitter instance
- */
-export function getGlobalEmitter(): TaskerEventEmitter {
-  if (globalEmitter === null) {
-    globalEmitter = new TaskerEventEmitter();
-  }
-  return globalEmitter;
-}
-
-/**
- * Clear the global event emitter (useful for testing)
- */
-export function clearGlobalEmitter(): void {
-  if (globalEmitter !== null) {
-    globalEmitter.removeAllListeners();
-    globalEmitter = null;
-  }
-}

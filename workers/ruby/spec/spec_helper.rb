@@ -10,7 +10,7 @@ require 'dotenv'
 def set_environment_variables
   # Load test-specific environment file first
   # This must happen before any other initialization
-  # .env.test sets TASKER_CONFIG_PATH to ruby-rspec.toml (web API disabled)
+  # .env.test sets TASKER_CONFIG_PATH to worker-test-embedded.toml (web API disabled)
   env_file = File.expand_path('../.env.test', __dir__)
   Dotenv.load(env_file) if File.exist?(env_file)
 

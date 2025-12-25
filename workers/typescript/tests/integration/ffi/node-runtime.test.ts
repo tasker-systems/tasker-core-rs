@@ -20,9 +20,9 @@ import { after, before, describe, it } from 'node:test';
 import {
   assertVersionString,
   findLibraryPath,
-  shouldRunBootstrapTests,
   SKIP_BOOTSTRAP_MESSAGE,
   SKIP_LIBRARY_MESSAGE,
+  shouldRunBootstrapTests,
 } from './common.js';
 
 // Dynamic import for NodeRuntime to avoid Bun runtime conflicts

@@ -43,6 +43,9 @@ export interface WorkerServerConfig {
   /** PostgreSQL database connection URL */
   databaseUrl?: string;
 
+  /** Path to the FFI library (overrides auto-discovery) */
+  libraryPath?: string;
+
   /** Maximum concurrent handler executions (default: 10) */
   maxConcurrentHandlers?: number;
 

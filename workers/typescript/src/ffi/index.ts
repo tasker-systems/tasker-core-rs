@@ -7,6 +7,8 @@
 // Runtime implementations (for direct use if needed)
 export { BunRuntime } from './bun-runtime.js';
 export { DenoRuntime } from './deno-runtime.js';
+// FfiLayer - primary API for FFI management
+export { FfiLayer, type FfiLayerConfig } from './ffi-layer.js';
 export { NodeRuntime } from './node-runtime.js';
 // Runtime detection
 export {
@@ -19,8 +21,6 @@ export {
   type RuntimeInfo,
   type RuntimeType,
 } from './runtime.js';
-// Runtime factory
-export { RuntimeFactory } from './runtime-factory.js';
 // Runtime interface
 export { BaseTaskerRuntime, type TaskerRuntime } from './runtime-interface.js';
 

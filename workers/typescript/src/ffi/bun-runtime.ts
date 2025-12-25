@@ -300,6 +300,7 @@ export class BunRuntime extends BaseTaskerRuntime {
       starving_event_count: 0,
       oldest_pending_age_ms: null,
       newest_pending_age_ms: null,
+      oldest_event_id: null,
     };
   }
 

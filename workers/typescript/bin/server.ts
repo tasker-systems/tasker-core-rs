@@ -192,7 +192,7 @@ async function runMainLoop(server: WorkerServer, shutdown: ShutdownController): 
   const healthTracker = createHealthTracker();
   let loopCount = 0;
 
-  while (!shutdown.isRequested && server.running()) {
+  while (!shutdown.isRequested && server.isRunning()) {
     await new Promise((resolve) => setTimeout(resolve, sleepInterval));
 
     if (shutdown.isRequested) {
@@ -214,7 +214,8 @@ async function runMainLoop(server: WorkerServer, shutdown: ShutdownController): 
 async function main(): Promise<number> {
   showBanner();
 
-  const server = WorkerServer.instance();
+  // Create a new WorkerServer instance (no singleton)
+  const server = new WorkerServer();
   const shutdown = new ShutdownController();
 
   // Set up signal handlers

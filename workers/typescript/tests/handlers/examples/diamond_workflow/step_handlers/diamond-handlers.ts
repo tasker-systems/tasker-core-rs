@@ -28,7 +28,7 @@ import type { StepHandlerResult } from '../../../../../src/types/step-handler-re
  * Output: { squared_value: n² }
  */
 export class DiamondStartHandler extends StepHandler {
-  static handlerName = 'DiamondWorkflow.StepHandlers.DiamondStartHandler';
+  static handlerName = 'diamond_workflow.step_handlers.DiamondStartHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -63,7 +63,7 @@ export class DiamondStartHandler extends StepHandler {
  * Output: { branch_b_value: n² + 25 }
  */
 export class DiamondBranchBHandler extends StepHandler {
-  static handlerName = 'DiamondWorkflow.StepHandlers.DiamondBranchBHandler';
+  static handlerName = 'diamond_workflow.step_handlers.DiamondBranchBHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -97,7 +97,7 @@ export class DiamondBranchBHandler extends StepHandler {
  * Output: { branch_c_value: n² × 2 }
  */
 export class DiamondBranchCHandler extends StepHandler {
-  static handlerName = 'DiamondWorkflow.StepHandlers.DiamondBranchCHandler';
+  static handlerName = 'diamond_workflow.step_handlers.DiamondBranchCHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -131,7 +131,7 @@ export class DiamondBranchCHandler extends StepHandler {
  * Output: { final_value: (b + c) / 2 }
  */
 export class DiamondEndHandler extends StepHandler {
-  static handlerName = 'DiamondWorkflow.StepHandlers.DiamondEndHandler';
+  static handlerName = 'diamond_workflow.step_handlers.DiamondEndHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {

@@ -24,7 +24,7 @@ import type {
  * Validate the approval request.
  */
 export class ValidateRequestHandler extends StepHandler {
-  static handlerName = 'ConditionalApproval.StepHandlers.ValidateRequestHandler';
+  static handlerName = 'conditional_approval.step_handlers.ValidateRequestHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -69,7 +69,7 @@ export class ValidateRequestHandler extends StepHandler {
  * - Amount >= $5,000: Create manager_approval_ts + finance_review_ts
  */
 export class RoutingDecisionHandler extends DecisionStepHandler {
-  static handlerName = 'ConditionalApproval.StepHandlers.RoutingDecisionHandler';
+  static handlerName = 'conditional_approval.step_handlers.RoutingDecisionHandler';
   static handlerVersion = '1.0.0';
 
   private static readonly SMALL_THRESHOLD = 1000;
@@ -119,7 +119,7 @@ export class RoutingDecisionHandler extends DecisionStepHandler {
  * Automatic approval for small amounts.
  */
 export class AutoApproveHandler extends StepHandler {
-  static handlerName = 'ConditionalApproval.StepHandlers.AutoApproveHandler';
+  static handlerName = 'conditional_approval.step_handlers.AutoApproveHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -151,7 +151,7 @@ export class AutoApproveHandler extends StepHandler {
  * Manager approval for medium/large amounts.
  */
 export class ManagerApprovalHandler extends StepHandler {
-  static handlerName = 'ConditionalApproval.StepHandlers.ManagerApprovalHandler';
+  static handlerName = 'conditional_approval.step_handlers.ManagerApprovalHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -186,7 +186,7 @@ export class ManagerApprovalHandler extends StepHandler {
  * Finance review for large amounts.
  */
 export class FinanceReviewHandler extends StepHandler {
-  static handlerName = 'ConditionalApproval.StepHandlers.FinanceReviewHandler';
+  static handlerName = 'conditional_approval.step_handlers.FinanceReviewHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -222,7 +222,7 @@ export class FinanceReviewHandler extends StepHandler {
  * Convergence point: Finalize approval after all required approvals.
  */
 export class FinalizeApprovalHandler extends StepHandler {
-  static handlerName = 'ConditionalApproval.StepHandlers.FinalizeApprovalHandler';
+  static handlerName = 'conditional_approval.step_handlers.FinalizeApprovalHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {

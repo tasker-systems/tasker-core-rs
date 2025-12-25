@@ -27,7 +27,7 @@ async fn test_typescript_success_scenario() -> Result<()> {
 
     // Create task with TypeScript success-only template
     let task_request = create_task_request(
-        "test_scenarios",
+        "test_scenarios_ts",
         "success_only_ts",
         json!({ "message": "Hello from TypeScript E2E test" }),
     );

@@ -5,8 +5,8 @@
  * and interacts properly with the runtime interface.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { clearGlobalEmitter, TaskerEventEmitter } from '../../../src/events/event-emitter.js';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { TaskerEventEmitter } from '../../../src/events/event-emitter.js';
 import {
   createEventPoller,
   EventPoller,
@@ -24,13 +24,9 @@ describe('EventPoller', () => {
     emitter = new TaskerEventEmitter();
   });
 
-  afterEach(() => {
-    clearGlobalEmitter();
-  });
-
   describe('construction', () => {
     it('creates a poller with default configuration', () => {
-      const poller = new EventPoller(mockRuntime);
+      const poller = new EventPoller(mockRuntime, emitter);
       expect(poller).toBeInstanceOf(EventPoller);
       expect(poller.getState()).toBe('stopped');
     });
@@ -42,14 +38,13 @@ describe('EventPoller', () => {
         cleanupInterval: 500,
         metricsInterval: 50,
         maxEventsPerCycle: 50,
-        eventEmitter: emitter,
       };
-      const poller = new EventPoller(mockRuntime, config);
+      const poller = new EventPoller(mockRuntime, emitter, config);
       expect(poller).toBeInstanceOf(EventPoller);
     });
 
-    it('accepts custom event emitter', () => {
-      const poller = new EventPoller(mockRuntime, { eventEmitter: emitter });
+    it('uses the provided event emitter', () => {
+      const poller = new EventPoller(mockRuntime, emitter);
       const startedHandler = mock(() => {});
       emitter.on('poller.started', startedHandler);
 
@@ -67,13 +62,13 @@ describe('EventPoller', () => {
     });
 
     it('starts in stopped state', () => {
-      const poller = new EventPoller(mockRuntime);
+      const poller = new EventPoller(mockRuntime, emitter);
       expect(poller.getState()).toBe('stopped');
       expect(poller.isRunning()).toBe(false);
     });
 
     it('transitions to running state on start', () => {
-      const poller = new EventPoller(mockRuntime, { eventEmitter: emitter });
+      const poller = new EventPoller(mockRuntime, emitter);
       poller.start();
 
       expect(poller.getState()).toBe('running');
@@ -83,7 +78,7 @@ describe('EventPoller', () => {
     });
 
     it('transitions back to stopped state on stop', async () => {
-      const poller = new EventPoller(mockRuntime, { eventEmitter: emitter });
+      const poller = new EventPoller(mockRuntime, emitter);
       poller.start();
       await poller.stop();
 
@@ -93,13 +88,13 @@ describe('EventPoller', () => {
 
     it('throws error when starting with unloaded runtime', () => {
       mockRuntime._setLoaded(false);
-      const poller = new EventPoller(mockRuntime);
+      const poller = new EventPoller(mockRuntime, emitter);
 
       expect(() => poller.start()).toThrow('Runtime not loaded');
     });
 
     it('is idempotent when starting multiple times', () => {
-      const poller = new EventPoller(mockRuntime, { eventEmitter: emitter });
+      const poller = new EventPoller(mockRuntime, emitter);
       poller.start();
       poller.start(); // Should not throw
 
@@ -108,7 +103,7 @@ describe('EventPoller', () => {
     });
 
     it('is idempotent when stopping multiple times', async () => {
-      const poller = new EventPoller(mockRuntime, { eventEmitter: emitter });
+      const poller = new EventPoller(mockRuntime, emitter);
       poller.start();
       await poller.stop();
       await poller.stop(); // Should not throw
@@ -126,7 +121,7 @@ describe('EventPoller', () => {
       const handler = mock(() => {});
       emitter.on('poller.started', handler);
 
-      const poller = new EventPoller(mockRuntime, { eventEmitter: emitter });
+      const poller = new EventPoller(mockRuntime, emitter);
       poller.start();
       poller.stop();
 
@@ -137,7 +132,7 @@ describe('EventPoller', () => {
       const handler = mock(() => {});
       emitter.on('poller.stopped', handler);
 
-      const poller = new EventPoller(mockRuntime, { eventEmitter: emitter });
+      const poller = new EventPoller(mockRuntime, emitter);
       poller.start();
       await poller.stop();
 
@@ -151,7 +146,7 @@ describe('EventPoller', () => {
     });
 
     it('supports onStepEvent callback registration', () => {
-      const poller = new EventPoller(mockRuntime);
+      const poller = new EventPoller(mockRuntime, emitter);
       const callback = mock(async () => {});
 
       const result = poller.onStepEvent(callback);
@@ -159,7 +154,7 @@ describe('EventPoller', () => {
     });
 
     it('supports onError callback registration', () => {
-      const poller = new EventPoller(mockRuntime);
+      const poller = new EventPoller(mockRuntime, emitter);
       const callback = mock(() => {});
 
       const result = poller.onError(callback);
@@ -167,7 +162,7 @@ describe('EventPoller', () => {
     });
 
     it('supports onMetrics callback registration', () => {
-      const poller = new EventPoller(mockRuntime);
+      const poller = new EventPoller(mockRuntime, emitter);
       const callback = mock(() => {});
 
       const result = poller.onMetrics(callback);
@@ -175,7 +170,7 @@ describe('EventPoller', () => {
     });
 
     it('supports fluent callback chaining', () => {
-      const poller = new EventPoller(mockRuntime);
+      const poller = new EventPoller(mockRuntime, emitter);
 
       const result = poller
         .onStepEvent(async () => {})
@@ -192,18 +187,17 @@ describe('EventPoller', () => {
     });
 
     it('initializes poll count to 0', () => {
-      const poller = new EventPoller(mockRuntime);
+      const poller = new EventPoller(mockRuntime, emitter);
       expect(poller.getPollCount()).toBe(0);
     });
 
     it('initializes cycle count to 0', () => {
-      const poller = new EventPoller(mockRuntime);
+      const poller = new EventPoller(mockRuntime, emitter);
       expect(poller.getCycleCount()).toBe(0);
     });
 
     it('resets counters on start', async () => {
-      const poller = new EventPoller(mockRuntime, {
-        eventEmitter: emitter,
+      const poller = new EventPoller(mockRuntime, emitter, {
         pollIntervalMs: 5,
       });
 
@@ -225,16 +219,15 @@ describe('EventPoller', () => {
 
   describe('createEventPoller factory', () => {
     it('creates an EventPoller instance', () => {
-      const poller = createEventPoller(mockRuntime);
+      const poller = createEventPoller(mockRuntime, emitter);
       expect(poller).toBeInstanceOf(EventPoller);
     });
 
     it('passes configuration to the poller', () => {
       const config: EventPollerConfig = {
         pollIntervalMs: 50,
-        eventEmitter: emitter,
       };
-      const poller = createEventPoller(mockRuntime, config);
+      const poller = createEventPoller(mockRuntime, emitter, config);
       expect(poller).toBeInstanceOf(EventPoller);
     });
   });

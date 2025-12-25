@@ -5,16 +5,16 @@
  * against the actual FFI library.
  */
 
-import { RuntimeFactory } from '../../../src/ffi/runtime-factory.js';
+import { FfiLayer } from '../../../src/ffi/ffi-layer.ts';
 
 /**
  * Find the FFI library path for testing.
  *
- * Re-exports RuntimeFactory.findLibraryPath() for test convenience.
- * See RuntimeFactory for full search order documentation.
+ * Re-exports FfiLayer.findLibraryPath() for test convenience.
+ * See FfiLayer for full search order documentation.
  */
 export function findLibraryPath(): string | null {
-  return RuntimeFactory.findLibraryPath();
+  return FfiLayer.findLibraryPath();
 }
 
 /**

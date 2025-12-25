@@ -5,6 +5,12 @@
 //! - Compile-time guarantees on field mappings
 //! - Clear intentional divergence between Rust internals and FFI contract
 //! - Proper serde handling for enums and complex types
+//!
+//! ## TypeScript Binding Generation
+//!
+//! These DTOs use `ts-rs` to automatically generate TypeScript type definitions.
+//! Run `cargo test export_bindings --package tasker-worker-ts` to regenerate
+//! the TypeScript types in `workers/typescript/src/ffi/generated/`.
 
 use std::collections::HashMap;
 
@@ -17,8 +23,13 @@ use tasker_shared::models::core::{
 };
 use tasker_worker::worker::{FfiDispatchMetrics, FfiStepEvent};
 
+#[cfg(test)]
+use ts_rs::TS;
+
 /// DTO for FfiStepEvent - the main event payload sent to TypeScript handlers
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
 pub struct FfiStepEventDto {
     pub event_id: String,
     pub task_uuid: String,
@@ -66,12 +77,15 @@ impl From<&FfiStepEvent> for FfiStepEventDto {
 
 /// DTO for Task information
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
 pub struct TaskDto {
     pub task_uuid: String,
     pub named_task_uuid: String,
     pub name: String,
     pub namespace: String,
     pub version: String,
+    #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
     pub context: Option<serde_json::Value>,
     pub correlation_id: String,
     pub parent_correlation_id: Option<String>,
@@ -80,6 +94,7 @@ pub struct TaskDto {
     pub initiator: Option<String>,
     pub source_system: Option<String>,
     pub reason: Option<String>,
+    #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
     pub tags: Option<serde_json::Value>,
     pub identity_hash: String,
     pub created_at: String,
@@ -115,6 +130,8 @@ impl From<&TaskForOrchestration> for TaskDto {
 
 /// DTO for WorkflowStep information (uses WorkflowStepWithName which has name fields)
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
 pub struct WorkflowStepDto {
     pub workflow_step_uuid: String,
     pub task_uuid: String,
@@ -127,7 +144,9 @@ pub struct WorkflowStepDto {
     pub in_process: bool,
     pub processed: bool,
     pub skippable: bool,
+    #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
     pub inputs: Option<serde_json::Value>,
+    #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
     pub results: Option<serde_json::Value>,
     pub backoff_request_seconds: Option<i32>,
     pub processed_at: Option<String>,
@@ -163,6 +182,8 @@ impl From<&WorkflowStepWithName> for WorkflowStepDto {
 
 /// DTO for StepDefinition (from task template)
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
 pub struct StepDefinitionDto {
     pub name: String,
     pub description: Option<String>,
@@ -189,8 +210,11 @@ impl From<&StepDefinition> for StepDefinitionDto {
 
 /// DTO for HandlerDefinition
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
 pub struct HandlerDefinitionDto {
     pub callable: String,
+    #[cfg_attr(test, ts(type = "Record<string, unknown>"))]
     pub initialization: serde_json::Value,
 }
 
@@ -207,6 +231,8 @@ impl From<&HandlerDefinition> for HandlerDefinitionDto {
 
 /// DTO for RetryConfiguration
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
 pub struct RetryConfigurationDto {
     pub retryable: bool,
     pub max_attempts: u32,
@@ -230,9 +256,12 @@ impl From<&RetryConfiguration> for RetryConfigurationDto {
 
 /// DTO for dependency step results
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
 pub struct DependencyResultDto {
     pub step_uuid: String,
     pub success: bool,
+    #[cfg_attr(test, ts(type = "Record<string, unknown>"))]
     pub result: serde_json::Value,
     pub status: String,
     pub error: Option<StepExecutionErrorDto>,
@@ -252,6 +281,8 @@ impl From<&StepExecutionResult> for DependencyResultDto {
 
 /// DTO for step execution errors
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
 pub struct StepExecutionErrorDto {
     pub message: String,
     pub error_type: Option<String>,
@@ -274,6 +305,8 @@ impl From<&StepExecutionError> for StepExecutionErrorDto {
 
 /// DTO for FFI dispatch metrics
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
 pub struct FfiDispatchMetricsDto {
     pub pending_count: usize,
     pub starvation_detected: bool,
@@ -316,5 +349,32 @@ mod tests {
 
         assert!(json.contains("\"pending_count\":5"));
         assert!(json.contains("\"starvation_detected\":false"));
+    }
+
+    /// Export all TypeScript bindings to `workers/typescript/src/ffi/generated/`
+    ///
+    /// Run with: `cargo test export_bindings --package tasker-worker-ts`
+    ///
+    /// This test generates TypeScript type definitions from the Rust DTOs,
+    /// ensuring the TypeScript types are always in sync with the Rust source of truth.
+    #[test]
+    fn export_bindings() {
+        // Ensure the output directory exists
+        let output_dir = std::path::Path::new("../src/ffi/generated");
+        std::fs::create_dir_all(output_dir).expect("Failed to create generated directory");
+
+        // Export all DTOs - ts-rs handles this automatically via #[ts(export)]
+        // The types are exported when their TS::export() method is called
+        FfiStepEventDto::export_all().expect("Failed to export FfiStepEventDto");
+        TaskDto::export_all().expect("Failed to export TaskDto");
+        WorkflowStepDto::export_all().expect("Failed to export WorkflowStepDto");
+        StepDefinitionDto::export_all().expect("Failed to export StepDefinitionDto");
+        HandlerDefinitionDto::export_all().expect("Failed to export HandlerDefinitionDto");
+        RetryConfigurationDto::export_all().expect("Failed to export RetryConfigurationDto");
+        DependencyResultDto::export_all().expect("Failed to export DependencyResultDto");
+        StepExecutionErrorDto::export_all().expect("Failed to export StepExecutionErrorDto");
+        FfiDispatchMetricsDto::export_all().expect("Failed to export FfiDispatchMetricsDto");
+
+        println!("✅ TypeScript bindings exported to workers/typescript/src/ffi/generated/");
     }
 }

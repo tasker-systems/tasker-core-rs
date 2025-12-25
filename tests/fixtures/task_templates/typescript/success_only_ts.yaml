@@ -8,13 +8,13 @@
 #
 ---
 name: success_only_ts
-namespace_name: test_scenarios
+namespace_name: test_scenarios_ts
 version: 1.0.0
 description: "Simple success-only workflow for basic TypeScript integration testing"
 metadata:
   author: TypeScript FFI Implementation
   tags:
-    - namespace:test_scenarios
+    - namespace:test_scenarios_ts
     - pattern:single_step
     - implementation:typescript_ffi
     - language:typescript

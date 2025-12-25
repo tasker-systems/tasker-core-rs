@@ -6,9 +6,26 @@
  * matching other language workers.
  */
 
+import pino, { type Logger, type LoggerOptions } from 'pino';
 import type { TaskerRuntime } from '../ffi/runtime-interface.js';
 import type { FfiDispatchMetrics, FfiStepEvent } from '../ffi/types.js';
-import { getGlobalEmitter, type TaskerEventEmitter } from './event-emitter.js';
+import type { TaskerEventEmitter } from './event-emitter.js';
+
+// Create a pino logger for the event poller
+const loggerOptions: LoggerOptions = {
+  name: 'event-poller',
+  level: process.env.RUST_LOG ?? 'info',
+};
+
+// Add pino-pretty transport in non-production environments
+if (process.env.TASKER_ENV !== 'production') {
+  loggerOptions.transport = {
+    target: 'pino-pretty',
+    options: { colorize: true },
+  };
+}
+
+const log: Logger = pino(loggerOptions);
 
 /**
  * Configuration for the event poller
@@ -28,9 +45,6 @@ export interface EventPollerConfig {
 
   /** Maximum events to process per poll cycle (default: 100) */
   maxEventsPerCycle?: number;
-
-  /** Custom event emitter (uses global emitter if not provided) */
-  eventEmitter?: TaskerEventEmitter;
 }
 
 /**
@@ -77,17 +91,23 @@ export class EventPoller {
   private errorCallback: ErrorCallback | null = null;
   private metricsCallback: MetricsCallback | null = null;
 
-  constructor(runtime: TaskerRuntime, config: EventPollerConfig = {}) {
+  /**
+   * Create a new EventPoller.
+   *
+   * @param runtime - The FFI runtime for polling events
+   * @param emitter - The event emitter to dispatch events to (required, no fallback)
+   * @param config - Optional configuration for polling behavior
+   */
+  constructor(runtime: TaskerRuntime, emitter: TaskerEventEmitter, config: EventPollerConfig = {}) {
     this.runtime = runtime;
+    this.emitter = emitter;
     this.config = {
       pollIntervalMs: config.pollIntervalMs ?? 10,
       starvationCheckInterval: config.starvationCheckInterval ?? 100,
       cleanupInterval: config.cleanupInterval ?? 1000,
       metricsInterval: config.metricsInterval ?? 100,
       maxEventsPerCycle: config.maxEventsPerCycle ?? 100,
-      eventEmitter: config.eventEmitter ?? getGlobalEmitter(),
     };
-    this.emitter = this.config.eventEmitter;
   }
 
   /**
@@ -146,10 +166,20 @@ export class EventPoller {
    * Start the polling loop
    */
   start(): void {
+    log.info(
+      { component: 'event-poller', operation: 'start', currentState: this.state },
+      'EventPoller start() called'
+    );
+
     if (this.state === 'running') {
+      log.debug({ component: 'event-poller' }, 'Already running, returning early');
       return; // Already running
     }
 
+    log.debug(
+      { component: 'event-poller', runtimeLoaded: this.runtime.isLoaded },
+      'Checking runtime.isLoaded'
+    );
     if (!this.runtime.isLoaded) {
       throw new Error('Runtime not loaded. Call runtime.load() first.');
     }
@@ -163,10 +193,20 @@ export class EventPoller {
       message: 'Event poller started',
     });
 
+    log.info(
+      { component: 'event-poller', intervalMs: this.config.pollIntervalMs },
+      'Setting up setInterval for polling'
+    );
+
     // Start the polling loop
     this.intervalId = setInterval(() => {
       this.poll();
     }, this.config.pollIntervalMs);
+
+    log.info(
+      { component: 'event-poller', intervalId: String(this.intervalId) },
+      'setInterval created, polling active'
+    );
   }
 
   /**
@@ -197,6 +237,22 @@ export class EventPoller {
    * Execute a single poll cycle
    */
   private poll(): void {
+    // Log first poll at info level to confirm interval is working
+    if (this.pollCount === 0) {
+      log.info(
+        { component: 'event-poller', state: this.state },
+        'First poll() call - setInterval is working'
+      );
+    }
+
+    // Log every 100th poll to avoid spam
+    if (this.pollCount % 100 === 0) {
+      log.debug(
+        { component: 'event-poller', pollCount: this.pollCount, state: this.state },
+        'poll() cycle'
+      );
+    }
+
     if (this.state !== 'running') {
       return;
     }
@@ -214,6 +270,17 @@ export class EventPoller {
         }
 
         eventsProcessed++;
+        const handlerCallable = event.step_definition.handler.callable;
+        log.info(
+          {
+            component: 'event-poller',
+            operation: 'event_received',
+            stepUuid: event.step_uuid,
+            handlerCallable,
+            eventIndex: i,
+          },
+          `Received step event for handler: ${handlerCallable}`
+        );
         this.handleStepEvent(event);
       }
 
@@ -250,14 +317,35 @@ export class EventPoller {
    * Handle a step event
    */
   private handleStepEvent(event: FfiStepEvent): void {
+    const handlerCallable = event.step_definition.handler.callable;
+    log.debug(
+      {
+        component: 'event-poller',
+        operation: 'handle_step_event',
+        stepUuid: event.step_uuid,
+        handlerCallable,
+        hasCallback: !!this.stepEventCallback,
+      },
+      'Handling step event'
+    );
+
     // Emit the event through the event emitter
     this.emitter.emitStepReceived(event);
 
     // Call the registered callback if present
     if (this.stepEventCallback) {
+      log.debug(
+        { component: 'event-poller', stepUuid: event.step_uuid },
+        'Invoking step event callback'
+      );
       this.stepEventCallback(event).catch((error) => {
         this.handleError(error instanceof Error ? error : new Error(String(error)));
       });
+    } else {
+      log.warn(
+        { component: 'event-poller', stepUuid: event.step_uuid },
+        'No step event callback registered!'
+      );
     }
   }
 
@@ -313,8 +401,12 @@ export class EventPoller {
 }
 
 /**
- * Create an event poller with the given runtime and configuration
+ * Create an event poller with the given runtime, emitter, and configuration
  */
-export function createEventPoller(runtime: TaskerRuntime, config?: EventPollerConfig): EventPoller {
-  return new EventPoller(runtime, config);
+export function createEventPoller(
+  runtime: TaskerRuntime,
+  emitter: TaskerEventEmitter,
+  config?: EventPollerConfig
+): EventPoller {
+  return new EventPoller(runtime, emitter, config);
 }

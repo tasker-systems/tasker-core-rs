@@ -8,13 +8,13 @@
 #
 ---
 name: error_testing_handler_ts
-namespace_name: test_errors
+namespace_name: test_errors_ts
 version: 1.0.0
 description: "Error testing workflow for TypeScript integration testing"
 metadata:
   author: TypeScript FFI Implementation
   tags:
-    - namespace:test_errors
+    - namespace:test_errors_ts
     - pattern:error_testing
     - implementation:typescript_ffi
     - language:typescript

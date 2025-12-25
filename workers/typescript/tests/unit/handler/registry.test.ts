@@ -1,10 +1,10 @@
 /**
- * HandlerRegistry singleton tests.
+ * HandlerRegistry tests.
  *
  * Verifies handler registration, resolution, and lifecycle.
  */
 
-import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import { StepHandler } from '../../../src/handler/base.js';
 import { HandlerRegistry } from '../../../src/handler/registry.js';
 import { StepContext } from '../../../src/types/step-context.js';
@@ -43,40 +43,16 @@ class FailingConstructorHandler extends StepHandler {
 }
 
 describe('HandlerRegistry', () => {
-  beforeEach(() => {
-    // Reset singleton between tests
-    HandlerRegistry.resetInstance();
-  });
-
-  describe('singleton pattern', () => {
-    it('returns same instance on multiple calls', () => {
-      const instance1 = HandlerRegistry.instance();
-      const instance2 = HandlerRegistry.instance();
-
-      expect(instance1).toBe(instance2);
-    });
-
-    it('creates new instance after reset', () => {
-      const instance1 = HandlerRegistry.instance();
-      instance1.register('test', OrderHandler);
-
-      HandlerRegistry.resetInstance();
-      const instance2 = HandlerRegistry.instance();
-
-      expect(instance2.handlerCount()).toBe(0);
-    });
-  });
-
   describe('register', () => {
     it('registers a handler class', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
       expect(registry.isRegistered('order_handler')).toBe(true);
     });
 
     it('registers multiple handlers', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
       registry.register('payment_handler', PaymentHandler);
 
@@ -84,7 +60,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('throws error for empty name', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
 
       expect(() => registry.register('', OrderHandler)).toThrow(
         'Handler name must be a non-empty string'
@@ -92,7 +68,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('throws error for non-string name', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
 
       // @ts-expect-error Testing runtime validation
       expect(() => registry.register(null, OrderHandler)).toThrow(
@@ -101,7 +77,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('throws error for non-function handler class', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
 
       // @ts-expect-error Testing runtime validation
       expect(() => registry.register('test', 'not a function')).toThrow(
@@ -110,7 +86,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('warns when overwriting existing handler', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 
       registry.register('order_handler', OrderHandler);
@@ -124,7 +100,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('logs info message on registration', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
 
       registry.register('order_handler', OrderHandler);
@@ -139,7 +115,7 @@ describe('HandlerRegistry', () => {
 
   describe('unregister', () => {
     it('removes registered handler', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
       const result = registry.unregister('order_handler');
@@ -149,7 +125,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('returns false for non-existent handler', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
 
       const result = registry.unregister('nonexistent');
 
@@ -159,7 +135,7 @@ describe('HandlerRegistry', () => {
 
   describe('resolve', () => {
     it('instantiates registered handler', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
       const handler = registry.resolve('order_handler');
@@ -170,7 +146,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('returns new instance each time', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
       const handler1 = registry.resolve('order_handler');
@@ -180,7 +156,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('returns null for unregistered handler', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 
       const handler = registry.resolve('nonexistent');
@@ -194,7 +170,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('returns null when constructor throws', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
       registry.register('failing_constructor', FailingConstructorHandler);
@@ -212,7 +188,7 @@ describe('HandlerRegistry', () => {
 
   describe('getHandlerClass', () => {
     it('returns handler class for registered handler', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
       const handlerClass = registry.getHandlerClass('order_handler');
@@ -221,7 +197,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('returns undefined for unregistered handler', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
 
       const handlerClass = registry.getHandlerClass('nonexistent');
 
@@ -231,14 +207,14 @@ describe('HandlerRegistry', () => {
 
   describe('isRegistered', () => {
     it('returns true for registered handler', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
       expect(registry.isRegistered('order_handler')).toBe(true);
     });
 
     it('returns false for unregistered handler', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
 
       expect(registry.isRegistered('nonexistent')).toBe(false);
     });
@@ -246,13 +222,13 @@ describe('HandlerRegistry', () => {
 
   describe('listHandlers', () => {
     it('returns empty array when no handlers registered', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
 
       expect(registry.listHandlers()).toEqual([]);
     });
 
     it('returns array of registered handler names', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
       registry.register('payment_handler', PaymentHandler);
 
@@ -266,13 +242,13 @@ describe('HandlerRegistry', () => {
 
   describe('handlerCount', () => {
     it('returns 0 when empty', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
 
       expect(registry.handlerCount()).toBe(0);
     });
 
     it('returns correct count', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
       registry.register('payment_handler', PaymentHandler);
 
@@ -282,7 +258,7 @@ describe('HandlerRegistry', () => {
 
   describe('clear', () => {
     it('removes all handlers', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
       registry.register('payment_handler', PaymentHandler);
 
@@ -293,7 +269,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('logs debug message', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       const debugSpy = spyOn(console, 'debug').mockImplementation(() => {});
 
       registry.clear();
@@ -306,7 +282,7 @@ describe('HandlerRegistry', () => {
 
   describe('debugInfo', () => {
     it('returns empty state when no handlers', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
 
       const info = registry.debugInfo();
 
@@ -315,7 +291,7 @@ describe('HandlerRegistry', () => {
     });
 
     it('returns handler names and class names', () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
       registry.register('payment_handler', PaymentHandler);
 
@@ -331,7 +307,7 @@ describe('HandlerRegistry', () => {
 
   describe('integration', () => {
     it('supports full workflow: register, resolve, call', async () => {
-      const registry = HandlerRegistry.instance();
+      const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
       const handler = registry.resolve('order_handler');

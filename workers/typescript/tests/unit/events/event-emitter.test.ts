@@ -5,10 +5,8 @@
  * events with proper payloads.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
-  clearGlobalEmitter,
-  getGlobalEmitter,
   type MetricsPayload,
   type StepExecutionCompletedPayload,
   type StepExecutionReceivedPayload,
@@ -242,45 +240,6 @@ describe('TaskerEventEmitter', () => {
       const payload = handler.mock.calls[0][0];
       expect(payload.metrics.starvation_detected).toBe(true);
     });
-  });
-});
-
-describe('Global Emitter', () => {
-  afterEach(() => {
-    clearGlobalEmitter();
-  });
-
-  it('getGlobalEmitter returns a TaskerEventEmitter', () => {
-    const emitter = getGlobalEmitter();
-    expect(emitter).toBeInstanceOf(TaskerEventEmitter);
-  });
-
-  it('getGlobalEmitter returns the same instance on multiple calls', () => {
-    const emitter1 = getGlobalEmitter();
-    const emitter2 = getGlobalEmitter();
-    expect(emitter1).toBe(emitter2);
-  });
-
-  it('clearGlobalEmitter removes the cached instance', () => {
-    const emitter1 = getGlobalEmitter();
-    clearGlobalEmitter();
-    const emitter2 = getGlobalEmitter();
-    expect(emitter1).not.toBe(emitter2);
-  });
-
-  it('clearGlobalEmitter removes all listeners from the emitter', () => {
-    const emitter = getGlobalEmitter();
-    emitter.on('worker.started', () => {});
-    expect(emitter.listenerCount('worker.started')).toBe(1);
-
-    clearGlobalEmitter();
-    // clearGlobalEmitter explicitly removes all listeners as part of cleanup
-    expect(emitter.listenerCount('worker.started')).toBe(0);
-
-    // New global emitter is a fresh instance with no listeners
-    const newEmitter = getGlobalEmitter();
-    expect(newEmitter.listenerCount('worker.started')).toBe(0);
-    expect(newEmitter).not.toBe(emitter);
   });
 });
 

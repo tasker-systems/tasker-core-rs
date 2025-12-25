@@ -6,10 +6,59 @@
  * tracing subscriber for consistent formatting and output.
  *
  * Matches Python's logging module and Ruby's tracing module (TAS-92 aligned).
+ *
+ * To enable FFI logging, call setLoggingRuntime() after loading the FFI layer.
+ * If no runtime is installed, logs fall back to console output.
  */
 
-import { RuntimeFactory } from '../ffi/runtime-factory.js';
+import type { TaskerRuntime } from '../ffi/runtime-interface.js';
 import type { LogFields as FfiLogFields } from '../ffi/types.js';
+
+/**
+ * Installed runtime for logging.
+ * Set via setLoggingRuntime() for explicit dependency injection.
+ */
+let installedRuntime: TaskerRuntime | null = null;
+
+/**
+ * Install a runtime for logging to use.
+ *
+ * Call this after loading the FFI layer to enable Rust tracing integration.
+ * If not called, logs fall back to console output.
+ *
+ * @param runtime - The runtime to use for logging
+ *
+ * @example
+ * ```typescript
+ * const ffiLayer = new FfiLayer();
+ * await ffiLayer.load();
+ * setLoggingRuntime(ffiLayer.getRuntime());
+ * ```
+ */
+export function setLoggingRuntime(runtime: TaskerRuntime): void {
+  installedRuntime = runtime;
+}
+
+/**
+ * Clear the installed logging runtime.
+ *
+ * Primarily for testing.
+ */
+export function clearLoggingRuntime(): void {
+  installedRuntime = null;
+}
+
+/**
+ * Get the runtime for logging.
+ * Returns null if no runtime is installed (falls back to console).
+ * @internal
+ */
+function getLoggingRuntime(): TaskerRuntime | null {
+  if (installedRuntime?.isLoaded) {
+    return installedRuntime;
+  }
+  return null;
+}
 
 /**
  * Structured logging fields.
@@ -71,14 +120,14 @@ function fallbackLog(level: string, message: string, fields?: LogFields): void {
  * });
  */
 export function logError(message: string, fields?: LogFields): void {
-  const factory = RuntimeFactory.instance();
-  if (!factory.isLoaded()) {
+  const runtime = getLoggingRuntime();
+  if (!runtime) {
     fallbackLog('error', message, fields);
     return;
   }
 
   try {
-    factory.getCachedRuntime()?.logError(message, toFfiFields(fields));
+    runtime.logError(message, toFfiFields(fields));
   } catch {
     fallbackLog('error', message, fields);
   }
@@ -100,14 +149,14 @@ export function logError(message: string, fields?: LogFields): void {
  * });
  */
 export function logWarn(message: string, fields?: LogFields): void {
-  const factory = RuntimeFactory.instance();
-  if (!factory.isLoaded()) {
+  const runtime = getLoggingRuntime();
+  if (!runtime) {
     fallbackLog('warn', message, fields);
     return;
   }
 
   try {
-    factory.getCachedRuntime()?.logWarn(message, toFfiFields(fields));
+    runtime.logWarn(message, toFfiFields(fields));
   } catch {
     fallbackLog('warn', message, fields);
   }
@@ -130,14 +179,14 @@ export function logWarn(message: string, fields?: LogFields): void {
  * });
  */
 export function logInfo(message: string, fields?: LogFields): void {
-  const factory = RuntimeFactory.instance();
-  if (!factory.isLoaded()) {
+  const runtime = getLoggingRuntime();
+  if (!runtime) {
     fallbackLog('info', message, fields);
     return;
   }
 
   try {
-    factory.getCachedRuntime()?.logInfo(message, toFfiFields(fields));
+    runtime.logInfo(message, toFfiFields(fields));
   } catch {
     fallbackLog('info', message, fields);
   }
@@ -159,14 +208,14 @@ export function logInfo(message: string, fields?: LogFields): void {
  * });
  */
 export function logDebug(message: string, fields?: LogFields): void {
-  const factory = RuntimeFactory.instance();
-  if (!factory.isLoaded()) {
+  const runtime = getLoggingRuntime();
+  if (!runtime) {
     fallbackLog('debug', message, fields);
     return;
   }
 
   try {
-    factory.getCachedRuntime()?.logDebug(message, toFfiFields(fields));
+    runtime.logDebug(message, toFfiFields(fields));
   } catch {
     fallbackLog('debug', message, fields);
   }
@@ -188,14 +237,14 @@ export function logDebug(message: string, fields?: LogFields): void {
  * });
  */
 export function logTrace(message: string, fields?: LogFields): void {
-  const factory = RuntimeFactory.instance();
-  if (!factory.isLoaded()) {
+  const runtime = getLoggingRuntime();
+  if (!runtime) {
     fallbackLog('trace', message, fields);
     return;
   }
 
   try {
-    factory.getCachedRuntime()?.logTrace(message, toFfiFields(fields));
+    runtime.logTrace(message, toFfiFields(fields));
   } catch {
     fallbackLog('trace', message, fields);
   }

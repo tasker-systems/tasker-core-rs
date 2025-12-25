@@ -44,14 +44,15 @@ export {
   DenoRuntime,
   // Runtime detection
   detectRuntime,
+  // FfiLayer - primary API for FFI management
+  FfiLayer,
+  type FfiLayerConfig,
   getLibraryPath,
   getRuntimeInfo,
   isBun,
   isDeno,
   isNode,
   NodeRuntime,
-  // Runtime factory
-  RuntimeFactory,
   type RuntimeInfo,
   type RuntimeType,
   type TaskerRuntime,

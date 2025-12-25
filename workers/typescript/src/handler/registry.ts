@@ -3,74 +3,26 @@ import type { StepHandler, StepHandlerClass } from './base';
 /**
  * Registry for step handler classes.
  *
- * Provides handler registration and resolution using the singleton pattern
- * for global handler management.
+ * Provides handler registration and resolution.
  *
  * Matches Python's HandlerRegistry and Ruby's HandlerRegistry.
  *
- * @example
+ * @example Using with HandlerSystem (preferred)
  * ```typescript
- * // Get singleton instance
- * const registry = HandlerRegistry.instance();
+ * const handlerSystem = new HandlerSystem();
+ * handlerSystem.register('my_handler', MyHandler);
+ * const handler = handlerSystem.resolve('my_handler');
+ * ```
  *
- * // Register a handler
+ * @example Direct instantiation (also supported)
+ * ```typescript
+ * const registry = new HandlerRegistry();
  * registry.register('my_handler', MyHandler);
- *
- * // Check if registered
- * if (registry.isRegistered('my_handler')) {
- *   // Resolve and get instance
- *   const handler = registry.resolve('my_handler');
- *   if (handler) {
- *     const result = await handler.call(context);
- *   }
- * }
- *
- * // List all handlers
- * const handlers = registry.listHandlers();
- * console.log('Registered handlers:', handlers);
+ * const handler = registry.resolve('my_handler');
  * ```
  */
 export class HandlerRegistry {
-  private static _instance: HandlerRegistry | null = null;
-
   private _handlers: Map<string, StepHandlerClass> = new Map();
-
-  /**
-   * Private constructor - use instance() to get singleton.
-   */
-  private constructor() {}
-
-  /**
-   * Get the singleton registry instance.
-   *
-   * @returns The singleton HandlerRegistry instance
-   *
-   * @example
-   * ```typescript
-   * const registry = HandlerRegistry.instance();
-   * ```
-   */
-  static instance(): HandlerRegistry {
-    if (!HandlerRegistry._instance) {
-      HandlerRegistry._instance = new HandlerRegistry();
-    }
-    return HandlerRegistry._instance;
-  }
-
-  /**
-   * Reset the singleton instance.
-   *
-   * This is primarily for testing to ensure a clean state between tests.
-   *
-   * @example
-   * ```typescript
-   * // In test setup
-   * HandlerRegistry.resetInstance();
-   * ```
-   */
-  static resetInstance(): void {
-    HandlerRegistry._instance = null;
-  }
 
   /**
    * Register a handler class.

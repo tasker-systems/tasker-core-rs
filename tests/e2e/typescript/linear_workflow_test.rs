@@ -33,7 +33,7 @@ async fn test_typescript_linear_workflow_standard() -> Result<()> {
     // Create task with input 6
     // Expected: 6² = 36, 36+10 = 46, 46*3 = 138, 138/2 = 69
     let task_request = create_task_request(
-        "linear_workflow",
+        "linear_workflow_ts",
         "mathematical_sequence_ts",
         json!({ "even_number": 6 }),
     );
@@ -93,7 +93,7 @@ async fn test_typescript_linear_workflow_different_input() -> Result<()> {
 
     // Create task with input 10
     let task_request = create_task_request(
-        "linear_workflow",
+        "linear_workflow_ts",
         "mathematical_sequence_ts",
         json!({ "even_number": 10 }),
     );
@@ -145,7 +145,7 @@ async fn test_typescript_linear_workflow_ordering() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
     let task_request = create_task_request(
-        "linear_workflow",
+        "linear_workflow_ts",
         "mathematical_sequence_ts",
         json!({ "even_number": 8 }),
     );

@@ -14,13 +14,13 @@
 #
 ---
 name: mathematical_sequence_ts
-namespace_name: linear_workflow
+namespace_name: linear_workflow_ts
 version: 1.0.0
 description: "Sequential mathematical operations: input → square → add → multiply → divide (TypeScript)"
 metadata:
   author: TypeScript FFI Implementation
   tags:
-    - namespace:linear_workflow
+    - namespace:linear_workflow_ts
     - pattern:linear
     - dependencies:simple
     - implementation:typescript_ffi
