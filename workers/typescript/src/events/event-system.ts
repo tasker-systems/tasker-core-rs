@@ -15,11 +15,30 @@
  * - Explicit lifecycle: start() and stop() methods with defined phases
  */
 
+import pino, { type Logger, type LoggerOptions } from 'pino';
 import type { TaskerRuntime } from '../ffi/runtime-interface.js';
 import type { StepHandler } from '../handler/base.js';
 import { StepExecutionSubscriber } from '../subscriber/step-execution-subscriber.js';
+import type { StepExecutionReceivedPayload } from './event-emitter.js';
 import { TaskerEventEmitter } from './event-emitter.js';
+import { StepEventNames } from './event-names.js';
 import { EventPoller } from './event-poller.js';
+
+// Create a pino logger for the event system (for debugging)
+const loggerOptions: LoggerOptions = {
+  name: 'event-system',
+  level: process.env.RUST_LOG ?? 'info',
+};
+
+// Add pino-pretty transport in non-production environments
+if (process.env.TASKER_ENV !== 'production') {
+  loggerOptions.transport = {
+    target: 'pino-pretty',
+    options: { colorize: true },
+  };
+}
+
+const log: Logger = pino(loggerOptions);
 
 /**
  * Interface for handler registry required by EventSystem.
@@ -159,17 +178,74 @@ export class EventSystem {
    * This ensures no events are missed.
    */
   start(): void {
+    log.info(
+      { component: 'event-system', emitterInstanceId: this.emitter.getInstanceId() },
+      'EventSystem.start() called'
+    );
+
     if (this.running) {
+      log.warn({ component: 'event-system' }, 'EventSystem already running');
       return;
     }
 
+    // Add a debug listener BEFORE subscriber to trace event flow
+    log.info(
+      { component: 'event-system', eventName: StepEventNames.STEP_EXECUTION_RECEIVED },
+      `Adding debug listener BEFORE subscriber for ${StepEventNames.STEP_EXECUTION_RECEIVED}...`
+    );
+    this.emitter.on(
+      StepEventNames.STEP_EXECUTION_RECEIVED,
+      (payload: StepExecutionReceivedPayload) => {
+        log.info(
+          {
+            component: 'event-system',
+            debugListener: true,
+            eventId: payload.event?.event_id,
+            stepUuid: payload.event?.step_uuid,
+            eventName: StepEventNames.STEP_EXECUTION_RECEIVED,
+          },
+          `🔍 DEBUG LISTENER: Received ${StepEventNames.STEP_EXECUTION_RECEIVED} event!`
+        );
+      }
+    );
+    log.info(
+      {
+        component: 'event-system',
+        listenerCountAfterDebug: this.emitter.listenerCount(StepEventNames.STEP_EXECUTION_RECEIVED),
+        eventName: StepEventNames.STEP_EXECUTION_RECEIVED,
+      },
+      'Debug listener added'
+    );
+
     // Start subscriber first to register listeners
+    log.info({ component: 'event-system' }, 'Starting subscriber first...');
     this.subscriber.start();
 
+    log.info(
+      {
+        component: 'event-system',
+        listenerCountAfterSubscriber: this.emitter.listenerCount(
+          StepEventNames.STEP_EXECUTION_RECEIVED
+        ),
+        eventName: StepEventNames.STEP_EXECUTION_RECEIVED,
+      },
+      'Subscriber started, checking listener count'
+    );
+
     // Then start poller to begin receiving events
+    log.info({ component: 'event-system' }, 'Starting poller...');
     this.poller.start();
 
     this.running = true;
+    log.info(
+      {
+        component: 'event-system',
+        emitterInstanceId: this.emitter.getInstanceId(),
+        listenerCount: this.emitter.listenerCount(StepEventNames.STEP_EXECUTION_RECEIVED),
+        eventName: StepEventNames.STEP_EXECUTION_RECEIVED,
+      },
+      'EventSystem started successfully'
+    );
   }
 
   /**

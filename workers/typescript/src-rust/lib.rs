@@ -235,26 +235,46 @@ pub unsafe extern "C" fn complete_step_event(
     result_json: *const c_char,
 ) -> c_int {
     if event_id.is_null() || result_json.is_null() {
+        tracing::error!("complete_step_event: null pointer received (event_id={}, result_json={})",
+            event_id.is_null(), result_json.is_null());
         return 0;
     }
 
     // SAFETY: Caller guarantees event_id is a valid null-terminated C string
     let event_id_str = match unsafe { CStr::from_ptr(event_id) }.to_str() {
         Ok(s) => s,
-        Err(_) => return 0,
+        Err(e) => {
+            tracing::error!("complete_step_event: invalid UTF-8 in event_id: {}", e);
+            return 0;
+        }
     };
 
     // SAFETY: Caller guarantees result_json is a valid null-terminated C string
     let result_str = match unsafe { CStr::from_ptr(result_json) }.to_str() {
         Ok(s) => s,
-        Err(_) => return 0,
+        Err(e) => {
+            tracing::error!("complete_step_event: invalid UTF-8 in result_json: {}", e);
+            return 0;
+        }
     };
 
+    tracing::info!(
+        event_id = %event_id_str,
+        result_json_len = result_str.len(),
+        "complete_step_event: FFI call received"
+    );
+
     match bridge::complete_step_event_internal(event_id_str, result_str) {
-        Ok(true) => 1,
-        Ok(false) => 0,
+        Ok(true) => {
+            tracing::info!(event_id = %event_id_str, "complete_step_event: SUCCESS");
+            1
+        }
+        Ok(false) => {
+            tracing::warn!(event_id = %event_id_str, "complete_step_event: returned false (event not in pending)");
+            0
+        }
         Err(e) => {
-            tracing::error!("Failed to complete step event: {}", e);
+            tracing::error!(event_id = %event_id_str, error = %e, "complete_step_event: internal error");
             0
         }
     }

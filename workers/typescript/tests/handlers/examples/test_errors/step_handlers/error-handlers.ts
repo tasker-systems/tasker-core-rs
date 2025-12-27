@@ -16,7 +16,7 @@ import type { StepHandlerResult } from '../../../../../src/types/step-handler-re
  * Handler that always succeeds.
  */
 export class SuccessHandler extends StepHandler {
-  static handlerName = 'TestErrors.StepHandlers.SuccessHandler';
+  static handlerName = 'test_errors.step_handlers.SuccessHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -39,7 +39,7 @@ export class SuccessHandler extends StepHandler {
  * permanent failures without retry attempts.
  */
 export class PermanentErrorHandler extends StepHandler {
-  static handlerName = 'TestErrors.StepHandlers.PermanentErrorHandler';
+  static handlerName = 'test_errors.step_handlers.PermanentErrorHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -47,7 +47,7 @@ export class PermanentErrorHandler extends StepHandler {
 
     return this.failure(
       message,
-      ErrorType.PERMANENT_FAILURE,
+      ErrorType.PERMANENT_ERROR,
       false, // Not retryable
       {
         scenario: 'permanent_error',
@@ -65,7 +65,7 @@ export class PermanentErrorHandler extends StepHandler {
  * retryable failures with exponential backoff until retry limit.
  */
 export class RetryableErrorHandler extends StepHandler {
-  static handlerName = 'TestErrors.StepHandlers.RetryableErrorHandler';
+  static handlerName = 'test_errors.step_handlers.RetryableErrorHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
@@ -73,13 +73,13 @@ export class RetryableErrorHandler extends StepHandler {
 
     return this.failure(
       message,
-      ErrorType.RETRYABLE_FAILURE,
+      ErrorType.RETRYABLE_ERROR,
       true, // Retryable
       {
         scenario: 'retryable_error',
         handler: 'RetryableErrorHandler',
         timestamp: new Date().toISOString(),
-        attempt: context.step?.attempts ?? 1,
+        attempt: context.retryCount,
       }
     );
   }

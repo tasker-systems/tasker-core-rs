@@ -76,9 +76,13 @@ export class RoutingDecisionHandler extends DecisionStepHandler {
   private static readonly LARGE_THRESHOLD = 5000;
 
   async call(context: StepContext): Promise<DecisionResult> {
-    const validateResult = context.getDependencyResult('validate_request_ts');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const validateResult = context.getDependencyResult('validate_request_ts') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!validateResult || !validateResult.result) {
+    if (!validateResult) {
       return this.failure(
         'Missing dependency result from validate_request_ts',
         'dependency_error',
@@ -86,7 +90,7 @@ export class RoutingDecisionHandler extends DecisionStepHandler {
       ) as DecisionResult;
     }
 
-    const amount = validateResult.result.amount as number;
+    const amount = validateResult.amount as number;
     const stepsToCreate: string[] = [];
     let routingPath: string;
 
@@ -123,9 +127,13 @@ export class AutoApproveHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const validateResult = context.getDependencyResult('validate_request_ts');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const validateResult = context.getDependencyResult('validate_request_ts') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!validateResult || !validateResult.result) {
+    if (!validateResult) {
       return this.failure(
         'Missing dependency result from validate_request_ts',
         'dependency_error',
@@ -133,8 +141,8 @@ export class AutoApproveHandler extends StepHandler {
       );
     }
 
-    const amount = validateResult.result.amount as number;
-    const requester = validateResult.result.requester as string;
+    const amount = validateResult.amount as number;
+    const requester = validateResult.requester as string;
 
     return this.success({
       approved: true,
@@ -155,9 +163,13 @@ export class ManagerApprovalHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const validateResult = context.getDependencyResult('validate_request_ts');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const validateResult = context.getDependencyResult('validate_request_ts') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!validateResult || !validateResult.result) {
+    if (!validateResult) {
       return this.failure(
         'Missing dependency result from validate_request_ts',
         'dependency_error',
@@ -165,9 +177,9 @@ export class ManagerApprovalHandler extends StepHandler {
       );
     }
 
-    const amount = validateResult.result.amount as number;
-    const requester = validateResult.result.requester as string;
-    const purpose = validateResult.result.purpose as string;
+    const amount = validateResult.amount as number;
+    const requester = validateResult.requester as string;
+    const purpose = validateResult.purpose as string;
 
     // Simulate manager approval (always approves in test)
     return this.success({
@@ -190,9 +202,13 @@ export class FinanceReviewHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const validateResult = context.getDependencyResult('validate_request_ts');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const validateResult = context.getDependencyResult('validate_request_ts') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!validateResult || !validateResult.result) {
+    if (!validateResult) {
       return this.failure(
         'Missing dependency result from validate_request_ts',
         'dependency_error',
@@ -200,9 +216,9 @@ export class FinanceReviewHandler extends StepHandler {
       );
     }
 
-    const amount = validateResult.result.amount as number;
-    const requester = validateResult.result.requester as string;
-    const purpose = validateResult.result.purpose as string;
+    const amount = validateResult.amount as number;
+    const requester = validateResult.requester as string;
+    const purpose = validateResult.purpose as string;
 
     // Simulate finance review (always approves in test)
     return this.success({
@@ -226,33 +242,43 @@ export class FinalizeApprovalHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
     // Collect approval results from whichever steps were created
-    const autoApproveResult = context.getDependencyResult('auto_approve_ts');
-    const managerApprovalResult = context.getDependencyResult('manager_approval_ts');
-    const financeReviewResult = context.getDependencyResult('finance_review_ts');
+    const autoApproveResult = context.getDependencyResult('auto_approve_ts') as Record<
+      string,
+      unknown
+    > | null;
+    const managerApprovalResult = context.getDependencyResult('manager_approval_ts') as Record<
+      string,
+      unknown
+    > | null;
+    const financeReviewResult = context.getDependencyResult('finance_review_ts') as Record<
+      string,
+      unknown
+    > | null;
 
     const approvals: Array<{ type: string; approved: boolean; approver?: string }> = [];
 
-    if (autoApproveResult?.result) {
+    if (autoApproveResult) {
       approvals.push({
         type: 'automatic',
-        approved: autoApproveResult.result.approved as boolean,
+        approved: autoApproveResult.approved as boolean,
       });
     }
 
-    if (managerApprovalResult?.result) {
+    if (managerApprovalResult) {
       approvals.push({
         type: 'manager',
-        approved: managerApprovalResult.result.approved as boolean,
-        approver: managerApprovalResult.result.approver as string,
+        approved: managerApprovalResult.approved as boolean,
+        approver: managerApprovalResult.approver as string,
       });
     }
 
-    if (financeReviewResult?.result) {
+    if (financeReviewResult) {
       approvals.push({
         type: 'finance',
-        approved: financeReviewResult.result.approved as boolean,
-        approver: financeReviewResult.result.reviewer as string,
+        approved: financeReviewResult.approved as boolean,
+        approver: financeReviewResult.reviewer as string,
       });
     }
 

@@ -42,7 +42,13 @@ import { EventSystem, type EventSystemConfig } from '../events/event-system.js';
 import { FfiLayer, type FfiLayerConfig } from '../ffi/ffi-layer.js';
 import { HandlerSystem } from '../handler/handler-system.js';
 import { createLogger, setLoggingRuntime } from '../logging/index.js';
-import type { HealthCheckResult, ServerState, ServerStatus, WorkerServerConfig } from './types.js';
+import {
+  type HealthCheckResult,
+  type ServerState,
+  ServerStates,
+  type ServerStatus,
+  type WorkerServerConfig,
+} from './types.js';
 
 const log = createLogger({ component: 'server' });
 
@@ -58,7 +64,7 @@ export class WorkerServer {
   private readonly handlerSystem: HandlerSystem;
   private eventSystem: EventSystem | null = null;
 
-  private state: ServerState = 'initialized';
+  private state: ServerState = ServerStates.INITIALIZED;
   private config: WorkerServerConfig | null = null;
   private workerId: string | null = null;
   private startTime: number | null = null;
@@ -96,7 +102,7 @@ export class WorkerServer {
    * Check if the server is currently running.
    */
   isRunning(): boolean {
-    return this.state === 'running';
+    return this.state === ServerStates.RUNNING;
   }
 
   /**
@@ -130,15 +136,15 @@ export class WorkerServer {
    * @throws Error if server is already running or fails to start
    */
   async start(config?: WorkerServerConfig): Promise<this> {
-    if (this.state === 'running') {
+    if (this.state === ServerStates.RUNNING) {
       throw new Error('WorkerServer is already running');
     }
 
-    if (this.state === 'starting') {
+    if (this.state === ServerStates.STARTING) {
       throw new Error('WorkerServer is already starting');
     }
 
-    this.state = 'starting';
+    this.state = ServerStates.STARTING;
     this.config = config ?? {};
     this.startTime = Date.now();
 
@@ -158,7 +164,7 @@ export class WorkerServer {
       // Phase 3: Start event processing
       await this.startEventProcessingPhase();
 
-      this.state = 'running';
+      this.state = ServerStates.RUNNING;
 
       log.info('WorkerServer started successfully', {
         operation: 'start',
@@ -168,7 +174,7 @@ export class WorkerServer {
 
       return this;
     } catch (error) {
-      this.state = 'error';
+      this.state = ServerStates.ERROR;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       log.error(`WorkerServer failed to start: ${errorMessage}`, {
@@ -192,12 +198,12 @@ export class WorkerServer {
    * 3. Unload FFI
    */
   async shutdown(): Promise<void> {
-    if (this.state === 'shutting_down') {
+    if (this.state === ServerStates.SHUTTING_DOWN) {
       log.warn('Shutdown already in progress', { operation: 'shutdown' });
       return;
     }
 
-    if (this.state !== 'running') {
+    if (this.state !== ServerStates.RUNNING) {
       log.info('Server not running, nothing to shutdown', {
         operation: 'shutdown',
         state: this.state,
@@ -205,7 +211,7 @@ export class WorkerServer {
       return;
     }
 
-    this.state = 'shutting_down';
+    this.state = ServerStates.SHUTTING_DOWN;
 
     log.info('Starting shutdown sequence...', { operation: 'shutdown' });
 
@@ -250,13 +256,13 @@ export class WorkerServer {
         }
       }
 
-      this.state = 'stopped';
+      this.state = ServerStates.STOPPED;
 
       log.info('WorkerServer shutdown completed successfully', {
         operation: 'shutdown',
       });
     } catch (error) {
-      this.state = 'error';
+      this.state = ServerStates.ERROR;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       log.error(`Shutdown failed: ${errorMessage}`, {
@@ -285,7 +291,7 @@ export class WorkerServer {
    * Perform a health check on the worker.
    */
   healthCheck(): HealthCheckResult {
-    if (this.state !== 'running') {
+    if (this.state !== ServerStates.RUNNING) {
       return {
         healthy: false,
         error: `Server not running (state: ${this.state})`,
@@ -325,7 +331,7 @@ export class WorkerServer {
     return {
       state: this.state,
       workerId: this.workerId,
-      running: this.state === 'running',
+      running: this.state === ServerStates.RUNNING,
       processedCount: stats?.processedCount ?? 0,
       errorCount: stats?.errorCount ?? 0,
       activeHandlers: stats?.activeHandlers ?? 0,

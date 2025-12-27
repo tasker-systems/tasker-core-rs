@@ -60,9 +60,13 @@ export class LinearStep2Handler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const step1Result = context.getDependencyResult('linear_step_1');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const step1Result = context.getDependencyResult('linear_step_1') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!step1Result || !step1Result.result) {
+    if (!step1Result) {
       return this.failure(
         'Missing dependency result from linear_step_1',
         'dependency_error',
@@ -70,7 +74,7 @@ export class LinearStep2Handler extends StepHandler {
       );
     }
 
-    const squaredValue = step1Result.result.squared_value as number;
+    const squaredValue = step1Result.squared_value as number;
     const constant = 10;
     const addedValue = squaredValue + constant;
 
@@ -94,9 +98,13 @@ export class LinearStep3Handler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const step2Result = context.getDependencyResult('linear_step_2');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const step2Result = context.getDependencyResult('linear_step_2') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!step2Result || !step2Result.result) {
+    if (!step2Result) {
       return this.failure(
         'Missing dependency result from linear_step_2',
         'dependency_error',
@@ -104,7 +112,7 @@ export class LinearStep3Handler extends StepHandler {
       );
     }
 
-    const addedValue = step2Result.result.added_value as number;
+    const addedValue = step2Result.added_value as number;
     const factor = 3;
     const multipliedValue = addedValue * factor;
 
@@ -128,9 +136,13 @@ export class LinearStep4Handler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const step3Result = context.getDependencyResult('linear_step_3');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const step3Result = context.getDependencyResult('linear_step_3') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!step3Result || !step3Result.result) {
+    if (!step3Result) {
       return this.failure(
         'Missing dependency result from linear_step_3',
         'dependency_error',
@@ -138,7 +150,7 @@ export class LinearStep4Handler extends StepHandler {
       );
     }
 
-    const multipliedValue = step3Result.result.multiplied_value as number;
+    const multipliedValue = step3Result.multiplied_value as number;
     const divisor = 2;
     const finalValue = multipliedValue / divisor;
 

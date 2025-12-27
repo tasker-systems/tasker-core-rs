@@ -67,9 +67,13 @@ export class DiamondBranchBHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const startResult = context.getDependencyResult('diamond_start_ts');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const startResult = context.getDependencyResult('diamond_start_ts') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!startResult || !startResult.result) {
+    if (!startResult) {
       return this.failure(
         'Missing dependency result from diamond_start_ts',
         'dependency_error',
@@ -77,7 +81,7 @@ export class DiamondBranchBHandler extends StepHandler {
       );
     }
 
-    const squaredValue = startResult.result.squared_value as number;
+    const squaredValue = startResult.squared_value as number;
     const constant = 25;
     const branchBValue = squaredValue + constant;
 
@@ -101,9 +105,13 @@ export class DiamondBranchCHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const startResult = context.getDependencyResult('diamond_start_ts');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const startResult = context.getDependencyResult('diamond_start_ts') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!startResult || !startResult.result) {
+    if (!startResult) {
       return this.failure(
         'Missing dependency result from diamond_start_ts',
         'dependency_error',
@@ -111,7 +119,7 @@ export class DiamondBranchCHandler extends StepHandler {
       );
     }
 
-    const squaredValue = startResult.result.squared_value as number;
+    const squaredValue = startResult.squared_value as number;
     const factor = 2;
     const branchCValue = squaredValue * factor;
 
@@ -135,10 +143,17 @@ export class DiamondEndHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const branchBResult = context.getDependencyResult('diamond_branch_b_ts');
-    const branchCResult = context.getDependencyResult('diamond_branch_c_ts');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const branchBResult = context.getDependencyResult('diamond_branch_b_ts') as Record<
+      string,
+      unknown
+    > | null;
+    const branchCResult = context.getDependencyResult('diamond_branch_c_ts') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!branchBResult || !branchBResult.result) {
+    if (!branchBResult) {
       return this.failure(
         'Missing dependency result from diamond_branch_b_ts',
         'dependency_error',
@@ -146,7 +161,7 @@ export class DiamondEndHandler extends StepHandler {
       );
     }
 
-    if (!branchCResult || !branchCResult.result) {
+    if (!branchCResult) {
       return this.failure(
         'Missing dependency result from diamond_branch_c_ts',
         'dependency_error',
@@ -154,8 +169,8 @@ export class DiamondEndHandler extends StepHandler {
       );
     }
 
-    const branchBValue = branchBResult.result.branch_b_value as number;
-    const branchCValue = branchCResult.result.branch_c_value as number;
+    const branchBValue = branchBResult.branch_b_value as number;
+    const branchCValue = branchCResult.branch_c_value as number;
     const finalValue = (branchBValue + branchCValue) / 2;
 
     return this.success({

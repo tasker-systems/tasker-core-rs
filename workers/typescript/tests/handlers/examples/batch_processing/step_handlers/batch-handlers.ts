@@ -7,22 +7,26 @@
  * 3. CsvResultsAggregatorHandler (deferred_convergence): Aggregate results
  *
  * Matches Ruby and Python batch processing implementations for testing parity.
+ *
+ * NOTE: These handlers demonstrate proper use of batchable helper methods
+ * from BatchableStepHandler. The inline logic has been moved to the base class.
  */
 
 import { StepHandler } from '../../../../../src/handler/base.js';
 import { BatchableStepHandler } from '../../../../../src/handler/batchable.js';
 import type { StepContext } from '../../../../../src/types/step-context.js';
-import type {
-  BatchableResult,
-  BatchWorkerConfig,
-  StepHandlerResult,
-} from '../../../../../src/types/step-handler-result.js';
+import type { BatchableResult, StepHandlerResult } from '../../../../../src/types/step-handler-result.js';
 
 /**
  * Batchable: Analyze CSV file and create batch worker configurations.
  *
  * For testing purposes, simulates CSV analysis and creates batch
  * configurations based on the input file path.
+ *
+ * Demonstrates use of:
+ * - createCursorConfigs() - Ruby-style helper for creating worker configs
+ * - noBatchesResult() - Cross-language standard no-batches outcome
+ * - batchSuccess() - Create batches outcome with worker template
  */
 export class CsvAnalyzerHandler extends BatchableStepHandler {
   static handlerName = 'batch_processing.step_handlers.CsvAnalyzerHandler';
@@ -44,35 +48,37 @@ export class CsvAnalyzerHandler extends BatchableStepHandler {
     }
 
     // Simulate CSV analysis - in real scenario, would read the file
-    // For testing, we simulate 1000 rows
-    const totalRows = 1000;
+    // For testing: check if this is the "empty" file scenario
+    const isEmptyFile = csvFilePath.includes('empty');
+    const totalRows = isEmptyFile ? 0 : 1000;
+
+    // Use context.stepConfig (from handler.initialization in the YAML template)
     const batchSize =
-      (context.step?.initialization?.batch_size as number) ?? CsvAnalyzerHandler.DEFAULT_BATCH_SIZE;
+      (context.stepConfig?.batch_size as number) ?? CsvAnalyzerHandler.DEFAULT_BATCH_SIZE;
     const maxWorkers =
-      (context.step?.initialization?.max_workers as number) ??
-      CsvAnalyzerHandler.DEFAULT_MAX_WORKERS;
+      (context.stepConfig?.max_workers as number) ?? CsvAnalyzerHandler.DEFAULT_MAX_WORKERS;
 
-    // Calculate number of batches
-    const numBatches = Math.ceil(totalRows / batchSize);
-    const actualWorkers = Math.min(numBatches, maxWorkers);
-
-    // Create batch worker configurations
-    const batchConfigs: BatchWorkerConfig[] = [];
-    for (let i = 0; i < actualWorkers; i++) {
-      const startRow = i * batchSize;
-      const endRow = Math.min((i + 1) * batchSize, totalRows);
-
-      batchConfigs.push({
-        batch_id: `batch_${i + 1}`,
-        cursor_start: startRow,
-        cursor_end: endRow,
-        row_count: endRow - startRow,
-        worker_index: i,
-        total_workers: actualWorkers,
+    // Handle empty file case - return no batches result
+    // Cross-language standard: matches Ruby's no_batches_outcome(reason:, metadata:)
+    if (totalRows === 0) {
+      return this.noBatchesResult('empty_dataset', {
+        csv_file_path: csvFilePath,
+        analysis_mode: analysisMode,
+        total_rows: 0,
+        analyzed_at: new Date().toISOString(),
       });
     }
 
-    return this.batchSuccess(batchConfigs, {
+    // Calculate number of workers based on batch size and max workers
+    const numBatches = Math.ceil(totalRows / batchSize);
+    const actualWorkers = Math.min(numBatches, maxWorkers);
+
+    // Use createCursorConfigs() helper - matches Ruby's create_cursor_configs
+    // This divides totalRows into actualWorkers roughly equal ranges
+    const batchConfigs = this.createCursorConfigs(totalRows, actualWorkers);
+
+    // Pass the worker template name that orchestration will use to create workers
+    return this.batchSuccess('process_csv_batch_ts', batchConfigs, {
       csv_file_path: csvFilePath,
       analysis_mode: analysisMode,
       total_rows: totalRows,
@@ -88,21 +94,34 @@ export class CsvAnalyzerHandler extends BatchableStepHandler {
  *
  * For testing purposes, simulates row processing and returns
  * mock inventory analysis results.
+ *
+ * Demonstrates use of:
+ * - handleNoOpWorker() - Cross-language standard no-op handling
+ * - getBatchWorkerInputs() - Access Rust-provided batch configuration
  */
-export class CsvBatchProcessorHandler extends StepHandler {
+export class CsvBatchProcessorHandler extends BatchableStepHandler {
   static handlerName = 'batch_processing.step_handlers.CsvBatchProcessorHandler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    // Get batch configuration from the step context
-    const batchConfig = context.step?.batch_config as BatchWorkerConfig | undefined;
-
-    if (!batchConfig) {
-      return this.failure('Missing batch configuration', 'batch_error', false);
+    // Cross-language standard: check for no-op worker first
+    // Matches Ruby's handle_no_op_worker pattern
+    const noOpResult = this.handleNoOpWorker(context);
+    if (noOpResult) {
+      return noOpResult;
     }
 
-    const rowCount = batchConfig.row_count ?? 200;
-    const batchId = batchConfig.batch_id ?? 'unknown';
+    // Get batch worker inputs from stepInputs
+    // Cross-language standard: matches Ruby's get_batch_context pattern
+    const batchInputs = this.getBatchWorkerInputs(context);
+    const cursor = batchInputs?.cursor;
+
+    if (!cursor) {
+      return this.failure('Missing batch cursor configuration', 'batch_error', false);
+    }
+
+    const rowCount = cursor.batch_size ?? 200;
+    const batchId = cursor.batch_id ?? 'unknown';
 
     // Simulate processing - mock results
     const validProducts = Math.floor(rowCount * 0.95);
@@ -113,8 +132,8 @@ export class CsvBatchProcessorHandler extends StepHandler {
     return this.success({
       batch_id: batchId,
       rows_processed: rowCount,
-      cursor_start: batchConfig.cursor_start,
-      cursor_end: batchConfig.cursor_end,
+      cursor_start: cursor.start_cursor,
+      cursor_end: cursor.end_cursor,
       valid_products: validProducts,
       invalid_products: invalidProducts,
       low_stock_items: lowStockItems,
@@ -126,6 +145,12 @@ export class CsvBatchProcessorHandler extends StepHandler {
 
 /**
  * Deferred Convergence: Aggregate results from all batch workers.
+ *
+ * This aggregator uses domain-specific aggregation logic (product metrics).
+ * For generic aggregation, use BatchableMixin.aggregateWorkerResults().
+ *
+ * Cross-language standard: matches Ruby's aggregate_batch_worker_results
+ * pattern with custom block for domain-specific aggregation.
  */
 export class CsvResultsAggregatorHandler extends StepHandler {
   static handlerName = 'batch_processing.step_handlers.CsvResultsAggregatorHandler';
@@ -133,14 +158,18 @@ export class CsvResultsAggregatorHandler extends StepHandler {
 
   async call(context: StepContext): Promise<StepHandlerResult> {
     // Collect results from all batch worker instances
-    // The dependency name 'process_csv_batch_ts' resolves to all worker instances
-    const batchResults = context.getAllDependencyResults('process_csv_batch_ts');
+    // getAllDependencyResults already unwraps the 'result' field, so we get inner values directly
+    const batchResults = context.getAllDependencyResults('process_csv_batch_ts') as Array<Record<
+      string,
+      unknown
+    > | null>;
 
     if (!batchResults || batchResults.length === 0) {
       return this.failure('No batch worker results to aggregate', 'aggregation_error', false);
     }
 
-    // Aggregate metrics
+    // Domain-specific aggregation for product inventory metrics
+    // This is handler-specific logic that cannot be generalized
     let totalProcessed = 0;
     let totalValid = 0;
     let totalInvalid = 0;
@@ -149,15 +178,15 @@ export class CsvResultsAggregatorHandler extends StepHandler {
     const batchSummaries: Array<{ batch_id: string; rows: number }> = [];
 
     for (const result of batchResults) {
-      if (result.result) {
-        totalProcessed += (result.result.rows_processed as number) ?? 0;
-        totalValid += (result.result.valid_products as number) ?? 0;
-        totalInvalid += (result.result.invalid_products as number) ?? 0;
-        totalLowStock += (result.result.low_stock_items as number) ?? 0;
-        totalOutOfStock += (result.result.out_of_stock_items as number) ?? 0;
+      if (result) {
+        totalProcessed += (result.rows_processed as number) ?? 0;
+        totalValid += (result.valid_products as number) ?? 0;
+        totalInvalid += (result.invalid_products as number) ?? 0;
+        totalLowStock += (result.low_stock_items as number) ?? 0;
+        totalOutOfStock += (result.out_of_stock_items as number) ?? 0;
         batchSummaries.push({
-          batch_id: result.result.batch_id as string,
-          rows: (result.result.rows_processed as number) ?? 0,
+          batch_id: result.batch_id as string,
+          rows: (result.rows_processed as number) ?? 0,
         });
       }
     }

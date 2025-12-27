@@ -208,14 +208,18 @@ export class FfiLayer {
 
   /**
    * Create a runtime adapter for the configured runtime type.
+   *
+   * NOTE: We use koffi (NodeRuntime) for both Node.js and Bun because:
+   * - bun:ffi is experimental with known bugs (per Bun docs)
+   * - koffi is stable and works with both Node.js and Bun via Node-API
+   * - See: https://bun.sh/docs/runtime/node-api
    */
   private async createRuntime(): Promise<TaskerRuntime> {
     switch (this.runtimeType) {
-      case 'bun': {
-        const { BunRuntime } = await import('./bun-runtime.js');
-        return new BunRuntime();
-      }
+      case 'bun':
       case 'node': {
+        // Use koffi-based NodeRuntime for both Bun and Node.js
+        // koffi is stable and Bun supports Node-API modules
         const { NodeRuntime } = await import('./node-runtime.js');
         return new NodeRuntime();
       }

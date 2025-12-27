@@ -420,18 +420,18 @@ typescript-worker:
 
 ### Required
 
-- [ ] HTTP server code removed from `bin/server.ts`
-- [ ] FFI health/metrics functions exposed to TypeScript
-- [ ] All 6 E2E test files created and passing:
-  - [ ] batch_processing_test.rs (2 tests)
-  - [ ] conditional_approval_test.rs (5 tests)
-  - [ ] diamond_workflow_test.rs (3 tests)
-  - [ ] domain_event_publishing_test.rs (3 tests)
-  - [ ] error_scenarios_test.rs (3 tests)
-  - [ ] linear_workflow_test.rs (3 tests)
-- [ ] Task templates created for each test type (10+ templates)
-- [ ] Example handlers created for each workflow pattern
-- [ ] Unit test coverage >80%
+- [x] HTTP server code removed from `bin/server.ts`
+- [x] FFI health/metrics functions exposed to TypeScript
+- [x] All 6 E2E test files created and passing:
+  - [x] batch_processing_test.rs (2 tests)
+  - [x] conditional_approval_test.rs (5 tests)
+  - [x] diamond_workflow_test.rs (3 tests)
+  - [x] domain_event_publishing_test.rs (3 tests)
+  - [x] error_scenarios_test.rs (3 tests)
+  - [x] linear_workflow_test.rs (3 tests)
+- [x] Task templates created for each test type (10+ templates)
+- [x] Example handlers created for each workflow pattern
+- [ ] Unit test coverage >80% (pending verification)
 
 ### Test Counts
 
@@ -456,9 +456,73 @@ typescript-worker:
 
 ---
 
+## Implementation Notes (Dec 27, 2025)
+
+### All 19 E2E Tests Passing
+
+All TypeScript E2E tests are now passing:
+- 2 batch_processing tests
+- 5 conditional_approval tests
+- 3 diamond_workflow tests
+- 3 domain_event_publishing tests
+- 3 error_scenarios tests
+- 3 linear_workflow tests
+
+### Batchable Pattern Alignment (Cross-Language)
+
+The TypeScript `BatchableStepHandler` in `workers/typescript/src/handler/batchable.ts` was aligned with Ruby and Python implementations. Added methods:
+
+| Method | Ruby Equivalent | Purpose |
+|--------|-----------------|---------|
+| `createCursorConfigs(totalItems, workerCount)` | `create_cursor_configs` | Create worker count-based batch configurations |
+| `handleNoOpWorker(context)` | `handle_no_op_worker` | Standard no-op batch worker detection |
+| `getBatchWorkerInputs(context)` | `get_batch_context` | Access Rust BatchWorkerInputs from stepInputs |
+| `aggregateWorkerResults(results)` | `aggregate_batch_worker_results` | Static aggregation helper |
+| `noBatchesResult(reason?, metadata?)` | `no_batches_outcome` | Cross-language standard no-batches outcome |
+
+Example handlers in `tests/handlers/examples/batch_processing/step_handlers/batch-handlers.ts` were refactored to use these helpers instead of inline logic.
+
+### metadata.retryable Fix
+
+**Issue**: `test_typescript_retryable_failure_scenario` was stuck at `waiting_for_dependencies` because retries weren't being triggered.
+
+**Root Cause**: Rust's `StepExecutionMetadata::is_retryable()` reads from `metadata.retryable`, but TypeScript was only setting `retryable` on the top-level result and in `error.retryable`. The `metadata.retryable` field defaulted to `false` in Rust.
+
+**Fix**: Updated `step-execution-subscriber.ts` to include `retryable` in the metadata object:
+
+```typescript
+// In submitResult():
+metadata: {
+  execution_time_ms: executionTimeMs,
+  worker_id: this.workerId,
+  handler_name: this.extractHandlerName(event) ?? 'unknown',
+  attempt_number: event.workflow_step?.attempts ?? 1,
+  retryable: result.retryable ?? false,  // <-- Added
+  ...result.metadata,
+},
+
+// In submitErrorResult():
+metadata: {
+  execution_time_ms: executionTimeMs,
+  worker_id: this.workerId,
+  retryable: true,  // <-- Added
+},
+```
+
+### Future Work: TAS-112
+
+**TAS-112** has been created for step handler consistency improvements:
+- Full alignment of batchable patterns across Ruby, Python, and TypeScript
+- Standardize helper method signatures and behaviors
+- Ensure consistent error handling patterns
+- Document cross-language API contracts
+
+---
+
 ## Related Tickets
 
 - **TAS-91**: Blog post examples (Python, Rust, TypeScript) - separate scope
 - **TAS-104**: Server and Bootstrap - prerequisite, completed
 - **TAS-103**: Handler System - prerequisite, completed
 - **TAS-102**: Event System - prerequisite, completed
+- **TAS-112**: Step handler consistency (batchable alignment) - future work

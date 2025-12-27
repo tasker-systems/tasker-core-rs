@@ -102,13 +102,14 @@ async fn test_typescript_csv_batch_processing() -> Result<()> {
 /// Test batch processing with empty/no batches scenario
 ///
 /// Validates:
-/// - Handler gracefully handles empty input
-/// - Task still completes (possibly with 0 batch workers)
+/// - Handler gracefully handles empty input with NoBatches outcome
+/// - Task completes with just the batchable step (no workers or aggregation needed)
+/// - NoBatches outcome correctly signals that batch processing is complete
 #[tokio::test]
 async fn test_typescript_no_batches_scenario() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
-    // Create task - the handler should still work even with simulated empty data
+    // Create task - the handler should detect empty data and return NoBatches
     let task_request = create_task_request(
         "csv_processing_ts",
         "csv_product_inventory_analyzer_ts",
@@ -139,10 +140,18 @@ async fn test_typescript_no_batches_scenario() -> Result<()> {
         .list_task_steps(task_uuid)
         .await?;
 
-    // Should at least have analyze and aggregate steps
+    // For NoBatches, only the batchable (analyze) step runs
+    // No batch workers are created and no aggregation is needed
     assert!(
-        steps.len() >= 2,
-        "Should have at least analyze and aggregate steps"
+        !steps.is_empty(),
+        "Should have at least the analyze step"
+    );
+
+    // Verify the analyze step exists and completed
+    let step_names: Vec<&str> = steps.iter().map(|s| s.name.as_str()).collect();
+    assert!(
+        step_names.contains(&"analyze_csv_ts"),
+        "Should have analyze_csv_ts (batchable step)"
     );
 
     // All steps should be complete
@@ -153,6 +162,6 @@ async fn test_typescript_no_batches_scenario() -> Result<()> {
         "All steps should be complete"
     );
 
-    println!("✅ TypeScript empty batch scenario completed");
+    println!("✅ TypeScript empty batch scenario completed with {} step(s)", steps.len());
     Ok(())
 }

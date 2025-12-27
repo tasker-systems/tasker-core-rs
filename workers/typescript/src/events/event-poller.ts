@@ -10,6 +10,7 @@ import pino, { type Logger, type LoggerOptions } from 'pino';
 import type { TaskerRuntime } from '../ffi/runtime-interface.js';
 import type { FfiDispatchMetrics, FfiStepEvent } from '../ffi/types.js';
 import type { TaskerEventEmitter } from './event-emitter.js';
+import { MetricsEventNames, PollerEventNames, StepEventNames } from './event-names.js';
 
 // Create a pino logger for the event poller
 const loggerOptions: LoggerOptions = {
@@ -188,7 +189,7 @@ export class EventPoller {
     this.pollCount = 0;
     this.cycleCount = 0;
 
-    this.emitter.emit('poller.started', {
+    this.emitter.emit(PollerEventNames.POLLER_STARTED, {
       timestamp: new Date(),
       message: 'Event poller started',
     });
@@ -227,7 +228,7 @@ export class EventPoller {
 
     this.state = 'stopped';
 
-    this.emitter.emit('poller.stopped', {
+    this.emitter.emit(PollerEventNames.POLLER_STOPPED, {
       timestamp: new Date(),
       message: `Event poller stopped after ${this.pollCount} polls`,
     });
@@ -302,7 +303,7 @@ export class EventPoller {
       // Emit cycle complete
       this.cycleCount++;
       if (eventsProcessed > 0) {
-        this.emitter.emit('poller.cycle.complete', {
+        this.emitter.emit(PollerEventNames.POLLER_CYCLE_COMPLETE, {
           eventsProcessed,
           cycleNumber: this.cycleCount,
           timestamp: new Date(),
@@ -329,8 +330,46 @@ export class EventPoller {
       'Handling step event'
     );
 
-    // Emit the event through the event emitter
-    this.emitter.emitStepReceived(event);
+    // Log emitter instance for debugging
+    const listenerCountBefore = this.emitter.listenerCount(StepEventNames.STEP_EXECUTION_RECEIVED);
+    log.info(
+      {
+        component: 'event-poller',
+        emitterInstanceId: this.emitter.getInstanceId(),
+        stepUuid: event.step_uuid,
+        listenerCount: listenerCountBefore,
+        eventName: StepEventNames.STEP_EXECUTION_RECEIVED,
+      },
+      `About to emit ${StepEventNames.STEP_EXECUTION_RECEIVED} event`
+    );
+
+    // Emit the event through the event emitter with error handling
+    try {
+      const emitResult = this.emitter.emit(StepEventNames.STEP_EXECUTION_RECEIVED, {
+        event,
+        receivedAt: new Date(),
+      });
+      log.info(
+        {
+          component: 'event-poller',
+          stepUuid: event.step_uuid,
+          emitResult,
+          listenerCountAfter: this.emitter.listenerCount(StepEventNames.STEP_EXECUTION_RECEIVED),
+          eventName: StepEventNames.STEP_EXECUTION_RECEIVED,
+        },
+        `Emit returned: ${emitResult} (true means listeners were called)`
+      );
+    } catch (emitError) {
+      log.error(
+        {
+          component: 'event-poller',
+          stepUuid: event.step_uuid,
+          error: emitError instanceof Error ? emitError.message : String(emitError),
+          stack: emitError instanceof Error ? emitError.stack : undefined,
+        },
+        'Error during emit'
+      );
+    }
 
     // Call the registered callback if present
     if (this.stepEventCallback) {
@@ -378,7 +417,7 @@ export class EventPoller {
         this.metricsCallback(metrics);
       }
     } catch (error) {
-      this.emitter.emit('metrics.error', {
+      this.emitter.emit(MetricsEventNames.METRICS_ERROR, {
         error: error instanceof Error ? error : new Error(String(error)),
         timestamp: new Date(),
       });
@@ -389,7 +428,7 @@ export class EventPoller {
    * Handle an error
    */
   private handleError(error: Error): void {
-    this.emitter.emit('poller.error', {
+    this.emitter.emit(PollerEventNames.POLLER_ERROR, {
       error,
       timestamp: new Date(),
     });

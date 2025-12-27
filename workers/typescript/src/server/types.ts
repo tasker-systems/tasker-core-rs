@@ -11,19 +11,33 @@ import type { HandlerRegistry } from '../handler/registry.js';
 import type { StepExecutionSubscriber } from '../subscriber/step-execution-subscriber.js';
 
 /**
- * Server lifecycle states.
+ * Server state constants.
+ *
+ * Use these constants instead of raw strings for type safety and consistency.
  *
  * State transitions:
- * - initialized -> starting -> running -> shutting_down -> stopped
- * - Any state can transition to 'error' on fatal failures
+ * - INITIALIZED -> STARTING -> RUNNING -> SHUTTING_DOWN -> STOPPED
+ * - Any state can transition to ERROR on fatal failures
  */
-export type ServerState =
-  | 'initialized'
-  | 'starting'
-  | 'running'
-  | 'shutting_down'
-  | 'stopped'
-  | 'error';
+export const ServerStates = {
+  /** Initial state after construction */
+  INITIALIZED: 'initialized',
+  /** Starting up: loading FFI, registering handlers, bootstrapping */
+  STARTING: 'starting',
+  /** Running and processing events */
+  RUNNING: 'running',
+  /** Graceful shutdown in progress */
+  SHUTTING_DOWN: 'shutting_down',
+  /** Fully stopped */
+  STOPPED: 'stopped',
+  /** Error state - fatal failure occurred */
+  ERROR: 'error',
+} as const;
+
+/**
+ * Server lifecycle states (union type derived from constants).
+ */
+export type ServerState = (typeof ServerStates)[keyof typeof ServerStates];
 
 /**
  * Worker server configuration.

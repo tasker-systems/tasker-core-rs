@@ -213,4 +213,46 @@ export class StepContext {
   isLastRetry(): boolean {
     return this.retryCount >= this.maxRetries - 1;
   }
+
+  /**
+   * Get all dependency result keys.
+   *
+   * @returns Array of step names that have dependency results
+   */
+  getDependencyResultKeys(): string[] {
+    return Object.keys(this.dependencyResults);
+  }
+
+  /**
+   * Get all dependency results matching a step name prefix.
+   *
+   * This is useful for batch processing where multiple worker steps
+   * share a common prefix (e.g., "process_batch_001", "process_batch_002").
+   *
+   * Returns the unwrapped result values (same as getDependencyResult).
+   *
+   * @param prefix - Step name prefix to match
+   * @returns Array of unwrapped result values from matching steps
+   *
+   * @example
+   * ```typescript
+   * // For batch worker results named: process_batch_001, process_batch_002, etc.
+   * const batchResults = context.getAllDependencyResults('process_batch_');
+   * const total = batchResults.reduce((sum, r) => sum + r.count, 0);
+   * ```
+   */
+  getAllDependencyResults(prefix: string): unknown[] {
+    const results: unknown[] = [];
+
+    for (const key of Object.keys(this.dependencyResults)) {
+      if (key.startsWith(prefix)) {
+        const result = this.getDependencyResult(key);
+        if (result !== null) {
+          results.push(result);
+        }
+      }
+    }
+
+    return results;
+  }
 }

@@ -68,9 +68,13 @@ export class ProcessPaymentHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const validateResult = context.getDependencyResult('domain_events_ts_validate_order');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const validateResult = context.getDependencyResult('domain_events_ts_validate_order') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!validateResult || !validateResult.result) {
+    if (!validateResult) {
       return this.failure(
         'Missing dependency result from domain_events_ts_validate_order',
         'dependency_error',
@@ -78,8 +82,8 @@ export class ProcessPaymentHandler extends StepHandler {
       );
     }
 
-    const orderId = validateResult.result.order_id as string;
-    const amount = validateResult.result.amount as number;
+    const orderId = validateResult.order_id as string;
+    const amount = validateResult.amount as number;
 
     // Simulate payment processing (always succeeds in test)
     const paymentId = `PAY-${Date.now()}-${Math.random().toString(36).substring(7)}`;
@@ -103,10 +107,17 @@ export class UpdateInventoryHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const validateResult = context.getDependencyResult('domain_events_ts_validate_order');
-    const paymentResult = context.getDependencyResult('domain_events_ts_process_payment');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const validateResult = context.getDependencyResult('domain_events_ts_validate_order') as Record<
+      string,
+      unknown
+    > | null;
+    const paymentResult = context.getDependencyResult('domain_events_ts_process_payment') as Record<
+      string,
+      unknown
+    > | null;
 
-    if (!validateResult || !validateResult.result) {
+    if (!validateResult) {
       return this.failure(
         'Missing dependency result from domain_events_ts_validate_order',
         'dependency_error',
@@ -114,7 +125,7 @@ export class UpdateInventoryHandler extends StepHandler {
       );
     }
 
-    if (!paymentResult || !paymentResult.result) {
+    if (!paymentResult) {
       return this.failure(
         'Missing dependency result from domain_events_ts_process_payment',
         'dependency_error',
@@ -122,7 +133,7 @@ export class UpdateInventoryHandler extends StepHandler {
       );
     }
 
-    const orderId = validateResult.result.order_id as string;
+    const orderId = validateResult.order_id as string;
 
     // Simulate inventory update
     const itemsUpdated = Math.floor(Math.random() * 5) + 1;
@@ -145,11 +156,20 @@ export class SendNotificationHandler extends StepHandler {
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    const validateResult = context.getDependencyResult('domain_events_ts_validate_order');
-    const paymentResult = context.getDependencyResult('domain_events_ts_process_payment');
-    const inventoryResult = context.getDependencyResult('domain_events_ts_update_inventory');
+    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
+    const validateResult = context.getDependencyResult('domain_events_ts_validate_order') as Record<
+      string,
+      unknown
+    > | null;
+    const paymentResult = context.getDependencyResult('domain_events_ts_process_payment') as Record<
+      string,
+      unknown
+    > | null;
+    const inventoryResult = context.getDependencyResult(
+      'domain_events_ts_update_inventory'
+    ) as Record<string, unknown> | null;
 
-    if (!validateResult || !validateResult.result) {
+    if (!validateResult) {
       return this.failure(
         'Missing dependency result from domain_events_ts_validate_order',
         'dependency_error',
@@ -157,7 +177,7 @@ export class SendNotificationHandler extends StepHandler {
       );
     }
 
-    if (!paymentResult || !paymentResult.result) {
+    if (!paymentResult) {
       return this.failure(
         'Missing dependency result from domain_events_ts_process_payment',
         'dependency_error',
@@ -165,7 +185,7 @@ export class SendNotificationHandler extends StepHandler {
       );
     }
 
-    if (!inventoryResult || !inventoryResult.result) {
+    if (!inventoryResult) {
       return this.failure(
         'Missing dependency result from domain_events_ts_update_inventory',
         'dependency_error',
@@ -173,8 +193,8 @@ export class SendNotificationHandler extends StepHandler {
       );
     }
 
-    const orderId = validateResult.result.order_id as string;
-    const customerId = validateResult.result.customer_id as string;
+    const orderId = validateResult.order_id as string;
+    const customerId = validateResult.customer_id as string;
 
     // Simulate sending notification
     const channels = ['email', 'sms'];

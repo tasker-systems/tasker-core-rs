@@ -7,6 +7,12 @@
 
 import { EventEmitter } from 'eventemitter3';
 import type { FfiDispatchMetrics, FfiStepEvent, StepExecutionResult } from '../ffi/types.js';
+import {
+  MetricsEventNames,
+  PollerEventNames,
+  StepEventNames,
+  WorkerEventNames,
+} from './event-names.js';
 
 /**
  * Event payload types
@@ -124,7 +130,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a step execution received event
    */
   emitStepReceived(event: FfiStepEvent): void {
-    this.emit('step.execution.received', {
+    this.emit(StepEventNames.STEP_EXECUTION_RECEIVED, {
       event,
       receivedAt: new Date(),
     });
@@ -134,7 +140,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a step execution started event
    */
   emitStepStarted(eventId: string, stepUuid: string, taskUuid: string, handlerName: string): void {
-    this.emit('step.execution.started', {
+    this.emit(StepEventNames.STEP_EXECUTION_STARTED, {
       eventId,
       stepUuid,
       taskUuid,
@@ -153,7 +159,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
     result: StepExecutionResult,
     executionTimeMs: number
   ): void {
-    this.emit('step.execution.completed', {
+    this.emit(StepEventNames.STEP_EXECUTION_COMPLETED, {
       eventId,
       stepUuid,
       taskUuid,
@@ -167,7 +173,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a step execution failed event
    */
   emitStepFailed(eventId: string, stepUuid: string, taskUuid: string, error: Error): void {
-    this.emit('step.execution.failed', {
+    this.emit(StepEventNames.STEP_EXECUTION_FAILED, {
       eventId,
       stepUuid,
       taskUuid,
@@ -180,7 +186,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a step completion sent event
    */
   emitCompletionSent(eventId: string, stepUuid: string, success: boolean): void {
-    this.emit('step.completion.sent', {
+    this.emit(StepEventNames.STEP_COMPLETION_SENT, {
       eventId,
       stepUuid,
       success,
@@ -192,7 +198,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a worker started event
    */
   emitWorkerStarted(workerId?: string): void {
-    this.emit('worker.started', {
+    this.emit(WorkerEventNames.WORKER_STARTED, {
       workerId,
       timestamp: new Date(),
       message: 'Worker started',
@@ -203,7 +209,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a worker ready event
    */
   emitWorkerReady(workerId?: string): void {
-    this.emit('worker.ready', {
+    this.emit(WorkerEventNames.WORKER_READY, {
       workerId,
       timestamp: new Date(),
       message: 'Worker ready to process events',
@@ -214,7 +220,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a worker shutdown started event
    */
   emitWorkerShutdownStarted(workerId?: string): void {
-    this.emit('worker.shutdown.started', {
+    this.emit(WorkerEventNames.WORKER_SHUTDOWN_STARTED, {
       workerId,
       timestamp: new Date(),
       message: 'Graceful shutdown initiated',
@@ -225,7 +231,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a worker stopped event
    */
   emitWorkerStopped(workerId?: string): void {
-    this.emit('worker.stopped', {
+    this.emit(WorkerEventNames.WORKER_STOPPED, {
       workerId,
       timestamp: new Date(),
       message: 'Worker stopped',
@@ -236,7 +242,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a worker error event
    */
   emitWorkerError(error: Error, context?: Record<string, unknown>): void {
-    this.emit('worker.error', {
+    this.emit(WorkerEventNames.WORKER_ERROR, {
       error,
       timestamp: new Date(),
       context,
@@ -247,7 +253,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a metrics updated event
    */
   emitMetricsUpdated(metrics: FfiDispatchMetrics): void {
-    this.emit('metrics.updated', {
+    this.emit(MetricsEventNames.METRICS_UPDATED, {
       metrics,
       timestamp: new Date(),
     });
@@ -257,7 +263,7 @@ export class TaskerEventEmitter extends EventEmitter<TaskerEventMap> {
    * Emit a starvation detected event
    */
   emitStarvationDetected(metrics: FfiDispatchMetrics): void {
-    this.emit('poller.starvation.detected', {
+    this.emit(PollerEventNames.POLLER_STARVATION_DETECTED, {
       metrics,
       timestamp: new Date(),
     });

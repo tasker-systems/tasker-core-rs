@@ -52,7 +52,6 @@ interface BunFfiLibrary {
 export class BunRuntime extends BaseTaskerRuntime {
   readonly name = 'bun';
   private lib: BunFfiLibrary | null = null;
-  private encoder: TextEncoder = new TextEncoder();
 
   get isLoaded(): boolean {
     return this.lib !== null;
@@ -162,11 +161,12 @@ export class BunRuntime extends BaseTaskerRuntime {
   }
 
   private toCString(str: string): bigint {
-    // Create null-terminated C string buffer
-    const bytes = this.encoder.encode(`${str}\0`);
-    // In Bun, we need to create a pointer to the buffer
+    // Create null-terminated C string buffer using Buffer (which has .ptr in Bun)
+    // Note: TextEncoder.encode() returns Uint8Array backed by ArrayBuffer,
+    // but ArrayBuffer doesn't have .ptr in Bun - only Buffer does!
+    const buffer = Buffer.from(`${str}\0`, 'utf-8');
     // biome-ignore lint/suspicious/noExplicitAny: Bun FFI requires Buffer.ptr access
-    return BigInt((bytes.buffer as any).ptr ?? 0);
+    return BigInt((buffer as any).ptr ?? 0);
   }
 
   private fromCString(ptrVal: bigint): string | null {
