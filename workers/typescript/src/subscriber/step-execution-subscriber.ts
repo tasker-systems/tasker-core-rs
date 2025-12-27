@@ -480,7 +480,7 @@ export class StepExecutionSubscriber {
   }
 
   /**
-   * Submit a success result via FFI.
+   * Submit a handler result via FFI.
    */
   private async submitResult(
     event: FfiStepEvent,
@@ -500,8 +500,45 @@ export class StepExecutionSubscriber {
       return;
     }
 
-    // Build the execution result, only adding error if not successful
-    // IMPORTANT: metadata.retryable must be set for Rust's is_retryable() to work correctly
+    const executionResult = this.buildExecutionResult(event, result, executionTimeMs);
+    await this.sendCompletionViaFfi(event, executionResult, result.success);
+  }
+
+  /**
+   * Submit an error result via FFI (for handler resolution/execution failures).
+   */
+  private async submitErrorResult(
+    event: FfiStepEvent,
+    errorMessage: string,
+    startTime: number
+  ): Promise<void> {
+    if (!this.runtime.isLoaded) {
+      logError('Cannot submit error result: runtime not available', {
+        component: 'subscriber',
+        event_id: event.event_id,
+      });
+      return;
+    }
+
+    const executionTimeMs = Date.now() - startTime;
+    const executionResult = this.buildErrorExecutionResult(event, errorMessage, executionTimeMs);
+
+    const accepted = await this.sendCompletionViaFfi(event, executionResult, false);
+    if (accepted) {
+      this.errorCount++;
+    }
+  }
+
+  /**
+   * Build a StepExecutionResult from a handler result.
+   *
+   * IMPORTANT: metadata.retryable must be set for Rust's is_retryable() to work correctly.
+   */
+  private buildExecutionResult(
+    event: FfiStepEvent,
+    result: StepHandlerResult,
+    executionTimeMs: number
+  ): StepExecutionResult {
     const executionResult: StepExecutionResult = {
       step_uuid: event.step_uuid,
       success: result.success,
@@ -528,93 +565,20 @@ export class StepExecutionSubscriber {
       };
     }
 
-    pinoLog.info(
-      {
-        component: 'subscriber',
-        eventId: event.event_id,
-        stepUuid: event.step_uuid,
-        resultJson: JSON.stringify(executionResult),
-      },
-      'About to call runtime.completeStepEvent()'
-    );
-
-    try {
-      const ffiResult = this.runtime.completeStepEvent(event.event_id, executionResult);
-
-      if (ffiResult) {
-        pinoLog.info(
-          { component: 'subscriber', eventId: event.event_id, success: result.success, ffiResult },
-          'completeStepEvent() returned TRUE - completion accepted by Rust'
-        );
-
-        this.emitter.emit(StepEventNames.STEP_COMPLETION_SENT, {
-          eventId: event.event_id,
-          stepUuid: event.step_uuid,
-          success: result.success,
-          timestamp: new Date(),
-        });
-
-        logDebug('Step result submitted', {
-          component: 'subscriber',
-          event_id: event.event_id,
-          step_uuid: event.step_uuid,
-          success: String(result.success),
-          execution_time_ms: String(executionTimeMs),
-        });
-      } else {
-        pinoLog.error(
-          {
-            component: 'subscriber',
-            eventId: event.event_id,
-            stepUuid: event.step_uuid,
-            ffiResult,
-          },
-          'completeStepEvent() returned FALSE - completion REJECTED by Rust! Event may not be in pending map.'
-        );
-        logError('FFI completion rejected', {
-          component: 'subscriber',
-          event_id: event.event_id,
-          step_uuid: event.step_uuid,
-        });
-      }
-    } catch (error) {
-      pinoLog.error(
-        {
-          component: 'subscriber',
-          eventId: event.event_id,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        },
-        'completeStepEvent() THREW AN ERROR!'
-      );
-      logError('Failed to submit step result', {
-        component: 'subscriber',
-        event_id: event.event_id,
-        error_message: error instanceof Error ? error.message : String(error),
-      });
-    }
+    return executionResult;
   }
 
   /**
-   * Submit an error result via FFI.
+   * Build an error StepExecutionResult for handler resolution/execution failures.
+   *
+   * IMPORTANT: metadata.retryable must be set for Rust's is_retryable() to work correctly.
    */
-  private async submitErrorResult(
+  private buildErrorExecutionResult(
     event: FfiStepEvent,
     errorMessage: string,
-    startTime: number
-  ): Promise<void> {
-    if (!this.runtime.isLoaded) {
-      logError('Cannot submit error result: runtime not available', {
-        component: 'subscriber',
-        event_id: event.event_id,
-      });
-      return;
-    }
-
-    const executionTimeMs = Date.now() - startTime;
-
-    // IMPORTANT: metadata.retryable must be set for Rust's is_retryable() to work correctly
-    const executionResult: StepExecutionResult = {
+    executionTimeMs: number
+  ): StepExecutionResult {
+    return {
       step_uuid: event.step_uuid,
       success: false,
       result: {},
@@ -632,30 +596,108 @@ export class StepExecutionSubscriber {
         backtrace: null,
       },
     };
+  }
+
+  /**
+   * Send a completion result to Rust via FFI and handle the response.
+   *
+   * @returns true if the completion was accepted by Rust, false otherwise
+   */
+  private async sendCompletionViaFfi(
+    event: FfiStepEvent,
+    executionResult: StepExecutionResult,
+    isSuccess: boolean
+  ): Promise<boolean> {
+    pinoLog.info(
+      {
+        component: 'subscriber',
+        eventId: event.event_id,
+        stepUuid: event.step_uuid,
+        resultJson: JSON.stringify(executionResult),
+      },
+      'About to call runtime.completeStepEvent()'
+    );
 
     try {
       const ffiResult = this.runtime.completeStepEvent(event.event_id, executionResult);
 
       if (ffiResult) {
-        this.errorCount++;
-        logDebug('Error result submitted', {
-          component: 'subscriber',
-          event_id: event.event_id,
-          step_uuid: event.step_uuid,
-          error_message: errorMessage,
-        });
-      } else {
-        pinoLog.error(
-          { component: 'subscriber', eventId: event.event_id, stepUuid: event.step_uuid },
-          'completeStepEvent() for error result returned FALSE - completion REJECTED by Rust!'
-        );
+        this.handleFfiSuccess(event, executionResult, isSuccess);
+        return true;
       }
+      this.handleFfiRejection(event);
+      return false;
     } catch (error) {
-      logError('Failed to submit error result', {
-        component: 'subscriber',
-        event_id: event.event_id,
-        error_message: error instanceof Error ? error.message : String(error),
-      });
+      this.handleFfiError(event, error);
+      return false;
     }
+  }
+
+  /**
+   * Handle successful FFI completion submission.
+   */
+  private handleFfiSuccess(
+    event: FfiStepEvent,
+    executionResult: StepExecutionResult,
+    isSuccess: boolean
+  ): void {
+    pinoLog.info(
+      { component: 'subscriber', eventId: event.event_id, success: isSuccess },
+      'completeStepEvent() returned TRUE - completion accepted by Rust'
+    );
+
+    this.emitter.emit(StepEventNames.STEP_COMPLETION_SENT, {
+      eventId: event.event_id,
+      stepUuid: event.step_uuid,
+      success: isSuccess,
+      timestamp: new Date(),
+    });
+
+    logDebug('Step result submitted', {
+      component: 'subscriber',
+      event_id: event.event_id,
+      step_uuid: event.step_uuid,
+      success: String(isSuccess),
+      execution_time_ms: String(executionResult.metadata.execution_time_ms),
+    });
+  }
+
+  /**
+   * Handle FFI completion rejection (event not in pending map).
+   */
+  private handleFfiRejection(event: FfiStepEvent): void {
+    pinoLog.error(
+      {
+        component: 'subscriber',
+        eventId: event.event_id,
+        stepUuid: event.step_uuid,
+      },
+      'completeStepEvent() returned FALSE - completion REJECTED by Rust! Event may not be in pending map.'
+    );
+    logError('FFI completion rejected', {
+      component: 'subscriber',
+      event_id: event.event_id,
+      step_uuid: event.step_uuid,
+    });
+  }
+
+  /**
+   * Handle FFI completion error.
+   */
+  private handleFfiError(event: FfiStepEvent, error: unknown): void {
+    pinoLog.error(
+      {
+        component: 'subscriber',
+        eventId: event.event_id,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+      'completeStepEvent() THREW AN ERROR!'
+    );
+    logError('Failed to submit step result', {
+      component: 'subscriber',
+      event_id: event.event_id,
+      error_message: error instanceof Error ? error.message : String(error),
+    });
   }
 }
