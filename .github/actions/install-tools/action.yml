@@ -126,8 +126,10 @@ runs:
           if command -v cargo-make &> /dev/null; then
             echo "✅ cargo-make already installed ($(cargo-make --version))"
           else
-            echo "Installing cargo-make with cargo binstall -y..."
-            if ! cargo binstall cargo-make -y; then
+            # Use cargo install instead of binstall to avoid GLIBC version mismatch
+            # Pre-built binaries require GLIBC 2.38+ but Ubuntu 22.04 has GLIBC 2.35
+            echo "Installing cargo-make with cargo install..."
+            if ! cargo install cargo-make; then
               echo "❌ Failed to install cargo-make"
               exit 1
             fi
