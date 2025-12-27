@@ -87,10 +87,7 @@ export interface Batchable {
    *
    * Cross-language standard: matches Ruby's create_cursor_configs(total_items, worker_count).
    */
-  createCursorConfigs(
-    totalItems: number,
-    workerCount: number
-  ): BatchWorkerConfig[];
+  createCursorConfigs(totalItems: number, workerCount: number): BatchWorkerConfig[];
 
   // =========================================================================
   // Batch Outcome Builders

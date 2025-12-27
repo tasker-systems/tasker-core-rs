@@ -3,8 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { EventEmitter } from 'node:events';
-import type { TaskerEventEmitter } from '../../../src/events/event-emitter';
+import { TaskerEventEmitter } from '../../../src/events/event-emitter';
 import { StepEventNames } from '../../../src/events/event-names';
 import type { FfiStepEvent } from '../../../src/ffi/types';
 import { StepHandler } from '../../../src/handler/base';
@@ -134,7 +133,7 @@ describe('StepExecutionSubscriber', () => {
 
   beforeEach(() => {
     // Create fresh instances (explicit construction)
-    emitter = new EventEmitter() as TaskerEventEmitter;
+    emitter = new TaskerEventEmitter();
     registry = new HandlerRegistry();
 
     // Register test handlers

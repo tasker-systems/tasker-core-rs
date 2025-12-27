@@ -15,7 +15,10 @@
 import { StepHandler } from '../../../../../src/handler/base.js';
 import { BatchableStepHandler } from '../../../../../src/handler/batchable.js';
 import type { StepContext } from '../../../../../src/types/step-context.js';
-import type { BatchableResult, StepHandlerResult } from '../../../../../src/types/step-handler-result.js';
+import type {
+  BatchableResult,
+  StepHandlerResult,
+} from '../../../../../src/types/step-handler-result.js';
 
 /**
  * Batchable: Analyze CSV file and create batch worker configurations.
