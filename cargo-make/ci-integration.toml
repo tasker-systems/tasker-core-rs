@@ -1,0 +1,51 @@
+# =============================================================================
+# CI Integration Tasks - Bridge between cargo-make and GitHub Actions
+# =============================================================================
+#
+# These tasks align with .github/workflows/ and can be used locally
+# to simulate CI behavior.
+#
+# =============================================================================
+
+[tasks.ci-setup]
+description = "Setup CI environment (mirrors .github/actions/setup-env)"
+script = { file = "${SCRIPTS_DIR}/setup-env.sh" }
+
+[tasks.ci-build-workers]
+description = "Build all workers (aligns with build-workers.yml)"
+dependencies = ["build-rust", "build-ruby", "build-python", "build-typescript"]
+
+[tasks.ci-test-rust]
+description = "Run Rust tests with CI profile"
+command = "cargo"
+args = ["nextest", "run", "--all-features", "--profile", "ci"]
+
+[tasks.ci-test-framework]
+description = "Run all framework tests"
+dependencies = ["test-ruby", "test-python", "test-typescript"]
+
+[tasks.ci-start-services]
+description = "Start all services for testing (uses existing CI script)"
+script = { file = "${WORKSPACE_ROOT}/.github/scripts/start-native-services.sh" }
+
+[tasks.ci-stop-services]
+description = "Stop all services (uses existing CI script)"
+script = { file = "${WORKSPACE_ROOT}/.github/scripts/stop-native-services.sh" }
+
+[tasks.ci-flow]
+description = "Complete CI flow (mirrors ci.yml workflow)"
+dependencies = [
+    "ci-setup",
+    "ci-build-workers",
+    "ci-test-rust",
+    "ci-test-framework"
+]
+
+[tasks.ci-code-quality]
+description = "CI code quality checks (mirrors code-quality.yml)"
+dependencies = [
+    "rust-fmt-check",
+    "rust-clippy",
+    "rust-docs",
+    "rust-audit"
+]

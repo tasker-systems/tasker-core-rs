@@ -1,0 +1,57 @@
+# =============================================================================
+# pgmq-notify - cargo-make Task Definitions
+# =============================================================================
+#
+# PGMQ wrapper library with PostgreSQL LISTEN/NOTIFY integration.
+#
+# Quick Start:
+#   cargo make check    # Run all quality checks
+#   cargo make test     # Run tests
+#   cargo make fix      # Auto-fix issues
+#
+# =============================================================================
+
+extend = "../cargo-make/base-tasks.toml"
+
+[config]
+default_to_workspace = false
+
+[env]
+CRATE_NAME = "pgmq-notify"
+
+# =============================================================================
+# Main Tasks
+# =============================================================================
+
+[tasks.default]
+alias = "check"
+
+[tasks.check]
+description = "Run quality checks"
+dependencies = ["format-check", "lint", "test"]
+
+[tasks.format-check]
+extend = "base-rust-format"
+
+[tasks.format-fix]
+extend = "base-rust-format-fix"
+
+[tasks.lint]
+extend = "base-rust-lint"
+
+[tasks.lint-fix]
+extend = "base-rust-lint-fix"
+
+[tasks.test]
+extend = "base-rust-test"
+description = "Run pgmq-notify tests"
+args = ["nextest", "run", "-p", "${CRATE_NAME}", "--all-features"]
+
+[tasks.fix]
+description = "Fix all fixable issues"
+dependencies = ["format-fix", "lint-fix"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean", "-p", "${CRATE_NAME}"]

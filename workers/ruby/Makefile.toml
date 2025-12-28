@@ -152,25 +152,18 @@ script = '''
 bundle exec rspec --format documentation
 '''
 
-[tasks.test-unit]
-description = "Run unit tests only"
-dependencies = ["setup", "compile"]
-script = '''
-bundle exec rspec spec/unit/
-'''
-
-[tasks.test-integration]
-description = "Run integration tests only"
-dependencies = ["setup", "compile"]
-script = '''
-bundle exec rspec spec/integration/
-'''
-
 [tasks.test-failed]
 description = "Re-run only failed tests"
 dependencies = ["setup", "compile"]
 script = '''
 bundle exec rspec --only-failures
+'''
+
+[tasks.test-ffi]
+description = "Run FFI integration tests (for root delegation)"
+dependencies = ["setup", "compile"]
+script = '''
+bundle exec rspec spec/ffi/ --format documentation
 '''
 
 # =============================================================================

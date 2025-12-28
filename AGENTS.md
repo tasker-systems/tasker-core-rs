@@ -7,6 +7,28 @@
 ## Quick Reference
 
 ### Essential Commands
+
+**Preferred: cargo-make (unified task runner)**
+```bash
+cargo make check       # All quality checks across workspace
+cargo make test        # All tests across workspace
+cargo make fix         # Auto-fix all fixable issues
+cargo make build       # Build everything
+
+# Shortcuts
+cargo make c           # check
+cargo make t           # test
+cargo make f           # fix
+cargo make b           # build
+
+# Language-specific
+cargo make check-rust
+cargo make check-python
+cargo make check-ruby
+cargo make check-typescript
+```
+
+**Direct cargo commands (when needed)**
 ```bash
 # Build and test (ALWAYS use --all-features)
 cargo build --all-features
@@ -27,7 +49,14 @@ cargo doc --all-features --open
 
 ### Database Operations
 ```bash
-# Run migrations (requires DATABASE_URL from .env)
+# Via cargo-make (preferred)
+cargo make db-setup     # Setup database with migrations
+cargo make db-check     # Check database connectivity
+cargo make db-migrate   # Run migrations
+cargo make db-reset     # Reset database (drop/recreate)
+cargo make sqlx-prepare # Prepare SQLX query cache
+
+# Direct commands (when needed)
 export DATABASE_URL=postgresql://tasker:tasker@localhost/tasker_rust_test
 cargo sqlx migrate run
 
@@ -80,8 +109,15 @@ docker compose -f docker/docker-compose.test.yml up -d  # Test services
 - tasker-orchestration # Core orchestration logic (see AGENTS.md)
 - tasker-shared        # Shared types, traits, utilities
 - tasker-worker        # Worker implementation (see AGENTS.md)
-- workers/ruby         # Ruby FFI bindings
+- workers/python       # Python FFI bindings (maturin/pyo3)
+- workers/ruby         # Ruby FFI bindings (magnus)
 - workers/rust         # Rust worker implementation
+- workers/typescript   # TypeScript FFI bindings (Bun/Node/Deno)
+
+[build tooling]
+- cargo-make/          # Shared task runner configuration
+  - scripts/           # Shell scripts for complex operations
+- Makefile.toml        # Root task definitions
 ```
 
 ---
@@ -181,6 +217,13 @@ Dual-channel system: dispatch channel + completion channel
 | MPSC Channels | `docs/development/mpsc-channel-guidelines.md` |
 | Observability | `docs/observability/README.md` |
 
+### Development Tooling
+| Topic | Document |
+|-------|----------|
+| Build System (cargo-make) | `docs/development/tooling.md` |
+| Development Patterns | `docs/development/development-patterns.md` |
+| FFI Callback Safety | `docs/development/ffi-callback-safety.md` |
+
 ### Operations
 | Topic | Document |
 |-------|----------|
@@ -212,6 +255,12 @@ Detailed feature specifications: `docs/ticket-specs/TAS-{37,39,40,41,46,49,51,53
 ### Configuration
 - Validate: `TASKER_ENV=test cargo run --bin config-validator`
 - Check environment overrides in `config/tasker/environments/`
+
+### cargo-make Issues
+- **Task not found**: Check crate's `Makefile.toml` extends base-tasks correctly
+- **Script path errors**: Ensure `SCRIPTS_DIR` uses relative path (`cargo-make/scripts`)
+- **Extend warning**: `extend = "path"` must be at file root, NOT inside `[config]`
+- See: `docs/development/tooling.md` for full troubleshooting
 
 ---
 

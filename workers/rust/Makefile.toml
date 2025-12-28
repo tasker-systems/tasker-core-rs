@@ -1,0 +1,91 @@
+# =============================================================================
+# Rust Worker - cargo-make Task Definitions
+# =============================================================================
+#
+# Rust-native worker implementation. Uses the standard cargo-make base tasks.
+#
+# Quick Start:
+#   cargo make check    # Run all quality checks
+#   cargo make test     # Run tests
+#   cargo make build    # Build the worker
+#   cargo make run      # Run the worker service
+#
+# =============================================================================
+
+extend = "../../cargo-make/base-tasks.toml"
+
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+[env]
+CRATE_NAME = "tasker-worker-rust"
+
+# =============================================================================
+# Main Tasks
+# =============================================================================
+
+[tasks.default]
+alias = "check"
+
+[tasks.check]
+description = "Run Rust worker quality checks"
+dependencies = ["format-check", "lint", "test"]
+
+[tasks.build]
+extend = "base-rust-build"
+description = "Build the Rust worker"
+args = ["build", "-p", "${CRATE_NAME}", "--all-features"]
+
+[tasks.build-release]
+extend = "base-rust-build-release"
+description = "Build the Rust worker (release)"
+args = ["build", "-p", "${CRATE_NAME}", "--all-features", "--release"]
+
+[tasks.format-check]
+extend = "base-rust-format"
+
+[tasks.format-fix]
+extend = "base-rust-format-fix"
+
+[tasks.lint]
+extend = "base-rust-lint"
+
+[tasks.lint-fix]
+extend = "base-rust-lint-fix"
+
+[tasks.test]
+extend = "base-rust-test"
+description = "Run Rust worker tests"
+args = ["nextest", "run", "-p", "${CRATE_NAME}", "--all-features"]
+
+[tasks.fix]
+description = "Fix all fixable issues"
+dependencies = ["format-fix", "lint-fix"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean", "-p", "${CRATE_NAME}"]
+
+# =============================================================================
+# Service Tasks
+# =============================================================================
+
+[tasks.run]
+description = "Run the Rust worker service"
+command = "cargo"
+args = ["run", "-p", "${CRATE_NAME}", "--all-features"]
+
+[tasks.run-release]
+description = "Run the Rust worker service (release)"
+command = "cargo"
+args = ["run", "-p", "${CRATE_NAME}", "--all-features", "--release"]
+
+# =============================================================================
+# Setup (no-op for Rust)
+# =============================================================================
+
+[tasks.setup]
+description = "Setup (no-op for Rust worker)"
+script = '''echo "✓ Rust worker has no setup requirements"'''

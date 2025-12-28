@@ -1,0 +1,26 @@
+# =============================================================================
+# Test Tasks - Nextest profiles and test infrastructure
+# =============================================================================
+
+[tasks.test-all]
+description = "Run all tests sequentially"
+dependencies = ["test-rust", "test-python", "test-ruby", "test-typescript"]
+
+[tasks.test-ffi-all]
+description = "Run all FFI integration tests"
+dependencies = ["test-python-ffi", "test-ruby-ffi", "test-typescript-ffi"]
+
+[tasks.test-e2e]
+description = "Run E2E tests (requires services running)"
+dependencies = ["check-services"]
+command = "cargo"
+args = ["nextest", "run", "--all-features", "-E", "test(e2e::)"]
+
+[tasks.check-services]
+description = "Check required services are running"
+script = { file = "${SCRIPTS_DIR}/check-services.sh" }
+
+[tasks.test-crate]
+description = "Test a specific crate with nextest"
+command = "cargo"
+args = ["nextest", "run", "--package", "${CRATE_NAME}", "--all-features"]

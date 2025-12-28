@@ -1,0 +1,18 @@
+# =============================================================================
+# Workspace Configuration - Global settings and environment
+# =============================================================================
+
+[config]
+default_to_workspace = false
+
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+WORKSPACE_ROOT = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
+SCRIPTS_DIR = "${WORKSPACE_ROOT}/cargo-make/scripts"
+
+# Database configuration (can be overridden)
+DATABASE_URL = { value = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test", condition = { env_not_set = ["DATABASE_URL"] } }
+TASKER_ENV = { value = "test", condition = { env_not_set = ["TASKER_ENV"] } }
+
+# Worker paths for iteration
+WORKER_PATHS = "workers/python,workers/ruby,workers/typescript,workers/rust"
