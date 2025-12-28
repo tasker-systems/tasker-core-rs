@@ -10,6 +10,7 @@ RUBY_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/ruby"
 PYTHON_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/python"
 TYPESCRIPT_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/typescript"
 PYTHON_HANDLER_PATH="$(pwd)/workers/python/tests/handlers"
+TYPESCRIPT_HANDLER_PATH="$(pwd)/workers/typescript/tests/handlers"
 FIXTURE_PATH="$(pwd)/tests/fixtures"
 ORCHESTRATION_PORT="${ORCHESTRATION_PORT:-8080}"
 WORKER_PORT="${WORKER_PORT:-8081}"
@@ -91,6 +92,7 @@ TASKER_CONFIG_PATH="$WORKER_CONFIG" \
   DATABASE_URL="$POSTGRES_URL" \
   TASKER_ENV=test \
   TASKER_TEMPLATE_PATH="$TYPESCRIPT_TEMPLATE_PATH" \
+  TYPESCRIPT_HANDLER_PATH="$TYPESCRIPT_HANDLER_PATH" \
   TASKER_WEB_BIND_ADDRESS="0.0.0.0:$TYPESCRIPT_WORKER_PORT" \
   RUST_LOG=info \
   bun run bin/server.ts \

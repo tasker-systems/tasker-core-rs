@@ -338,6 +338,7 @@ jobs:
           [ -f worker.log ] && cp worker.log service-logs/
           [ -f ruby-worker.log ] && cp ruby-worker.log service-logs/
           [ -f python-worker.log ] && cp python-worker.log service-logs/
+          [ -f typescript-worker.log ] && cp typescript-worker.log service-logs/
 
       - name: Upload service logs
         if: failure()
