@@ -23,6 +23,25 @@ export TASKER_FIXTURE_PATH="$FIXTURE_PATH"
 
 echo "🚀 Starting native services..."
 
+# Port configuration diagnostic
+echo "📋 Port configuration:"
+echo "   ORCHESTRATION_PORT=$ORCHESTRATION_PORT"
+echo "   WORKER_PORT=$WORKER_PORT"
+echo "   RUBY_WORKER_PORT=$RUBY_WORKER_PORT"
+echo "   PYTHON_WORKER_PORT=$PYTHON_WORKER_PORT"
+echo "   TYPESCRIPT_WORKER_PORT=$TYPESCRIPT_WORKER_PORT"
+
+# Check if any ports are already in use BEFORE starting services
+echo "🔍 Pre-flight port check (before starting any services):"
+for port in $ORCHESTRATION_PORT $WORKER_PORT $RUBY_WORKER_PORT $PYTHON_WORKER_PORT $TYPESCRIPT_WORKER_PORT; do
+  if lsof -i :$port > /dev/null 2>&1; then
+    echo "   ⚠️  Port $port is ALREADY in use:"
+    lsof -i :$port 2>/dev/null | head -3
+  else
+    echo "   ✅ Port $port is available"
+  fi
+done
+
 # 1. Run database migrations (idempotent)
 echo "📊 Running database migrations..."
 DATABASE_URL="$POSTGRES_URL" cargo sqlx migrate run
@@ -112,6 +131,31 @@ TASKER_CONFIG_PATH="$WORKER_CONFIG" \
 TYPESCRIPT_WORKER_PID=$!
 echo "TypeScript worker PID: $TYPESCRIPT_WORKER_PID"
 cd ../..
+
+# 6.5. Port binding diagnostic - show what's on each port AFTER starting all workers
+echo "🔍 Port binding diagnostic (immediately after starting all workers):"
+echo "   Checking ALL worker ports..."
+for port in $ORCHESTRATION_PORT $WORKER_PORT $RUBY_WORKER_PORT $PYTHON_WORKER_PORT $TYPESCRIPT_WORKER_PORT; do
+  echo "   Port $port:"
+  lsof -i :$port 2>/dev/null | head -3 || echo "     (nothing bound)"
+done
+
+# Give TypeScript FFI time to bootstrap (it takes longer than other workers)
+echo "⏳ Waiting 5 seconds for TypeScript FFI to bootstrap..."
+sleep 5
+
+# Check port 8084 status after the delay
+echo "🔍 Port $TYPESCRIPT_WORKER_PORT status after FFI bootstrap delay:"
+lsof -i :$TYPESCRIPT_WORKER_PORT 2>/dev/null || echo "   (nothing bound to port $TYPESCRIPT_WORKER_PORT)"
+
+# Verify TypeScript worker process is still running
+if kill -0 $TYPESCRIPT_WORKER_PID 2>/dev/null; then
+  echo "✅ TypeScript worker process (PID $TYPESCRIPT_WORKER_PID) is still running"
+else
+  echo "❌ TypeScript worker process (PID $TYPESCRIPT_WORKER_PID) has exited!"
+  echo "   Last 20 lines of typescript-worker.log:"
+  tail -20 typescript-worker.log || true
+fi
 
 # 7. Wait for health checks
 echo "🏥 Waiting for services to be healthy..."
