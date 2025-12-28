@@ -86,6 +86,18 @@ echo "Python worker PID: $PYTHON_WORKER_PID"
 cd ../..
 
 # 6. Start TypeScript FFI worker in background
+# Wait for Python worker to finish initializing to avoid port conflicts
+echo "⏳ Waiting for Python worker to initialize..."
+sleep 2
+
+# Check if port 8084 is available before starting TypeScript worker
+if lsof -i :$TYPESCRIPT_WORKER_PORT > /dev/null 2>&1; then
+  echo "⚠️  Port $TYPESCRIPT_WORKER_PORT is already in use!"
+  lsof -i :$TYPESCRIPT_WORKER_PORT || true
+else
+  echo "✅ Port $TYPESCRIPT_WORKER_PORT is available"
+fi
+
 echo "📜 Starting TypeScript FFI worker on port $TYPESCRIPT_WORKER_PORT..."
 cd workers/typescript
 TASKER_CONFIG_PATH="$WORKER_CONFIG" \
