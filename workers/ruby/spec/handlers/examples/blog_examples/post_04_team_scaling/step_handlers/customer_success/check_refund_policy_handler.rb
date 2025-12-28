@@ -93,7 +93,7 @@ module CustomerSuccess
 
         # Calculate days since purchase
         purchase_date = Time.parse(inputs[:purchase_date])
-        days_since_purchase = ((Time.now - purchase_date) / 86400).to_i
+        days_since_purchase = ((Time.now - purchase_date) / 86_400).to_i
 
         # Check if within refund window
         within_window = days_since_purchase <= policy[:window_days]
@@ -124,13 +124,13 @@ module CustomerSuccess
           )
         end
 
-        unless policy_check_result[:within_amount_limit]
-          raise TaskerCore::Errors::PermanentError.new(
-            "Refund amount exceeds policy limit: $#{policy_check_result[:requested_amount] / 100.0} " \
-            "(max: $#{policy_check_result[:max_allowed_amount] / 100.0})",
-            error_code: 'EXCEEDS_AMOUNT_LIMIT'
-          )
-        end
+        return if policy_check_result[:within_amount_limit]
+
+        raise TaskerCore::Errors::PermanentError.new(
+          "Refund amount exceeds policy limit: $#{policy_check_result[:requested_amount] / 100.0} " \
+          "(max: $#{policy_check_result[:max_allowed_amount] / 100.0})",
+          error_code: 'EXCEEDS_AMOUNT_LIMIT'
+        )
       end
     end
   end

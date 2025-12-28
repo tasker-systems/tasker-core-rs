@@ -13,8 +13,9 @@ module Microservices
       # Simulated billing tiers with pricing
       BILLING_TIERS = {
         'free' => { price: 0, features: ['basic_features'], billing_required: false },
-        'pro' => { price: 29.99, features: ['basic_features', 'advanced_analytics'], billing_required: true },
-        'enterprise' => { price: 299.99, features: ['basic_features', 'advanced_analytics', 'priority_support', 'custom_integrations'], billing_required: true }
+        'pro' => { price: 29.99, features: %w[basic_features advanced_analytics], billing_required: true },
+        'enterprise' => { price: 299.99,
+                          features: %w[basic_features advanced_analytics priority_support custom_integrations], billing_required: true }
       }.freeze
 
       def call(context)
@@ -51,7 +52,7 @@ module Microservices
             status: 'skipped_free_plan',
             message: 'Free plan users do not require billing setup'
           }
-          logger.info "✅ SetupBillingProfileHandler: Billing setup skipped for free plan"
+          logger.info '✅ SetupBillingProfileHandler: Billing setup skipped for free plan'
         end
 
         TaskerCore::Types::StepHandlerCallResult.success(

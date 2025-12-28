@@ -46,7 +46,7 @@ module DomainEvents
       # @param step_context [Hash] The step execution context
       #
       # @return [Hash] The enriched notification event payload
-      def transform_payload(step_result, event_declaration, step_context = nil)
+      def transform_payload(step_result, _event_declaration, _step_context = nil)
         result = step_result[:result] || {}
         channel = result[:channel] || result['channel'] || 'unknown'
 
@@ -93,7 +93,7 @@ module DomainEvents
       # @param step_context [Hash] The step execution context
       #
       # @return [Boolean] true if the event should be published
-      def should_publish?(step_result, event_declaration, step_context = nil)
+      def should_publish?(step_result, _event_declaration, _step_context = nil)
         # Only publish on success
         return false unless step_result[:success]
 
@@ -111,7 +111,7 @@ module DomainEvents
       # @param step_context [Hash] The step execution context
       #
       # @return [Hash] Additional metadata
-      def additional_metadata(step_result, event_declaration, step_context = nil)
+      def additional_metadata(step_result, _event_declaration, _step_context = nil)
         metadata = step_result[:metadata] || {}
         {
           execution_time_ms: metadata[:execution_time_ms] || metadata['execution_time_ms'],
@@ -125,7 +125,7 @@ module DomainEvents
       # @param event_name [String] The event name
       # @param payload [Hash] The transformed payload
       # @param metadata [Hash] The event metadata
-      def before_publish(event_name, payload, metadata)
+      def before_publish(event_name, payload, _metadata)
         logger.debug "[DomainEvents::Publishers::NotificationEventPublisher] Publishing #{event_name} via fast delivery"
         logger.debug "[DomainEvents::Publishers::NotificationEventPublisher] Channel: #{payload[:channel]}, Recipient: #{payload[:recipient]}"
       end
@@ -135,7 +135,7 @@ module DomainEvents
       # @param event_name [String] The event name
       # @param payload [Hash] The transformed payload
       # @param metadata [Hash] The event metadata
-      def after_publish(event_name, payload, metadata)
+      def after_publish(event_name, _payload, _metadata)
         logger.info "[DomainEvents::Publishers::NotificationEventPublisher] Published #{event_name} (fast + custom publisher)"
       end
     end

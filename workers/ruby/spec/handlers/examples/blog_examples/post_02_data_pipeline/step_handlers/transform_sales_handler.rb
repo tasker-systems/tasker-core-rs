@@ -49,22 +49,22 @@ module DataPipeline
 
         # Transform: Calculate daily totals and product summaries
         daily_sales = raw_records.group_by { |r| r[:date] || r['date'] }
-          .transform_values do |day_records|
-            {
-              total_amount: day_records.sum { |r| r[:amount] || r['amount'] || 0 },
-              order_count: day_records.count,
-              avg_order_value: day_records.sum { |r| r[:amount] || r['amount'] || 0 } / day_records.count.to_f
-            }
-          end
+                                 .transform_values do |day_records|
+          {
+            total_amount: day_records.sum { |r| r[:amount] || r['amount'] || 0 },
+            order_count: day_records.count,
+            avg_order_value: day_records.sum { |r| r[:amount] || r['amount'] || 0 } / day_records.count.to_f
+          }
+        end
 
         product_sales = raw_records.group_by { |r| r[:product_id] || r['product_id'] }
-          .transform_values do |product_records|
-            {
-              total_quantity: product_records.sum { |r| r[:quantity] || r['quantity'] || 0 },
-              total_revenue: product_records.sum { |r| r[:amount] || r['amount'] || 0 },
-              order_count: product_records.count
-            }
-          end
+                                   .transform_values do |product_records|
+          {
+            total_quantity: product_records.sum { |r| r[:quantity] || r['quantity'] || 0 },
+            total_revenue: product_records.sum { |r| r[:amount] || r['amount'] || 0 },
+            order_count: product_records.count
+          }
+        end
 
         {
           record_count: raw_records.count,

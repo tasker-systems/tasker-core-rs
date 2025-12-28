@@ -51,10 +51,7 @@ async fn test_typescript_small_amount_auto_approval() -> Result<()> {
     let task_uuid = Uuid::parse_str(&response.task_uuid)?;
     let task = manager.orchestration_client.get_task(task_uuid).await?;
 
-    assert!(
-        task.is_execution_complete(),
-        "Task should be complete"
-    );
+    assert!(task.is_execution_complete(), "Task should be complete");
 
     let steps = manager
         .orchestration_client
@@ -128,10 +125,7 @@ async fn test_typescript_medium_amount_manager_approval() -> Result<()> {
     let task_uuid = Uuid::parse_str(&response.task_uuid)?;
     let task = manager.orchestration_client.get_task(task_uuid).await?;
 
-    assert!(
-        task.is_execution_complete(),
-        "Task should be complete"
-    );
+    assert!(task.is_execution_complete(), "Task should be complete");
 
     let steps = manager
         .orchestration_client
@@ -192,10 +186,7 @@ async fn test_typescript_large_amount_dual_approval() -> Result<()> {
     let task_uuid = Uuid::parse_str(&response.task_uuid)?;
     let task = manager.orchestration_client.get_task(task_uuid).await?;
 
-    assert!(
-        task.is_execution_complete(),
-        "Task should be complete"
-    );
+    assert!(task.is_execution_complete(), "Task should be complete");
 
     let steps = manager
         .orchestration_client

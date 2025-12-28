@@ -85,13 +85,13 @@ RSpec.describe TaskerCore::DomainEvents::PublisherRegistry do
       registry.register(TaskerCore::TestHelpers::MockEventPublisher.new(name: 'Publisher1'))
       registry.register(TaskerCore::TestHelpers::MockEventPublisher.new(name: 'Publisher2'))
 
-      expect { registry.validate_required!(['Publisher1', 'Publisher2']) }.not_to raise_error
+      expect { registry.validate_required!(%w[Publisher1 Publisher2]) }.not_to raise_error
     end
 
     it 'raises error listing missing publishers' do
       registry.register(TaskerCore::TestHelpers::MockEventPublisher.new(name: 'OnlyOne'))
 
-      expect { registry.validate_required!(['OnlyOne', 'Missing1', 'Missing2']) }
+      expect { registry.validate_required!(%w[OnlyOne Missing1 Missing2]) }
         .to raise_error(TaskerCore::DomainEvents::PublisherRegistry::ValidationError) do |error|
           expect(error.message).to include('Missing1')
           expect(error.message).to include('Missing2')

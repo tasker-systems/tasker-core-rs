@@ -235,8 +235,11 @@ pub unsafe extern "C" fn complete_step_event(
     result_json: *const c_char,
 ) -> c_int {
     if event_id.is_null() || result_json.is_null() {
-        tracing::error!("complete_step_event: null pointer received (event_id={}, result_json={})",
-            event_id.is_null(), result_json.is_null());
+        tracing::error!(
+            "complete_step_event: null pointer received (event_id={}, result_json={})",
+            event_id.is_null(),
+            result_json.is_null()
+        );
         return 0;
     }
 

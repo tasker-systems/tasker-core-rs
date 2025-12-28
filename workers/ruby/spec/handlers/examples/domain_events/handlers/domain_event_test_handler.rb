@@ -23,7 +23,7 @@ module DomainEvents
       test_scenario = initialization_data['test_scenario'] || 'event_publishing'
       validate_events = initialization_data['validate_events'] || true
 
-      log_info("Initializing domain event publishing workflow")
+      log_info('Initializing domain event publishing workflow')
       log_info("  Test scenario: #{test_scenario}")
       log_info("  Validate events: #{validate_events}")
 
@@ -42,7 +42,7 @@ module DomainEvents
     # @param results [Hash] Results from all steps
     # @return [void]
     def finalize_task(task, results)
-      log_info("Domain event publishing workflow completed")
+      log_info('Domain event publishing workflow completed')
       log_info("  Task UUID: #{task.task_uuid}")
       log_info("  Step results: #{results.keys.join(', ')}")
     end

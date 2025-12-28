@@ -61,13 +61,13 @@ module Payments
 
       # Validate customer_email if provided
       customer_email = context['customer_email'] || context[:customer_email]
-      if customer_email.present? && !customer_email.match?(/\A[^@\s]+@[^@\s]+\z/)
-        raise TaskerCore::Errors::ValidationError.new(
-          "Invalid customer email format: #{customer_email}",
-          field: 'customer_email',
-          error_code: 'INVALID_EMAIL_FORMAT'
-        )
-      end
+      return unless customer_email.present? && !customer_email.match?(/\A[^@\s]+@[^@\s]+\z/)
+
+      raise TaskerCore::Errors::ValidationError.new(
+        "Invalid customer email format: #{customer_email}",
+        field: 'customer_email',
+        error_code: 'INVALID_EMAIL_FORMAT'
+      )
     end
   end
 end

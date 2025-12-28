@@ -18,13 +18,13 @@ class MockPaymentService < BaseMockService
   # @param card_last_four [String] Last four digits of card (optional)
   # @param customer_id [Integer] Customer ID (optional)
   # @return [Hash] Payment result
-  def self.process_payment(amount:, method:, currency: 'USD', **options)
+  def self.process_payment(amount:, method:, currency: 'USD', **)
     instance = new
     instance.process_payment_call(
       amount: amount,
       method: method,
       currency: currency,
-      **options
+      **
     )
   end
 

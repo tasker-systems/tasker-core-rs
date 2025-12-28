@@ -66,11 +66,7 @@ async fn test_typescript_domain_event_publishing_success() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
     // Create task request for domain event publishing
-    let task_request = create_domain_event_task_request(
-        "ORD-TS-001",
-        "CUST-TS-001",
-        99.99,
-    );
+    let task_request = create_domain_event_task_request("ORD-TS-001", "CUST-TS-001", 99.99);
 
     let start_time = Instant::now();
 
@@ -173,10 +169,7 @@ async fn test_typescript_domain_event_publishing_concurrent() -> Result<()> {
             task_uuid
         );
 
-        let steps = manager
-            .orchestration_client
-            .list_task_steps(uuid)
-            .await?;
+        let steps = manager.orchestration_client.list_task_steps(uuid).await?;
 
         assert_eq!(steps.len(), 4, "Each task should have 4 steps");
         assert!(
@@ -203,11 +196,8 @@ async fn test_typescript_domain_event_metrics_availability() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
     // Create and complete a task with domain events
-    let task_request = create_domain_event_task_request(
-        "ORD-TS-METRICS-001",
-        "CUST-TS-METRICS-001",
-        50.0,
-    );
+    let task_request =
+        create_domain_event_task_request("ORD-TS-METRICS-001", "CUST-TS-METRICS-001", 50.0);
 
     let response = manager
         .orchestration_client

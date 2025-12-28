@@ -11,10 +11,14 @@ module DataPipeline
     class ExtractCustomerDataHandler < TaskerCore::StepHandler::Base
       # Sample customer data (inline simulation)
       SAMPLE_CUSTOMER_DATA = [
-        { customer_id: 'CUST-001', name: 'Alice Johnson', tier: 'gold', lifetime_value: 5000.00, join_date: '2024-01-15' },
-        { customer_id: 'CUST-002', name: 'Bob Smith', tier: 'silver', lifetime_value: 2500.00, join_date: '2024-03-20' },
-        { customer_id: 'CUST-003', name: 'Carol White', tier: 'premium', lifetime_value: 15000.00, join_date: '2023-11-10' },
-        { customer_id: 'CUST-004', name: 'David Brown', tier: 'standard', lifetime_value: 500.00, join_date: '2025-01-05' },
+        { customer_id: 'CUST-001', name: 'Alice Johnson', tier: 'gold', lifetime_value: 5000.00,
+          join_date: '2024-01-15' },
+        { customer_id: 'CUST-002', name: 'Bob Smith', tier: 'silver', lifetime_value: 2500.00,
+          join_date: '2024-03-20' },
+        { customer_id: 'CUST-003', name: 'Carol White', tier: 'premium', lifetime_value: 15_000.00,
+          join_date: '2023-11-10' },
+        { customer_id: 'CUST-004', name: 'David Brown', tier: 'standard', lifetime_value: 500.00,
+          join_date: '2025-01-05' },
         { customer_id: 'CUST-005', name: 'Eve Davis', tier: 'gold', lifetime_value: 7500.00, join_date: '2024-06-12' }
       ].freeze
 

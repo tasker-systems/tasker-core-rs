@@ -33,7 +33,7 @@ module DomainEvents
         log_info("Validating order: #{order_id} for customer: #{customer_id}")
 
         # Perform validation
-        validation_checks = ['order_id_present', 'customer_id_present']
+        validation_checks = %w[order_id_present customer_id_present]
 
         if validation_mode == 'strict' && amount <= 0
           return TaskerCore::Types::StepHandlerCallResult.failure(

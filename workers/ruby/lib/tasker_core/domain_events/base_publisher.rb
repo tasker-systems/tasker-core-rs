@@ -78,7 +78,7 @@ module TaskerCore
       #   - :step_definition [Hash] Step definition from YAML
       #
       # @return [Hash] The business event payload to publish
-      def transform_payload(step_result, event_declaration, step_context = nil)
+      def transform_payload(step_result, _event_declaration, _step_context = nil)
         step_result[:result] || {}
       end
 
@@ -93,7 +93,7 @@ module TaskerCore
       # @param step_context [Hash] The step execution context
       #
       # @return [Boolean] true if the event should be published
-      def should_publish?(step_result, event_declaration, step_context = nil)
+      def should_publish?(_step_result, _event_declaration, _step_context = nil)
         true
       end
 
@@ -107,7 +107,7 @@ module TaskerCore
       # @param step_context [Hash] The step execution context
       #
       # @return [Hash] Additional metadata to merge into event metadata
-      def additional_metadata(step_result, event_declaration, step_context = nil)
+      def additional_metadata(_step_result, _event_declaration, _step_context = nil)
         {}
       end
 
@@ -119,7 +119,7 @@ module TaskerCore
       # @param event_name [String] The event name
       # @param payload [Hash] The transformed payload
       # @param metadata [Hash] The event metadata
-      def before_publish(event_name, payload, metadata)
+      def before_publish(event_name, _payload, _metadata)
         logger.debug "Publishing event: #{event_name}"
       end
 
@@ -130,7 +130,7 @@ module TaskerCore
       # @param event_name [String] The event name
       # @param payload [Hash] The transformed payload
       # @param metadata [Hash] The event metadata
-      def after_publish(event_name, payload, metadata)
+      def after_publish(event_name, _payload, _metadata)
         logger.debug "Event published: #{event_name}"
       end
 
@@ -142,7 +142,7 @@ module TaskerCore
       # @param event_name [String] The event name
       # @param error [Exception] The error that occurred
       # @param payload [Hash] The transformed payload
-      def on_publish_error(event_name, error, payload)
+      def on_publish_error(event_name, error, _payload)
         logger.error "Failed to publish event #{event_name}: #{error.message}"
       end
 

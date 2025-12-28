@@ -49,17 +49,19 @@ module DataPipeline
 
         # Transform: Calculate tier summaries and value segmentation
         tier_analysis = raw_records.group_by { |r| r[:tier] || r['tier'] }
-          .transform_values do |tier_records|
-            {
-              customer_count: tier_records.count,
-              total_lifetime_value: tier_records.sum { |r| r[:lifetime_value] || r['lifetime_value'] || 0 },
-              avg_lifetime_value: tier_records.sum { |r| r[:lifetime_value] || r['lifetime_value'] || 0 } / tier_records.count.to_f
-            }
-          end
+                                   .transform_values do |tier_records|
+          {
+            customer_count: tier_records.count,
+            total_lifetime_value: tier_records.sum { |r| r[:lifetime_value] || r['lifetime_value'] || 0 },
+            avg_lifetime_value: tier_records.sum do |r|
+              r[:lifetime_value] || r['lifetime_value'] || 0
+            end / tier_records.count.to_f
+          }
+        end
 
         # Segment customers by value
         value_segments = {
-          high_value: raw_records.count { |r| (r[:lifetime_value] || r['lifetime_value'] || 0) >= 10000 },
+          high_value: raw_records.count { |r| (r[:lifetime_value] || r['lifetime_value'] || 0) >= 10_000 },
           medium_value: raw_records.count { |r| (r[:lifetime_value] || r['lifetime_value'] || 0).between?(1000, 9999) },
           low_value: raw_records.count { |r| (r[:lifetime_value] || r['lifetime_value'] || 0) < 1000 }
         }
@@ -69,7 +71,9 @@ module DataPipeline
           tier_analysis: tier_analysis,
           value_segments: value_segments,
           total_lifetime_value: raw_records.sum { |r| r[:lifetime_value] || r['lifetime_value'] || 0 },
-          avg_customer_value: raw_records.sum { |r| r[:lifetime_value] || r['lifetime_value'] || 0 } / raw_records.count.to_f,
+          avg_customer_value: raw_records.sum do |r|
+            r[:lifetime_value] || r['lifetime_value'] || 0
+          end / raw_records.count.to_f,
           transformation_type: 'customer_analytics',
           source: 'extract_customer_data'
         }

@@ -5,8 +5,8 @@ require 'spec_helper'
 RSpec.describe TaskerCore::DomainEvents::BasePublisher do
   # Custom test publisher for testing transform and filtering hooks
   class CustomTestPublisher < TaskerCore::DomainEvents::BasePublisher
-    attr_reader :before_publish_called, :after_publish_called, :transform_called
-    attr_reader :last_event_name, :last_payload, :last_metadata
+    attr_reader :before_publish_called, :after_publish_called, :transform_called, :last_event_name, :last_payload,
+                :last_metadata
 
     def initialize
       super
@@ -19,7 +19,7 @@ RSpec.describe TaskerCore::DomainEvents::BasePublisher do
       'CustomTestPublisher'
     end
 
-    def transform_payload(step_result, event_declaration, step_context = nil)
+    def transform_payload(step_result, event_declaration, _step_context = nil)
       @transform_called = true
       {
         transformed: true,
@@ -37,7 +37,7 @@ RSpec.describe TaskerCore::DomainEvents::BasePublisher do
     end
 
     # Correct signature: (event_name, payload, metadata)
-    def after_publish(event_name, payload, metadata)
+    def after_publish(_event_name, _payload, _metadata)
       @after_publish_called = true
     end
   end

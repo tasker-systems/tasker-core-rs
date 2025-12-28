@@ -119,7 +119,7 @@ module Payments
             recipient: email,
             sent_at: Time.now.utc.iso8601,
             notification_type: 'refund_confirmation',
-            subject: "Your refund of $#{sprintf('%.2f', inputs[:refund_amount] / 100.0)} has been processed",
+            subject: "Your refund of $#{format('%.2f', inputs[:refund_amount] / 100.0)} has been processed",
             template_id: 'refund_confirmation_v2'
           }
         end

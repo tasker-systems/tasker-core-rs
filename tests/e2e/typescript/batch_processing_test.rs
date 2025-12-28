@@ -53,10 +53,7 @@ async fn test_typescript_csv_batch_processing() -> Result<()> {
     let task_uuid = Uuid::parse_str(&response.task_uuid)?;
     let task = manager.orchestration_client.get_task(task_uuid).await?;
 
-    assert!(
-        task.is_execution_complete(),
-        "Task should be complete"
-    );
+    assert!(task.is_execution_complete(), "Task should be complete");
 
     let steps = manager
         .orchestration_client
@@ -142,10 +139,7 @@ async fn test_typescript_no_batches_scenario() -> Result<()> {
 
     // For NoBatches, only the batchable (analyze) step runs
     // No batch workers are created and no aggregation is needed
-    assert!(
-        !steps.is_empty(),
-        "Should have at least the analyze step"
-    );
+    assert!(!steps.is_empty(), "Should have at least the analyze step");
 
     // Verify the analyze step exists and completed
     let step_names: Vec<&str> = steps.iter().map(|s| s.name.as_str()).collect();
@@ -162,6 +156,9 @@ async fn test_typescript_no_batches_scenario() -> Result<()> {
         "All steps should be complete"
     );
 
-    println!("✅ TypeScript empty batch scenario completed with {} step(s)", steps.len());
+    println!(
+        "✅ TypeScript empty batch scenario completed with {} step(s)",
+        steps.len()
+    );
     Ok(())
 }

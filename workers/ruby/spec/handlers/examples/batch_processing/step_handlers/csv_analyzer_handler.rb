@@ -75,7 +75,7 @@ module TaskerCore
         def count_csv_rows(csv_file_path)
           # Basic file size check for example purposes
           # TODO: Make configurable in production
-          max_size_bytes = 100 * 1024 * 1024  # 100 MB
+          max_size_bytes = 100 * 1024 * 1024 # 100 MB
           file_size = File.size(csv_file_path)
 
           if file_size > max_size_bytes

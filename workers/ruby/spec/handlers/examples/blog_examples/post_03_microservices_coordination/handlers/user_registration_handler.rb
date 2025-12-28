@@ -30,8 +30,8 @@ module Microservices
 
         @logger.info "   User: #{user_info[:email]}"
         @logger.info "   Plan: #{user_info[:plan] || 'free'}"
-        @logger.info "   Workflow: create_user → (billing ∥ preferences) → welcome → status"
-        @logger.info "   Total steps: 5 (demonstrating parallel execution)"
+        @logger.info '   Workflow: create_user → (billing ∥ preferences) → welcome → status'
+        @logger.info '   Total steps: 5 (demonstrating parallel execution)'
 
         TaskerCore::Types::StepHandlerCallResult.success(
           result: {
