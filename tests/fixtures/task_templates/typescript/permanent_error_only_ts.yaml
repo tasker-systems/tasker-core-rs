@@ -1,0 +1,61 @@
+# TaskTemplate Configuration - TypeScript Implementation
+#
+# Permanent Error Handler for E2E Testing
+# Demonstrates non-retryable error behavior via TypeScript FFI
+#
+# Template: test_scenarios/permanent_error_only_ts:1.0.0
+# Implementation: TypeScript FFI with tasker-worker-ts (Bun FFI)
+#
+---
+name: permanent_error_only_ts
+namespace_name: test_scenarios_ts
+version: 1.0.0
+description: "Single-step handler that returns permanent errors (TypeScript)"
+metadata:
+  author: TypeScript FFI Implementation
+  tags:
+    - namespace:test_scenarios_ts
+    - pattern:single_step
+    - implementation:typescript_ffi
+    - language:typescript
+    - test_type:permanent_error
+    - tas:TAS-105
+  created_at: "2025-12-23T00:00:00Z"
+  updated_at: "2025-12-23T00:00:00Z"
+task_handler:
+  callable: typescript_ffi_handler
+  initialization: {}
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  properties:
+    error_message:
+      type: string
+      description: "Error message to return"
+steps:
+  - name: permanent_error_step_ts
+    description: "A step that returns a permanent (non-retryable) error"
+    handler:
+      callable: test_errors.step_handlers.PermanentErrorHandler
+      initialization:
+        expected_outcome: permanent_error
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: false
+      max_attempts: 1
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 1000
+    timeout_seconds: 30
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: permanent_error_step_ts
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1

@@ -70,13 +70,13 @@ module CustomerSuccess
         )
       end
 
-      unless customer_email.match?(/\A[^@\s]+@[^@\s]+\z/)
-        raise TaskerCore::Errors::ValidationError.new(
-          "Invalid customer email format: #{customer_email}",
-          field: 'customer_email',
-          error_code: 'INVALID_EMAIL_FORMAT'
-        )
-      end
+      return if customer_email.match?(/\A[^@\s]+@[^@\s]+\z/)
+
+      raise TaskerCore::Errors::ValidationError.new(
+        "Invalid customer email format: #{customer_email}",
+        field: 'customer_email',
+        error_code: 'INVALID_EMAIL_FORMAT'
+      )
     end
   end
 end

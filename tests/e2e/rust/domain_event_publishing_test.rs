@@ -70,7 +70,7 @@ fn create_rust_domain_event_task_request(
 /// - All 4 steps execute in order
 /// - Event publishing doesn't block step execution
 /// - Fast execution (< 10s for 4 steps with events)
-/// - **NEW TAS-65**: Actually verifies events were published via /debug/events stats
+/// - **NEW TAS-65**: Actually verifies events were published via /metrics/events stats
 /// - 2x2 publisher matrix coverage (durable/fast x default/custom)
 #[tokio::test]
 async fn test_rust_domain_event_publishing_success() -> Result<()> {
@@ -507,7 +507,7 @@ async fn test_rust_domain_event_step_results() -> Result<()> {
 /// Test domain event workflow metrics availability (Rust worker)
 ///
 /// Validates:
-/// - Worker /debug/events endpoint is accessible
+/// - Worker /metrics/events endpoint is accessible
 /// - Domain event statistics are exposed correctly
 /// - **FIXED TAS-65**: Uses worker_client instead of raw reqwest
 /// - **FIXED TAS-65**: No silent failures - asserts worker availability
@@ -528,7 +528,7 @@ async fn test_rust_domain_event_metrics_availability() -> Result<()> {
     println!("\n🔍 Checking worker domain event metrics endpoint...");
     println!("   Worker URL: {}", manager.worker_url.as_ref().unwrap());
 
-    // TAS-65: Test the /debug/events endpoint using the worker client
+    // TAS-65: Test the /metrics/events endpoint using the worker client
     let stats = worker_client.get_domain_event_stats().await?;
 
     println!("\n📊 Domain Event Statistics:");
@@ -567,7 +567,7 @@ async fn test_rust_domain_event_metrics_availability() -> Result<()> {
     println!("   ✅ Worker health check passed");
 
     println!("\n✅ Domain event metrics availability test passed!");
-    println!("   - /debug/events endpoint accessible");
+    println!("   - /metrics/events endpoint accessible");
     println!("   - Statistics structure valid");
     println!("   - Health endpoint accessible");
 

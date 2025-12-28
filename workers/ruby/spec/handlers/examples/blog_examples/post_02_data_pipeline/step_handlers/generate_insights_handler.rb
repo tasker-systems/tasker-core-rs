@@ -65,21 +65,21 @@ module DataPipeline
 
         # Inventory insights
         inventory_alerts = metrics['inventory_reorder_alerts'] || metrics[:inventory_reorder_alerts] || 0
-        if inventory_alerts.positive?
-          insights << {
-            category: 'Inventory',
-            finding: "#{inventory_alerts} products need reordering",
-            metric: inventory_alerts,
-            recommendation: 'Review reorder points and place purchase orders'
-          }
-        else
-          insights << {
-            category: 'Inventory',
-            finding: 'All products above reorder points',
-            metric: 0,
-            recommendation: 'Inventory levels are healthy'
-          }
-        end
+        insights << if inventory_alerts.positive?
+                      {
+                        category: 'Inventory',
+                        finding: "#{inventory_alerts} products need reordering",
+                        metric: inventory_alerts,
+                        recommendation: 'Review reorder points and place purchase orders'
+                      }
+                    else
+                      {
+                        category: 'Inventory',
+                        finding: 'All products above reorder points',
+                        metric: 0,
+                        recommendation: 'Inventory levels are healthy'
+                      }
+                    end
 
         # Customer insights
         total_ltv = metrics['total_customer_lifetime_value'] || metrics[:total_customer_lifetime_value] || 0

@@ -35,6 +35,7 @@ steps:
 - `nextest` - Installs `cargo-nextest` for parallel test execution
 - `sqlx-cli` - Installs `sqlx-cli` with PostgreSQL and rustls features
 - `audit` - Installs `cargo-audit` for security vulnerability scanning
+- `make` - Installs `cargo-make` for task automation
 - `llvm-cov` - Installs `cargo-llvm-cov` for code coverage reporting
 
 ## Examples

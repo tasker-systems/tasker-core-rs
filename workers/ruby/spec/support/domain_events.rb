@@ -87,7 +87,7 @@ module TaskerCore
       end
 
       # Override transform_payload to capture the full event
-      def transform_payload(step_result, event_declaration, step_context = nil)
+      def transform_payload(step_result, _event_declaration, _step_context = nil)
         step_result[:result] || {}
       end
 
@@ -260,7 +260,7 @@ if defined?(RSpec)
     config.include TaskerCore::TestHelpers
 
     # Reset domain event registries before each test
-    config.before(:each) do
+    config.before do
       if defined?(TaskerCore::DomainEvents::PublisherRegistry)
         TaskerCore::DomainEvents::PublisherRegistry.instance.reset!
       end

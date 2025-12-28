@@ -172,9 +172,17 @@ class TemplatePath:
         # To:   tests/fixtures/task_templates/python
         search_paths = [
             # From within workers/python directory
-            current_file.parent.parent.parent.parent / "tests" / "fixtures" / "task_templates" / "python",
+            current_file.parent.parent.parent.parent
+            / "tests"
+            / "fixtures"
+            / "task_templates"
+            / "python",
             # From project root
-            current_file.parent.parent.parent.parent.parent / "tests" / "fixtures" / "task_templates" / "python",
+            current_file.parent.parent.parent.parent.parent
+            / "tests"
+            / "fixtures"
+            / "task_templates"
+            / "python",
         ]
 
         for path in search_paths:

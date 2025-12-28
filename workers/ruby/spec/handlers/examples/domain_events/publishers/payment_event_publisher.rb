@@ -74,7 +74,7 @@ module DomainEvents
       # @param step_context [Hash] The step execution context
       #
       # @return [Boolean] true if the event should be published
-      def should_publish?(step_result, event_declaration, step_context = nil)
+      def should_publish?(step_result, event_declaration, _step_context = nil)
         result = step_result[:result] || {}
         event_name = event_declaration[:name] || event_declaration['name']
 
@@ -100,7 +100,7 @@ module DomainEvents
       # @param step_context [Hash] The step execution context
       #
       # @return [Hash] Additional metadata
-      def additional_metadata(step_result, event_declaration, step_context = nil)
+      def additional_metadata(step_result, _event_declaration, _step_context = nil)
         metadata = step_result[:metadata] || {}
         {
           execution_time_ms: metadata[:execution_time_ms] || metadata['execution_time_ms'],
@@ -115,7 +115,7 @@ module DomainEvents
       # @param event_name [String] The event name
       # @param payload [Hash] The transformed payload
       # @param metadata [Hash] The event metadata
-      def before_publish(event_name, payload, metadata)
+      def before_publish(event_name, _payload, _metadata)
         logger.debug "[DomainEvents::Publishers::PaymentEventPublisher] Publishing #{event_name} via durable delivery"
       end
 
@@ -124,7 +124,7 @@ module DomainEvents
       # @param event_name [String] The event name
       # @param payload [Hash] The transformed payload
       # @param metadata [Hash] The event metadata
-      def after_publish(event_name, payload, metadata)
+      def after_publish(event_name, _payload, _metadata)
         logger.info "[DomainEvents::Publishers::PaymentEventPublisher] Published #{event_name} (durable + custom publisher)"
       end
 
@@ -136,7 +136,7 @@ module DomainEvents
       # @param step_result [Hash] Full step result
       # @param step_context [Hash] Step execution context
       # @return [Hash] Success event payload
-      def build_success_payload(result, step_result, step_context)
+      def build_success_payload(result, _step_result, step_context)
         {
           transaction_id: result[:transaction_id] || result['transaction_id'],
           amount: result[:amount] || result['amount'],
@@ -155,7 +155,7 @@ module DomainEvents
       # @param step_result [Hash] Full step result
       # @param step_context [Hash] Step execution context
       # @return [Hash] Failure event payload
-      def build_failure_payload(result, step_result, step_context)
+      def build_failure_payload(result, step_result, _step_context)
         metadata = step_result[:metadata] || {}
         {
           error_code: metadata[:error_code] || metadata['error_code'] || 'UNKNOWN',

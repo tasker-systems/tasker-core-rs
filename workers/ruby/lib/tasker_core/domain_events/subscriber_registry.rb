@@ -59,9 +59,7 @@ module TaskerCore
       # @param subscriber [BaseSubscriber] A subscriber instance
       # @return [void]
       def register_instance(subscriber)
-        unless subscriber.is_a?(BaseSubscriber)
-          raise ArgumentError, "Expected BaseSubscriber, got #{subscriber.class}"
-        end
+        raise ArgumentError, "Expected BaseSubscriber, got #{subscriber.class}" unless subscriber.is_a?(BaseSubscriber)
 
         logger.info "SubscriberRegistry: Registered instance of #{subscriber.class.name}"
         @subscribers << subscriber
@@ -82,11 +80,9 @@ module TaskerCore
 
         # Start all subscribers
         @subscribers.each do |subscriber|
-          begin
-            subscriber.start!
-          rescue StandardError => e
-            logger.error "Failed to start #{subscriber.class.name}: #{e.message}"
-          end
+          subscriber.start!
+        rescue StandardError => e
+          logger.error "Failed to start #{subscriber.class.name}: #{e.message}"
         end
 
         @started = true
@@ -100,11 +96,9 @@ module TaskerCore
         return unless @started
 
         @subscribers.each do |subscriber|
-          begin
-            subscriber.stop!
-          rescue StandardError => e
-            logger.error "Failed to stop #{subscriber.class.name}: #{e.message}"
-          end
+          subscriber.stop!
+        rescue StandardError => e
+          logger.error "Failed to stop #{subscriber.class.name}: #{e.message}"
         end
 
         @started = false

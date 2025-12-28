@@ -9,7 +9,9 @@ lint = "clippy --all-targets --all-features -- -D warnings"
 WORKSPACE_PATH = { value = ".", relative = true }
 
 [profile.dev]
-incremental = true  # Keep for local dev
+# Disable incremental when CARGO_TARGET_DIR is on a different filesystem
+# This prevents hard link errors when building to external drives
+incremental = false
 split-debuginfo = "unpacked"  # Can reduce size on macOS
 
 [profile.release]

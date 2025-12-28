@@ -42,7 +42,9 @@ module OrderFulfillment
       def extract_and_validate_inputs(context)
         logger.info "📋 VALIDATE_ORDER: Extracting task context - context.task.context.class=#{context.task.context.class}"
         task_context = deep_symbolize_keys(context.task.context)
-        logger.info "🔍 VALIDATE_ORDER: Task context keys - #{task_context.keys.inspect}" if task_context.respond_to?(:keys)
+        if task_context.respond_to?(:keys)
+          logger.info "🔍 VALIDATE_ORDER: Task context keys - #{task_context.keys.inspect}"
+        end
 
         customer_info = task_context[:customer_info]
         order_items = task_context[:order_items]

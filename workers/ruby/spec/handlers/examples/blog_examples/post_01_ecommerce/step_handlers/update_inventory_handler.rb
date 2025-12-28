@@ -92,7 +92,7 @@ module Ecommerce
       end
 
       # Process inventory reservations for all validated items
-      def process_inventory_reservations(validated_items, customer_info, task_uuid)
+      def process_inventory_reservations(validated_items, _customer_info, _task_uuid)
         updated_products = []
         inventory_changes = []
 
@@ -154,7 +154,6 @@ module Ecommerce
           inventory_log_id: "log_#{SecureRandom.hex(8)}"
         }
       end
-
     end
   end
 end

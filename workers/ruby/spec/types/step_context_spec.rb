@@ -4,6 +4,8 @@ require 'spec_helper'
 
 RSpec.describe TaskerCore::Types::StepContext do
   # Mock the step_data (TaskSequenceStepWrapper) and its components
+  subject(:context) { described_class.new(step_data) }
+
   let(:task_wrapper) do
     double('TaskWrapper',
            task_uuid: 'task-uuid-123',
@@ -54,8 +56,6 @@ RSpec.describe TaskerCore::Types::StepContext do
     allow(mock).to receive(:is_a?).with(TaskerCore::Models::TaskSequenceStepWrapper).and_return(true)
     mock
   end
-
-  subject(:context) { described_class.new(step_data) }
 
   describe '#initialize' do
     it 'creates a context from step data' do

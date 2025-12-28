@@ -27,7 +27,8 @@ module Microservices
         'enterprise' => {
           subject: 'Welcome to Enterprise!',
           greeting: 'Welcome to your Enterprise account',
-          highlights: ['Dedicated account manager', 'Custom SLA', 'Advanced security features', 'Priority support 24/7'],
+          highlights: ['Dedicated account manager', 'Custom SLA', 'Advanced security features',
+                       'Priority support 24/7'],
           upgrade_prompt: nil
         }
       }.freeze
@@ -57,7 +58,7 @@ module Microservices
         # Simulate notification service API calls
         result = simulate_notification_service_send(user_id, email, plan, prefs, billing_data)
 
-        logger.info "✅ SendWelcomeSequenceHandler: Welcome sequence sent"
+        logger.info '✅ SendWelcomeSequenceHandler: Welcome sequence sent'
         logger.info "   Channels: #{result[:channels_used].join(', ')}"
         logger.info "   Messages: #{result[:messages_sent]}"
 
@@ -94,12 +95,12 @@ module Microservices
           )
         end
 
-        unless preferences_data
-          raise TaskerCore::Errors::PermanentError.new(
-            'Preferences data not found from initialize_preferences step',
-            error_code: 'MISSING_PREFERENCES_DATA'
-          )
-        end
+        return if preferences_data
+
+        raise TaskerCore::Errors::PermanentError.new(
+          'Preferences data not found from initialize_preferences step',
+          error_code: 'MISSING_PREFERENCES_DATA'
+        )
       end
 
       def extract_preferences(preferences_data)
@@ -142,7 +143,7 @@ module Microservices
           messages_sent << {
             channel: 'sms',
             to: '+1-555-ENTERPRISE', # Simulated phone number
-            message: "Welcome to Enterprise! Your account manager will contact you soon.",
+            message: 'Welcome to Enterprise! Your account manager will contact you soon.',
             sent_at: Time.now.utc.iso8601
           }
         end

@@ -1,0 +1,222 @@
+# TaskTemplate Configuration - TypeScript Implementation
+#
+# Domain Event Publishing Workflow for E2E Testing
+# Demonstrates domain events with different delivery modes via TypeScript FFI
+#
+# Template: domain_events/domain_event_publishing_ts:1.0.0
+# Implementation: TypeScript FFI with tasker-worker-ts (Bun FFI)
+# Updated: 2025-12-23
+#
+# Event Types Demonstrated:
+# - Success condition events (fast delivery)
+# - Success + failure condition events (durable delivery)
+# - Always condition events (regardless of outcome)
+#
+---
+name: domain_event_publishing_ts
+namespace_name: domain_events_ts
+version: 1.0.0
+description: "Order processing workflow demonstrating domain event publishing (TypeScript)"
+metadata:
+  author: TypeScript FFI Implementation
+  tags:
+    - namespace:domain_events_ts
+    - pattern:linear
+    - feature:domain_events
+    - feature:event_publishing
+    - implementation:typescript_ffi
+    - language:typescript
+    - tas:TAS-65
+    - tas:TAS-69
+    - tas:TAS-105
+  documentation_url:
+  created_at: "2025-12-23T00:00:00Z"
+  updated_at: "2025-12-23T00:00:00Z"
+  notes: "TypeScript FFI implementation demonstrating domain event publishing patterns"
+task_handler:
+  callable: typescript_ffi_handler
+  initialization: {}
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - order_id
+    - customer_id
+    - amount
+  properties:
+    order_id:
+      type: string
+      description: "Unique order identifier"
+    customer_id:
+      type: string
+      description: "Customer identifier"
+    amount:
+      type: number
+      minimum: 0.01
+      description: "Order amount"
+    items:
+      type: array
+      items:
+        type: object
+      description: "Order line items"
+steps:
+  - name: domain_events_ts_validate_order
+    description: "Validate the order details"
+    handler:
+      callable: domain_events.step_handlers.ValidateOrderHandler
+      initialization:
+        validation_rules:
+          - order_id_present
+          - customer_id_present
+          - amount_positive
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events:
+      - name: order.validated
+        description: "Published when order validation succeeds"
+        condition: success
+        schema:
+          type: object
+          properties:
+            order_id:
+              type: string
+            validated_at:
+              type: string
+              format: date-time
+        delivery_mode: fast
+
+  - name: domain_events_ts_process_payment
+    description: "Process payment for the order"
+    handler:
+      callable: domain_events.step_handlers.ProcessPaymentHandler
+      initialization:
+        payment_processor: stripe
+    system_dependency:
+    dependencies:
+      - domain_events_ts_validate_order
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events:
+      - name: payment.processed
+        description: "Published when payment is successfully processed"
+        condition: success
+        schema:
+          type: object
+          properties:
+            order_id:
+              type: string
+            payment_id:
+              type: string
+            amount:
+              type: number
+            processed_at:
+              type: string
+              format: date-time
+        delivery_mode: durable
+      - name: payment.failed
+        description: "Published when payment processing fails"
+        condition: failure
+        schema:
+          type: object
+          properties:
+            order_id:
+              type: string
+            error:
+              type: string
+            failed_at:
+              type: string
+              format: date-time
+        delivery_mode: durable
+
+  - name: domain_events_ts_update_inventory
+    description: "Update inventory for order items"
+    handler:
+      callable: domain_events.step_handlers.UpdateInventoryHandler
+      initialization:
+        inventory_system: default
+    system_dependency:
+    dependencies:
+      - domain_events_ts_process_payment
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events:
+      - name: inventory.updated
+        description: "Published regardless of step outcome for audit"
+        condition: always
+        schema:
+          type: object
+          properties:
+            order_id:
+              type: string
+            items_updated:
+              type: integer
+            updated_at:
+              type: string
+              format: date-time
+        delivery_mode: fast
+
+  - name: domain_events_ts_send_notification
+    description: "Send order confirmation notification"
+    handler:
+      callable: domain_events.step_handlers.SendNotificationHandler
+      initialization:
+        notification_channels:
+          - email
+          - sms
+    system_dependency:
+    dependencies:
+      - domain_events_ts_update_inventory
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events:
+      - name: notification.sent
+        description: "Published when notification is sent"
+        condition: success
+        schema:
+          type: object
+          properties:
+            order_id:
+              type: string
+            customer_id:
+              type: string
+            channels:
+              type: array
+              items:
+                type: string
+            sent_at:
+              type: string
+              format: date-time
+        delivery_mode: fast
+
+environments:
+  test:
+    steps:
+      - name: ALL
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2

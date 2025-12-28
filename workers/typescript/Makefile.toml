@@ -1,0 +1,298 @@
+# =============================================================================
+# Tasker TypeScript Worker - cargo-make Task Definitions
+# =============================================================================
+#
+# This file defines build, test, and quality tasks for the TypeScript worker.
+# Uses Bun for package management and Biome for linting.
+#
+# Usage:
+#   cargo make check       # Run all checks (lint, typecheck, test)
+#   cargo make build       # Build FFI + TypeScript
+#   cargo make test        # Run tests
+#   cargo make fix         # Auto-fix linting issues
+#
+# =============================================================================
+
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+[env]
+# Respect CARGO_TARGET_DIR if set, otherwise use workspace default
+TARGET_DIR = { value = "../../target", condition = { env_not_set = ["CARGO_TARGET_DIR"] } }
+
+# =============================================================================
+# Composite Tasks
+# =============================================================================
+
+[tasks.default]
+description = "Default: run all checks"
+alias = "check"
+
+[tasks.check]
+description = "Run all quality checks (lint, typecheck, test)"
+dependencies = ["lint", "typecheck", "test"]
+
+[tasks.build]
+description = "Build FFI library and TypeScript package (includes binding generation)"
+dependencies = ["generate-bindings", "build-ffi", "build-ts"]
+
+[tasks.fix]
+description = "Auto-fix all fixable issues"
+dependencies = ["format-fix", "lint-fix"]
+
+# =============================================================================
+# Setup Tasks
+# =============================================================================
+
+[tasks.install]
+description = "Install npm dependencies"
+script = '''
+if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules" ]; then
+    echo "📦 Installing dependencies..."
+    bun install --frozen-lockfile
+else
+    echo "✓ Dependencies up to date"
+fi
+'''
+
+[tasks.setup]
+description = "Full setup: install dependencies"
+alias = "install"
+
+# =============================================================================
+# Build Tasks
+# =============================================================================
+
+[tasks.generate-bindings]
+description = "Generate TypeScript type definitions from Rust DTOs using ts-rs"
+script = '''
+echo "📝 Generating TypeScript bindings from Rust DTOs..."
+mkdir -p src/ffi/generated
+cargo test export_bindings --package tasker-worker-ts -- --nocapture 2>/dev/null
+echo "✅ TypeScript bindings generated in src/ffi/generated/"
+'''
+
+[tasks.build-ffi]
+description = "Build Rust FFI library (release)"
+command = "cargo"
+args = ["build", "-p", "tasker-worker-ts", "--release"]
+
+[tasks.build-ffi-debug]
+description = "Build Rust FFI library (debug, faster)"
+command = "cargo"
+args = ["build", "-p", "tasker-worker-ts"]
+
+[tasks.build-ts]
+description = "Build TypeScript package"
+dependencies = ["install"]
+command = "bun"
+args = ["run", "build"]
+
+# =============================================================================
+# Quality Tasks
+# =============================================================================
+
+[tasks.lint]
+description = "Run Biome checks (lint + format)"
+dependencies = ["install"]
+command = "bun"
+args = ["run", "check"]
+
+[tasks.lint-fix]
+description = "Fix linting issues with Biome"
+dependencies = ["install"]
+script = '''
+bun run biome check --write .
+'''
+
+[tasks.format-check]
+description = "Check code formatting"
+dependencies = ["install"]
+script = '''
+bun run biome format --check .
+'''
+
+[tasks.format-fix]
+description = "Format code with Biome"
+dependencies = ["install"]
+script = '''
+bun run biome format --write .
+'''
+
+[tasks.typecheck]
+description = "Run TypeScript type checking"
+dependencies = ["install"]
+command = "bun"
+args = ["run", "typecheck"]
+
+# =============================================================================
+# Test Tasks
+# =============================================================================
+
+[tasks.test]
+description = "Run all tests"
+dependencies = ["install"]
+script = '''
+source scripts/load-env.sh
+bun test
+'''
+
+[tasks.test-watch]
+description = "Run tests in watch mode"
+dependencies = ["install"]
+script = '''
+source scripts/load-env.sh
+bun test --watch
+'''
+
+[tasks.test-coverage]
+description = "Run tests with coverage"
+dependencies = ["install"]
+script = '''
+source scripts/load-env.sh
+bun test --coverage
+'''
+
+# =============================================================================
+# Clean Tasks
+# =============================================================================
+
+[tasks.clean]
+description = "Clean all build artifacts"
+script = '''
+echo "🧹 Cleaning build artifacts..."
+rm -rf dist/
+rm -rf node_modules/
+cargo clean -p tasker-worker-ts
+echo "✓ Clean complete"
+'''
+
+[tasks.clean-ts]
+description = "Clean TypeScript artifacts only"
+script = '''
+rm -rf dist/
+'''
+
+# =============================================================================
+# Development Tasks
+# =============================================================================
+
+[tasks.watch]
+description = "Watch mode for TypeScript development"
+dependencies = ["install"]
+command = "bun"
+args = ["run", "build:watch"]
+
+[tasks.dev]
+description = "Development mode: build debug FFI and watch TS"
+dependencies = ["build-ffi-debug", "watch"]
+
+# =============================================================================
+# FFI Integration Test Tasks
+# =============================================================================
+# These tests exercise the TaskerRuntime interface against the actual FFI library.
+# Each runtime (Bun, Node.js, Deno) is tested independently.
+#
+# Prerequisites:
+#   - cargo make build-ffi  (build the FFI library)
+#   - Optional: DATABASE_URL for bootstrap tests
+#
+# Usage:
+#   cargo make test-ffi-bun     # Run Bun FFI integration tests
+#   cargo make test-ffi-node    # Run Node.js FFI integration tests
+#   cargo make test-ffi-deno    # Run Deno FFI integration tests
+#   cargo make test-ffi-all     # Run all FFI integration tests
+
+[tasks.test-ffi-bun]
+description = "Run FFI integration tests with Bun"
+dependencies = ["build-ffi", "install"]
+script = '''
+source scripts/load-env.sh
+echo "🧪 Running Bun FFI integration tests..."
+bun test tests/integration/ffi/bun-runtime.test.ts
+'''
+
+[tasks.test-ffi-node]
+description = "Run FFI integration tests with Node.js (requires: npm run setup:node)"
+dependencies = ["build-ffi", "install"]
+script = '''
+source scripts/load-env.sh
+echo "🧪 Running Node.js FFI integration tests..."
+if ! command -v node &> /dev/null; then
+    echo "⚠️  Node.js not found, skipping Node.js FFI tests"
+    exit 0
+fi
+# Check if koffi is installed (optional peer dependency)
+if ! node -e "require.resolve('koffi')" 2>/dev/null; then
+    echo "⚠️  koffi not installed. Run 'npm run setup:node' to install Node.js FFI dependencies"
+    echo "⚠️  Skipping Node.js FFI tests"
+    exit 0
+fi
+# Node requires tsx for TypeScript support
+npx tsx --test tests/integration/ffi/node-runtime.test.ts
+'''
+
+[tasks.test-ffi-deno]
+description = "Run FFI integration tests with Deno"
+dependencies = ["build-ffi"]
+script = '''
+source scripts/load-env.sh
+echo "🧪 Running Deno FFI integration tests..."
+if ! command -v deno &> /dev/null; then
+    echo "⚠️  Deno not found, skipping Deno FFI tests"
+    exit 0
+fi
+# Deno requires FFI and environment permissions
+# Use --no-check to skip type checking (cross-runtime compatibility issues with base class resolution)
+# Use --unstable-sloppy-imports for .js extension compatibility with Node/Bun ESM patterns
+deno test --no-check --unstable-sloppy-imports --config deno.json --allow-ffi --allow-env --allow-read tests/integration/ffi/deno-runtime.test.ts
+'''
+
+[tasks.test-ffi-all]
+description = "Run FFI integration tests for all available runtimes"
+dependencies = ["build-ffi", "install"]
+script = '''
+source scripts/load-env.sh
+FAILED=0
+
+echo "🧪 Running Bun FFI integration tests..."
+if bun test tests/integration/ffi/bun-runtime.test.ts; then
+    echo "✅ Bun FFI tests passed"
+else
+    echo "❌ Bun FFI tests failed"
+    FAILED=1
+fi
+
+echo ""
+echo "🧪 Running Node.js FFI integration tests..."
+if ! command -v node &> /dev/null; then
+    echo "⚠️  Node.js not found, skipping"
+elif ! node -e "require.resolve('koffi')" 2>/dev/null; then
+    echo "⚠️  koffi not installed (run 'npm run setup:node'), skipping"
+elif npx tsx --test tests/integration/ffi/node-runtime.test.ts; then
+    echo "✅ Node.js FFI tests passed"
+else
+    echo "❌ Node.js FFI tests failed"
+    FAILED=1
+fi
+
+echo ""
+echo "🧪 Running Deno FFI integration tests..."
+if ! command -v deno &> /dev/null; then
+    echo "⚠️  Deno not found, skipping"
+elif deno test --no-check --unstable-sloppy-imports --config deno.json --allow-ffi --allow-env --allow-read tests/integration/ffi/deno-runtime.test.ts; then
+    echo "✅ Deno FFI tests passed"
+else
+    echo "❌ Deno FFI tests failed"
+    FAILED=1
+fi
+
+echo ""
+if [ $FAILED -eq 0 ]; then
+    echo "✅ All FFI integration tests completed successfully"
+else
+    echo "❌ Some FFI integration tests failed"
+    exit 1
+fi
+'''

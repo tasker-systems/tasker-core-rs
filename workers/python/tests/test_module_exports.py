@@ -126,6 +126,7 @@ class TestTAS95Exports:
         assert BasePublisher is not None
         # Verify it's an abstract class
         from abc import ABC
+
         assert issubclass(BasePublisher, ABC)
 
     def test_base_subscriber_exported(self):
@@ -135,6 +136,7 @@ class TestTAS95Exports:
         assert BaseSubscriber is not None
         # Verify it's an abstract class
         from abc import ABC
+
         assert issubclass(BaseSubscriber, ABC)
 
     def test_step_event_context_exported(self):

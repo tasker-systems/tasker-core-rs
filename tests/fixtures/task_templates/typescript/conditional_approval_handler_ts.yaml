@@ -1,0 +1,199 @@
+# TaskTemplate Configuration - TypeScript Implementation
+#
+# Conditional Approval Workflow with Decision Points
+# Demonstrates TAS-53 Dynamic Workflows via TypeScript FFI
+#
+# Template: conditional_approval/approval_routing_ts:1.0.0
+# Implementation: TypeScript FFI with tasker-worker-ts (Bun FFI)
+# Updated: 2025-12-23
+#
+# Approval Routing Logic:
+# - Amount < $1,000: Auto-approve (fast path)
+# - Amount $1,000-$4,999: Manager approval required
+# - Amount >= $5,000: Dual approval (manager + finance review)
+#
+---
+name: approval_routing_ts
+namespace_name: conditional_approval_ts
+version: 1.0.0
+description: "Conditional approval routing based on amount thresholds (TypeScript)"
+metadata:
+  author: TypeScript FFI Implementation
+  tags:
+    - namespace:conditional_approval_ts
+    - pattern:decision_point
+    - feature:conditional_branching
+    - implementation:typescript_ffi
+    - language:typescript
+    - tas:TAS-53
+    - tas:TAS-105
+  documentation_url:
+  created_at: "2025-12-23T00:00:00Z"
+  updated_at: "2025-12-23T00:00:00Z"
+  notes: "TypeScript FFI implementation demonstrating TAS-53 Decision Point support"
+task_handler:
+  callable: typescript_ffi_handler
+  initialization:
+    thresholds:
+      small_amount: 1000
+      large_amount: 5000
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - amount
+    - requester
+    - purpose
+  properties:
+    amount:
+      type: number
+      minimum: 0.01
+      maximum: 1000000
+      description: "Amount requiring approval"
+    requester:
+      type: string
+      minLength: 1
+      description: "Person requesting approval"
+    purpose:
+      type: string
+      minLength: 1
+      description: "Purpose of the request"
+steps:
+  # Static steps - always created
+  - name: validate_request_ts
+    description: "Validate the approval request"
+    handler:
+      callable: conditional_approval.step_handlers.ValidateRequestHandler
+      initialization:
+        validation_rules:
+          - amount_positive
+          - requester_not_empty
+          - purpose_not_empty
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: routing_decision_ts
+    type: decision
+    description: "Decision point: route based on amount thresholds"
+    handler:
+      callable: conditional_approval.step_handlers.RoutingDecisionHandler
+      initialization:
+        thresholds:
+          small: 1000
+          large: 5000
+        routing_rules:
+          - condition: "amount < 1000"
+            create_steps: ["auto_approve_ts"]
+          - condition: "amount >= 1000 && amount < 5000"
+            create_steps: ["manager_approval_ts"]
+          - condition: "amount >= 5000"
+            create_steps: ["manager_approval_ts", "finance_review_ts"]
+    system_dependency:
+    dependencies:
+      - validate_request_ts
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: finalize_approval_ts
+    type: deferred_convergence
+    description: "Convergence point: finalize approval after all required approvals"
+    handler:
+      callable: conditional_approval.step_handlers.FinalizeApprovalHandler
+      initialization:
+        aggregation_type: approval_status
+    system_dependency:
+    dependencies:
+      - auto_approve_ts
+      - manager_approval_ts
+      - finance_review_ts
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  # Dynamic steps - created conditionally by routing_decision
+  - name: auto_approve_ts
+    description: "Automatic approval for small amounts"
+    handler:
+      callable: conditional_approval.step_handlers.AutoApproveHandler
+      initialization:
+        approval_type: automatic
+        max_amount: 1000
+    system_dependency:
+    dependencies:
+      - routing_decision_ts
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: manager_approval_ts
+    description: "Manager approval for medium/large amounts"
+    handler:
+      callable: conditional_approval.step_handlers.ManagerApprovalHandler
+      initialization:
+        approval_type: manager
+        requires_review: true
+    system_dependency:
+    dependencies:
+      - routing_decision_ts
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: finance_review_ts
+    description: "Finance review for large amounts"
+    handler:
+      callable: conditional_approval.step_handlers.FinanceReviewHandler
+      initialization:
+        approval_type: finance
+        requires_audit_trail: true
+    system_dependency:
+    dependencies:
+      - routing_decision_ts
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+environments:
+  test:
+    steps:
+      - name: ALL
+        timeout_seconds: 10
+        retry:
+          max_attempts: 2

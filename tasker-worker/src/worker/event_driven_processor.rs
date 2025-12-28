@@ -142,7 +142,7 @@ impl EventDrivenMessageProcessor {
         let deployment_mode = edd_config.deployment_mode;
 
         WorkerEventSystemConfig {
-            system_id: format!("legacy-event-driven-{}", processor_id),
+            system_id: format!("event-driven-{}", processor_id),
             deployment_mode,
             timing: EventSystemTimingConfig {
                 health_check_interval_seconds: 60,
@@ -156,13 +156,6 @@ impl EventDrivenMessageProcessor {
                 max_concurrent_operations: edd_config.batch_size,
                 batch_size: edd_config.batch_size,
                 max_retries: 3,
-                // TAS-61: Commented out during investigation - backoff field removed
-                // backoff: BackoffConfig {
-                //     initial_delay_ms: 1000,
-                //     max_delay_ms: 60000,
-                //     multiplier: 2.0,
-                //     jitter_percent: 0.1,
-                // },
             },
             health: EventSystemHealthConfig {
                 enabled: true,

@@ -151,35 +151,35 @@ module TaskerCore
 
         # Validate numeric cursors if they're integers
         # (supports both integer and other types like timestamps/UUIDs)
-        if start_val.is_a?(Integer) || end_val.is_a?(Integer)
-          # If one is integer, both should be integers
-          unless start_val.is_a?(Integer) && end_val.is_a?(Integer)
-            raise ArgumentError,
-                  "Mixed cursor types not allowed: start=#{start_val.class}, end=#{end_val.class}"
-          end
+        return unless start_val.is_a?(Integer) || end_val.is_a?(Integer)
 
-          # Validate non-negative values
-          if start_val.negative?
-            raise ArgumentError,
-                  "start_cursor must be non-negative, got #{start_val}"
-          end
-          if end_val.negative?
-            raise ArgumentError,
-                  "end_cursor must be non-negative, got #{end_val}"
-          end
-
-          # Validate logical ordering
-          if start_val > end_val
-            raise ArgumentError,
-                  "start_cursor (#{start_val}) must be <= end_cursor (#{end_val})"
-          end
-
-          # Warn about zero-length ranges (likely a bug)
-          if start_val == end_val
-            warn "WARNING: Zero-length cursor range (#{start_val} == #{end_val}) " \
-                 "- worker will process no data. batch_id=#{cursor[:batch_id]}"
-          end
+        # If one is integer, both should be integers
+        unless start_val.is_a?(Integer) && end_val.is_a?(Integer)
+          raise ArgumentError,
+                "Mixed cursor types not allowed: start=#{start_val.class}, end=#{end_val.class}"
         end
+
+        # Validate non-negative values
+        if start_val.negative?
+          raise ArgumentError,
+                "start_cursor must be non-negative, got #{start_val}"
+        end
+        if end_val.negative?
+          raise ArgumentError,
+                "end_cursor must be non-negative, got #{end_val}"
+        end
+
+        # Validate logical ordering
+        if start_val > end_val
+          raise ArgumentError,
+                "start_cursor (#{start_val}) must be <= end_cursor (#{end_val})"
+        end
+
+        # Warn about zero-length ranges (likely a bug)
+        return unless start_val == end_val
+
+        warn "WARNING: Zero-length cursor range (#{start_val} == #{end_val}) " \
+             "- worker will process no data. batch_id=#{cursor[:batch_id]}"
       end
     end
   end

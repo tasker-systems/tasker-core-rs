@@ -18,28 +18,29 @@ The main orchestrator implementing a multi-stage DAG with maximum parallelism.
                  │                  │                  │
                  ▼                  ▼                  ▼
           code-quality       build-workers        (parallel)
-          ┌─────────┐       ┌──────────────────┐
-          │ fmt     │       │ 1. core packages │
-          │ clippy  │       │ 2. workers/rust  │
-          │ audit   │       │ 3. workers/ruby  │
-          │ doc     │       │ 4. workers/python│
-          └─────────┘       │ (warms sccache)  │
-                            └────────┬─────────┘
+          ┌─────────┐       ┌───────────────────┐
+          │ fmt     │       │ 1. core packages  │
+          │ clippy  │       │ 2. workers/rust   │
+          │ audit   │       │ 3. workers/ruby   │
+          │ doc     │       │ 4. workers/python │
+          └─────────┘       │ 5. workers/ts     │
+                            │ (warms sccache)   │
+                            └────────┬──────────┘
                                      │
-                 ┌───────────────────┼───────────────────┐
-                 │                   │                   │
-                 ▼                   ▼                   ▼
-        integration-tests    ruby-framework     python-framework
-       ┌─────────────────┐   ┌─────────────┐   ┌───────────────┐
-       │   unit-tests    │   │ bundle exec │   │ uv run pytest │
-       │  (uses cache)   │   │ rspec       │   │ (rebuilds FFI │
-       │       │         │   │ (77 tests)  │   │  with cache)  │
-       │       ▼         │   └─────────────┘   └───────────────┘
-       │   E2E tests     │           │                 │
-       │ (uses artifacts)│           │                 │
-       └────────┬────────┘           │                 │
-                │                    │                 │
-                └────────────────────┴─────────────────┘
+          ┌──────────────────────────┼──────────────────────────┐
+          │                   │                   │             │
+          ▼                   ▼                   ▼             ▼
+ integration-tests    ruby-framework     python-framework   ts-framework
+┌─────────────────┐   ┌─────────────┐   ┌───────────────┐  ┌──────────┐
+│   unit-tests    │   │ bundle exec │   │ uv run pytest │  │ bun test │
+│  (uses cache)   │   │ rspec       │   │ (rebuilds FFI │  │ (122     │
+│       │         │   │ (77 tests)  │   │  with cache)  │  │  tests)  │
+│       ▼         │   └─────────────┘   └───────────────┘  └──────────┘
+│   E2E tests     │           │                 │               │
+│ (uses artifacts)│           │                 │               │
+└────────┬────────┘           │                 │               │
+         │                    │                 │               │
+         └────────────────────┴─────────────────┴───────────────┘
                                      │
                                      ▼
                             performance-analysis
@@ -51,7 +52,7 @@ The main orchestrator implementing a multi-stage DAG with maximum parallelism.
 
 **Key Optimizations (TAS-88)**:
 - **Unified build-workers workflow**: Builds core packages + all workers, warms sccache for everything
-- **Maximum parallelism**: After build-workers, three test workflows run in parallel
+- **Maximum parallelism**: After build-workers, four test workflows run in parallel
 - **Code quality parallel**: Runs alongside build-workers (no dependency on it)
 - **Cache sharing**: All downstream jobs benefit from build-workers' warm cache
 - **Artifact reuse**: Pre-built binaries shared across jobs (Ruby ext, Rust worker, core binaries)
@@ -69,6 +70,7 @@ The main orchestrator implementing a multi-stage DAG with maximum parallelism.
 - workers/rust
 - workers/ruby (FFI extension via magnus)
 - workers/python (FFI extension via maturin/pyo3)
+- workers/typescript (TypeScript package via Bun/tsup)
 
 ---
 
@@ -247,6 +249,52 @@ cargo test --doc --all-features \
 
 ---
 
+### TypeScript Framework Tests (`test-typescript-framework.yml`)
+
+**Purpose**: TypeScript-specific framework testing with multi-runtime FFI integration
+
+**Runs**:
+- Unit tests (`workers/typescript/tests/unit/`)
+  - FFI type tests (`tests/unit/ffi/`)
+  - Event system tests (`tests/unit/events/`)
+  - Runtime detection tests
+- FFI integration tests (`workers/typescript/tests/integration/ffi/`)
+  - Bun FFI tests (required)
+  - Node.js FFI tests (optional - requires ffi-napi)
+  - Deno FFI tests (optional)
+
+**Requirements**:
+- Bun runtime (latest) - primary runtime
+- Node.js 20 - for Node.js FFI tests
+- Deno (latest) - for Deno FFI tests
+- PostgreSQL service (for FFI bootstrap tests)
+- FFI library artifact from build-workers
+
+**Commands**:
+```bash
+# Unit tests
+bun test tests/unit/
+
+# FFI integration tests
+bun test tests/integration/ffi/bun-runtime.test.ts
+npx tsx --test tests/integration/ffi/node-runtime.test.ts
+deno test --allow-ffi --allow-env --allow-read tests/integration/ffi/deno-runtime.test.ts
+```
+
+**Test Count**: ~142 tests (122 unit + 20 FFI per runtime)
+
+**Duration**: ~3-5 minutes
+
+**Key Features**:
+- **Multi-runtime FFI testing**: Tests Rust FFI bindings across Bun, Node.js, and Deno
+- Uses Bun's native test runner (jest-compatible API)
+- Downloads pre-built FFI library from build-workers artifact
+- Node.js and Deno tests are optional (continue-on-error)
+- Validates type coherence, JSON serialization, and FFI interop
+- Runs in parallel with Ruby and Python framework tests
+
+---
+
 ## Support Workflows
 
 ### Build PostgreSQL Image (`build-postgres.yml`)
@@ -325,6 +373,33 @@ workers/ruby/spec/
 ```
 
 **Philosophy**: Tests Ruby code that interacts with Rust FFI layer. No distributed system testing.
+
+---
+
+**TypeScript Location**: `workers/typescript/tests/`
+
+**Purpose**: Test TypeScript-specific framework concerns
+
+**Structure**:
+```
+workers/typescript/tests/
+├── unit/
+│   ├── ffi/       # FFI types and runtime detection
+│   │   ├── types.test.ts
+│   │   ├── runtime.test.ts
+│   │   └── runtime-factory.test.ts
+│   └── events/    # Event emitter and poller
+│       ├── event-emitter.test.ts
+│       └── event-poller.test.ts
+└── integration/
+    └── ffi/       # Multi-runtime FFI integration tests (TAS-105)
+        ├── common.ts              # Shared test utilities
+        ├── bun-runtime.test.ts    # Bun FFI tests (bun:ffi)
+        ├── node-runtime.test.ts   # Node.js FFI tests (ffi-napi)
+        └── deno-runtime.test.ts   # Deno FFI tests (Deno.dlopen)
+```
+
+**Philosophy**: Tests TypeScript code for type coherence, event handling, and runtime detection. FFI integration tests verify Rust FFI bindings work correctly across all supported JavaScript runtimes.
 
 ---
 
@@ -427,6 +502,53 @@ bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb
 docker compose -f docker/docker-compose.test.yml down
 ```
 
+### TypeScript Framework Tests
+
+```bash
+cd workers/typescript
+
+# Install dependencies
+bun install
+
+# Run linting
+bun run lint
+
+# Run type checking
+bun run typecheck
+
+# Run unit tests
+bun test tests/unit/
+
+# Build package
+bun run build
+```
+
+### TypeScript FFI Integration Tests
+
+```bash
+# Requires FFI library to be built first
+cargo build -p tasker-worker-ts --release
+
+cd workers/typescript
+
+# Run all FFI tests with cargo-make (recommended)
+cargo make test-ffi-all
+
+# Or run individual runtimes:
+cargo make test-ffi-bun     # Bun FFI tests
+cargo make test-ffi-node    # Node.js FFI tests (requires ffi-napi)
+cargo make test-ffi-deno    # Deno FFI tests
+
+# Or run directly:
+bun test tests/integration/ffi/bun-runtime.test.ts
+npx tsx --test tests/integration/ffi/node-runtime.test.ts
+deno test --allow-ffi --allow-env --allow-read tests/integration/ffi/deno-runtime.test.ts
+
+# Enable bootstrap tests (requires running PostgreSQL)
+FFI_BOOTSTRAP_TESTS=true DATABASE_URL=postgresql://tasker:tasker@localhost:5432/tasker_rust_test \
+  cargo make test-ffi-all
+```
+
 ---
 
 ## Adding New Tests
@@ -473,6 +595,26 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 2. No Docker dependencies
 3. Test runs automatically via `bundle exec rspec spec/`
 4. No CI changes needed
+
+### Adding TypeScript Framework Test
+
+1. Create test file in `workers/typescript/tests/unit/{ffi,events}/`
+2. Use `describe` / `it` / `expect` from `bun:test`
+3. Test runs automatically via `bun test`
+4. No CI changes needed
+
+**Example**:
+```typescript
+// tests/unit/ffi/my-feature.test.ts
+import { describe, expect, it } from 'bun:test';
+import { myFunction } from '../../../src/ffi/my-feature.js';
+
+describe('MyFeature', () => {
+  it('works correctly', () => {
+    expect(myFunction()).toBe(expected);
+  });
+});
+```
 
 ---
 
@@ -521,6 +663,16 @@ async fn test_my_scenario() -> anyhow::Result<()> {
    bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb --format documentation
    ```
 
+### TypeScript Framework Test Failures
+
+1. **Check test output**: Download `typescript-framework-test-results` artifact
+2. **Reproduce locally**:
+   ```bash
+   cd workers/typescript
+   bun install
+   bun test
+   ```
+
 ### Common Issues
 
 **Ruby worker not starting**:
@@ -550,11 +702,12 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 | Integration Tests | < 25 min | ~1000+ | workspace-compile → unit-tests → E2E |
 | Ruby Framework | < 5 min | ~77 | Parallel with integration |
 | Python Framework | < 5 min | TBD | Parallel with integration |
-| **Total CI** | **< 30 min** | **~1100+ tests** | **With warm cache** |
+| TypeScript Framework | < 2 min | ~122 | Parallel with integration |
+| **Total CI** | **< 30 min** | **~1200+ tests** | **With warm cache** |
 
 **Key Optimizations (TAS-88)**:
 - **Separate build-workers workflow**: FFI builds run once, artifacts shared
-- **DAG parallelism**: Three test workflows run in parallel after build-workers
+- **DAG parallelism**: Four test workflows run in parallel after build-workers
 - **Native-only**: Removed Docker mode for simplicity
 - **Artifact reuse**: Pre-built worker binaries shared across jobs
 - **No partitioning overhead**: Simpler execution model
@@ -564,6 +717,7 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 - Cargo registry: Dependencies cached per Cargo.lock hash
 - Bundler: Ruby gems cached per Gemfile.lock
 - uv: Python packages cached per pyproject.toml
+- Bun: TypeScript dependencies cached per bun.lockb
 
 ---
 
@@ -580,6 +734,7 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 - ✅ **Deferred FFI builds**: Workers build in parallel with unit tests (not blocking)
 - ✅ **Docker mode removed**: Native-only execution for simplicity
 - ✅ **Python worker support**: Full Python FFI worker in CI pipeline
+- ✅ **TypeScript worker support**: Full TypeScript worker in CI pipeline (TAS-100)
 - ✅ **Artifact reuse**: Ruby framework tests reuse pre-built FFI extension
 - ✅ **Cache optimization**: code-quality uses integration cache fallback
 
@@ -603,7 +758,7 @@ build-postgres                      build-postgres
 **Performance Impact**:
 - **Cold cache**: ~25-30 minutes (first run)
 - **Warm cache**: ~20-25 minutes (subsequent runs)
-- **Parallelism gain**: Three test workflows run simultaneously after build-workers
+- **Parallelism gain**: Four test workflows run simultaneously after build-workers
 - **Native-only**: Simpler than Docker mode
 
 ---
@@ -667,4 +822,4 @@ If needed, create:
 
 ---
 
-**Last Updated**: 2025-12-18 (TAS-88 DAG-based pipeline with sccache and nextest partitioning)
+**Last Updated**: 2025-12-23 (TAS-105 Multi-runtime FFI integration tests added)

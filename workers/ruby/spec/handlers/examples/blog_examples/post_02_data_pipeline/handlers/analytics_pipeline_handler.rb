@@ -26,10 +26,10 @@ module DataPipeline
         @timeout_seconds = context[:timeout_seconds] || 120
       end
 
-      def call(context)
+      def call(_context)
         @logger.info "📊 AnalyticsPipelineHandler: Starting analytics pipeline for task #{task.task_uuid}"
-        @logger.info "   Pipeline: Extract → Transform → Aggregate → Insights"
-        @logger.info "   Total steps: 8 (3 parallel extracts, 3 transforms, 1 aggregate, 1 insights)"
+        @logger.info '   Pipeline: Extract → Transform → Aggregate → Insights'
+        @logger.info '   Total steps: 8 (3 parallel extracts, 3 transforms, 1 aggregate, 1 insights)'
 
         # Task handler doesn't process data - just coordinates workflow
         # All business logic is in step handlers

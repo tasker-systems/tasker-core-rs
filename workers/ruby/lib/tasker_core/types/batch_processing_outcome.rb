@@ -189,15 +189,15 @@ module TaskerCore
             batch_size = config['batch_size'] || config[:batch_size]
 
             # Only validate for numeric cursors
-            if start_cursor.is_a?(Integer) && end_cursor.is_a?(Integer)
-              expected_batch_size = end_cursor - start_cursor
+            next unless start_cursor.is_a?(Integer) && end_cursor.is_a?(Integer)
 
-              if batch_size != expected_batch_size
-                raise ArgumentError,
-                      "cursor_configs[#{index}] batch_size (#{batch_size}) must equal " \
-                      "end_cursor - start_cursor (#{end_cursor} - #{start_cursor} = #{expected_batch_size})"
-              end
-            end
+            expected_batch_size = end_cursor - start_cursor
+
+            next unless batch_size != expected_batch_size
+
+            raise ArgumentError,
+                  "cursor_configs[#{index}] batch_size (#{batch_size}) must equal " \
+                  "end_cursor - start_cursor (#{end_cursor} - #{start_cursor} = #{expected_batch_size})"
           end
 
           CreateBatches.new(
@@ -253,7 +253,11 @@ module TaskerCore
             if worker_template_name.nil? || worker_template_name.empty?
               raise ArgumentError, 'worker_template_name is required for create_batches outcome'
             end
-            raise ArgumentError, 'worker_count is required and must be >= 0' if worker_count.nil? || worker_count.negative?
+
+            if worker_count.nil? || worker_count.negative?
+              raise ArgumentError,
+                    'worker_count is required and must be >= 0'
+            end
 
             unless cursor_configs.is_a?(Array) && !cursor_configs.empty?
               raise ArgumentError, 'cursor_configs must be a non-empty array'

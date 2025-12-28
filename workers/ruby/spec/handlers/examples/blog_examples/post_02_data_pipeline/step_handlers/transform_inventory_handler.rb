@@ -49,24 +49,26 @@ module DataPipeline
 
         # Transform: Calculate warehouse summaries and reorder alerts
         warehouse_summary = raw_records.group_by { |r| r[:warehouse] || r['warehouse'] }
-          .transform_values do |wh_records|
-            {
-              total_quantity: wh_records.sum { |r| r[:quantity_on_hand] || r['quantity_on_hand'] || 0 },
-              product_count: wh_records.map { |r| r[:product_id] || r['product_id'] }.uniq.count,
-              reorder_alerts: wh_records.count { |r| (r[:quantity_on_hand] || r['quantity_on_hand'] || 0) <= (r[:reorder_point] || r['reorder_point'] || 0) }
-            }
-          end
+                                       .transform_values do |wh_records|
+          {
+            total_quantity: wh_records.sum { |r| r[:quantity_on_hand] || r['quantity_on_hand'] || 0 },
+            product_count: wh_records.map { |r| r[:product_id] || r['product_id'] }.uniq.count,
+            reorder_alerts: wh_records.count do |r|
+              (r[:quantity_on_hand] || r['quantity_on_hand'] || 0) <= (r[:reorder_point] || r['reorder_point'] || 0)
+            end
+          }
+        end
 
         product_inventory = raw_records.group_by { |r| r[:product_id] || r['product_id'] }
-          .transform_values do |product_records|
-            total_qty = product_records.sum { |r| r[:quantity_on_hand] || r['quantity_on_hand'] || 0 }
-            total_reorder = product_records.sum { |r| r[:reorder_point] || r['reorder_point'] || 0 }
-            {
-              total_quantity: total_qty,
-              warehouse_count: product_records.map { |r| r[:warehouse] || r['warehouse'] }.uniq.count,
-              needs_reorder: total_qty < total_reorder
-            }
-          end
+                                       .transform_values do |product_records|
+          total_qty = product_records.sum { |r| r[:quantity_on_hand] || r['quantity_on_hand'] || 0 }
+          total_reorder = product_records.sum { |r| r[:reorder_point] || r['reorder_point'] || 0 }
+          {
+            total_quantity: total_qty,
+            warehouse_count: product_records.map { |r| r[:warehouse] || r['warehouse'] }.uniq.count,
+            needs_reorder: total_qty < total_reorder
+          }
+        end
 
         {
           record_count: raw_records.count,

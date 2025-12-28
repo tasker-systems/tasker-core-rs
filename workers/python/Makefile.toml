@@ -1,0 +1,208 @@
+# =============================================================================
+# Tasker Python Worker - cargo-make Task Definitions
+# =============================================================================
+#
+# This file defines build, test, and quality tasks for the Python worker.
+# Uses uv for package management, maturin for building, and ruff/mypy for quality.
+#
+# Usage:
+#   cargo make check       # Run all checks (format, lint, types, test)
+#   cargo make build       # Build Rust extension with maturin
+#   cargo make test        # Run pytest
+#   cargo make fix         # Auto-fix linting issues
+#
+# =============================================================================
+
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+# =============================================================================
+# Composite Tasks
+# =============================================================================
+
+[tasks.default]
+description = "Default: run all checks"
+alias = "check"
+
+[tasks.check]
+description = "Run all quality checks (format, lint, types, test)"
+dependencies = ["format-check", "lint", "typecheck", "test"]
+
+[tasks.build]
+description = "Build Rust extension with maturin"
+dependencies = ["setup", "build-extension"]
+
+[tasks.fix]
+description = "Auto-fix all fixable issues"
+dependencies = ["format-fix", "lint-fix"]
+
+# =============================================================================
+# Setup Tasks
+# =============================================================================
+
+[tasks.setup]
+description = "Setup Python virtual environment and dependencies"
+script = '''
+if [ ! -d ".venv" ]; then
+    echo "📦 Creating virtual environment..."
+    uv venv
+fi
+echo "📦 Syncing dependencies..."
+uv sync --group dev
+'''
+
+[tasks.install]
+description = "Alias for setup"
+alias = "setup"
+
+# =============================================================================
+# Build Tasks
+# =============================================================================
+
+[tasks.build-extension]
+description = "Build Rust extension with maturin (development mode)"
+dependencies = ["setup"]
+script = '''
+echo "🔨 Building Rust extension..."
+uv run maturin develop
+echo "✓ Extension built"
+'''
+
+[tasks.build-release]
+description = "Build Rust extension for release"
+dependencies = ["setup"]
+script = '''
+echo "🔨 Building Rust extension (release)..."
+uv run maturin build --release
+'''
+
+# =============================================================================
+# Quality Tasks
+# =============================================================================
+
+[tasks.format-check]
+description = "Check code formatting with ruff"
+dependencies = ["setup"]
+script = '''
+uv run ruff format --check .
+'''
+
+[tasks.format-fix]
+description = "Format code with ruff"
+dependencies = ["setup"]
+script = '''
+uv run ruff format .
+'''
+
+[tasks.lint]
+description = "Run ruff linter"
+dependencies = ["setup"]
+script = '''
+uv run ruff check .
+'''
+
+[tasks.lint-fix]
+description = "Fix linting issues with ruff"
+dependencies = ["setup"]
+script = '''
+uv run ruff check --fix .
+'''
+
+[tasks.typecheck]
+description = "Run mypy type checking"
+dependencies = ["setup"]
+script = '''
+uv run mypy python/
+'''
+
+# =============================================================================
+# Test Tasks
+# =============================================================================
+
+[tasks.test]
+description = "Run all tests with pytest"
+dependencies = ["setup", "build-extension"]
+script = '''
+uv run pytest
+'''
+
+[tasks.test-verbose]
+description = "Run tests with verbose output"
+dependencies = ["setup", "build-extension"]
+script = '''
+uv run pytest -v
+'''
+
+[tasks.test-coverage]
+description = "Run tests with coverage report"
+dependencies = ["setup", "build-extension"]
+script = '''
+uv run pytest --cov=python --cov-report=term-missing
+'''
+
+[tasks.test-unit]
+description = "Run unit tests only"
+dependencies = ["setup"]
+script = '''
+uv run pytest tests/unit/
+'''
+
+[tasks.test-integration]
+description = "Run integration tests only"
+dependencies = ["setup", "build-extension"]
+script = '''
+uv run pytest tests/integration/
+'''
+
+# =============================================================================
+# Rust Extension Tasks (for the FFI layer)
+# =============================================================================
+
+[tasks.rust-check]
+description = "Check Rust code compiles"
+command = "cargo"
+args = ["check"]
+
+[tasks.rust-clippy]
+description = "Run clippy on Rust code"
+command = "cargo"
+args = ["clippy", "--all-targets", "--", "-D", "warnings"]
+
+[tasks.rust-fmt]
+description = "Check Rust formatting"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.rust-fmt-fix]
+description = "Format Rust code"
+command = "cargo"
+args = ["fmt", "--all"]
+
+# =============================================================================
+# Clean Tasks
+# =============================================================================
+
+[tasks.clean]
+description = "Clean all build artifacts"
+script = '''
+echo "🧹 Cleaning build artifacts..."
+rm -rf .venv/
+rm -rf target/
+rm -rf .ruff_cache/
+rm -rf .mypy_cache/
+rm -rf .pytest_cache/
+rm -rf .coverage
+rm -rf htmlcov/
+rm -rf *.egg-info/
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+echo "✓ Clean complete"
+'''
+
+[tasks.clean-build]
+description = "Clean build artifacts only (keep venv)"
+script = '''
+rm -rf target/
+rm -rf *.egg-info/
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+'''

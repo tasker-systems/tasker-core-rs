@@ -52,6 +52,11 @@ jobs:
         with:
           version: "latest"
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Restore Rust build cache
         uses: actions/cache@v4
         with:
@@ -72,7 +77,7 @@ jobs:
       - name: Install tools
         uses: ./.github/actions/install-tools
         with:
-          tools: "sqlx-cli"
+          tools: "sqlx-cli make"
 
       - name: Setup database
         run: sqlx migrate run
@@ -112,6 +117,14 @@ jobs:
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
+      - name: Build TypeScript worker (FFI + package)
+        run: |
+          echo "🔨 Building TypeScript worker..."
+          cd workers/typescript
+          cargo make build
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
       - name: Build Rust worker
         run: |
           echo "🔨 Building Rust worker..."
@@ -127,6 +140,10 @@ jobs:
           echo "📋 Worker artifacts:"
           ls -lh target/debug/rust-worker || echo "❌ Rust worker missing!"
           ls -lh workers/ruby/lib/tasker_core/*.{bundle,so} 2>/dev/null || echo "ℹ️  Ruby extension (expected on Linux)"
+          echo ""
+          echo "📋 TypeScript artifacts:"
+          ls -lh workers/typescript/dist/ || echo "❌ TypeScript dist missing!"
+          ls -lh target/release/libtasker_worker.* 2>/dev/null || echo "ℹ️  TypeScript FFI library (libtasker_worker.so/.dylib)"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v6
@@ -147,5 +164,8 @@ jobs:
             target/debug/rust-worker
             workers/ruby/lib/tasker_core/tasker_worker_rb.bundle
             workers/ruby/lib/tasker_core/tasker_worker_rb.so
+            workers/typescript/dist/
+            target/release/libtasker_worker.so
+            target/release/libtasker_worker.dylib
           retention-days: 1
           if-no-files-found: warn

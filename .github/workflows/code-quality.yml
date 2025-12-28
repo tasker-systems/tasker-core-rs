@@ -56,7 +56,7 @@ jobs:
       - name: Install tools
         uses: ./.github/actions/install-tools
         with:
-          tools: "sqlx-cli audit"
+          tools: "sqlx-cli audit make"
 
       - name: Setup database
         run: sqlx migrate run

@@ -1,6 +1,6 @@
 # Worker Crates Overview
 
-**Last Updated**: 2025-12-17
+**Last Updated**: 2025-12-27
 **Audience**: Developers, Architects, Operators
 **Status**: Active
 **Related Docs**: [Worker Event Systems](../worker-event-systems.md) | [Worker Actors](../worker-actors.md)
@@ -9,7 +9,7 @@
 
 ---
 
-The tasker-core workspace provides three worker implementations for executing workflow step handlers. Each implementation targets different deployment scenarios and developer ecosystems while sharing the same core Rust foundation.
+The tasker-core workspace provides four worker implementations for executing workflow step handlers. Each implementation targets different deployment scenarios and developer ecosystems while sharing the same core Rust foundation.
 
 ## Quick Navigation
 
@@ -21,54 +21,56 @@ The tasker-core workspace provides three worker implementations for executing wo
 | [Rust Worker](rust.md) | Native Rust implementation |
 | [Ruby Worker](ruby.md) | Ruby gem for Rails integration |
 | [Python Worker](python.md) | Python package for data pipelines |
+| [TypeScript Worker](typescript.md) | TypeScript/JS for Bun/Node/Deno |
 
 ---
 
 ## Overview
 
-### Three Workers, One Foundation
+### Four Workers, One Foundation
 
 All workers share the same Rust core (`tasker-worker` crate) for orchestration, queueing, and state management. The language-specific workers add handler execution in their respective runtimes.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     WORKER ARCHITECTURE                          │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           WORKER ARCHITECTURE                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-                    PostgreSQL + PGMQ
-                          │
-                          ▼
-            ┌─────────────────────────────┐
-            │   Rust Core (tasker-worker) │
-            │   ─────────────────────────│
-            │   • Queue Management        │
-            │   • State Machines          │
-            │   • Orchestration           │
-            │   • Actor System            │
-            └─────────────────────────────┘
-                          │
-          ┌───────────────┼───────────────┐
-          │               │               │
-          ▼               ▼               ▼
-    ┌───────────┐   ┌───────────┐   ┌───────────┐
-    │   Rust    │   │   Ruby    │   │  Python   │
-    │  Worker   │   │  Worker   │   │  Worker   │
-    │───────────│   │───────────│   │───────────│
-    │ Native    │   │ FFI Bridge│   │ FFI Bridge│
-    │ Handlers  │   │ + Gem     │   │ + Package │
-    └───────────┘   └───────────┘   └───────────┘
+                              PostgreSQL + PGMQ
+                                      │
+                                      ▼
+                    ┌─────────────────────────────┐
+                    │   Rust Core (tasker-worker) │
+                    │   ─────────────────────────│
+                    │   • Queue Management        │
+                    │   • State Machines          │
+                    │   • Orchestration           │
+                    │   • Actor System            │
+                    └─────────────────────────────┘
+                                      │
+          ┌───────────────┬───────────┼───────────┬───────────────┐
+          │               │           │           │               │
+          ▼               ▼           ▼           ▼               ▼
+    ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌─────────────┐
+    │   Rust    │   │   Ruby    │   │  Python   │   │ TypeScript  │
+    │  Worker   │   │  Worker   │   │  Worker   │   │   Worker    │
+    │───────────│   │───────────│   │───────────│   │─────────────│
+    │ Native    │   │ FFI Bridge│   │ FFI Bridge│   │ FFI Bridge  │
+    │ Handlers  │   │ + Gem     │   │ + Package │   │ Bun/Node/Deno│
+    └───────────┘   └───────────┘   └───────────┘   └─────────────┘
 ```
 
 ### Comparison Table
 
-| Feature | Rust | Ruby | Python |
-|---------|------|------|--------|
-| **Performance** | Native | GVL-limited | GIL-limited |
-| **Integration** | Standalone | Rails/Rack apps | Data pipelines |
-| **Handler Style** | Async traits | Class-based | ABC-based |
-| **Concurrency** | Tokio async | Thread + FFI poll | Thread + FFI poll |
-| **Deployment** | Binary | Gem + Server | Package + Server |
-| **Headless Mode** | N/A | Library embed | Library embed |
+| Feature | Rust | Ruby | Python | TypeScript |
+|---------|------|------|--------|------------|
+| **Performance** | Native | GVL-limited | GIL-limited | V8/Bun native |
+| **Integration** | Standalone | Rails/Rack apps | Data pipelines | Node/Bun/Deno apps |
+| **Handler Style** | Async traits | Class-based | ABC-based | Class-based |
+| **Concurrency** | Tokio async | Thread + FFI poll | Thread + FFI poll | Event loop + FFI poll |
+| **Deployment** | Binary | Gem + Server | Package + Server | Package + Server |
+| **Headless Mode** | N/A | Library embed | Library embed | Library embed |
+| **Runtimes** | - | MRI | CPython | Bun, Node.js, Deno |
 
 ### When to Use Each
 
@@ -89,6 +91,13 @@ All workers share the same Rust core (`tasker-worker` crate) for orchestration, 
 - ML/AI integration
 - Scientific computing workflows
 - Python-native team preferences
+
+**TypeScript Worker** - Best for:
+- Modern JavaScript/TypeScript applications
+- Full-stack Node.js teams
+- Edge computing with Bun or Deno
+- React/Vue/Angular backend services
+- Multi-runtime deployment flexibility
 
 ---
 
@@ -115,9 +124,21 @@ cd workers/python
 python bin/server.py
 ```
 
-### Headless/Embedded Mode (Ruby & Python)
+**TypeScript** (Bun):
+```bash
+cd workers/typescript
+bun run bin/server.ts
+```
 
-Ruby and Python workers can be embedded into existing applications without running the HTTP server. Headless mode is controlled via TOML configuration, not bootstrap parameters.
+**TypeScript** (Node.js):
+```bash
+cd workers/typescript
+npx tsx bin/server.ts
+```
+
+### Headless/Embedded Mode (Ruby, Python & TypeScript)
+
+Ruby, Python, and TypeScript workers can be embedded into existing applications without running the HTTP server. Headless mode is controlled via TOML configuration, not bootstrap parameters.
 
 **TOML Configuration** (e.g., `config/tasker/base/worker.toml`):
 ```toml
@@ -152,6 +173,28 @@ bootstrap_worker(config)
 # Register handlers
 registry = HandlerRegistry.instance()
 registry.register("my_handler", MyHandler)
+```
+
+**TypeScript (in application)**:
+```typescript
+import { createRuntime, HandlerRegistry, EventEmitter, EventPoller, StepExecutionSubscriber } from 'tasker-worker-ts';
+
+// Bootstrap worker (web server disabled via TOML config)
+const runtime = createRuntime();
+await runtime.load('/path/to/libtasker_worker.dylib');
+runtime.bootstrapWorker({ namespace: 'my-app' });
+
+// Register handlers
+const registry = new HandlerRegistry();
+registry.register('my_handler', MyHandler);
+
+// Start event processing
+const emitter = new EventEmitter();
+const subscriber = new StepExecutionSubscriber(emitter, registry, runtime, {});
+subscriber.start();
+
+const poller = new EventPoller(runtime, emitter);
+poller.start();
 ```
 
 ---
@@ -352,6 +395,24 @@ uv run maturin develop
 python bin/server.py
 ```
 
+### TypeScript
+
+```bash
+# Install dependencies
+cd workers/typescript
+bun install
+cargo build --release -p tasker-worker-ts
+
+# Run server (Bun)
+bun run bin/server.ts
+
+# Run server (Node.js)
+npx tsx bin/server.ts
+
+# Run server (Deno)
+deno run --allow-ffi --allow-env --allow-net bin/server.ts
+```
+
 ---
 
 ## Monitoring
@@ -412,3 +473,4 @@ For detailed architectural documentation:
 - [Rust Worker](rust.md) - Native implementation details
 - [Ruby Worker](ruby.md) - Ruby gem documentation
 - [Python Worker](python.md) - Python package documentation
+- [TypeScript Worker](typescript.md) - TypeScript/JS package documentation

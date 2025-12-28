@@ -32,7 +32,7 @@ module Microservices
         result = simulate_user_status_update(user_id, plan, user_data, billing_data, preferences_data, welcome_data)
 
         logger.info "✅ UpdateUserStatusHandler: User status updated to #{result[:status]}"
-        logger.info "   Registration complete!"
+        logger.info '   Registration complete!'
 
         TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
@@ -81,11 +81,11 @@ module Microservices
           registration_summary: registration_summary,
           activation_timestamp: Time.now.utc.iso8601,
           all_services_coordinated: true,
-          services_completed: [
-            'user_service',
-            'billing_service',
-            'preferences_service',
-            'notification_service'
+          services_completed: %w[
+            user_service
+            billing_service
+            preferences_service
+            notification_service
           ]
         }
       end

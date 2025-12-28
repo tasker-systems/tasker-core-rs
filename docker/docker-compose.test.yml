@@ -37,8 +37,8 @@ services:
       # Grafana UI
       - "3000:3000"
       # OTLP receivers
-      - "4317:4317"  # OTLP gRPC
-      - "4318:4318"  # OTLP HTTP
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
       # Prometheus metrics
       - "9090:9090"
       # Tempo query
@@ -162,7 +162,7 @@ services:
   # ==========================================================================
   # Rust Worker Service - Optimized Test Build
   # ==========================================================================
-  worker:
+  rust-worker:
     build:
       context: ..
       dockerfile: docker/build/rust-worker.test.Dockerfile
@@ -346,6 +346,75 @@ services:
       timeout: 5s
       retries: 5 # More retries for CI environment
       start_period: 60s # Python FFI bootstrap + Rust worker + web API binding can take time in CI
+    networks:
+      - tasker-test
+
+  # ==========================================================================
+  # TypeScript Worker Service - Optimized Test Build with Bun FFI Support
+  # ==========================================================================
+  typescript-worker:
+    build:
+      context: ..
+      dockerfile: docker/build/typescript-worker.test.Dockerfile
+      # OPTIMIZATION: BuildKit cache configuration
+      cache_from:
+        - type=local,src=/tmp/docker-cache/typescript-worker
+      cache_to:
+        - type=local,dest=/tmp/docker-cache/typescript-worker,mode=max
+    environment:
+      DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
+      TASKER_ENV: test
+      RUST_LOG: info
+      LOG_LEVEL: info
+      RUST_BACKTRACE: 1
+      WORKER_ID: test-typescript-worker-001
+      WORKSPACE_PATH: /app
+      # TAS-61 V2: Single-file configuration from v2 directory
+      TASKER_CONFIG_PATH: /app/config/tasker/worker-test.toml
+      # Point to centralized E2E test templates for TypeScript handlers
+      TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/typescript
+      # Point to fixture files for E2E tests
+      TASKER_FIXTURE_PATH: /app/tests/fixtures
+      # TypeScript environment
+      TYPESCRIPT_WORKER_ENABLED: "true"
+      # Override handler path to use volume mount (allows live code updates)
+      TYPESCRIPT_HANDLER_PATH: /app/typescript_worker/tests/handlers
+      # FFI library path
+      TASKER_FFI_LIBRARY_PATH: /app/lib/libtasker_worker.so
+      # Service configuration - internal port matches Rust worker
+      # External port 8085 is mapped via Docker, internal binding is 8081
+      # Note: Port 8084 conflicts with Mono XSP4 on GitHub Actions runners
+      PORT: 8081
+      # TAS-65 Phase 1: OpenTelemetry configuration
+      # TAS-94: Traces only mode - logs go to stdout, traces to OTEL
+      TELEMETRY_ENABLED: "true"
+      OTEL_LOGS_ENABLED: "false"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://observability:4317
+      OTEL_SERVICE_NAME: tasker-typescript-worker
+      OTEL_SERVICE_VERSION: "0.1.0"
+    ports:
+      - "8085:8081" # Map to 8085 externally, 8081 internally (same as Rust worker)
+    volumes:
+      - ../config/tasker:/app/config/tasker:ro
+      # Mount centralized test templates
+      - ../tests/fixtures/task_templates/typescript:/app/tests/fixtures/task_templates/typescript:ro
+      # Mount test fixtures for CSV and other data files
+      - ../tests/fixtures:/app/tests/fixtures:ro
+      # Mount handler source code for discovery (must match Dockerfile structure)
+      - ../workers/typescript/tests/handlers:/app/typescript_worker/tests/handlers:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      observability:
+        condition: service_healthy
+      orchestration:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5 # More retries for CI environment
+      start_period: 60s # TypeScript FFI bootstrap + Rust worker + web API binding can take time in CI
     networks:
       - tasker-test
 

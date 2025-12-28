@@ -7,8 +7,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
     context 'with NoBatches scenario' do
       it 'detects when no batch workers exist' do
         dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-          'analyze_dataset' => { 'total_rows' => 0 }
-        })
+                                                                                'analyze_dataset' => { 'total_rows' => 0 }
+                                                                              })
 
         scenario = described_class.detect(
           dependency_results,
@@ -25,8 +25,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
       it 'returns batchable result for NoBatches scenario' do
         batchable_result = { 'message' => 'No data to process' }
         dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-          'analyze_dataset' => batchable_result
-        })
+                                                                                'analyze_dataset' => batchable_result
+                                                                              })
 
         scenario = described_class.detect(
           dependency_results,
@@ -41,11 +41,11 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
     context 'with WithBatches scenario' do
       it 'detects when batch workers exist' do
         dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-          'analyze_dataset' => { 'total_rows' => 1000 },
-          'process_batch_001' => { 'processed_count' => 100 },
-          'process_batch_002' => { 'processed_count' => 150 },
-          'process_batch_003' => { 'processed_count' => 200 }
-        })
+                                                                                'analyze_dataset' => { 'total_rows' => 1000 },
+                                                                                'process_batch_001' => { 'processed_count' => 100 },
+                                                                                'process_batch_002' => { 'processed_count' => 150 },
+                                                                                'process_batch_003' => { 'processed_count' => 200 }
+                                                                              })
 
         scenario = described_class.detect(
           dependency_results,
@@ -61,10 +61,10 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
 
       it 'collects all batch worker results' do
         dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-          'analyze_dataset' => { 'total_rows' => 500 },
-          'process_batch_001' => { 'total' => 100 },
-          'process_batch_002' => { 'total' => 200 }
-        })
+                                                                                'analyze_dataset' => { 'total_rows' => 500 },
+                                                                                'process_batch_001' => { 'total' => 100 },
+                                                                                'process_batch_002' => { 'total' => 200 }
+                                                                              })
 
         scenario = described_class.detect(
           dependency_results,
@@ -81,11 +81,11 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
     context 'with different batch worker prefixes' do
       it 'matches batch workers by prefix correctly' do
         dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-          'split_data' => { 'chunks' => 5 },
-          'chunk_worker_001' => { 'result' => 'data1' },
-          'chunk_worker_002' => { 'result' => 'data2' },
-          'other_step_001' => { 'result' => 'other' }
-        })
+                                                                                'split_data' => { 'chunks' => 5 },
+                                                                                'chunk_worker_001' => { 'result' => 'data1' },
+                                                                                'chunk_worker_002' => { 'result' => 'data2' },
+                                                                                'other_step_001' => { 'result' => 'other' }
+                                                                              })
 
         scenario = described_class.detect(
           dependency_results,
@@ -106,8 +106,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
   describe '#no_batches?' do
     it 'returns true when type is :no_batches' do
       dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-        'test_step' => {}
-      })
+                                                                              'test_step' => {}
+                                                                            })
 
       scenario = described_class.detect(
         dependency_results,
@@ -120,9 +120,9 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
 
     it 'returns false when type is :with_batches' do
       dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-        'test_step' => {},
-        'batch_001' => {}
-      })
+                                                                              'test_step' => {},
+                                                                              'batch_001' => {}
+                                                                            })
 
       scenario = described_class.detect(
         dependency_results,
@@ -137,9 +137,9 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
   describe '#with_batches?' do
     it 'returns true when type is :with_batches' do
       dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-        'test_step' => {},
-        'batch_001' => {}
-      })
+                                                                              'test_step' => {},
+                                                                              'batch_001' => {}
+                                                                            })
 
       scenario = described_class.detect(
         dependency_results,
@@ -152,8 +152,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
 
     it 'returns false when type is :no_batches' do
       dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-        'test_step' => {}
-      })
+                                                                              'test_step' => {}
+                                                                            })
 
       scenario = described_class.detect(
         dependency_results,
@@ -168,8 +168,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
   describe '#worker_count' do
     it 'returns 0 for NoBatches scenario' do
       dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-        'test_step' => {}
-      })
+                                                                              'test_step' => {}
+                                                                            })
 
       scenario = described_class.detect(
         dependency_results,
@@ -182,13 +182,13 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
 
     it 'returns correct count for WithBatches scenario' do
       dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-        'test_step' => {},
-        'batch_001' => {},
-        'batch_002' => {},
-        'batch_003' => {},
-        'batch_004' => {},
-        'batch_005' => {}
-      })
+                                                                              'test_step' => {},
+                                                                              'batch_001' => {},
+                                                                              'batch_002' => {},
+                                                                              'batch_003' => {},
+                                                                              'batch_004' => {},
+                                                                              'batch_005' => {}
+                                                                            })
 
       scenario = described_class.detect(
         dependency_results,
@@ -203,8 +203,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
   describe 'edge cases' do
     it 'handles batchable step with only itself in dependencies' do
       dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-        'single_step' => { 'status' => 'complete' }
-      })
+                                                                              'single_step' => { 'status' => 'complete' }
+                                                                            })
 
       scenario = described_class.detect(
         dependency_results,
@@ -231,11 +231,11 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
 
     it 'handles steps with similar but non-matching prefixes' do
       dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-        'test_step' => {},
-        'process_batch_001' => {},
-        'pre_process_batch_002' => {},
-        'batch_process_003' => {}
-      })
+                                                                              'test_step' => {},
+                                                                              'process_batch_001' => {},
+                                                                              'pre_process_batch_002' => {},
+                                                                              'batch_process_003' => {}
+                                                                            })
 
       scenario = described_class.detect(
         dependency_results,
@@ -251,13 +251,23 @@ RSpec.describe TaskerCore::BatchProcessing::BatchAggregationScenario do
   describe 'realistic aggregation example' do
     it 'aggregates metrics from multiple batch workers' do
       dependency_results = TaskerCore::Models::DependencyResultsWrapper.new({
-        'analyze_csv' => { 'total_rows' => 1000 },
-        'process_batch_001' => { 'processed_count' => 200, 'total_inventory_value' => 15_000.50 },
-        'process_batch_002' => { 'processed_count' => 200, 'total_inventory_value' => 18_250.75 },
-        'process_batch_003' => { 'processed_count' => 200, 'total_inventory_value' => 12_100.25 },
-        'process_batch_004' => { 'processed_count' => 200, 'total_inventory_value' => 20_500.00 },
-        'process_batch_005' => { 'processed_count' => 200, 'total_inventory_value' => 14_750.50 }
-      })
+                                                                              'analyze_csv' => { 'total_rows' => 1000 },
+                                                                              'process_batch_001' => {
+                                                                                'processed_count' => 200, 'total_inventory_value' => 15_000.50
+                                                                              },
+                                                                              'process_batch_002' => {
+                                                                                'processed_count' => 200, 'total_inventory_value' => 18_250.75
+                                                                              },
+                                                                              'process_batch_003' => {
+                                                                                'processed_count' => 200, 'total_inventory_value' => 12_100.25
+                                                                              },
+                                                                              'process_batch_004' => {
+                                                                                'processed_count' => 200, 'total_inventory_value' => 20_500.00
+                                                                              },
+                                                                              'process_batch_005' => {
+                                                                                'processed_count' => 200, 'total_inventory_value' => 14_750.50
+                                                                              }
+                                                                            })
 
       scenario = described_class.detect(
         dependency_results,

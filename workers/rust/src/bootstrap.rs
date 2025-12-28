@@ -127,7 +127,7 @@ pub async fn bootstrap() -> Result<RustWorkerBootstrapResult> {
         let worker_core = worker_handle.worker_core.lock().await;
         let publisher = worker_core.domain_event_publisher();
         // TAS-67: Use the SAME EventRouter from WorkerCore to ensure stats are shared
-        // This is critical for the /debug/events endpoint to show correct counts
+        // This is critical for the /metrics/events endpoint to show correct counts
         let router = worker_core
             .event_router()
             .expect("EventRouter should be available from WorkerCore");

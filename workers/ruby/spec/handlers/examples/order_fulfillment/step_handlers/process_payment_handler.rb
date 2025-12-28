@@ -55,7 +55,7 @@ module OrderFulfillment
 
       def extract_and_validate_inputs(context)
         # Get order validation results
-        logger.info "🔍 ProcessPaymentHandler: Extracting and validating inputs"
+        logger.info '🔍 ProcessPaymentHandler: Extracting and validating inputs'
         validate_order_results = context.get_dependency_result('validate_order')
         reserve_inventory_results = context.get_dependency_result('reserve_inventory')
 

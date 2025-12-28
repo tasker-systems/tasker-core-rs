@@ -60,7 +60,7 @@ jobs:
       - name: Install tools
         uses: ./.github/actions/install-tools
         with:
-          tools: "nextest sqlx-cli"
+          tools: "nextest sqlx-cli make"
 
       - name: Setup database
         run: sqlx migrate run
@@ -155,6 +155,11 @@ jobs:
         with:
           version: "latest"
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Restore Rust build cache
         uses: actions/cache@v4
         with:
@@ -175,7 +180,7 @@ jobs:
       - name: Install tools
         uses: ./.github/actions/install-tools
         with:
-          tools: "nextest sqlx-cli"
+          tools: "nextest sqlx-cli make"
 
       - name: Download build artifacts
         uses: actions/download-artifact@v7
@@ -249,6 +254,26 @@ jobs:
         env:
           SQLX_OFFLINE: "true"
 
+      - name: Setup TypeScript worker
+        run: |
+          echo "📜 Setting up TypeScript worker..."
+          cd workers/typescript
+          bun install --frozen-lockfile
+
+          # Build the TypeScript worker (compiles to dist/)
+          bun run build
+
+          # The FFI library should be available from the release build
+          # For CI, we need to ensure the path is correct
+          if [ -f "../../target/release/libtasker_worker.so" ]; then
+            echo "✅ FFI library found at target/release/libtasker_worker.so"
+          else
+            echo "⚠️ FFI library not found, building..."
+            cargo build --release -p tasker-worker-ts
+          fi
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
       - name: Run database migrations
         run: sqlx migrate run
         env:
@@ -294,6 +319,7 @@ jobs:
           TASKER_TEST_WORKER_URL: http://localhost:8081
           TASKER_TEST_RUBY_WORKER_URL: http://localhost:8082
           TASKER_TEST_PYTHON_WORKER_URL: http://localhost:8083
+          TASKER_TEST_TYPESCRIPT_WORKER_URL: http://localhost:8085
           TASKER_FIXTURE_PATH: ${{ github.workspace }}/tests/fixtures
           RUST_LOG: info
 
@@ -312,6 +338,7 @@ jobs:
           [ -f worker.log ] && cp worker.log service-logs/
           [ -f ruby-worker.log ] && cp ruby-worker.log service-logs/
           [ -f python-worker.log ] && cp python-worker.log service-logs/
+          [ -f typescript-worker.log ] && cp typescript-worker.log service-logs/
 
       - name: Upload service logs
         if: failure()

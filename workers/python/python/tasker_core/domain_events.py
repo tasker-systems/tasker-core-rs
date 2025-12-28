@@ -286,6 +286,7 @@ class BaseSubscriber(ABC):
 
         return any(fnmatch.fnmatch(event_name, pattern) for pattern in self.subscribes_to())
 
+
 # Type aliases for callbacks
 DomainEventCallback = Callable[[InProcessDomainEvent], None]
 ErrorCallback = Callable[[Exception], None]

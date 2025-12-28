@@ -93,18 +93,14 @@ module TaskerCore
       # @raise [RegistryFrozenError] If the registry has been frozen
       def register(publisher)
         # Type validation first
-        unless publisher.is_a?(BasePublisher)
-          raise ArgumentError, "Expected BasePublisher, got #{publisher.class}"
-        end
+        raise ArgumentError, "Expected BasePublisher, got #{publisher.class}" unless publisher.is_a?(BasePublisher)
 
         raise RegistryFrozenError, 'Registry is frozen after validation' if @frozen
 
         name = publisher.name
 
         # Check for duplicates
-        if @publishers.key?(name)
-          raise DuplicatePublisherError, name
-        end
+        raise DuplicatePublisherError, name if @publishers.key?(name)
 
         logger.info "Registering domain event publisher: #{name}"
         @publishers[name] = publisher
@@ -215,9 +211,7 @@ module TaskerCore
           missing << name
         end
 
-        if missing.any?
-          raise ValidationError.new(missing, registered_names)
-        end
+        raise ValidationError.new(missing, registered_names) if missing.any?
 
         @frozen = true
         logger.info "Publisher validation passed. Registered: #{registered_names.join(', ')}"

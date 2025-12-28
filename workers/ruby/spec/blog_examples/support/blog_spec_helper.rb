@@ -143,7 +143,7 @@ if defined?(RSpec)
     config.include BlogExampleHelpers
 
     # Reset mock services before each test
-    config.before(:each) do
+    config.before do
       reset_mock_services!
     end
   end

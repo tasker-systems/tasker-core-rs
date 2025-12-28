@@ -23,7 +23,7 @@ module DataPipeline
         # Aggregate across all sources
         aggregated = aggregate_all_sources(sales_data, inventory_data, customer_data)
 
-        logger.info "✅ AggregateMetricsHandler: Aggregated metrics from 3 sources"
+        logger.info '✅ AggregateMetricsHandler: Aggregated metrics from 3 sources'
         logger.info "   Total revenue: $#{aggregated[:total_revenue]}"
         logger.info "   Total inventory: #{aggregated[:total_inventory_quantity]}"
         logger.info "   Total customers: #{aggregated[:total_customers]}"
@@ -32,7 +32,7 @@ module DataPipeline
           result: aggregated,
           metadata: {
             operation: 'aggregate_metrics',
-            sources: ['transform_sales', 'transform_inventory', 'transform_customers'],
+            sources: %w[transform_sales transform_inventory transform_customers],
             sources_aggregated: 3,
             aggregated_at: Time.now.utc.iso8601,
             handler_class: self.class.name

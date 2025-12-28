@@ -55,7 +55,7 @@ jobs:
       - name: Install tools
         uses: ./.github/actions/install-tools
         with:
-          tools: "nextest sqlx-cli"
+          tools: "nextest sqlx-cli make"
 
       - name: Setup database
         run: sqlx migrate run
@@ -138,7 +138,7 @@ jobs:
       - name: Install tools
         uses: ./.github/actions/install-tools
         with:
-          tools: "nextest"
+          tools: "nextest make"
 
       - name: Free up disk space
         run: |

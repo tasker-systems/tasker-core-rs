@@ -44,7 +44,7 @@ module TaskerCore
           csv_file_path = csv_result&.dig('csv_file_path') || csv_result&.dig(:csv_file_path)
           raise ArgumentError, 'csv_file_path not found in analyze_csv results' if csv_file_path.nil?
 
-          # TODO (SECURITY): In production, validate CSV file path to prevent path traversal
+          # TODO: (SECURITY): In production, validate CSV file path to prevent path traversal
           # This is an example handler for testing, but production code should:
           # 1. Define allowed base directory for CSV files
           # 2. Validate path is within allowed directory using File.realpath
@@ -153,10 +153,10 @@ module TaskerCore
                   "CSV file not found: #{file_path}"
           end
 
-          unless File.readable?(file_path)
-            raise ArgumentError,
-                  "CSV file not readable: #{file_path}"
-          end
+          return if File.readable?(file_path)
+
+          raise ArgumentError,
+                "CSV file not readable: #{file_path}"
         end
 
         # Parse a CSV row into a Product struct

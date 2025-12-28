@@ -107,9 +107,9 @@ module CustomerSuccess
             ticket_id: ticket_id,
             previous_status: 'in_progress',
             new_status: 'resolved',
-            resolution_note: "Refund of $#{sprintf('%.2f', inputs[:refund_amount] / 100.0)} processed successfully. " \
-                           "Delegated task ID: #{inputs[:delegated_task_id]}. " \
-                           "Correlation ID: #{inputs[:correlation_id]}",
+            resolution_note: "Refund of $#{format('%.2f', inputs[:refund_amount] / 100.0)} processed successfully. " \
+                             "Delegated task ID: #{inputs[:delegated_task_id]}. " \
+                             "Correlation ID: #{inputs[:correlation_id]}",
             resolution_type: 'refund_processed',
             updated_at: Time.now.utc.iso8601,
             updated_by: 'automated_workflow',
