@@ -382,7 +382,8 @@ services:
       # FFI library path
       TASKER_FFI_LIBRARY_PATH: /app/lib/libtasker_worker.so
       # Service configuration - internal port matches Rust worker
-      # External port 8084 is mapped via Docker, internal binding is 8081
+      # External port 8085 is mapped via Docker, internal binding is 8081
+      # Note: Port 8084 conflicts with Mono XSP4 on GitHub Actions runners
       PORT: 8081
       # TAS-65 Phase 1: OpenTelemetry configuration
       # TAS-94: Traces only mode - logs go to stdout, traces to OTEL
@@ -392,7 +393,7 @@ services:
       OTEL_SERVICE_NAME: tasker-typescript-worker
       OTEL_SERVICE_VERSION: "0.1.0"
     ports:
-      - "8084:8081" # Map to 8084 externally, 8081 internally (same as Rust worker)
+      - "8085:8081" # Map to 8085 externally, 8081 internally (same as Rust worker)
     volumes:
       - ../config/tasker:/app/config/tasker:ro
       # Mount centralized test templates

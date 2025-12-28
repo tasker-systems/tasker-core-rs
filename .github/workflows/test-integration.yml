@@ -319,7 +319,7 @@ jobs:
           TASKER_TEST_WORKER_URL: http://localhost:8081
           TASKER_TEST_RUBY_WORKER_URL: http://localhost:8082
           TASKER_TEST_PYTHON_WORKER_URL: http://localhost:8083
-          TASKER_TEST_TYPESCRIPT_WORKER_URL: http://localhost:8084
+          TASKER_TEST_TYPESCRIPT_WORKER_URL: http://localhost:8085
           TASKER_FIXTURE_PATH: ${{ github.workspace }}/tests/fixtures
           RUST_LOG: info
 
