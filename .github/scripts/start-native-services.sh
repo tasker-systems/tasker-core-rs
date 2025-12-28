@@ -184,11 +184,22 @@ timeout 60 bash -c "
   done
   echo '✅ Python worker ready'
 
+  # More detailed check for TypeScript worker
+  echo \"🔍 Checking port $TYPESCRIPT_WORKER_PORT before TypeScript health check:\"
+  lsof -i :$TYPESCRIPT_WORKER_PORT 2>/dev/null || echo \"   (nothing on port $TYPESCRIPT_WORKER_PORT)\"
+  echo \"   Attempting curl to http://localhost:$TYPESCRIPT_WORKER_PORT/health...\"
+
   until curl -sf http://localhost:$TYPESCRIPT_WORKER_PORT/health > /dev/null; do
     echo '⏳ Waiting for TypeScript worker...'
+    lsof -i :$TYPESCRIPT_WORKER_PORT 2>/dev/null || echo '   (port still not bound)'
     sleep 2
   done
   echo '✅ TypeScript worker ready'
+  echo \"   What responded on port $TYPESCRIPT_WORKER_PORT:\"
+  lsof -i :$TYPESCRIPT_WORKER_PORT 2>/dev/null || echo '   (weird - nothing shown by lsof)'
+  # Show exactly what curl receives
+  echo '   curl -v response:'
+  curl -s http://localhost:$TYPESCRIPT_WORKER_PORT/health || true
 "
 
 # 8. Save PIDs for cleanup
