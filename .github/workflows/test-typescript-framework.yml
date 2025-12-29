@@ -46,7 +46,7 @@ jobs:
       # Setup all JavaScript runtimes for multi-runtime FFI testing
       # ========================================================================
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
