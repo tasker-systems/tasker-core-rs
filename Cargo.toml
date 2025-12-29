@@ -45,7 +45,7 @@ criterion = { version = "0.8.1" }
 # dashmap = "6.1"
 crossbeam = "0.8"
 # Derive macros for common traits (Display, Default, From, etc.)
-derive_more = { version = "2.0.1", default-features = false, features = ["display", "from", "as_ref"] }
+derive_more = { version = "2.1.1", default-features = false, features = ["display", "from", "as_ref"] }
 dotenvy = "0.15"  # For loading .env files
 # Random number generation
 fastrand = "2.0"
