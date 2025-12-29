@@ -157,8 +157,7 @@ bun test --coverage
 [tasks.test-ci]
 description = "Run tests with CI output format (text logs for artifact upload)"
 dependencies = ["install"]
-script_runner = "@shell"
-script_runner_args = ["bash", "-c"]
+script_runner = "bash"
 script = '''
 set -o pipefail
 
