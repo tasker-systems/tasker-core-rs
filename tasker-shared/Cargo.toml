@@ -44,7 +44,7 @@ dotenvy = { workspace = true }  # For loading .env files
 fastrand = { workspace = true }
 futures = { workspace = true }
 is-terminal = { workspace = true }
-jsonschema = "0.18"
+jsonschema = "0.20"
 jsonwebtoken = { workspace = true, optional = true }
 opentelemetry = { workspace = true }
 opentelemetry-appender-tracing = { workspace = true }
