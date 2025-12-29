@@ -95,7 +95,7 @@ Increase buffer size to mask sequential execution.
 
 ## References
 
-- [TAS-67 Specification](../ticket-specs/TAS-67/summary.md) - Full implementation details
+- For historical implementation details, see [TAS-67](https://linear.app/tasker-systems/issue/TAS-67)
 - [Worker Event Systems](../architecture/worker-event-systems.md) - Architecture documentation
 - [RCA: Parallel Execution Timing Bugs](./rca-parallel-execution-timing-bugs.md) - Bug discovered during implementation
 - [FFI Callback Safety](../development/ffi-callback-safety.md) - FFI patterns established

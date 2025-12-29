@@ -138,7 +138,7 @@ cargo bench --bench e2e_latency
 - Slow by design (measures actual workflow execution)
 - Sample size: 10 (vs 50 default) due to duration
 - Higher variance expected (network, scheduling, DB state)
-- Race conditions fixed in TAS-29 Phase 5.4 (see [TAS-29-high-concurrency-bug.md](../ticket-specs/TAS-29/TAS-29-high-concurrency-bug.md))
+- Race conditions fixed in TAS-29 Phase 5.4 (see [TAS-29](https://linear.app/tasker-systems/issue/TAS-29))
 
 ---
 
@@ -406,8 +406,8 @@ cargo bench -- --measurement-time 10
 
 ## Related Documentation
 
-- **Architecture**: [../ticket-specs/TAS-29/TAS-29.md](../ticket-specs/TAS-29/TAS-29.md)
-- **Race Conditions**: [../ticket-specs/TAS-29/TAS-29-high-concurrency-bug.md](../ticket-specs/TAS-29/TAS-29-high-concurrency-bug.md)
+- **Architecture**: [TAS-29](https://linear.app/tasker-systems/issue/TAS-29)
+- **Race Conditions**: [TAS-29](https://linear.app/tasker-systems/issue/TAS-29)
 - **Observability**: [../observability/](../observability/)
 - **SQL Functions**: [../task-and-step-readiness-and-execution.md](../task-and-step-readiness-and-execution.md)
 

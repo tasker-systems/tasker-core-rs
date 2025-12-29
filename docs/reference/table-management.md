@@ -448,7 +448,7 @@ WHERE created_at > NOW() - INTERVAL '7 days';
 - [PostgreSQL Partitioning Documentation](https://www.postgresql.org/docs/current/ddl-partitioning.html)
 - [pg_partman Extension](https://github.com/pgpartman/pg_partman)
 - [pgmq Partitioned Queues](https://github.com/pgmq/pgmq?tab=readme-ov-file#partitioned-queues)
-- [TAS-49: Comprehensive Task Dead Letter Queue (DLQ) Lifecycle](./ticket-specs/TAS-49/TAS-49.md)
+- [TAS-49](https://linear.app/tasker-systems/issue/TAS-49)
 
 ## See Also
 

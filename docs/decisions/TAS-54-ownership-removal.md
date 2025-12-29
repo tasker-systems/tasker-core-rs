@@ -73,6 +73,6 @@ Continue with TAS-41 behavior, add manual recovery tools.
 
 ## References
 
-- [TAS-54 Specification](../ticket-specs/TAS-54/solution-proposal.md) - Full implementation details
+- For historical implementation details, see [TAS-54](https://linear.app/tasker-systems/issue/TAS-54)
 - [Defense in Depth](../principles/defense-in-depth.md) - Multi-layer protection philosophy
 - [Idempotency and Atomicity](../architecture/idempotency-and-atomicity.md) - Defense layer documentation

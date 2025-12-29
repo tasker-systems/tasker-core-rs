@@ -610,19 +610,7 @@ impl Handler<ExecuteStepMessage> for StepExecutorActor {
 
 ## Detailed Analysis
 
-For in-depth analysis of the worker actor architecture, see the [TAS-69 Ticket Specs](ticket-specs/TAS-69/):
-
-- **[Original Plan](ticket-specs/TAS-69/original-plan.md)** - Initial implementation plan
-- **[Research Plan](ticket-specs/TAS-69/00-research-plan.md)** - Analysis approach
-- **[Structural Changes](ticket-specs/TAS-69/01-structural-changes.md)** - Directory and module organization
-- **[Command Processor Migration](ticket-specs/TAS-69/02-command-processor-migration.md)** - Refactoring strategy
-- **[Service Decomposition](ticket-specs/TAS-69/03-service-decomposition.md)** - Service extraction details
-- **[Actor Implementations](ticket-specs/TAS-69/04-actor-implementations.md)** - Actor patterns and code
-- **[Bootstrap and Core](ticket-specs/TAS-69/05-bootstrap-and-core.md)** - Initialization flow
-- **[Test Coverage Analysis](ticket-specs/TAS-69/06-test-coverage-analysis.md)** - Testing strategy
-- **[Behavior Mapping](ticket-specs/TAS-69/07-behavior-mapping.md)** - Old vs new behavior comparison
-- **[Edge Cases and Risks](ticket-specs/TAS-69/08-edge-cases-and-risks.md)** - Identified issues and fixes
-- **[Summary](ticket-specs/TAS-69/09-summary.md)** - Executive summary
+For historical implementation details, see [TAS-69](https://linear.app/tasker-systems/issue/TAS-69) and the [TAS-69 ADR](../decisions/TAS-69-worker-decomposition.md).
 
 ## Summary
 

@@ -1177,7 +1177,7 @@ When implementing decision point workflows, ensure:
 - **[Quick Start](quick-start.md)** - Getting started guide
 - **[Crate Architecture](crate-architecture.md)** - System architecture overview
 - **[Decision Point E2E Tests](testing/decision-point-e2e-tests.md)** - Detailed test documentation
-- **[TAS-53 Implementation](ticket-specs/TAS-53/implementation.md)** - Implementation details and learnings
+- **[TAS-53](https://linear.app/tasker-systems/issue/TAS-53)** - Implementation details and learnings
 
 ---
 

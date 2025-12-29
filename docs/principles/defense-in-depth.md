@@ -241,4 +241,4 @@ Is better than a system that:
 - [Tasker Core Tenets](./tasker-core-tenets.md) - Tenet #1: Defense in Depth
 - [Idempotency and Atomicity](../idempotency-and-atomicity.md) - Implementation details
 - [States and Lifecycles](../states-and-lifecycles.md) - State machine specifications
-- [TAS-54 Specification](../ticket-specs/TAS-54/) - Original analysis and findings
+- [TAS-54 ADR](../decisions/TAS-54-ownership-removal.md) - Processor UUID ownership removal decision

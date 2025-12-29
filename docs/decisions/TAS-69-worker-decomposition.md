@@ -103,6 +103,6 @@ Use production actor framework.
 
 ## References
 
-- [TAS-69 Specification](../ticket-specs/TAS-69/09-summary.md) - Full implementation details
+- For historical implementation details, see [TAS-69](https://linear.app/tasker-systems/issue/TAS-69)
 - [Worker Actors](../architecture/worker-actors.md) - Architecture documentation
 - [TAS-46 Actor Pattern](./TAS-46-actor-pattern.md) - Orchestration actor precedent

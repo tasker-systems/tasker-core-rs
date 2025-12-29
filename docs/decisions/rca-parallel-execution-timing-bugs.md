@@ -335,4 +335,4 @@ This is a **positive outcome**: the bug was found in testing rather than product
 - **Migration**: `migrations/20251207000000_fix_execution_status_priority.sql`
 - **Test**: `tests/e2e/ruby/error_scenarios_test.rs::test_mixed_workflow_scenario`
 - **SQL Function**: `get_task_execution_context()` in `migrations/20251001000000_fix_permanently_blocked_detection.sql`
-- **TAS-67 Plan**: `docs/ticket-specs/TAS-67/` (Dual Event System architecture)
+- **TAS-67**: See [TAS-67 ADR](./TAS-67-dual-event-system.md)

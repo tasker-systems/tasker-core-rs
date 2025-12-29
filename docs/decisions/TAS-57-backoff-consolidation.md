@@ -3,7 +3,7 @@
 **Status**: Implemented
 **Date**: 2025-10-29
 **Deciders**: Engineering Team
-**Related**: [TAS-42 WaitingForRetry State](../ticket-specs/TAS-42.md), [TAS-57 Specification](../ticket-specs/TAS-57.md)
+**Related**: [TAS-42](https://linear.app/tasker-systems/issue/TAS-42), [TAS-57](https://linear.app/tasker-systems/issue/TAS-57)
 
 ## Context
 
@@ -256,7 +256,7 @@ END
 
 4. **Documentation**:
    - `docs/task-and-step-readiness-and-execution.md`: TAS-57 section added
-   - `docs/ticket-specs/TAS-57.md`: Complete specification
+   - [TAS-57](https://linear.app/tasker-systems/issue/TAS-57): Complete specification
    - This ADR
 
 ### Migration Path
@@ -299,7 +299,7 @@ Since this is greenfield alpha:
 
 ## References
 
-- [TAS-57 Specification](../ticket-specs/TAS-57.md)
+- [TAS-57](https://linear.app/tasker-systems/issue/TAS-57)
 - [Task and Step Readiness Documentation](../task-and-step-readiness-and-execution.md)
 - [States and Lifecycles Documentation](../states-and-lifecycles.md)
 - [BackoffCalculator Implementation](../../tasker-orchestration/src/orchestration/backoff_calculator.rs)

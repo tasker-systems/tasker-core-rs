@@ -3,7 +3,7 @@
 **Last Updated**: 2025-12-07
 **Audience**: Architects, Developers
 **Status**: Active (TAS-67 Complete)
-**Related Docs**: [Worker Actors](worker-actors.md) | [Events and Commands](events-and-commands.md) | [TAS-67 Summary](ticket-specs/TAS-67/summary.md)
+**Related Docs**: [Worker Actors](worker-actors.md) | [Events and Commands](events-and-commands.md) | [TAS-67](https://linear.app/tasker-systems/issue/TAS-67)
 
 <- Back to [Documentation Hub](README.md)
 
@@ -224,7 +224,7 @@ Receives completed step results and routes to orchestration queue via `FFIComple
 completion_receiver → CompletionProcessorService → FFICompletionService → orchestration_step_results
 ```
 
-**Note**: Currently processes completions sequentially. Parallel processing is documented as a future enhancement in `docs/ticket-specs/TAS-67/future-enhancements.md`.
+**Note**: Currently processes completions sequentially. Parallel processing is planned as a future enhancement.
 
 ### 5. DomainEventSystem
 
@@ -629,8 +629,8 @@ end
 - [Backpressure Architecture](backpressure-architecture.md) - Unified backpressure strategy
 - [Worker Actor-Based Architecture](worker-actors.md) - Actor pattern implementation
 - [Events and Commands](events-and-commands.md) - Command pattern details
-- [TAS-67 Summary](ticket-specs/TAS-67/summary.md) - Implementation summary
-- [TAS-67 Edge Cases](ticket-specs/TAS-67/04-edge-cases-and-risks.md) - Risk analysis
+- [TAS-67 ADR](../decisions/TAS-67-dual-event-system.md) - Dual-channel event system decision
+- [TAS-67](https://linear.app/tasker-systems/issue/TAS-67) - Linear ticket for historical context
 - [FFI Callback Safety](development/ffi-callback-safety.md) - FFI guidelines
 - [RCA: Parallel Execution Timing Bugs](../decisions/rca-parallel-execution-timing-bugs.md) - Lessons learned
 - [Backpressure Monitoring Runbook](operations/backpressure-monitoring.md) - Metrics and alerting

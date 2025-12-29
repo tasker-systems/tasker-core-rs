@@ -558,7 +558,7 @@ When migrating existing unbounded/hard-coded channels:
 
 - **ADR**: [Bounded MPSC Channels](../decisions/TAS-51-bounded-mpsc-channels.md)
 - **Operations**: [MPSC Channel Tuning Runbook](../operations/mpsc-channel-tuning.md)
-- **Specification**: [TAS-51](../ticket-specs/TAS-51.md)
+- **Specification**: [TAS-51](https://linear.app/tasker-systems/issue/TAS-51)
 - **Tokio Docs**: https://docs.rs/tokio/latest/tokio/sync/mpsc/
 
 ## Questions?

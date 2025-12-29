@@ -3,7 +3,7 @@
 **Last Updated**: 2025-12-08
 **Audience**: Architects, Developers, Operations
 **Status**: Active (TAS-75)
-**Related Docs**: [Worker Event Systems](worker-event-systems.md) | [MPSC Channel Guidelines](development/mpsc-channel-guidelines.md) | [TAS-75 Plan](ticket-specs/TAS-75/plan.md)
+**Related Docs**: [Worker Event Systems](worker-event-systems.md) | [MPSC Channel Guidelines](development/mpsc-channel-guidelines.md) | [TAS-75](https://linear.app/tasker-systems/issue/TAS-75)
 
 <- Back to [Documentation Hub](README.md)
 
@@ -557,7 +557,7 @@ See [Backpressure Monitoring Runbook](operations/backpressure-monitoring.md) for
 - [MPSC Channel Guidelines](development/mpsc-channel-guidelines.md) - Channel creation guide
 - [MPSC Channel Tuning](operations/mpsc-channel-tuning.md) - Operational tuning
 - [TAS-51: Bounded MPSC Channels](../decisions/TAS-51-bounded-mpsc-channels.md) - ADR
-- [TAS-75 Plan](ticket-specs/TAS-75/plan.md) - Implementation plan
+- [TAS-75](https://linear.app/tasker-systems/issue/TAS-75) - Backpressure architecture ticket
 
 ---
 

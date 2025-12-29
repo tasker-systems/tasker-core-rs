@@ -971,7 +971,7 @@ tasker-cli config detect-unused --context orchestration --fix
 
 - **[Environment Configuration Comparison](environment-configuration-comparison.md)** - Detailed comparison of configuration values across environments
 - **[Deployment Patterns](deployment-patterns.md)** - Deployment modes and strategies
-- **[TAS-50 Phase 3 Specification](ticket-specs/TAS-50/phase3-single-file-config.md)** - Detailed single-file runtime loading implementation
+- **[TAS-50](https://linear.app/tasker-systems/issue/TAS-50)** - Detailed single-file runtime loading implementation
 - **[Quick Start Guide](quick-start.md)** - Getting started with Tasker
 
 ---

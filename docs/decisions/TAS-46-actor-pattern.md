@@ -83,6 +83,6 @@ Define `Service` trait and implement on each lifecycle component.
 
 ## References
 
-- [TAS-46 Specification](../ticket-specs/TAS-46.md) - Full implementation details
+- [TAS-46](https://linear.app/tasker-systems/issue/TAS-46) - Full implementation details
 - [Actors Architecture](../architecture/actors.md) - Actor pattern documentation
 - [Events and Commands](../architecture/events-and-commands.md) - Integration context

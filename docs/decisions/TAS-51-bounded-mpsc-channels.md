@@ -250,7 +250,7 @@ let (tx, rx) = mpsc::channel(buffer_size);
 
 ## References
 
-- **Ticket**: [TAS-51](../ticket-specs/TAS-51.md)
+- **Ticket**: [TAS-51](https://linear.app/tasker-systems/issue/TAS-51)
 - **Implementation PR**: `jcoletaylor/tas-51-bounded-mpsc-channels`
 - **Configuration Files**: `config/tasker/base/mpsc_channels.toml`
 - **Rust Module**: `tasker-shared/src/config/mpsc_channels.rs`

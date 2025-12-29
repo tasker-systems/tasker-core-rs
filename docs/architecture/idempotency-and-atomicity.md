@@ -578,7 +578,7 @@ T9: B deletes PGMQ message
 // B processes successfully → TASK RECOVERS
 ```
 
-See `docs/ticket-specs/TAS-54/COMPREHENSIVE-FINDINGS-SUMMARY.md` for full analysis.
+See [TAS-54 ADR](../decisions/TAS-54-ownership-removal.md) for full analysis.
 
 ### Task Finalization Idempotency
 
@@ -656,7 +656,7 @@ T3: A proceeds with finalization
 T4: B returns early (silent success, already claimed)
 ```
 
-See `docs/ticket-specs/TAS-37.md` for specification (implementation deferred).
+See [TAS-37](https://linear.app/tasker-systems/issue/TAS-37) for specification (implementation deferred).
 
 ---
 
@@ -1041,10 +1041,9 @@ When implementing new orchestration operations, ensure:
 - **[Task Readiness & Execution](task-and-step-readiness-and-execution.md)** - SQL functions and execution logic
 
 ### Implementation Details
-- **[TAS-54 Comprehensive Findings](ticket-specs/TAS-54/COMPREHENSIVE-FINDINGS-SUMMARY.md)** - Full idempotency audit
-- **[TAS-37 Specification](ticket-specs/TAS-37.md)** - Atomic claiming (future enhancement)
-- **[TAS-41 Specification](ticket-specs/TAS-41.md)** - Enhanced state machines with ownership
-- **[TAS-54 Next Steps](ticket-specs/TAS-54/idempotency-and-atomicity-next-steps.md)** - Future improvements
+- **[TAS-54 ADR](../decisions/TAS-54-ownership-removal.md)** - Processor UUID ownership removal decision
+- **[TAS-37](https://linear.app/tasker-systems/issue/TAS-37)** - Atomic claiming (future enhancement)
+- **[TAS-41](https://linear.app/tasker-systems/issue/TAS-41)** - Enhanced state machines with ownership
 
 ### Testing
 - **[Comprehensive Lifecycle Testing](testing/comprehensive-lifecycle-testing-guide.md)** - Testing patterns including concurrent scenarios

@@ -31,7 +31,7 @@ All benchmark documentation has been consolidated in the `docs/benchmarks/` dire
 - `benchmark-quick-reference.md` - Superseded by [../benchmarks/README.md](../benchmarks/README.md)
 - `benchmark-strategy-summary.md` - Consolidated into benchmark-specific docs
 - `benchmarking-guide.md` - SQL benchmarks moved to [../benchmarks/sql-benchmarks.md](../benchmarks/sql-benchmarks.md)
-- `phase-5.4-distributed-benchmarks-plan.md` - Implementation complete, see [../ticket-specs/TAS-29/](../ticket-specs/TAS-29/)
+- `phase-5.4-distributed-benchmarks-plan.md` - Implementation complete, see [TAS-29](https://linear.app/tasker-systems/issue/TAS-29)
 
 ---
 
@@ -429,8 +429,8 @@ docker-compose logs orchestration | jq 'select(.level == "ERROR")'
 ## Related Documentation
 
 - **Benchmarks**: [../benchmarks/README.md](../benchmarks/README.md)
-- **Architecture**: [../ticket-specs/TAS-29/TAS-29.md](../ticket-specs/TAS-29/TAS-29.md)
-- **Race Conditions**: [../ticket-specs/TAS-29/TAS-29-high-concurrency-bug.md](../ticket-specs/TAS-29/TAS-29-high-concurrency-bug.md)
+- **Architecture**: [TAS-29](https://linear.app/tasker-systems/issue/TAS-29)
+- **Race Conditions**: [TAS-29](https://linear.app/tasker-systems/issue/TAS-29)
 - **SQL Functions**: [../task-and-step-readiness-and-execution.md](../task-and-step-readiness-and-execution.md)
 
 ---

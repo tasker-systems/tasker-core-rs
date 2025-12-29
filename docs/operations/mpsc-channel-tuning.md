@@ -427,7 +427,7 @@ watch -n 5 'curl -s localhost:9090/api/v1/query?query=mpsc_channel_usage_percent
 
 **Development**:
 - [Developer Guidelines](../development/mpsc-channel-guidelines.md) - Creating and using MPSC channels
-- [TAS-51 Specification](../ticket-specs/TAS-51.md) - Original implementation ticket
+- [TAS-51](https://linear.app/tasker-systems/issue/TAS-51) - Original implementation ticket
 
 **Operations**:
 - [Backpressure Monitoring](backpressure-monitoring.md) - Unified alerting and incident response

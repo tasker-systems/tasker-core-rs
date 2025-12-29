@@ -2772,7 +2772,7 @@ Batch processing in Tasker provides a robust, production-ready pattern for paral
 - Ready for PR submission
 
 **For More Information**:
-- **Implementation Details**: See `docs/ticket-specs/TAS-59/`
+- **Implementation Details**: See [TAS-59](https://linear.app/tasker-systems/issue/TAS-59)
 - **Conditional Workflows**: See `docs/conditional-workflows.md`
 - **DLQ System**: See `docs/dlq-system.md`
 - **Code Examples**: See `workers/rust/src/step_handlers/batch_processing_*.rs`

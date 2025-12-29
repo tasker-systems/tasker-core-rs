@@ -1045,7 +1045,7 @@ info!(
 - **Events and Commands**: [events-and-commands.md](events-and-commands.md) - System event architecture
 - **Observability**: [observability/README.md](observability/README.md) - Metrics and monitoring
 - **States and Lifecycles**: [states-and-lifecycles.md](states-and-lifecycles.md) - Task/step state machines
-- **TAS-65 Specification**: [ticket-specs/TAS-65/](ticket-specs/TAS-65/) - Implementation details
+- **TAS-65**: [TAS-65](https://linear.app/tasker-systems/issue/TAS-65) - Domain events implementation ticket
 
 ---
 

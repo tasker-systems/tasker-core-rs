@@ -513,4 +513,4 @@ Import this dashboard for backpressure monitoring:
 - [Backpressure Architecture](../backpressure-architecture.md) - Strategy overview
 - [MPSC Channel Tuning](mpsc-channel-tuning.md) - Channel configuration
 - [Worker Event Systems](../worker-event-systems.md) - Worker architecture
-- [TAS-75 Plan](../ticket-specs/TAS-75/plan.md) - Implementation plan
+- [TAS-75](https://linear.app/tasker-systems/issue/TAS-75) - Implementation plan
