@@ -60,6 +60,17 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Rust (for cargo-make)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install tools
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "make"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
