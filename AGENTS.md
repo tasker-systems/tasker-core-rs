@@ -164,7 +164,7 @@ PostgreSQL message queue (PGMQ) system with actor-based coordination. Rust handl
 ### State Machines
 - **Task States (12)**: Pending → Initializing → EnqueuingSteps → StepsInProcess → EvaluatingResults → Complete/Error
 - **Step States (8)**: Pending → Enqueued → InProgress → Complete/Error
-- Details: `docs/states-and-lifecycles.md`
+- Details: `docs/architecture/states-and-lifecycles.md`
 
 ### Actor Pattern
 Four core actors handle orchestration:
@@ -173,13 +173,13 @@ Four core actors handle orchestration:
 3. **StepEnqueuerActor**: Batch step enqueueing
 4. **TaskFinalizerActor**: Task completion
 
-Details: `docs/actors.md`, `tasker-orchestration/AGENTS.md`
+Details: `docs/architecture/actors.md`, `tasker-orchestration/AGENTS.md`
 
 ### Worker Architecture
 Dual-channel system: dispatch channel + completion channel
 - `HandlerDispatchService`: Semaphore-bounded parallel execution
 - `FfiDispatchChannel`: Pull-based polling for Ruby/Python FFI
-- Details: `docs/worker-event-systems.md`, `tasker-worker/AGENTS.md`
+- Details: `docs/architecture/worker-event-systems.md`, `tasker-worker/AGENTS.md`
 
 ### Deployment Modes
 - **PollingOnly**: Traditional polling, higher latency
@@ -190,30 +190,32 @@ Dual-channel system: dispatch channel + completion channel
 
 ## Documentation Index
 
+**Navigation Guide**: For efficient documentation navigation, see `docs/CLAUDE-GUIDE.md` - trigger patterns, document mapping, and investigation patterns.
+
 ### Core Architecture
 | Topic | Document |
 |-------|----------|
-| Actor Pattern | `docs/actors.md` |
-| Worker Event Systems | `docs/worker-event-systems.md` |
-| Events & Commands | `docs/events-and-commands.md` |
-| Crate Structure | `docs/crate-architecture.md` |
-| State Machines | `docs/states-and-lifecycles.md` |
-| SQL Functions | `docs/task-and-step-readiness-and-execution.md` |
+| Actor Pattern | `docs/architecture/actors.md` |
+| Worker Event Systems | `docs/architecture/worker-event-systems.md` |
+| Events & Commands | `docs/architecture/events-and-commands.md` |
+| Crate Structure | `docs/architecture/crate-architecture.md` |
+| State Machines | `docs/architecture/states-and-lifecycles.md` |
+| SQL Functions | `docs/reference/task-and-step-readiness-and-execution.md` |
 
 ### Workflow Patterns
 | Topic | Document |
 |-------|----------|
-| Batch Processing | `docs/batch-processing.md` |
-| Conditional Workflows | `docs/conditional-workflows.md` |
-| Dead Letter Queue | `docs/dlq-system.md` |
-| Retry Semantics | `docs/retry-semantics.md` |
+| Batch Processing | `docs/guides/batch-processing.md` |
+| Conditional Workflows | `docs/guides/conditional-workflows.md` |
+| Dead Letter Queue | `docs/guides/dlq-system.md` |
+| Retry Semantics | `docs/guides/retry-semantics.md` |
 
 ### Infrastructure
 | Topic | Document |
 |-------|----------|
-| Configuration | `docs/configuration-management.md` |
-| Circuit Breakers | `docs/circuit-breakers.md` |
-| Backpressure | `docs/backpressure-architecture.md` |
+| Configuration | `docs/guides/configuration-management.md` |
+| Circuit Breakers | `docs/architecture/circuit-breakers.md` |
+| Backpressure | `docs/architecture/backpressure-architecture.md` |
 | MPSC Channels | `docs/development/mpsc-channel-guidelines.md` |
 | Observability | `docs/observability/README.md` |
 
@@ -227,7 +229,7 @@ Dual-channel system: dispatch channel + completion channel
 ### Operations
 | Topic | Document |
 |-------|----------|
-| Deployment | `docs/deployment-patterns.md` |
+| Deployment | `docs/architecture/deployment-patterns.md` |
 | Channel Tuning | `docs/operations/mpsc-channel-tuning.md` |
 | Backpressure Monitoring | `docs/operations/backpressure-monitoring.md` |
 
