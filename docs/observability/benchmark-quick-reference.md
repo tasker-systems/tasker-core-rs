@@ -176,4 +176,4 @@ cargo build --all-features
 - **Full Strategy**: [benchmark-strategy-summary.md](./benchmark-strategy-summary.md)
 - **Implementation Plan**: [phase-5.4-distributed-benchmarks-plan.md](./phase-5.4-distributed-benchmarks-plan.md)
 - **SQL Benchmark Guide**: [benchmarking-guide.md](./benchmarking-guide.md)
-- **Ticket**: [TAS-29.md](../ticket-specs/TAS-29/TAS-29.md)
+- **Ticket**: [TAS-29](https://linear.app/tasker-systems/issue/TAS-29)

@@ -16,7 +16,7 @@ High-performance Rust workflow orchestration built on PostgreSQL with PGMQ messa
 - **DAG-Based Workflows** - Define complex workflows as directed acyclic graphs with dependencies
 - **PostgreSQL-Native** - Database as coordination layer with PGMQ for reliable messaging
 - **Event-Driven** - Real-time step discovery via LISTEN/NOTIFY with polling fallback
-- **Multi-Language Workers** - Rust native, Ruby via FFI, Python via PyO3, Node / Bun FFI under development
+- **Multi-Language Workers** - Rust native, Ruby via FFI, Python via PyO3, TypeScript FFI
 - **Production-Ready** - Circuit breakers, health monitoring, zero race conditions, 50+ metrics
 
 ### Ideal For
@@ -62,7 +62,7 @@ curl -X POST http://localhost:8080/v1/tasks \
 curl http://localhost:8080/health
 ```
 
-**Full Guide**: [docs/quick-start.md](docs/quick-start.md)
+**Full Guide**: [docs/guides/quick-start.md](docs/guides/quick-start.md)
 
 ---
 
@@ -87,37 +87,13 @@ curl http://localhost:8080/health
 └──────────────────────┘          └──────────────────────────┘
 ```
 
-### Key Patterns
+**Key Patterns**: Dual state machines (12 task + 9 step states), event-driven with polling fallback, autonomous workers, PostgreSQL as source of truth.
 
-| Pattern | Description |
-|---------|-------------|
-| **Dual State Machines** | 12 task states + 9 step states with atomic transitions |
-| **Event-Driven + Fallback** | LISTEN/NOTIFY primary, polling fallback (Hybrid mode) |
-| **Autonomous Workers** | Claim steps from namespace queues, scale independently |
-| **PostgreSQL-Centric** | Database as source of truth, SQL functions for orchestration |
-
-**Deep Dive**: [docs/crate-architecture.md](docs/crate-architecture.md) | [docs/states-and-lifecycles.md](docs/states-and-lifecycles.md)
+**Deep Dive**: [Architecture Documentation](docs/architecture/)
 
 ---
 
-## Core Concepts
-
-### Tasks and Steps
-
-```yaml
-Task: order_fulfillment_#{order_id}
-  ├─ validate_order
-  │   └─ check_inventory
-  │       ├─ reserve_stock (parallel)
-  │       └─ process_payment (parallel)
-  │           └─ ship_order
-  │               └─ send_confirmation
-```
-
-**Tasks**: Workflow instances with metadata, priority, lifecycle
-**Steps**: Work units with handlers, dependencies, retry logic
-
-### Workspace Structure
+## Workspace Structure
 
 | Crate | Purpose |
 |-------|---------|
@@ -129,6 +105,7 @@ Task: order_fulfillment_#{order_id}
 | `workers/rust` | Native Rust workers |
 | `workers/ruby` | Ruby FFI bindings |
 | `workers/python` | Python FFI bindings |
+| `workers/typescript` | TypeScript FFI bindings |
 
 ---
 
@@ -140,9 +117,7 @@ Task: order_fulfillment_#{order_id}
 | SQL functions (mean) | < 3ms | 1.75-2.93ms |
 | 4-step workflow (p99) | < 500ms | 133.5ms |
 
-- Horizontal scaling: orchestration and workers scale independently
-- SQL performance: sub-3ms at 100K+ tasks
-- Throughput: >100 tasks/second per orchestrator
+Horizontal scaling for orchestration and workers. SQL performance at sub-3ms with 100K+ tasks. Throughput >100 tasks/second per orchestrator.
 
 **Full Benchmarks**: [docs/benchmarks/README.md](docs/benchmarks/README.md)
 
@@ -150,30 +125,26 @@ Task: order_fulfillment_#{order_id}
 
 ## Documentation
 
-### Getting Started
-- **[Quick Start](docs/quick-start.md)** - Get running in 5 minutes
-- **[Use Cases & Patterns](docs/use-cases-and-patterns.md)** - When and how to use Tasker
+All documentation is organized in the **[Documentation Hub](docs/README.md)**:
 
-### Architecture
-- **[Crate Architecture](docs/crate-architecture.md)** - Workspace structure
-- **[States & Lifecycles](docs/states-and-lifecycles.md)** - State machine design
-- **[Events & Commands](docs/events-and-commands.md)** - Event-driven coordination
+| Section | Description |
+|---------|-------------|
+| **[Quick Start](docs/guides/quick-start.md)** | Get running in 5 minutes |
+| **[Architecture](docs/architecture/)** | System design, state machines, event systems |
+| **[Guides](docs/guides/)** | Workflows, batch processing, configuration |
+| **[Workers](docs/workers/)** | Ruby, Python, TypeScript, Rust handler development |
+| **[Operations](docs/operations/)** | Deployment, monitoring, tuning |
+| **[Principles](docs/principles/)** | Design philosophy and tenets |
+| **[Decisions](docs/decisions/)** | Architecture Decision Records (ADRs) |
 
-### Operations
-- **[Configuration](docs/configuration-management.md)** - TOML architecture, CLI tools
-- **[Deployment Patterns](docs/deployment-patterns.md)** - Hybrid, EventDriven, Polling modes
-- **[Observability](docs/observability/README.md)** - Metrics, logging, monitoring
-
-### Reference
-- **[Documentation Hub](docs/README.md)** - Complete index
-- **[CLAUDE.md](CLAUDE.md)** - AI assistant context
+**AI Assistant Context**: [CLAUDE.md](CLAUDE.md) | **Development Guide**: [docs/development/](docs/development/)
 
 ---
 
 ## Development
 
 ```bash
-# Build and test
+# Build and test (always use --all-features)
 cargo build --all-features
 cargo test --all-features
 
@@ -184,16 +155,16 @@ cargo fmt && cargo clippy --all-targets --all-features
 cargo run --bin tasker-server
 ```
 
-See **[AGENTS.md](AGENTS.md)** for complete development context.
+See **[CLAUDE.md](CLAUDE.md)** for complete development context.
 
 ---
 
 ## Contributing
 
-1. Review [AGENTS.md](AGENTS.md) for project context
+1. Review [CLAUDE.md](CLAUDE.md) for project context
 2. Run tests: `cargo test --all-features`
 3. Format and lint before PR
-4. See [docs/README.md](docs/README.md) for documentation structure
+4. See [Documentation Hub](docs/README.md) for documentation structure
 
 ---
 
@@ -205,4 +176,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 **Production-ready workflow orchestration at scale.**
 
-[Quick Start](docs/quick-start.md) | [Documentation](docs/README.md) | [Examples](docs/use-cases-and-patterns.md)
+[Quick Start](docs/guides/quick-start.md) | [Documentation](docs/README.md) | [Examples](docs/guides/use-cases-and-patterns.md)

@@ -675,7 +675,7 @@ info!(
 - **Metrics Reference**: [metrics-reference.md](metrics-reference.md) - Complete metrics catalog
 - **Domain Events**: [../domain-events.md](../domain-events.md) - Event system architecture
 - **Logging Standards**: [logging-standards.md](logging-standards.md) - Structured logging best practices
-- **TAS-65 Specification**: [../ticket-specs/TAS-65/](../ticket-specs/TAS-65/) - Implementation details
+- **TAS-65**: [TAS-65](https://linear.app/tasker-systems/issue/TAS-65) - Implementation details
 
 ---
 

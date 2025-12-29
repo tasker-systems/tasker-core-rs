@@ -733,7 +733,7 @@ A: Use `error = %e` which includes the error chain. Only add explicit backtrace 
 
 ## References
 
-- [TAS-29 Specification](../ticket-specs/TAS-29/TAS-29.md)
+- [TAS-29](https://linear.app/tasker-systems/issue/TAS-29)
 - [Tracing Crate Documentation](https://docs.rs/tracing)
 - [OpenTelemetry Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/)
 

@@ -2,7 +2,7 @@
 
 **Last Updated**: 2025-10-14
 **Audience**: Engineers working on tasker-core
-**Related**: TAS-51, [ADR: Bounded MPSC Channels](../architecture-decisions/TAS-51-bounded-mpsc-channels.md)
+**Related**: TAS-51, [ADR: Bounded MPSC Channels](../decisions/TAS-51-bounded-mpsc-channels.md)
 
 ## Overview
 
@@ -556,9 +556,9 @@ When migrating existing unbounded/hard-coded channels:
 
 ## Resources
 
-- **ADR**: [Bounded MPSC Channels](../architecture-decisions/TAS-51-bounded-mpsc-channels.md)
+- **ADR**: [Bounded MPSC Channels](../decisions/TAS-51-bounded-mpsc-channels.md)
 - **Operations**: [MPSC Channel Tuning Runbook](../operations/mpsc-channel-tuning.md)
-- **Specification**: [TAS-51](../ticket-specs/TAS-51.md)
+- **Specification**: [TAS-51](https://linear.app/tasker-systems/issue/TAS-51)
 - **Tokio Docs**: https://docs.rs/tokio/latest/tokio/sync/mpsc/
 
 ## Questions?
