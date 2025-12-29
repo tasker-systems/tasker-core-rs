@@ -18,3 +18,37 @@ export type { DecisionPointOutcome } from './decision';
 export { DecisionHandler, DecisionType } from './decision';
 // Handler registry
 export { HandlerRegistry } from './registry';
+
+// Domain events (TAS-112/TAS-122)
+export {
+  // Abstract base classes
+  BasePublisher,
+  BaseSubscriber,
+  DefaultPublisher,
+  // Registries
+  PublisherRegistry,
+  SubscriberRegistry,
+  // Event poller for FFI integration
+  InProcessDomainEventPoller,
+  // Factory functions
+  createStepEventContext,
+  createDomainEvent,
+  // Error classes
+  PublisherNotFoundError,
+  PublisherValidationError,
+  RegistryFrozenError,
+  DuplicatePublisherError,
+  // Types
+  type StepEventContext,
+  type DomainEvent,
+  type DomainEventMetadata,
+  type EventDeclaration,
+  type StepResult,
+  type PublishContext,
+  type SubscriberClass,
+  type SubscriberStats,
+  type PollerStats,
+  type DomainEventPollerConfig,
+  type DomainEventCallback,
+  type DomainEventErrorCallback,
+} from './domain-events';
