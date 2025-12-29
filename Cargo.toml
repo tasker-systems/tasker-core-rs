@@ -96,7 +96,7 @@ sqlx = { version = "0.8", features = [
 ] }
 # System information
 sysinfo = "0.37"
-tempfile = "3.0"
+tempfile = "3.24"
 # Error handling
 thiserror = "2.0"
 # TypeScript binding generation from Rust types
