@@ -37,8 +37,8 @@
 
 import {
   BasePublisher,
-  type StepEventContext,
   type EventDeclaration,
+  type StepEventContext,
 } from '../../../../../src/handler/domain-events.js';
 import type { StepHandlerResult } from '../../../../../src/types/step-handler-result.js';
 
@@ -143,9 +143,7 @@ export class PaymentEventPublisher extends BasePublisher {
     _payload: Record<string, unknown>,
     _metadata: Record<string, unknown>
   ): void {
-    this.logger.debug(
-      `[${this.publisherName}] Publishing ${eventName} via durable delivery`
-    );
+    this.logger.debug(`[${this.publisherName}] Publishing ${eventName} via durable delivery`);
   }
 
   /**
@@ -156,9 +154,7 @@ export class PaymentEventPublisher extends BasePublisher {
     _payload: Record<string, unknown>,
     _metadata: Record<string, unknown>
   ): void {
-    this.logger.info(
-      `[${this.publisherName}] Published ${eventName} (durable + custom publisher)`
-    );
+    this.logger.info(`[${this.publisherName}] Published ${eventName} (durable + custom publisher)`);
   }
 
   /**
@@ -207,9 +203,7 @@ export class PaymentEventPublisher extends BasePublisher {
   /**
    * Determine customer tier from task context.
    */
-  private determineCustomerTier(
-    stepContext: StepEventContext | null
-  ): string {
+  private determineCustomerTier(stepContext: StepEventContext | null): string {
     if (!stepContext) {
       return 'standard';
     }

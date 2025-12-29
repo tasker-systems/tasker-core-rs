@@ -16,39 +16,38 @@ export type { Batchable } from './batchable';
 export { applyBatchable, BatchableMixin } from './batchable';
 export type { DecisionPointOutcome } from './decision';
 export { DecisionHandler, DecisionType } from './decision';
-// Handler registry
-export { HandlerRegistry } from './registry';
-
 // Domain events (TAS-112/TAS-122)
 export {
   // Abstract base classes
   BasePublisher,
   BaseSubscriber,
-  DefaultPublisher,
-  // Registries
-  PublisherRegistry,
-  SubscriberRegistry,
-  // Event poller for FFI integration
-  InProcessDomainEventPoller,
+  createDomainEvent,
   // Factory functions
   createStepEventContext,
-  createDomainEvent,
-  // Error classes
-  PublisherNotFoundError,
-  PublisherValidationError,
-  RegistryFrozenError,
-  DuplicatePublisherError,
-  // Types
-  type StepEventContext,
+  DefaultPublisher,
   type DomainEvent,
-  type DomainEventMetadata,
-  type EventDeclaration,
-  type StepResult,
-  type PublishContext,
-  type SubscriberClass,
-  type SubscriberStats,
-  type PollerStats,
-  type DomainEventPollerConfig,
   type DomainEventCallback,
   type DomainEventErrorCallback,
+  type DomainEventMetadata,
+  type DomainEventPollerConfig,
+  DuplicatePublisherError,
+  type EventDeclaration,
+  // Event poller for FFI integration
+  InProcessDomainEventPoller,
+  type PollerStats,
+  type PublishContext,
+  // Error classes
+  PublisherNotFoundError,
+  // Registries
+  PublisherRegistry,
+  PublisherValidationError,
+  RegistryFrozenError,
+  // Types
+  type StepEventContext,
+  type StepResult,
+  type SubscriberClass,
+  SubscriberRegistry,
+  type SubscriberStats,
 } from './domain-events';
+// Handler registry
+export { HandlerRegistry } from './registry';

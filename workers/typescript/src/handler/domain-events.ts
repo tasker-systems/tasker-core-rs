@@ -316,11 +316,7 @@ export abstract class BasePublisher {
    * @param error - The error that occurred
    * @param payload - The transformed payload
    */
-  onPublishError(
-    eventName: string,
-    error: Error,
-    _payload: Record<string, unknown>
-  ): void {
+  onPublishError(eventName: string, error: Error, _payload: Record<string, unknown>): void {
     this.logger.error({ eventName, error: error.message }, 'Failed to publish event');
   }
 
@@ -605,10 +601,7 @@ export abstract class BaseSubscriber {
       await this.handle(event);
       this.afterHandle(event);
     } catch (error) {
-      this.onHandleError(
-        event,
-        error instanceof Error ? error : new Error(String(error))
-      );
+      this.onHandleError(event, error instanceof Error ? error : new Error(String(error)));
     }
   }
 }
@@ -873,10 +866,7 @@ export class PublisherRegistry {
     }
 
     this.frozen = true;
-    this.logger.info(
-      { registeredPublishers: this.registeredNames },
-      'Publisher validation passed'
-    );
+    this.logger.info({ registeredPublishers: this.registeredNames }, 'Publisher validation passed');
   }
 
   /**
@@ -1251,10 +1241,7 @@ export class InProcessDomainEventPoller {
     }
 
     this.running = true;
-    this.logger.info(
-      { pollIntervalMs: this.pollIntervalMs },
-      'InProcessDomainEventPoller started'
-    );
+    this.logger.info({ pollIntervalMs: this.pollIntervalMs }, 'InProcessDomainEventPoller started');
 
     this.schedulePoll();
   }

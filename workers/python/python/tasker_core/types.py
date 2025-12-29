@@ -1451,6 +1451,350 @@ class BatchWorkerOutcome(BaseModel):
     )
 
 
+# =============================================================================
+# FFI Boundary Types (TAS-112/TAS-123)
+#
+# These types match Rust structures that cross the FFI boundary.
+# They are serialized by Rust and deserialized by Python workers.
+# =============================================================================
+
+
+class FailureStrategy(str, Enum):
+    """Failure strategy for batch processing.
+
+    Matches Rust's `FailureStrategy` enum in `task_template.rs`.
+    """
+
+    CONTINUE_ON_FAILURE = "continue_on_failure"
+    """Log errors, continue processing remaining items."""
+
+    FAIL_FAST = "fail_fast"
+    """Stop immediately on first error."""
+
+    ISOLATE = "isolate"
+    """Mark batch for manual investigation."""
+
+
+class RustCursorConfig(BaseModel):
+    """Cursor configuration for a single batch's position and range.
+
+    Matches Rust's `CursorConfig` in `tasker-shared/src/messaging/execution_types.rs`.
+
+    ## Flexible Cursor Types
+
+    Unlike the simpler `CursorConfig` class (which uses `int`),
+    this type supports flexible cursor values that can be:
+    - Integer for record IDs: `123`
+    - String for timestamps: `"2025-11-01T00:00:00Z"`
+    - Dict for composite keys: `{"page": 1, "offset": 0}`
+
+    This enables cursor-based pagination across diverse data sources.
+
+    Example:
+        >>> # Integer cursors (most common)
+        >>> config = RustCursorConfig(
+        ...     batch_id="batch_001",
+        ...     start_cursor=0,
+        ...     end_cursor=1000,
+        ...     batch_size=1000,
+        ... )
+
+        >>> # Timestamp cursors
+        >>> config = RustCursorConfig(
+        ...     batch_id="batch_001",
+        ...     start_cursor="2025-01-01T00:00:00Z",
+        ...     end_cursor="2025-01-02T00:00:00Z",
+        ...     batch_size=86400,
+        ... )
+    """
+
+    batch_id: str = Field(description="Batch identifier (e.g., 'batch_001', 'batch_002').")
+    start_cursor: Any = Field(
+        description=(
+            "Starting position for this batch (inclusive). "
+            "Type depends on cursor strategy: int for record IDs, "
+            "str for timestamps or UUIDs, dict for composite keys."
+        )
+    )
+    end_cursor: Any = Field(
+        description=(
+            "Ending position for this batch (exclusive). "
+            "Workers process items from start_cursor (inclusive) "
+            "up to but not including end_cursor."
+        )
+    )
+    batch_size: int = Field(description="Number of items in this batch (for progress reporting).")
+
+
+class BatchMetadata(BaseModel):
+    """Batch processing metadata from template configuration.
+
+    Matches Rust's `BatchMetadata` in `tasker-shared/src/models/core/batch_worker.rs`.
+
+    This structure extracts relevant template configuration that workers
+    need during execution. Workers don't need parallelism settings or
+    batch size calculation logic - just execution parameters.
+    """
+
+    checkpoint_interval: int = Field(
+        description=(
+            "Number of items between progress checkpoints. "
+            "Workers should update progress after processing this many items."
+        )
+    )
+    cursor_field: str = Field(
+        description=(
+            "Database field name used for cursor-based pagination. "
+            "Workers use this to construct queries like: "
+            "WHERE cursor_field > start_cursor AND cursor_field <= end_cursor"
+        )
+    )
+    failure_strategy: FailureStrategy = Field(
+        description="How this worker should handle failures during batch processing."
+    )
+
+
+class RustBatchWorkerInputs(BaseModel):
+    """Initialization inputs for batch worker instances.
+
+    Matches Rust's `BatchWorkerInputs` in `tasker-shared/src/models/core/batch_worker.rs`.
+
+    This structure is serialized to JSONB by Rust orchestration and stored
+    in `workflow_steps.inputs` for dynamically created batch workers.
+
+    Example:
+        >>> # In a batch worker handler
+        >>> def call(self, context: StepContext) -> StepHandlerResult:
+        ...     inputs = RustBatchWorkerInputs.model_validate(context.step_inputs)
+        ...
+        ...     # Check for no-op placeholder first
+        ...     if inputs.is_no_op:
+        ...         return self.success({
+        ...             "batch_id": inputs.cursor.batch_id,
+        ...             "no_op": True,
+        ...             "message": "No batches to process",
+        ...         })
+        ...
+        ...     # Process the batch using cursor bounds
+        ...     start, end = inputs.cursor.start_cursor, inputs.cursor.end_cursor
+        ...     # ... process items in range
+    """
+
+    cursor: RustCursorConfig = Field(
+        description=(
+            "Cursor configuration defining this worker's processing range. "
+            "Created by the batchable handler after analyzing dataset size."
+        )
+    )
+    batch_metadata: BatchMetadata = Field(
+        description="Batch processing metadata from template configuration."
+    )
+    is_no_op: bool = Field(
+        description=(
+            "Explicit flag indicating if this is a no-op/placeholder worker. "
+            "Workers should check this flag FIRST before any processing logic. "
+            "If True, immediately return success without processing."
+        )
+    )
+
+
+# =============================================================================
+# BatchProcessingOutcome - Discriminated Union (TAS-112/TAS-123)
+#
+# Matches Rust's `BatchProcessingOutcome` enum with tagged serialization.
+# Uses Pydantic discriminated unions for type-safe pattern matching.
+# =============================================================================
+
+
+class NoBatchesOutcome(BaseModel):
+    """No batches needed - process as single step or skip.
+
+    Returned when:
+    - Dataset is too small to warrant batching
+    - Data doesn't meet batching criteria
+    - Batch processing not applicable for this execution
+
+    Serialization format: `{ "type": "no_batches" }`
+    """
+
+    type: str = Field(default="no_batches", description="Discriminator for outcome type.")
+
+
+class CreateBatchesOutcome(BaseModel):
+    """Create batch worker steps from template.
+
+    The orchestration system will:
+    1. Instantiate N workers from the template step
+    2. Assign each worker a unique cursor config
+    3. Create DAG edges from batchable step to workers
+    4. Enqueue workers for parallel execution
+
+    Serialization format:
+        {
+            "type": "create_batches",
+            "worker_template_name": "batch_worker_template",
+            "worker_count": 5,
+            "cursor_configs": [...],
+            "total_items": 5000
+        }
+    """
+
+    type: str = Field(default="create_batches", description="Discriminator for outcome type.")
+    worker_template_name: str = Field(
+        description=(
+            "Template step name to use for creating workers. "
+            "Must match a step definition in the template with type: batch_worker."
+        )
+    )
+    worker_count: int = Field(description="Number of worker instances to create.")
+    cursor_configs: list[RustCursorConfig] = Field(
+        description=(
+            "Initial cursor positions for each batch. "
+            "Each worker receives one cursor config. Length must equal worker_count."
+        )
+    )
+    total_items: int = Field(description="Total items to process across all batches.")
+
+
+# Type alias for discriminated union
+BatchProcessingOutcome = NoBatchesOutcome | CreateBatchesOutcome
+
+
+def no_batches() -> NoBatchesOutcome:
+    """Create a NoBatches outcome.
+
+    Use when batching is not needed or applicable.
+
+    Returns:
+        A NoBatchesOutcome object.
+    """
+    return NoBatchesOutcome()
+
+
+def create_batches(
+    worker_template_name: str,
+    worker_count: int,
+    cursor_configs: list[RustCursorConfig],
+    total_items: int,
+) -> CreateBatchesOutcome:
+    """Create a CreateBatches outcome with specified configuration.
+
+    Args:
+        worker_template_name: Name of the template step to instantiate.
+        worker_count: Number of workers to create.
+        cursor_configs: Cursor configuration for each worker.
+        total_items: Total number of items to process.
+
+    Returns:
+        A CreateBatchesOutcome object.
+
+    Raises:
+        ValueError: If cursor_configs length doesn't equal worker_count.
+
+    Example:
+        >>> outcome = create_batches(
+        ...     worker_template_name="process_csv_batch",
+        ...     worker_count=3,
+        ...     cursor_configs=[
+        ...         RustCursorConfig(batch_id="001", start_cursor=0, end_cursor=1000, batch_size=1000),
+        ...         RustCursorConfig(batch_id="002", start_cursor=1000, end_cursor=2000, batch_size=1000),
+        ...         RustCursorConfig(batch_id="003", start_cursor=2000, end_cursor=3000, batch_size=1000),
+        ...     ],
+        ...     total_items=3000,
+        ... )
+    """
+    if len(cursor_configs) != worker_count:
+        msg = f"cursor_configs length ({len(cursor_configs)}) must equal worker_count ({worker_count})"
+        raise ValueError(msg)
+
+    return CreateBatchesOutcome(
+        worker_template_name=worker_template_name,
+        worker_count=worker_count,
+        cursor_configs=cursor_configs,
+        total_items=total_items,
+    )
+
+
+class BatchAggregationResult(BaseModel):
+    """Result from aggregating multiple batch worker results.
+
+    Cross-language standard: matches TypeScript's aggregateBatchResults output
+    and Ruby's aggregate_batch_worker_results.
+
+    TAS-112: Standardized aggregation result structure.
+    """
+
+    total_processed: int = Field(description="Total items processed across all batches.")
+    total_succeeded: int = Field(description="Total items that succeeded.")
+    total_failed: int = Field(description="Total items that failed.")
+    total_skipped: int = Field(description="Total items that were skipped.")
+    batch_count: int = Field(description="Number of batch workers that ran.")
+    success_rate: float = Field(description="Success rate (0.0 to 1.0).")
+    errors: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Collected errors from all batches (limited).",
+    )
+    error_count: int = Field(description="Total error count (may exceed errors array length).")
+
+
+def aggregate_batch_results(
+    worker_results: list[dict[str, Any] | None],
+    max_errors: int = 100,
+) -> BatchAggregationResult:
+    """Aggregate results from multiple batch workers.
+
+    Cross-language standard: matches TypeScript's `aggregateBatchResults`
+    and Ruby's `aggregate_batch_worker_results`.
+
+    Args:
+        worker_results: List of results from batch worker steps.
+        max_errors: Maximum number of errors to collect (default: 100).
+
+    Returns:
+        Aggregated summary of all batch processing.
+
+    Example:
+        >>> # In an aggregator handler
+        >>> worker_results = [
+        ...     context.get_dependency_result(f"worker_{i}")
+        ...     for i in range(batch_count)
+        ... ]
+        >>> summary = aggregate_batch_results(worker_results)
+        >>> return self.success(summary.model_dump())
+    """
+    total_processed = 0
+    total_succeeded = 0
+    total_failed = 0
+    total_skipped = 0
+    all_errors: list[dict[str, Any]] = []
+    batch_count = 0
+
+    for result in worker_results:
+        if result is None:
+            continue
+
+        batch_count += 1
+        total_processed += result.get("items_processed", 0)
+        total_succeeded += result.get("items_succeeded", 0)
+        total_failed += result.get("items_failed", 0)
+        total_skipped += result.get("items_skipped", 0)
+
+        errors = result.get("errors")
+        if errors and isinstance(errors, list):
+            all_errors.extend(errors)
+
+    return BatchAggregationResult(
+        total_processed=total_processed,
+        total_succeeded=total_succeeded,
+        total_failed=total_failed,
+        total_skipped=total_skipped,
+        batch_count=batch_count,
+        success_rate=total_succeeded / total_processed if total_processed > 0 else 0.0,
+        errors=all_errors[:max_errors],
+        error_count=len(all_errors),
+    )
+
+
 __all__ = [
     # Phase 2: Bootstrap and lifecycle
     "WorkerState",
@@ -1484,4 +1828,16 @@ __all__ = [
     "BatchAnalyzerOutcome",
     "BatchWorkerContext",
     "BatchWorkerOutcome",
+    # Phase 7: FFI Boundary Types (TAS-112/TAS-123)
+    "FailureStrategy",
+    "RustCursorConfig",
+    "BatchMetadata",
+    "RustBatchWorkerInputs",
+    "NoBatchesOutcome",
+    "CreateBatchesOutcome",
+    "BatchProcessingOutcome",
+    "no_batches",
+    "create_batches",
+    "BatchAggregationResult",
+    "aggregate_batch_results",
 ]

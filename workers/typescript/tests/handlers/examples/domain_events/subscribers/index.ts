@@ -4,9 +4,9 @@
  * Subscriber implementations for reacting to domain events.
  */
 export {
-  LoggingSubscriber,
   DebugLoggingSubscriber,
-  VerboseLoggingSubscriber,
-  PaymentLoggingSubscriber,
+  LoggingSubscriber,
   MetricsSubscriber,
+  PaymentLoggingSubscriber,
+  VerboseLoggingSubscriber,
 } from './logging-subscriber.js';

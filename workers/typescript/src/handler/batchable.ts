@@ -1,10 +1,18 @@
 import type {
+  BatchAggregationResult,
   BatchAnalyzerOutcome,
   BatchWorkerContext,
   BatchWorkerOutcome,
   CursorConfig,
+  RustBatchWorkerInputs,
+  RustCursorConfig,
 } from '../types/batch.js';
-import { createBatchWorkerContext } from '../types/batch.js';
+import {
+  aggregateBatchResults,
+  createBatches as createBatchesOutcome,
+  createBatchWorkerContext,
+  noBatches as createNoBatchesOutcome,
+} from '../types/batch.js';
 import type { StepContext } from '../types/step-context.js';
 import {
   type BatchableResult,
@@ -13,44 +21,13 @@ import {
 } from '../types/step-handler-result.js';
 import { StepHandler } from './base.js';
 
-/**
- * Rust BatchWorkerInputs structure from workflow_step.inputs.
- *
- * This matches the structure created by Rust's BatchProcessingService
- * and stored in workflow_steps.inputs for batch workers.
- *
- * Cross-language standard: Python and Ruby use equivalent structures.
- */
-export interface RustBatchWorkerInputs {
-  cursor: {
-    batch_id: string;
-    start_cursor: number;
-    end_cursor: number;
-    batch_size: number;
-  };
-  batch_metadata: {
-    checkpoint_interval: number;
-    cursor_field: string;
-    failure_strategy: string;
-  };
-  is_no_op: boolean;
-}
-
-/**
- * Result from aggregating multiple batch worker results.
- *
- * Cross-language standard: matches Python's aggregate_worker_results output.
- */
-export interface BatchAggregationResult {
-  totalProcessed: number;
-  totalSucceeded: number;
-  totalFailed: number;
-  totalSkipped: number;
-  batchCount: number;
-  successRate: number;
-  errors: Array<Record<string, unknown>>;
-  errorCount: number;
-}
+// Re-export FFI boundary types for handler use (TAS-112/TAS-123)
+export type {
+  BatchAggregationResult,
+  RustBatchWorkerInputs,
+  RustCursorConfig,
+} from '../types/batch.js';
+export { aggregateBatchResults, createBatches, noBatches } from '../types/batch.js';
 
 /**
  * Mixin interface for batch processing capabilities.
@@ -553,12 +530,11 @@ export class BatchableMixin implements Batchable {
   /**
    * Aggregate results from multiple batch workers.
    *
-   * Use this in an aggregator step to combine results from all
-   * batch workers into a single summary.
-   *
-   * Cross-language standard: matches Python's aggregate_worker_results.
+   * Delegates to `aggregateBatchResults` from types/batch.ts (TAS-112/TAS-123).
+   * Cross-language standard: matches Python's aggregate_batch_results.
    *
    * @param workerResults - Array of results from batch worker steps
+   * @param maxErrors - Maximum number of errors to collect (default: 100)
    * @returns Aggregated summary of all batch processing
    *
    * @example
@@ -570,40 +546,10 @@ export class BatchableMixin implements Batchable {
    * ```
    */
   static aggregateWorkerResults(
-    workerResults: Array<Record<string, unknown> | null>
+    workerResults: Array<Record<string, unknown> | null>,
+    maxErrors = 100
   ): BatchAggregationResult {
-    let totalProcessed = 0;
-    let totalSucceeded = 0;
-    let totalFailed = 0;
-    let totalSkipped = 0;
-    const allErrors: Array<Record<string, unknown>> = [];
-
-    for (const result of workerResults) {
-      if (result === null || result === undefined) {
-        continue;
-      }
-
-      totalProcessed += (result.items_processed as number) ?? 0;
-      totalSucceeded += (result.items_succeeded as number) ?? 0;
-      totalFailed += (result.items_failed as number) ?? 0;
-      totalSkipped += (result.items_skipped as number) ?? 0;
-
-      const errors = result.errors as Array<Record<string, unknown>> | undefined;
-      if (errors && Array.isArray(errors)) {
-        allErrors.push(...errors);
-      }
-    }
-
-    return {
-      totalProcessed,
-      totalSucceeded,
-      totalFailed,
-      totalSkipped,
-      batchCount: workerResults.filter((r) => r !== null).length,
-      successRate: totalProcessed > 0 ? totalSucceeded / totalProcessed : 0,
-      errors: allErrors.slice(0, 100), // Limit errors
-      errorCount: allErrors.length,
-    };
+    return aggregateBatchResults(workerResults, maxErrors);
   }
 }
 
@@ -763,6 +709,8 @@ export abstract class BatchableStepHandler extends StepHandler implements Batcha
    * This is a convenience method that wraps batch configurations in the format
    * expected by the Rust orchestration layer (BatchProcessingOutcome::CreateBatches).
    *
+   * Uses the typed BatchProcessingOutcome from types/batch.ts (TAS-112/TAS-123).
+   *
    * @param workerTemplateName - Name of the batch worker template step (e.g., "process_csv_batch_ts")
    * @param batchConfigs - Array of batch worker configurations
    * @param metadata - Additional metadata to include in the result
@@ -781,8 +729,8 @@ export abstract class BatchableStepHandler extends StepHandler implements Batcha
     batchConfigs: BatchWorkerConfig[],
     metadata?: Record<string, unknown>
   ): BatchableResult {
-    // Convert BatchWorkerConfig[] to the Rust CursorConfig format
-    const cursorConfigs = batchConfigs.map((config) => ({
+    // Convert BatchWorkerConfig[] to RustCursorConfig[] (TAS-112/TAS-123)
+    const cursorConfigs: RustCursorConfig[] = batchConfigs.map((config) => ({
       batch_id: config.batch_id,
       start_cursor: config.cursor_start,
       end_cursor: config.cursor_end,
@@ -791,16 +739,17 @@ export abstract class BatchableStepHandler extends StepHandler implements Batcha
 
     const totalItems = batchConfigs.reduce((sum, c) => sum + c.row_count, 0);
 
-    // Return in the exact format expected by Rust BatchProcessingOutcome::CreateBatches
-    // The orchestration layer extracts batch_processing_outcome from result
+    // Use typed BatchProcessingOutcome factory (TAS-112/TAS-123)
+    const batchProcessingOutcome = createBatchesOutcome(
+      workerTemplateName,
+      batchConfigs.length,
+      cursorConfigs,
+      totalItems
+    );
+
+    // Return in the format expected by Rust orchestration
     const result: Record<string, unknown> = {
-      batch_processing_outcome: {
-        type: 'create_batches',
-        worker_template_name: workerTemplateName,
-        worker_count: batchConfigs.length,
-        cursor_configs: cursorConfigs,
-        total_items: totalItems,
-      },
+      batch_processing_outcome: batchProcessingOutcome,
       ...(metadata || {}),
     };
 
@@ -812,6 +761,7 @@ export abstract class BatchableStepHandler extends StepHandler implements Batcha
    *
    * Use this when the batchable handler determines no batch workers are needed.
    *
+   * Uses the typed BatchProcessingOutcome from types/batch.ts (TAS-112/TAS-123).
    * Cross-language standard: matches Ruby's no_batches_outcome(reason:, metadata:)
    * and Python's no_batches_outcome(reason, metadata).
    *
@@ -827,10 +777,11 @@ export abstract class BatchableStepHandler extends StepHandler implements Batcha
    * ```
    */
   noBatchesResult(reason?: string, metadata?: Record<string, unknown>): BatchableResult {
+    // Use typed BatchProcessingOutcome factory (TAS-112/TAS-123)
+    const batchProcessingOutcome = createNoBatchesOutcome();
+
     const result: Record<string, unknown> = {
-      batch_processing_outcome: {
-        type: 'no_batches',
-      },
+      batch_processing_outcome: batchProcessingOutcome,
       ...(metadata || {}),
     };
 

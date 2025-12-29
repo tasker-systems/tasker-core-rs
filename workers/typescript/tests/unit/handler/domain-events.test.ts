@@ -12,25 +12,25 @@
  * - Factory functions for creating contexts and events
  */
 
-import { describe, expect, it, beforeEach, afterEach, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
   BasePublisher,
   BaseSubscriber,
-  DefaultPublisher,
-  PublisherRegistry,
-  SubscriberRegistry,
-  InProcessDomainEventPoller,
-  createStepEventContext,
   createDomainEvent,
+  createStepEventContext,
+  DefaultPublisher,
+  type DomainEvent,
+  DuplicatePublisherError,
+  type EventDeclaration,
+  InProcessDomainEventPoller,
+  type PublishContext,
   PublisherNotFoundError,
+  PublisherRegistry,
   PublisherValidationError,
   RegistryFrozenError,
-  DuplicatePublisherError,
   type StepEventContext,
-  type DomainEvent,
-  type EventDeclaration,
   type StepResult,
-  type PublishContext,
+  SubscriberRegistry,
 } from '../../../src/handler/domain-events.js';
 
 // ---------------------------------------------------------------------------
@@ -174,12 +174,8 @@ class LifecycleTrackingPublisher extends BasePublisher {
     this.hooks.push(`afterPublish:${eventName}`);
   }
 
-  onPublishError(
-    eventName: string,
-    error: Error,
-    _payload: Record<string, unknown>
-  ): void {
-    this.hooks.push(`onPublishError:${error.message}`);
+  onPublishError(eventName: string, error: Error, _payload: Record<string, unknown>): void {
+    this.hooks.push(`onPublishError:${eventName}:${error.message}`);
   }
 }
 
@@ -252,7 +248,9 @@ describe('BasePublisher', () => {
           success: true,
           result: { no_transaction: true }, // Missing transaction_id
         }),
-        eventDeclaration: createTestEventDeclaration({ name: 'payment.processed' }),
+        eventDeclaration: createTestEventDeclaration({
+          name: 'payment.processed',
+        }),
       });
 
       const result = publisher.publish(ctx);

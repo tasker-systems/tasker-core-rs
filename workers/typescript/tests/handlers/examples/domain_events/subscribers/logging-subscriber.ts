@@ -23,10 +23,7 @@
  * @module
  */
 
-import {
-  BaseSubscriber,
-  type DomainEvent,
-} from '../../../../../src/handler/domain-events.js';
+import { BaseSubscriber, type DomainEvent } from '../../../../../src/handler/domain-events.js';
 
 /**
  * Basic logging subscriber that logs all events at INFO level.

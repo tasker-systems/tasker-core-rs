@@ -38,6 +38,14 @@ from tasker_core.types import (
     BatchWorkerContext,
     BatchWorkerOutcome,
     CursorConfig,
+    # FFI Boundary Types (TAS-112/TAS-123)
+    RustCursorConfig,
+)
+from tasker_core.types import (
+    create_batches as create_batches_outcome,
+)
+from tasker_core.types import (
+    no_batches as create_no_batches_outcome,
 )
 
 if TYPE_CHECKING:
@@ -412,29 +420,27 @@ class Batchable:
             reason = batch_meta.get("reason", "empty_dataset")
             return self.no_batches_outcome(reason=reason, metadata=batch_meta)
 
-        # Build cursor_configs in format Rust expects
-        formatted_cursor_configs = [
-            {
-                "batch_id": f"{i + 1:03d}",
-                "start_cursor": cfg.start_cursor,
-                "end_cursor": cfg.end_cursor,
-                "batch_size": cfg.end_cursor - cfg.start_cursor,
-            }
+        # Convert CursorConfig[] to RustCursorConfig[] (TAS-112/TAS-123)
+        rust_cursor_configs = [
+            RustCursorConfig(
+                batch_id=f"{i + 1:03d}",
+                start_cursor=cfg.start_cursor,
+                end_cursor=cfg.end_cursor,
+                batch_size=cfg.end_cursor - cfg.start_cursor,
+            )
             for i, cfg in enumerate(configs_list)
         ]
 
-        # Build batch_processing_outcome in format Rust expects
-        # (matches Ruby's BatchProcessingOutcome.to_h structure)
-        batch_processing_outcome: dict[str, Any] = {
-            "type": "create_batches",
-            "worker_template_name": worker_template_name,
-            "worker_count": len(configs_list),
-            "cursor_configs": formatted_cursor_configs,
-            "total_items": total,
-        }
+        # Use typed BatchProcessingOutcome factory (TAS-112/TAS-123)
+        batch_processing_outcome = create_batches_outcome(
+            worker_template_name=worker_template_name,
+            worker_count=len(configs_list),
+            cursor_configs=rust_cursor_configs,
+            total_items=total,
+        )
 
         result: dict[str, Any] = {
-            "batch_processing_outcome": batch_processing_outcome,
+            "batch_processing_outcome": batch_processing_outcome.model_dump(),
             "worker_count": len(configs_list),
             "total_items": total,
         }
@@ -459,6 +465,8 @@ class Batchable:
         Use this when the analyzer determines that batch processing is not
         required (e.g., empty dataset, data below threshold).
 
+        Uses the typed BatchProcessingOutcome from types.py (TAS-112/TAS-123).
+
         Args:
             reason: Human-readable reason why no batches are needed.
             metadata: Optional additional metadata.
@@ -470,14 +478,11 @@ class Batchable:
             >>> if total_items == 0:
             ...     return self.no_batches_outcome(reason="empty_dataset")
         """
-        # Build batch_processing_outcome in format Rust expects
-        # (matches Ruby's BatchProcessingOutcome.no_batches.to_h structure)
-        batch_processing_outcome: dict[str, Any] = {
-            "type": "no_batches",
-        }
+        # Use typed BatchProcessingOutcome factory (TAS-112/TAS-123)
+        batch_processing_outcome = create_no_batches_outcome()
 
         result: dict[str, Any] = {
-            "batch_processing_outcome": batch_processing_outcome,
+            "batch_processing_outcome": batch_processing_outcome.model_dump(),
             "reason": reason,
         }
 
