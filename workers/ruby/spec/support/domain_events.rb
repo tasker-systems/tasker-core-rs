@@ -174,7 +174,7 @@ module TaskerCore
 
     # Factory for creating test events
     module EventFactory
-      extend self
+      module_function
 
       # Create a minimal step execution result
       def step_result(success: true, result: {}, step_uuid: nil)

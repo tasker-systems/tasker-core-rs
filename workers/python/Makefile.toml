@@ -141,18 +141,26 @@ script = '''
 uv run pytest --cov=python --cov-report=term-missing
 '''
 
-[tasks.test-unit]
-description = "Run unit tests only"
-dependencies = ["setup"]
-script = '''
-uv run pytest tests/unit/
-'''
-
-[tasks.test-integration]
-description = "Run integration tests only"
+[tasks.test-ffi]
+description = "Run FFI integration tests (for root delegation)"
 dependencies = ["setup", "build-extension"]
 script = '''
-uv run pytest tests/integration/
+# Python tests implicitly test the FFI layer through the maturin-built extension
+uv run pytest -v
+'''
+
+[tasks.test-ci]
+description = "Run tests with CI output format (JUnit XML)"
+dependencies = ["setup", "build-extension"]
+script = '''
+# Ensure target directory exists
+mkdir -p ../../target
+
+# Run tests with verbose output and JUnit XML
+uv run pytest tests/ \
+  -v \
+  --tb=short \
+  --junitxml=../../target/python-framework-results.xml
 '''
 
 # =============================================================================

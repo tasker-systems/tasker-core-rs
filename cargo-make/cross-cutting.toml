@@ -1,0 +1,23 @@
+# =============================================================================
+# Cross-Cutting Concerns - Tasks spanning multiple languages/contexts
+# =============================================================================
+
+[tasks.code-quality]
+description = "Run all quality checks across all languages"
+dependencies = ["check-rust", "check-python", "check-ruby", "check-typescript"]
+
+[tasks.pre-commit]
+description = "Pre-commit checks (fast)"
+dependencies = ["rust-fmt-check", "rust-clippy"]
+
+[tasks.pre-push]
+description = "Pre-push validation (thorough)"
+dependencies = ["check-rust", "rust-doctests"]
+
+[tasks.workspace-format-all]
+description = "Format all code in parallel"
+run_task = { name = ["fix-rust", "fix-python", "fix-ruby", "fix-typescript"], fork = true, parallel = true }
+
+[tasks.workspace-lint-all]
+description = "Lint all code in parallel"
+run_task = { name = ["rust-clippy", "check-python", "check-ruby", "check-typescript"], fork = true, parallel = true }

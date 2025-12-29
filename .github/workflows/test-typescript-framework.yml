@@ -60,6 +60,17 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Rust (for cargo-make)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install tools
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "make"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -96,20 +107,13 @@ jobs:
           ls -la ../../target/release/ || true
 
       # ========================================================================
-      # Unit Tests (no FFI required)
+      # Quality Checks and Unit Tests (no FFI required)
       # ========================================================================
-      - name: Run linting
+      - name: Run quality checks (lint + typecheck)
         run: |
-          echo "🔍 Running Biome lint checks..."
-          bun run lint
-
-      - name: Run type checking
-        run: |
-          echo "📝 Running TypeScript type checks..."
-          bun run typecheck
-
-      - name: Create test results directory
-        run: mkdir -p ../../target
+          echo "🔍 Running Biome lint and TypeScript type checks..."
+          cargo make lint
+          cargo make typecheck
 
       - name: Run TypeScript unit tests
         run: |
@@ -118,14 +122,7 @@ jobs:
           echo "   - tests/unit/events/ - Event emitter and poller"
           echo ""
 
-          # Run unit tests with Bun's test runner
-          bun test tests/unit/ 2>&1 | tee ../../target/typescript-unit-results.txt
-
-          # Check exit code
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ Unit tests failed"
-            exit 1
-          fi
+          cargo make test-ci
         env:
           TASKER_ENV: test
 

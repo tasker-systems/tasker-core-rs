@@ -1,0 +1,128 @@
+# =============================================================================
+# Main cargo-make configuration - chains all shared modules
+# =============================================================================
+#
+# This file is the entry point for shared cargo-make configuration.
+# It chains all the module files together in the correct order.
+#
+# =============================================================================
+
+# Chain to the base-tasks configuration
+extend = "./base-tasks.toml"
+
+[config]
+
+# Import additional modules by including their tasks
+# Note: cargo-make only supports single-file extend, so we merge all modules here
+
+# =============================================================================
+# Re-export from base-tasks.toml
+# =============================================================================
+# (Loaded via extend chain)
+
+# =============================================================================
+# Workspace Configuration (from workspace-config.toml)
+# =============================================================================
+
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+# Use relative paths to avoid duplication issues
+SCRIPTS_DIR = "cargo-make/scripts"
+
+# =============================================================================
+# Cross-Cutting Concerns (from cross-cutting.toml)
+# =============================================================================
+
+[tasks.code-quality]
+description = "Run all quality checks across all languages"
+dependencies = ["check-rust", "check-python", "check-ruby", "check-typescript"]
+
+[tasks.pre-commit]
+description = "Pre-commit checks (fast)"
+dependencies = ["rust-fmt-check", "rust-clippy"]
+
+[tasks.pre-push]
+description = "Pre-push validation (thorough)"
+dependencies = ["check-rust", "rust-doctests"]
+
+[tasks.workspace-format-all]
+description = "Format all code in parallel"
+run_task = { name = ["fix-rust", "fix-python", "fix-ruby", "fix-typescript"], fork = true, parallel = true }
+
+[tasks.workspace-lint-all]
+description = "Lint all code in parallel"
+run_task = { name = ["rust-clippy", "check-python", "check-ruby", "check-typescript"], fork = true, parallel = true }
+
+# =============================================================================
+# Test Tasks (from test-tasks.toml)
+# =============================================================================
+
+[tasks.test-all]
+description = "Run all tests sequentially"
+dependencies = ["test-rust", "test-python", "test-ruby", "test-typescript"]
+
+[tasks.test-ffi-all]
+description = "Run all FFI integration tests"
+dependencies = ["test-python-ffi", "test-ruby-ffi", "test-typescript-ffi"]
+
+[tasks.test-e2e]
+description = "Run E2E tests (requires services running)"
+dependencies = ["check-services"]
+command = "cargo"
+args = ["nextest", "run", "--all-features", "-E", "test(e2e::)"]
+
+[tasks.check-services]
+description = "Check required services are running"
+script = { file = "${SCRIPTS_DIR}/check-services.sh" }
+
+[tasks.test-crate]
+description = "Test a specific crate with nextest"
+command = "cargo"
+args = ["nextest", "run", "--package", "${CRATE_NAME}", "--all-features"]
+
+# =============================================================================
+# CI Integration Tasks (from ci-integration.toml)
+# =============================================================================
+
+[tasks.ci-setup]
+description = "Setup CI environment (mirrors .github/actions/setup-env)"
+script = { file = "${SCRIPTS_DIR}/setup-env.sh" }
+
+[tasks.ci-build-workers]
+description = "Build all workers (aligns with build-workers.yml)"
+dependencies = ["build-rust", "build-ruby", "build-python", "build-typescript"]
+
+[tasks.ci-test-rust]
+description = "Run Rust tests with CI profile"
+command = "cargo"
+args = ["nextest", "run", "--all-features", "--profile", "ci"]
+
+[tasks.ci-test-framework]
+description = "Run all framework tests"
+dependencies = ["test-ruby", "test-python", "test-typescript"]
+
+[tasks.ci-start-services]
+description = "Start all services for testing (uses existing CI script)"
+script = { file = "${WORKSPACE_ROOT}/.github/scripts/start-native-services.sh" }
+
+[tasks.ci-stop-services]
+description = "Stop all services (uses existing CI script)"
+script = { file = "${WORKSPACE_ROOT}/.github/scripts/stop-native-services.sh" }
+
+[tasks.ci-flow]
+description = "Complete CI flow (mirrors ci.yml workflow)"
+dependencies = [
+    "ci-setup",
+    "ci-build-workers",
+    "ci-test-rust",
+    "ci-test-framework"
+]
+
+[tasks.ci-code-quality]
+description = "CI code quality checks (mirrors code-quality.yml)"
+dependencies = [
+    "rust-fmt-check",
+    "rust-clippy",
+    "rust-docs",
+    "rust-audit"
+]

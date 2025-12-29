@@ -134,7 +134,7 @@ args = ["run", "typecheck"]
 description = "Run all tests"
 dependencies = ["install"]
 script = '''
-source scripts/load-env.sh
+. scripts/load-env.sh
 bun test
 '''
 
@@ -142,7 +142,7 @@ bun test
 description = "Run tests in watch mode"
 dependencies = ["install"]
 script = '''
-source scripts/load-env.sh
+. scripts/load-env.sh
 bun test --watch
 '''
 
@@ -150,8 +150,22 @@ bun test --watch
 description = "Run tests with coverage"
 dependencies = ["install"]
 script = '''
-source scripts/load-env.sh
+. scripts/load-env.sh
 bun test --coverage
+'''
+
+[tasks.test-ci]
+description = "Run tests with CI output format (text logs for artifact upload)"
+dependencies = ["install"]
+script_runner = "bash"
+script = '''
+set -o pipefail
+
+# Ensure target directory exists
+mkdir -p ../../target
+
+# Run unit tests - output captured by CI, also saved to file for artifacts
+bun test tests/unit/ 2>&1 | tee ../../target/typescript-unit-results.txt
 '''
 
 # =============================================================================

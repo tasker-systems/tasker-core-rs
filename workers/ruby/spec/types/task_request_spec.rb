@@ -16,23 +16,23 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
     end
 
     context 'with default values' do
-      subject { described_class.new(basic_attributes) }
+      subject(:task_request) { described_class.new(basic_attributes) }
 
       it 'sets priority to default value of 0' do
-        expect(subject.priority).to eq(0)
+        expect(task_request.priority).to eq(0)
       end
 
       it 'sets claim_timeout_seconds to default value of 60' do
-        expect(subject.claim_timeout_seconds).to eq(60)
+        expect(task_request.claim_timeout_seconds).to eq(60)
       end
 
       it 'creates a valid TaskRequest' do
-        expect(subject).to be_valid_for_creation
+        expect(task_request).to be_valid_for_creation
       end
     end
 
     context 'with custom priority and claim timeout' do
-      subject { described_class.new(custom_attributes) }
+      subject(:task_request) { described_class.new(custom_attributes) }
 
       let(:custom_attributes) do
         basic_attributes.merge(
@@ -42,15 +42,15 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
       end
 
       it 'sets the custom priority value' do
-        expect(subject.priority).to eq(10)
+        expect(task_request.priority).to eq(10)
       end
 
       it 'sets the custom claim timeout value' do
-        expect(subject.claim_timeout_seconds).to eq(120)
+        expect(task_request.claim_timeout_seconds).to eq(120)
       end
 
       it 'maintains backward compatibility with validation' do
-        expect(subject).to be_valid_for_creation
+        expect(task_request).to be_valid_for_creation
       end
     end
 

@@ -1,0 +1,110 @@
+# =============================================================================
+# Base Task Templates - Shared across all crates
+# =============================================================================
+#
+# Usage: extend = { path = "../cargo-make/base-tasks.toml" }
+# Or for workers: extend = { path = "../../cargo-make/base-tasks.toml" }
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Abstract Base Tasks (override in crate-specific files)
+# -----------------------------------------------------------------------------
+
+[tasks.base-build]
+description = "Base build template"
+category = "Build"
+
+[tasks.base-clean]
+description = "Base clean template"
+category = "Maintenance"
+
+[tasks.base-format]
+description = "Base format check template"
+category = "Quality"
+
+[tasks.base-format-fix]
+description = "Base format fix template"
+category = "Quality"
+
+[tasks.base-lint]
+description = "Base lint template"
+category = "Quality"
+
+[tasks.base-lint-fix]
+description = "Base lint fix template"
+category = "Quality"
+
+[tasks.base-test]
+description = "Base test template"
+category = "Test"
+
+[tasks.base-run]
+description = "Base run template (for services)"
+category = "Development"
+
+# -----------------------------------------------------------------------------
+# Rust-Specific Base Tasks
+# -----------------------------------------------------------------------------
+
+[tasks.base-rust-format]
+extend = "base-format"
+description = "Check Rust formatting"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.base-rust-format-fix]
+extend = "base-format-fix"
+description = "Fix Rust formatting"
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.base-rust-lint]
+extend = "base-lint"
+description = "Run Clippy lints"
+command = "cargo"
+args = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]
+
+[tasks.base-rust-lint-fix]
+extend = "base-lint-fix"
+description = "Fix Clippy issues"
+command = "cargo"
+args = ["clippy", "--all-targets", "--all-features", "--fix", "--allow-dirty", "--allow-staged"]
+
+[tasks.base-rust-test]
+extend = "base-test"
+description = "Run tests with nextest"
+command = "cargo"
+args = ["nextest", "run", "--all-features"]
+
+[tasks.base-rust-test-ci]
+extend = "base-rust-test"
+description = "Run tests with CI profile"
+args = ["nextest", "run", "--all-features", "--profile", "ci"]
+
+[tasks.base-rust-test-docs]
+description = "Run documentation tests"
+category = "Test"
+command = "cargo"
+args = ["test", "--doc", "--all-features"]
+
+[tasks.base-rust-build]
+extend = "base-build"
+description = "Build Rust crate"
+command = "cargo"
+args = ["build", "--all-features"]
+
+[tasks.base-rust-build-release]
+description = "Build Rust crate (release)"
+category = "Build"
+command = "cargo"
+args = ["build", "--all-features", "--release"]
+
+# -----------------------------------------------------------------------------
+# Worker Delegation Base
+# -----------------------------------------------------------------------------
+
+[tasks.base-delegate-to-worker]
+description = "Base task for worker delegation"
+command = "cargo"
+args = ["make"]

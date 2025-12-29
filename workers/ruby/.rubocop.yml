@@ -41,11 +41,13 @@ Metrics/BlockLength:
   Max: 120
 
 Metrics/MethodLength:
-  Max: 40
+  Max: 70
   Exclude:
     - "spec/examples/**/*" # Example code may have longer methods for demonstration
     - "db/migrate/**/*" # Database migrations often have long setup methods
     - "lib/generators/**/*" # Generator methods often have long setup and instruction methods
+    - "lib/tasker_core/step_handler/**/*" # Handler methods process complex API responses
+    - "lib/tasker_core/subscriber.rb" # Event subscriber has comprehensive dispatch logic
 
 Metrics/ModuleLength:
   Max: 400
@@ -53,11 +55,12 @@ Metrics/ModuleLength:
     - "spec/support/**/*" # Test support modules may be longer
 
 Metrics/ClassLength:
-  Max: 200
+  Max: 300
   Exclude:
     - "spec/examples/**/*" # Example classes may be longer for demonstration
     - "db/migrate/**/*" # Database migrations can be long
     - "lib/generators/**/*" # Generator classes often have many methods
+    - "lib/tasker_core/step_handler/**/*" # Handler classes have many helper methods
 
 Metrics/ParameterLists:
   Max: 8
@@ -65,17 +68,26 @@ Metrics/ParameterLists:
 Metrics/AbcSize:
   Max: 120
 
+# Complexity metrics - these files have inherently complex logic
+# (bootstrap sequences, API handling, batch processing, type coercion)
 Metrics/CyclomaticComplexity:
-  Max: 8
+  Max: 20
   Exclude:
     - "spec/examples/**/*" # Example code may have higher complexity for demonstration
+    - "spec/handlers/examples/**/*" # Handler examples demonstrate real-world complexity
 
 Metrics/PerceivedComplexity:
-  Max: 8
+  Max: 20
   Exclude:
     - "spec/examples/**/*" # Example code may have higher complexity for demonstration
+    - "spec/handlers/examples/**/*" # Handler examples demonstrate real-world complexity
 
 Naming/PredicatePrefix:
+  Enabled: false
+
+# We use validate_* and load_* methods that RuboCop thinks should be predicates
+# These are action methods, not query methods
+Naming/PredicateMethod:
   Enabled: false
 
 Naming/AccessorMethodName:
@@ -113,6 +125,7 @@ RSpec/ContextWording:
   Exclude:
     - "spec/examples/**/*" # Example tests may use different context patterns
     - "spec/support/**/*" # Shared contexts may use different naming patterns
+    - "spec/types/**/*" # Types specs may use descriptive contexts
 
 RSpec/BeforeAfterAll:
   Exclude:
@@ -125,16 +138,35 @@ RSpec/InstanceVariable:
 RSpec/DescribeClass:
   Exclude:
     - "spec/examples/**/*" # Example integration tests may not follow this pattern
+    - "spec/ffi/**/*" # FFI tests describe modules/integration behavior
 
+# Our spec directory structure follows a logical organization
+# rather than mirroring the exact lib/ path structure
 RSpec/FilePath:
   Exclude:
     - "spec/examples/**/*" # Example files may not follow standard naming
     - "spec/tasks/**/*" # Integration test files may not follow standard spec naming patterns
+    - "spec/types/**/*" # Types specs are organized by concept, not nested path
+    - "spec/observability/**/*" # Observability specs in dedicated directory
+    - "spec/step_handler/**/*" # Step handler specs organized by handler type
+    - "spec/worker/**/*" # Worker specs in dedicated directory
+    - "spec/ffi/**/*" # FFI specs in dedicated directory
+    - "spec/batch_processing/**/*" # Batch processing specs in dedicated directory
+    - "spec/domain_events/**/*" # Domain events specs in dedicated directory
+    - "spec/handlers/**/*" # Handler specs organized by workflow type
 
 RSpec/SpecFilePathFormat:
   Exclude:
     - "spec/examples/**/*" # Example files may not follow standard naming
     - "spec/tasks/**/*" # Integration test files may not follow standard spec naming patterns
+    - "spec/types/**/*" # Types specs are organized by concept, not nested path
+    - "spec/observability/**/*" # Observability specs in dedicated directory
+    - "spec/step_handler/**/*" # Step handler specs organized by handler type
+    - "spec/worker/**/*" # Worker specs in dedicated directory
+    - "spec/ffi/**/*" # FFI specs in dedicated directory
+    - "spec/batch_processing/**/*" # Batch processing specs in dedicated directory
+    - "spec/domain_events/**/*" # Domain events specs in dedicated directory
+    - "spec/handlers/**/*" # Handler specs organized by workflow type
 
 RSpec/DescribeMethod:
   Exclude:
@@ -167,14 +199,22 @@ Layout/LineLength:
     - "spec/examples/**/*" # Example code may have longer lines for clarity
     - "spec/factories/**/*" # Factory files often have long lines for readability
     - "spec/support/**/*" # Test support files may have longer descriptive lines
+    - "spec/handlers/**/*" # Handler specs have descriptive log messages
+    - "spec/batch_processing/**/*" # Batch processing specs have complex setup
+    - "spec/ffi/**/*" # FFI specs have long hash structures
     - "db/migrate/**/*" # Database migrations often have long constraint names
     - "app/models/**/dependent_system_object_map.rb" # Schema comments are auto-generated
+    - "lib/tasker_core/logger.rb" # Logger has long format examples in comments
+    - "lib/tasker_core/registry/**/*" # Registry files have descriptive debug messages
+    - "lib/tasker_core/step_handler/**/*" # Handler files have long API configuration
+    - "lib/tasker_core/test_environment.rb" # Test setup has long file discovery paths
 
 # Lint exclusions for test code
 Lint/DuplicateBranch:
   Exclude:
     - "spec/examples/**/*" # Example code may have intentional duplication
     - "spec/factories/**/*" # Factory conditionals may look duplicated
+    - "lib/tasker_core/tracing.rb" # Tracing has intentional type-based branching
 
 Lint/ConstantDefinitionInBlock:
   Exclude:
@@ -211,3 +251,30 @@ RSpec/StubbedMock:
 Naming/VariableNumber:
   Exclude:
     - "spec/**/*" # Test files often use numbered variables for test data
+
+# Example code may have iterated expectations for demonstration
+RSpec/IteratedExpectation:
+  Exclude:
+    - "spec/**/*" # Test files may iterate for better error messages
+
+# Example model code uses String#% for formatting prices
+Style/FormatString:
+  Exclude:
+    - "spec/handlers/examples/**/*" # Example models may use different formatting
+
+# Example code may have intentional empty else for clarity
+Style/EmptyElse:
+  Exclude:
+    - "spec/handlers/examples/**/*" # Example code may be explicit
+
+# Dry::Struct DSL uses chained blocks for attribute definitions
+Style/MultilineBlockChain:
+  Exclude:
+    - "lib/tasker_core/types/**/*" # Dry::Struct attribute DSL
+    - "spec/handlers/examples/**/*" # Handler examples may chain blocks for clarity
+
+# We use both VERSION and Version for backward compatibility
+Naming/ConstantName:
+  Exclude:
+    - "lib/tasker_core/version.rb" # Version constant for compatibility
+

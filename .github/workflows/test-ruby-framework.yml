@@ -114,9 +114,6 @@ jobs:
         env:
           SQLX_OFFLINE: "true"
 
-      - name: Create test results directory
-        run: mkdir -p ../../target
-
       - name: Run Ruby framework tests
         run: |
           echo "🧪 Running Ruby framework tests (FFI, types, events, worker)..."
@@ -126,10 +123,7 @@ jobs:
           echo "   - spec/events/ - Event system"
           echo ""
 
-          bundle exec rspec spec/ \
-            --format documentation \
-            --format RspecJunitFormatter \
-            --out ../../target/ruby-framework-results.xml
+          cargo make test-ci
         env:
           TASKER_ENV: test
           # Use worker-test-embedded.toml which has web API disabled to prevent port binding conflicts

@@ -136,7 +136,7 @@ module TaskerCore
       #
       # @param event [Hash] The domain event
       # @return [Boolean] true to continue handling, false to skip
-      def before_handle(event) # rubocop:disable Lint/UnusedMethodArgument,Naming/PredicateMethod
+      def before_handle(event) # rubocop:disable Lint/UnusedMethodArgument
         true
       end
 

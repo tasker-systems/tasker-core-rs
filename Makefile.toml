@@ -25,6 +25,9 @@
 #
 # =============================================================================
 
+# Extend shared configuration files
+extend = "./cargo-make/main.toml"
+
 [config]
 default_to_workspace = false
 skip_core_tasks = true
@@ -33,6 +36,8 @@ skip_core_tasks = true
 # Database configuration (can be overridden)
 DATABASE_URL = { value = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test", condition = { env_not_set = ["DATABASE_URL"] } }
 TASKER_ENV = { value = "test", condition = { env_not_set = ["TASKER_ENV"] } }
+# Use relative path for scripts to avoid path duplication issues
+SCRIPTS_DIR = "cargo-make/scripts"
 
 # =============================================================================
 # Top-Level Composite Tasks
@@ -266,6 +271,44 @@ command = "cargo"
 args = ["make", "test-ffi-all"]
 
 # =============================================================================
+# Rust Worker Tasks
+# =============================================================================
+
+[tasks.check-rust-worker]
+description = "Run Rust worker quality checks"
+cwd = "workers/rust"
+command = "cargo"
+args = ["make", "check"]
+
+[tasks.test-rust-worker]
+description = "Run Rust worker tests"
+cwd = "workers/rust"
+command = "cargo"
+args = ["make", "test"]
+
+[tasks.build-rust-worker]
+description = "Build Rust worker"
+cwd = "workers/rust"
+command = "cargo"
+args = ["make", "build"]
+
+# =============================================================================
+# FFI Integration Test Tasks
+# =============================================================================
+
+[tasks.test-python-ffi]
+description = "Run Python FFI integration tests"
+cwd = "workers/python"
+command = "cargo"
+args = ["make", "test-ffi"]
+
+[tasks.test-ruby-ffi]
+description = "Run Ruby FFI integration tests"
+cwd = "workers/ruby"
+command = "cargo"
+args = ["make", "test-ffi"]
+
+# =============================================================================
 # Database & Infrastructure Tasks
 # =============================================================================
 
@@ -275,34 +318,15 @@ dependencies = ["db-check", "db-migrate"]
 
 [tasks.db-check]
 description = "Check database connectivity"
-script = '''
-echo "🔍 Checking database connectivity..."
-if pg_isready -h localhost -p 5432 -U tasker; then
-    echo "✓ Database is ready"
-else
-    echo "✗ Database is not available"
-    echo "  Start it with: docker-compose up -d postgres"
-    exit 1
-fi
-'''
+script = { file = "${SCRIPTS_DIR}/check-db.sh" }
 
 [tasks.db-migrate]
 description = "Run database migrations"
-script = '''
-echo "📦 Running migrations..."
-sqlx migrate run
-echo "✓ Migrations complete"
-'''
+script = { file = "${SCRIPTS_DIR}/run-migrations.sh" }
 
 [tasks.db-reset]
 description = "Reset database (drop and recreate)"
-script = '''
-echo "⚠️  Resetting database..."
-sqlx database drop -y 2>/dev/null || true
-sqlx database create
-sqlx migrate run
-echo "✓ Database reset complete"
-'''
+script = { file = "${SCRIPTS_DIR}/reset-db.sh" }
 
 # =============================================================================
 # SQLX Cache Tasks
@@ -310,13 +334,7 @@ echo "✓ Database reset complete"
 
 [tasks.sqlx-prepare]
 description = "Prepare SQLX query cache for offline compilation"
-script = '''
-echo "📦 Preparing SQLX cache..."
-cargo sqlx prepare --workspace -- --all-targets --all-features
-echo "✓ SQLX cache prepared"
-echo ""
-echo "Don't forget to commit the .sqlx directories!"
-'''
+script = { file = "${SCRIPTS_DIR}/sqlx-prepare.sh" }
 
 [tasks.sqlx-check]
 description = "Verify SQLX cache is up to date"
@@ -368,13 +386,7 @@ args = ["clean"]
 
 [tasks.clean-workers]
 description = "Clean all worker build artifacts"
-script = '''
-echo "🧹 Cleaning workers..."
-(cd workers/python && cargo make clean) 2>/dev/null || true
-(cd workers/ruby && cargo make clean) 2>/dev/null || true
-(cd workers/typescript && cargo make clean) 2>/dev/null || true
-echo "✓ Workers cleaned"
-'''
+script = { file = "${SCRIPTS_DIR}/clean-workers.sh" }
 
 # =============================================================================
 # CI Tasks (for GitHub Actions)
@@ -413,13 +425,7 @@ dependencies = [
 
 [tasks.setup-workers]
 description = "Setup all workers"
-script = '''
-echo "📦 Setting up workers..."
-(cd workers/python && cargo make setup)
-(cd workers/ruby && cargo make setup)
-(cd workers/typescript && cargo make install)
-echo "✓ All workers setup"
-'''
+script = { file = "${SCRIPTS_DIR}/setup-workers.sh" }
 
 [tasks.watch]
 description = "Watch for changes and run tests"
