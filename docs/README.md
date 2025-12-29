@@ -183,7 +183,7 @@ docs/
 ├── testing/                            # Testing documentation
 │   └── comprehensive-lifecycle-testing-guide.md
 │
-├── architecture-decisions/             # Architecture Decision Records
+├── decisions/                          # Architecture Decision Records (ADRs)
 │   └── [ADR files]
 │
 └── ticket-specs/                       # Historical feature specifications

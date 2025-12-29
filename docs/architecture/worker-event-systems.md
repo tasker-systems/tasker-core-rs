@@ -632,7 +632,7 @@ end
 - [TAS-67 Summary](ticket-specs/TAS-67/summary.md) - Implementation summary
 - [TAS-67 Edge Cases](ticket-specs/TAS-67/04-edge-cases-and-risks.md) - Risk analysis
 - [FFI Callback Safety](development/ffi-callback-safety.md) - FFI guidelines
-- [RCA: Parallel Execution Timing Bugs](architecture-decisions/rca-parallel-execution-timing-bugs.md) - Lessons learned
+- [RCA: Parallel Execution Timing Bugs](../decisions/rca-parallel-execution-timing-bugs.md) - Lessons learned
 - [Backpressure Monitoring Runbook](operations/backpressure-monitoring.md) - Metrics and alerting
 
 ---

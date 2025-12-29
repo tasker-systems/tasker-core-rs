@@ -556,7 +556,7 @@ See [Backpressure Monitoring Runbook](operations/backpressure-monitoring.md) for
 - [Worker Event Systems](worker-event-systems.md) - Dual-channel architecture
 - [MPSC Channel Guidelines](development/mpsc-channel-guidelines.md) - Channel creation guide
 - [MPSC Channel Tuning](operations/mpsc-channel-tuning.md) - Operational tuning
-- [TAS-51: Bounded MPSC Channels](architecture-decisions/TAS-51-bounded-mpsc-channels.md) - ADR
+- [TAS-51: Bounded MPSC Channels](../decisions/TAS-51-bounded-mpsc-channels.md) - ADR
 - [TAS-75 Plan](ticket-specs/TAS-75/plan.md) - Implementation plan
 
 ---
