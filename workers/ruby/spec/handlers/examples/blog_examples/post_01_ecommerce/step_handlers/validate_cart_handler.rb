@@ -74,7 +74,7 @@ module Ecommerce
         end
 
         # Normalize each cart item's keys to symbols
-        normalized_cart_items = cart_items.map { |item| item.deep_symbolize_keys }
+        normalized_cart_items = cart_items.map(&:deep_symbolize_keys)
 
         # Validate each cart item has required fields
         normalized_cart_items.each_with_index do |item, index|

@@ -90,9 +90,6 @@ jobs:
         env:
           SQLX_OFFLINE: "true"
 
-      - name: Create test results directory
-        run: mkdir -p ../../target
-
       - name: Run Python framework tests
         run: |
           echo "🧪 Running Python framework tests (FFI, types, events, worker)..."
@@ -102,10 +99,7 @@ jobs:
           echo "   - tests/test_models.py - Type models and conversions"
           echo ""
 
-          uv run pytest tests/ \
-            -v \
-            --tb=short \
-            --junitxml=../../target/python-framework-results.xml
+          cargo make test-ci
         env:
           TASKER_ENV: test
           PYTHON_HANDLER_PATH: ./tests/handlers

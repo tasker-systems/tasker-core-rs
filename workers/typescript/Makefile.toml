@@ -154,6 +154,25 @@ source scripts/load-env.sh
 bun test --coverage
 '''
 
+[tasks.test-ci]
+description = "Run tests with CI output format (text logs for artifact upload)"
+dependencies = ["install"]
+script = '''
+source scripts/load-env.sh
+
+# Ensure target directory exists
+mkdir -p ../../target
+
+echo "🧪 Running TypeScript unit tests..."
+bun test tests/unit/ 2>&1 | tee ../../target/typescript-unit-results.txt
+
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    echo "❌ Unit tests failed"
+    exit 1
+fi
+echo "✅ Unit tests passed"
+'''
+
 # =============================================================================
 # Clean Tasks
 # =============================================================================

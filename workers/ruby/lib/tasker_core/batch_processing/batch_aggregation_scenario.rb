@@ -51,7 +51,7 @@ module TaskerCore
 
         # Find all batch worker results by prefix matching (extract 'result' field from each)
         @batch_results = {}
-        dependency_results.keys.each do |step_name|
+        dependency_results.each_key do |step_name|
           if step_name.start_with?(batch_worker_prefix)
             @batch_results[step_name] = dependency_results.get_results(step_name)
           end

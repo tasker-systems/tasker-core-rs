@@ -166,6 +166,20 @@ script = '''
 bundle exec rspec spec/ffi/ --format documentation
 '''
 
+[tasks.test-ci]
+description = "Run tests with CI output format (JUnit XML)"
+dependencies = ["setup", "compile"]
+script = '''
+# Ensure target directory exists
+mkdir -p ../../target
+
+# Run tests with documentation and JUnit XML output
+bundle exec rspec spec/ \
+  --format documentation \
+  --format RspecJunitFormatter \
+  --out ../../target/ruby-framework-results.xml
+'''
+
 # =============================================================================
 # Documentation Tasks
 # =============================================================================

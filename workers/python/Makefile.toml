@@ -149,6 +149,20 @@ script = '''
 uv run pytest -v
 '''
 
+[tasks.test-ci]
+description = "Run tests with CI output format (JUnit XML)"
+dependencies = ["setup", "build-extension"]
+script = '''
+# Ensure target directory exists
+mkdir -p ../../target
+
+# Run tests with verbose output and JUnit XML
+uv run pytest tests/ \
+  -v \
+  --tb=short \
+  --junitxml=../../target/python-framework-results.xml
+'''
+
 # =============================================================================
 # Rust Extension Tasks (for the FFI layer)
 # =============================================================================

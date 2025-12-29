@@ -95,7 +95,7 @@ RSpec.describe TaskerCore::Types::StepContext do
     describe '#step_config' do
       it 'returns the handler initialization config' do
         expect(context.step_config['timeout']).to eq(30)
-        expect(context.step_config['retry_on_failure']).to eq(true)
+        expect(context.step_config['retry_on_failure']).to be(true)
       end
 
       context 'when handler initialization is nil' do
