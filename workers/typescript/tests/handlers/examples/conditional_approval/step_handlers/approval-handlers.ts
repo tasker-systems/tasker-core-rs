@@ -13,12 +13,9 @@
  */
 
 import { StepHandler } from '../../../../../src/handler/base.js';
-import { DecisionStepHandler } from '../../../../../src/handler/decision.js';
+import { DecisionHandler } from '../../../../../src/handler/decision.js';
 import type { StepContext } from '../../../../../src/types/step-context.js';
-import type {
-  DecisionResult,
-  StepHandlerResult,
-} from '../../../../../src/types/step-handler-result.js';
+import type { StepHandlerResult } from '../../../../../src/types/step-handler-result.js';
 
 /**
  * Validate the approval request.
@@ -68,14 +65,14 @@ export class ValidateRequestHandler extends StepHandler {
  * - Amount $1,000-$4,999: Create manager_approval_ts
  * - Amount >= $5,000: Create manager_approval_ts + finance_review_ts
  */
-export class RoutingDecisionHandler extends DecisionStepHandler {
+export class RoutingDecisionHandler extends DecisionHandler {
   static handlerName = 'conditional_approval.step_handlers.RoutingDecisionHandler';
   static handlerVersion = '1.0.0';
 
   private static readonly SMALL_THRESHOLD = 1000;
   private static readonly LARGE_THRESHOLD = 5000;
 
-  async call(context: StepContext): Promise<DecisionResult> {
+  async call(context: StepContext): Promise<StepHandlerResult> {
     // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
     const validateResult = context.getDependencyResult('validate_request_ts') as Record<
       string,
@@ -83,11 +80,10 @@ export class RoutingDecisionHandler extends DecisionStepHandler {
     > | null;
 
     if (!validateResult) {
-      return this.failure(
+      return this.decisionFailure(
         'Missing dependency result from validate_request_ts',
-        'dependency_error',
-        false
-      ) as DecisionResult;
+        'dependency_error'
+      );
     }
 
     const amount = validateResult.amount as number;
