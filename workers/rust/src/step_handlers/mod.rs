@@ -383,6 +383,12 @@ pub mod domain_event_publishing;
 // Handler registry
 pub mod registry;
 
+// TAS-112: Ergonomic handler capability traits
+pub mod capabilities;
+
+// TAS-112: Example handlers demonstrating capability traits
+pub mod capability_examples;
+
 // Re-export core types for convenience
 // TAS-67: Export registry and adapter
 pub use registry::{
@@ -395,5 +401,10 @@ pub use payment_event_publisher::PaymentEventPublisher;
 
 // TAS-67: Re-export domain event callback from tasker-worker (shared implementation)
 pub use tasker_worker::worker::DomainEventCallback;
+
+// TAS-112: Re-export ergonomic capability traits
+pub use capabilities::{
+    APICapable, BatchableCapable, DecisionCapable, ErrorClassification, HandlerCapabilities,
+};
 
 // StepHandlerConfig is defined in this module, no need to re-export

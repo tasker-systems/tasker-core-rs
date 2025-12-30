@@ -113,9 +113,21 @@ description = "Run all Rust quality checks"
 dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-doctests"]
 
 [tasks.test-rust]
-description = "Run Rust tests with nextest"
+description = "Run all Rust tests with nextest"
 script = '''
-cargo nextest run --all-features
+cargo nextest run --workspace --all-features
+'''
+
+[tasks.test-rust-unit]
+description = "Run Rust unit tests only across workspace (excludes e2e and integration tests that require services)"
+script = '''
+cargo nextest run --workspace --all-features -E 'not binary(e2e_tests) & not binary(integration_tests)'
+'''
+
+[tasks.test-rust-e2e]
+description = "Run Rust e2e and integration tests only (requires services running)"
+script = '''
+cargo nextest run --workspace --all-features -E 'binary(e2e_tests) | binary(integration_tests)'
 '''
 
 [tasks.test-rust-verbose]
@@ -458,3 +470,7 @@ alias = "fix"
 [tasks.b]
 description = "Alias for build"
 alias = "build"
+
+[tasks.tu]
+description = "Alias for test-rust-unit (unit tests only, no services required)"
+alias = "test-rust-unit"
