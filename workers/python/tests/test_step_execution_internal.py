@@ -175,7 +175,7 @@ class TestExecuteHandler:
             handler_name = "success_handler"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({"success": True})
+                return StepHandlerResult.success({"success": True})
 
         bridge = EventBridge.instance()
         registry = HandlerRegistry.instance()
@@ -197,7 +197,7 @@ class TestExecuteHandler:
 
             def call(self, context):
                 value = context.input_data.get("value", 0)
-                return StepHandlerResult.success_handler_result({"doubled": value * 2})
+                return StepHandlerResult.success({"doubled": value * 2})
 
         bridge = EventBridge.instance()
         registry = HandlerRegistry.instance()
@@ -276,7 +276,7 @@ class TestHandleExecutionEvent:
             handler_name = "test_handler"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({"processed": True})
+                return StepHandlerResult.success({"processed": True})
 
         bridge = EventBridge.instance()
         bridge.start()
@@ -369,7 +369,7 @@ class TestSubmitResult:
         subscriber = StepExecutionSubscriber(bridge, registry, "worker-001")
 
         event = create_test_event()
-        handler_result = StepHandlerResult.success_handler_result({"data": "value"})
+        handler_result = StepHandlerResult.success({"data": "value"})
 
         # Track event publication
         published = []
@@ -392,7 +392,7 @@ class TestSubmitResult:
         subscriber = StepExecutionSubscriber(bridge, registry, "worker-001")
 
         event = create_test_event()
-        handler_result = StepHandlerResult.failure_handler_result(
+        handler_result = StepHandlerResult.failure(
             message="Something failed",
             error_type="test_error",
             retryable=False,
@@ -418,7 +418,7 @@ class TestSubmitResult:
         subscriber = StepExecutionSubscriber(bridge, registry, "worker-001")
 
         event = create_test_event()
-        handler_result = StepHandlerResult.failure_handler_result(
+        handler_result = StepHandlerResult.failure(
             message="Temporary failure",
             error_type="test_error",
             retryable=True,
@@ -444,7 +444,7 @@ class TestSubmitResult:
         subscriber = StepExecutionSubscriber(bridge, registry, "worker-001")
 
         event = create_test_event()
-        handler_result = StepHandlerResult.success_handler_result({})
+        handler_result = StepHandlerResult.success({})
 
         # Track event publication
         published = []
@@ -466,7 +466,7 @@ class TestSubmitResult:
         subscriber = StepExecutionSubscriber(bridge, registry, "worker-001")
 
         event = create_test_event()
-        handler_result = StepHandlerResult.success_handler_result({})
+        handler_result = StepHandlerResult.success({})
 
         # Exception should propagate
         with pytest.raises(RuntimeError, match="FFI error"):

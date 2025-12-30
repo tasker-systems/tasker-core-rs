@@ -32,7 +32,7 @@ class TestHandlerInstantiationErrors:
                 raise RuntimeError("Handler initialization failed")
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         registry = HandlerRegistry.instance()
         registry.register("failing_handler", FailingHandler)
@@ -97,7 +97,7 @@ class TestHandlerDiscovery:
             handler_name = "custom_base"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         # Discover with custom base - should find nothing
         # since our example handlers don't extend CustomBaseHandler
@@ -142,13 +142,13 @@ class TestModuleScanning:
             handler_name = "named_handler"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         class HandlerWithoutName(StepHandler):
             # No handler_name set!
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         FakeModule.HandlerWithName = HandlerWithName
         FakeModule.HandlerWithoutName = HandlerWithoutName

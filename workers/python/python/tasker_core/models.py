@@ -20,7 +20,7 @@ Example:
     ...     # Access dependency results
     ...     previous = context.task_sequence_step.get_dependency_result("step_1")
     ...
-    ...     return StepHandlerResult.success_handler_result({"value": even_number * 2})
+    ...     return StepHandlerResult.success({"value": even_number * 2})
 """
 
 from __future__ import annotations

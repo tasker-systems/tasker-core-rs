@@ -281,7 +281,7 @@ class StepExecutionSubscriber:
         Returns:
             StepHandlerResult indicating handler not found error.
         """
-        return StepHandlerResult.failure_handler_result(
+        return StepHandlerResult.failure(
             message=f"Handler not found: {handler_name}",
             error_type="handler_not_found",
             retryable=False,
@@ -299,7 +299,7 @@ class StepExecutionSubscriber:
         Returns:
             StepHandlerResult indicating handler error.
         """
-        return StepHandlerResult.failure_handler_result(
+        return StepHandlerResult.failure(
             message=str(error),
             error_type=error.__class__.__name__,
             retryable=True,

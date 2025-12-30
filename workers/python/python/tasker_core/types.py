@@ -705,6 +705,85 @@ class StepContext(BaseModel):
         # Otherwise return the whole thing (might be a primitive value)
         return result_hash
 
+    def get_input(self, key: str) -> Any:
+        """Get a value from the input data.
+
+        Args:
+            key: The key to look up in input_data.
+
+        Returns:
+            The value or None if not found.
+
+        Example:
+            >>> order_id = context.get_input("order_id")
+        """
+        return self.input_data.get(key)
+
+    def get_config(self, key: str) -> Any:
+        """Get a value from the step configuration.
+
+        Args:
+            key: The key to look up in step_config.
+
+        Returns:
+            The value or None if not found.
+
+        Example:
+            >>> batch_size = context.get_config("batch_size")
+        """
+        return self.step_config.get(key)
+
+    def is_retry(self) -> bool:
+        """Check if this is a retry attempt.
+
+        Returns:
+            True if retry_count > 0.
+        """
+        return self.retry_count > 0
+
+    def is_last_retry(self) -> bool:
+        """Check if this is the last allowed retry attempt.
+
+        Returns:
+            True if retry_count >= max_retries - 1.
+        """
+        return self.retry_count >= self.max_retries - 1
+
+    def get_dependency_result_keys(self) -> list[str]:
+        """Get all dependency result keys.
+
+        Returns:
+            List of step names that have dependency results.
+        """
+        return list(self.dependency_results.keys())
+
+    def get_all_dependency_results(self, prefix: str) -> list[Any]:
+        """Get all dependency results matching a step name prefix.
+
+        This is useful for batch processing where multiple worker steps
+        share a common prefix (e.g., "process_batch_001", "process_batch_002").
+
+        Returns the unwrapped result values (same as get_dependency_result).
+
+        Args:
+            prefix: Step name prefix to match.
+
+        Returns:
+            List of unwrapped result values from matching steps.
+
+        Example:
+            >>> # For batch worker results named: process_batch_001, process_batch_002, etc.
+            >>> batch_results = context.get_all_dependency_results("process_batch_")
+            >>> total = sum(r.get("count", 0) for r in batch_results)
+        """
+        results: list[Any] = []
+        for key in self.dependency_results:
+            if key.startswith(prefix):
+                result = self.get_dependency_result(key)
+                if result is not None:
+                    results.append(result)
+        return results
+
     @property
     def task_sequence_step(self) -> Any:
         """Get a TaskSequenceStepWrapper for Ruby-like attribute access.
@@ -866,26 +945,29 @@ class StepHandlerResult(BaseModel):
             metadata=metadata or {},
         )
 
-    # Aliases for backward compatibility (pre-alpha, can be removed later)
-    @classmethod
-    def success_handler_result(
-        cls,
-        result: dict[str, Any],
-        metadata: dict[str, Any] | None = None,
-    ) -> StepHandlerResult:
-        """Alias for success(). Deprecated - use success() instead."""
-        return cls.success(result, metadata)
+    def is_success_result(self) -> bool:
+        """Check if this result indicates success.
 
-    @classmethod
-    def failure_handler_result(
-        cls,
-        message: str,
-        error_type: str = "handler_error",
-        retryable: bool = True,
-        metadata: dict[str, Any] | None = None,
-    ) -> StepHandlerResult:
-        """Alias for failure(). Deprecated - use failure() instead."""
-        return cls.failure(message, error_type, retryable, metadata)
+        Returns:
+            True if the handler executed successfully.
+
+        Example:
+            >>> if result.is_success_result():
+            ...     print(f"Output: {result.result}")
+        """
+        return self.is_success
+
+    def is_failure_result(self) -> bool:
+        """Check if this result indicates failure.
+
+        Returns:
+            True if the handler failed.
+
+        Example:
+            >>> if result.is_failure_result():
+            ...     print(f"Error: {result.error_message}")
+        """
+        return not self.is_success
 
 
 # =============================================================================
