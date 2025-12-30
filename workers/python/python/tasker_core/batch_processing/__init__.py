@@ -25,8 +25,9 @@ Example:
 
 from __future__ import annotations
 
-from tasker_core.batch_processing.batchable import Batchable
+from tasker_core.batch_processing.batchable import Batchable, BatchWorkerConfig
 
 __all__ = [
     "Batchable",
+    "BatchWorkerConfig",
 ]
