@@ -1,8 +1,8 @@
 # TAS-112 Implementation Plan: Cross-Language Handler Harmonization
 
 **Created**: 2025-12-29
-**Updated**: 2025-12-31
-**Status**: In Progress (Phase 1 - Approaching Validation Gate 1)
+**Updated**: 2025-12-31 (Phase 1 Complete)
+**Status**: Phase 1 COMPLETE - All Streams (A, B, C, D) Validated
 **Checkpoint API**: Deferred to TAS-125 "Batchable Handler Checkpoint"
 **Branch**: `jcoletaylor/tas-112-cross-language-step-handler-ergonomics-analysis`
 **Prerequisites**: Research Phases 1-9 Complete
@@ -99,10 +99,10 @@ All four streams can start immediately and run in parallel. No dependencies betw
 | **Add subscriber lifecycle tests** | 17 tests for BaseSubscriber and SubscriberRegistry | Tests pass | :white_check_mark: Complete |
 | **Add BatchAggregationScenario** | Aggregation scenario detection for convergence steps | Matches Ruby/Python API | :white_check_mark: Complete |
 | **Add aggregation helper methods** | detectAggregationScenario(), aggregateBatchWorkerResults() | Cross-language parity | :white_check_mark: Complete |
-| Create payment publisher example | Custom payload transformation | Example compiles and runs | :construction: Pending |
-| Create logging subscriber example | Pattern-based subscription | Receives matching events | :construction: Pending |
-| Create metrics subscriber example | Counter aggregation | Counts events correctly | :construction: Pending |
-| Integration tests | Full publish/subscribe cycle | Events flow through system | :construction: Pending |
+| Create payment publisher example | Custom payload transformation | Example compiles and runs | :white_check_mark: Complete |
+| Create logging subscriber example | Pattern-based subscription | Receives matching events | :white_check_mark: Complete |
+| Create metrics subscriber example | Counter aggregation | Counts events correctly | :white_check_mark: Complete |
+| Integration tests | Full publish/subscribe cycle | Events flow through system | :white_check_mark: Complete (36 tests) |
 
 #### Deliverables
 - `workers/typescript/src/handler/domain-events.ts` :white_check_mark:
@@ -111,8 +111,11 @@ All four streams can start immediately and run in parallel. No dependencies betw
 - `workers/typescript/.cargo/config.toml` (ts-rs export configuration) :white_check_mark:
 - `workers/typescript/src/handler/batchable.ts` (BatchAggregationScenario, aggregation helpers) :white_check_mark:
 - Batchable unit tests (44 tests) :white_check_mark:
-- `workers/typescript/src/examples/domain_events/` (publishers + subscribers) :construction:
-- Integration tests in `workers/typescript/tests/` :construction:
+- `workers/typescript/src/examples/domain-events/` (publishers + subscribers) :white_check_mark:
+  - `payment-publisher.ts` - PaymentEventPublisher, RefundEventPublisher
+  - `logging-subscriber.ts` - AuditLoggingSubscriber, PaymentLoggingSubscriber
+  - `metrics-subscriber.ts` - MetricsSubscriber, PaymentMetricsSubscriber
+- Integration tests in `workers/typescript/tests/integration/domain-events-flow.test.ts` (36 tests) :white_check_mark:
 
 ---
 
@@ -199,23 +202,125 @@ All four streams can start immediately and run in parallel. No dependencies betw
 
 **Ticket Mapping**: Updates TAS-120 (Conditional Workflows)
 
+**Status**: Complete. Conditional approval workflows implemented for all languages with comprehensive E2E tests.
+
 #### Tasks
 
-| Task | Description | Validation |
-|------|-------------|------------|
-| Python: Create conditional_approval example | Complete workflow: validate → decision → branches → converge | E2E test passes |
-| Python: Create YAML template | Task template for conditional approval | Loads and validates |
-| Python: Add E2E tests | Small, medium, large amount routing scenarios | All scenarios pass |
-| TypeScript: Create conditional_approval example | Complete workflow matching Python | E2E test passes |
-| TypeScript: Create YAML template | Task template matching Python | Loads and validates |
-| TypeScript: Add E2E tests | Small, medium, large amount routing scenarios | All scenarios pass |
-| Document convergence patterns | How intersection semantics work | Clear explanation |
+| Task | Description | Validation | Status |
+|------|-------------|------------|--------|
+| Python: Create conditional_approval example | Complete workflow: validate → decision → branches → converge | E2E test passes | :white_check_mark: Complete |
+| Python: Create YAML template | Task template for conditional approval | Loads and validates | :white_check_mark: Complete |
+| Python: Add E2E tests | Small, medium, large amount routing scenarios + boundaries | All scenarios pass (6 tests) | :white_check_mark: Complete |
+| TypeScript: Create conditional_approval example | Complete workflow matching Python | E2E test passes | :white_check_mark: Complete |
+| TypeScript: Create YAML template | Task template matching Python | Loads and validates | :white_check_mark: Complete |
+| TypeScript: Add E2E tests | Small, medium, large amount routing scenarios + boundaries | All scenarios pass (5 tests) | :white_check_mark: Complete |
+| Document convergence patterns | How intersection semantics work | Clear explanation | :white_check_mark: Complete (in YAML templates) |
 
 #### Deliverables
-- `workers/python/examples/conditional_approval/`
-- `workers/typescript/src/examples/conditional_approval/`
-- YAML templates in `tests/fixtures/task_templates/`
-- E2E tests for both languages
+- `workers/python/tests/handlers/examples/conditional_approval_handlers.py` (314 lines, 6 handlers) :white_check_mark:
+- `workers/typescript/tests/handlers/examples/conditional_approval/` (290 lines, 6 handlers) :white_check_mark:
+- `tests/fixtures/task_templates/python/conditional_approval_handler_py.yaml` :white_check_mark:
+- `tests/fixtures/task_templates/typescript/conditional_approval_handler_ts.yaml` :white_check_mark:
+- `tests/e2e/python/conditional_approval_test.rs` (6 E2E tests) :white_check_mark:
+- `tests/e2e/typescript/conditional_approval_test.rs` (5 E2E tests) :white_check_mark:
+
+---
+
+## Validation Summary (2025-12-31)
+
+On New Year's Eve 2025, a comprehensive validation was performed against all claimed implementation progress. All validation agents confirmed the implementation status.
+
+### Test Suite Results ✅
+
+| Language | Claimed | Validated | Status |
+|----------|---------|-----------|--------|
+| TypeScript | 578 tests | 578 tests | ✅ All passing (updated 2025-12-31 PM with integration tests) |
+| Python | 351 tests | 351 tests | ✅ All passing |
+
+### Stream A: TypeScript Domain Events - VALIDATED COMPLETE ✅
+
+| Component | Lines | Status |
+|-----------|-------|--------|
+| `domain-events.ts` | 1,521 | ✅ Complete |
+| - BasePublisher with lifecycle hooks | ✓ | beforePublish, afterPublish, onPublishError, additionalMetadata |
+| - BaseSubscriber with lifecycle hooks | ✓ | beforeHandle, afterHandle, onHandleError |
+| - PublisherRegistry | ✓ | Singleton with freeze/validation |
+| - SubscriberRegistry | ✓ | Singleton with start/stop lifecycle |
+| - InProcessDomainEventPoller | ✓ | FFI integration with setPollFunction() |
+| `dto.rs` FfiDomainEventDto | ✓ | ts-rs generation configured |
+| `dto.rs` FfiDomainEventMetadataDto | ✓ | ts-rs generation configured |
+| `.cargo/config.toml` ts-rs export | ✓ | TS_RS_EXPORT_DIR configured |
+| `src/ffi/generated/` | 12 files | Auto-generated TypeScript types |
+| `batchable.ts` BatchAggregationScenario | ✓ | Cross-language standard |
+| `batchable.ts` aggregation helpers | ✓ | detectAggregationScenario, aggregateBatchWorkerResults |
+| Test coverage | 1,005 lines | domain-events.test.ts comprehensive |
+
+### Stream B: Python Enhancements - VALIDATED COMPLETE ✅
+
+| Component | Lines | Status |
+|-----------|-------|--------|
+| `domain_events.py` | ~1,350 | ✅ Complete |
+| - BasePublisher with lifecycle hooks | ✓ | before_publish, after_publish, on_publish_error, additional_metadata |
+| - BaseSubscriber with lifecycle hooks | ✓ | before_handle, after_handle, on_handle_error |
+| - SubscriberRegistry | ✓ | Thread-safe singleton with double-checked locking |
+| `types.py` EventDeclaration | ✓ | Pydantic model |
+| `types.py` StepResult | ✓ | Pydantic model |
+| `types.py` PublishContext | ✓ | Pydantic model |
+| `types.py` ExecutionResult | ✓ | Pydantic model |
+| `types.py` InProcessDomainEvent.execution_result | ✓ | TAS-112 field added |
+| Test coverage | 1,147 lines | test_domain_events.py comprehensive |
+
+### Stream C: FFI Boundary Types - VALIDATED COMPLETE ✅
+
+| Component | TypeScript | Python | Status |
+|-----------|------------|--------|--------|
+| RustCursorConfig (flexible cursors) | `unknown` type | `Any` type | ✅ Complete |
+| BatchProcessingOutcome (discriminated union) | ✓ | ✓ | ✅ Complete |
+| NoBatchesOutcome | ✓ | ✓ | ✅ Complete |
+| CreateBatchesOutcome | ✓ | ✓ | ✅ Complete |
+| BatchAggregationResult | ✓ | ✓ | ✅ Complete |
+| aggregateBatchResults() | ✓ | ✓ | ✅ Complete |
+| Factory functions (noBatches, createBatches) | ✓ | ✓ | ✅ Complete |
+| Type guards (isNoBatches, isCreateBatches) | ✓ | - | ✅ Complete |
+
+### Batchable Aggregation Methods - VALIDATED COMPLETE ✅
+
+| Method | TypeScript | Python | Status |
+|--------|------------|--------|--------|
+| BatchAggregationScenario | Interface | Dataclass | ✅ Complete |
+| detectAggregationScenario() | ✓ | detect() classmethod | ✅ Complete |
+| noBatchesAggregationResult() | ✓ | ✓ | ✅ Complete |
+| aggregateBatchWorkerResults() | ✓ | ✓ | ✅ Complete |
+| Batchable tests (TAS-112 specific) | 12 tests | 23 tests | ✅ Complete |
+
+### Remaining for Validation Gate 1
+
+| Item | Status |
+|------|--------|
+| TypeScript domain event examples (payment publisher) | :white_check_mark: Complete |
+| TypeScript domain event examples (logging subscriber) | :white_check_mark: Complete |
+| TypeScript domain event examples (metrics subscriber) | :white_check_mark: Complete |
+| TypeScript domain event integration tests | :white_check_mark: Complete (36 tests) |
+| Stream D: Conditional workflow examples (Python/TypeScript) | :white_check_mark: Complete (11 E2E tests) |
+
+### 🎉 VALIDATION GATE 1 PASSED (2025-12-31)
+
+All Phase 1 streams are complete:
+- **Stream A**: TypeScript Domain Events - 1,521 lines, full lifecycle hooks, FFI integration
+- **Stream B**: Python Enhancements - ~1,350 lines, lifecycle hooks, type definitions
+- **Stream C**: FFI Boundary Types - Flexible cursors, discriminated unions, factory functions
+- **Stream D**: Conditional Workflows - 11 E2E tests covering all routing scenarios
+
+### Validation Methodology
+
+The validation was performed using 5 parallel exploration agents:
+1. TypeScript Domain Events agent - verified all components in domain-events.ts
+2. Python Domain Events agent - verified all components in domain_events.py
+3. TypeScript Batchable agent - verified BatchAggregationScenario and FFI types
+4. Python Batchable agent - verified BatchAggregationScenario and FFI types
+5. Test Runner agent - executed both test suites to confirm test counts
+
+All agents reported comprehensive implementation matching the claimed status in session summaries.
 
 ---
 
@@ -291,8 +396,8 @@ Before proceeding to Phase 3, all of the following must be true:
 - [x] **FfiDomainEventMetadataDto created with ts-rs generation** (type safety fix)
 - [x] **ts-rs export path configured** (`.cargo/config.toml` with TS_RS_EXPORT_DIR)
 - [x] **bridge.rs updated to use DTO serialization** (FfiDomainEventDto::from + to_json_string)
-- [ ] TypeScript domain event examples (publisher + subscribers)
-- [ ] TypeScript domain event integration tests
+- [x] TypeScript domain event examples (publisher + subscribers) - payment-publisher.ts, logging-subscriber.ts, metrics-subscriber.ts
+- [x] TypeScript domain event integration tests - domain-events-flow.test.ts (36 tests)
 
 #### Python Enhancements
 - [x] Python BasePublisher lifecycle hooks (`before_publish`, `after_publish`, `on_publish_error`)
@@ -314,14 +419,14 @@ Before proceeding to Phase 3, all of the following must be true:
 - [x] Python decision handler unit tests (test_decision_handler.py - 163 lines)
 - [x] TypeScript decision handler unit tests (decision.test.ts - 427 lines)
 
-#### Examples & Integration Tests (Deferred to E2E)
-- [ ] Python/TypeScript domain event example workflows
-- [ ] Python/TypeScript conditional workflow examples
-- [ ] All examples pass E2E tests
-- [ ] Rust handler traits complete with examples
+#### Examples & Integration Tests
+- [x] Python/TypeScript domain event example workflows - TypeScript examples complete
+- [x] Python/TypeScript conditional workflow examples - 11 E2E tests passing
+- [x] All examples pass E2E tests - verified via `tests/e2e/{python,typescript}/`
+- [ ] Rust handler traits complete with examples (Phase 2)
 
 ### Quality Validation
-- [x] All new code has test coverage (351 Python tests, 542 TypeScript tests passing)
+- [x] All new code has test coverage (351 Python tests, 578 TypeScript tests passing)
 - [x] No serialization mismatches at FFI boundaries (domain events use DTO serialization)
 - [ ] Documentation updated for new features
 
