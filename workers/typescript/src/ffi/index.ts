@@ -30,6 +30,8 @@ export type {
   BootstrapResult,
   DependencyResult,
   FfiDispatchMetrics,
+  FfiDomainEvent,
+  FfiDomainEventMetadata,
   FfiStepEvent,
   HandlerDefinition,
   LogFields,

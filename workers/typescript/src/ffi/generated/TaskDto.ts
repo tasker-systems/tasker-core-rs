@@ -3,4 +3,23 @@
 /**
  * DTO for Task information
  */
-export type TaskDto = { task_uuid: string, named_task_uuid: string, name: string, namespace: string, version: string, context: Record<string, unknown> | null, correlation_id: string, parent_correlation_id: string | null, complete: boolean, priority: number, initiator: string | null, source_system: string | null, reason: string | null, tags: Record<string, unknown> | null, identity_hash: string, created_at: string, updated_at: string, requested_at: string, };
+export type TaskDto = {
+  task_uuid: string;
+  named_task_uuid: string;
+  name: string;
+  namespace: string;
+  version: string;
+  context: Record<string, unknown> | null;
+  correlation_id: string;
+  parent_correlation_id: string | null;
+  complete: boolean;
+  priority: number;
+  initiator: string | null;
+  source_system: string | null;
+  reason: string | null;
+  tags: Record<string, unknown> | null;
+  identity_hash: string;
+  created_at: string;
+  updated_at: string;
+  requested_at: string;
+};

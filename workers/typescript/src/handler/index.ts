@@ -22,6 +22,8 @@ export {
   BasePublisher,
   BaseSubscriber,
   createDomainEvent,
+  // FFI adapter for domain event polling
+  createFfiPollAdapter,
   // Factory functions
   createStepEventContext,
   DefaultPublisher,
@@ -32,6 +34,8 @@ export {
   type DomainEventPollerConfig,
   DuplicatePublisherError,
   type EventDeclaration,
+  // Transform FFI events to domain events
+  ffiEventToDomainEvent,
   // Event poller for FFI integration
   InProcessDomainEventPoller,
   type PollerStats,

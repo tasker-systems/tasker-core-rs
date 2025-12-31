@@ -9,6 +9,8 @@
 
 export type { DependencyResultDto } from './DependencyResultDto';
 export type { FfiDispatchMetricsDto } from './FfiDispatchMetricsDto';
+export type { FfiDomainEventDto } from './FfiDomainEventDto';
+export type { FfiDomainEventMetadataDto } from './FfiDomainEventMetadataDto';
 export type { FfiStepEventDto } from './FfiStepEventDto';
 export type { HandlerDefinitionDto } from './HandlerDefinitionDto';
 export type { RetryConfigurationDto } from './RetryConfigurationDto';

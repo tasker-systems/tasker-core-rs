@@ -68,8 +68,11 @@ from tasker_core.bootstrap import (
 from tasker_core.domain_events import (
     BasePublisher,
     BaseSubscriber,
+    EventDeclaration,
     InProcessDomainEventPoller,
+    PublishContext,
     StepEventContext,
+    StepResult,
 )
 
 # Import error classification (Phase 6a - parity with Ruby)
@@ -159,6 +162,7 @@ from tasker_core.types import (
     DecisionType,
     DomainEventMetadata,
     ErrorType,
+    ExecutionResult,
     FfiDispatchMetrics,
     FfiStepEvent,
     HealthCheck,
@@ -243,10 +247,15 @@ __all__ = [
     "poll_in_process_events",
     "InProcessDomainEventPoller",
     "DomainEventMetadata",
+    "ExecutionResult",
     "InProcessDomainEvent",
     "StepEventContext",
     "BasePublisher",
     "BaseSubscriber",
+    # Cross-language domain event types (TAS-112)
+    "EventDeclaration",
+    "StepResult",
+    "PublishContext",
     # Observability (Phase 5)
     "get_health_check",
     "get_metrics",

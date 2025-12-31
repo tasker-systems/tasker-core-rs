@@ -143,6 +143,7 @@ class TestModuleExports:
             "poll_in_process_events",
             "InProcessDomainEventPoller",
             "DomainEventMetadata",
+            "ExecutionResult",
             "InProcessDomainEvent",
             # Observability
             "get_health_check",
@@ -207,6 +208,13 @@ class TestModuleExports:
             "StepEventContext",
         }
 
+        # TAS-112 exports (Cross-language domain event types)
+        tas112_exports = {
+            "EventDeclaration",
+            "StepResult",
+            "PublishContext",
+        }
+
         expected = (
             phase1_exports
             | phase2_exports
@@ -216,6 +224,7 @@ class TestModuleExports:
             | phase6a_exports
             | phase6b_exports
             | tas95_exports
+            | tas112_exports
         )
         assert set(tasker_core.__all__) == expected
 

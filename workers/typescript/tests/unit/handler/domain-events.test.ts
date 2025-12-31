@@ -225,6 +225,53 @@ class MultiPatternSubscriber extends BaseSubscriber {
   }
 }
 
+/**
+ * Subscriber that tracks lifecycle hook calls for testing.
+ */
+class LifecycleTrackingSubscriber extends BaseSubscriber {
+  readonly subscriberName = 'LifecycleTrackingSubscriber';
+
+  static subscribesTo(): string[] {
+    return ['*'];
+  }
+
+  public hooks: string[] = [];
+  public handledEvents: DomainEvent[] = [];
+  public shouldSkip = false;
+  public shouldFail = false;
+  public lastError: Error | null = null;
+
+  beforeHandle(event: DomainEvent): boolean {
+    this.hooks.push(`beforeHandle:${event.eventName}`);
+    return !this.shouldSkip;
+  }
+
+  async handle(event: DomainEvent): Promise<void> {
+    this.hooks.push(`handle:${event.eventName}`);
+    if (this.shouldFail) {
+      throw new Error('Simulated handler error');
+    }
+    this.handledEvents.push(event);
+  }
+
+  afterHandle(event: DomainEvent): void {
+    this.hooks.push(`afterHandle:${event.eventName}`);
+  }
+
+  onHandleError(event: DomainEvent, error: Error): void {
+    this.hooks.push(`onHandleError:${event.eventName}:${error.message}`);
+    this.lastError = error;
+  }
+
+  reset(): void {
+    this.hooks = [];
+    this.handledEvents = [];
+    this.shouldSkip = false;
+    this.shouldFail = false;
+    this.lastError = null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // BasePublisher Tests
 // ---------------------------------------------------------------------------
@@ -338,6 +385,163 @@ describe('BaseSubscriber', () => {
       await subscriber.handle(event2);
 
       expect(subscriber.receivedEvents).toHaveLength(2);
+    });
+  });
+
+  describe('lifecycle hooks', () => {
+    it('calls beforeHandle before handle', async () => {
+      const subscriber = new LifecycleTrackingSubscriber();
+      const poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+
+      // Start subscriber to enable event handling
+      subscriber.start(poller);
+
+      // Manually invoke the safe handler to test lifecycle
+      // @ts-expect-error - accessing private method for testing
+      await subscriber.handleEventSafely(createTestDomainEvent({ eventName: 'test.event' }));
+
+      expect(subscriber.hooks[0]).toBe('beforeHandle:test.event');
+      expect(subscriber.hooks[1]).toBe('handle:test.event');
+
+      subscriber.stop();
+      poller.stop();
+    });
+
+    it('calls afterHandle on successful handling', async () => {
+      const subscriber = new LifecycleTrackingSubscriber();
+      const poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+
+      subscriber.start(poller);
+
+      // @ts-expect-error - accessing private method for testing
+      await subscriber.handleEventSafely(createTestDomainEvent({ eventName: 'test.event' }));
+
+      expect(subscriber.hooks).toContain('afterHandle:test.event');
+      expect(subscriber.handledEvents).toHaveLength(1);
+
+      subscriber.stop();
+      poller.stop();
+    });
+
+    it('calls hooks in correct order', async () => {
+      const subscriber = new LifecycleTrackingSubscriber();
+      const poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+
+      subscriber.start(poller);
+
+      // @ts-expect-error - accessing private method for testing
+      await subscriber.handleEventSafely(createTestDomainEvent({ eventName: 'test.event' }));
+
+      expect(subscriber.hooks).toEqual([
+        'beforeHandle:test.event',
+        'handle:test.event',
+        'afterHandle:test.event',
+      ]);
+
+      subscriber.stop();
+      poller.stop();
+    });
+
+    it('skips handling when beforeHandle returns false', async () => {
+      const subscriber = new LifecycleTrackingSubscriber();
+      const poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+
+      subscriber.start(poller);
+      subscriber.shouldSkip = true;
+
+      // @ts-expect-error - accessing private method for testing
+      await subscriber.handleEventSafely(createTestDomainEvent({ eventName: 'test.event' }));
+
+      expect(subscriber.hooks).toEqual(['beforeHandle:test.event']);
+      expect(subscriber.handledEvents).toHaveLength(0);
+
+      subscriber.stop();
+      poller.stop();
+    });
+
+    it('calls onHandleError when handle throws', async () => {
+      const subscriber = new LifecycleTrackingSubscriber();
+      const poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+
+      subscriber.start(poller);
+      subscriber.shouldFail = true;
+
+      // @ts-expect-error - accessing private method for testing
+      await subscriber.handleEventSafely(createTestDomainEvent({ eventName: 'test.event' }));
+
+      expect(subscriber.hooks).toContain('onHandleError:test.event:Simulated handler error');
+      expect(subscriber.lastError?.message).toBe('Simulated handler error');
+      // afterHandle should NOT be called on error
+      expect(subscriber.hooks).not.toContain('afterHandle:test.event');
+
+      subscriber.stop();
+      poller.stop();
+    });
+
+    it('does not propagate errors from handle', async () => {
+      const subscriber = new LifecycleTrackingSubscriber();
+      const poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+
+      subscriber.start(poller);
+      subscriber.shouldFail = true;
+
+      // Should not throw
+      // @ts-expect-error - accessing private method for testing
+      await subscriber.handleEventSafely(createTestDomainEvent({ eventName: 'test.event' }));
+
+      subscriber.stop();
+      poller.stop();
+    });
+
+    it('inactive subscriber does not process events', async () => {
+      const subscriber = new LifecycleTrackingSubscriber();
+      // Don't start the subscriber - it should be inactive
+
+      // @ts-expect-error - accessing private method for testing
+      await subscriber.handleEventSafely(createTestDomainEvent({ eventName: 'test.event' }));
+
+      expect(subscriber.hooks).toHaveLength(0);
+      expect(subscriber.handledEvents).toHaveLength(0);
+    });
+  });
+
+  describe('start/stop', () => {
+    it('starts inactive and becomes active after start', () => {
+      const subscriber = new TestSubscriber();
+      const poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+
+      expect(subscriber.active).toBe(false);
+
+      subscriber.start(poller);
+
+      expect(subscriber.active).toBe(true);
+
+      subscriber.stop();
+      poller.stop();
+    });
+
+    it('becomes inactive after stop', () => {
+      const subscriber = new TestSubscriber();
+      const poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+
+      subscriber.start(poller);
+      subscriber.stop();
+
+      expect(subscriber.active).toBe(false);
+
+      poller.stop();
+    });
+
+    it('tracks subscriptions after start', () => {
+      const subscriber = new TestSubscriber();
+      const poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+
+      subscriber.start(poller);
+
+      expect(subscriber.subscriptions).toEqual(['payment.*']);
+
+      subscriber.stop();
+      poller.stop();
     });
   });
 });
@@ -471,10 +675,32 @@ describe('PublisherRegistry', () => {
 
 describe('SubscriberRegistry', () => {
   let registry: SubscriberRegistry;
+  let poller: InProcessDomainEventPoller;
 
   beforeEach(() => {
     registry = SubscriberRegistry.instance;
     registry.reset();
+    poller = new InProcessDomainEventPoller({ pollIntervalMs: 100 });
+  });
+
+  afterEach(() => {
+    registry.stopAll();
+    poller.stop();
+  });
+
+  describe('register', () => {
+    it('registers a subscriber class', () => {
+      registry.register(TestSubscriber);
+
+      expect(registry.count).toBe(1);
+    });
+
+    it('registers multiple subscriber classes', () => {
+      registry.register(TestSubscriber);
+      registry.register(WildcardSubscriber);
+
+      expect(registry.count).toBe(2);
+    });
   });
 
   describe('registerInstance', () => {
@@ -485,13 +711,128 @@ describe('SubscriberRegistry', () => {
 
       expect(registry.count).toBe(1);
     });
+
+    it('registers multiple instances', () => {
+      registry.registerInstance(new TestSubscriber());
+      registry.registerInstance(new WildcardSubscriber());
+
+      expect(registry.count).toBe(2);
+    });
+  });
+
+  describe('startAll', () => {
+    it('instantiates and starts registered classes', () => {
+      registry.register(TestSubscriber);
+      registry.register(WildcardSubscriber);
+
+      registry.startAll(poller);
+
+      expect(registry.stats.activeCount).toBe(2);
+    });
+
+    it('starts pre-registered instances', () => {
+      const subscriber = new TestSubscriber();
+      registry.registerInstance(subscriber);
+
+      registry.startAll(poller);
+
+      expect(subscriber.active).toBe(true);
+      expect(registry.stats.activeCount).toBe(1);
+    });
+
+    it('starts both classes and instances', () => {
+      registry.register(TestSubscriber);
+      registry.registerInstance(new WildcardSubscriber());
+
+      registry.startAll(poller);
+
+      expect(registry.stats.activeCount).toBe(2);
+    });
+  });
+
+  describe('stopAll', () => {
+    it('stops all active subscribers', () => {
+      registry.register(TestSubscriber);
+      registry.registerInstance(new WildcardSubscriber());
+
+      registry.startAll(poller);
+      expect(registry.stats.activeCount).toBe(2);
+
+      registry.stopAll();
+      expect(registry.stats.activeCount).toBe(0);
+    });
+
+    it('is idempotent', () => {
+      registry.register(TestSubscriber);
+      registry.startAll(poller);
+
+      registry.stopAll();
+      registry.stopAll(); // Should not throw
+
+      expect(registry.stats.activeCount).toBe(0);
+    });
+  });
+
+  describe('stats', () => {
+    it('tracks subscriber count', () => {
+      registry.register(TestSubscriber);
+      registry.register(WildcardSubscriber);
+
+      registry.startAll(poller);
+
+      expect(registry.stats.subscriberCount).toBe(2);
+    });
+
+    it('tracks started status', () => {
+      registry.register(TestSubscriber);
+
+      expect(registry.stats.started).toBe(false);
+
+      registry.startAll(poller);
+
+      expect(registry.stats.started).toBe(true);
+    });
+
+    it('tracks active count after startAll', () => {
+      registry.register(TestSubscriber);
+      registry.registerInstance(new WildcardSubscriber());
+
+      registry.startAll(poller);
+
+      expect(registry.stats.activeCount).toBe(2);
+    });
+
+    it('provides subscriber info in stats', () => {
+      registry.register(TestSubscriber);
+      registry.startAll(poller);
+
+      const stats = registry.stats;
+
+      expect(stats.subscribers).toHaveLength(1);
+      expect(stats.subscribers[0].className).toBe('TestSubscriber');
+      expect(stats.subscribers[0].active).toBe(true);
+      expect(stats.subscribers[0].patterns).toEqual(['payment.*']);
+    });
+  });
+
+  describe('reset', () => {
+    it('clears all registrations and stops active subscribers', () => {
+      registry.register(TestSubscriber);
+      registry.registerInstance(new WildcardSubscriber());
+      registry.startAll(poller);
+
+      registry.reset();
+
+      expect(registry.count).toBe(0);
+      expect(registry.stats.activeCount).toBe(0);
+    });
   });
 
   describe('count', () => {
-    it('tracks registered instances', () => {
+    it('tracks total registered (classes + instances)', () => {
       expect(registry.count).toBe(0);
 
-      registry.registerInstance(new TestSubscriber());
+      registry.register(TestSubscriber);
       expect(registry.count).toBe(1);
 
       registry.registerInstance(new WildcardSubscriber());

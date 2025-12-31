@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
+use tasker_shared::events::domain_events::DomainEvent;
 use tasker_shared::messaging::{StepExecutionError, StepExecutionResult};
 use tasker_shared::models::core::{
     task::TaskForOrchestration,
@@ -29,7 +30,7 @@ use ts_rs::TS;
 /// DTO for FfiStepEvent - the main event payload sent to TypeScript handlers
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
-#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct FfiStepEventDto {
     pub event_id: String,
     pub task_uuid: String,
@@ -78,7 +79,7 @@ impl From<&FfiStepEvent> for FfiStepEventDto {
 /// DTO for Task information
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
-#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct TaskDto {
     pub task_uuid: String,
     pub named_task_uuid: String,
@@ -131,7 +132,7 @@ impl From<&TaskForOrchestration> for TaskDto {
 /// DTO for WorkflowStep information (uses WorkflowStepWithName which has name fields)
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
-#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct WorkflowStepDto {
     pub workflow_step_uuid: String,
     pub task_uuid: String,
@@ -183,7 +184,7 @@ impl From<&WorkflowStepWithName> for WorkflowStepDto {
 /// DTO for StepDefinition (from task template)
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
-#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct StepDefinitionDto {
     pub name: String,
     pub description: Option<String>,
@@ -211,7 +212,7 @@ impl From<&StepDefinition> for StepDefinitionDto {
 /// DTO for HandlerDefinition
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
-#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct HandlerDefinitionDto {
     pub callable: String,
     #[cfg_attr(test, ts(type = "Record<string, unknown>"))]
@@ -232,7 +233,7 @@ impl From<&HandlerDefinition> for HandlerDefinitionDto {
 /// DTO for RetryConfiguration
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
-#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct RetryConfigurationDto {
     pub retryable: bool,
     pub max_attempts: u32,
@@ -257,7 +258,7 @@ impl From<&RetryConfiguration> for RetryConfigurationDto {
 /// DTO for dependency step results
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
-#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct DependencyResultDto {
     pub step_uuid: String,
     pub success: bool,
@@ -282,7 +283,7 @@ impl From<&StepExecutionResult> for DependencyResultDto {
 /// DTO for step execution errors
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
-#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct StepExecutionErrorDto {
     pub message: String,
     pub error_type: Option<String>,
@@ -306,7 +307,7 @@ impl From<&StepExecutionError> for StepExecutionErrorDto {
 /// DTO for FFI dispatch metrics
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
-#[cfg_attr(test, ts(export, export_to = "../src/ffi/generated/"))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct FfiDispatchMetricsDto {
     pub pending_count: usize,
     pub starvation_detected: bool,
@@ -326,6 +327,79 @@ impl From<&FfiDispatchMetrics> for FfiDispatchMetricsDto {
             newest_pending_age_ms: metrics.newest_pending_age_ms,
             oldest_event_id: metrics.oldest_event_id.map(|id| id.to_string()),
         }
+    }
+}
+
+// =============================================================================
+// Domain Event DTOs (TAS-112: Type-safe FFI for in-process events)
+// =============================================================================
+
+/// DTO for domain event metadata sent to TypeScript via FFI
+///
+/// This provides compile-time type safety for the FFI boundary,
+/// replacing the previous manual json!() macro construction.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
+pub struct FfiDomainEventMetadataDto {
+    pub task_uuid: String,
+    pub step_uuid: Option<String>,
+    pub step_name: Option<String>,
+    pub namespace: String,
+    pub correlation_id: String,
+    pub fired_at: String,
+    pub fired_by: Option<String>,
+}
+
+/// DTO for domain events sent to TypeScript via FFI (in-process event bus)
+///
+/// Provides type-safe serialization for the fast path domain events.
+/// The payload contains the full DomainEventPayload which includes:
+/// - task_sequence_step: Complete execution context
+/// - execution_result: Step result with success/failure/data
+/// - payload: Business-specific event data
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(TS))]
+#[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
+pub struct FfiDomainEventDto {
+    pub event_id: String,
+    pub event_name: String,
+    pub event_version: String,
+    pub metadata: FfiDomainEventMetadataDto,
+    /// The full domain event payload (task_sequence_step, execution_result, payload)
+    #[cfg_attr(test, ts(type = "Record<string, unknown>"))]
+    pub payload: serde_json::Value,
+}
+
+impl From<&DomainEvent> for FfiDomainEventDto {
+    fn from(event: &DomainEvent) -> Self {
+        Self {
+            event_id: event.event_id.to_string(),
+            event_name: event.event_name.clone(),
+            event_version: event.event_version.clone(),
+            metadata: FfiDomainEventMetadataDto {
+                task_uuid: event.metadata.task_uuid.to_string(),
+                step_uuid: event.metadata.step_uuid.map(|id| id.to_string()),
+                step_name: event.metadata.step_name.clone(),
+                namespace: event.metadata.namespace.clone(),
+                correlation_id: event.metadata.correlation_id.to_string(),
+                fired_at: event.metadata.fired_at.to_rfc3339(),
+                // Note: fired_by is String in Rust but Option<String> in TS for flexibility
+                fired_by: Some(event.metadata.fired_by.clone()),
+            },
+            // Serialize the full payload (includes task_sequence_step, execution_result, payload)
+            payload: serde_json::to_value(&event.payload)
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+        }
+    }
+}
+
+/// Convert FfiDomainEventDto to JSON string for FFI transport
+impl FfiDomainEventDto {
+    pub fn to_json_string(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
     }
 }
 
@@ -359,9 +433,15 @@ mod tests {
     /// ensuring the TypeScript types are always in sync with the Rust source of truth.
     #[test]
     fn export_bindings() {
-        // Ensure the output directory exists
-        let output_dir = std::path::Path::new("../src/ffi/generated");
-        std::fs::create_dir_all(output_dir).expect("Failed to create generated directory");
+        // ts-rs export_to paths are relative to CARGO_MANIFEST_DIR
+        // Our Cargo.toml is at workers/typescript/Cargo.toml
+        // So export_to = "src/ffi/generated/" writes to workers/typescript/src/ffi/generated/
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let output_dir = std::path::Path::new(manifest_dir).join("src/ffi/generated");
+        std::fs::create_dir_all(&output_dir).expect("Failed to create generated directory");
+
+        println!("CARGO_MANIFEST_DIR: {}", manifest_dir);
+        println!("Output directory: {}", output_dir.display());
 
         // Export all DTOs - ts-rs handles this automatically via #[ts(export)]
         // The types are exported when their TS::export() method is called
@@ -375,6 +455,10 @@ mod tests {
         StepExecutionErrorDto::export_all().expect("Failed to export StepExecutionErrorDto");
         FfiDispatchMetricsDto::export_all().expect("Failed to export FfiDispatchMetricsDto");
 
-        println!("✅ TypeScript bindings exported to workers/typescript/src/ffi/generated/");
+        // Domain Event DTOs (TAS-112)
+        FfiDomainEventDto::export_all().expect("Failed to export FfiDomainEventDto");
+        FfiDomainEventMetadataDto::export_all().expect("Failed to export FfiDomainEventMetadataDto");
+
+        println!("✅ TypeScript bindings exported to {}", output_dir.display());
     }
 }

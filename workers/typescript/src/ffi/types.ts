@@ -142,3 +142,34 @@ export interface OrchestrationMetadata {
 export interface LogFields {
   [key: string]: string | number | boolean | null;
 }
+
+// =============================================================================
+// Domain Event Types (for in-process event polling)
+// =============================================================================
+
+/**
+ * Metadata attached to every domain event from FFI.
+ */
+export interface FfiDomainEventMetadata {
+  taskUuid: string;
+  stepUuid: string | null;
+  stepName: string | null;
+  namespace: string;
+  correlationId: string;
+  firedAt: string;
+  firedBy: string | null;
+}
+
+/**
+ * Domain event from in-process event bus (fast path).
+ *
+ * Used for real-time notifications that don't require guaranteed delivery
+ * (e.g., metrics updates, logging, notifications).
+ */
+export interface FfiDomainEvent {
+  eventId: string;
+  eventName: string;
+  eventVersion: string;
+  metadata: FfiDomainEventMetadata;
+  payload: Record<string, unknown>;
+}

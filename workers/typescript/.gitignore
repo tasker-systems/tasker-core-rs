@@ -5,6 +5,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# ts-rs default bindings directory (we use src/ffi/generated/ instead)
+bindings/
+
 # Bun
 bun.lockb
 

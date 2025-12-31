@@ -69,8 +69,9 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 from tasker_core._tasker_core import (  # type: ignore[attr-defined]
     poll_in_process_events as _poll_in_process_events,
@@ -80,15 +81,124 @@ from .logging import log_debug, log_error, log_info, log_warn
 from .types import InProcessDomainEvent
 
 # =============================================================================
+# Cross-Language Type Definitions (TAS-112)
+#
+# These types match TypeScript's domain-events.ts for consistency.
+# =============================================================================
+
+
+class EventDeclaration(BaseModel):
+    """Event declaration from YAML task template.
+
+    Represents event configuration declared in step templates.
+    This structure matches TypeScript's EventDeclaration interface.
+
+    Example:
+        >>> declaration = EventDeclaration(
+        ...     name="payment.processed",
+        ...     condition="success",
+        ...     delivery_mode="broadcast",
+        ...     publisher="PaymentEventPublisher",
+        ... )
+    """
+
+    name: str = Field(description="Event name (e.g., 'payment.processed').")
+    condition: (
+        Literal["success", "failure", "retryable_failure", "permanent_failure", "always"] | None
+    ) = Field(
+        default=None,
+        description="Publication condition: 'success', 'failure', 'retryable_failure', 'permanent_failure', 'always'.",
+    )
+    delivery_mode: Literal["durable", "fast", "broadcast"] | None = Field(
+        default=None,
+        description="Delivery mode: 'durable' (PGMQ), 'fast' (in-process), 'broadcast' (both).",
+    )
+    publisher: str | None = Field(
+        default=None,
+        description="Custom publisher name (optional).",
+    )
+    schema_: dict[str, Any] | None = Field(
+        default=None,
+        alias="schema",
+        description="JSON schema for payload validation (optional).",
+    )
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def schema(self) -> dict[str, Any] | None:  # type: ignore[override]
+        """Get the JSON schema for payload validation.
+
+        Note: This property provides access to the schema field while avoiding
+        conflict with Pydantic's deprecated schema() classmethod (Pydantic v1 compat).
+        """
+        return self.schema_
+
+
+class StepResult(BaseModel):
+    """Step result passed to publishers.
+
+    A simplified representation of step execution results for event publishing.
+    This is lighter than StepHandlerResult and matches TypeScript's StepResult.
+
+    Example:
+        >>> result = StepResult(
+        ...     success=True,
+        ...     result={"transaction_id": "tx-123", "amount": 100.00},
+        ...     metadata={"duration_ms": 150},
+        ... )
+    """
+
+    success: bool = Field(description="Whether the step succeeded.")
+    result: dict[str, Any] | None = Field(
+        default=None,
+        description="Step handler's return value.",
+    )
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Execution metadata.",
+    )
+
+
+class PublishContext(BaseModel):
+    """Context passed to publisher's publish() method.
+
+    Cross-language standard API (TAS-96). Provides all information needed
+    for publishing an event in a single structure.
+
+    Example:
+        >>> ctx = PublishContext(
+        ...     event_name="payment.processed",
+        ...     step_result=StepResult(success=True, result={"amount": 100}),
+        ...     event_declaration=EventDeclaration(name="payment.processed"),
+        ...     step_context=step_event_context,
+        ... )
+        >>> publisher.publish(ctx)
+    """
+
+    event_name: str = Field(description="Event name.")
+    step_result: StepResult = Field(description="Step result.")
+    event_declaration: EventDeclaration | None = Field(
+        default=None,
+        description="Event declaration from YAML.",
+    )
+    step_context: StepEventContext | None = Field(
+        default=None,
+        description="Step execution context.",
+    )
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+# =============================================================================
 # Step Event Context and Base Classes
 # =============================================================================
 
 
-@dataclass
-class StepEventContext:
+class StepEventContext(BaseModel):
     """Context for publishing step events.
 
-    This dataclass provides all the information needed to publish an event
+    This model provides all the information needed to publish an event
     after a step completes. It matches the cross-language StepEventContext
     structure used in Ruby and Rust workers.
 
@@ -103,26 +213,19 @@ class StepEventContext:
         ... )
     """
 
-    task_uuid: str
-    """The task UUID."""
-
-    step_uuid: str
-    """The step UUID."""
-
-    step_name: str
-    """The step handler name."""
-
-    namespace: str
-    """The task namespace."""
-
-    correlation_id: str
-    """Correlation ID for tracing."""
-
-    result: dict[str, Any] | None = None
-    """The step result data (on success)."""
-
-    metadata: dict[str, Any] = field(default_factory=dict)
-    """Additional metadata about the execution."""
+    task_uuid: str = Field(description="The task UUID.")
+    step_uuid: str = Field(description="The step UUID.")
+    step_name: str = Field(description="The step handler name.")
+    namespace: str = Field(description="The task namespace.")
+    correlation_id: str = Field(description="Correlation ID for tracing.")
+    result: dict[str, Any] | None = Field(
+        default=None,
+        description="The step result data (on success).",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata about the execution.",
+    )
 
     @classmethod
     def from_step_context(
@@ -1230,11 +1333,19 @@ class SubscriberRegistry:
 
 
 __all__ = [
-    "InProcessDomainEventPoller",
+    # Cross-language type definitions (TAS-112)
+    "EventDeclaration",
+    "StepResult",
+    "PublishContext",
+    # Step event context
     "StepEventContext",
+    # Publisher system
     "BasePublisher",
     "DefaultPublisher",
-    "BaseSubscriber",
     "PublisherRegistry",
+    # Subscriber system
+    "BaseSubscriber",
     "SubscriberRegistry",
+    # Event polling
+    "InProcessDomainEventPoller",
 ]

@@ -15,6 +15,8 @@
  */
 
 import pino, { type Logger, type LoggerOptions } from 'pino';
+import type { TaskerRuntime } from '../ffi/runtime-interface.js';
+import type { FfiDomainEvent } from '../ffi/types.js';
 
 // ---------------------------------------------------------------------------
 // Logger Setup
@@ -1448,5 +1450,71 @@ export function createDomainEvent(data: {
     payload: data.payload,
     metadata: data.metadata as DomainEventMetadata,
     executionResult: data.executionResult,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// FFI Domain Event Adapter
+// ---------------------------------------------------------------------------
+
+/**
+ * Transform an FfiDomainEvent to a DomainEvent.
+ *
+ * The FFI domain event has a simpler structure than the full DomainEvent.
+ * This function converts between them, synthesizing missing fields.
+ *
+ * @param ffiEvent - Event from FFI poll_in_process_events
+ * @returns DomainEvent suitable for subscribers
+ */
+export function ffiEventToDomainEvent(ffiEvent: FfiDomainEvent): DomainEvent {
+  // Build metadata with conditional optional fields (exactOptionalPropertyTypes)
+  const metadata: DomainEventMetadata = {
+    taskUuid: ffiEvent.metadata.taskUuid,
+    stepUuid: ffiEvent.metadata.stepUuid ?? '',
+    namespace: ffiEvent.metadata.namespace,
+    correlationId: ffiEvent.metadata.correlationId,
+    firedAt: ffiEvent.metadata.firedAt,
+    eventVersion: ffiEvent.eventVersion,
+    // Conditionally spread optional fields
+    ...(ffiEvent.metadata.stepName !== null ? { stepName: ffiEvent.metadata.stepName } : {}),
+    ...(ffiEvent.metadata.firedBy !== null ? { publisher: ffiEvent.metadata.firedBy } : {}),
+  };
+
+  return {
+    eventId: ffiEvent.eventId,
+    eventName: ffiEvent.eventName,
+    payload: ffiEvent.payload,
+    metadata,
+    // FFI events don't include execution result - synthesize a placeholder
+    executionResult: {
+      success: true,
+      result: ffiEvent.payload,
+    },
+  };
+}
+
+/**
+ * Create an FFI poll function adapter for InProcessDomainEventPoller.
+ *
+ * This function wraps the runtime's pollInProcessEvents() to return
+ * DomainEvent objects that the poller expects.
+ *
+ * @param runtime - The FFI runtime instance
+ * @returns A poll function that returns DomainEvent | null
+ *
+ * @example
+ * ```typescript
+ * const poller = new InProcessDomainEventPoller();
+ * poller.setPollFunction(createFfiPollAdapter(runtime));
+ * poller.start();
+ * ```
+ */
+export function createFfiPollAdapter(runtime: TaskerRuntime): () => DomainEvent | null {
+  return () => {
+    const ffiEvent = runtime.pollInProcessEvents();
+    if (ffiEvent === null) {
+      return null;
+    }
+    return ffiEventToDomainEvent(ffiEvent);
   };
 }

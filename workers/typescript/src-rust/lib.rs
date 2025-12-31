@@ -215,6 +215,50 @@ pub extern "C" fn poll_step_events() -> *mut c_char {
     }
 }
 
+/// Poll for in-process domain events (fast path).
+///
+/// This is used for real-time notifications that don't require
+/// guaranteed delivery (e.g., metrics updates, logging, notifications).
+///
+/// # Returns
+///
+/// JSON string containing a domain event, or null if no events are available.
+/// The returned pointer must be freed with `free_rust_string`.
+///
+/// # Event Structure
+///
+/// ```json
+/// {
+///   "eventId": "uuid-string",
+///   "eventName": "payment.processed",
+///   "eventVersion": "1.0.0",
+///   "metadata": {
+///     "taskUuid": "uuid-string",
+///     "stepUuid": "uuid-string",
+///     "stepName": "process_payment",
+///     "namespace": "payments",
+///     "correlationId": "uuid-string",
+///     "firedAt": "2024-01-01T00:00:00Z",
+///     "firedBy": "step_execution"
+///   },
+///   "payload": { ... }
+/// }
+/// ```
+#[no_mangle]
+pub extern "C" fn poll_in_process_events() -> *mut c_char {
+    match bridge::poll_in_process_events_internal() {
+        Ok(Some(result)) => match CString::new(result) {
+            Ok(s) => s.into_raw(),
+            Err(_) => ptr::null_mut(),
+        },
+        Ok(None) => ptr::null_mut(),
+        Err(e) => {
+            tracing::error!("Failed to poll in-process events: {}", e);
+            ptr::null_mut()
+        }
+    }
+}
+
 /// Complete a step event with the given result.
 ///
 /// # Parameters

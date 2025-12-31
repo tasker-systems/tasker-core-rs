@@ -1,9 +1,12 @@
 # TAS-112 Implementation Plan: Cross-Language Handler Harmonization
 
 **Created**: 2025-12-29
-**Status**: Ready for Review
+**Updated**: 2025-12-30
+**Status**: In Progress (Phase 1)
 **Branch**: `jcoletaylor/tas-112-cross-language-step-handler-ergonomics-analysis`
 **Prerequisites**: Research Phases 1-9 Complete
+
+> **Key Research Reference**: See [`domain-events-research-analysis.md`](./domain-events-research-analysis.md) for detailed cross-language domain event implementation analysis, type safety findings, and prioritized recommendations.
 
 ---
 
@@ -74,51 +77,65 @@ All four streams can start immediately and run in parallel. No dependencies betw
 
 **Ticket Mapping**: Updates TAS-119 (Domain Events Integration)
 
+**Status**: Core infrastructure complete. FFI type safety improvements pending.
+
+> **Research Finding**: The TypeScript FFI bridge uses manual JSON construction for domain events (`bridge.rs:409-423`), creating type drift risk. See [`domain-events-research-analysis.md`](./domain-events-research-analysis.md#2-type-safety-analysis) for details.
+
 #### Tasks
 
-| Task | Description | Validation |
-|------|-------------|------------|
-| Create `domain-events.ts` | BasePublisher, BaseSubscriber, StepEventContext, DomainEvent interfaces | Types compile |
-| Implement publisher lifecycle hooks | before_publish, after_publish, on_publish_error, additional_metadata | Hooks called in correct order |
-| Implement subscriber lifecycle hooks | before_handle, after_handle, on_handle_error | Hooks called in correct order |
-| Create InProcessDomainEventPoller | FFI integration with Rust broadcast channel | Can receive events from Rust |
-| Add PublisherRegistry | Centralized publisher management | Publishers registered and retrieved |
-| Add SubscriberRegistry | Centralized subscriber management with start/stop | Subscribers start/stop correctly |
-| Create payment publisher example | Custom payload transformation | Example compiles and runs |
-| Create logging subscriber example | Pattern-based subscription | Receives matching events |
-| Create metrics subscriber example | Counter aggregation | Counts events correctly |
-| Integration tests | Full publish/subscribe cycle | Events flow through system |
+| Task | Description | Validation | Status |
+|------|-------------|------------|--------|
+| Create `domain-events.ts` | BasePublisher, BaseSubscriber, StepEventContext, DomainEvent interfaces | Types compile | :white_check_mark: Complete |
+| Implement publisher lifecycle hooks | before_publish, after_publish, on_publish_error, additional_metadata | Hooks called in correct order | :white_check_mark: Complete |
+| Implement subscriber lifecycle hooks | before_handle, after_handle, on_handle_error | Hooks called in correct order | :white_check_mark: Complete |
+| Create InProcessDomainEventPoller | FFI integration with Rust broadcast channel | Can receive events from Rust | :white_check_mark: Complete |
+| Add PublisherRegistry | Centralized publisher management | Publishers registered and retrieved | :white_check_mark: Complete |
+| Add SubscriberRegistry | Centralized subscriber management with start/stop | Subscribers start/stop correctly | :white_check_mark: Complete |
+| Wire FFI poll adapter | Connect `createFfiPollAdapter()` to runtime | Events flow through FFI | :white_check_mark: Complete |
+| **Create FfiDomainEventDto** | DTO struct with ts-rs generation (type safety fix) | Types auto-generated to `ffi/generated/` | :construction: Pending |
+| **Update bridge.rs serialization** | Replace manual JSON with DTO serialization | Compile-time type safety | :construction: Pending |
+| Create payment publisher example | Custom payload transformation | Example compiles and runs | :construction: Pending |
+| Create logging subscriber example | Pattern-based subscription | Receives matching events | :construction: Pending |
+| Create metrics subscriber example | Counter aggregation | Counts events correctly | :construction: Pending |
+| Integration tests | Full publish/subscribe cycle | Events flow through system | :construction: Pending |
 
 #### Deliverables
-- `workers/typescript/src/handler/domain-events.ts`
-- `workers/typescript/src/examples/domain_events/` (publishers + subscribers)
-- Integration tests in `workers/typescript/tests/`
+- `workers/typescript/src/handler/domain-events.ts` :white_check_mark:
+- `workers/typescript/src-rust/dto.rs` (FfiDomainEventDto addition) :construction:
+- `workers/typescript/src/examples/domain_events/` (publishers + subscribers) :construction:
+- Integration tests in `workers/typescript/tests/` :construction:
 
 ---
 
 ### Stream B: Python Enhancements
 
 **Priority**: HIGH
-**Why**: Python is missing lifecycle hooks and some helper methods that Ruby has.
+**Why**: Python is missing lifecycle hooks, type definitions, and structured registries that Ruby and TypeScript have.
 
 **Ticket Mapping**: Updates TAS-119 (Domain Events) and TAS-117 (Batchable)
 
+> **Research Finding**: Python has core domain event functionality but is missing lifecycle hooks, `EventDeclaration`/`StepResult`/`PublishContext` types, and `SubscriberRegistry`. See [`domain-events-research-analysis.md`](./domain-events-research-analysis.md#42-python-gaps) for complete gap analysis.
+
 #### Tasks
 
-| Task | Description | Validation |
-|------|-------------|------------|
-| Add BasePublisher lifecycle hooks | before_publish, after_publish, on_publish_error | Hooks called correctly |
-| Add BasePublisher.additional_metadata() | Custom metadata injection | Metadata appears in events |
-| Add BaseSubscriber lifecycle hooks | before_handle, after_handle, on_handle_error | Hooks called correctly |
-| Add PublisherRegistry class | Centralized publisher management | Matches Ruby pattern |
-| Add SubscriberRegistry class | Centralized subscriber management | Matches Ruby pattern |
-| Add handle_no_op_worker() | Batchable mixin helper | Consistency with Ruby/TS |
-| Add create_cursor_configs() | Worker-count based API (currently only batch-size) | Both APIs available |
-| Add checkpoint write API | update_checkpoint() or update_step_results() | Can persist checkpoint data |
-| Add aggregation_fn parameter | Custom aggregation support in aggregate_worker_results() | Custom aggregation works |
+| Task | Description | Validation | Priority |
+|------|-------------|------------|----------|
+| Add BasePublisher lifecycle hooks | `before_publish()`, `after_publish()`, `on_publish_error()` | Hooks called correctly | **HIGH** |
+| Add BasePublisher.additional_metadata() | Custom metadata injection | Metadata appears in events | **HIGH** |
+| Add BaseSubscriber lifecycle hooks | `before_handle()`, `after_handle()`, `on_handle_error()` | Hooks called correctly | **HIGH** |
+| Add `EventDeclaration` type | Dataclass matching TypeScript interface | Type available for publishers | **HIGH** |
+| Add `StepResult` type | Dataclass with success, result, metadata | Type available for context | **HIGH** |
+| Add `PublishContext` type | Unified context for `publish()` method | Matches TypeScript API | **MEDIUM** |
+| Create SubscriberRegistry class | Singleton with start_all/stop_all lifecycle | Matches Ruby/TypeScript pattern | **MEDIUM** |
+| Update `InProcessDomainEvent` | Add `execution_result` field | Complete type parity | **MEDIUM** |
+| Add handle_no_op_worker() | Batchable mixin helper | Consistency with Ruby/TS | MEDIUM |
+| Add create_cursor_configs() | Worker-count based API (currently only batch-size) | Both APIs available | MEDIUM |
+| Add checkpoint write API | update_checkpoint() or update_step_results() | Can persist checkpoint data | MEDIUM |
+| Add aggregation_fn parameter | Custom aggregation support in aggregate_worker_results() | Custom aggregation works | LOW |
 
 #### Deliverables
-- Updated `workers/python/python/tasker_core/domain_events.py`
+- Updated `workers/python/python/tasker_core/domain_events.py` (lifecycle hooks, types)
+- Updated `workers/python/python/tasker_core/types.py` (InProcessDomainEvent)
 - Updated `workers/python/python/tasker_core/batch_processing/batchable.py`
 - Updated examples and tests
 
@@ -237,14 +254,33 @@ pub trait BatchableCapable {
 Before proceeding to Phase 3, all of the following must be true:
 
 ### Technical Validation
-- [ ] TypeScript domain events module complete and tested
-- [ ] TypeScript can publish custom events via BasePublisher
-- [ ] TypeScript can subscribe to fast events via BaseSubscriber
-- [ ] Python lifecycle hooks added to BasePublisher and BaseSubscriber
-- [ ] Python has PublisherRegistry and SubscriberRegistry
+
+#### TypeScript Domain Events
+- [x] TypeScript domain events module created (`domain-events.ts`)
+- [x] TypeScript BasePublisher with lifecycle hooks (before/after/error)
+- [x] TypeScript BaseSubscriber with lifecycle hooks (before/after/error)
+- [x] TypeScript PublisherRegistry and SubscriberRegistry
+- [x] TypeScript InProcessDomainEventPoller with FFI integration
+- [x] FFI poll adapter wired (`createFfiPollAdapter()`)
+- [ ] **FfiDomainEventDto created with ts-rs generation** (type safety fix)
+- [ ] **bridge.rs updated to use DTO serialization** (type safety fix)
+- [ ] TypeScript domain event examples (publisher + subscribers)
+- [ ] TypeScript domain event integration tests
+
+#### Python Enhancements
+- [ ] Python BasePublisher lifecycle hooks (`before_publish`, `after_publish`, `on_publish_error`)
+- [ ] Python BasePublisher `additional_metadata()` method
+- [ ] Python BaseSubscriber lifecycle hooks (`before_handle`, `after_handle`, `on_handle_error`)
+- [ ] Python `EventDeclaration`, `StepResult`, `PublishContext` types added
+- [ ] Python SubscriberRegistry created (singleton pattern)
+- [ ] Python `InProcessDomainEvent` updated with `execution_result` field
+
+#### FFI Boundary Types
 - [ ] Python BatchProcessingOutcome is explicit Pydantic model
 - [ ] TypeScript BatchProcessingOutcome is explicit interface
 - [ ] Python/TypeScript CursorConfig supports flexible cursor types
+
+#### Examples & Tests
 - [ ] Python/TypeScript conditional workflow examples complete
 - [ ] All examples pass E2E tests
 - [ ] Rust handler traits complete with examples
@@ -255,6 +291,8 @@ Before proceeding to Phase 3, all of the following must be true:
 - [ ] Documentation updated for new features
 
 **Milestone**: All languages have equivalent capabilities (additive changes only).
+
+> **Reference**: See [`domain-events-research-analysis.md`](./domain-events-research-analysis.md#6-action-items) for detailed action items and priority levels.
 
 ---
 
@@ -558,7 +596,9 @@ This implementation effort is successful when:
 
 ## Appendix: Research Artifacts
 
-All 9 phase documents are in `docs/ticket-specs/TAS-112/`:
+All research documents are in `docs/ticket-specs/TAS-112/`:
+
+### Phase Research Documents
 
 | Document | Content |
 |----------|---------|
@@ -573,6 +613,20 @@ All 9 phase documents are in `docs/ticket-specs/TAS-112/`:
 | `recommendations.md` | Phase 9: Synthesis & Recommendations |
 
 **Total Research**: ~12,000 lines of analysis across 9 documents.
+
+### Implementation Research Documents
+
+| Document | Content | Created |
+|----------|---------|---------|
+| [`domain-events-research-analysis.md`](./domain-events-research-analysis.md) | Deep-dive cross-language domain event analysis with type safety findings, FFI bridge comparison, and prioritized action items | 2025-12-30 |
+
+This document provides:
+- Cross-language implementation matrix (Ruby/TypeScript/Python/Rust)
+- Type safety analysis (manual JSON construction risks)
+- FFI bridge architecture comparison
+- Gap analysis by language with specific file references
+- Priority recommendations with code examples
+- Data flow diagrams for durable and fast event paths
 
 ---
 

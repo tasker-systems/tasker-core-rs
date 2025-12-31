@@ -19,6 +19,7 @@ use tasker_worker::{WorkerBootstrap, WorkerSystemHandle};
 use tokio::sync::broadcast;
 
 use crate::conversions::{convert_ffi_dispatch_metrics_to_json, convert_ffi_step_event_to_json};
+use crate::dto::FfiDomainEventDto;
 use crate::error::TypeScriptFfiError;
 
 /// Global worker system state.
@@ -371,6 +372,65 @@ pub fn cleanup_timeouts_internal() -> Result<()> {
 
     handle.ffi_dispatch_channel.cleanup_timeouts();
     Ok(())
+}
+
+/// Internal implementation of poll_in_process_events.
+///
+/// Polls for in-process domain events (fast path) from the broadcast channel.
+/// Returns a JSON string representing the DomainEvent, or None if no events available.
+pub fn poll_in_process_events_internal() -> Result<Option<String>> {
+    let guard = WORKER_SYSTEM
+        .lock()
+        .map_err(|_| TypeScriptFfiError::LockError)?;
+
+    let handle = guard
+        .as_ref()
+        .ok_or(TypeScriptFfiError::WorkerNotInitialized)?;
+
+    // Check if we have an in-process event receiver
+    let receiver = match &handle.in_process_event_receiver {
+        Some(r) => r,
+        None => {
+            tracing::debug!("No in-process event receiver configured");
+            return Ok(None);
+        }
+    };
+
+    // Try to receive an event (non-blocking)
+    let mut receiver_guard = receiver
+        .lock()
+        .map_err(|_| TypeScriptFfiError::LockError)?;
+
+    // Use try_recv for non-blocking receive
+    match receiver_guard.try_recv() {
+        Ok(event) => {
+            tracing::debug!(event_name = %event.event_name, "Received in-process domain event");
+
+            // Convert to JSON using type-safe DTO (TAS-112)
+            let dto = FfiDomainEventDto::from(&event);
+            let json_string = dto
+                .to_json_string()
+                .map_err(|e| TypeScriptFfiError::SerializationError(e.to_string()))?;
+
+            Ok(Some(json_string))
+        }
+        Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+            // No events available
+            Ok(None)
+        }
+        Err(tokio::sync::broadcast::error::TryRecvError::Lagged(count)) => {
+            tracing::warn!(
+                count = count,
+                "In-process event receiver lagged, some events dropped"
+            );
+            // Still return None, next call will get new events
+            Ok(None)
+        }
+        Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+            tracing::warn!("In-process event channel closed");
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]

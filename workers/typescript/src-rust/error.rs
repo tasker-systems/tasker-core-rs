@@ -33,6 +33,10 @@ pub enum TypeScriptFfiError {
     #[error("Conversion error: {0}")]
     ConversionError(String),
 
+    /// Serialization error (e.g., JSON serialization failed)
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+
     /// FFI-specific error
     #[error("FFI error: {0}")]
     FfiError(String),

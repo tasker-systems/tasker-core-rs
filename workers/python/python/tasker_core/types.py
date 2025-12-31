@@ -1009,6 +1009,39 @@ class DomainEventMetadata(BaseModel):
     fired_by: str = Field(description="Source that fired the event.")
 
 
+class ExecutionResult(BaseModel):
+    """Step execution result included in domain events.
+
+    Provides information about the step execution that triggered this event.
+    Matches TypeScript's executionResult field for cross-language consistency.
+
+    Example:
+        >>> result = ExecutionResult(
+        ...     success=True,
+        ...     result={"processed": 100},
+        ...     execution_time_ms=150,
+        ... )
+    """
+
+    success: bool = Field(description="Whether the step execution succeeded.")
+    result: dict[str, Any] | None = Field(
+        default=None,
+        description="Step handler's return value (on success).",
+    )
+    error_message: str | None = Field(
+        default=None,
+        description="Error message (on failure).",
+    )
+    error_type: str | None = Field(
+        default=None,
+        description="Error type/category (on failure).",
+    )
+    execution_time_ms: int | None = Field(
+        default=None,
+        description="Execution time in milliseconds.",
+    )
+
+
 class InProcessDomainEvent(BaseModel):
     """Domain event received from in-process polling.
 
@@ -1019,6 +1052,8 @@ class InProcessDomainEvent(BaseModel):
         >>> event = InProcessDomainEvent.model_validate(poll_in_process_events())
         >>> if event:
         ...     print(f"Received {event.event_name}: {event.payload}")
+        ...     if event.execution_result:
+        ...         print(f"Step success: {event.execution_result.success}")
     """
 
     event_id: UUID = Field(description="Unique event ID.")
@@ -1028,6 +1063,10 @@ class InProcessDomainEvent(BaseModel):
     payload: dict[str, Any] = Field(
         default_factory=dict,
         description="Event payload data.",
+    )
+    execution_result: ExecutionResult | None = Field(
+        default=None,
+        description="Step execution result that triggered this event (TAS-112).",
     )
 
 
@@ -1898,6 +1937,7 @@ __all__ = [
     "StepHandlerResult",
     # Phase 5: Domain events & observability
     "DomainEventMetadata",
+    "ExecutionResult",
     "InProcessDomainEvent",
     "ComponentHealth",
     "HealthCheck",
