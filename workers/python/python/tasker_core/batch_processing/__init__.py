@@ -25,9 +25,14 @@ Example:
 
 from __future__ import annotations
 
-from tasker_core.batch_processing.batchable import Batchable, BatchWorkerConfig
+from tasker_core.batch_processing.batchable import (
+    Batchable,
+    BatchAggregationScenario,
+    BatchWorkerConfig,
+)
 
 __all__ = [
+    "BatchAggregationScenario",
     "Batchable",
     "BatchWorkerConfig",
 ]

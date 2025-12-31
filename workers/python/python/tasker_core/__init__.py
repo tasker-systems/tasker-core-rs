@@ -53,7 +53,11 @@ from tasker_core._tasker_core import (  # type: ignore[attr-defined]
 )
 
 # Import Phase 6b: Specialized handlers and batch processing
-from tasker_core.batch_processing import Batchable
+from tasker_core.batch_processing import (
+    Batchable,
+    BatchAggregationScenario,
+    BatchWorkerConfig,
+)
 
 # Import bootstrap functions (Phase 2)
 from tasker_core.bootstrap import (
@@ -295,6 +299,8 @@ __all__ = [
     "DecisionHandler",
     # Batch processing (Phase 6b)
     "Batchable",
+    "BatchAggregationScenario",
+    "BatchWorkerConfig",
     "DecisionType",
     "DecisionPointOutcome",
     "CursorConfig",

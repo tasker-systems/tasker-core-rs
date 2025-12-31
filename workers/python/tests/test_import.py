@@ -192,6 +192,8 @@ class TestModuleExports:
             "DecisionHandler",
             # Batch processing
             "Batchable",
+            "BatchAggregationScenario",
+            "BatchWorkerConfig",
             "DecisionType",
             "DecisionPointOutcome",
             "CursorConfig",

@@ -29,6 +29,139 @@ export type {
 } from '../types/batch.js';
 export { aggregateBatchResults, createBatches, noBatches } from '../types/batch.js';
 
+// =============================================================================
+// BatchAggregationScenario - Cross-Language Standard Type (TAS-112)
+// =============================================================================
+
+/**
+ * Represents the aggregation scenario for batch processing convergence steps.
+ *
+ * Cross-language standard: matches Ruby's BatchAggregationScenario,
+ * Python's BatchAggregationScenario, and Rust's BatchAggregationScenario enum.
+ *
+ * There are two scenarios:
+ * - **NoBatches**: The batchable step returned `noBatches()`, no workers were created.
+ *   The convergence step should read results directly from the batchable step.
+ * - **WithBatches**: Workers were created and processed batches. The convergence
+ *   step should aggregate results from all batch workers.
+ */
+export interface BatchAggregationScenario {
+  /** True if this is a NoBatches scenario. */
+  isNoBatches: boolean;
+  /** Result from the batchable step (always present). */
+  batchableResult: Record<string, unknown>;
+  /** Dict of worker_name -> result (empty for NoBatches). */
+  batchResults: Record<string, Record<string, unknown>>;
+  /** Number of batch workers (0 for NoBatches). */
+  workerCount: number;
+}
+
+/**
+ * Extract result data from a step result (handles wrapped and raw results).
+ */
+function extractResultData(stepResult: unknown): Record<string, unknown> {
+  if (typeof stepResult !== 'object' || stepResult === null) {
+    return {};
+  }
+  if ('result' in stepResult) {
+    return stepResult.result as Record<string, unknown>;
+  }
+  return stepResult as Record<string, unknown>;
+}
+
+/**
+ * Check if a batch_processing_outcome indicates NoBatches.
+ */
+function isNoBatchesOutcome(resultData: Record<string, unknown>): boolean {
+  const outcome = resultData.batch_processing_outcome;
+  if (typeof outcome !== 'object' || outcome === null) {
+    return false;
+  }
+  return (outcome as Record<string, unknown>).type === 'no_batches';
+}
+
+/**
+ * Collect batch worker results by prefix.
+ */
+function collectBatchResults(
+  dependencyResults: Record<string, unknown>,
+  batchWorkerPrefix: string
+): Record<string, Record<string, unknown>> {
+  const batchResults: Record<string, Record<string, unknown>> = {};
+  for (const [stepName, stepResult] of Object.entries(dependencyResults)) {
+    if (stepName.startsWith(batchWorkerPrefix)) {
+      batchResults[stepName] = extractResultData(stepResult);
+    }
+  }
+  return batchResults;
+}
+
+/**
+ * Detect the aggregation scenario from dependency results.
+ *
+ * Cross-language standard: matches Ruby's BatchAggregationScenario.detect,
+ * Python's BatchAggregationScenario.detect, and Rust's BatchAggregationScenario::detect.
+ *
+ * @param dependencyResults - All dependency results from the step context.
+ * @param batchableStepName - Name of the batchable step (e.g., "analyze_csv").
+ * @param batchWorkerPrefix - Prefix for batch worker step names (e.g., "process_csv_batch_").
+ * @returns BatchAggregationScenario indicating NoBatches or WithBatches.
+ * @throws Error if batchable step is missing or no workers found without NoBatches outcome.
+ *
+ * @example
+ * ```typescript
+ * const scenario = detectAggregationScenario(
+ *   context.dependencyResults,
+ *   'analyze_csv',
+ *   'process_csv_batch_'
+ * );
+ * if (scenario.isNoBatches) {
+ *   return this.noBatchesAggregationResult({ total: 0 });
+ * }
+ * ```
+ */
+export function detectAggregationScenario(
+  dependencyResults: Record<string, unknown>,
+  batchableStepName: string,
+  batchWorkerPrefix: string
+): BatchAggregationScenario {
+  // Find the batchable step result
+  const batchableResult = dependencyResults[batchableStepName];
+  if (batchableResult === undefined || batchableResult === null) {
+    throw new Error(`Missing batchable step dependency: ${batchableStepName}`);
+  }
+
+  const resultData = extractResultData(batchableResult);
+
+  // Check for NoBatches scenario
+  if (isNoBatchesOutcome(resultData)) {
+    return {
+      isNoBatches: true,
+      batchableResult: resultData,
+      batchResults: {},
+      workerCount: 0,
+    };
+  }
+
+  // WithBatches scenario - find all batch workers
+  const batchResults = collectBatchResults(dependencyResults, batchWorkerPrefix);
+
+  if (Object.keys(batchResults).length === 0) {
+    throw new Error(
+      `No batch workers found with prefix '${batchWorkerPrefix}' ` +
+        `and batchable step '${batchableStepName}' did not return NoBatches outcome. ` +
+        'This indicates a workflow configuration error.'
+    );
+  }
+
+  return {
+    isNoBatches: false,
+    batchableResult: resultData,
+    batchResults,
+    workerCount: Object.keys(batchResults).length,
+  };
+}
+
 /**
  * Mixin interface for batch processing capabilities.
  *
@@ -126,6 +259,44 @@ export interface Batchable {
   batchWorkerSuccess(
     outcome: BatchWorkerOutcome,
     metadata?: Record<string, unknown>
+  ): StepHandlerResult;
+
+  // =========================================================================
+  // Aggregation Helpers (TAS-112)
+  // =========================================================================
+
+  /**
+   * Detect batch aggregation scenario from dependency results.
+   *
+   * Cross-language standard: matches Ruby's detect_aggregation_scenario,
+   * Python's detect_aggregation_scenario, and Rust's BatchAggregationScenario::detect.
+   */
+  detectAggregationScenario(
+    dependencyResults: Record<string, unknown>,
+    batchableStepName: string,
+    batchWorkerPrefix: string
+  ): BatchAggregationScenario;
+
+  /**
+   * Create a success result for NoBatches aggregation scenario.
+   *
+   * Cross-language standard: matches Ruby's no_batches_aggregation_result
+   * and Python's no_batches_aggregation_result.
+   */
+  noBatchesAggregationResult(zeroMetrics?: Record<string, unknown>): StepHandlerResult;
+
+  /**
+   * Aggregate batch worker results handling both scenarios.
+   *
+   * Cross-language standard: matches Ruby's aggregate_batch_worker_results
+   * and Python's aggregate_batch_worker_results.
+   */
+  aggregateBatchWorkerResults(
+    scenario: BatchAggregationScenario,
+    zeroMetrics?: Record<string, unknown>,
+    aggregationFn?: (
+      batchResults: Record<string, Record<string, unknown>>
+    ) => Record<string, unknown>
   ): StepHandlerResult;
 }
 
@@ -524,6 +695,135 @@ export class BatchableMixin implements Batchable {
   }
 
   // =========================================================================
+  // Aggregation Helpers (Instance Methods - TAS-112)
+  // =========================================================================
+
+  /**
+   * Detect batch aggregation scenario from dependency results.
+   *
+   * Cross-language standard: matches Ruby's detect_aggregation_scenario,
+   * Python's detect_aggregation_scenario, and Rust's BatchAggregationScenario::detect.
+   *
+   * @param dependencyResults - All dependency results from the step context.
+   * @param batchableStepName - Name of the batchable step (e.g., "analyze_csv").
+   * @param batchWorkerPrefix - Prefix for batch worker step names (e.g., "process_csv_batch_").
+   * @returns BatchAggregationScenario indicating NoBatches or WithBatches.
+   *
+   * @example
+   * ```typescript
+   * const scenario = this.detectAggregationScenario(
+   *   context.dependencyResults,
+   *   'analyze_csv',
+   *   'process_csv_batch_'
+   * );
+   * if (scenario.isNoBatches) {
+   *   return this.noBatchesAggregationResult({ total: 0 });
+   * }
+   * ```
+   */
+  detectAggregationScenario(
+    dependencyResults: Record<string, unknown>,
+    batchableStepName: string,
+    batchWorkerPrefix: string
+  ): BatchAggregationScenario {
+    return detectAggregationScenario(dependencyResults, batchableStepName, batchWorkerPrefix);
+  }
+
+  /**
+   * Create a success result for NoBatches aggregation scenario.
+   *
+   * Cross-language standard: matches Ruby's no_batches_aggregation_result
+   * and Python's no_batches_aggregation_result.
+   *
+   * @param zeroMetrics - Metrics to return (typically zeros).
+   * @returns Success result with workerCount=0 and scenario="no_batches".
+   *
+   * @example
+   * ```typescript
+   * return this.noBatchesAggregationResult({
+   *   totalProcessed: 0,
+   *   totalValue: 0.0,
+   * });
+   * ```
+   */
+  noBatchesAggregationResult(zeroMetrics?: Record<string, unknown>): StepHandlerResult {
+    const result: Record<string, unknown> = {
+      worker_count: 0,
+      scenario: 'no_batches',
+    };
+    if (zeroMetrics) {
+      Object.assign(result, zeroMetrics);
+    }
+    return StepHandlerResult.success(result);
+  }
+
+  /**
+   * Aggregate batch worker results handling both scenarios.
+   *
+   * Cross-language standard: matches Ruby's aggregate_batch_worker_results
+   * and Python's aggregate_batch_worker_results.
+   * Handles both NoBatches and WithBatches scenarios automatically.
+   *
+   * For NoBatches, returns zeroMetrics with worker_count=0.
+   * For WithBatches, calls aggregationFn with batchResults dict.
+   *
+   * @param scenario - BatchAggregationScenario from detectAggregationScenario().
+   * @param zeroMetrics - Metrics to return for NoBatches scenario.
+   * @param aggregationFn - Function to aggregate batch results. Receives dict of
+   *   worker_name -> result_dict, returns aggregated metrics dict.
+   * @returns Success result with aggregated data and worker_count.
+   *
+   * @example
+   * ```typescript
+   * const scenario = this.detectAggregationScenario(
+   *   context.dependencyResults,
+   *   'analyze_csv',
+   *   'process_csv_batch_'
+   * );
+   *
+   * return this.aggregateBatchWorkerResults(
+   *   scenario,
+   *   { totalProcessed: 0 },
+   *   (batchResults) => {
+   *     let total = 0;
+   *     for (const result of Object.values(batchResults)) {
+   *       total += (result.count as number) || 0;
+   *     }
+   *     return { totalProcessed: total };
+   *   }
+   * );
+   * ```
+   */
+  aggregateBatchWorkerResults(
+    scenario: BatchAggregationScenario,
+    zeroMetrics?: Record<string, unknown>,
+    aggregationFn?: (
+      batchResults: Record<string, Record<string, unknown>>
+    ) => Record<string, unknown>
+  ): StepHandlerResult {
+    if (scenario.isNoBatches) {
+      return this.noBatchesAggregationResult(zeroMetrics);
+    }
+
+    // WithBatches scenario - aggregate results
+    let aggregated: Record<string, unknown>;
+    if (aggregationFn === undefined) {
+      // Default aggregation: just pass through batchResults
+      aggregated = { batch_results: scenario.batchResults };
+    } else {
+      aggregated = aggregationFn(scenario.batchResults);
+    }
+
+    const result: Record<string, unknown> = {
+      ...aggregated,
+      worker_count: scenario.workerCount,
+      scenario: 'with_batches',
+    };
+
+    return StepHandlerResult.success(result);
+  }
+
+  // =========================================================================
   // Aggregation Helpers (Static Methods)
   // =========================================================================
 
@@ -581,6 +881,12 @@ export function applyBatchable<T extends object>(target: T): T & Batchable {
   (target as T & Batchable).handleNoOpWorker = mixin.handleNoOpWorker.bind(mixin);
   (target as T & Batchable).batchAnalyzerSuccess = mixin.batchAnalyzerSuccess.bind(mixin);
   (target as T & Batchable).batchWorkerSuccess = mixin.batchWorkerSuccess.bind(mixin);
+  // TAS-112: Aggregation helpers
+  (target as T & Batchable).detectAggregationScenario = mixin.detectAggregationScenario.bind(mixin);
+  (target as T & Batchable).noBatchesAggregationResult =
+    mixin.noBatchesAggregationResult.bind(mixin);
+  (target as T & Batchable).aggregateBatchWorkerResults =
+    mixin.aggregateBatchWorkerResults.bind(mixin);
 
   return target as T & Batchable;
 }
@@ -701,6 +1007,36 @@ export abstract class BatchableStepHandler extends StepHandler implements Batcha
     metadata?: Record<string, unknown>
   ): StepHandlerResult {
     return this._batchMixin.batchWorkerSuccess(outcome, metadata);
+  }
+
+  // =========================================================================
+  // Aggregation Helpers (TAS-112)
+  // =========================================================================
+
+  detectAggregationScenario(
+    dependencyResults: Record<string, unknown>,
+    batchableStepName: string,
+    batchWorkerPrefix: string
+  ): BatchAggregationScenario {
+    return this._batchMixin.detectAggregationScenario(
+      dependencyResults,
+      batchableStepName,
+      batchWorkerPrefix
+    );
+  }
+
+  noBatchesAggregationResult(zeroMetrics?: Record<string, unknown>): StepHandlerResult {
+    return this._batchMixin.noBatchesAggregationResult(zeroMetrics);
+  }
+
+  aggregateBatchWorkerResults(
+    scenario: BatchAggregationScenario,
+    zeroMetrics?: Record<string, unknown>,
+    aggregationFn?: (
+      batchResults: Record<string, Record<string, unknown>>
+    ) => Record<string, unknown>
+  ): StepHandlerResult {
+    return this._batchMixin.aggregateBatchWorkerResults(scenario, zeroMetrics, aggregationFn);
   }
 
   /**

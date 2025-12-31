@@ -46,8 +46,7 @@ mod tests {
         assert!(result.is_success());
 
         // Test DecisionCapable
-        let result =
-            handler.decision_success(step_uuid, vec!["step_a".to_string()], None, 100);
+        let result = handler.decision_success(step_uuid, vec!["step_a".to_string()], None, 100);
         assert!(result.is_success());
 
         // Test BatchableCapable

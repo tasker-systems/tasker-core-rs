@@ -30,6 +30,8 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -52,6 +54,140 @@ from tasker_core.types import (
 
 if TYPE_CHECKING:
     from tasker_core.types import StepContext
+
+
+# =============================================================================
+# BatchAggregationScenario - Cross-Language Standard Type (TAS-112)
+# =============================================================================
+
+
+@dataclass
+class BatchAggregationScenario:
+    """Represents the aggregation scenario for batch processing convergence steps.
+
+    Cross-language standard: matches Ruby's BatchAggregationScenario and
+    Rust's BatchAggregationScenario enum.
+
+    There are two scenarios:
+    - **NoBatches**: The batchable step returned `no_batches()`, no workers were created.
+      The convergence step should read results directly from the batchable step.
+    - **WithBatches**: Workers were created and processed batches. The convergence
+      step should aggregate results from all batch workers.
+
+    Attributes:
+        is_no_batches: True if this is a NoBatches scenario.
+        batchable_result: Result from the batchable step (always present).
+        batch_results: Dict of worker_name -> result (empty for NoBatches).
+        worker_count: Number of batch workers (0 for NoBatches).
+
+    Example:
+        >>> scenario = BatchAggregationScenario.detect(
+        ...     dependency_results,
+        ...     "analyze_csv",
+        ...     "process_csv_batch_"
+        ... )
+        >>> if scenario.is_no_batches:
+        ...     # Use batchable_result directly
+        ...     return success({"total": 0})
+        >>> else:
+        ...     # Aggregate from batch_results
+        ...     total = sum(r.get("count", 0) for r in scenario.batch_results.values())
+    """
+
+    is_no_batches: bool
+    batchable_result: dict[str, Any]
+    batch_results: dict[str, dict[str, Any]]
+    worker_count: int
+
+    @classmethod
+    def detect(
+        cls,
+        dependency_results: dict[str, Any],
+        batchable_step_name: str,
+        batch_worker_prefix: str,
+    ) -> BatchAggregationScenario:
+        """Detect the aggregation scenario from dependency results.
+
+        Cross-language standard: matches Ruby's BatchAggregationScenario.detect
+        and Rust's BatchAggregationScenario::detect.
+
+        Args:
+            dependency_results: All dependency results from the step context.
+            batchable_step_name: Name of the batchable step (e.g., "analyze_csv").
+            batch_worker_prefix: Prefix for batch worker step names (e.g., "process_csv_batch_").
+
+        Returns:
+            BatchAggregationScenario indicating NoBatches or WithBatches.
+
+        Raises:
+            ValueError: If batchable step is missing or no workers found without NoBatches outcome.
+
+        Example:
+            >>> scenario = BatchAggregationScenario.detect(
+            ...     context.dependency_results,
+            ...     "analyze_csv",
+            ...     "process_csv_batch_"
+            ... )
+        """
+        # Find the batchable step result
+        batchable_result = dependency_results.get(batchable_step_name)
+        if batchable_result is None:
+            msg = f"Missing batchable step dependency: {batchable_step_name}"
+            raise ValueError(msg)
+
+        # Extract the result dict (handle both raw dict and wrapped result)
+        if isinstance(batchable_result, dict):
+            result_data = batchable_result
+        elif hasattr(batchable_result, "result"):
+            result_data = batchable_result.result
+        else:
+            result_data = {}
+
+        # Check for NoBatches scenario
+        outcome = result_data.get("batch_processing_outcome", {})
+        outcome_type = outcome.get("type") if isinstance(outcome, dict) else None
+
+        if outcome_type == "no_batches":
+            return cls(
+                is_no_batches=True,
+                batchable_result=result_data,
+                batch_results={},
+                worker_count=0,
+            )
+
+        # WithBatches scenario - find all batch workers
+        batch_results: dict[str, dict[str, Any]] = {}
+        for step_name, step_result in dependency_results.items():
+            if step_name.startswith(batch_worker_prefix):
+                # Extract result dict
+                if isinstance(step_result, dict):
+                    batch_results[step_name] = step_result
+                elif hasattr(step_result, "result"):
+                    batch_results[step_name] = step_result.result
+                else:
+                    batch_results[step_name] = {}
+
+        if not batch_results:
+            msg = (
+                f"No batch workers found with prefix '{batch_worker_prefix}' "
+                f"and batchable step '{batchable_step_name}' did not return NoBatches outcome. "
+                "This indicates a workflow configuration error."
+            )
+            raise ValueError(msg)
+
+        return cls(
+            is_no_batches=False,
+            batchable_result=result_data,
+            batch_results=batch_results,
+            worker_count=len(batch_results),
+        )
+
+    def no_batches(self) -> bool:
+        """Check if this is a NoBatches scenario.
+
+        Alias for is_no_batches property, matches Ruby's no_batches? method.
+        """
+        return self.is_no_batches
 
 
 # =============================================================================
@@ -869,6 +1005,127 @@ class Batchable:
     # Aggregation Helpers
     # =========================================================================
 
+    def detect_aggregation_scenario(
+        self,
+        dependency_results: dict[str, Any],
+        batchable_step_name: str,
+        batch_worker_prefix: str,
+    ) -> BatchAggregationScenario:
+        """Detect batch aggregation scenario from dependency results.
+
+        Cross-language standard: matches Ruby's detect_aggregation_scenario
+        and Rust's BatchAggregationScenario::detect.
+
+        Args:
+            dependency_results: Dependency results from step context.
+            batchable_step_name: Name of the batchable step (e.g., "analyze_csv").
+            batch_worker_prefix: Prefix for batch worker step names (e.g., "process_csv_batch_").
+
+        Returns:
+            BatchAggregationScenario indicating NoBatches or WithBatches.
+
+        Example:
+            >>> scenario = self.detect_aggregation_scenario(
+            ...     context.dependency_results,
+            ...     "analyze_csv",
+            ...     "process_csv_batch_"
+            ... )
+            >>> if scenario.is_no_batches:
+            ...     return self.no_batches_aggregation_result(zero_metrics)
+        """
+        return BatchAggregationScenario.detect(
+            dependency_results,
+            batchable_step_name,
+            batch_worker_prefix,
+        )
+
+    def no_batches_aggregation_result(
+        self,
+        zero_metrics: dict[str, Any] | None = None,
+    ) -> StepHandlerResult:
+        """Create a success result for NoBatches aggregation scenario.
+
+        Cross-language standard: matches Ruby's no_batches_aggregation_result.
+
+        Args:
+            zero_metrics: Metrics to return (typically zeros).
+
+        Returns:
+            Success result with worker_count=0 and scenario="no_batches".
+
+        Example:
+            >>> return self.no_batches_aggregation_result({
+            ...     "total_processed": 0,
+            ...     "total_value": 0.0,
+            ... })
+        """
+        result: dict[str, Any] = {
+            "worker_count": 0,
+            "scenario": "no_batches",
+        }
+        if zero_metrics:
+            result.update(zero_metrics)
+
+        return self.success(result)  # type: ignore[attr-defined, no-any-return]
+
+    def aggregate_batch_worker_results(
+        self,
+        scenario: BatchAggregationScenario,
+        zero_metrics: dict[str, Any] | None = None,
+        aggregation_fn: Callable[[dict[str, dict[str, Any]]], dict[str, Any]] | None = None,
+    ) -> StepHandlerResult:
+        """Aggregate batch worker results handling both scenarios.
+
+        Cross-language standard: matches Ruby's aggregate_batch_worker_results.
+        Handles both NoBatches and WithBatches scenarios automatically.
+
+        For NoBatches, returns zero_metrics with worker_count=0.
+        For WithBatches, calls aggregation_fn with batch_results dict.
+
+        Args:
+            scenario: BatchAggregationScenario from detect_aggregation_scenario().
+            zero_metrics: Metrics to return for NoBatches scenario.
+            aggregation_fn: Function to aggregate batch results. Receives dict of
+                worker_name -> result_dict, returns aggregated metrics dict.
+
+        Returns:
+            Success result with aggregated data and worker_count.
+
+        Example:
+            >>> scenario = self.detect_aggregation_scenario(
+            ...     context.dependency_results,
+            ...     "analyze_csv",
+            ...     "process_csv_batch_"
+            ... )
+            >>>
+            >>> def aggregate(batch_results):
+            ...     total = sum(r.get("count", 0) for r in batch_results.values())
+            ...     return {"total_processed": total}
+            >>>
+            >>> return self.aggregate_batch_worker_results(
+            ...     scenario,
+            ...     zero_metrics={"total_processed": 0},
+            ...     aggregation_fn=aggregate,
+            ... )
+        """
+        if scenario.is_no_batches:
+            return self.no_batches_aggregation_result(zero_metrics)
+
+        # WithBatches scenario - aggregate results
+        if aggregation_fn is None:
+            # Default aggregation: just pass through batch_results
+            aggregated = {"batch_results": scenario.batch_results}
+        else:
+            aggregated = aggregation_fn(scenario.batch_results)
+
+        result: dict[str, Any] = {
+            **aggregated,
+            "worker_count": scenario.worker_count,
+            "scenario": "with_batches",
+        }
+
+        return self.success(result)  # type: ignore[attr-defined, no-any-return]
+
     @staticmethod
     def aggregate_worker_results(
         worker_results: list[dict[str, Any]],
@@ -923,4 +1180,4 @@ class Batchable:
         }
 
 
-__all__ = ["Batchable", "BatchWorkerConfig"]
+__all__ = ["Batchable", "BatchWorkerConfig", "BatchAggregationScenario"]

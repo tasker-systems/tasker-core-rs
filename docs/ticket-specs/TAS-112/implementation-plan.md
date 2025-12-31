@@ -1,8 +1,9 @@
 # TAS-112 Implementation Plan: Cross-Language Handler Harmonization
 
 **Created**: 2025-12-29
-**Updated**: 2025-12-30
-**Status**: In Progress (Phase 1)
+**Updated**: 2025-12-31
+**Status**: In Progress (Phase 1 - Approaching Validation Gate 1)
+**Checkpoint API**: Deferred to TAS-125 "Batchable Handler Checkpoint"
 **Branch**: `jcoletaylor/tas-112-cross-language-step-handler-ergonomics-analysis`
 **Prerequisites**: Research Phases 1-9 Complete
 
@@ -92,8 +93,12 @@ All four streams can start immediately and run in parallel. No dependencies betw
 | Add PublisherRegistry | Centralized publisher management | Publishers registered and retrieved | :white_check_mark: Complete |
 | Add SubscriberRegistry | Centralized subscriber management with start/stop | Subscribers start/stop correctly | :white_check_mark: Complete |
 | Wire FFI poll adapter | Connect `createFfiPollAdapter()` to runtime | Events flow through FFI | :white_check_mark: Complete |
-| **Create FfiDomainEventDto** | DTO struct with ts-rs generation (type safety fix) | Types auto-generated to `ffi/generated/` | :construction: Pending |
-| **Update bridge.rs serialization** | Replace manual JSON with DTO serialization | Compile-time type safety | :construction: Pending |
+| **Create FfiDomainEventDto** | DTO struct with ts-rs generation (type safety fix) | Types auto-generated to `ffi/generated/` | :white_check_mark: Complete |
+| **Create FfiDomainEventMetadataDto** | Metadata DTO with ts-rs generation | Types auto-generated | :white_check_mark: Complete |
+| **Configure ts-rs export path** | `.cargo/config.toml` with TS_RS_EXPORT_DIR | Exports to `src/ffi/generated/` | :white_check_mark: Complete |
+| **Add subscriber lifecycle tests** | 17 tests for BaseSubscriber and SubscriberRegistry | Tests pass | :white_check_mark: Complete |
+| **Add BatchAggregationScenario** | Aggregation scenario detection for convergence steps | Matches Ruby/Python API | :white_check_mark: Complete |
+| **Add aggregation helper methods** | detectAggregationScenario(), aggregateBatchWorkerResults() | Cross-language parity | :white_check_mark: Complete |
 | Create payment publisher example | Custom payload transformation | Example compiles and runs | :construction: Pending |
 | Create logging subscriber example | Pattern-based subscription | Receives matching events | :construction: Pending |
 | Create metrics subscriber example | Counter aggregation | Counts events correctly | :construction: Pending |
@@ -101,7 +106,11 @@ All four streams can start immediately and run in parallel. No dependencies betw
 
 #### Deliverables
 - `workers/typescript/src/handler/domain-events.ts` :white_check_mark:
-- `workers/typescript/src-rust/dto.rs` (FfiDomainEventDto addition) :construction:
+- `workers/typescript/src-rust/dto.rs` (FfiDomainEventDto, FfiDomainEventMetadataDto) :white_check_mark:
+- `workers/typescript/src/ffi/generated/` (ts-rs auto-generated types) :white_check_mark:
+- `workers/typescript/.cargo/config.toml` (ts-rs export configuration) :white_check_mark:
+- `workers/typescript/src/handler/batchable.ts` (BatchAggregationScenario, aggregation helpers) :white_check_mark:
+- Batchable unit tests (44 tests) :white_check_mark:
 - `workers/typescript/src/examples/domain_events/` (publishers + subscribers) :construction:
 - Integration tests in `workers/typescript/tests/` :construction:
 
@@ -114,30 +123,38 @@ All four streams can start immediately and run in parallel. No dependencies betw
 
 **Ticket Mapping**: Updates TAS-119 (Domain Events) and TAS-117 (Batchable)
 
+**Status**: HIGH priority items complete. Batchable helpers complete. Checkpoint API requires orchestration layer.
+
 > **Research Finding**: Python has core domain event functionality but is missing lifecycle hooks, `EventDeclaration`/`StepResult`/`PublishContext` types, and `SubscriberRegistry`. See [`domain-events-research-analysis.md`](./domain-events-research-analysis.md#42-python-gaps) for complete gap analysis.
 
 #### Tasks
 
-| Task | Description | Validation | Priority |
-|------|-------------|------------|----------|
-| Add BasePublisher lifecycle hooks | `before_publish()`, `after_publish()`, `on_publish_error()` | Hooks called correctly | **HIGH** |
-| Add BasePublisher.additional_metadata() | Custom metadata injection | Metadata appears in events | **HIGH** |
-| Add BaseSubscriber lifecycle hooks | `before_handle()`, `after_handle()`, `on_handle_error()` | Hooks called correctly | **HIGH** |
-| Add `EventDeclaration` type | Dataclass matching TypeScript interface | Type available for publishers | **HIGH** |
-| Add `StepResult` type | Dataclass with success, result, metadata | Type available for context | **HIGH** |
-| Add `PublishContext` type | Unified context for `publish()` method | Matches TypeScript API | **MEDIUM** |
-| Create SubscriberRegistry class | Singleton with start_all/stop_all lifecycle | Matches Ruby/TypeScript pattern | **MEDIUM** |
-| Update `InProcessDomainEvent` | Add `execution_result` field | Complete type parity | **MEDIUM** |
-| Add handle_no_op_worker() | Batchable mixin helper | Consistency with Ruby/TS | MEDIUM |
-| Add create_cursor_configs() | Worker-count based API (currently only batch-size) | Both APIs available | MEDIUM |
-| Add checkpoint write API | update_checkpoint() or update_step_results() | Can persist checkpoint data | MEDIUM |
-| Add aggregation_fn parameter | Custom aggregation support in aggregate_worker_results() | Custom aggregation works | LOW |
+| Task | Description | Validation | Priority | Status |
+|------|-------------|------------|----------|--------|
+| Add BasePublisher lifecycle hooks | `before_publish()`, `after_publish()`, `on_publish_error()` | Hooks called correctly | **HIGH** | :white_check_mark: Complete |
+| Add BasePublisher.additional_metadata() | Custom metadata injection | Metadata appears in events | **HIGH** | :white_check_mark: Complete |
+| Add BaseSubscriber lifecycle hooks | `before_handle()`, `after_handle()`, `on_handle_error()` | Hooks called correctly | **HIGH** | :white_check_mark: Complete |
+| Add `EventDeclaration` type | Pydantic model matching TypeScript interface | Type available for publishers | **HIGH** | :white_check_mark: Complete |
+| Add `StepResult` type | Pydantic model with success, result, metadata | Type available for context | **HIGH** | :white_check_mark: Complete |
+| Add `PublishContext` type | Unified context for `publish()` method | Matches TypeScript API | **MEDIUM** | :white_check_mark: Complete |
+| Create SubscriberRegistry class | Singleton with start_all/stop_all lifecycle | Matches Ruby/TypeScript pattern | **MEDIUM** | :white_check_mark: Complete |
+| Update `InProcessDomainEvent` | Add `execution_result` field | Complete type parity | **MEDIUM** | :white_check_mark: Complete |
+| **Add ExecutionResult type** | Pydantic model for step execution results | Type available for events | **MEDIUM** | :white_check_mark: Complete |
+| Add handle_no_op_worker() | Batchable mixin helper | Consistency with Ruby/TS | MEDIUM | :white_check_mark: Complete |
+| Add create_cursor_configs() | Worker-count based API (worker_count param) | Both APIs available | MEDIUM | :white_check_mark: Complete |
+| Add checkpoint write API | update_checkpoint() or update_step_results() | Can persist checkpoint data | MEDIUM | :arrow_right: Deferred to TAS-125 |
+| **Add BatchAggregationScenario** | Aggregation scenario detection for convergence steps | Matches Ruby API | **MEDIUM** | :white_check_mark: Complete |
+| **Add aggregation helper methods** | detect_aggregation_scenario(), aggregate_batch_worker_results() | Cross-language parity | **MEDIUM** | :white_check_mark: Complete |
 
 #### Deliverables
-- Updated `workers/python/python/tasker_core/domain_events.py` (lifecycle hooks, types)
-- Updated `workers/python/python/tasker_core/types.py` (InProcessDomainEvent)
-- Updated `workers/python/python/tasker_core/batch_processing/batchable.py`
-- Updated examples and tests
+- `workers/python/python/tasker_core/domain_events.py` (lifecycle hooks, types) :white_check_mark:
+- `workers/python/python/tasker_core/types.py` (InProcessDomainEvent, ExecutionResult) :white_check_mark:
+- `workers/python/python/tasker_core/__init__.py` (exports) :white_check_mark:
+- `workers/python/tests/test_domain_events.py` (unit tests) :white_check_mark:
+- `workers/python/python/tasker_core/batch_processing/batchable.py` :white_check_mark:
+  - `handle_no_op_worker()`, `create_cursor_configs()`, `get_batch_worker_inputs()`
+  - `BatchAggregationScenario`, `detect_aggregation_scenario()`, `aggregate_batch_worker_results()`
+- Batchable unit tests (27 tests) :white_check_mark:
 
 ---
 
@@ -148,22 +165,30 @@ All four streams can start immediately and run in parallel. No dependencies betw
 
 **Ticket Mapping**: Updates TAS-118 (Batch Processing Lifecycle)
 
+**Status**: Complete. All FFI boundary types implemented with flexible cursor support.
+
 #### Tasks
 
-| Task | Description | Validation |
-|------|-------------|------------|
-| Python: Create BatchProcessingOutcome | Pydantic model matching Rust enum exactly | Serializes identically to Rust |
-| Python: Enhance CursorConfig | Change cursor types from `int` to `Any`, add `batch_id` | Flexible cursor types work |
-| Python: Align BatchWorkerContext | Match Rust BatchWorkerInputs structure exactly | Field names and types match |
-| TypeScript: Create BatchProcessingOutcome | Interface/type matching Rust enum | Type-safe construction |
-| TypeScript: Enhance CursorConfig | Change cursor types from `number` to `unknown`, add `batch_id` | Flexible cursor types work |
-| TypeScript: Add BatchAggregationScenario | Helper class for aggregation detection | Scenario detection works |
-| Document FFI boundary types | Create reference documentation | Clear serialization guidance |
+| Task | Description | Validation | Status |
+|------|-------------|------------|--------|
+| Python: Create BatchProcessingOutcome | Pydantic model matching Rust enum exactly | Serializes identically to Rust | :white_check_mark: Complete |
+| Python: Enhance CursorConfig | Change cursor types from `int` to `Any`, add `batch_id` | Flexible cursor types work | :white_check_mark: Complete |
+| Python: Align BatchWorkerContext | Match Rust BatchWorkerInputs structure exactly | Field names and types match | :white_check_mark: Complete |
+| TypeScript: Create BatchProcessingOutcome | Interface/type matching Rust enum | Type-safe construction | :white_check_mark: Complete |
+| TypeScript: Enhance CursorConfig | Change cursor types from `number` to `unknown`, add `batch_id` | Flexible cursor types work | :white_check_mark: Complete |
+| TypeScript: Add BatchAggregationResult | Aggregation result type and helper function | Aggregation works | :white_check_mark: Complete |
+| Document FFI boundary types | Create reference documentation | Clear serialization guidance | :white_check_mark: Complete |
 
 #### Deliverables
-- Updated `workers/python/python/tasker_core/types.py`
-- Updated `workers/typescript/src/types/batch.ts`
-- New `docs/reference/ffi-boundary-types.md` (per TAS-99 structure)
+- `workers/python/python/tasker_core/types.py` :white_check_mark:
+  - `RustCursorConfig`, `BatchMetadata`, `RustBatchWorkerInputs`
+  - `NoBatchesOutcome`, `CreateBatchesOutcome`, `BatchProcessingOutcome`
+  - `BatchAggregationResult`, `aggregate_batch_results()`
+- `workers/typescript/src/types/batch.ts` :white_check_mark:
+  - `RustCursorConfig`, `BatchMetadata`, `RustBatchWorkerInputs`
+  - `NoBatchesOutcome`, `CreateBatchesOutcome`, `BatchProcessingOutcome`
+  - `BatchAggregationResult`, `aggregateBatchResults()`
+- `docs/reference/ffi-boundary-types.md` :white_check_mark:
 
 ---
 
@@ -262,32 +287,42 @@ Before proceeding to Phase 3, all of the following must be true:
 - [x] TypeScript PublisherRegistry and SubscriberRegistry
 - [x] TypeScript InProcessDomainEventPoller with FFI integration
 - [x] FFI poll adapter wired (`createFfiPollAdapter()`)
-- [ ] **FfiDomainEventDto created with ts-rs generation** (type safety fix)
-- [ ] **bridge.rs updated to use DTO serialization** (type safety fix)
+- [x] **FfiDomainEventDto created with ts-rs generation** (type safety fix)
+- [x] **FfiDomainEventMetadataDto created with ts-rs generation** (type safety fix)
+- [x] **ts-rs export path configured** (`.cargo/config.toml` with TS_RS_EXPORT_DIR)
+- [x] **bridge.rs updated to use DTO serialization** (FfiDomainEventDto::from + to_json_string)
 - [ ] TypeScript domain event examples (publisher + subscribers)
 - [ ] TypeScript domain event integration tests
 
 #### Python Enhancements
-- [ ] Python BasePublisher lifecycle hooks (`before_publish`, `after_publish`, `on_publish_error`)
-- [ ] Python BasePublisher `additional_metadata()` method
-- [ ] Python BaseSubscriber lifecycle hooks (`before_handle`, `after_handle`, `on_handle_error`)
-- [ ] Python `EventDeclaration`, `StepResult`, `PublishContext` types added
-- [ ] Python SubscriberRegistry created (singleton pattern)
-- [ ] Python `InProcessDomainEvent` updated with `execution_result` field
+- [x] Python BasePublisher lifecycle hooks (`before_publish`, `after_publish`, `on_publish_error`)
+- [x] Python BasePublisher `additional_metadata()` method
+- [x] Python BaseSubscriber lifecycle hooks (`before_handle`, `after_handle`, `on_handle_error`)
+- [x] Python `EventDeclaration`, `StepResult`, `PublishContext` types added (as Pydantic models)
+- [x] Python SubscriberRegistry created (singleton pattern)
+- [x] Python `InProcessDomainEvent` updated with `execution_result` field
+- [x] Python `ExecutionResult` type added
 
 #### FFI Boundary Types
-- [ ] Python BatchProcessingOutcome is explicit Pydantic model
-- [ ] TypeScript BatchProcessingOutcome is explicit interface
-- [ ] Python/TypeScript CursorConfig supports flexible cursor types
+- [x] Python BatchProcessingOutcome is explicit Pydantic model (`NoBatchesOutcome`, `CreateBatchesOutcome`)
+- [x] TypeScript BatchProcessingOutcome is explicit interface (discriminated union)
+- [x] Python/TypeScript CursorConfig supports flexible cursor types (`RustCursorConfig` with `Any`/`unknown`)
 
-#### Examples & Tests
-- [ ] Python/TypeScript conditional workflow examples complete
+#### Unit Tests (Complete)
+- [x] Python domain events unit tests (test_domain_events.py - 1147 lines)
+- [x] TypeScript domain events unit tests (domain-events.test.ts - 1005 lines)
+- [x] Python decision handler unit tests (test_decision_handler.py - 163 lines)
+- [x] TypeScript decision handler unit tests (decision.test.ts - 427 lines)
+
+#### Examples & Integration Tests (Deferred to E2E)
+- [ ] Python/TypeScript domain event example workflows
+- [ ] Python/TypeScript conditional workflow examples
 - [ ] All examples pass E2E tests
 - [ ] Rust handler traits complete with examples
 
 ### Quality Validation
-- [ ] No serialization mismatches at FFI boundaries
-- [ ] All new code has test coverage
+- [x] All new code has test coverage (351 Python tests, 542 TypeScript tests passing)
+- [x] No serialization mismatches at FFI boundaries (domain events use DTO serialization)
 - [ ] Documentation updated for new features
 
 **Milestone**: All languages have equivalent capabilities (additive changes only).

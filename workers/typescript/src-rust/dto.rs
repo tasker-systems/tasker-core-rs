@@ -457,8 +457,12 @@ mod tests {
 
         // Domain Event DTOs (TAS-112)
         FfiDomainEventDto::export_all().expect("Failed to export FfiDomainEventDto");
-        FfiDomainEventMetadataDto::export_all().expect("Failed to export FfiDomainEventMetadataDto");
+        FfiDomainEventMetadataDto::export_all()
+            .expect("Failed to export FfiDomainEventMetadataDto");
 
-        println!("✅ TypeScript bindings exported to {}", output_dir.display());
+        println!(
+            "✅ TypeScript bindings exported to {}",
+            output_dir.display()
+        );
     }
 }

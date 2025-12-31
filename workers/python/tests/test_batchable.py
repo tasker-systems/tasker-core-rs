@@ -355,3 +355,242 @@ class TestBatchableWithStepHandler:
         assert result.result["items_succeeded"] == 24
         assert result.result["items_failed"] == 1
         assert result.metadata.get("batch_worker") is True
+
+
+class TestBatchAggregationScenario:
+    """Test BatchAggregationScenario detection (TAS-112)."""
+
+    def test_detect_no_batches_scenario(self):
+        """Test detection of NoBatches scenario from batch_processing_outcome."""
+        from tasker_core import BatchAggregationScenario
+
+        dependency_results = {
+            "analyze_csv": {
+                "batch_processing_outcome": {"type": "no_batches"},
+                "reason": "empty_dataset",
+            }
+        }
+        scenario = BatchAggregationScenario.detect(
+            dependency_results, "analyze_csv", "process_csv_batch_"
+        )
+
+        assert scenario.is_no_batches is True
+        assert scenario.no_batches() is True
+        assert scenario.worker_count == 0
+        assert scenario.batch_results == {}
+        assert scenario.batchable_result["reason"] == "empty_dataset"
+
+    def test_detect_with_batches_scenario(self):
+        """Test detection of WithBatches scenario."""
+        from tasker_core import BatchAggregationScenario
+
+        dependency_results = {
+            "analyze_csv": {
+                "batch_processing_outcome": {
+                    "type": "create_batches",
+                    "worker_count": 3,
+                },
+            },
+            "process_csv_batch_001": {"items_processed": 100, "items_succeeded": 98},
+            "process_csv_batch_002": {"items_processed": 100, "items_succeeded": 100},
+            "process_csv_batch_003": {"items_processed": 50, "items_succeeded": 50},
+        }
+        scenario = BatchAggregationScenario.detect(
+            dependency_results, "analyze_csv", "process_csv_batch_"
+        )
+
+        assert scenario.is_no_batches is False
+        assert scenario.worker_count == 3
+        assert len(scenario.batch_results) == 3
+        assert "process_csv_batch_001" in scenario.batch_results
+        assert scenario.batch_results["process_csv_batch_002"]["items_succeeded"] == 100
+
+    def test_detect_missing_batchable_step_raises_error(self):
+        """Test that missing batchable step raises ValueError."""
+        import pytest
+
+        from tasker_core import BatchAggregationScenario
+
+        dependency_results = {
+            "process_csv_batch_001": {"items_processed": 100},
+        }
+        with pytest.raises(ValueError, match="Missing batchable step dependency"):
+            BatchAggregationScenario.detect(dependency_results, "analyze_csv", "process_csv_batch_")
+
+    def test_detect_no_workers_without_no_batches_raises_error(self):
+        """Test that missing workers without NoBatches outcome raises ValueError."""
+        import pytest
+
+        from tasker_core import BatchAggregationScenario
+
+        dependency_results = {
+            "analyze_csv": {
+                "batch_processing_outcome": {
+                    "type": "create_batches",
+                    "worker_count": 3,
+                },
+            },
+            # No batch workers present
+        }
+        with pytest.raises(ValueError, match="No batch workers found"):
+            BatchAggregationScenario.detect(dependency_results, "analyze_csv", "process_csv_batch_")
+
+    def test_detect_with_wrapped_result(self):
+        """Test detection handles wrapped result objects."""
+        from tasker_core import BatchAggregationScenario
+
+        # Simulate a result wrapper with .result attribute
+        class ResultWrapper:
+            def __init__(self, result):
+                self.result = result
+
+        dependency_results = {
+            "analyze_csv": ResultWrapper(
+                {
+                    "batch_processing_outcome": {"type": "no_batches"},
+                }
+            ),
+        }
+        scenario = BatchAggregationScenario.detect(
+            dependency_results, "analyze_csv", "process_csv_batch_"
+        )
+
+        assert scenario.is_no_batches is True
+
+
+class TestBatchableAggregationHelpers:
+    """Test Batchable aggregation helper methods (TAS-112)."""
+
+    def test_detect_aggregation_scenario_method(self):
+        """Test Batchable.detect_aggregation_scenario method."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestAggregator(StepHandler, Batchable):
+            handler_name = "test_aggregator"
+
+            def call(self, _context):
+                pass
+
+        handler = TestAggregator()
+        dependency_results = {
+            "analyze_csv": {
+                "batch_processing_outcome": {"type": "no_batches"},
+            }
+        }
+        scenario = handler.detect_aggregation_scenario(
+            dependency_results, "analyze_csv", "process_csv_batch_"
+        )
+
+        assert scenario.is_no_batches is True
+
+    def test_no_batches_aggregation_result(self):
+        """Test Batchable.no_batches_aggregation_result method."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestAggregator(StepHandler, Batchable):
+            handler_name = "test_aggregator"
+
+            def call(self, _context):
+                pass
+
+        handler = TestAggregator()
+        result = handler.no_batches_aggregation_result(
+            zero_metrics={"total_processed": 0, "total_value": 0.0}
+        )
+
+        assert result.is_success is True
+        assert result.result["worker_count"] == 0
+        assert result.result["scenario"] == "no_batches"
+        assert result.result["total_processed"] == 0
+        assert result.result["total_value"] == 0.0
+
+    def test_aggregate_batch_worker_results_no_batches(self):
+        """Test aggregate_batch_worker_results for NoBatches scenario."""
+        from tasker_core import Batchable, BatchAggregationScenario, StepHandler
+
+        class TestAggregator(StepHandler, Batchable):
+            handler_name = "test_aggregator"
+
+            def call(self, _context):
+                pass
+
+        handler = TestAggregator()
+        scenario = BatchAggregationScenario(
+            is_no_batches=True,
+            batchable_result={"reason": "empty"},
+            batch_results={},
+            worker_count=0,
+        )
+        result = handler.aggregate_batch_worker_results(scenario, zero_metrics={"total": 0})
+
+        assert result.is_success is True
+        assert result.result["worker_count"] == 0
+        assert result.result["scenario"] == "no_batches"
+        assert result.result["total"] == 0
+
+    def test_aggregate_batch_worker_results_with_batches(self):
+        """Test aggregate_batch_worker_results for WithBatches scenario."""
+        from tasker_core import Batchable, BatchAggregationScenario, StepHandler
+
+        class TestAggregator(StepHandler, Batchable):
+            handler_name = "test_aggregator"
+
+            def call(self, _context):
+                pass
+
+        handler = TestAggregator()
+        scenario = BatchAggregationScenario(
+            is_no_batches=False,
+            batchable_result={"total_items": 250},
+            batch_results={
+                "process_batch_001": {"count": 100},
+                "process_batch_002": {"count": 100},
+                "process_batch_003": {"count": 50},
+            },
+            worker_count=3,
+        )
+
+        def aggregate_fn(batch_results):
+            total = sum(r.get("count", 0) for r in batch_results.values())
+            return {"total_processed": total}
+
+        result = handler.aggregate_batch_worker_results(
+            scenario,
+            zero_metrics={"total_processed": 0},
+            aggregation_fn=aggregate_fn,
+        )
+
+        assert result.is_success is True
+        assert result.result["worker_count"] == 3
+        assert result.result["scenario"] == "with_batches"
+        assert result.result["total_processed"] == 250
+
+    def test_aggregate_batch_worker_results_default_aggregation(self):
+        """Test aggregate_batch_worker_results with no aggregation function."""
+        from tasker_core import Batchable, BatchAggregationScenario, StepHandler
+
+        class TestAggregator(StepHandler, Batchable):
+            handler_name = "test_aggregator"
+
+            def call(self, _context):
+                pass
+
+        handler = TestAggregator()
+        scenario = BatchAggregationScenario(
+            is_no_batches=False,
+            batchable_result={},
+            batch_results={
+                "process_batch_001": {"count": 100},
+                "process_batch_002": {"count": 50},
+            },
+            worker_count=2,
+        )
+
+        result = handler.aggregate_batch_worker_results(scenario)
+
+        assert result.is_success is True
+        assert result.result["worker_count"] == 2
+        assert result.result["scenario"] == "with_batches"
+        # Default aggregation passes through batch_results
+        assert "batch_results" in result.result
+        assert len(result.result["batch_results"]) == 2

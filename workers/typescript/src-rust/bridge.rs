@@ -397,9 +397,7 @@ pub fn poll_in_process_events_internal() -> Result<Option<String>> {
     };
 
     // Try to receive an event (non-blocking)
-    let mut receiver_guard = receiver
-        .lock()
-        .map_err(|_| TypeScriptFfiError::LockError)?;
+    let mut receiver_guard = receiver.lock().map_err(|_| TypeScriptFfiError::LockError)?;
 
     // Use try_recv for non-blocking receive
     match receiver_guard.try_recv() {
