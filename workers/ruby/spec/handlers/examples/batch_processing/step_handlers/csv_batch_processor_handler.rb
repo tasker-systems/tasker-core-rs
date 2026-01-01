@@ -80,9 +80,11 @@ module TaskerCore
         # Process CSV rows in the specified range and calculate metrics
         #
         # @param csv_file_path [String] Path to CSV file
-        # @param start_row [Integer] Starting row number (1-indexed, after header)
+        # @param start_row [Integer] Starting row number (0-indexed, after header)
         # @param end_row [Integer] Ending row number (exclusive)
         # @return [Hash] Inventory metrics
+        #
+        # TAS-112: Uses 0-indexed cursors to match Python, TypeScript, and Rust.
         def process_csv_range(csv_file_path, start_row, end_row)
           processed_count = 0
           total_inventory_value = 0.0
@@ -91,8 +93,8 @@ module TaskerCore
           max_price_product = nil
           total_rating = 0.0
 
-          # Process CSV rows in range
-          CSV.foreach(csv_file_path, headers: true).with_index(1) do |row, data_row_num|
+          # Process CSV rows in range (0-indexed to match cross-language standard)
+          CSV.foreach(csv_file_path, headers: true).with_index do |row, data_row_num|
             next if data_row_num < start_row
             break if data_row_num >= end_row
 

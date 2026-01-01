@@ -86,12 +86,19 @@ module TaskerCore
     module Steps
       # Import the existing base step handler with preserved signatures
       require_relative 'step_handler/base'
+      require_relative 'step_handler/mixins'   # TAS-112: Composition pattern mixins
       require_relative 'step_handler/api'
       require_relative 'step_handler/decision' # TAS-53: Decision point handlers
       require_relative 'step_handler/batchable' # TAS-59: Batch processing handlers
 
       # Re-export with clean namespace
       Base = TaskerCore::StepHandler::Base
+
+      # TAS-112: Composition Pattern - Mixin modules (preferred)
+      # Use these with `include` in handlers that inherit from Base
+      Mixins = TaskerCore::StepHandler::Mixins
+
+      # Legacy class aliases (deprecated - use Mixins instead)
       API = TaskerCore::StepHandler::Api
       Decision = TaskerCore::StepHandler::Decision
       Batchable = TaskerCore::StepHandler::Batchable

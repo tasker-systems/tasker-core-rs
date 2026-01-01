@@ -71,12 +71,13 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
         csv_file.unlink
       end
 
+      # TAS-112: Updated to use 0-indexed cursors
       before do
         allow(mock_workflow_step).to receive(:inputs).and_return({
                                                                    'cursor' => {
                                                                      'batch_id' => '001',
-                                                                     'start_cursor' => 1,
-                                                                     'end_cursor' => 3
+                                                                     'start_cursor' => 0,
+                                                                     'end_cursor' => 2
                                                                    },
                                                                    'batch_metadata' => {
                                                                      'checkpoint_interval' => 50
@@ -92,8 +93,8 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
 
         expect(result.success?).to be true
         expect(result.result['batch_id']).to eq('001')
-        expect(result.result['start_row']).to eq(1)
-        expect(result.result['end_row']).to eq(3)
+        expect(result.result['start_row']).to eq(0)
+        expect(result.result['end_row']).to eq(2)
         expect(result.result['processed_count']).to eq(2)
       end
 
@@ -128,13 +129,14 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
         expect(result.result['average_rating']).to eq(4.65)
       end
 
+      # TAS-112: Updated to use 0-indexed cursors (indices 2-4 = Products 3,4,5)
       context 'with different cursor range' do
         before do
           allow(mock_workflow_step).to receive(:inputs).and_return({
                                                                      'cursor' => {
                                                                        'batch_id' => '002',
-                                                                       'start_cursor' => 3,
-                                                                       'end_cursor' => 6
+                                                                       'start_cursor' => 2,
+                                                                       'end_cursor' => 5
                                                                      }
                                                                    })
         end
@@ -251,12 +253,13 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
       csv_file.unlink
     end
 
+    # TAS-112: Updated to use 0-indexed cursors
     before do
       allow(mock_workflow_step).to receive(:inputs).and_return({
                                                                  'cursor' => {
                                                                    'batch_id' => '001',
-                                                                   'start_cursor' => 1,
-                                                                   'end_cursor' => 2
+                                                                   'start_cursor' => 0,
+                                                                   'end_cursor' => 1
                                                                  }
                                                                })
       allow(mock_dependency_results).to receive(:get_results)
