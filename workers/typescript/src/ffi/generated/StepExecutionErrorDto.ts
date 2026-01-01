@@ -3,10 +3,4 @@
 /**
  * DTO for step execution errors
  */
-export type StepExecutionErrorDto = {
-  message: string;
-  error_type: string | null;
-  retryable: boolean;
-  status_code: number | null;
-  backtrace: Array<string> | null;
-};
+export type StepExecutionErrorDto = { message: string, error_type: string | null, retryable: boolean, status_code: number | null, backtrace: Array<string> | null, };

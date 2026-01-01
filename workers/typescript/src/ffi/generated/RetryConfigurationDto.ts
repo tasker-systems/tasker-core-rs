@@ -3,10 +3,4 @@
 /**
  * DTO for RetryConfiguration
  */
-export type RetryConfigurationDto = {
-  retryable: boolean;
-  max_attempts: number;
-  backoff: string;
-  backoff_base_ms: bigint | null;
-  max_backoff_ms: bigint | null;
-};
+export type RetryConfigurationDto = { retryable: boolean, max_attempts: number, backoff: string, backoff_base_ms: bigint | null, max_backoff_ms: bigint | null, };

@@ -1,8 +1,8 @@
 # TAS-112 Implementation Plan: Cross-Language Handler Harmonization
 
 **Created**: 2025-12-29
-**Updated**: 2025-12-31 (Phase 1 Complete)
-**Status**: Phase 1 COMPLETE - All Streams (A, B, C, D) Validated
+**Updated**: 2025-12-31 (Phases 1 & 2 Complete)
+**Status**: Phases 1 & 2 COMPLETE - Ready for Phase 3 (Breaking Changes)
 **Checkpoint API**: Deferred to TAS-125 "Batchable Handler Checkpoint"
 **Branch**: `jcoletaylor/tas-112-cross-language-step-handler-ergonomics-analysis`
 **Prerequisites**: Research Phases 1-9 Complete
@@ -331,51 +331,61 @@ All agents reported comprehensive implementation matching the claimed status in 
 
 **Ticket Mapping**: Updates TAS-114 (Base Handler), TAS-115 (API Handler), TAS-116 (Decision Handler), TAS-117 (Batchable)
 
+**Status**: ✅ COMPLETE (validated 2025-12-31)
+
 ### Tasks
 
-| Task | Description | Validation |
-|------|-------------|------------|
-| Enhance StepHandler trait | Add version(), capabilities(), config_schema() methods | Methods available on trait |
-| Create APICapable trait | api_success(), api_failure(), classify_status_code() | Helpers construct correct results |
-| Create DecisionCapable trait | decision_success(), skip_branches(), decision_failure() | Helpers construct correct outcomes |
-| Create BatchableCapable trait | batch_analyzer_success(), batch_worker_success(), cursor helpers | Helpers construct correct outcomes |
-| Add BatchWorkerOutcome type | Add to tasker-shared (currently missing) | Type available for use |
-| Create cursor helper methods | create_cursor_configs(), create_cursor_ranges() | Both APIs work correctly |
-| Create example handlers | Handlers demonstrating each trait | Examples compile and run |
-| Update Rust worker docs | Complete examples with new traits | Documentation accurate |
+| Task | Description | Validation | Status |
+|------|-------------|------------|--------|
+| Enhance StepHandler trait | Add version(), capabilities(), config_schema() methods | Methods available on trait | :white_check_mark: Complete |
+| Create APICapable trait | api_success(), api_failure(), classify_status_code() | Helpers construct correct results | :white_check_mark: Complete |
+| Create DecisionCapable trait | decision_success(), skip_branches(), decision_failure() | Helpers construct correct outcomes | :white_check_mark: Complete |
+| Create BatchableCapable trait | batch_analyzer_success(), batch_worker_success(), cursor helpers | Helpers construct correct outcomes | :white_check_mark: Complete |
+| Add BatchWorkerOutcome type | Add to tasker-shared (currently missing) | Type available for use | :white_check_mark: Complete (BatchProcessingOutcome) |
+| Create cursor helper methods | create_cursor_configs(), create_cursor_ranges() | Both APIs work correctly | :white_check_mark: Complete |
+| Create example handlers | Handlers demonstrating each trait | Examples compile and run | :white_check_mark: Complete (755 lines) |
+| Update Rust worker docs | Complete examples with new traits | Documentation accurate | :construction: Pending (Phase 4) |
 
-### Trait Sketches (Implementation Details TBD)
+### Implementation Summary
 
-```rust
-// APICapable trait
-pub trait APICapable {
-    fn api_success(&self, data: Value, status: u16, headers: Option<Value>) -> StepExecutionResult;
-    fn api_failure(&self, message: &str, status: u16, error_type: &str) -> StepExecutionResult;
-    fn classify_status_code(&self, status: u16) -> ErrorClassification;
-}
+All capability traits are implemented in `tasker-worker/src/handler_capabilities.rs` (958 lines):
 
-// DecisionCapable trait
-pub trait DecisionCapable {
-    fn decision_success(&self, step_names: Vec<String>, routing_context: Option<Value>) -> StepExecutionResult;
-    fn skip_branches(&self, reason: &str, routing_context: Option<Value>) -> StepExecutionResult;
-    fn decision_failure(&self, message: &str, error_type: &str) -> StepExecutionResult;
-}
+**APICapable** (lines 125-218):
+- `api_success(step_uuid, data, status, headers, execution_time_ms)`
+- `api_failure(step_uuid, message, status, error_type, execution_time_ms)`
+- `classify_status_code(status)` → `ErrorClassification` enum
 
-// BatchableCapable trait
-pub trait BatchableCapable {
-    fn create_cursor_configs(&self, total_items: u64, worker_count: u32) -> Vec<CursorConfig>;
-    fn create_cursor_ranges(&self, total_items: u64, batch_size: u64, max_batches: Option<u32>) -> Vec<CursorConfig>;
-    fn batch_analyzer_success(&self, worker_template: &str, configs: Vec<CursorConfig>, total: u64) -> StepExecutionResult;
-    fn batch_worker_success(&self, processed: u64, succeeded: u64, failed: u64, skipped: u64) -> StepExecutionResult;
-    fn no_batches_outcome(&self, reason: &str) -> StepExecutionResult;
-}
-```
+**DecisionCapable** (lines 256-344):
+- `decision_success(step_uuid, step_names, routing_context, execution_time_ms)`
+- `skip_branches(step_uuid, reason, routing_context, execution_time_ms)`
+- `decision_failure(step_uuid, message, error_type, execution_time_ms)`
+
+**BatchableCapable** (lines 391-614):
+- `create_cursor_configs(total_items, worker_count)` → `Vec<CursorConfig>`
+- `create_cursor_ranges(total_items, batch_size, max_batches)` → `Vec<CursorConfig>`
+- `batch_analyzer_success(step_uuid, worker_template, configs, total_items, execution_time_ms)`
+- `batch_worker_success(step_uuid, processed, succeeded, failed, skipped, execution_time_ms)`
+- `no_batches_outcome(step_uuid, reason, execution_time_ms)`
+- `batch_failure(step_uuid, message, error_type, retryable, execution_time_ms)`
 
 ### Deliverables
-- New traits in `workers/rust/src/step_handlers/`
-- BatchWorkerOutcome type in `tasker-shared/src/messaging/execution_types.rs`
-- Example handlers in `workers/rust/src/examples/`
-- Updated `docs/workes/rust.md`
+- `tasker-worker/src/handler_capabilities.rs` (958 lines) :white_check_mark:
+  - `APICapable`, `DecisionCapable`, `BatchableCapable` traits
+  - `ErrorClassification` enum for HTTP status classification
+  - `HandlerCapabilities` unified trait
+- `tasker-shared/src/messaging/execution_types.rs` :white_check_mark:
+  - `StepExecutionResult` with factory methods
+  - `DecisionPointOutcome` (NoBranches, CreateSteps)
+  - `BatchProcessingOutcome` (NoBatches, CreateBatches)
+  - `CursorConfig` for batch worker initialization
+- `tasker-shared/src/models/core/batch_worker.rs` :white_check_mark:
+  - `BatchWorkerInputs` for worker context
+  - `CheckpointProgress` for resumability
+- `workers/rust/src/step_handlers/capability_examples.rs` (755 lines) :white_check_mark:
+  - `ExampleApiHandler` demonstrating APICapable
+  - `ExampleDecisionHandler` demonstrating DecisionCapable
+  - `ExampleBatchAnalyzer` and `ExampleBatchWorker` demonstrating BatchableCapable
+  - `CompositeHandler` showing trait composition
 
 ---
 
@@ -423,7 +433,7 @@ Before proceeding to Phase 3, all of the following must be true:
 - [x] Python/TypeScript domain event example workflows - TypeScript examples complete
 - [x] Python/TypeScript conditional workflow examples - 11 E2E tests passing
 - [x] All examples pass E2E tests - verified via `tests/e2e/{python,typescript}/`
-- [ ] Rust handler traits complete with examples (Phase 2)
+- [x] Rust handler traits complete with examples (Phase 2) - 755 lines in capability_examples.rs
 
 ### Quality Validation
 - [x] All new code has test coverage (351 Python tests, 578 TypeScript tests passing)
