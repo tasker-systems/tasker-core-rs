@@ -2077,36 +2077,6 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
-version = "0.18.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa0f4bea31643be4c6a678e9aa4ae44f0db9e5609d5ca9dc9083d06eb3e9a27a"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "base64 0.22.1",
- "bytecount",
- "clap",
- "fancy-regex",
- "fraction",
- "getrandom 0.2.16",
- "iso8601",
- "itoa",
- "memchr",
- "num-cmp",
- "once_cell",
- "parking_lot",
- "percent-encoding",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "time",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "jsonschema"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2eef4e82b548e08ac880d307c8e8838b45f497a08d3202f3b26c9debaed8058"
@@ -4587,7 +4557,7 @@ dependencies = [
  "fastrand",
  "futures",
  "is-terminal",
- "jsonschema 0.18.3",
+ "jsonschema",
  "jsonwebtoken",
  "opentelemetry",
  "opentelemetry-appender-tracing",
@@ -6091,7 +6061,7 @@ checksum = "4f51e37f5b47f66d317ead2aead811c941efd4a88e6cd2e6c2ac06d6f3c51e1f"
 dependencies = [
  "cargo_metadata",
  "glob",
- "jsonschema 0.20.0",
+ "jsonschema",
  "schemars",
  "secrecy",
  "serde",
