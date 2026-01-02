@@ -1,8 +1,8 @@
 # API Convergence Matrix
 
-**Last Updated**: 2025-12-21
+**Last Updated**: 2026-01-01
 **Status**: Active
-**Related Tickets**: TAS-92, TAS-95, TAS-96, TAS-97, TAS-98
+**Related Tickets**: TAS-92, TAS-95, TAS-96, TAS-97, TAS-98, TAS-112
 
 <- Back to [Worker Crates Overview](README.md)
 
@@ -10,7 +10,13 @@
 
 ## Overview
 
-This document provides a quick reference for the aligned APIs across Ruby, Python, and Rust worker implementations. All three languages now share consistent patterns for handler execution, result creation, and registry operations.
+This document provides a quick reference for the aligned APIs across Ruby, Python, TypeScript, and Rust worker implementations. All four languages share consistent patterns for handler execution, result creation, registry operations, and composition via mixins/traits.
+
+**TAS-112 Updates (2026-01-01)**:
+- Added TypeScript to all cross-language tables
+- Added composition pattern (mixin/trait) documentation
+- Added lifecycle hooks for publishers and subscribers
+- Updated domain events section with cross-language parity
 
 ---
 
@@ -20,13 +26,37 @@ This document provides a quick reference for the aligned APIs across Ruby, Pytho
 |----------|------------|-----------|
 | Ruby | `TaskerCore::StepHandler::Base` | `def call(context)` |
 | Python | `BaseStepHandler` | `def call(self, context: StepContext) -> StepHandlerResult` |
+| TypeScript | `StepHandler` | `async call(context: StepContext): Promise<StepHandlerResult>` |
 | Rust | `StepHandler` trait | `async fn call(&self, step_data: &TaskSequenceStep) -> StepExecutionResult` |
 
 ---
 
-## StepContext Fields (Ruby/Python)
+## Composition Pattern (TAS-112)
 
-The `StepContext` provides unified access to step execution data across Ruby and Python.
+All languages use composition via mixins/traits rather than inheritance hierarchies.
+
+### Handler Composition
+
+| Language | Base | Mixin Syntax | Example |
+|----------|------|--------------|---------|
+| Ruby | `StepHandler::Base` | `include Mixins::API` | `class Handler < Base; include Mixins::API` |
+| Python | `StepHandler` | Multiple inheritance | `class Handler(StepHandler, APIMixin)` |
+| TypeScript | `StepHandler` | `applyAPI(this)` | Mixin functions applied in constructor |
+| Rust | `impl StepHandler` | `impl APICapable` | Multiple trait implementations |
+
+### Available Mixins/Traits
+
+| Capability | Ruby | Python | TypeScript | Rust |
+|------------|------|--------|------------|------|
+| API | `Mixins::API` | `APIMixin` | `applyAPI()` | `APICapable` |
+| Decision | `Mixins::Decision` | `DecisionMixin` | `applyDecision()` | `DecisionCapable` |
+| Batchable | `Mixins::Batchable` | `BatchableMixin` | `BatchableHandler` | `BatchableCapable` |
+
+---
+
+## StepContext Fields
+
+The `StepContext` provides unified access to step execution data across Ruby, Python, and TypeScript.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -121,37 +151,43 @@ Use these standard values for consistent error classification:
 
 ### API Handler
 
-| Operation | Ruby | Python |
-|-----------|------|--------|
-| GET | `get(path, params: {}, headers: {})` | `self.get(path, params={}, headers={})` |
-| POST | `post(path, data: {}, headers: {})` | `self.post(path, data={}, headers={})` |
-| PUT | `put(path, data: {}, headers: {})` | `self.put(path, data={}, headers={})` |
-| DELETE | `delete(path, params: {}, headers: {})` | `self.delete(path, params={}, headers={})` |
+| Operation | Ruby | Python | TypeScript |
+|-----------|------|--------|------------|
+| GET | `get(path, params: {}, headers: {})` | `self.get(path, params={}, headers={})` | `this.get(path, params?, headers?)` |
+| POST | `post(path, data: {}, headers: {})` | `self.post(path, data={}, headers={})` | `this.post(path, data?, headers?)` |
+| PUT | `put(path, data: {}, headers: {})` | `self.put(path, data={}, headers={})` | `this.put(path, data?, headers?)` |
+| DELETE | `delete(path, params: {}, headers: {})` | `self.delete(path, params={}, headers={})` | `this.delete(path, params?, headers?)` |
 
 ### Decision Handler
 
 | Language | Simple API | Result Fields |
 |----------|------------|---------------|
-| Ruby | `decision_success(steps:, result_data:)` | `decision_point_outcome: { type, step_names }` |
+| Ruby | `decision_success(steps:, routing_context:)` | `decision_point_outcome: { type, step_names }` |
 | Python | `decision_success(steps, routing_context)` | `decision_point_outcome: { type, step_names }` |
-| Rust | Result with `activated_steps` field | Pattern-based |
+| TypeScript | `decisionSuccess(steps, routingContext?)` | `decision_point_outcome: { type, step_names }` |
+| Rust | `decision_success(step_uuid, step_names, ...)` | Pattern-based |
 
-**Decision Helper Methods:**
-- `decision_success(steps:, result_data:)` - Create dynamic steps
-- `decision_no_branches(result_data:)` - Skip conditional steps
+**Decision Helper Methods (Cross-Language):**
+- `decision_success(steps, routing_context)` - Create dynamic steps
+- `skip_branches(reason, routing_context)` - Skip all conditional branches
+- `decision_failure(message, error_type)` - Decision could not be made
 
 ### Batchable Handler
 
-| Operation | Ruby | Python |
-|-----------|------|--------|
-| Get Context | `get_batch_context(context)` | `get_batch_context(context)` |
-| Complete Batch | `batch_worker_complete(processed_count:, result_data:)` | `batch_worker_complete(processed_count, result_data)` |
-| Handle No-Op | `handle_no_op_worker(batch_ctx)` | `handle_no_op_worker(batch_ctx)` |
+| Operation | Ruby | Python | TypeScript |
+|-----------|------|--------|------------|
+| Get Context | `get_batch_context(context)` | `get_batch_context(context)` | `getBatchContext(context)` |
+| Complete Batch | `batch_worker_complete(processed_count:, result_data:)` | `batch_worker_complete(processed_count, result_data)` | `batchWorkerComplete(processedCount, resultData)` |
+| Handle No-Op | `handle_no_op_worker(batch_ctx)` | `handle_no_op_worker(batch_ctx)` | `handleNoOpWorker(batchCtx)` |
 
 **Standard Batch Result Fields:**
 - `processed_count` / `items_processed`
 - `items_succeeded` / `items_failed`
 - `start_cursor`, `end_cursor`, `batch_size`, `last_cursor`
+
+**Cursor Indexing (TAS-112):**
+- All languages use **0-indexed cursors** (start at 0, not 1)
+- Ruby was updated from 1-indexed to 0-indexed for consistency
 
 ---
 
@@ -163,7 +199,19 @@ Use these standard values for consistent error classification:
 |----------|------------|------------|
 | Ruby | `TaskerCore::DomainEvents::BasePublisher` | `publish(ctx)` |
 | Python | `BasePublisher` | `publish(ctx)` |
+| TypeScript | `BasePublisher` | `publish(ctx)` |
 | Rust | `StepEventPublisher` trait | `publish(ctx)` |
+
+### Publisher Lifecycle Hooks (TAS-112)
+
+All languages support publisher lifecycle hooks for instrumentation:
+
+| Hook | Ruby | Python | TypeScript | Description |
+|------|------|--------|------------|-------------|
+| Before Publish | `before_publish(ctx)` | `before_publish(ctx)` | `beforePublish(ctx)` | Called before publishing |
+| After Publish | `after_publish(ctx, result)` | `after_publish(ctx, result)` | `afterPublish(ctx, result)` | Called after successful publish |
+| On Error | `on_publish_error(ctx, error)` | `on_publish_error(ctx, error)` | `onPublishError(ctx, error)` | Called on publish failure |
+| Metadata | `additional_metadata(ctx)` | `additional_metadata(ctx)` | `additionalMetadata(ctx)` | Inject custom metadata |
 
 ### StepEventContext Fields
 
@@ -183,34 +231,65 @@ Use these standard values for consistent error classification:
 |----------|------------|-------------|
 | Ruby | `TaskerCore::DomainEvents::BaseSubscriber` | `subscribes_to`, `handle(event)` |
 | Python | `BaseSubscriber` | `subscribes_to()`, `handle(event)` |
+| TypeScript | `BaseSubscriber` | `subscribesTo()`, `handle(event)` |
 | Rust | EventHandler closures | N/A |
+
+### Subscriber Lifecycle Hooks (TAS-112)
+
+All languages support subscriber lifecycle hooks:
+
+| Hook | Ruby | Python | TypeScript | Description |
+|------|------|--------|------------|-------------|
+| Before Handle | `before_handle(event)` | `before_handle(event)` | `beforeHandle(event)` | Called before handling |
+| After Handle | `after_handle(event, result)` | `after_handle(event, result)` | `afterHandle(event, result)` | Called after handling |
+| On Error | `on_handle_error(event, error)` | `on_handle_error(event, error)` | `onHandleError(event, error)` | Called on handler failure |
+
+### Registries
+
+| Language | Publisher Registry | Subscriber Registry |
+|----------|-------------------|---------------------|
+| Ruby | `PublisherRegistry.instance` | `SubscriberRegistry.instance` |
+| Python | `PublisherRegistry.instance()` | `SubscriberRegistry.instance()` |
+| TypeScript | `PublisherRegistry.getInstance()` | `SubscriberRegistry.getInstance()` |
 
 ---
 
 ## Migration Summary
 
-### Ruby (TAS-96)
+### Ruby (TAS-96, TAS-112)
 
 | Before | After |
 |--------|-------|
 | `def call(task, sequence, step)` | `def call(context)` |
+| `class Handler < API` | `class Handler < Base; include Mixins::API` |
 | `task.context['field']` | `context.get_task_field('field')` |
 | `sequence.get_results('step')` | `context.get_dependency_result('step')` |
-| `step.results` | `context.workflow_step.results` |
+| 1-indexed cursors | 0-indexed cursors |
 
-### Python (TAS-95)
+### Python (TAS-95, TAS-112)
 
 | Before | After |
 |--------|-------|
 | `def handle(self, task, sequence, step)` | `def call(self, context)` |
+| `class Handler(APIHandler)` | `class Handler(StepHandler, APIMixin)` |
 | N/A | `self.success(result, metadata)` |
-| N/A | `self.failure(message, error_type, ...)` |
+| N/A | Publisher/Subscriber lifecycle hooks |
 
-### Rust (TAS-97)
+### TypeScript (TAS-112)
+
+| Before | After |
+|--------|-------|
+| `class Handler extends APIHandler` | `class Handler extends StepHandler implements APICapable` |
+| No domain events | Complete domain events module |
+| N/A | Publisher/Subscriber lifecycle hooks |
+| N/A | `applyAPI(this)`, `applyDecision(this)` mixins |
+
+### Rust (TAS-97, TAS-112)
 
 | Before | After |
 |--------|-------|
 | (already aligned) | (already aligned) |
+| N/A | `APICapable`, `DecisionCapable`, `BatchableCapable` traits |
 
 ---
 
@@ -220,4 +299,7 @@ Use these standard values for consistent error classification:
 - [Patterns and Practices](patterns-and-practices.md) - Common patterns
 - [Ruby Worker](ruby.md) - Ruby implementation details
 - [Python Worker](python.md) - Python implementation details
+- [TypeScript Worker](typescript.md) - TypeScript implementation details
 - [Rust Worker](rust.md) - Rust implementation details
+- [Composition Over Inheritance](../principles/composition-over-inheritance.md) - Why mixins over inheritance
+- [FFI Boundary Types](../reference/ffi-boundary-types.md) - Cross-language type alignment

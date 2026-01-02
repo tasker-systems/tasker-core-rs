@@ -1,10 +1,11 @@
 # Python Worker
 
-**Last Updated**: 2025-12-17
+**Last Updated**: 2026-01-01
 **Audience**: Python Developers
 **Status**: Active
 **Package**: `tasker_core`
-**Related Docs**: [Patterns and Practices](patterns-and-practices.md) | [Worker Event Systems](../worker-event-systems.md)
+**Related Docs**: [Patterns and Practices](patterns-and-practices.md) | [Worker Event Systems](../worker-event-systems.md) | [API Convergence Matrix](api-convergence-matrix.md)
+**Related Tickets**: TAS-112 (Lifecycle Hooks, Mixin Pattern)
 
 <- Back to [Worker Crates Overview](README.md)
 
@@ -250,6 +251,51 @@ def call(self, context: StepContext) -> StepHandlerResult:
         return self.success(result={"processed": True})
 
     return self.failure("Validation failed", retryable=False)
+```
+
+---
+
+## Composition Pattern (TAS-112)
+
+Python handlers use composition via mixins (multiple inheritance) rather than single inheritance.
+
+### Using Mixins (Recommended for New Code)
+
+```python
+from tasker_core.step_handler import StepHandler
+from tasker_core.step_handler.mixins import APIMixin, DecisionMixin
+
+class MyHandler(StepHandler, APIMixin, DecisionMixin):
+    handler_name = "my_handler"
+
+    def call(self, context: StepContext) -> StepHandlerResult:
+        # Has both API methods (get, post, put, delete)
+        # And Decision methods (decision_success, skip_branches)
+        response = self.get("/api/endpoint")
+        return self.decision_success(["next_step"], response)
+```
+
+### Available Mixins
+
+| Mixin | Location | Methods Provided |
+|-------|----------|------------------|
+| `APIMixin` | `mixins/api.py` | `get`, `post`, `put`, `delete`, `http_client` |
+| `DecisionMixin` | `mixins/decision.py` | `decision_success`, `skip_branches`, `decision_failure` |
+| `BatchableMixin` | (base class) | `get_batch_context`, `handle_no_op_worker`, `create_cursor_configs` |
+
+### Using Wrapper Classes (Backward Compatible)
+
+The wrapper classes delegate to mixins internally:
+
+```python
+# These are equivalent:
+class MyHandler(ApiHandler):
+    # Inherits API methods via APIMixin internally
+    pass
+
+class MyHandler(StepHandler, APIMixin):
+    # Explicit mixin inclusion
+    pass
 ```
 
 ---
@@ -621,6 +667,115 @@ print(f"Pending: {metrics.pending_count}")
 
 # Stop polling
 poller.stop(timeout=5.0)
+```
+
+---
+
+## Domain Events (TAS-112)
+
+Python has full domain event support with lifecycle hooks matching Ruby and TypeScript capabilities.
+
+**Location**: `python/tasker_core/domain_events.py`
+
+### BasePublisher
+
+Publishers transform step execution context into domain-specific events:
+
+```python
+from tasker_core.domain_events import BasePublisher, StepEventContext, DomainEvent
+
+class PaymentEventPublisher(BasePublisher):
+    publisher_name = "payment_events"
+
+    def publishes_for(self) -> list[str]:
+        """Which steps trigger this publisher."""
+        return ["process_payment", "refund_payment"]
+
+    async def transform_payload(self, ctx: StepEventContext) -> dict:
+        """Transform step context into domain event payload."""
+        return {
+            "payment_id": ctx.result.get("payment_id"),
+            "amount": ctx.result.get("amount"),
+            "currency": ctx.result.get("currency"),
+            "status": ctx.result.get("status")
+        }
+
+    # Lifecycle hooks (optional)
+    async def before_publish(self, ctx: StepEventContext) -> None:
+        """Called before publishing."""
+        print(f"Publishing payment event for step: {ctx.step_name}")
+
+    async def after_publish(self, ctx: StepEventContext, event: DomainEvent) -> None:
+        """Called after successful publish."""
+        print(f"Published event: {event.event_name}")
+
+    async def on_publish_error(self, ctx: StepEventContext, error: Exception) -> None:
+        """Called on publish failure."""
+        print(f"Failed to publish: {error}")
+
+    async def additional_metadata(self, ctx: StepEventContext) -> dict:
+        """Inject custom metadata."""
+        return {"payment_processor": "stripe"}
+```
+
+### BaseSubscriber
+
+Subscribers react to domain events matching specific patterns:
+
+```python
+from tasker_core.domain_events import BaseSubscriber, InProcessDomainEvent, SubscriberResult
+
+class AuditLoggingSubscriber(BaseSubscriber):
+    subscriber_name = "audit_logger"
+
+    def subscribes_to(self) -> list[str]:
+        """Which events to handle (glob patterns supported)."""
+        return ["payment.*", "order.completed"]
+
+    async def handle(self, event: InProcessDomainEvent) -> SubscriberResult:
+        """Handle matching events."""
+        await self.log_to_audit_trail(event)
+        return SubscriberResult(success=True)
+
+    # Lifecycle hooks (optional)
+    async def before_handle(self, event: InProcessDomainEvent) -> None:
+        """Called before handling."""
+        print(f"Handling: {event.event_name}")
+
+    async def after_handle(self, event: InProcessDomainEvent, result: SubscriberResult) -> None:
+        """Called after handling."""
+        print(f"Handled successfully: {result.success}")
+
+    async def on_handle_error(self, event: InProcessDomainEvent, error: Exception) -> None:
+        """Called on handler failure."""
+        print(f"Handler error: {error}")
+```
+
+### Registries
+
+Manage publishers and subscribers with singleton registries:
+
+```python
+from tasker_core.domain_events import PublisherRegistry, SubscriberRegistry
+
+# Publisher Registry
+pub_registry = PublisherRegistry.instance()
+pub_registry.register(PaymentEventPublisher)
+pub_registry.register(OrderEventPublisher)
+
+# Get publisher for a step
+publisher = pub_registry.get_for_step("process_payment")
+
+# Subscriber Registry
+sub_registry = SubscriberRegistry.instance()
+sub_registry.register(AuditLoggingSubscriber)
+sub_registry.register(MetricsSubscriber)
+
+# Start all subscribers
+sub_registry.start_all()
+
+# Stop all subscribers
+sub_registry.stop_all()
 ```
 
 ---

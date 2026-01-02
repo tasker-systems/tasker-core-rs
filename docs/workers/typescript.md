@@ -1,10 +1,11 @@
 # TypeScript Worker
 
-**Last Updated**: 2025-12-27
+**Last Updated**: 2026-01-01
 **Audience**: TypeScript/JavaScript Developers
 **Status**: Active
 **Package**: `tasker-worker-ts`
-**Related Docs**: [Patterns and Practices](patterns-and-practices.md) | [Worker Event Systems](../worker-event-systems.md)
+**Related Docs**: [Patterns and Practices](patterns-and-practices.md) | [Worker Event Systems](../worker-event-systems.md) | [API Convergence Matrix](api-convergence-matrix.md)
+**Related Tickets**: TAS-112 (Domain Events, Mixin Pattern)
 
 <- Back to [Worker Crates Overview](README.md)
 
@@ -287,6 +288,40 @@ async call(context: StepContext): Promise<StepHandlerResult> {
 ---
 
 ## Specialized Handlers
+
+### Mixin Pattern (TAS-112)
+
+TypeScript uses composition via mixins rather than inheritance. You can use either:
+1. **Wrapper classes** (ApiHandler, DecisionHandler) - simpler, backward compatible
+2. **Mixin functions** (applyAPI, applyDecision) - explicit composition
+
+```typescript
+import { StepHandler } from 'tasker-worker-ts';
+import { applyAPI, APICapable } from 'tasker-worker-ts';
+
+// Using mixin pattern (recommended for new code)
+class MyHandler extends StepHandler implements APICapable {
+  constructor() {
+    super();
+    applyAPI(this);  // Adds get/post/put/delete methods
+  }
+
+  async call(context: StepContext): Promise<StepHandlerResult> {
+    const response = await this.get('/api/data');
+    return this.apiSuccess(response);
+  }
+}
+
+// Or using wrapper class (simpler, backward compatible)
+import { ApiHandler } from 'tasker-worker-ts';
+
+class MyHandler extends ApiHandler {
+  async call(context: StepContext): Promise<StepHandlerResult> {
+    const response = await this.get('/api/data');
+    return this.apiSuccess(response);
+  }
+}
+```
 
 ### API Handler
 
@@ -692,6 +727,146 @@ poller.stop();
 
 ---
 
+## Domain Events (TAS-112)
+
+TypeScript has full domain event support, matching Ruby and Python capabilities. The domain events module provides BasePublisher, BaseSubscriber, and registries for custom event handling.
+
+**Location**: `workers/typescript/src/handler/domain-events.ts`
+
+### BasePublisher
+
+Publishers transform step execution context into domain-specific events:
+
+```typescript
+import { BasePublisher, StepEventContext, DomainEvent } from 'tasker-worker-ts';
+
+export class PaymentEventPublisher extends BasePublisher {
+  static publisherName = 'payment_events';
+
+  // Required: which steps trigger this publisher
+  publishesFor(): string[] {
+    return ['process_payment', 'refund_payment'];
+  }
+
+  // Transform step context into domain event
+  async transformPayload(ctx: StepEventContext): Promise<Record<string, unknown>> {
+    return {
+      payment_id: ctx.result?.payment_id,
+      amount: ctx.result?.amount,
+      currency: ctx.result?.currency,
+      status: ctx.result?.status
+    };
+  }
+
+  // Lifecycle hooks (optional)
+  async beforePublish(ctx: StepEventContext): Promise<void> {
+    console.log(`Publishing payment event for step: ${ctx.stepName}`);
+  }
+
+  async afterPublish(ctx: StepEventContext, event: DomainEvent): Promise<void> {
+    console.log(`Published event: ${event.eventName}`);
+  }
+
+  async onPublishError(ctx: StepEventContext, error: Error): Promise<void> {
+    console.error(`Failed to publish: ${error.message}`);
+  }
+
+  // Inject custom metadata
+  async additionalMetadata(ctx: StepEventContext): Promise<Record<string, unknown>> {
+    return { payment_processor: 'stripe' };
+  }
+}
+```
+
+### BaseSubscriber
+
+Subscribers react to domain events matching specific patterns:
+
+```typescript
+import { BaseSubscriber, InProcessDomainEvent, SubscriberResult } from 'tasker-worker-ts';
+
+export class AuditLoggingSubscriber extends BaseSubscriber {
+  static subscriberName = 'audit_logger';
+
+  // Which events to handle (glob patterns supported)
+  subscribesTo(): string[] {
+    return ['payment.*', 'order.completed'];
+  }
+
+  // Handle matching events
+  async handle(event: InProcessDomainEvent): Promise<SubscriberResult> {
+    await this.logToAuditTrail(event);
+    return { success: true };
+  }
+
+  // Lifecycle hooks (optional)
+  async beforeHandle(event: InProcessDomainEvent): Promise<void> {
+    console.log(`Handling: ${event.eventName}`);
+  }
+
+  async afterHandle(event: InProcessDomainEvent, result: SubscriberResult): Promise<void> {
+    console.log(`Handled successfully: ${result.success}`);
+  }
+
+  async onHandleError(event: InProcessDomainEvent, error: Error): Promise<void> {
+    console.error(`Handler error: ${error.message}`);
+  }
+}
+```
+
+### Registries
+
+Manage publishers and subscribers with singleton registries:
+
+```typescript
+import { PublisherRegistry, SubscriberRegistry } from 'tasker-worker-ts';
+
+// Publisher Registry
+const pubRegistry = PublisherRegistry.getInstance();
+pubRegistry.register(PaymentEventPublisher);
+pubRegistry.register(OrderEventPublisher);
+pubRegistry.freeze(); // Prevent further registrations
+
+// Get publisher for a step
+const publisher = pubRegistry.getForStep('process_payment');
+
+// Subscriber Registry
+const subRegistry = SubscriberRegistry.getInstance();
+subRegistry.register(AuditLoggingSubscriber);
+subRegistry.register(MetricsSubscriber);
+
+// Start all subscribers
+subRegistry.startAll();
+
+// Stop all subscribers
+subRegistry.stopAll();
+```
+
+### FFI Integration
+
+Domain events integrate with the Rust FFI layer for cross-language event flow:
+
+```typescript
+import { createFfiPollAdapter, InProcessDomainEventPoller } from 'tasker-worker-ts';
+
+// Create poller connected to Rust broadcast channel
+const poller = new InProcessDomainEventPoller();
+
+// Set the FFI poll function
+poller.setPollFunction(createFfiPollAdapter(runtime));
+
+// Start polling for events
+poller.start((event) => {
+  // Route to appropriate subscriber
+  const subscribers = subRegistry.getMatchingSubscribers(event.eventName);
+  for (const sub of subscribers) {
+    sub.handle(event);
+  }
+});
+```
+
+---
+
 ## Signal Handling
 
 The TypeScript worker handles signals for graceful shutdown:
@@ -813,7 +988,12 @@ workers/typescript/
 │   │   ├── api.ts              # API handler
 │   │   ├── decision.ts         # Decision handler
 │   │   ├── batchable.ts        # Batchable handler
-│   │   └── registry.ts         # Handler registry
+│   │   ├── domain-events.ts    # Domain events module (TAS-112)
+│   │   ├── registry.ts         # Handler registry
+│   │   └── mixins/             # Mixin modules (TAS-112)
+│   │       ├── index.ts        # Mixin exports
+│   │       ├── api.ts          # APIMixin, applyAPI
+│   │       └── decision.ts     # DecisionMixin, applyDecision
 │   ├── server/
 │   │   ├── worker-server.ts    # Server implementation
 │   │   └── types.ts            # Server types
