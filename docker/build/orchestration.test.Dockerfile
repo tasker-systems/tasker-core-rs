@@ -134,10 +134,11 @@ ENV SQLX_OFFLINE=true
 # OPTIMIZATION 5: Build with cache mounts and copy binary in single layer
 # This avoids the inefficient double-copy pattern
 # Use sharing=locked to prevent concurrent access issues
+# IMPORTANT: Use --locked to ensure Cargo.lock is respected (prevents serde version conflicts)
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    cargo build --all-features --bin tasker-server -p tasker-orchestration && \
+    cargo build --all-features --locked --bin tasker-server -p tasker-orchestration && \
     cp /app/target/debug/tasker-server /app/tasker-server
 
 # =============================================================================

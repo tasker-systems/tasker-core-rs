@@ -98,11 +98,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Compile Python FFI extensions with cache mounts for incremental builds
 # maturin will handle all Rust compilation
+# IMPORTANT: Use --locked to ensure Cargo.lock is respected (prevents serde version conflicts)
 RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
     --mount=type=cache,target=/root/.cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
     --mount=type=cache,target=/root/.cache/uv \
-    maturin develop --release
+    maturin develop --release --locked
 
 # =============================================================================
 # Runtime - Python-driven worker image

@@ -78,6 +78,8 @@ RUN bundle install
 
 # Compile Ruby FFI extensions with cache mounts for incremental builds
 # rb_sys will handle all Rust compilation via bundle exec rake compile
+# IMPORTANT: Use --locked to ensure Cargo.lock is respected (prevents serde version conflicts)
+ENV RB_SYS_CARGO_BUILD_ARGS="--locked"
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \

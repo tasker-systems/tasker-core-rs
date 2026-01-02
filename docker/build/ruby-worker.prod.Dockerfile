@@ -73,6 +73,8 @@ RUN bundle install
 
 ENV SQLX_OFFLINE=true
 ENV RB_SYS_CARGO_PROFILE=release
+# IMPORTANT: Use --locked to ensure Cargo.lock is respected (prevents serde version conflicts)
+ENV RB_SYS_CARGO_BUILD_ARGS="--locked"
 # Compile Ruby FFI extensions
 # rb_sys will handle all Rust compilation via bundle exec rake compile
 RUN bundle exec rake compile

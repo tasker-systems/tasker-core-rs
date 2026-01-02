@@ -40,7 +40,7 @@ import { StepHandler } from './base.js';
 import { DecisionMixin, type DecisionPointOutcome } from './mixins/decision.js';
 
 // Re-export types from mixin for backward compatibility
-export { DecisionType, type DecisionPointOutcome } from './mixins/decision.js';
+export { type DecisionPointOutcome, DecisionType } from './mixins/decision.js';
 
 /**
  * Base class for decision point step handlers.

@@ -145,7 +145,7 @@ class DecisionMixin:
         combined_metadata["decision_handler"] = self.name  # type: ignore[attr-defined]
         combined_metadata["decision_version"] = self.version  # type: ignore[attr-defined]
 
-        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined]
+        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined, no-any-return]
 
     def decision_no_branches(
         self,
@@ -189,7 +189,7 @@ class DecisionMixin:
         combined_metadata["decision_handler"] = self.name  # type: ignore[attr-defined]
         combined_metadata["decision_version"] = self.version  # type: ignore[attr-defined]
 
-        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined]
+        return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined, no-any-return]
 
     def route_to_steps(
         self,
@@ -277,7 +277,7 @@ class DecisionMixin:
         combined_metadata["decision_handler"] = self.name  # type: ignore[attr-defined]
         combined_metadata["decision_version"] = self.version  # type: ignore[attr-defined]
 
-        return self.failure(  # type: ignore[attr-defined]
+        return self.failure(  # type: ignore[attr-defined, no-any-return]
             message=message,
             error_type=error_type,
             retryable=retryable,

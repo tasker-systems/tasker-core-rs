@@ -35,7 +35,7 @@
 
 import type { StepHandlerResult } from '../types/step-handler-result.js';
 import { StepHandler } from './base.js';
-import { APIMixin, ApiResponse } from './mixins/api.js';
+import { APIMixin, type ApiResponse } from './mixins/api.js';
 
 // Re-export ApiResponse for convenience
 export { ApiResponse } from './mixins/api.js';
@@ -79,12 +79,19 @@ export abstract class ApiHandler extends StepHandler {
   /** Default headers to include in all requests. */
   static defaultHeaders: Record<string, string> = {};
 
-  private readonly _apiMixin = new APIMixin();
+  // APIMixin instance configured with this handler's settings
+  private _apiMixin: APIMixin | null = null;
 
-  constructor() {
-    super();
-    // We need to bind the mixin methods to this instance
-    // so they can access the correct baseUrl, timeout, and defaultHeaders
+  private getApiMixin(): APIMixin {
+    if (!this._apiMixin) {
+      const ConfiguredMixin = class extends APIMixin {
+        static override baseUrl = this.baseUrl;
+        static override defaultTimeout = this.timeout;
+        static override defaultHeaders = this.defaultHeaders;
+      };
+      this._apiMixin = new ConfiguredMixin();
+    }
+    return this._apiMixin;
   }
 
   get capabilities(): string[] {
@@ -124,7 +131,7 @@ export abstract class ApiHandler extends StepHandler {
     params?: Record<string, unknown>,
     headers?: Record<string, string>
   ): Promise<ApiResponse> {
-    return this._apiMixin.get.call(this, path, params, headers);
+    return this.getApiMixin().get(path, params, headers);
   }
 
   protected post(
@@ -135,7 +142,7 @@ export abstract class ApiHandler extends StepHandler {
       headers?: Record<string, string>;
     }
   ): Promise<ApiResponse> {
-    return this._apiMixin.post.call(this, path, options);
+    return this.getApiMixin().post(path, options);
   }
 
   protected put(
@@ -146,7 +153,7 @@ export abstract class ApiHandler extends StepHandler {
       headers?: Record<string, string>;
     }
   ): Promise<ApiResponse> {
-    return this._apiMixin.put.call(this, path, options);
+    return this.getApiMixin().put(path, options);
   }
 
   protected patch(
@@ -157,15 +164,15 @@ export abstract class ApiHandler extends StepHandler {
       headers?: Record<string, string>;
     }
   ): Promise<ApiResponse> {
-    return this._apiMixin.patch.call(this, path, options);
+    return this.getApiMixin().patch(path, options);
   }
 
   protected delete(path: string, headers?: Record<string, string>): Promise<ApiResponse> {
-    return this._apiMixin.delete.call(this, path, headers);
+    return this.getApiMixin().delete(path, headers);
   }
 
   protected request(method: string, path: string, options?: RequestInit): Promise<ApiResponse> {
-    return this._apiMixin.request.call(this, method, path, options);
+    return this.getApiMixin().request(method, path, options);
   }
 
   // =========================================================================
@@ -177,18 +184,18 @@ export abstract class ApiHandler extends StepHandler {
     result?: Record<string, unknown>,
     includeResponse = true
   ): StepHandlerResult {
-    return this._apiMixin.apiSuccess.call(this, response, result, includeResponse);
+    return this.getApiMixin().apiSuccess(response, result, includeResponse);
   }
 
   protected apiFailure(response: ApiResponse, message?: string): StepHandlerResult {
-    return this._apiMixin.apiFailure.call(this, response, message);
+    return this.getApiMixin().apiFailure(response, message);
   }
 
   protected connectionError(error: Error, context?: string): StepHandlerResult {
-    return this._apiMixin.connectionError.call(this, error, context);
+    return this.getApiMixin().connectionError(error, context);
   }
 
   protected timeoutError(error: Error, context?: string): StepHandlerResult {
-    return this._apiMixin.timeoutError.call(this, error, context);
+    return this.getApiMixin().timeoutError(error, context);
   }
 }

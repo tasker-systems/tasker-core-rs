@@ -425,9 +425,7 @@ module TaskerCore
           # Check for next URL in headers (Link header)
           if (headers = response[:headers] || response['headers'])
             link_header = headers['Link'] || headers['link']
-            if link_header&.include?('rel="next"')
-              return extract_param_from_link_header(link_header, pagination_key)
-            end
+            return extract_param_from_link_header(link_header, pagination_key) if link_header&.include?('rel="next"')
           end
 
           nil

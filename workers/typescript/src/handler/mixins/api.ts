@@ -476,7 +476,10 @@ export class APIMixin implements APICapable {
     return url;
   }
 
-  private mergeHeaders(additional?: Record<string, string>, isJson = false): Record<string, string> {
+  private mergeHeaders(
+    additional?: Record<string, string>,
+    isJson = false
+  ): Record<string, string> {
     const headers = { ...this.defaultHeaders };
 
     if (isJson && !headers['Content-Type']) {

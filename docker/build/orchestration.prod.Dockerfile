@@ -97,7 +97,8 @@ COPY workers/rust/Cargo.toml ./workers/rust/
 ENV SQLX_OFFLINE=true
 
 # Build optimized release binary
-RUN cargo build --release --all-features --bin tasker-server -p tasker-orchestration
+# IMPORTANT: Use --locked to ensure Cargo.lock is respected (prevents serde version conflicts)
+RUN cargo build --release --all-features --locked --bin tasker-server -p tasker-orchestration
 
 # Strip binary for minimal size
 RUN strip target/release/tasker-server

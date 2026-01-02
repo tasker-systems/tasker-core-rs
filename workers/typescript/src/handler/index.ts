@@ -16,9 +16,6 @@ export type { Batchable } from './batchable.js';
 export { applyBatchable, BatchableMixin } from './batchable.js';
 export type { DecisionPointOutcome } from './decision.js';
 export { DecisionHandler, DecisionType } from './decision.js';
-// TAS-112: Composition pattern mixins
-export type { APICapable, DecisionCapable } from './mixins/index.js';
-export { APIMixin, applyAPI, applyDecision, DecisionMixin } from './mixins/index.js';
 // Domain events (TAS-112/TAS-122)
 export {
   // Abstract base classes
@@ -56,5 +53,8 @@ export {
   SubscriberRegistry,
   type SubscriberStats,
 } from './domain-events';
+// TAS-112: Composition pattern mixins
+export type { APICapable, DecisionCapable } from './mixins/index.js';
+export { APIMixin, applyAPI, applyDecision, DecisionMixin } from './mixins/index.js';
 // Handler registry
 export { HandlerRegistry } from './registry';

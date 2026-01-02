@@ -72,10 +72,11 @@ COPY migrations/ ./migrations/
 ENV SQLX_OFFLINE=true
 
 # Build Rust FFI extension with cache mounts for incremental builds
+# IMPORTANT: Use --locked to ensure Cargo.lock is respected (prevents serde version conflicts)
 RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
     --mount=type=cache,target=/root/.cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    cargo build -p tasker-worker-ts --release && \
+    cargo build -p tasker-worker-ts --release --locked && \
     # Copy the built library to a known location outside the cache
     mkdir -p /app/lib && \
     cp /app/target/release/libtasker_worker.so /app/lib/ 2>/dev/null || \

@@ -387,7 +387,7 @@ class APIMixin:
             metadata["status_code"] = response.status_code
             metadata["headers"] = response.headers
 
-        return self.success(result, metadata=metadata)  # type: ignore[attr-defined]
+        return self.success(result, metadata=metadata)  # type: ignore[attr-defined, no-any-return]
 
     def api_failure(
         self,
@@ -435,7 +435,7 @@ class APIMixin:
         if response.body:
             metadata["response_body"] = response.body
 
-        return self.failure(  # type: ignore[attr-defined]
+        return self.failure(  # type: ignore[attr-defined, no-any-return]
             message=message,
             error_type=error_type,
             retryable=retryable,
@@ -551,7 +551,7 @@ class APIMixin:
         if context:
             message = f"Connection error while {context}: {error}"
 
-        return self.failure(  # type: ignore[attr-defined]
+        return self.failure(  # type: ignore[attr-defined, no-any-return]
             message=message,
             error_type="connection_error",
             retryable=True,
@@ -578,7 +578,7 @@ class APIMixin:
         if context:
             message = f"Request timeout while {context}: {error}"
 
-        return self.failure(  # type: ignore[attr-defined]
+        return self.failure(  # type: ignore[attr-defined, no-any-return]
             message=message,
             error_type="timeout",
             retryable=True,

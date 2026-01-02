@@ -86,8 +86,7 @@ Gem::Specification.new do |spec|
 
     This gem provides high-performance Rust-powered workflow orchestration.
 
-    Documentation: https://github.com/tasker-systems/tasker-core/blob/main/docs/RUBY.md
-    Examples: https://github.com/tasker-systems/tasker-core/tree/main/examples
+    Documentation: https://github.com/tasker-systems/tasker-core/blob/main/docs/workers/ruby.md
 
     For Rails integration, see the tasker-engine gem documentation.
 

@@ -50,12 +50,11 @@ Mixin Pattern (Recommended for new code):
 
 from __future__ import annotations
 
+# TAS-112: Export mixins module for composition pattern
+from tasker_core.step_handler import mixins
 from tasker_core.step_handler.api import ApiHandler, ApiResponse
 from tasker_core.step_handler.base import StepHandler
 from tasker_core.step_handler.decision import DecisionHandler
-
-# TAS-112: Export mixins module for composition pattern
-from tasker_core.step_handler import mixins
 
 __all__ = [
     "StepHandler",
