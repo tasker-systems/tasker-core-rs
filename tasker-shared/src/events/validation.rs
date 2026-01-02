@@ -100,12 +100,11 @@ impl EventSchemaValidator {
         schema: Value,
     ) -> Result<(), EventValidationError> {
         // Compile JSON Schema with draft-07
-        let compiled = jsonschema::draft7::new(&schema).map_err(|e| {
-            EventValidationError::InvalidSchema {
+        let compiled =
+            jsonschema::draft7::new(&schema).map_err(|e| EventValidationError::InvalidSchema {
                 event_name: event_name.to_string(),
                 reason: e.to_string(),
-            }
-        })?;
+            })?;
 
         self.schemas.insert(event_name.to_string(), compiled);
         Ok(())

@@ -329,8 +329,8 @@ impl EventDeclaration {
     ///
     /// Returns an error if the payload does not match the schema
     pub fn validate_payload(&self, payload: &serde_json::Value) -> Result<(), String> {
-        let compiled_schema = Validator::new(&self.schema)
-            .map_err(|e| format!("Failed to compile schema: {}", e))?;
+        let compiled_schema =
+            Validator::new(&self.schema).map_err(|e| format!("Failed to compile schema: {}", e))?;
 
         let result = compiled_schema.validate(payload);
 
