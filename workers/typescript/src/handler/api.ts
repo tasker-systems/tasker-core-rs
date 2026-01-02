@@ -84,10 +84,19 @@ export abstract class ApiHandler extends StepHandler {
 
   private getApiMixin(): APIMixin {
     if (!this._apiMixin) {
+      // IMPORTANT: Variable capture is required here - DO NOT refactor to use `this.baseUrl` directly.
+      // Static class initializers cannot reference outer instance properties via `this`.
+      // In a static initializer context, `this` refers to the class being defined (ConfiguredMixin),
+      // not the outer ApiHandler instance. These local variables capture the instance values
+      // at runtime so they can be used in the static property initializers below.
+      const handlerBaseUrl = this.baseUrl;
+      const handlerTimeout = this.timeout;
+      const handlerHeaders = this.defaultHeaders;
+
       const ConfiguredMixin = class extends APIMixin {
-        static override baseUrl = this.baseUrl;
-        static override defaultTimeout = this.timeout;
-        static override defaultHeaders = this.defaultHeaders;
+        static override baseUrl = handlerBaseUrl;
+        static override defaultTimeout = handlerTimeout;
+        static override defaultHeaders = handlerHeaders;
       };
       this._apiMixin = new ConfiguredMixin();
     }

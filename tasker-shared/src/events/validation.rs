@@ -3,7 +3,7 @@
 //! Provides JSON Schema-based validation for event payloads to ensure type safety
 //! and contract compliance across the distributed system.
 
-use jsonschema::{Draft, JSONSchema};
+use jsonschema::Validator;
 use serde_json::Value;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -65,7 +65,7 @@ pub enum EventValidationError {
 /// ```
 #[derive(Debug)]
 pub struct EventSchemaValidator {
-    schemas: HashMap<String, JSONSchema>,
+    schemas: HashMap<String, Validator>,
 }
 
 impl EventSchemaValidator {
@@ -100,13 +100,12 @@ impl EventSchemaValidator {
         schema: Value,
     ) -> Result<(), EventValidationError> {
         // Compile JSON Schema with draft-07
-        let compiled = JSONSchema::options()
-            .with_draft(Draft::Draft7)
-            .compile(&schema)
-            .map_err(|e| EventValidationError::InvalidSchema {
+        let compiled = jsonschema::draft7::new(&schema).map_err(|e| {
+            EventValidationError::InvalidSchema {
                 event_name: event_name.to_string(),
                 reason: e.to_string(),
-            })?;
+            }
+        })?;
 
         self.schemas.insert(event_name.to_string(), compiled);
         Ok(())
