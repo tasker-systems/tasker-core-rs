@@ -57,6 +57,7 @@ pub mod batch_processing;
 pub mod bootstrap;
 pub mod config;
 pub mod error;
+pub mod handler_capabilities;
 pub mod health;
 pub mod web;
 pub mod worker;
@@ -75,3 +76,8 @@ pub use error::{Result, WorkerError};
 pub use health::WorkerHealthStatus;
 pub use tasker_shared::types::TaskSequenceStep;
 pub use worker::{WorkerCore, WorkerCoreStatus};
+
+// TAS-112: Re-export ergonomic capability traits for handler development
+pub use handler_capabilities::{
+    APICapable, BatchableCapable, DecisionCapable, ErrorClassification, HandlerCapabilities,
+};

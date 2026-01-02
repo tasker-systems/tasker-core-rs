@@ -528,3 +528,207 @@ describe('Batchable integration', () => {
     });
   });
 });
+
+// =============================================================================
+// BatchAggregationScenario Tests (TAS-112)
+// =============================================================================
+
+describe('BatchAggregationScenario', () => {
+  describe('detectAggregationScenario', () => {
+    test('should detect NoBatches scenario from batch_processing_outcome', () => {
+      const { detectAggregationScenario } = require('../../../src/handler/batchable');
+
+      const dependencyResults = {
+        analyze_csv: {
+          batch_processing_outcome: { type: 'no_batches' },
+          reason: 'empty_dataset',
+        },
+      };
+
+      const scenario = detectAggregationScenario(
+        dependencyResults,
+        'analyze_csv',
+        'process_csv_batch_'
+      );
+
+      expect(scenario.isNoBatches).toBe(true);
+      expect(scenario.workerCount).toBe(0);
+      expect(scenario.batchResults).toEqual({});
+      expect(scenario.batchableResult.reason).toBe('empty_dataset');
+    });
+
+    test('should detect WithBatches scenario', () => {
+      const { detectAggregationScenario } = require('../../../src/handler/batchable');
+
+      const dependencyResults = {
+        analyze_csv: {
+          batch_processing_outcome: { type: 'create_batches', worker_count: 3 },
+        },
+        process_csv_batch_001: { items_processed: 100, items_succeeded: 98 },
+        process_csv_batch_002: { items_processed: 100, items_succeeded: 100 },
+        process_csv_batch_003: { items_processed: 50, items_succeeded: 50 },
+      };
+
+      const scenario = detectAggregationScenario(
+        dependencyResults,
+        'analyze_csv',
+        'process_csv_batch_'
+      );
+
+      expect(scenario.isNoBatches).toBe(false);
+      expect(scenario.workerCount).toBe(3);
+      expect(Object.keys(scenario.batchResults)).toHaveLength(3);
+      expect(scenario.batchResults.process_csv_batch_001.items_succeeded).toBe(98);
+      expect(scenario.batchResults.process_csv_batch_002.items_succeeded).toBe(100);
+    });
+
+    test('should throw error when batchable step is missing', () => {
+      const { detectAggregationScenario } = require('../../../src/handler/batchable');
+
+      const dependencyResults = {
+        process_csv_batch_001: { items_processed: 100 },
+      };
+
+      expect(() => {
+        detectAggregationScenario(dependencyResults, 'analyze_csv', 'process_csv_batch_');
+      }).toThrow('Missing batchable step dependency');
+    });
+
+    test('should throw error when no workers found without NoBatches outcome', () => {
+      const { detectAggregationScenario } = require('../../../src/handler/batchable');
+
+      const dependencyResults = {
+        analyze_csv: {
+          batch_processing_outcome: { type: 'create_batches', worker_count: 3 },
+        },
+        // No batch workers present
+      };
+
+      expect(() => {
+        detectAggregationScenario(dependencyResults, 'analyze_csv', 'process_csv_batch_');
+      }).toThrow('No batch workers found');
+    });
+
+    test('should handle wrapped result objects', () => {
+      const { detectAggregationScenario } = require('../../../src/handler/batchable');
+
+      const dependencyResults = {
+        analyze_csv: {
+          result: {
+            batch_processing_outcome: { type: 'no_batches' },
+          },
+        },
+      };
+
+      const scenario = detectAggregationScenario(
+        dependencyResults,
+        'analyze_csv',
+        'process_csv_batch_'
+      );
+
+      expect(scenario.isNoBatches).toBe(true);
+    });
+  });
+
+  describe('aggregation helper methods', () => {
+    let mixin: BatchableMixin;
+
+    beforeEach(() => {
+      mixin = new BatchableMixin();
+    });
+
+    test('detectAggregationScenario method delegates correctly', () => {
+      const dependencyResults = {
+        analyze_csv: {
+          batch_processing_outcome: { type: 'no_batches' },
+        },
+      };
+
+      const scenario = mixin.detectAggregationScenario(
+        dependencyResults,
+        'analyze_csv',
+        'process_csv_batch_'
+      );
+
+      expect(scenario.isNoBatches).toBe(true);
+    });
+
+    test('noBatchesAggregationResult creates correct result', () => {
+      const result = mixin.noBatchesAggregationResult({ total_processed: 0, total_value: 0.0 });
+
+      expect(result.success).toBe(true);
+      expect(result.result?.worker_count).toBe(0);
+      expect(result.result?.scenario).toBe('no_batches');
+      expect(result.result?.total_processed).toBe(0);
+      expect(result.result?.total_value).toBe(0.0);
+    });
+
+    test('aggregateBatchWorkerResults handles NoBatches scenario', () => {
+      const scenario = {
+        isNoBatches: true,
+        batchableResult: { reason: 'empty' },
+        batchResults: {},
+        workerCount: 0,
+      };
+
+      const result = mixin.aggregateBatchWorkerResults(scenario, { total: 0 });
+
+      expect(result.success).toBe(true);
+      expect(result.result?.worker_count).toBe(0);
+      expect(result.result?.scenario).toBe('no_batches');
+      expect(result.result?.total).toBe(0);
+    });
+
+    test('aggregateBatchWorkerResults handles WithBatches scenario with custom aggregation', () => {
+      const scenario = {
+        isNoBatches: false,
+        batchableResult: { total_items: 250 },
+        batchResults: {
+          process_batch_001: { count: 100 },
+          process_batch_002: { count: 100 },
+          process_batch_003: { count: 50 },
+        },
+        workerCount: 3,
+      };
+
+      const aggregationFn = (batchResults: Record<string, Record<string, unknown>>) => {
+        let total = 0;
+        for (const result of Object.values(batchResults)) {
+          total += (result.count as number) || 0;
+        }
+        return { total_processed: total };
+      };
+
+      const result = mixin.aggregateBatchWorkerResults(
+        scenario,
+        { total_processed: 0 },
+        aggregationFn
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.result?.worker_count).toBe(3);
+      expect(result.result?.scenario).toBe('with_batches');
+      expect(result.result?.total_processed).toBe(250);
+    });
+
+    test('aggregateBatchWorkerResults uses default aggregation when no function provided', () => {
+      const scenario = {
+        isNoBatches: false,
+        batchableResult: {},
+        batchResults: {
+          process_batch_001: { count: 100 },
+          process_batch_002: { count: 50 },
+        },
+        workerCount: 2,
+      };
+
+      const result = mixin.aggregateBatchWorkerResults(scenario);
+
+      expect(result.success).toBe(true);
+      expect(result.result?.worker_count).toBe(2);
+      expect(result.result?.scenario).toBe('with_batches');
+      expect(result.result?.batch_results).toBeDefined();
+      expect(Object.keys(result.result?.batch_results as object)).toHaveLength(2);
+    });
+  });
+});

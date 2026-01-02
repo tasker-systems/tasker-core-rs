@@ -1,10 +1,11 @@
 # Rust Worker
 
-**Last Updated**: 2025-12-17
+**Last Updated**: 2026-01-01
 **Audience**: Rust Developers
 **Status**: Active
 **Package**: `workers-rust`
-**Related Docs**: [Patterns and Practices](patterns-and-practices.md) | [Worker Event Systems](../worker-event-systems.md)
+**Related Docs**: [Patterns and Practices](patterns-and-practices.md) | [Worker Event Systems](../worker-event-systems.md) | [API Convergence Matrix](api-convergence-matrix.md)
+**Related Tickets**: TAS-112 (Handler Capability Traits)
 
 <- Back to [Worker Crates Overview](README.md)
 
@@ -144,6 +145,89 @@ The Rust worker uses the `HandlerDispatchService` for non-blocking handler execu
 ---
 
 ## Handler Development
+
+### Capability Traits (TAS-112)
+
+Rust uses traits for handler composition, matching the mixin pattern in Ruby/Python/TypeScript.
+
+**Location**: `tasker-worker/src/handler_capabilities.rs`
+
+#### APICapable Trait
+
+For HTTP API integration:
+
+```rust
+use tasker_worker::handler_capabilities::APICapable;
+
+impl APICapable for MyHandler {
+    // Use the helper methods:
+    // - api_success(step_uuid, data, status, headers, execution_time_ms)
+    // - api_failure(step_uuid, message, status, error_type, execution_time_ms)
+    // - classify_status_code(status) -> ErrorClassification
+}
+```
+
+#### DecisionCapable Trait
+
+For dynamic workflow routing:
+
+```rust
+use tasker_worker::handler_capabilities::DecisionCapable;
+
+impl DecisionCapable for MyHandler {
+    // Use the helper methods:
+    // - decision_success(step_uuid, step_names, routing_context, execution_time_ms)
+    // - skip_branches(step_uuid, reason, routing_context, execution_time_ms)
+    // - decision_failure(step_uuid, message, error_type, execution_time_ms)
+}
+```
+
+#### BatchableCapable Trait
+
+For batch processing:
+
+```rust
+use tasker_worker::handler_capabilities::BatchableCapable;
+
+impl BatchableCapable for MyHandler {
+    // Use the helper methods:
+    // - create_cursor_configs(total_items, worker_count) -> Vec<CursorConfig>
+    // - create_cursor_ranges(total_items, batch_size, max_batches) -> Vec<CursorConfig>
+    // - batch_analyzer_success(step_uuid, worker_template, configs, total_items, ...)
+    // - batch_worker_success(step_uuid, processed, succeeded, failed, skipped, ...)
+    // - no_batches_outcome(step_uuid, reason, execution_time_ms)
+    // - batch_failure(step_uuid, message, error_type, retryable, ...)
+}
+```
+
+#### Composing Multiple Traits
+
+```rust
+// Implement multiple capability traits for a single handler
+pub struct CompositeHandler {
+    config: StepHandlerConfig,
+}
+
+impl APICapable for CompositeHandler {}
+impl DecisionCapable for CompositeHandler {}
+
+#[async_trait]
+impl RustStepHandler for CompositeHandler {
+    async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult> {
+        let step_uuid = step_data.workflow_step.workflow_step_uuid;
+
+        // Use API capability to fetch data
+        let response = self.call_api("/users/123").await?;
+
+        // Use Decision capability to route based on response
+        if response.status == 200 {
+            self.decision_success(step_uuid, vec!["process_user"], None, 50)
+        } else {
+            self.api_failure(step_uuid, "API failed", response.status, "api_error", 50)
+        }
+    }
+}
+```
 
 ### Handler Trait
 

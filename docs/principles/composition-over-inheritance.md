@@ -1,5 +1,8 @@
 # Composition Over Inheritance
 
+**Last Updated**: 2026-01-01
+**Related Tickets**: TAS-112 (Cross-Language Handler Harmonization)
+
 This document describes Tasker Core's approach to handler composition using mixins and traits rather than class hierarchies.
 
 ## The Core Principle
@@ -121,11 +124,36 @@ pub trait BatchableCapable {
 
 ```python
 # Python uses multiple inheritance (mixins)
-class MyHandler(BaseStepHandler, APICapable, DecisionCapable):
+from tasker_core.step_handler import StepHandler
+from tasker_core.step_handler.mixins import APIMixin, DecisionMixin
+
+class MyHandler(StepHandler, APIMixin, DecisionMixin):
     def call(self, context: StepContext) -> StepHandlerResult:
         # Has both API and Decision methods
         response = self.get("/api/endpoint")
         return self.decision_success(["next_step"], response)
+```
+
+### TypeScript Mixins (TAS-112)
+
+```typescript
+// TypeScript uses mixin functions applied in constructor
+import { StepHandler } from 'tasker-worker-ts';
+import { applyAPI, applyDecision, APICapable, DecisionCapable } from 'tasker-worker-ts';
+
+class MyHandler extends StepHandler implements APICapable, DecisionCapable {
+  constructor() {
+    super();
+    applyAPI(this);       // Adds get/post/put/delete methods
+    applyDecision(this);  // Adds decisionSuccess/skipBranches methods
+  }
+
+  async call(context: StepContext): Promise<StepHandlerResult> {
+    // Has both API and Decision methods
+    const response = await this.get('/api/endpoint');
+    return this.decisionSuccess(['next_step'], response.body);
+  }
+}
 ```
 
 ---
@@ -216,9 +244,11 @@ pub enum BatchProcessingOutcome {
 
 ---
 
-## Migration Path
+## Migration Path (TAS-112)
 
-### From Inheritance to Composition
+### Cross-Language Migration Examples
+
+#### Ruby
 
 Before (inheritance):
 ```ruby
@@ -232,7 +262,7 @@ end
 After (composition):
 ```ruby
 class MyAPIHandler < TaskerCore::StepHandler::Base
-  include TaskerCore::StepHandler::APICapable
+  include TaskerCore::StepHandler::Mixins::API
 
   def call(context)
     # Same implementation, different structure
@@ -240,14 +270,71 @@ class MyAPIHandler < TaskerCore::StepHandler::Base
 end
 ```
 
-### Breaking Changes (TAS-119)
+#### Python
 
-The migration to composition involves breaking changes:
-1. Base class changes
-2. Module includes required
-3. Import path changes
+Before (inheritance):
+```python
+class MyAPIHandler(APIHandler):
+    def call(self, context):
+        # ...
+```
 
-These are accumulated and released together to minimize disruption.
+After (composition):
+```python
+from tasker_core.step_handler import StepHandler
+from tasker_core.step_handler.mixins import APIMixin
+
+class MyAPIHandler(StepHandler, APIMixin):
+    def call(self, context):
+        # Same implementation, different structure
+```
+
+#### TypeScript
+
+Before (inheritance):
+```typescript
+class MyAPIHandler extends APIHandler {
+  async call(context: StepContext): Promise<StepHandlerResult> {
+    // ...
+  }
+}
+```
+
+After (composition):
+```typescript
+import { StepHandler } from 'tasker-worker-ts';
+import { applyAPI, APICapable } from 'tasker-worker-ts';
+
+class MyAPIHandler extends StepHandler implements APICapable {
+  constructor() {
+    super();
+    applyAPI(this);
+  }
+
+  async call(context: StepContext): Promise<StepHandlerResult> {
+    // Same implementation, different structure
+  }
+}
+```
+
+#### Rust
+
+Rust already used the composition pattern via traits:
+```rust
+// Rust has always used traits (composition)
+impl StepHandler for MyHandler { ... }
+impl APICapable for MyHandler { ... }
+impl DecisionCapable for MyHandler { ... }
+```
+
+### Breaking Changes Implemented (TAS-112)
+
+The migration to composition involved breaking changes:
+1. Base class changes across all languages
+2. Module/mixin includes required
+3. Ruby cursor indexing changed from 1-indexed to 0-indexed
+
+All breaking changes were accumulated and released together in TAS-112.
 
 ---
 

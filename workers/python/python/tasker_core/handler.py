@@ -17,7 +17,7 @@ Example:
     ...
     ...     def call(self, context: StepContext) -> StepHandlerResult:
     ...         # Process the step
-    ...         return StepHandlerResult.success_handler_result({"processed": True})
+    ...         return StepHandlerResult.success({"processed": True})
     ...
     >>> # Register the handler
     >>> from tasker_core import HandlerRegistry

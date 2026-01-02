@@ -30,6 +30,8 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -38,10 +40,227 @@ from tasker_core.types import (
     BatchWorkerContext,
     BatchWorkerOutcome,
     CursorConfig,
+    # FFI Boundary Types (TAS-112/TAS-123)
+    RustBatchWorkerInputs,
+    RustCursorConfig,
+    StepHandlerResult,
+)
+from tasker_core.types import (
+    create_batches as create_batches_outcome,
+)
+from tasker_core.types import (
+    no_batches as create_no_batches_outcome,
 )
 
 if TYPE_CHECKING:
-    from tasker_core.types import StepContext, StepHandlerResult
+    from tasker_core.types import StepContext
+
+
+# =============================================================================
+# BatchAggregationScenario - Cross-Language Standard Type (TAS-112)
+# =============================================================================
+
+
+@dataclass
+class BatchAggregationScenario:
+    """Represents the aggregation scenario for batch processing convergence steps.
+
+    Cross-language standard: matches Ruby's BatchAggregationScenario and
+    Rust's BatchAggregationScenario enum.
+
+    There are two scenarios:
+    - **NoBatches**: The batchable step returned `no_batches()`, no workers were created.
+      The convergence step should read results directly from the batchable step.
+    - **WithBatches**: Workers were created and processed batches. The convergence
+      step should aggregate results from all batch workers.
+
+    Attributes:
+        is_no_batches: True if this is a NoBatches scenario.
+        batchable_result: Result from the batchable step (always present).
+        batch_results: Dict of worker_name -> result (empty for NoBatches).
+        worker_count: Number of batch workers (0 for NoBatches).
+
+    Example:
+        >>> scenario = BatchAggregationScenario.detect(
+        ...     dependency_results,
+        ...     "analyze_csv",
+        ...     "process_csv_batch_"
+        ... )
+        >>> if scenario.is_no_batches:
+        ...     # Use batchable_result directly
+        ...     return success({"total": 0})
+        >>> else:
+        ...     # Aggregate from batch_results
+        ...     total = sum(r.get("count", 0) for r in scenario.batch_results.values())
+    """
+
+    is_no_batches: bool
+    batchable_result: dict[str, Any]
+    batch_results: dict[str, dict[str, Any]]
+    worker_count: int
+
+    @classmethod
+    def detect(
+        cls,
+        dependency_results: dict[str, Any],
+        batchable_step_name: str,
+        batch_worker_prefix: str,
+    ) -> BatchAggregationScenario:
+        """Detect the aggregation scenario from dependency results.
+
+        Cross-language standard: matches Ruby's BatchAggregationScenario.detect
+        and Rust's BatchAggregationScenario::detect.
+
+        Args:
+            dependency_results: All dependency results from the step context.
+            batchable_step_name: Name of the batchable step (e.g., "analyze_csv").
+            batch_worker_prefix: Prefix for batch worker step names (e.g., "process_csv_batch_").
+
+        Returns:
+            BatchAggregationScenario indicating NoBatches or WithBatches.
+
+        Raises:
+            ValueError: If batchable step is missing or no workers found without NoBatches outcome.
+
+        Example:
+            >>> scenario = BatchAggregationScenario.detect(
+            ...     context.dependency_results,
+            ...     "analyze_csv",
+            ...     "process_csv_batch_"
+            ... )
+        """
+        # Find the batchable step result
+        batchable_result = dependency_results.get(batchable_step_name)
+        if batchable_result is None:
+            msg = f"Missing batchable step dependency: {batchable_step_name}"
+            raise ValueError(msg)
+
+        # Extract the result dict (handle both raw dict and wrapped result)
+        if isinstance(batchable_result, dict):
+            result_data = batchable_result
+        elif hasattr(batchable_result, "result"):
+            result_data = batchable_result.result
+        else:
+            result_data = {}
+
+        # Check for NoBatches scenario
+        outcome = result_data.get("batch_processing_outcome", {})
+        outcome_type = outcome.get("type") if isinstance(outcome, dict) else None
+
+        if outcome_type == "no_batches":
+            return cls(
+                is_no_batches=True,
+                batchable_result=result_data,
+                batch_results={},
+                worker_count=0,
+            )
+
+        # WithBatches scenario - find all batch workers
+        batch_results: dict[str, dict[str, Any]] = {}
+        for step_name, step_result in dependency_results.items():
+            if step_name.startswith(batch_worker_prefix):
+                # Extract result dict
+                if isinstance(step_result, dict):
+                    batch_results[step_name] = step_result
+                elif hasattr(step_result, "result"):
+                    batch_results[step_name] = step_result.result
+                else:
+                    batch_results[step_name] = {}
+
+        if not batch_results:
+            msg = (
+                f"No batch workers found with prefix '{batch_worker_prefix}' "
+                f"and batchable step '{batchable_step_name}' did not return NoBatches outcome. "
+                "This indicates a workflow configuration error."
+            )
+            raise ValueError(msg)
+
+        return cls(
+            is_no_batches=False,
+            batchable_result=result_data,
+            batch_results=batch_results,
+            worker_count=len(batch_results),
+        )
+
+    def no_batches(self) -> bool:
+        """Check if this is a NoBatches scenario.
+
+        Alias for is_no_batches property, matches Ruby's no_batches? method.
+        """
+        return self.is_no_batches
+
+
+# =============================================================================
+# BatchWorkerConfig - Cross-Language Standard Type (TAS-112)
+# =============================================================================
+
+
+class BatchWorkerConfig:
+    """Configuration for a single batch worker.
+
+    Cross-language standard: matches TypeScript's BatchWorkerConfig
+    and Ruby's batch_worker_config hash structure.
+
+    This type is returned by `create_cursor_configs()` and used
+    to configure individual batch workers with their cursor ranges.
+
+    Attributes:
+        batch_id: Unique identifier for this batch (e.g., "001", "002").
+        cursor_start: Starting position (inclusive).
+        cursor_end: Ending position (exclusive).
+        row_count: Number of items in this batch.
+        worker_index: Zero-based index of this worker.
+        total_workers: Total number of workers.
+
+    Example:
+        >>> configs = create_cursor_configs(1000, 3)
+        >>> for config in configs:
+        ...     print(f"Worker {config.worker_index}: {config.cursor_start}-{config.cursor_end}")
+        Worker 0: 0-334
+        Worker 1: 334-668
+        Worker 2: 668-1000
+    """
+
+    def __init__(
+        self,
+        batch_id: str,
+        cursor_start: int,
+        cursor_end: int,
+        row_count: int,
+        worker_index: int,
+        total_workers: int,
+    ) -> None:
+        """Initialize a BatchWorkerConfig.
+
+        Args:
+            batch_id: Unique identifier for this batch.
+            cursor_start: Starting position (inclusive).
+            cursor_end: Ending position (exclusive).
+            row_count: Number of items in this batch.
+            worker_index: Zero-based index of this worker.
+            total_workers: Total number of workers.
+        """
+        self.batch_id = batch_id
+        self.cursor_start = cursor_start
+        self.cursor_end = cursor_end
+        self.row_count = row_count
+        self.worker_index = worker_index
+        self.total_workers = total_workers
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization.
+
+        Returns:
+            Dictionary representation matching cross-language standard.
+        """
+        return {
+            "batch_id": self.batch_id,
+            "cursor_start": self.cursor_start,
+            "cursor_end": self.cursor_end,
+            "row_count": self.row_count,
+            "worker_index": self.worker_index,
+            "total_workers": self.total_workers,
+        }
 
 
 class Batchable:
@@ -178,6 +397,163 @@ class Batchable:
             start = end
 
         return configs
+
+    def create_cursor_configs(
+        self,
+        total_items: int,
+        worker_count: int,
+    ) -> list[BatchWorkerConfig]:
+        """Create cursor configurations for a specific number of workers.
+
+        Ruby-style method that divides items into worker_count roughly equal ranges.
+        Uses ceiling division to ensure all items are covered.
+
+        ## Cursor Boundary Math
+
+        1. items_per_worker = ceil(total_items / worker_count)
+        2. For worker i (0-indexed):
+           - start = i * items_per_worker
+           - end = min((i + 1) * items_per_worker, total_items)
+           - batch_size = end - start
+
+        Example: 1000 items, 3 workers
+          - items_per_worker = ceil(1000/3) = 334
+          - Worker 0: start=0, end=334, size=334
+          - Worker 1: start=334, end=668, size=334
+          - Worker 2: start=668, end=1000, size=332
+
+        Cross-language standard: matches Ruby's create_cursor_configs(total_items, worker_count)
+        and TypeScript's createCursorConfigs(totalItems, workerCount).
+
+        Args:
+            total_items: Total number of items to process.
+            worker_count: Number of workers to create configs for (must be > 0).
+
+        Returns:
+            List of BatchWorkerConfig for each worker.
+
+        Raises:
+            ValueError: If worker_count <= 0.
+
+        Example:
+            >>> configs = self.create_cursor_configs(1000, 3)
+            >>> len(configs)
+            3
+            >>> configs[0].cursor_start, configs[0].cursor_end
+            (0, 334)
+        """
+        if worker_count <= 0:
+            msg = "worker_count must be > 0"
+            raise ValueError(msg)
+
+        if total_items == 0:
+            return []
+
+        # Ceiling division to get items per worker
+        items_per_worker = (total_items + worker_count - 1) // worker_count
+        configs: list[BatchWorkerConfig] = []
+
+        for i in range(worker_count):
+            start_position = i * items_per_worker
+            end_position = min((i + 1) * items_per_worker, total_items)
+
+            # Skip if this worker would have no items
+            if start_position >= total_items:
+                break
+
+            configs.append(
+                BatchWorkerConfig(
+                    batch_id=f"{i + 1:03d}",
+                    cursor_start=start_position,
+                    cursor_end=end_position,
+                    row_count=end_position - start_position,
+                    worker_index=i,
+                    total_workers=worker_count,
+                )
+            )
+
+        return configs
+
+    # =========================================================================
+    # FFI Boundary Helpers (TAS-112)
+    # =========================================================================
+
+    def get_batch_worker_inputs(
+        self,
+        context: StepContext,
+    ) -> RustBatchWorkerInputs | None:
+        """Get Rust batch worker inputs from step context.
+
+        Returns the BatchWorkerInputs structure from workflow_step.inputs,
+        which contains cursor config, batch metadata, and no-op flag.
+
+        Cross-language standard: matches Ruby's get_batch_context pattern
+        and TypeScript's getBatchWorkerInputs.
+
+        Args:
+            context: The step execution context.
+
+        Returns:
+            RustBatchWorkerInputs if present, None otherwise.
+
+        Example:
+            >>> inputs = self.get_batch_worker_inputs(context)
+            >>> if inputs and inputs.is_no_op:
+            ...     return self.success({"no_op": True})
+            >>> start = inputs.cursor.start_cursor
+            >>> end = inputs.cursor.end_cursor
+        """
+        if not context.step_inputs or len(context.step_inputs) == 0:
+            return None
+
+        try:
+            return RustBatchWorkerInputs.model_validate(context.step_inputs)
+        except Exception:
+            # Not valid batch worker inputs
+            return None
+
+    def handle_no_op_worker(
+        self,
+        context: StepContext,
+    ) -> StepHandlerResult | None:
+        """Handle no-op placeholder worker scenario.
+
+        Returns a success result if the worker is a no-op placeholder
+        (created when a batchable step returns NoBatches), otherwise
+        returns None to allow normal processing to continue.
+
+        Cross-language standard: matches Ruby's handle_no_op_worker
+        and TypeScript's handleNoOpWorker.
+
+        Args:
+            context: The step execution context.
+
+        Returns:
+            Success result if no-op, None otherwise.
+
+        Example:
+            >>> def call(self, context: StepContext) -> StepHandlerResult:
+            ...     no_op_result = self.handle_no_op_worker(context)
+            ...     if no_op_result:
+            ...         return no_op_result
+            ...     # ... normal processing
+        """
+        batch_inputs = self.get_batch_worker_inputs(context)
+
+        if batch_inputs is None or not batch_inputs.is_no_op:
+            return None
+
+        from datetime import datetime, timezone
+
+        return StepHandlerResult.success(
+            {
+                "batch_id": batch_inputs.cursor.batch_id,
+                "no_op": True,
+                "processed_count": 0,
+                "message": "No batches to process",
+                "processed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     # =========================================================================
     # Batch Outcome Builders
@@ -412,29 +788,27 @@ class Batchable:
             reason = batch_meta.get("reason", "empty_dataset")
             return self.no_batches_outcome(reason=reason, metadata=batch_meta)
 
-        # Build cursor_configs in format Rust expects
-        formatted_cursor_configs = [
-            {
-                "batch_id": f"{i + 1:03d}",
-                "start_cursor": cfg.start_cursor,
-                "end_cursor": cfg.end_cursor,
-                "batch_size": cfg.end_cursor - cfg.start_cursor,
-            }
+        # Convert CursorConfig[] to RustCursorConfig[] (TAS-112/TAS-123)
+        rust_cursor_configs = [
+            RustCursorConfig(
+                batch_id=f"{i + 1:03d}",
+                start_cursor=cfg.start_cursor,
+                end_cursor=cfg.end_cursor,
+                batch_size=cfg.end_cursor - cfg.start_cursor,
+            )
             for i, cfg in enumerate(configs_list)
         ]
 
-        # Build batch_processing_outcome in format Rust expects
-        # (matches Ruby's BatchProcessingOutcome.to_h structure)
-        batch_processing_outcome: dict[str, Any] = {
-            "type": "create_batches",
-            "worker_template_name": worker_template_name,
-            "worker_count": len(configs_list),
-            "cursor_configs": formatted_cursor_configs,
-            "total_items": total,
-        }
+        # Use typed BatchProcessingOutcome factory (TAS-112/TAS-123)
+        batch_processing_outcome = create_batches_outcome(
+            worker_template_name=worker_template_name,
+            worker_count=len(configs_list),
+            cursor_configs=rust_cursor_configs,
+            total_items=total,
+        )
 
         result: dict[str, Any] = {
-            "batch_processing_outcome": batch_processing_outcome,
+            "batch_processing_outcome": batch_processing_outcome.model_dump(),
             "worker_count": len(configs_list),
             "total_items": total,
         }
@@ -459,6 +833,8 @@ class Batchable:
         Use this when the analyzer determines that batch processing is not
         required (e.g., empty dataset, data below threshold).
 
+        Uses the typed BatchProcessingOutcome from types.py (TAS-112/TAS-123).
+
         Args:
             reason: Human-readable reason why no batches are needed.
             metadata: Optional additional metadata.
@@ -470,14 +846,11 @@ class Batchable:
             >>> if total_items == 0:
             ...     return self.no_batches_outcome(reason="empty_dataset")
         """
-        # Build batch_processing_outcome in format Rust expects
-        # (matches Ruby's BatchProcessingOutcome.no_batches.to_h structure)
-        batch_processing_outcome: dict[str, Any] = {
-            "type": "no_batches",
-        }
+        # Use typed BatchProcessingOutcome factory (TAS-112/TAS-123)
+        batch_processing_outcome = create_no_batches_outcome()
 
         result: dict[str, Any] = {
-            "batch_processing_outcome": batch_processing_outcome,
+            "batch_processing_outcome": batch_processing_outcome.model_dump(),
             "reason": reason,
         }
 
@@ -632,6 +1005,127 @@ class Batchable:
     # Aggregation Helpers
     # =========================================================================
 
+    def detect_aggregation_scenario(
+        self,
+        dependency_results: dict[str, Any],
+        batchable_step_name: str,
+        batch_worker_prefix: str,
+    ) -> BatchAggregationScenario:
+        """Detect batch aggregation scenario from dependency results.
+
+        Cross-language standard: matches Ruby's detect_aggregation_scenario
+        and Rust's BatchAggregationScenario::detect.
+
+        Args:
+            dependency_results: Dependency results from step context.
+            batchable_step_name: Name of the batchable step (e.g., "analyze_csv").
+            batch_worker_prefix: Prefix for batch worker step names (e.g., "process_csv_batch_").
+
+        Returns:
+            BatchAggregationScenario indicating NoBatches or WithBatches.
+
+        Example:
+            >>> scenario = self.detect_aggregation_scenario(
+            ...     context.dependency_results,
+            ...     "analyze_csv",
+            ...     "process_csv_batch_"
+            ... )
+            >>> if scenario.is_no_batches:
+            ...     return self.no_batches_aggregation_result(zero_metrics)
+        """
+        return BatchAggregationScenario.detect(
+            dependency_results,
+            batchable_step_name,
+            batch_worker_prefix,
+        )
+
+    def no_batches_aggregation_result(
+        self,
+        zero_metrics: dict[str, Any] | None = None,
+    ) -> StepHandlerResult:
+        """Create a success result for NoBatches aggregation scenario.
+
+        Cross-language standard: matches Ruby's no_batches_aggregation_result.
+
+        Args:
+            zero_metrics: Metrics to return (typically zeros).
+
+        Returns:
+            Success result with worker_count=0 and scenario="no_batches".
+
+        Example:
+            >>> return self.no_batches_aggregation_result({
+            ...     "total_processed": 0,
+            ...     "total_value": 0.0,
+            ... })
+        """
+        result: dict[str, Any] = {
+            "worker_count": 0,
+            "scenario": "no_batches",
+        }
+        if zero_metrics:
+            result.update(zero_metrics)
+
+        return self.success(result)  # type: ignore[attr-defined, no-any-return]
+
+    def aggregate_batch_worker_results(
+        self,
+        scenario: BatchAggregationScenario,
+        zero_metrics: dict[str, Any] | None = None,
+        aggregation_fn: Callable[[dict[str, dict[str, Any]]], dict[str, Any]] | None = None,
+    ) -> StepHandlerResult:
+        """Aggregate batch worker results handling both scenarios.
+
+        Cross-language standard: matches Ruby's aggregate_batch_worker_results.
+        Handles both NoBatches and WithBatches scenarios automatically.
+
+        For NoBatches, returns zero_metrics with worker_count=0.
+        For WithBatches, calls aggregation_fn with batch_results dict.
+
+        Args:
+            scenario: BatchAggregationScenario from detect_aggregation_scenario().
+            zero_metrics: Metrics to return for NoBatches scenario.
+            aggregation_fn: Function to aggregate batch results. Receives dict of
+                worker_name -> result_dict, returns aggregated metrics dict.
+
+        Returns:
+            Success result with aggregated data and worker_count.
+
+        Example:
+            >>> scenario = self.detect_aggregation_scenario(
+            ...     context.dependency_results,
+            ...     "analyze_csv",
+            ...     "process_csv_batch_"
+            ... )
+            >>>
+            >>> def aggregate(batch_results):
+            ...     total = sum(r.get("count", 0) for r in batch_results.values())
+            ...     return {"total_processed": total}
+            >>>
+            >>> return self.aggregate_batch_worker_results(
+            ...     scenario,
+            ...     zero_metrics={"total_processed": 0},
+            ...     aggregation_fn=aggregate,
+            ... )
+        """
+        if scenario.is_no_batches:
+            return self.no_batches_aggregation_result(zero_metrics)
+
+        # WithBatches scenario - aggregate results
+        if aggregation_fn is None:
+            # Default aggregation: just pass through batch_results
+            aggregated = {"batch_results": scenario.batch_results}
+        else:
+            aggregated = aggregation_fn(scenario.batch_results)
+
+        result: dict[str, Any] = {
+            **aggregated,
+            "worker_count": scenario.worker_count,
+            "scenario": "with_batches",
+        }
+
+        return self.success(result)  # type: ignore[attr-defined, no-any-return]
+
     @staticmethod
     def aggregate_worker_results(
         worker_results: list[dict[str, Any]],
@@ -686,4 +1180,4 @@ class Batchable:
         }
 
 
-__all__ = ["Batchable"]
+__all__ = ["Batchable", "BatchWorkerConfig", "BatchAggregationScenario"]

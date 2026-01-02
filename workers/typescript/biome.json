@@ -42,6 +42,6 @@
     }
   },
   "files": {
-    "includes": ["**", "!node_modules", "!dist", "!target", "!*.d.ts"]
+    "includes": ["**", "!node_modules", "!dist", "!target", "!*.d.ts", "!bindings"]
   }
 }

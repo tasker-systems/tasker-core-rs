@@ -90,7 +90,8 @@ COPY workers/ruby/ext/tasker_core/Cargo.toml ./workers/ruby/ext/tasker_core/
 ENV SQLX_OFFLINE=true
 
 # Build optimized release binary
-RUN cargo build --release --all-features --bin rust-worker -p tasker-worker-rust
+# IMPORTANT: Use --locked to ensure Cargo.lock is respected (prevents serde version conflicts)
+RUN cargo build --release --all-features --locked --bin rust-worker -p tasker-worker-rust
 
 # Strip binary for minimal size
 RUN strip target/release/rust-worker

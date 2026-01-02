@@ -53,7 +53,11 @@ from tasker_core._tasker_core import (  # type: ignore[attr-defined]
 )
 
 # Import Phase 6b: Specialized handlers and batch processing
-from tasker_core.batch_processing import Batchable
+from tasker_core.batch_processing import (
+    Batchable,
+    BatchAggregationScenario,
+    BatchWorkerConfig,
+)
 
 # Import bootstrap functions (Phase 2)
 from tasker_core.bootstrap import (
@@ -68,8 +72,11 @@ from tasker_core.bootstrap import (
 from tasker_core.domain_events import (
     BasePublisher,
     BaseSubscriber,
+    EventDeclaration,
     InProcessDomainEventPoller,
+    PublishContext,
     StepEventContext,
+    StepResult,
 )
 
 # Import error classification (Phase 6a - parity with Ruby)
@@ -159,6 +166,7 @@ from tasker_core.types import (
     DecisionType,
     DomainEventMetadata,
     ErrorType,
+    ExecutionResult,
     FfiDispatchMetrics,
     FfiStepEvent,
     HealthCheck,
@@ -243,10 +251,15 @@ __all__ = [
     "poll_in_process_events",
     "InProcessDomainEventPoller",
     "DomainEventMetadata",
+    "ExecutionResult",
     "InProcessDomainEvent",
     "StepEventContext",
     "BasePublisher",
     "BaseSubscriber",
+    # Cross-language domain event types (TAS-112)
+    "EventDeclaration",
+    "StepResult",
+    "PublishContext",
     # Observability (Phase 5)
     "get_health_check",
     "get_metrics",
@@ -286,6 +299,8 @@ __all__ = [
     "DecisionHandler",
     # Batch processing (Phase 6b)
     "Batchable",
+    "BatchAggregationScenario",
+    "BatchWorkerConfig",
     "DecisionType",
     "DecisionPointOutcome",
     "CursorConfig",

@@ -10,6 +10,7 @@ import type {
   BootstrapConfig,
   BootstrapResult,
   FfiDispatchMetrics,
+  FfiDomainEvent,
   FfiStepEvent,
   LogFields,
   StepExecutionResult,
@@ -28,6 +29,7 @@ type FfiSymbols = {
   stop_worker: () => bigint;
   transition_to_graceful_shutdown: () => bigint;
   poll_step_events: () => bigint;
+  poll_in_process_events: () => bigint;
   complete_step_event: (eventId: bigint, resultJson: bigint) => number;
   get_ffi_dispatch_metrics: () => bigint;
   check_starvation_warnings: () => void;
@@ -100,6 +102,10 @@ export class BunRuntime extends BaseTaskerRuntime {
         returns: FFIType.ptr,
       },
       poll_step_events: {
+        args: [],
+        returns: FFIType.ptr,
+      },
+      poll_in_process_events: {
         args: [],
         returns: FFIType.ptr,
       },
@@ -273,6 +279,17 @@ export class BunRuntime extends BaseTaskerRuntime {
     symbols.free_rust_string(result);
 
     return this.parseJson<FfiStepEvent>(jsonStr);
+  }
+
+  pollInProcessEvents(): FfiDomainEvent | null {
+    const symbols = this.ensureLoaded();
+    const result = symbols.poll_in_process_events();
+    if (result === 0n) return null;
+
+    const jsonStr = this.fromCString(result);
+    symbols.free_rust_string(result);
+
+    return this.parseJson<FfiDomainEvent>(jsonStr);
   }
 
   completeStepEvent(eventId: string, result: StepExecutionResult): boolean {

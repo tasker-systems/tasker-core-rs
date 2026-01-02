@@ -46,7 +46,7 @@ class TestHandlerRegistry:
             handler_name = "test_handler"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         registry.register("test_handler", TestHandler)
         handler = registry.resolve("test_handler")
@@ -68,7 +68,7 @@ class TestHandlerRegistry:
             handler_name = "test_handler"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         assert not registry.is_registered("test_handler")
         registry.register("test_handler", TestHandler)
@@ -82,13 +82,13 @@ class TestHandlerRegistry:
             handler_name = "handler1"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         class Handler2(StepHandler):
             handler_name = "handler2"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         registry.register("handler1", Handler1)
         registry.register("handler2", Handler2)
@@ -104,7 +104,7 @@ class TestHandlerRegistry:
             handler_name = "test_handler"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         registry.register("test_handler", TestHandler)
         assert registry.is_registered("test_handler")
@@ -128,7 +128,7 @@ class TestHandlerRegistry:
             handler_name = "test"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         registry.register("test", TestHandler)
         assert registry.handler_count() == 1
@@ -141,7 +141,7 @@ class TestHandlerRegistry:
             handler_name = "test"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         registry.register("test", TestHandler)
         assert registry.handler_count() == 1
@@ -158,7 +158,7 @@ class TestHandlerRegistry:
             handler_version = "2.0.0"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         registry.register("test", TestHandler)
 
@@ -175,14 +175,14 @@ class TestHandlerRegistry:
             handler_version = "1.0.0"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         class Handler2(StepHandler):
             handler_name = "test"
             handler_version = "2.0.0"
 
             def call(self, _context):
-                return StepHandlerResult.success_handler_result({})
+                return StepHandlerResult.success({})
 
         registry.register("test", Handler1)
         registry.register("test", Handler2)

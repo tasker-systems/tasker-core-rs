@@ -1,0 +1,5 @@
+# ts-rs TypeScript bindings configuration
+# Sets the base directory for TypeScript type exports
+# Paths in #[ts(export_to = "...")] are relative to this directory
+[env]
+TS_RS_EXPORT_DIR = { value = "./", relative = true }

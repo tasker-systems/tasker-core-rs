@@ -9,6 +9,7 @@ import type {
   BootstrapConfig,
   BootstrapResult,
   FfiDispatchMetrics,
+  FfiDomainEvent,
   FfiStepEvent,
   LogFields,
   StepExecutionResult,
@@ -103,6 +104,16 @@ export interface TaskerRuntime {
   pollStepEvents(): FfiStepEvent | null;
 
   /**
+   * Poll for in-process domain events (fast path, non-blocking)
+   *
+   * Used for real-time notifications that don't require guaranteed delivery
+   * (e.g., metrics updates, logging, notifications).
+   *
+   * @returns Domain event if available, null otherwise
+   */
+  pollInProcessEvents(): FfiDomainEvent | null;
+
+  /**
    * Complete a step event with the given result
    *
    * @param eventId The event ID to complete
@@ -184,6 +195,7 @@ export abstract class BaseTaskerRuntime implements TaskerRuntime {
   abstract transitionToGracefulShutdown(): StopResult;
 
   abstract pollStepEvents(): FfiStepEvent | null;
+  abstract pollInProcessEvents(): FfiDomainEvent | null;
   abstract completeStepEvent(eventId: string, result: StepExecutionResult): boolean;
 
   abstract getFfiDispatchMetrics(): FfiDispatchMetrics;

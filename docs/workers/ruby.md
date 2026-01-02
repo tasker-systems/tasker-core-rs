@@ -1,10 +1,11 @@
 # Ruby Worker
 
-**Last Updated**: 2025-12-17
+**Last Updated**: 2026-01-01
 **Audience**: Ruby Developers
 **Status**: Active
 **Package**: `tasker_core` (gem)
-**Related Docs**: [Patterns and Practices](patterns-and-practices.md) | [Worker Event Systems](../worker-event-systems.md)
+**Related Docs**: [Patterns and Practices](patterns-and-practices.md) | [Worker Event Systems](../worker-event-systems.md) | [API Convergence Matrix](api-convergence-matrix.md)
+**Related Tickets**: TAS-112 (Mixin Pattern, 0-indexed Cursors)
 
 <- Back to [Worker Crates Overview](README.md)
 
@@ -195,6 +196,54 @@ end
 
 ---
 
+## Composition Pattern (TAS-112)
+
+Ruby handlers use composition via mixins rather than inheritance. You can use either:
+1. **Wrapper classes** (Api, Decision, Batchable) - simpler, backward compatible
+2. **Mixin modules** (Mixins::API, Mixins::Decision, Mixins::Batchable) - explicit composition
+
+### Using Mixins (Recommended for New Code)
+
+```ruby
+class MyHandler < TaskerCore::StepHandler::Base
+  include TaskerCore::StepHandler::Mixins::API
+  include TaskerCore::StepHandler::Mixins::Decision
+
+  def call(context)
+    # Has both API methods (get, post, put, delete)
+    # And Decision methods (decision_success, decision_no_branches)
+    response = get('/api/endpoint')
+    decision_success(steps: ['next_step'], result_data: response)
+  end
+end
+```
+
+### Available Mixins
+
+| Mixin | Location | Methods Provided |
+|-------|----------|------------------|
+| `Mixins::API` | `mixins/api.rb` | `get`, `post`, `put`, `delete`, `connection` |
+| `Mixins::Decision` | `mixins/decision.rb` | `decision_success`, `decision_no_branches`, `skip_branches` |
+| `Mixins::Batchable` | `mixins/batchable.rb` | `get_batch_context`, `handle_no_op_worker`, `create_cursor_configs` |
+
+### Using Wrapper Classes (Backward Compatible)
+
+The wrapper classes delegate to mixins internally:
+
+```ruby
+# These are equivalent:
+class MyHandler < TaskerCore::StepHandler::Api
+  # Inherits API methods via Mixins::API
+end
+
+class MyHandler < TaskerCore::StepHandler::Base
+  include TaskerCore::StepHandler::Mixins::API
+  # Explicit mixin inclusion
+end
+```
+
+---
+
 ## Specialized Handlers
 
 ### API Handler
@@ -283,7 +332,9 @@ end
 
 **Location**: `lib/tasker_core/step_handler/batchable.rb`
 
-For processing large datasets in chunks (TAS-59):
+For processing large datasets in chunks (TAS-59, TAS-112):
+
+**⚠️ TAS-112 Breaking Change**: Cursors are now **0-indexed** (previously 1-indexed) to match Python, TypeScript, and Rust.
 
 ```ruby
 class CsvBatchProcessorHandler < TaskerCore::StepHandler::Batchable
@@ -314,6 +365,21 @@ end
 - `get_batch_context(context)` - Get batch boundaries from StepContext
 - `handle_no_op_worker(batch_ctx)` - Handle placeholder batches
 - `batch_worker_complete(processed_count:, result_data:)` - Complete batch
+- `create_cursor_configs(total_items, worker_count)` - Create 0-indexed cursor ranges
+
+**Cursor Indexing (TAS-112)**:
+
+```ruby
+# Creates 0-indexed cursor ranges
+configs = create_cursor_configs(1000, 5)
+# => [
+#   { batch_id: '1', start_cursor: 0, end_cursor: 200 },
+#   { batch_id: '2', start_cursor: 200, end_cursor: 400 },
+#   { batch_id: '3', start_cursor: 400, end_cursor: 600 },
+#   { batch_id: '4', start_cursor: 600, end_cursor: 800 },
+#   { batch_id: '5', start_cursor: 800, end_cursor: 1000 }
+# ]
+```
 
 ---
 

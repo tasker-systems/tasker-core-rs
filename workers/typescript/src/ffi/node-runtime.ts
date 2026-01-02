@@ -13,6 +13,7 @@ import type {
   BootstrapConfig,
   BootstrapResult,
   FfiDispatchMetrics,
+  FfiDomainEvent,
   FfiStepEvent,
   LogFields,
   StepExecutionResult,
@@ -31,6 +32,7 @@ interface KoffiLib {
   stop_worker: () => unknown;
   transition_to_graceful_shutdown: () => unknown;
   poll_step_events: () => unknown;
+  poll_in_process_events: () => unknown;
   complete_step_event: (eventId: string, resultJson: string) => number;
   get_ffi_dispatch_metrics: () => unknown;
   check_starvation_warnings: () => void;
@@ -80,6 +82,7 @@ export class NodeRuntime extends BaseTaskerRuntime {
       stop_worker: lib.func('void* stop_worker()'),
       transition_to_graceful_shutdown: lib.func('void* transition_to_graceful_shutdown()'),
       poll_step_events: lib.func('void* poll_step_events()'),
+      poll_in_process_events: lib.func('void* poll_in_process_events()'),
       complete_step_event: lib.func('int complete_step_event(str, str)'),
       get_ffi_dispatch_metrics: lib.func('void* get_ffi_dispatch_metrics()'),
       check_starvation_warnings: lib.func('void check_starvation_warnings()'),
@@ -211,6 +214,15 @@ export class NodeRuntime extends BaseTaskerRuntime {
 
     const jsonStr = this.readAndFreeRustString(ptr);
     return this.parseJson<FfiStepEvent>(jsonStr);
+  }
+
+  pollInProcessEvents(): FfiDomainEvent | null {
+    const lib = this.ensureLoaded();
+    const ptr = lib.poll_in_process_events();
+    if (!ptr) return null;
+
+    const jsonStr = this.readAndFreeRustString(ptr);
+    return this.parseJson<FfiDomainEvent>(jsonStr);
   }
 
   completeStepEvent(eventId: string, result: StepExecutionResult): boolean {

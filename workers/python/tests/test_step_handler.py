@@ -265,6 +265,139 @@ class TestStepContext:
         # Should handle None and default to empty dict
         assert context.step_inputs == {}
 
+    def test_get_input(self):
+        """Test get_input convenience method."""
+        event = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "task": {"context": {"order_id": "ORD-123", "amount": 100}},
+            },
+        )
+        context = StepContext.from_ffi_event(event, "test_handler")
+
+        assert context.get_input("order_id") == "ORD-123"
+        assert context.get_input("amount") == 100
+        assert context.get_input("missing") is None
+
+    def test_get_config(self):
+        """Test get_config convenience method."""
+        event = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "step_definition": {
+                    "handler": {
+                        "callable": "test_handler",
+                        "initialization": {"timeout": 30, "batch_size": 100},
+                    },
+                },
+            },
+        )
+        context = StepContext.from_ffi_event(event, "test_handler")
+
+        assert context.get_config("timeout") == 30
+        assert context.get_config("batch_size") == 100
+        assert context.get_config("missing") is None
+
+    def test_is_retry(self):
+        """Test is_retry convenience method."""
+        event = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "workflow_step": {"attempts": 0, "max_attempts": 3},
+            },
+        )
+        context = StepContext.from_ffi_event(event, "test_handler")
+        assert context.is_retry() is False
+
+        event2 = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "workflow_step": {"attempts": 2, "max_attempts": 3},
+            },
+        )
+        context2 = StepContext.from_ffi_event(event2, "test_handler")
+        assert context2.is_retry() is True
+
+    def test_is_last_retry(self):
+        """Test is_last_retry convenience method."""
+        event = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "workflow_step": {"attempts": 1, "max_attempts": 3},
+            },
+        )
+        context = StepContext.from_ffi_event(event, "test_handler")
+        assert context.is_last_retry() is False
+
+        event2 = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "workflow_step": {"attempts": 2, "max_attempts": 3},
+            },
+        )
+        context2 = StepContext.from_ffi_event(event2, "test_handler")
+        assert context2.is_last_retry() is True
+
+    def test_get_dependency_result_keys(self):
+        """Test get_dependency_result_keys convenience method."""
+        event = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "dependency_results": {
+                    "step_1": {"result": "data1"},
+                    "step_2": {"result": "data2"},
+                },
+            },
+        )
+        context = StepContext.from_ffi_event(event, "test_handler")
+
+        keys = context.get_dependency_result_keys()
+        assert set(keys) == {"step_1", "step_2"}
+
+    def test_get_all_dependency_results(self):
+        """Test get_all_dependency_results convenience method for batch processing."""
+        event = FfiStepEvent(
+            event_id=str(uuid4()),
+            task_uuid=str(uuid4()),
+            step_uuid=str(uuid4()),
+            correlation_id=str(uuid4()),
+            task_sequence_step={
+                "dependency_results": {
+                    "batch_worker_001": {"result": {"count": 10}},
+                    "batch_worker_002": {"result": {"count": 20}},
+                    "batch_worker_003": {"result": {"count": 15}},
+                    "other_step": {"result": {"unrelated": True}},
+                },
+            },
+        )
+        context = StepContext.from_ffi_event(event, "test_handler")
+
+        batch_results = context.get_all_dependency_results("batch_worker_")
+        assert len(batch_results) == 3
+        counts = [r["count"] for r in batch_results]
+        assert set(counts) == {10, 20, 15}
+
 
 class TestStepHandlerResult:
     """Tests for StepHandlerResult model."""
@@ -281,16 +414,6 @@ class TestStepHandlerResult:
         assert result.metadata == {"duration_ms": 100}
         assert result.error_message is None
         assert result.error_type is None
-
-    def test_success_handler_result_alias(self):
-        """Test success_handler_result alias for backward compatibility."""
-        result = StepHandlerResult.success_handler_result(
-            {"key": "value"},
-            {"duration_ms": 100},
-        )
-
-        assert result.is_success is True
-        assert result.result == {"key": "value"}
 
     def test_failure(self):
         """Test creating failure result."""
@@ -319,17 +442,6 @@ class TestStepHandlerResult:
         assert result.is_success is False
         assert result.error_code == "ERR_VALIDATION_001"
 
-    def test_failure_handler_result_alias(self):
-        """Test failure_handler_result alias for backward compatibility."""
-        result = StepHandlerResult.failure_handler_result(
-            message="Something went wrong",
-            error_type="ValidationError",
-            retryable=False,
-        )
-
-        assert result.is_success is False
-        assert result.error_message == "Something went wrong"
-
     def test_failure_defaults(self):
         """Test failure result defaults."""
         result = StepHandlerResult.failure("Error")
@@ -339,6 +451,22 @@ class TestStepHandlerResult:
         assert result.retryable is True
         assert result.metadata == {}
         assert result.error_code is None
+
+    def test_is_success_result_method(self):
+        """Test is_success_result() convenience method."""
+        success_result = StepHandlerResult.success({"data": "value"})
+        failure_result = StepHandlerResult.failure("Error")
+
+        assert success_result.is_success_result() is True
+        assert failure_result.is_success_result() is False
+
+    def test_is_failure_result_method(self):
+        """Test is_failure_result() convenience method."""
+        success_result = StepHandlerResult.success({"data": "value"})
+        failure_result = StepHandlerResult.failure("Error")
+
+        assert success_result.is_failure_result() is False
+        assert failure_result.is_failure_result() is True
 
 
 class TestStepExecutionSubscriber:

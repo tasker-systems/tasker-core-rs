@@ -48,7 +48,7 @@
 
 use bon::Builder;
 use derive_more::Display;
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -315,7 +315,7 @@ impl EventDeclaration {
     ///
     /// Returns an error if the schema is invalid
     pub fn validate_schema(&self) -> Result<(), String> {
-        JSONSchema::compile(&self.schema).map_err(|e| format!("Invalid JSON Schema: {}", e))?;
+        Validator::new(&self.schema).map_err(|e| format!("Invalid JSON Schema: {}", e))?;
         Ok(())
     }
 
@@ -329,8 +329,8 @@ impl EventDeclaration {
     ///
     /// Returns an error if the payload does not match the schema
     pub fn validate_payload(&self, payload: &serde_json::Value) -> Result<(), String> {
-        let compiled_schema = JSONSchema::compile(&self.schema)
-            .map_err(|e| format!("Failed to compile schema: {}", e))?;
+        let compiled_schema =
+            Validator::new(&self.schema).map_err(|e| format!("Failed to compile schema: {}", e))?;
 
         let result = compiled_schema.validate(payload);
 

@@ -10,6 +10,7 @@ import type {
   BootstrapConfig,
   BootstrapResult,
   FfiDispatchMetrics,
+  FfiDomainEvent,
   FfiStepEvent,
   LogFields,
   StepExecutionResult,
@@ -38,6 +39,7 @@ interface DenoFfiSymbols {
   stop_worker: () => PointerValue;
   transition_to_graceful_shutdown: () => PointerValue;
   poll_step_events: () => PointerValue;
+  poll_in_process_events: () => PointerValue;
   complete_step_event: (eventId: BufferValue, resultJson: BufferValue) => number;
   get_ffi_dispatch_metrics: () => PointerValue;
   check_starvation_warnings: () => void;
@@ -113,6 +115,10 @@ export class DenoRuntime extends BaseTaskerRuntime {
         result: 'pointer',
       },
       poll_step_events: {
+        parameters: [],
+        result: 'pointer',
+      },
+      poll_in_process_events: {
         parameters: [],
         result: 'pointer',
       },
@@ -290,6 +296,19 @@ export class DenoRuntime extends BaseTaskerRuntime {
     symbols.free_rust_string(result);
 
     return this.parseJson<FfiStepEvent>(jsonStr);
+  }
+
+  pollInProcessEvents(): FfiDomainEvent | null {
+    const symbols = this.ensureLoaded();
+    const result = symbols.poll_in_process_events();
+    if (result === null || Deno.UnsafePointer.equals(result, null)) {
+      return null;
+    }
+
+    const jsonStr = this.fromCString(result);
+    symbols.free_rust_string(result);
+
+    return this.parseJson<FfiDomainEvent>(jsonStr);
   }
 
   completeStepEvent(eventId: string, result: StepExecutionResult): boolean {
