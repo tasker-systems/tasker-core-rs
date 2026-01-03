@@ -12,12 +12,13 @@
 
 use crate::bridge::WORKER_SYSTEM;
 use crate::conversions::{
-    convert_ffi_step_event_to_python, convert_python_completion_to_step_result,
+    convert_ffi_step_event_to_python, convert_python_checkpoint_to_yield_data,
+    convert_python_completion_to_step_result,
 };
 use crate::error::PythonFfiError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Poll for pending step execution events
@@ -236,4 +237,76 @@ pub fn cleanup_timeouts() -> PyResult<usize> {
     }
 
     Ok(count)
+}
+
+/// TAS-125: Submit checkpoint yield for a batch processing step
+///
+/// Called from batch processing handlers when they want to persist progress
+/// and be re-dispatched for continuation. Unlike complete_step_event, this
+/// does NOT complete the step - instead it persists checkpoint data and
+/// re-dispatches the step for continued processing.
+///
+/// # Arguments
+///
+/// * `event_id` - The event ID string from the FfiStepEvent
+/// * `checkpoint_data` - Python dict with checkpoint data:
+///   - step_uuid: String (UUID of the step)
+///   - cursor: Any JSON value (position to resume from)
+///   - items_processed: Integer (count of items processed so far)
+///   - accumulated_results: Optional JSON value (partial results)
+///
+/// # Returns
+///
+/// `True` if the checkpoint was persisted and step re-dispatched,
+/// `False` if checkpoint support is not configured or an error occurred.
+///
+/// # Raises
+///
+/// - `ValueError` if the event_id format is invalid
+/// - `RuntimeError` if the worker system is not running
+/// - `RuntimeError` if conversion fails
+#[pyfunction]
+pub fn checkpoint_yield_step_event(
+    py: Python<'_>,
+    event_id_str: String,
+    checkpoint_data: &Bound<'_, PyDict>,
+) -> PyResult<bool> {
+    // Parse event_id
+    let event_id = Uuid::parse_str(&event_id_str).map_err(|e| {
+        error!("Invalid event_id format: {}", e);
+        PythonFfiError::InvalidArgument(format!("Invalid event_id format: {}", e))
+    })?;
+
+    // Convert Python checkpoint data to CheckpointYieldData
+    let checkpoint = convert_python_checkpoint_to_yield_data(py, checkpoint_data).map_err(|e| {
+        error!("Failed to convert checkpoint data: {}", e);
+        PythonFfiError::ConversionError(format!("Failed to convert checkpoint data: {}", e))
+    })?;
+
+    // Get bridge handle and submit checkpoint yield
+    let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
+        error!("Failed to acquire worker system lock: {}", e);
+        PythonFfiError::LockError(e.to_string())
+    })?;
+
+    let handle = handle_guard
+        .as_ref()
+        .ok_or(PythonFfiError::WorkerNotInitialized)?;
+
+    // Submit checkpoint yield via FfiDispatchChannel
+    let success = handle.ffi_dispatch_channel.checkpoint_yield(event_id, checkpoint);
+
+    if success {
+        info!(
+            event_id = %event_id,
+            "Checkpoint yield submitted and step re-dispatched"
+        );
+    } else {
+        error!(
+            event_id = %event_id,
+            "Failed to submit checkpoint yield (checkpoint support may not be configured)"
+        );
+    }
+
+    Ok(success)
 }

@@ -13,9 +13,7 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
                                                                    'start_cursor' => 0,
                                                                    'end_cursor' => 100
                                                                  },
-                                                                 'batch_metadata' => {
-                                                                   'checkpoint_interval' => 50
-                                                                 }
+                                                                 'batch_metadata' => {}
                                                                })
 
       context = described_class.from_step_data(mock_workflow_step)
@@ -25,7 +23,6 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
       expect(context.batch_id).to eq('001')
       expect(context.start_cursor).to eq(0)
       expect(context.end_cursor).to eq(100)
-      expect(context.checkpoint_interval).to eq(50)
     end
 
     it 'handles symbol keys correctly' do
@@ -192,56 +189,7 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
     end
   end
 
-  describe '#checkpoint_interval' do
-    it 'extracts checkpoint_interval from batch_metadata' do
-      allow(mock_workflow_step).to receive(:inputs).and_return({
-                                                                 'cursor' => {
-                                                                   'batch_id' => '001',
-                                                                   'start_cursor' => 0,
-                                                                   'end_cursor' => 100
-                                                                 },
-                                                                 'batch_metadata' => {
-                                                                   'checkpoint_interval' => 25
-                                                                 }
-                                                               })
-
-      context = described_class.from_step_data(mock_workflow_step)
-
-      expect(context.checkpoint_interval).to eq(25)
-    end
-
-    it 'defaults to 100 when missing' do
-      allow(mock_workflow_step).to receive(:inputs).and_return({
-                                                                 'cursor' => {
-                                                                   'batch_id' => '001',
-                                                                   'start_cursor' => 0,
-                                                                   'end_cursor' => 100
-                                                                 },
-                                                                 'batch_metadata' => {}
-                                                               })
-
-      context = described_class.from_step_data(mock_workflow_step)
-
-      expect(context.checkpoint_interval).to eq(100)
-    end
-
-    it 'converts string to integer' do
-      allow(mock_workflow_step).to receive(:inputs).and_return({
-                                                                 'cursor' => {
-                                                                   'batch_id' => '001',
-                                                                   'start_cursor' => 0,
-                                                                   'end_cursor' => 100
-                                                                 },
-                                                                 'batch_metadata' => {
-                                                                   'checkpoint_interval' => '75'
-                                                                 }
-                                                               })
-
-      context = described_class.from_step_data(mock_workflow_step)
-
-      expect(context.checkpoint_interval).to eq(75)
-    end
-  end
+  # TAS-125: checkpoint_interval tests removed - handlers decide when to checkpoint
 
   describe 'validation' do
     context 'when cursor configuration is invalid' do

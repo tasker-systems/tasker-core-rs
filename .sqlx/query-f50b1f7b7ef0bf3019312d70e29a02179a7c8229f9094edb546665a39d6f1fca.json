@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,\n                   in_process, processed, processed_at, attempts, last_attempted_at,\n                   backoff_request_seconds, inputs, results, skippable, created_at, updated_at\n            FROM tasker_workflow_steps\n            WHERE processed = false AND in_process = false\n            ORDER BY created_at ASC\n            ",
+  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,\n                   ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,\n                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_uuid = ws.workflow_step_uuid\n            WHERE wse.to_step_uuid = $1::uuid\n            ORDER BY ws.workflow_step_uuid\n            ",
   "describe": {
     "columns": [
       {
@@ -70,22 +70,29 @@
       },
       {
         "ordinal": 13,
+        "name": "checkpoint",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
         "name": "skippable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Uuid"
+      ]
     },
     "nullable": [
       false,
@@ -101,10 +108,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "23780e3a70548ec907133eac27c9683f3ea9ff1b71b49c42c86d9630ecc552d0"
+  "hash": "f50b1f7b7ef0bf3019312d70e29a02179a7c8229f9094edb546665a39d6f1fca"
 }

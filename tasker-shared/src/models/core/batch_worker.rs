@@ -70,8 +70,8 @@ use crate::models::core::task_template::{BatchConfiguration, FailureStrategy};
 ///   cursor = inputs[:cursor]
 ///   batch_id = cursor[:batch_id]
 ///   start_cursor = cursor[:start_cursor]
-///   checkpoint_interval = inputs[:batch_metadata][:checkpoint_interval]
-///   # ... process batch with checkpointing
+///   cursor_field = inputs[:batch_metadata][:cursor_field]
+///   # ... process batch
 /// end
 /// ```
 ///
@@ -86,7 +86,6 @@ use crate::models::core::task_template::{BatchConfiguration, FailureStrategy};
 ///     "batch_size": 1000
 ///   },
 ///   "batch_metadata": {
-///     "checkpoint_interval": 100,
 ///     "cursor_field": "id",
 ///     "failure_strategy": "ContinueOnFailure"
 ///   },
@@ -133,23 +132,17 @@ pub struct BatchWorkerInputs {
 /// because workers don't need parallelism settings, batch size calculation logic, etc.
 ///
 /// Workers need to know:
-/// - **How often** to checkpoint (`checkpoint_interval`)
 /// - **What field** to use for cursor queries (`cursor_field`)
 /// - **How to handle** failures in their batch (`failure_strategy`)
+///
+/// ## TAS-125: Handler-Driven Checkpoints
+///
+/// Checkpointing is now handler-driven, not configuration-driven. Handlers call
+/// `checkpoint_yield()` when they decide to persist progress based on business logic.
+/// This is more flexible than a fixed interval since handlers know when checkpointing
+/// is appropriate (e.g., after expensive operations or logical boundaries).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BatchMetadata {
-    /// Number of items between progress checkpoints
-    ///
-    /// Workers should update `workflow_steps.results.batch_cursor.last_checkpoint`
-    /// after processing this many items. This enables:
-    /// - Resumability after failures (TAS-49 ResetForRetry preserves cursors)
-    /// - Staleness detection (TAS-59 Phase 3 checkpoint health monitoring)
-    /// - Progress observability
-    ///
-    /// Example: With `checkpoint_interval = 100`, update cursor after items:
-    /// 100, 200, 300, ..., batch_size
-    pub checkpoint_interval: u32,
-
     /// Database field name used for cursor-based pagination
     ///
     /// Workers use this to construct queries like:
@@ -207,7 +200,6 @@ impl BatchWorkerInputs {
     ///     batch_size: 1000,
     ///     parallelism: 5,
     ///     cursor_field: "id".to_string(),
-    ///     checkpoint_interval: 100,
     ///     worker_template: "batch_worker".to_string(),
     ///     failure_strategy: FailureStrategy::ContinueOnFailure,
     /// };
@@ -216,7 +208,7 @@ impl BatchWorkerInputs {
     /// let inputs = BatchWorkerInputs::new(cursor, &batch_config, false);
     ///
     /// assert_eq!(inputs.cursor.batch_id, "batch_001");
-    /// assert_eq!(inputs.batch_metadata.checkpoint_interval, 100);
+    /// assert_eq!(inputs.batch_metadata.cursor_field, "id");
     /// assert_eq!(inputs.is_no_op, false);
     /// ```
     #[must_use]
@@ -228,7 +220,6 @@ impl BatchWorkerInputs {
         Self {
             cursor: cursor_config,
             batch_metadata: BatchMetadata {
-                checkpoint_interval: batch_config.checkpoint_interval,
                 cursor_field: batch_config.cursor_field.clone(),
                 failure_strategy: batch_config.failure_strategy.clone(),
             },
@@ -258,7 +249,6 @@ impl BatchWorkerInputs {
     /// #     batch_size: 1000,
     /// #     parallelism: 5,
     /// #     cursor_field: "id".to_string(),
-    /// #     checkpoint_interval: 100,
     /// #     worker_template: "batch_worker".to_string(),
     /// #     failure_strategy: FailureStrategy::ContinueOnFailure,
     /// # };
@@ -736,6 +726,276 @@ impl CheckpointProgress {
         // No checkpoint data found
         Ok(None)
     }
+
+    /// Extract checkpoint data from dedicated checkpoint column (TAS-125)
+    ///
+    /// This method reads from the new `workflow_steps.checkpoint` JSONB column
+    /// which stores handler-driven checkpoint data. This is distinct from the
+    /// error-recovery checkpoint data stored in `results.metadata.context`.
+    ///
+    /// # Arguments
+    ///
+    /// * `checkpoint_json` - The checkpoint column value from workflow_steps
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(CheckpointRecord))` if valid checkpoint data exists
+    /// * `Ok(None)` if checkpoint column is NULL
+    /// * `Err` if checkpoint data exists but cannot be deserialized
+    pub fn from_checkpoint_column(
+        checkpoint_json: Option<&serde_json::Value>,
+    ) -> anyhow::Result<Option<CheckpointRecord>> {
+        match checkpoint_json {
+            Some(json) => serde_json::from_value(json.clone())
+                .map(Some)
+                .map_err(|e| anyhow::anyhow!("Checkpoint deserialization failed: {}", e)),
+            None => Ok(None),
+        }
+    }
+}
+
+// =============================================================================
+// TAS-125: Handler-Driven Checkpoint Types
+// =============================================================================
+
+/// Checkpoint record for handler-driven checkpoint persistence (TAS-125)
+///
+/// This structure is stored in the dedicated `workflow_steps.checkpoint` JSONB column.
+/// Handlers call `checkpoint_yield()` to persist progress and get re-dispatched,
+/// enabling resumability without re-processing already-completed items.
+///
+/// # Fields
+///
+/// - `cursor`: The position where processing should resume on re-dispatch
+/// - `items_processed`: Total items successfully processed so far
+/// - `timestamp`: When this checkpoint was created
+/// - `accumulated_results`: Partial results to carry forward to next iteration
+/// - `history`: Array of previous checkpoint positions for debugging/auditing
+///
+/// # Example
+///
+/// ```rust
+/// use tasker_shared::models::core::batch_worker::{CheckpointRecord, CheckpointHistoryEntry};
+/// use chrono::Utc;
+/// use serde_json::json;
+///
+/// let checkpoint = CheckpointRecord {
+///     cursor: json!(500),
+///     items_processed: 500,
+///     timestamp: Utc::now(),
+///     accumulated_results: Some(json!({"total_value": 25000.00})),
+///     history: vec![
+///         CheckpointHistoryEntry {
+///             cursor: json!(250),
+///             timestamp: Utc::now(),
+///         }
+///     ],
+/// };
+///
+/// // Serialize to store in database
+/// let json_value = serde_json::to_value(&checkpoint).unwrap();
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckpointRecord {
+    /// Current cursor position (where processing should resume)
+    pub cursor: serde_json::Value,
+
+    /// Total items successfully processed so far
+    pub items_processed: u64,
+
+    /// When this checkpoint was created
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+
+    /// Partial results accumulated during processing
+    ///
+    /// Handlers can store intermediate calculations, aggregations,
+    /// or any data that should persist across checkpoint yields.
+    pub accumulated_results: Option<serde_json::Value>,
+
+    /// History of previous checkpoints for debugging and auditing
+    pub history: Vec<CheckpointHistoryEntry>,
+}
+
+impl CheckpointRecord {
+    /// Create a new checkpoint record
+    ///
+    /// # Arguments
+    ///
+    /// * `cursor` - Current position for resumption
+    /// * `items_processed` - Total items processed so far
+    /// * `accumulated_results` - Optional partial results to persist
+    #[must_use]
+    pub fn new(
+        cursor: serde_json::Value,
+        items_processed: u64,
+        accumulated_results: Option<serde_json::Value>,
+    ) -> Self {
+        Self {
+            cursor,
+            items_processed,
+            timestamp: chrono::Utc::now(),
+            accumulated_results,
+            history: Vec::new(),
+        }
+    }
+
+    /// Create a checkpoint with history from a previous checkpoint
+    ///
+    /// Appends the previous checkpoint's cursor to the history array
+    /// for tracking checkpoint progression.
+    #[must_use]
+    pub fn with_history(
+        cursor: serde_json::Value,
+        items_processed: u64,
+        accumulated_results: Option<serde_json::Value>,
+        previous: &CheckpointRecord,
+    ) -> Self {
+        let mut history = previous.history.clone();
+        history.push(CheckpointHistoryEntry {
+            cursor: previous.cursor.clone(),
+            timestamp: previous.timestamp,
+        });
+
+        Self {
+            cursor,
+            items_processed,
+            timestamp: chrono::Utc::now(),
+            accumulated_results,
+            history,
+        }
+    }
+}
+
+/// Entry in checkpoint history for debugging and auditing
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckpointHistoryEntry {
+    /// Cursor position at this historical checkpoint
+    pub cursor: serde_json::Value,
+
+    /// When this checkpoint was recorded
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+/// Result type for batch worker handlers (TAS-125)
+///
+/// Batch workers can return either a completed result or yield at a checkpoint
+/// to persist progress and get re-dispatched. This enum mirrors the pattern
+/// used by `DecisionPointOutcome` and `BatchProcessingOutcome`.
+///
+/// # Checkpoint Yield Flow
+///
+/// When a handler returns `CheckpointYield`:
+/// 1. Rust persists checkpoint data to `workflow_steps.checkpoint`
+/// 2. Step remains in `InProgress` state (not transitioned)
+/// 3. Worker is re-dispatched with updated checkpoint data
+/// 4. Handler resumes from `checkpoint.cursor` position
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use tasker_shared::models::core::batch_worker::BatchWorkerResult;
+/// use tasker_shared::messaging::{StepExecutionResult, CheckpointYieldData};
+///
+/// fn process_batch(context: BatchContext) -> BatchWorkerResult {
+///     let mut processed = 0;
+///     let mut accumulated = json!({});
+///
+///     for item in context.items() {
+///         process_item(&item)?;
+///         processed += 1;
+///
+///         // Yield checkpoint every 100 items
+///         if processed % 100 == 0 && context.has_more_items() {
+///             return BatchWorkerResult::CheckpointYield(CheckpointYieldData {
+///                 step_uuid: context.step_uuid,
+///                 cursor: json!(context.current_position()),
+///                 items_processed: processed,
+///                 accumulated_results: Some(accumulated),
+///             });
+///         }
+///     }
+///
+///     // Complete when done
+///     BatchWorkerResult::Complete(StepExecutionResult::success(
+///         context.step_uuid,
+///         accumulated,
+///     ))
+/// }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum BatchWorkerResult {
+    /// Worker completed successfully (all items processed)
+    ///
+    /// Boxed to reduce enum size (StepExecutionResult is ~616 bytes)
+    Complete(Box<crate::messaging::StepExecutionResult>),
+
+    /// Worker yielding at checkpoint for persistence
+    ///
+    /// The checkpoint data will be persisted and the worker
+    /// will be re-dispatched to continue processing.
+    CheckpointYield(CheckpointYieldData),
+}
+
+/// Data provided when yielding at a checkpoint (TAS-125)
+///
+/// This structure contains all information needed to persist
+/// a checkpoint and re-dispatch the worker.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckpointYieldData {
+    /// The step being checkpointed
+    pub step_uuid: uuid::Uuid,
+
+    /// Current cursor position (where to resume on re-dispatch)
+    pub cursor: serde_json::Value,
+
+    /// Number of items successfully processed so far
+    pub items_processed: u64,
+
+    /// Accumulated results to carry forward
+    ///
+    /// Use this for partial aggregations, intermediate calculations,
+    /// or any state that should persist across checkpoint yields.
+    pub accumulated_results: Option<serde_json::Value>,
+}
+
+impl CheckpointYieldData {
+    /// Create new checkpoint yield data
+    #[must_use]
+    pub fn new(
+        step_uuid: uuid::Uuid,
+        cursor: serde_json::Value,
+        items_processed: u64,
+        accumulated_results: Option<serde_json::Value>,
+    ) -> Self {
+        Self {
+            step_uuid,
+            cursor,
+            items_processed,
+            accumulated_results,
+        }
+    }
+
+    /// Convert to a CheckpointRecord for database storage
+    #[must_use]
+    pub fn to_checkpoint_record(&self) -> CheckpointRecord {
+        CheckpointRecord::new(
+            self.cursor.clone(),
+            self.items_processed,
+            self.accumulated_results.clone(),
+        )
+    }
+
+    /// Convert to a CheckpointRecord with history from previous checkpoint
+    #[must_use]
+    pub fn to_checkpoint_record_with_history(&self, previous: &CheckpointRecord) -> CheckpointRecord {
+        CheckpointRecord::with_history(
+            self.cursor.clone(),
+            self.items_processed,
+            self.accumulated_results.clone(),
+            previous,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -757,7 +1017,6 @@ mod tests {
             batch_size: 1000,
             parallelism: 5,
             cursor_field: "id".to_string(),
-            checkpoint_interval: 100,
             worker_template: "batch_worker_template".to_string(),
             failure_strategy: FailureStrategy::ContinueOnFailure,
         }
@@ -772,7 +1031,6 @@ mod tests {
 
         assert_eq!(inputs.cursor.batch_id, "batch_001");
         assert_eq!(inputs.cursor.batch_size, 1000);
-        assert_eq!(inputs.batch_metadata.checkpoint_interval, 100);
         assert_eq!(inputs.batch_metadata.cursor_field, "id");
         assert_eq!(
             inputs.batch_metadata.failure_strategy,
@@ -801,7 +1059,6 @@ mod tests {
 
         // Verify metadata
         let metadata_obj = json_value.get("batch_metadata").unwrap();
-        assert_eq!(metadata_obj.get("checkpoint_interval").unwrap(), 100);
         assert_eq!(metadata_obj.get("cursor_field").unwrap(), "id");
 
         // Verify is_no_op flag
@@ -818,7 +1075,6 @@ mod tests {
                 "batch_size": 1000
             },
             "batch_metadata": {
-                "checkpoint_interval": 50,
                 "cursor_field": "created_at",
                 "failure_strategy": "fail_fast"
             },
@@ -828,7 +1084,6 @@ mod tests {
         let inputs: BatchWorkerInputs = serde_json::from_str(json_str).unwrap();
 
         assert_eq!(inputs.cursor.batch_id, "batch_002");
-        assert_eq!(inputs.batch_metadata.checkpoint_interval, 50);
         assert_eq!(inputs.batch_metadata.cursor_field, "created_at");
         assert_eq!(
             inputs.batch_metadata.failure_strategy,

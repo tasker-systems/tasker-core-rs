@@ -229,13 +229,7 @@ export type FailureStrategy = 'continue_on_failure' | 'fail_fast' | 'isolate';
  * batch size calculation logic - just execution parameters.
  */
 export interface BatchMetadata {
-  /**
-   * Number of items between progress checkpoints.
-   *
-   * Workers should update progress after processing this many items.
-   * This enables resumability after failures and progress observability.
-   */
-  checkpoint_interval: number;
+  // TAS-125: checkpoint_interval removed - handlers decide when to checkpoint
 
   /**
    * Database field name used for cursor-based pagination.

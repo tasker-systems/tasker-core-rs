@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable,\n                           max_attempts, in_process, processed, processed_at,\n                           attempts, last_attempted_at, backoff_request_seconds,\n                           inputs, results, skippable, created_at, updated_at\n                    FROM tasker_workflow_steps\n                    ORDER BY workflow_step_uuid\n                    ",
+  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,\n                   ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,\n                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.checkpoint, ws.skippable,\n                   ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid\n            WHERE ws.task_uuid = $1::uuid AND ns.name = $2\n            LIMIT 1\n            ",
   "describe": {
     "columns": [
       {
@@ -70,22 +70,30 @@
       },
       {
         "ordinal": 13,
+        "name": "checkpoint",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
         "name": "skippable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
     },
     "nullable": [
       false,
@@ -101,10 +109,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "3b2eb933564b28eb0cb425f15ee7e769f223137f047fc398eda93e948eab5661"
+  "hash": "82f31629416dcb26c875364ffe28e690fc4c610cbc47cc101876e1485468b421"
 }

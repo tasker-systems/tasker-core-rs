@@ -33,11 +33,12 @@
 //!         return Ok(());
 //!     }
 //!
-//!     // Process real batch with cursor-based resumability
+//!     // Process batch items - checkpoint_yield() when appropriate (TAS-125)
 //!     let mut current_position = context.start_position();
 //!     while current_position < context.end_position() {
-//!         // Process chunk...
-//!         current_position += context.checkpoint_interval() as u64;
+//!         // Process items...
+//!         // When handler decides to checkpoint: return checkpoint_yield(...)
+//!         current_position += 100; // Handler decides checkpoint frequency
 //!     }
 //!
 //!     Ok(())
@@ -164,14 +165,6 @@ impl BatchWorkerContext {
         self.inputs.cursor.end_cursor.as_u64().unwrap_or(0)
     }
 
-    /// Get the checkpoint interval
-    ///
-    /// Workers should update checkpoint progress after processing this many items.
-    /// Enables resumability after failures.
-    pub fn checkpoint_interval(&self) -> u32 {
-        self.inputs.batch_metadata.checkpoint_interval
-    }
-
     /// Get total batch size (original)
     ///
     /// Returns the total number of items in this batch, regardless of checkpoint progress.
@@ -217,7 +210,6 @@ mod tests {
                 "batch_size": (end_cursor - start_cursor) as u32,
             },
             "batch_metadata": {
-                "checkpoint_interval": 100,
                 "cursor_field": "id",
                 "failure_strategy": "continue_on_failure",
             },
@@ -241,7 +233,7 @@ mod tests {
         assert_eq!(context.batch_id(), "001");
         assert_eq!(context.start_position(), 0);
         assert_eq!(context.end_position(), 100);
-        assert_eq!(context.checkpoint_interval(), 100);
+        assert_eq!(context.cursor_field(), "id");
         assert!(!context.is_no_op());
     }
 

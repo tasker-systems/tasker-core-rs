@@ -8,6 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pythonize::{depythonize, pythonize};
 use tasker_shared::messaging::StepExecutionResult;
+use tasker_shared::models::batch_worker::CheckpointYieldData;
 use tasker_worker::worker::FfiStepEvent;
 
 /// Convert an FfiStepEvent to a Python dict
@@ -91,6 +92,27 @@ pub fn python_dict_to_string_map(
     }
 
     Ok(map)
+}
+
+/// TAS-125: Convert a Python dict to CheckpointYieldData
+///
+/// The Python dict should contain:
+/// - step_uuid: String (UUID of the step)
+/// - cursor: Any JSON value (position to resume from)
+/// - items_processed: Integer (count of items processed so far)
+/// - accumulated_results: Optional JSON value (partial results to carry forward)
+pub fn convert_python_checkpoint_to_yield_data(
+    _py: Python<'_>,
+    value: &Bound<'_, PyDict>,
+) -> PyResult<CheckpointYieldData> {
+    let data: CheckpointYieldData = depythonize(value).map_err(|e| {
+        PythonFfiError::ConversionError(format!(
+            "Failed to convert Python dict to CheckpointYieldData: {}",
+            e
+        ))
+    })?;
+
+    Ok(data)
 }
 
 // Note: Rust unit tests that use PyO3 APIs cannot run in a cdylib crate

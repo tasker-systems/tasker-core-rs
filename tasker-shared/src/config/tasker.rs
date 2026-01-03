@@ -1658,14 +1658,20 @@ impl_builder_default!(DlqReasons);
 /// Batch Processing Configuration (TAS-59)
 ///
 /// Controls cursor-based batch processing behavior for large dataset workflows.
+///
+/// ## TAS-125: Handler-Driven Checkpoints
+///
+/// Checkpointing is handler-driven, not configuration-driven. Handlers call
+/// `checkpoint_yield()` when they decide to persist progress based on business logic.
+/// The `checkpoint_stall_minutes` setting is used for staleness detection to identify
+/// workers that may have crashed without yielding a checkpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display, Builder)]
 #[serde(rename_all = "snake_case")]
 #[display(
-    "BatchProcessingConfig(enabled: {}, max_parallel: {}, default_batch_size: {}, checkpoint_interval: {}, stall_minutes: {})",
+    "BatchProcessingConfig(enabled: {}, max_parallel: {}, default_batch_size: {}, stall_minutes: {})",
     enabled,
     max_parallel_batches,
     default_batch_size,
-    checkpoint_interval_default,
     checkpoint_stall_minutes
 )]
 pub struct BatchProcessingConfig {
@@ -1682,11 +1688,6 @@ pub struct BatchProcessingConfig {
     #[validate(range(min = 1, max = 100000))]
     #[builder(default = 1000)]
     pub default_batch_size: u32,
-
-    /// Default checkpoint interval when not specified in template
-    #[validate(range(min = 1, max = 10000))]
-    #[builder(default = 100)]
-    pub checkpoint_interval_default: u32,
 
     /// Minutes without checkpoint progress before considering batch stalled
     #[validate(range(min = 1, max = 1440))]

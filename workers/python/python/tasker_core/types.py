@@ -1657,12 +1657,7 @@ class BatchMetadata(BaseModel):
     batch size calculation logic - just execution parameters.
     """
 
-    checkpoint_interval: int = Field(
-        description=(
-            "Number of items between progress checkpoints. "
-            "Workers should update progress after processing this many items."
-        )
-    )
+    # TAS-125: checkpoint_interval removed - handlers decide when to checkpoint
     cursor_field: str = Field(
         description=(
             "Database field name used for cursor-based pagination. "

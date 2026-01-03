@@ -3,11 +3,4 @@
 /**
  * DTO for FFI dispatch metrics
  */
-export type FfiDispatchMetricsDto = {
-  pending_count: number;
-  starvation_detected: boolean;
-  starving_event_count: number;
-  oldest_pending_age_ms: bigint | null;
-  newest_pending_age_ms: bigint | null;
-  oldest_event_id: string | null;
-};
+export type FfiDispatchMetricsDto = { pending_count: number, starvation_detected: boolean, starving_event_count: number, oldest_pending_age_ms: bigint | null, newest_pending_age_ms: bigint | null, oldest_event_id: string | null, };

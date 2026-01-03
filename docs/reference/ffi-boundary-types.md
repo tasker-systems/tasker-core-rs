@@ -179,7 +179,7 @@ pub struct BatchWorkerInputs {
 }
 
 pub struct BatchMetadata {
-    pub checkpoint_interval: u32,
+    // TAS-125: checkpoint_interval removed - handlers decide when to checkpoint
     pub cursor_field: String,
     pub failure_strategy: FailureStrategy,
 }
@@ -198,7 +198,7 @@ pub enum FailureStrategy {
 export type FailureStrategy = 'continue_on_failure' | 'fail_fast' | 'isolate';
 
 export interface BatchMetadata {
-  checkpoint_interval: number;
+  // TAS-125: checkpoint_interval removed - handlers decide when to checkpoint
   cursor_field: string;
   failure_strategy: FailureStrategy;
 }
@@ -220,7 +220,7 @@ class FailureStrategy(str, Enum):
     ISOLATE = "isolate"
 
 class BatchMetadata(BaseModel):
-    checkpoint_interval: int
+    # TAS-125: checkpoint_interval removed - handlers decide when to checkpoint
     cursor_field: str
     failure_strategy: FailureStrategy
 
@@ -241,7 +241,6 @@ class RustBatchWorkerInputs(BaseModel):
     "batch_size": 1000
   },
   "batch_metadata": {
-    "checkpoint_interval": 100,
     "cursor_field": "id",
     "failure_strategy": "continue_on_failure"
   },

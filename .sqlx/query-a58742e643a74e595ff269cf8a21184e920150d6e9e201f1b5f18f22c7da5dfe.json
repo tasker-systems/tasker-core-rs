@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,\n                   ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,\n                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid\n            WHERE ws.task_uuid = $1::uuid AND ns.name = $2\n            LIMIT 1\n            ",
+  "query": "\n                    SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,\n                           ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,\n                           ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,\n                           ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at\n                    FROM tasker_workflow_steps ws\n                    LEFT JOIN tasker_workflow_step_transitions wst\n                        ON ws.workflow_step_uuid = wst.workflow_step_uuid AND wst.most_recent = true\n                    WHERE (wst.to_state = $1)\n                        OR (wst.to_state IS NULL AND $1 = 'pending')\n                    ORDER BY ws.workflow_step_uuid\n                    ",
   "describe": {
     "columns": [
       {
@@ -70,23 +70,27 @@
       },
       {
         "ordinal": 13,
+        "name": "checkpoint",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
         "name": "skippable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
         "Text"
       ]
     },
@@ -104,10 +108,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "092082df3e9c7325fe937a2d9666d9812696794657a7a998579a431198af88b0"
+  "hash": "a58742e643a74e595ff269cf8a21184e920150d6e9e201f1b5f18f22c7da5dfe"
 }

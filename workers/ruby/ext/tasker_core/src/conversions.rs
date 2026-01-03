@@ -2,6 +2,7 @@ use magnus::{RHash, Value as RValue};
 use serde_magnus::serialize;
 use tasker_shared::errors::{TaskerError, TaskerResult};
 use tasker_shared::messaging::StepExecutionResult;
+use tasker_shared::models::batch_worker::CheckpointYieldData;
 use tasker_shared::types::TaskSequenceStep;
 use tasker_worker::worker::FfiStepEvent;
 
@@ -106,4 +107,25 @@ pub fn convert_ruby_completion_to_step_result(value: RValue) -> TaskerResult<Ste
     })?;
 
     Ok(result)
+}
+
+/// TAS-125: Convert Ruby checkpoint data hash to CheckpointYieldData
+///
+/// The Ruby hash should contain:
+/// - step_uuid: String (UUID of the step)
+/// - cursor: Any JSON value (position to resume from)
+/// - items_processed: Integer (count of items processed so far)
+/// - accumulated_results: Optional JSON value (partial results to carry forward)
+pub fn convert_ruby_checkpoint_to_yield_data(value: RValue) -> TaskerResult<CheckpointYieldData> {
+    let ruby = magnus::Ruby::get().map_err(|err| {
+        TaskerError::FFIError(format!("Ruby Magnus FFI Ruby Acquire Error: {err}"))
+    })?;
+
+    let data: CheckpointYieldData = serde_magnus::deserialize(&ruby, value).map_err(|err| {
+        TaskerError::FFIError(format!(
+            "Could not deserialize to CheckpointYieldData: {err}"
+        ))
+    })?;
+
+    Ok(data)
 }

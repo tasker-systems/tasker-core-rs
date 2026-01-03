@@ -79,9 +79,7 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
                                                                      'start_cursor' => 0,
                                                                      'end_cursor' => 2
                                                                    },
-                                                                   'batch_metadata' => {
-                                                                     'checkpoint_interval' => 50
-                                                                   }
+                                                                   'batch_metadata' => {}
                                                                  })
         allow(mock_dependency_results).to receive(:get_results)
           .with('analyze_csv')

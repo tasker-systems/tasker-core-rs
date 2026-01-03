@@ -12,6 +12,7 @@ import { BaseTaskerRuntime } from './runtime-interface.js';
 import type {
   BootstrapConfig,
   BootstrapResult,
+  CheckpointYieldData,
   FfiDispatchMetrics,
   FfiDomainEvent,
   FfiStepEvent,
@@ -34,6 +35,7 @@ interface KoffiLib {
   poll_step_events: () => unknown;
   poll_in_process_events: () => unknown;
   complete_step_event: (eventId: string, resultJson: string) => number;
+  checkpoint_yield_step_event: (eventId: string, checkpointJson: string) => number;
   get_ffi_dispatch_metrics: () => unknown;
   check_starvation_warnings: () => void;
   cleanup_timeouts: () => void;
@@ -84,6 +86,7 @@ export class NodeRuntime extends BaseTaskerRuntime {
       poll_step_events: lib.func('void* poll_step_events()'),
       poll_in_process_events: lib.func('void* poll_in_process_events()'),
       complete_step_event: lib.func('int complete_step_event(str, str)'),
+      checkpoint_yield_step_event: lib.func('int checkpoint_yield_step_event(str, str)'),
       get_ffi_dispatch_metrics: lib.func('void* get_ffi_dispatch_metrics()'),
       check_starvation_warnings: lib.func('void check_starvation_warnings()'),
       cleanup_timeouts: lib.func('void cleanup_timeouts()'),
@@ -228,6 +231,11 @@ export class NodeRuntime extends BaseTaskerRuntime {
   completeStepEvent(eventId: string, result: StepExecutionResult): boolean {
     const lib = this.ensureLoaded();
     return lib.complete_step_event(eventId, this.toJson(result)) === 1;
+  }
+
+  checkpointYieldStepEvent(eventId: string, checkpointData: CheckpointYieldData): boolean {
+    const lib = this.ensureLoaded();
+    return lib.checkpoint_yield_step_event(eventId, this.toJson(checkpointData)) === 1;
   }
 
   getFfiDispatchMetrics(): FfiDispatchMetrics {

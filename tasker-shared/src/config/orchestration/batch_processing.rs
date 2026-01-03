@@ -7,11 +7,6 @@ impl BatchProcessingConfig {
         template_batch_size.unwrap_or(self.default_batch_size)
     }
 
-    /// Get the checkpoint interval to use, with fallback to default
-    pub fn effective_checkpoint_interval(&self, template_interval: Option<u32>) -> u32 {
-        template_interval.unwrap_or(self.checkpoint_interval_default)
-    }
-
     /// Check if batch processing is enabled
     pub fn is_enabled(&self) -> bool {
         self.enabled
@@ -83,7 +78,6 @@ mod tests {
         assert!(config.enabled);
         assert_eq!(config.max_parallel_batches, 50);
         assert_eq!(config.default_batch_size, 1000);
-        assert_eq!(config.checkpoint_interval_default, 100);
         assert_eq!(config.checkpoint_stall_minutes, 15);
     }
 
@@ -92,13 +86,6 @@ mod tests {
         let config = BatchProcessingConfig::default();
         assert_eq!(config.effective_batch_size(None), 1000);
         assert_eq!(config.effective_batch_size(Some(500)), 500);
-    }
-
-    #[test]
-    fn test_effective_checkpoint_interval() {
-        let config = BatchProcessingConfig::default();
-        assert_eq!(config.effective_checkpoint_interval(None), 100);
-        assert_eq!(config.effective_checkpoint_interval(Some(50)), 50);
     }
 
     #[test]

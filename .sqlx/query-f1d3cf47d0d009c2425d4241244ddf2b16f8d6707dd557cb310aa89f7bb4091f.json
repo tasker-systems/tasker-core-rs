@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,\n                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,\n                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,\n                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_tasks t ON ws.task_uuid = t.task_uuid\n            WHERE t.created_at >= $1\n            ORDER BY t.created_at DESC, ws.workflow_step_uuid\n            ",
+  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,\n                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,\n                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,\n                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_tasks t ON ws.task_uuid = t.task_uuid\n            WHERE t.created_at >= $1\n            ORDER BY t.created_at DESC, ws.workflow_step_uuid\n            ",
   "describe": {
     "columns": [
       {
@@ -70,16 +70,21 @@
       },
       {
         "ordinal": 13,
+        "name": "checkpoint",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
         "name": "skippable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
@@ -103,10 +108,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "79e5d90df875fe33d036b78af97f44acff01d8bc018c86cb60e4936203a38cb1"
+  "hash": "f1d3cf47d0d009c2425d4241244ddf2b16f8d6707dd557cb310aa89f7bb4091f"
 }

@@ -55,7 +55,6 @@ steps:
       initialization:
         batch_size: 100
         max_workers: 1
-        checkpoint_interval: 25
         worker_template_name: "checkpoint_fail_batch"
     system_dependency:
     dependencies: []
@@ -77,7 +76,7 @@ steps:
       initialization:
         fail_after_items: 50
         fail_on_attempt: 1
-        checkpoint_interval: 25
+        items_per_checkpoint: 25  # TAS-125: Handler-driven checkpoints
     system_dependency:
     dependencies:
       - analyze_dataset
@@ -93,7 +92,6 @@ steps:
       batch_size: 100
       parallelism: 1
       cursor_field: "id"
-      checkpoint_interval: 25
       worker_template: "checkpoint_fail_batch"
       failure_strategy: "fail_fast"
 

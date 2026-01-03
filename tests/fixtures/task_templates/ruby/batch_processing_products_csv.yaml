@@ -36,7 +36,6 @@ steps:
       batch_size: 200
       parallelism: 5
       cursor_field: "row_number"
-      checkpoint_interval: 50
       worker_template: "process_csv_batch"
       failure_strategy: "continue_on_failure"
 

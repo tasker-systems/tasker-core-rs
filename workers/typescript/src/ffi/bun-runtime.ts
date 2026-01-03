@@ -9,6 +9,7 @@ import { BaseTaskerRuntime } from './runtime-interface.js';
 import type {
   BootstrapConfig,
   BootstrapResult,
+  CheckpointYieldData,
   FfiDispatchMetrics,
   FfiDomainEvent,
   FfiStepEvent,
@@ -31,6 +32,7 @@ type FfiSymbols = {
   poll_step_events: () => bigint;
   poll_in_process_events: () => bigint;
   complete_step_event: (eventId: bigint, resultJson: bigint) => number;
+  checkpoint_yield_step_event: (eventId: bigint, checkpointJson: bigint) => number;
   get_ffi_dispatch_metrics: () => bigint;
   check_starvation_warnings: () => void;
   cleanup_timeouts: () => void;
@@ -110,6 +112,10 @@ export class BunRuntime extends BaseTaskerRuntime {
         returns: FFIType.ptr,
       },
       complete_step_event: {
+        args: [FFIType.ptr, FFIType.ptr],
+        returns: FFIType.i32,
+      },
+      checkpoint_yield_step_event: {
         args: [FFIType.ptr, FFIType.ptr],
         returns: FFIType.i32,
       },
@@ -297,6 +303,13 @@ export class BunRuntime extends BaseTaskerRuntime {
     const eventIdPtr = this.toCString(eventId);
     const resultJsonPtr = this.toCString(this.toJson(result));
     return symbols.complete_step_event(eventIdPtr, resultJsonPtr) === 1;
+  }
+
+  checkpointYieldStepEvent(eventId: string, checkpointData: CheckpointYieldData): boolean {
+    const symbols = this.ensureLoaded();
+    const eventIdPtr = this.toCString(eventId);
+    const checkpointJsonPtr = this.toCString(this.toJson(checkpointData));
+    return symbols.checkpoint_yield_step_event(eventIdPtr, checkpointJsonPtr) === 1;
   }
 
   getFfiDispatchMetrics(): FfiDispatchMetrics {

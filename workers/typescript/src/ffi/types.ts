@@ -173,3 +173,21 @@ export interface FfiDomainEvent {
   metadata: FfiDomainEventMetadata;
   payload: Record<string, unknown>;
 }
+
+// =============================================================================
+// Checkpoint Types (TAS-125)
+// =============================================================================
+
+/**
+ * Checkpoint yield data for batch processing handlers (TAS-125)
+ *
+ * Sent when a handler wants to persist progress and be re-dispatched.
+ * The step remains in_process and will be re-executed with the checkpoint
+ * data available.
+ */
+export interface CheckpointYieldData {
+  step_uuid: string;
+  cursor: unknown; // Flexible: number | string | object
+  items_processed: number;
+  accumulated_results?: Record<string, unknown>;
+}

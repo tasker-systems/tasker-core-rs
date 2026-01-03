@@ -3,4 +3,4 @@
 /**
  * DTO for HandlerDefinition
  */
-export type HandlerDefinitionDto = { callable: string; initialization: Record<string, unknown> };
+export type HandlerDefinitionDto = { callable: string, initialization: Record<string, unknown>, };

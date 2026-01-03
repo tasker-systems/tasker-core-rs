@@ -44,7 +44,6 @@ steps:
       initialization:
         batch_size: 200       # Rows per batch
         max_workers: 5        # Maximum parallel workers
-        checkpoint_interval: 50  # Checkpoint every N rows
         worker_template_name: "process_csv_batch"
 
   #
@@ -65,7 +64,6 @@ steps:
   #     "batch_size": 200
   #   },
   #   "batch_metadata": {
-  #     "checkpoint_interval": 50,
   #     "cursor_field": "row_number",
   #     "failure_strategy": "continue_on_failure"
   #   },
@@ -91,7 +89,6 @@ steps:
       batch_size: 200
       parallelism: 5
       cursor_field: "row_number"
-      checkpoint_interval: 50
       worker_template: "process_csv_batch"
       failure_strategy: "continue_on_failure"
 

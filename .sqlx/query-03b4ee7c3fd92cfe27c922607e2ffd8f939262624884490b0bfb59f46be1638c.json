@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,\n                   in_process, processed, processed_at, attempts, last_attempted_at,\n                   backoff_request_seconds, inputs, results, skippable, created_at, updated_at\n            FROM tasker_workflow_steps\n            WHERE named_step_uuid = $1::uuid\n            ORDER BY created_at DESC\n            ",
+  "query": "\n            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,\n                   in_process, processed, processed_at, attempts, last_attempted_at,\n                   backoff_request_seconds, inputs, results, checkpoint, skippable, created_at, updated_at\n            FROM tasker_workflow_steps\n            WHERE workflow_step_uuid = $1::uuid\n            ",
   "describe": {
     "columns": [
       {
@@ -70,16 +70,21 @@
       },
       {
         "ordinal": 13,
+        "name": "checkpoint",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
         "name": "skippable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
@@ -103,10 +108,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "35dbc1811a2af5623723860160ee97008c55ce7420408998fc7b87b7e8cb5726"
+  "hash": "03b4ee7c3fd92cfe27c922607e2ffd8f939262624884490b0bfb59f46be1638c"
 }

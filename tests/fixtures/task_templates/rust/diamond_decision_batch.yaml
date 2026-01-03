@@ -106,7 +106,6 @@ steps:
       batch_size: 2
       parallelism: 10
       cursor_field: "id"
-      checkpoint_interval: 50
       worker_template: "process_even_batch"
       failure_strategy: "fail_fast"
 
@@ -150,7 +149,6 @@ steps:
       batch_size: 2
       parallelism: 10
       cursor_field: "id"
-      checkpoint_interval: 50
       worker_template: "process_odd_batch"
       failure_strategy: "fail_fast"
 

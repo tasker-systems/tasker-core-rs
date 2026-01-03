@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,\n                   in_process, processed, processed_at, attempts, last_attempted_at,\n                   backoff_request_seconds, inputs, results, skippable, created_at, updated_at\n            FROM tasker_workflow_steps\n            WHERE in_process = true\n            ORDER BY last_attempted_at ASC\n            ",
+  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,\n                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,\n                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,\n                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_workflow_step_transitions wst\n                ON ws.workflow_step_uuid = wst.workflow_step_uuid\n            WHERE wst.most_recent = true\n                AND wst.to_state = 'error'\n                AND wst.created_at >= $1\n            ORDER BY wst.created_at DESC\n            ",
   "describe": {
     "columns": [
       {
@@ -70,22 +70,29 @@
       },
       {
         "ordinal": 13,
+        "name": "checkpoint",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
         "name": "skippable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Timestamp"
+      ]
     },
     "nullable": [
       false,
@@ -101,10 +108,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "593fbc47090a608fd94cd6b239e5169aad38d6f53ef0cd07e1918bbce62ffbf5"
+  "hash": "2a779b7899de2713ece735319f6c938a2f0eea044b0c70040abd651b6d145f4c"
 }

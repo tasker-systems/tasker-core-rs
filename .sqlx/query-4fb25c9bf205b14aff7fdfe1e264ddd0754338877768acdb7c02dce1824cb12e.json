@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,\n                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,\n                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,\n                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid\n            WHERE ws.task_uuid = $1::uuid AND ns.name = $2\n            LIMIT 1\n            ",
+  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,\n                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,\n                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,\n                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_workflow_step_transitions wst\n                ON ws.workflow_step_uuid = wst.workflow_step_uuid\n            WHERE wst.most_recent = true\n                AND wst.to_state = 'error'\n            ORDER BY ws.workflow_step_uuid\n            ",
   "describe": {
     "columns": [
       {
@@ -70,25 +70,27 @@
       },
       {
         "ordinal": 13,
+        "name": "checkpoint",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
         "name": "skippable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
-      "Left": [
-        "Uuid",
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -104,10 +106,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "ac995dcd6e017c468866ec4181783a4abdfbc8555bb6fdd2030841a9d29331eb"
+  "hash": "4fb25c9bf205b14aff7fdfe1e264ddd0754338877768acdb7c02dce1824cb12e"
 }

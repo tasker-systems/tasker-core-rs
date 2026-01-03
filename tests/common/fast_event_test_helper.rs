@@ -230,6 +230,7 @@ mod tests {
                         backoff_request_seconds: None,
                         inputs: None,
                         results: None,
+                        checkpoint: None,
                         skippable: false,
                         created_at: Utc::now().naive_utc(),
                         updated_at: Utc::now().naive_utc(),

@@ -116,15 +116,6 @@ module TaskerCore
         cursor[:batch_id] || 'unknown'
       end
 
-      # Get the checkpoint interval
-      #
-      # Workers should update checkpoint progress after processing this many items.
-      #
-      # @return [Integer] Checkpoint interval
-      def checkpoint_interval
-        batch_metadata[:checkpoint_interval]&.to_i || 100
-      end
-
       # Check if this is a no-op/placeholder worker
       #
       # @return [Boolean] True if this worker should skip processing

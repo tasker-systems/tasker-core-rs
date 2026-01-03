@@ -651,6 +651,7 @@ mod tests {
                 skippable: false,
                 created_at: Utc::now().naive_utc(),
                 updated_at: Utc::now().naive_utc(),
+                checkpoint: None,
             },
             dependency_results: HashMap::new(),
             step_definition: StepDefinition {

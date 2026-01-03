@@ -71,6 +71,7 @@ fn create_test_task_sequence_step() -> TaskSequenceStep {
             skippable: false,
             created_at: now,
             updated_at: now,
+            checkpoint: None,
         },
         dependency_results: HashMap::new(),
         step_definition: StepDefinition {

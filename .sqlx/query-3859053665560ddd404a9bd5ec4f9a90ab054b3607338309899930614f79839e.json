@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO tasker_workflow_steps (\n                task_uuid, named_step_uuid, retryable, max_attempts, inputs, skippable, created_at, updated_at\n            )\n            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW(), NOW())\n            RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,\n                      in_process, processed, processed_at, attempts, last_attempted_at,\n                      backoff_request_seconds, inputs, results, skippable, created_at, updated_at\n            ",
+  "query": "\n            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,\n                   ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,\n                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,\n                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at\n            FROM tasker_workflow_steps ws\n            INNER JOIN tasker_workflow_step_transitions wst\n                ON ws.workflow_step_uuid = wst.workflow_step_uuid\n            WHERE wst.most_recent = true\n                AND wst.to_state IN ('complete', 'resolved_manually')\n                AND wst.created_at >= $1\n            ORDER BY wst.created_at DESC\n            ",
   "describe": {
     "columns": [
       {
@@ -70,28 +70,28 @@
       },
       {
         "ordinal": 13,
+        "name": "checkpoint",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
         "name": "skippable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Uuid",
-        "Bool",
-        "Int4",
-        "Jsonb",
-        "Bool"
+        "Timestamp"
       ]
     },
     "nullable": [
@@ -108,10 +108,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "706d0703df9e6585198f9a23d9b3be568b4f6b9b293e887cc2ae527e1d26cff7"
+  "hash": "3859053665560ddd404a9bd5ec4f9a90ab054b3607338309899930614f79839e"
 }

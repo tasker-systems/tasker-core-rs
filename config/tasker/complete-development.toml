@@ -143,8 +143,8 @@ service_name = "tasker-core"
 enable_performance_logging = true
 mode = "standalone"
 
+# TAS-125: Removed checkpoint_interval_default - handlers decide when to checkpoint
 [orchestration.batch_processing]
-checkpoint_interval_default = 50
 checkpoint_stall_minutes = 5
 default_batch_size = 500
 enabled = true

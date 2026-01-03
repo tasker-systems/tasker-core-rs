@@ -53,15 +53,17 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use tokio::sync::{mpsc, Mutex};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::messaging::StepExecutionResult;
+use tasker_shared::models::batch_worker::CheckpointYieldData;
 use tasker_shared::types::base::{StepEventPayload, StepExecutionEvent};
 
 use super::dispatch_service::PostHandlerCallback;
 use super::ffi_completion_circuit_breaker::FfiCompletionCircuitBreaker;
-use crate::worker::actors::DispatchHandlerMessage;
+use crate::worker::actors::{DispatchHandlerMessage, TraceContext};
+use crate::worker::services::{CheckpointError, CheckpointService};
 
 /// Metrics about pending events for monitoring
 ///
@@ -202,6 +204,7 @@ impl FfiStepEvent {
 }
 
 /// Pending event tracking for completion correlation
+#[derive(Clone)]
 struct PendingEvent {
     event: FfiStepEvent,
     dispatched_at: std::time::Instant,
@@ -258,6 +261,10 @@ pub struct FfiDispatchChannel {
     post_handler_callback: Arc<dyn PostHandlerCallback>,
     /// TAS-75: Optional circuit breaker for completion channel sends
     circuit_breaker: Option<Arc<FfiCompletionCircuitBreaker>>,
+    /// TAS-125: Optional checkpoint service for batch processing
+    checkpoint_service: Option<CheckpointService>,
+    /// TAS-125: Optional dispatch sender for checkpoint continuation re-dispatch
+    dispatch_sender: Option<mpsc::Sender<DispatchHandlerMessage>>,
 }
 
 impl std::fmt::Debug for FfiDispatchChannel {
@@ -297,6 +304,8 @@ impl FfiDispatchChannel {
             config,
             post_handler_callback: callback,
             circuit_breaker: None,
+            checkpoint_service: None,
+            dispatch_sender: None,
         }
     }
 
@@ -327,7 +336,28 @@ impl FfiDispatchChannel {
             config,
             post_handler_callback: callback,
             circuit_breaker: Some(circuit_breaker),
+            checkpoint_service: None,
+            dispatch_sender: None,
         }
+    }
+
+    /// Configure checkpoint support for batch processing (TAS-125)
+    ///
+    /// This enables the `checkpoint_yield()` method which persists checkpoint
+    /// data and re-dispatches the step for continuation.
+    ///
+    /// # Arguments
+    ///
+    /// * `checkpoint_service` - Service for persisting checkpoints
+    /// * `dispatch_sender` - Sender for re-dispatching steps after checkpoint
+    pub fn with_checkpoint_support(
+        mut self,
+        checkpoint_service: CheckpointService,
+        dispatch_sender: mpsc::Sender<DispatchHandlerMessage>,
+    ) -> Self {
+        self.checkpoint_service = Some(checkpoint_service);
+        self.dispatch_sender = Some(dispatch_sender);
+        self
     }
 
     /// Get reference to the circuit breaker (if configured)
@@ -853,6 +883,178 @@ impl FfiDispatchChannel {
         }
 
         timed_out.len()
+    }
+
+    /// Check if checkpoint support is configured
+    ///
+    /// TAS-125: Returns true if both checkpoint_service and dispatch_sender are set.
+    pub fn has_checkpoint_support(&self) -> bool {
+        self.checkpoint_service.is_some() && self.dispatch_sender.is_some()
+    }
+
+    /// Handle checkpoint yield from FFI handler (TAS-125)
+    ///
+    /// Unlike `complete()`, this persists the checkpoint and re-dispatches the step
+    /// without releasing the step claim. The step stays in `in_process` state and
+    /// will be re-executed with the checkpoint data available.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The event ID from the `FfiStepEvent`
+    /// * `checkpoint_data` - The checkpoint data to persist
+    ///
+    /// # Returns
+    ///
+    /// `true` if the checkpoint was persisted and step re-dispatched successfully.
+    /// `false` if checkpoint support is not configured or an error occurred.
+    pub fn checkpoint_yield(&self, event_id: Uuid, checkpoint_data: CheckpointYieldData) -> bool {
+        // Check that checkpoint support is configured
+        let (checkpoint_service, dispatch_sender) = match (
+            self.checkpoint_service.as_ref(),
+            self.dispatch_sender.as_ref(),
+        ) {
+            (Some(cs), Some(ds)) => (cs, ds),
+            _ => {
+                warn!(
+                    service_id = %self.config.service_id,
+                    event_id = %event_id,
+                    "Checkpoint yield called but checkpoint support not configured"
+                );
+                return false;
+            }
+        };
+
+        // Get pending event (do NOT remove - step stays pending for re-dispatch)
+        let pending_event = {
+            let pending = self
+                .pending_events
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            pending.get(&event_id).cloned()
+        };
+
+        if let Some(pending) = pending_event {
+            let elapsed = pending.dispatched_at.elapsed();
+
+            debug!(
+                service_id = %self.config.service_id,
+                event_id = %event_id,
+                step_uuid = %pending.event.step_uuid,
+                elapsed_ms = elapsed.as_millis(),
+                cursor = ?checkpoint_data.cursor,
+                items_processed = checkpoint_data.items_processed,
+                "FFI dispatch: checkpoint yield received"
+            );
+
+            // Execute checkpoint persistence and re-dispatch in async context
+            let result = self.config.runtime_handle.block_on(async {
+                self.handle_checkpoint_yield_async(
+                    &pending.event,
+                    &checkpoint_data,
+                    checkpoint_service,
+                    dispatch_sender,
+                )
+                .await
+            });
+
+            match result {
+                Ok(()) => {
+                    info!(
+                        service_id = %self.config.service_id,
+                        event_id = %event_id,
+                        step_uuid = %pending.event.step_uuid,
+                        items_processed = checkpoint_data.items_processed,
+                        "Checkpoint persisted and step re-dispatched"
+                    );
+                    true
+                }
+                Err(e) => {
+                    error!(
+                        service_id = %self.config.service_id,
+                        event_id = %event_id,
+                        step_uuid = %pending.event.step_uuid,
+                        error = %e,
+                        "Checkpoint yield failed"
+                    );
+                    // Send a failure result so the step can be retried
+                    self.send_checkpoint_failure(event_id, &pending.event, e);
+                    false
+                }
+            }
+        } else {
+            warn!(
+                service_id = %self.config.service_id,
+                event_id = %event_id,
+                "Checkpoint yield for unknown event"
+            );
+            false
+        }
+    }
+
+    /// Handle checkpoint yield asynchronously
+    async fn handle_checkpoint_yield_async(
+        &self,
+        event: &FfiStepEvent,
+        checkpoint_data: &CheckpointYieldData,
+        checkpoint_service: &CheckpointService,
+        dispatch_sender: &mpsc::Sender<DispatchHandlerMessage>,
+    ) -> Result<(), CheckpointError> {
+        // 1. Persist checkpoint atomically
+        checkpoint_service
+            .persist_checkpoint(event.step_uuid, checkpoint_data)
+            .await?;
+
+        // 2. Re-dispatch step (stays claimed, in_progress)
+        // Create trace context from event
+        let trace_context = match (&event.trace_id, &event.span_id) {
+            (Some(trace_id), Some(span_id)) => Some(TraceContext {
+                trace_id: trace_id.clone(),
+                span_id: span_id.clone(),
+            }),
+            _ => None,
+        };
+
+        let continuation_msg = DispatchHandlerMessage::from_checkpoint_continuation(
+            event.step_uuid,
+            event.task_uuid,
+            event.execution_event.payload.task_sequence_step.clone(),
+            event.correlation_id,
+            trace_context,
+        );
+
+        dispatch_sender
+            .send(continuation_msg)
+            .await
+            .map_err(|_| CheckpointError::RedispatchFailed)?;
+
+        Ok(())
+    }
+
+    /// Send a failure result when checkpoint yield fails
+    fn send_checkpoint_failure(
+        &self,
+        event_id: Uuid,
+        event: &FfiStepEvent,
+        error: CheckpointError,
+    ) {
+        let result = StepExecutionResult::failure(
+            event.step_uuid,
+            format!("Checkpoint yield failed: {}", error),
+            None,
+            Some("checkpoint_error".to_string()),
+            true, // Retryable
+            0,
+            None,
+        );
+
+        // Non-blocking send
+        if self.completion_sender.try_send(result).is_err() {
+            error!(
+                service_id = %self.config.service_id,
+                event_id = %event_id,
+                "Failed to send checkpoint failure result"
+            );
+        }
     }
 }
 
