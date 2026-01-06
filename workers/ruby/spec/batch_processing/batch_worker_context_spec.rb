@@ -369,8 +369,8 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
         context = described_class.from_step_data(mock_workflow_step)
 
-        # Keys are symbolized by deep_symbolize_keys
-        expect(context.checkpoint_cursor).to eq({ page: 5, partition: 'A' })
+        # Keys remain as strings from JSON deserialization
+        expect(context.checkpoint_cursor).to eq({ 'page' => 5, 'partition' => 'A' })
       end
     end
 
@@ -408,9 +408,10 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
         context = described_class.from_step_data(mock_workflow_step)
 
+        # Keys remain as strings from JSON deserialization
         expect(context.accumulated_results).to eq({
-                                                    running_total: 2500.50,
-                                                    processed_count: 50
+                                                    'running_total' => 2500.50,
+                                                    'processed_count' => 50
                                                   })
       end
 

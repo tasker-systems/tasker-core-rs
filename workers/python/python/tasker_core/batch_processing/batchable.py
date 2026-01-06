@@ -158,7 +158,7 @@ class BatchAggregationScenario:
 
         # WithBatches scenario - find all batch workers using wrapper for proper unwrapping
         batch_results: dict[str, dict[str, Any]] = {}
-        for step_name in deps.keys():
+        for step_name in deps:
             if step_name.startswith(batch_worker_prefix):
                 # Use get_results() to properly unwrap {"result": ...} structure
                 worker_result = deps.get_results(step_name)

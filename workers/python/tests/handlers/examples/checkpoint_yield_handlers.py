@@ -159,13 +159,16 @@ class CheckpointYieldWorkerHandler(StepHandler, Batchable):
 
         while current_cursor < end_cursor:
             # Check for failure injection
-            if fail_after_items is not None:
-                if total_processed >= fail_after_items and current_attempt == fail_on_attempt:
-                    return self._inject_failure(
-                        total_processed,
-                        current_cursor,
-                        permanent_failure,
-                    )
+            if (
+                fail_after_items is not None
+                and total_processed >= fail_after_items
+                and current_attempt == fail_on_attempt
+            ):
+                return self._inject_failure(
+                    total_processed,
+                    current_cursor,
+                    permanent_failure,
+                )
 
             # Process one item
             item_result = self._process_item(current_cursor)

@@ -31,7 +31,7 @@ module TaskerCore
           all_item_ids = []
           checkpoints_used = 0
 
-          scenario.batch_results.each do |_worker_name, result|
+          scenario.batch_results.each_value do |result|
             next unless result
 
             total_processed += result['items_processed'] || 0
