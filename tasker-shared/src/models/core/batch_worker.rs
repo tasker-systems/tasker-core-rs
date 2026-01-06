@@ -988,7 +988,10 @@ impl CheckpointYieldData {
 
     /// Convert to a CheckpointRecord with history from previous checkpoint
     #[must_use]
-    pub fn to_checkpoint_record_with_history(&self, previous: &CheckpointRecord) -> CheckpointRecord {
+    pub fn to_checkpoint_record_with_history(
+        &self,
+        previous: &CheckpointRecord,
+    ) -> CheckpointRecord {
         CheckpointRecord::with_history(
             self.cursor.clone(),
             self.items_processed,

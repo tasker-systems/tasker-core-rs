@@ -172,13 +172,23 @@ export class BunRuntime extends BaseTaskerRuntime {
     return this.lib.symbols;
   }
 
-  private toCString(str: string): bigint {
+  /**
+   * Create a null-terminated C string buffer and return both the pointer and buffer.
+   * IMPORTANT: The caller MUST keep the returned buffer in scope during the FFI call
+   * to prevent Bun from garbage collecting it while the Rust side is using the pointer.
+   *
+   * Memory leak fix: Previously, this method returned only the pointer and the Buffer
+   * would go out of scope immediately. Bun keeps Buffers alive when .ptr is accessed,
+   * but may not GC them properly, leading to unbounded memory growth.
+   */
+  private toCStringWithBuffer(str: string): { ptr: bigint; buffer: Buffer } {
     // Create null-terminated C string buffer using Buffer (which has .ptr in Bun)
     // Note: TextEncoder.encode() returns Uint8Array backed by ArrayBuffer,
     // but ArrayBuffer doesn't have .ptr in Bun - only Buffer does!
     const buffer = Buffer.from(`${str}\0`, 'utf-8');
     // biome-ignore lint/suspicious/noExplicitAny: Bun FFI requires Buffer.ptr access
-    return BigInt((buffer as any).ptr ?? 0);
+    const ptr = BigInt((buffer as any).ptr ?? 0);
+    return { ptr, buffer };
   }
 
   private fromCString(ptrVal: bigint): string | null {
@@ -211,10 +221,13 @@ export class BunRuntime extends BaseTaskerRuntime {
 
   bootstrapWorker(config?: BootstrapConfig): BootstrapResult {
     const symbols = this.ensureLoaded();
-    const configPtr = config ? this.toCString(this.toJson(config)) : 0n;
-    const result = symbols.bootstrap_worker(configPtr);
+    // Keep buffer in scope during FFI call
+    const configBuf = config ? this.toCStringWithBuffer(this.toJson(config)) : null;
+    const result = symbols.bootstrap_worker(configBuf?.ptr ?? 0n);
     const jsonStr = this.fromCString(result);
     if (result !== 0n) symbols.free_rust_string(result);
+    // Buffer reference kept alive during FFI call - do not remove
+    void configBuf?.buffer;
 
     const parsed = this.parseJson<BootstrapResult>(jsonStr);
     return (
@@ -300,16 +313,27 @@ export class BunRuntime extends BaseTaskerRuntime {
 
   completeStepEvent(eventId: string, result: StepExecutionResult): boolean {
     const symbols = this.ensureLoaded();
-    const eventIdPtr = this.toCString(eventId);
-    const resultJsonPtr = this.toCString(this.toJson(result));
-    return symbols.complete_step_event(eventIdPtr, resultJsonPtr) === 1;
+    // Keep buffers in scope during FFI call to prevent GC while Rust is using pointers
+    const eventIdBuf = this.toCStringWithBuffer(eventId);
+    const resultJsonBuf = this.toCStringWithBuffer(this.toJson(result));
+    const success = symbols.complete_step_event(eventIdBuf.ptr, resultJsonBuf.ptr) === 1;
+    // Buffer references kept alive during FFI call - do not remove
+    void eventIdBuf.buffer;
+    void resultJsonBuf.buffer;
+    return success;
   }
 
   checkpointYieldStepEvent(eventId: string, checkpointData: CheckpointYieldData): boolean {
     const symbols = this.ensureLoaded();
-    const eventIdPtr = this.toCString(eventId);
-    const checkpointJsonPtr = this.toCString(this.toJson(checkpointData));
-    return symbols.checkpoint_yield_step_event(eventIdPtr, checkpointJsonPtr) === 1;
+    // Keep buffers in scope during FFI call to prevent GC while Rust is using pointers
+    const eventIdBuf = this.toCStringWithBuffer(eventId);
+    const checkpointJsonBuf = this.toCStringWithBuffer(this.toJson(checkpointData));
+    const success =
+      symbols.checkpoint_yield_step_event(eventIdBuf.ptr, checkpointJsonBuf.ptr) === 1;
+    // Buffer references kept alive during FFI call - do not remove
+    void eventIdBuf.buffer;
+    void checkpointJsonBuf.buffer;
+    return success;
   }
 
   getFfiDispatchMetrics(): FfiDispatchMetrics {
@@ -346,36 +370,51 @@ export class BunRuntime extends BaseTaskerRuntime {
 
   logError(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : 0n;
-    symbols.log_error(msgPtr, fieldsPtr);
+    const msgBuf = this.toCStringWithBuffer(message);
+    const fieldsBuf = fields ? this.toCStringWithBuffer(this.toJson(fields)) : null;
+    symbols.log_error(msgBuf.ptr, fieldsBuf?.ptr ?? 0n);
+    // Buffer references kept alive during FFI call - do not remove
+    void msgBuf.buffer;
+    void fieldsBuf?.buffer;
   }
 
   logWarn(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : 0n;
-    symbols.log_warn(msgPtr, fieldsPtr);
+    const msgBuf = this.toCStringWithBuffer(message);
+    const fieldsBuf = fields ? this.toCStringWithBuffer(this.toJson(fields)) : null;
+    symbols.log_warn(msgBuf.ptr, fieldsBuf?.ptr ?? 0n);
+    // Buffer references kept alive during FFI call - do not remove
+    void msgBuf.buffer;
+    void fieldsBuf?.buffer;
   }
 
   logInfo(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : 0n;
-    symbols.log_info(msgPtr, fieldsPtr);
+    const msgBuf = this.toCStringWithBuffer(message);
+    const fieldsBuf = fields ? this.toCStringWithBuffer(this.toJson(fields)) : null;
+    symbols.log_info(msgBuf.ptr, fieldsBuf?.ptr ?? 0n);
+    // Buffer references kept alive during FFI call - do not remove
+    void msgBuf.buffer;
+    void fieldsBuf?.buffer;
   }
 
   logDebug(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : 0n;
-    symbols.log_debug(msgPtr, fieldsPtr);
+    const msgBuf = this.toCStringWithBuffer(message);
+    const fieldsBuf = fields ? this.toCStringWithBuffer(this.toJson(fields)) : null;
+    symbols.log_debug(msgBuf.ptr, fieldsBuf?.ptr ?? 0n);
+    // Buffer references kept alive during FFI call - do not remove
+    void msgBuf.buffer;
+    void fieldsBuf?.buffer;
   }
 
   logTrace(message: string, fields?: LogFields): void {
     const symbols = this.ensureLoaded();
-    const msgPtr = this.toCString(message);
-    const fieldsPtr = fields ? this.toCString(this.toJson(fields)) : 0n;
-    symbols.log_trace(msgPtr, fieldsPtr);
+    const msgBuf = this.toCStringWithBuffer(message);
+    const fieldsBuf = fields ? this.toCStringWithBuffer(this.toJson(fields)) : null;
+    symbols.log_trace(msgBuf.ptr, fieldsBuf?.ptr ?? 0n);
+    // Buffer references kept alive during FFI call - do not remove
+    void msgBuf.buffer;
+    void fieldsBuf?.buffer;
   }
 }

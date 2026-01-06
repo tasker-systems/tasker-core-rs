@@ -56,8 +56,51 @@ module TaskerCore
           # Convert handler output to standardized result
           standardized_result = TaskerCore::Types::StepHandlerCallResult.from_handler_output(result)
 
+          # TAS-125: Check for checkpoint yield - this is a special case where
+          # we persist progress and re-dispatch instead of completing the step
+          if standardized_result.checkpoint?
+            publish_checkpoint_yield(
+              event_data: event_data,
+              checkpoint_result: standardized_result
+            )
+            @stats[:succeeded] += 1
+            logger.info('✅ Checkpoint yield submitted - step will be re-dispatched')
+            return
+          end
+
+          # Handle handler-returned error results directly (preserves retryable field)
+          # TAS-125: Handlers like inject_failure return StepHandlerCallResult.error()
+          # with explicit retryable: false for permanent failures. We must preserve this.
           unless standardized_result.success?
-            raise Errors::Error, "Handler returned failure: #{standardized_result.message}"
+            logger.error("💥 Handler returned failure: #{standardized_result.message}")
+            logger.error("💥 Error type: #{standardized_result.error_type}, retryable: #{standardized_result.retryable}")
+
+            publish_step_completion(
+              event_data: event_data,
+              success: false,
+              result: nil,
+              error_message: standardized_result.message,
+              metadata: {
+                execution_time_ms: standardized_result.metadata&.dig('duration_ms') || 0,
+                handler_version: nil,
+                retryable: standardized_result.retryable, # CRITICAL: Preserve handler's retryable setting
+                completed_at: Time.now.utc.iso8601,
+                worker_id: 'ruby_worker',
+                worker_hostname: nil,
+                started_at: Time.now.utc.iso8601,
+                custom: {
+                  failed_at: Time.now.utc.iso8601,
+                  failed_by: 'ruby_worker',
+                  error_type: standardized_result.error_type,
+                  error_code: standardized_result.error_code,
+                  handler_class: step_data.step_definition.handler.callable,
+                  retryable: standardized_result.retryable
+                }.merge(standardized_result.metadata || {})
+              }
+            )
+
+            @stats[:failed] += 1
+            return
           end
 
           # Publish successful completion with properly structured metadata
@@ -152,6 +195,16 @@ module TaskerCore
         completion_payload[:span_id] = event_data[:span_id] if event_data[:span_id]
 
         TaskerCore::Worker::EventBridge.instance.publish_step_completion(completion_payload)
+      end
+
+      # TAS-125: Publish checkpoint yield to persist progress and trigger re-dispatch
+      def publish_checkpoint_yield(event_data:, checkpoint_result:)
+        checkpoint_data = checkpoint_result.to_checkpoint_data(
+          event_id: event_data[:event_id],
+          step_uuid: event_data[:step_uuid]
+        )
+
+        TaskerCore::Worker::EventBridge.instance.publish_step_checkpoint_yield(checkpoint_data)
       end
     end
   end

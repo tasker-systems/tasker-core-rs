@@ -23,7 +23,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::sync::Arc;
 use tasker_worker::worker::{
-    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, StepEventPublisherRegistry,
+    services::CheckpointService, DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig,
+    StepEventPublisherRegistry,
 };
 use tasker_worker::WorkerBootstrap;
 use tokio::sync::RwLock;
@@ -128,14 +129,25 @@ pub fn bootstrap_worker(py: Python<'_>, config: Option<&Bound<'_, PyDict>>) -> P
             .with_service_id(worker_id_str.clone())
             .with_completion_timeout(std::time::Duration::from_secs(30));
 
+        // TAS-125: Get database pool for checkpoint service
+        let db_pool = runtime.block_on(async {
+            let worker_core = system_handle.worker_core.lock().await;
+            worker_core.context.database_pool.clone()
+        });
+
+        // TAS-125: Create checkpoint service for batch processing handlers
+        let checkpoint_service = CheckpointService::new(db_pool);
+
         let channel = FfiDispatchChannel::new(
             dispatch_handles.dispatch_receiver,
             dispatch_handles.completion_sender,
             config,
             domain_event_callback,
-        );
+        )
+        // TAS-125: Enable checkpoint support for batch processing
+        .with_checkpoint_support(checkpoint_service, dispatch_handles.dispatch_sender);
 
-        info!("✅ FfiDispatchChannel created with domain event callback for Python step dispatch");
+        info!("✅ FfiDispatchChannel created with domain event callback and checkpoint support for Python step dispatch");
         Arc::new(channel)
     } else {
         error!("Failed to get dispatch handles from WorkerSystemHandle");

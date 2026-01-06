@@ -11,7 +11,7 @@ import pino, { type Logger, type LoggerOptions } from 'pino';
 import type { StepExecutionReceivedPayload, TaskerEventEmitter } from '../events/event-emitter.js';
 import { StepEventNames } from '../events/event-names.js';
 import type { TaskerRuntime } from '../ffi/runtime-interface.js';
-import type { FfiStepEvent, StepExecutionResult } from '../ffi/types.js';
+import type { CheckpointYieldData, FfiStepEvent, StepExecutionResult } from '../ffi/types.js';
 import type { StepHandler } from '../handler/base.js';
 import { logDebug, logError, logInfo, logWarn } from '../logging/index.js';
 import { StepContext } from '../types/step-context.js';
@@ -481,6 +481,9 @@ export class StepExecutionSubscriber {
 
   /**
    * Submit a handler result via FFI.
+   *
+   * TAS-125: Detects checkpoint yields and routes them to checkpointYieldStepEvent
+   * instead of the normal completion path.
    */
   private async submitResult(
     event: FfiStepEvent,
@@ -500,8 +503,102 @@ export class StepExecutionSubscriber {
       return;
     }
 
+    // TAS-125: Check for checkpoint yield in metadata
+    if (result.metadata?.checkpoint_yield === true) {
+      await this.submitCheckpointYield(event, result);
+      return;
+    }
+
     const executionResult = this.buildExecutionResult(event, result, executionTimeMs);
     await this.sendCompletionViaFfi(event, executionResult, result.success);
+  }
+
+  /**
+   * TAS-125: Submit a checkpoint yield via FFI.
+   *
+   * Called when a handler returns a checkpoint_yield result.
+   * This persists the checkpoint and re-dispatches the step.
+   */
+  private async submitCheckpointYield(
+    event: FfiStepEvent,
+    result: StepHandlerResult
+  ): Promise<void> {
+    pinoLog.info(
+      { component: 'subscriber', eventId: event.event_id },
+      'submitCheckpointYield() called - handler yielded checkpoint'
+    );
+
+    // Extract checkpoint data from the result
+    const resultData = result.result ?? {};
+    const checkpointData: CheckpointYieldData = {
+      step_uuid: event.step_uuid,
+      cursor: resultData.cursor ?? 0,
+      items_processed: (resultData.items_processed as number) ?? 0,
+    };
+
+    // Only set accumulated_results if it exists
+    const accumulatedResults = resultData.accumulated_results as
+      | Record<string, unknown>
+      | undefined;
+    if (accumulatedResults !== undefined) {
+      checkpointData.accumulated_results = accumulatedResults;
+    }
+
+    try {
+      const success = this.runtime.checkpointYieldStepEvent(event.event_id, checkpointData);
+
+      if (success) {
+        pinoLog.info(
+          {
+            component: 'subscriber',
+            eventId: event.event_id,
+            cursor: checkpointData.cursor,
+            itemsProcessed: checkpointData.items_processed,
+          },
+          'Checkpoint yield submitted successfully - step will be re-dispatched'
+        );
+
+        this.emitter.emit(StepEventNames.STEP_CHECKPOINT_YIELD_SENT, {
+          eventId: event.event_id,
+          stepUuid: event.step_uuid,
+          cursor: checkpointData.cursor,
+          itemsProcessed: checkpointData.items_processed,
+          timestamp: new Date(),
+        });
+
+        logInfo('Checkpoint yield submitted', {
+          component: 'subscriber',
+          event_id: event.event_id,
+          step_uuid: event.step_uuid,
+          cursor: String(checkpointData.cursor),
+          items_processed: String(checkpointData.items_processed),
+        });
+      } else {
+        pinoLog.error(
+          { component: 'subscriber', eventId: event.event_id },
+          'Checkpoint yield rejected by Rust - event may not be in pending map'
+        );
+        logError('Checkpoint yield rejected', {
+          component: 'subscriber',
+          event_id: event.event_id,
+          step_uuid: event.step_uuid,
+        });
+      }
+    } catch (error) {
+      pinoLog.error(
+        {
+          component: 'subscriber',
+          eventId: event.event_id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Checkpoint yield failed with error'
+      );
+      logError('Failed to submit checkpoint yield', {
+        component: 'subscriber',
+        event_id: event.event_id,
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

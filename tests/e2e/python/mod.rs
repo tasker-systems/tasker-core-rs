@@ -1,4 +1,5 @@
 mod batch_processing_test;
+mod checkpoint_yield_test;
 mod conditional_approval_test;
 mod diamond_workflow_test;
 mod domain_event_publishing_test;

@@ -26,6 +26,11 @@ RSpec.describe TaskerCore::BatchProcessing::StepHandlers::CsvBatchProcessorHandl
     ctx
   end
 
+  # TAS-125: Stub checkpoint method on workflow_step mock for all tests
+  before do
+    allow(mock_workflow_step).to receive(:checkpoint).and_return(nil)
+  end
+
   describe '#call' do
     context 'with no-op placeholder worker' do
       before do

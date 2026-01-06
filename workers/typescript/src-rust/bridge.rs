@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 use tasker_shared::events::domain_events::{DomainEvent, DomainEventPublisher};
 use tasker_worker::worker::{
-    DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig, StepEventPublisherRegistry,
+    services::CheckpointService, DomainEventCallback, FfiDispatchChannel, FfiDispatchChannelConfig,
+    StepEventPublisherRegistry,
 };
 use tasker_worker::{WorkerBootstrap, WorkerSystemHandle};
 use tokio::sync::broadcast;
@@ -21,6 +22,7 @@ use tokio::sync::broadcast;
 use crate::conversions::{convert_ffi_dispatch_metrics_to_json, convert_ffi_step_event_to_json};
 use crate::dto::FfiDomainEventDto;
 use crate::error::TypeScriptFfiError;
+use tasker_shared::models::core::batch_worker::CheckpointYieldData;
 
 /// Global worker system state.
 ///
@@ -143,14 +145,25 @@ pub fn bootstrap_worker_internal(config_json: Option<&str>) -> Result<String> {
             .with_service_id(worker_id_str.clone())
             .with_completion_timeout(std::time::Duration::from_secs(30));
 
+        // TAS-125: Get database pool for checkpoint service
+        let db_pool = runtime.block_on(async {
+            let worker_core = system_handle.worker_core.lock().await;
+            worker_core.context.database_pool.clone()
+        });
+
+        // TAS-125: Create checkpoint service for batch processing handlers
+        let checkpoint_service = CheckpointService::new(db_pool);
+
         let channel = FfiDispatchChannel::new(
             dispatch_handles.dispatch_receiver,
             dispatch_handles.completion_sender,
             config,
             domain_event_callback,
-        );
+        )
+        // TAS-125: Enable checkpoint support for batch processing
+        .with_checkpoint_support(checkpoint_service, dispatch_handles.dispatch_sender);
 
-        info!("FfiDispatchChannel created with domain event callback for TypeScript step dispatch");
+        info!("FfiDispatchChannel created with domain event callback and checkpoint support for TypeScript step dispatch");
         Arc::new(channel)
     } else {
         error!("Failed to get dispatch handles from WorkerSystemHandle");
@@ -429,6 +442,47 @@ pub fn poll_in_process_events_internal() -> Result<Option<String>> {
             Ok(None)
         }
     }
+}
+
+/// Internal implementation of checkpoint_yield_step_event (TAS-125).
+///
+/// Signals a checkpoint yield for batch processing, persisting the checkpoint
+/// and causing the step to be re-dispatched for continued processing.
+///
+/// Returns true if the checkpoint was persisted and step re-dispatched successfully.
+pub fn checkpoint_yield_step_event_internal(
+    event_id_str: &str,
+    checkpoint_json: &str,
+) -> Result<bool> {
+    let guard = WORKER_SYSTEM
+        .lock()
+        .map_err(|_| TypeScriptFfiError::LockError)?;
+
+    let handle = guard
+        .as_ref()
+        .ok_or(TypeScriptFfiError::WorkerNotInitialized)?;
+
+    // Parse event ID
+    let event_id = Uuid::parse_str(event_id_str)
+        .map_err(|e| TypeScriptFfiError::InvalidArgument(format!("Invalid event ID: {}", e)))?;
+
+    // Parse checkpoint data
+    let checkpoint_data: CheckpointYieldData =
+        serde_json::from_str(checkpoint_json).map_err(|e| {
+            TypeScriptFfiError::ConversionError(format!("Invalid checkpoint JSON: {}", e))
+        })?;
+
+    info!(
+        event_id = %event_id_str,
+        step_uuid = %checkpoint_data.step_uuid,
+        items_processed = checkpoint_data.items_processed,
+        "Checkpoint yield received via FFI"
+    );
+
+    // Call checkpoint_yield on the FfiDispatchChannel
+    Ok(handle
+        .ffi_dispatch_channel
+        .checkpoint_yield(event_id, checkpoint_data))
 }
 
 #[cfg(test)]

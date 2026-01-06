@@ -18,7 +18,7 @@ ARG DOCKER_BUILDKIT=1
 # =============================================================================
 # Python Builder - Compile PyO3 extensions with both Python and Rust available
 # =============================================================================
-FROM python:3.12-bullseye AS python_builder
+FROM python:3.10-bullseye AS python_builder
 
 # Install system dependencies for PyO3 compilation
 RUN apt-get update && apt-get install -y \
@@ -89,26 +89,25 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Install Python dependencies using UV with cache mount
 # Using sync with pyproject.toml for reproducible builds
+# --active tells uv to use the venv specified by VIRTUAL_ENV rather than .venv in project dir
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --locked
+    uv sync --no-dev --locked --active
 
 # Install maturin for PyO3 compilation (build dependency)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install maturin>=1.7
 
-# Compile Python FFI extensions with cache mounts for incremental builds
-# maturin will handle all Rust compilation
-# IMPORTANT: Use --locked to ensure Cargo.lock is respected (prevents serde version conflicts)
-RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
-    --mount=type=cache,target=/root/.cargo/git,sharing=locked \
-    --mount=type=cache,target=/app/target,sharing=locked \
-    --mount=type=cache,target=/root/.cache/uv \
-    maturin develop --release --locked
+# Compile Python FFI extensions
+# NOTE: Removed BuildKit cache mounts due to stale artifact issues with pythonize/serde.
+# The cache can retain broken compilation artifacts that cause "can't find crate for serde" errors.
+# For faster local builds, consider using docker build caching via DOCKER_BUILDKIT layers instead.
+# IMPORTANT: Use --locked to ensure Cargo.lock is respected (prevents version conflicts)
+RUN maturin develop --release --locked
 
 # =============================================================================
 # Runtime - Python-driven worker image
 # =============================================================================
-FROM python:3.12-slim-bullseye AS runtime
+FROM python:3.10-slim-bullseye AS runtime
 
 WORKDIR /app
 
@@ -152,7 +151,7 @@ ENV PYTHON_WORKER_ENABLED=true
 ENV PYTHONPATH=/app/python_worker/python
 
 # Python-specific environment
-ENV PYTHON_VERSION=3.12
+ENV PYTHON_VERSION=3.10
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 

@@ -35,6 +35,7 @@ class EventNames:
     Attributes:
         STEP_EXECUTION_RECEIVED: Emitted when a step is ready for execution.
         STEP_COMPLETION_SENT: Emitted after step result is submitted.
+        STEP_CHECKPOINT_YIELD: Emitted after checkpoint yield is submitted (TAS-125).
         HANDLER_REGISTERED: Emitted when a new handler is registered.
         HANDLER_ERROR: Emitted when a handler execution fails.
         POLLER_METRICS: Emitted with dispatch metrics updates.
@@ -43,6 +44,7 @@ class EventNames:
 
     STEP_EXECUTION_RECEIVED = "step.execution.received"
     STEP_COMPLETION_SENT = "step.completion.sent"
+    STEP_CHECKPOINT_YIELD = "step.checkpoint_yield.sent"  # TAS-125
     HANDLER_REGISTERED = "handler.registered"
     HANDLER_ERROR = "handler.error"
     POLLER_METRICS = "poller.metrics"
@@ -123,6 +125,7 @@ class EventBridge:
         self._event_schema: dict[str, str] = {
             EventNames.STEP_EXECUTION_RECEIVED: "FfiStepEvent",
             EventNames.STEP_COMPLETION_SENT: "StepExecutionResult",
+            EventNames.STEP_CHECKPOINT_YIELD: "dict[str, Any]",  # TAS-125
             EventNames.HANDLER_REGISTERED: "tuple[str, type]",
             EventNames.HANDLER_ERROR: "tuple[FfiStepEvent, Exception]",
             EventNames.POLLER_METRICS: "FfiDispatchMetrics",

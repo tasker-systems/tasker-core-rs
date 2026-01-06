@@ -310,3 +310,84 @@ else
     exit 1
 fi
 '''
+
+# =============================================================================
+# Service Management Tasks
+# =============================================================================
+# Run the TypeScript worker as a local service for E2E testing.
+# Uses the .env.test file for configuration.
+#
+# Prerequisites:
+#   - cargo make build (builds FFI library and TypeScript)
+#   - PostgreSQL running on localhost:5432
+#   - Orchestration service running on localhost:8080
+#
+# Usage:
+#   cargo make run      # Start TypeScript worker on port 8085
+#   cargo make stop     # Stop the running worker
+#   cargo make status   # Check worker status
+
+[tasks.run]
+description = "Run TypeScript worker service (port 8085)"
+dependencies = ["build"]
+script = '''
+# Load environment from .env.test
+source scripts/load-env.sh
+
+# Override PORT for local execution
+export PORT=8085
+
+echo "📘 Starting TypeScript worker..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   FFI Library: ${TASKER_FFI_LIBRARY_PATH}"
+
+# Start the TypeScript server
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-start.sh typescript-worker \
+    bun run bin/server.ts
+'''
+
+[tasks.run-foreground]
+description = "Run TypeScript worker in foreground (for debugging)"
+dependencies = ["build"]
+script = '''
+# Load environment from .env.test
+source scripts/load-env.sh
+
+# Override PORT for local execution
+export PORT=8085
+
+echo "📘 Starting TypeScript worker (foreground)..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+
+# Run directly in foreground
+bun run bin/server.ts
+'''
+
+[tasks.stop]
+description = "Stop running TypeScript worker service"
+script = '''
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-stop.sh typescript-worker
+'''
+
+[tasks.status]
+description = "Check TypeScript worker service status"
+script = '''
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-status.sh typescript-worker
+'''
+
+[tasks.logs]
+description = "Tail TypeScript worker logs"
+script = '''
+LOG_FILE="../../.logs/typescript-worker.log"
+if [ -f "$LOG_FILE" ]; then
+    tail -f "$LOG_FILE"
+else
+    echo "No log file found at $LOG_FILE"
+    echo "Start the worker first with: cargo make run"
+fi
+'''

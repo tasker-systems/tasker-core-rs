@@ -141,10 +141,11 @@ module TaskerCore
       # @return [Boolean] Whether step can be skipped
       # @return [Time] When step was created
       # @return [Time] When step was last updated
+      # @return [ActiveSupport::HashWithIndifferentAccess, nil] TAS-125: Checkpoint data for batch processing resumption
       attr_reader :workflow_step_uuid, :task_uuid, :named_step_uuid, :name,
                   :retryable, :max_attempts, :in_process, :processed, :processed_at,
                   :attempts, :last_attempted_at, :backoff_request_seconds,
-                  :inputs, :results, :skippable, :created_at, :updated_at
+                  :inputs, :results, :skippable, :created_at, :updated_at, :checkpoint
 
       # Creates a new WorkflowStepWrapper from FFI data
       #
@@ -168,6 +169,8 @@ module TaskerCore
         @skippable = step_data[:skippable]
         @created_at = step_data[:created_at]
         @updated_at = step_data[:updated_at]
+        # TAS-125: Checkpoint data for batch processing resumption
+        @checkpoint = step_data[:checkpoint]&.with_indifferent_access
       end
     end
 

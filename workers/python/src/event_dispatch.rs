@@ -294,7 +294,9 @@ pub fn checkpoint_yield_step_event(
         .ok_or(PythonFfiError::WorkerNotInitialized)?;
 
     // Submit checkpoint yield via FfiDispatchChannel
-    let success = handle.ffi_dispatch_channel.checkpoint_yield(event_id, checkpoint);
+    let success = handle
+        .ffi_dispatch_channel
+        .checkpoint_yield(event_id, checkpoint);
 
     if success {
         info!(

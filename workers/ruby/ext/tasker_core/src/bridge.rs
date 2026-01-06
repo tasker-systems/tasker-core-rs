@@ -107,7 +107,8 @@ impl RubyBridgeHandle {
         event_id: Uuid,
         checkpoint_data: tasker_shared::models::batch_worker::CheckpointYieldData,
     ) -> bool {
-        self.ffi_dispatch_channel.checkpoint_yield(event_id, checkpoint_data)
+        self.ffi_dispatch_channel
+            .checkpoint_yield(event_id, checkpoint_data)
     }
 
     /// TAS-67 Phase 2: Get metrics about FFI dispatch channel health

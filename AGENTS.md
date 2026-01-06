@@ -91,11 +91,17 @@ cargo nextest run --profile ci         # CI profile (JUnit XML)
 cargo nextest run --profile local      # Fail-fast mode
 ```
 
-### Docker Operations
+### Container Operations (Podman)
+The project uses Podman as the container runtime. Docker CLI commands work via shell aliases (`docker` → `podman`, `docker-compose` → `podman compose`).
+
 ```bash
 docker-compose up -d postgres                           # Start PostgreSQL with PGMQ
 docker-compose --profile server up -d                   # Full server
 docker compose -f docker/docker-compose.test.yml up -d  # Test services
+
+# Direct podman commands (equivalent)
+podman compose up -d postgres
+podman compose -f docker/docker-compose.test.yml up -d
 ```
 
 ---

@@ -142,12 +142,13 @@ mod tests {
 
     /// Helper to create test TaskSequenceStep
     fn create_test_step_data(amount: f64, currency: &str) -> TaskSequenceStep {
+        let now = chrono::Utc::now().naive_utc();
         // Create minimal task with context
         let task = Task {
             task_uuid: Uuid::new_v4(),
             named_task_uuid: Uuid::new_v4(),
             complete: false,
-            requested_at: chrono::Utc::now().naive_utc(),
+            requested_at: now,
             initiator: Some("test".to_string()),
             source_system: None,
             reason: None,
@@ -159,8 +160,8 @@ mod tests {
             })),
             identity_hash: "test".to_string(),
             priority: 0,
-            created_at: chrono::Utc::now().naive_utc(),
-            updated_at: chrono::Utc::now().naive_utc(),
+            created_at: now,
+            updated_at: now,
             correlation_id: Uuid::new_v4(),
             parent_correlation_id: None,
         };
@@ -189,8 +190,9 @@ mod tests {
             inputs: None,
             results: None,
             skippable: false,
-            created_at: chrono::Utc::now().naive_utc(),
-            updated_at: chrono::Utc::now().naive_utc(),
+            checkpoint: None,
+            created_at: now,
+            updated_at: now,
         };
 
         let step_definition = StepDefinition {

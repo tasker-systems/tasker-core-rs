@@ -26,6 +26,9 @@ export const StepEventNames = {
 
   /** Emitted when a step handler times out */
   STEP_EXECUTION_TIMEOUT: 'step.execution.timeout',
+
+  /** TAS-125: Emitted when a checkpoint yield is sent back to Rust */
+  STEP_CHECKPOINT_YIELD_SENT: 'step.checkpoint_yield.sent',
 } as const;
 
 /**

@@ -42,6 +42,11 @@ module TaskerCore
         def success?
           success
         end
+
+        # TAS-125: Not a checkpoint - this is a final success result
+        def checkpoint?
+          false
+        end
       end
 
       class Error < Dry::Struct
@@ -68,6 +73,59 @@ module TaskerCore
         # Predicate method for checking if result is successful
         def success?
           success
+        end
+
+        # TAS-125: Not a checkpoint - this is a final error result
+        def checkpoint?
+          false
+        end
+      end
+
+      # TAS-125: Checkpoint yield result for batch processing
+      #
+      # This result type signals that a batch processing handler wants to
+      # persist its progress (checkpoint) and be re-dispatched for continued
+      # processing. Unlike Success or Error, this is an intermediate state
+      # that doesn't complete the step.
+      #
+      # Example:
+      #   StepHandlerCallResult.checkpoint_yield(
+      #     cursor: 1000,
+      #     items_processed: 1000,
+      #     accumulated_results: { total_amount: 50000.00 }
+      #   )
+      class CheckpointYield < Dry::Struct
+        # Position to resume from (Integer, String, or Hash)
+        # For offset-based pagination: Integer (row number)
+        # For cursor-based pagination: String or Hash (opaque cursor)
+        attribute :cursor, Types::Any
+
+        # Total number of items processed so far (cumulative across all yields)
+        attribute :items_processed, Types::Integer.constrained(gteq: 0)
+
+        # Optional partial aggregations to carry forward to next iteration
+        # Useful for running totals, counters, or intermediate calculations
+        attribute :accumulated_results, Types::Any.optional
+
+        # This is a checkpoint, not a final result
+        def checkpoint?
+          true
+        end
+
+        # Not successful yet - still in progress
+        def success?
+          false
+        end
+
+        # Convert to hash for FFI transport
+        def to_checkpoint_data(event_id:, step_uuid:)
+          {
+            event_id: event_id,
+            step_uuid: step_uuid,
+            cursor: cursor,
+            items_processed: items_processed,
+            accumulated_results: accumulated_results
+          }
         end
       end
 
@@ -105,13 +163,43 @@ module TaskerCore
           )
         end
 
+        # TAS-125: Create a checkpoint yield result for batch processing
+        #
+        # Use this when your batch processing handler wants to persist progress
+        # and be re-dispatched for continued processing.
+        #
+        # @param cursor [Integer, String, Hash] Position to resume from
+        # @param items_processed [Integer] Total items processed so far (cumulative)
+        # @param accumulated_results [Hash, nil] Optional partial aggregations
+        # @return [CheckpointYield] A checkpoint yield result instance
+        #
+        # @example Yield checkpoint with offset cursor
+        #   StepHandlerCallResult.checkpoint_yield(
+        #     cursor: 1000,
+        #     items_processed: 1000,
+        #     accumulated_results: { total_amount: 50000.00, row_count: 1000 }
+        #   )
+        #
+        # @example Yield checkpoint with opaque cursor
+        #   StepHandlerCallResult.checkpoint_yield(
+        #     cursor: { page_token: "eyJsYXN0X2lkIjo5OTl9" },
+        #     items_processed: 500
+        #   )
+        def checkpoint_yield(cursor:, items_processed:, accumulated_results: nil)
+          CheckpointYield.new(
+            cursor: cursor,
+            items_processed: items_processed,
+            accumulated_results: accumulated_results
+          )
+        end
+
         # Convert arbitrary handler output to a StepHandlerCallResult
         #
         # @param output [Object] The output from a handler's call method
-        # @return [Success, Error] A properly structured result
+        # @return [Success, Error, CheckpointYield] A properly structured result
         def from_handler_output(output)
           case output
-          when Success, Error
+          when Success, Error, CheckpointYield
             # Already a proper result
             output
           when Hash

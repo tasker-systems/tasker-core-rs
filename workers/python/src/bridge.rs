@@ -109,6 +109,18 @@ impl PythonBridgeHandle {
         self.ffi_dispatch_channel.complete(event_id, result)
     }
 
+    /// TAS-125: Submit a checkpoint yield for a batch processing step
+    ///
+    /// Returns true if the checkpoint was persisted and step re-dispatched
+    pub fn checkpoint_yield_step_event(
+        &self,
+        event_id: Uuid,
+        checkpoint_data: tasker_shared::models::batch_worker::CheckpointYieldData,
+    ) -> bool {
+        self.ffi_dispatch_channel
+            .checkpoint_yield(event_id, checkpoint_data)
+    }
+
     /// Get metrics about FFI dispatch channel health
     pub fn get_ffi_dispatch_metrics(&self) -> FfiDispatchMetrics {
         self.ffi_dispatch_channel.metrics()

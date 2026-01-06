@@ -1,10 +1,81 @@
 # TAS-125: Checkpoint Yield Implementation Plan
 
-**Status**: Ready for Implementation
+**Status**: In Progress - Phase 4 Complete ✓
 **Author**: Claude (with Pete Taylor)
 **Date**: 2026-01-02
+**Updated**: 2026-01-03
 **Estimated Effort**: 11-16 days
 **Related**: [TAS-59](https://linear.app/tasker-systems/issue/TAS-59) (Batch Processing), [TAS-64](https://linear.app/tasker-systems/issue/TAS-64) (Checkpoint Progress), [TAS-112](https://linear.app/tasker-systems/issue/TAS-112) (Cross-Language Ergonomics)
+
+---
+
+## Implementation Progress
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| **Phase 1**: Schema & Model Changes | ✅ Complete | Migration, types, SQL queries updated |
+| **Phase 2**: Rust Service Modifications | ✅ Complete | CheckpointService, FfiDispatchChannel.checkpoint_yield() |
+| **Phase 3**: FFI Bridge Changes | ✅ Complete | Ruby, Python, TypeScript (Bun/Node/Deno) |
+| **Phase 3.5**: Validation Gate | ✅ Complete | All tests pass, clippy clean, SQLx cache updated |
+| **Phase 4**: Language Handler Updates | ✅ Complete | Batchable mixins, handler result types, context accessors |
+| **Phase 5**: Integration & E2E Testing | 🔲 Not Started | Cross-language tests, error scenarios |
+| **Phase 6**: Documentation & Tools | 🔲 Not Started | Guides, metrics, DLQ updates |
+
+### Completed Files (Phases 1-4)
+
+**Created:**
+- `migrations/20260102000000_add_checkpoint_column.sql` - Database migration
+- `tasker-worker/src/worker/services/checkpoint/mod.rs` - Module exports
+- `tasker-worker/src/worker/services/checkpoint/service.rs` - CheckpointService
+- `tasker-worker/src/worker/services/checkpoint/error.rs` - CheckpointError type
+
+**Modified (Rust Core):**
+- `tasker-shared/src/models/core/batch_worker.rs` - Added CheckpointRecord, CheckpointYieldData, BatchWorkerResult
+- `tasker-shared/src/models/core/workflow_step.rs` - Added checkpoint field, updated 14+ SQL queries
+- `tasker-shared/src/models/core/task.rs` - Updated get_step_by_name query
+- `tasker-worker/src/worker/handlers/ffi_dispatch_channel.rs` - Added checkpoint_yield(), with_checkpoint_support()
+- `tasker-worker/src/worker/actors/messages.rs` - Added from_checkpoint_continuation()
+- `tasker-worker/src/worker/services/mod.rs` - Added checkpoint module
+
+**Modified (Ruby FFI):**
+- `workers/ruby/ext/tasker_core/src/bridge.rs` - checkpoint_yield_step_event FFI function
+- `workers/ruby/ext/tasker_core/src/conversions.rs` - convert_ruby_checkpoint_to_yield_data()
+
+**Modified (Python FFI):**
+- `workers/python/src/lib.rs` - Registered checkpoint_yield_step_event
+- `workers/python/src/bridge.rs` - Added checkpoint_yield_step_event to PythonBridgeHandle
+- `workers/python/src/event_dispatch.rs` - checkpoint_yield_step_event function
+- `workers/python/src/conversions.rs` - convert_python_checkpoint_to_yield_data()
+
+**Modified (TypeScript FFI):**
+- `workers/typescript/src/ffi/types.ts` - Added CheckpointYieldData interface
+- `workers/typescript/src/ffi/runtime-interface.ts` - Added checkpointYieldStepEvent to interface
+- `workers/typescript/src/ffi/bun-runtime.ts` - FFI symbol and implementation
+- `workers/typescript/src/ffi/node-runtime.ts` - FFI symbol and implementation
+- `workers/typescript/src/ffi/deno-runtime.ts` - FFI symbol and implementation
+
+**Modified (Ruby Language-Side - Phase 4):**
+- `workers/ruby/lib/tasker_core/event_bridge.rb` - Added publish_step_checkpoint_yield() method
+- `workers/ruby/lib/tasker_core/types/step_handler_call_result.rb` - Added CheckpointYield result type
+- `workers/ruby/lib/tasker_core/step_handler/mixins/batchable.rb` - Added checkpoint_yield() helper
+- `workers/ruby/lib/tasker_core/batch_processing/batch_worker_context.rb` - Added checkpoint accessors
+
+**Modified (Python Language-Side - Phase 4):**
+- `workers/python/python/tasker_core/batch_processing/batchable.py` - Added checkpoint_yield() method
+
+**Modified (TypeScript Language-Side - Phase 4):**
+- `workers/typescript/src/handler/batchable.ts` - Added checkpointYield() method to interface, mixin, and class
+
+**Test Fixtures Updated:**
+- `tests/common/fast_event_test_helper.rs`
+- `tasker-shared/src/events/registry.rs`
+- `tasker-shared/src/events/worker_events.rs`
+- `tasker-shared/tests/domain_events_test.rs`
+- `tasker-worker/src/worker/domain_event_commands.rs`
+- `tasker-worker/src/worker/event_publisher.rs`
+- `tasker-worker/src/worker/event_router.rs`
+- `tasker-worker/src/worker/event_systems/domain_event_system.rs`
+- `tasker-worker/src/worker/in_process_event_bus.rs`
 
 ---
 

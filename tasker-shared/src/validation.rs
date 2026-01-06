@@ -5,6 +5,90 @@
 
 use crate::errors::{TaskerError, TaskerResult};
 use serde_json::{Map, Value};
+use validator::ValidationError;
+
+// =============================================================================
+// PGMQ Queue Name Constraints
+// =============================================================================
+// PGMQ has a 47 character limit on queue names.
+// Queue names are constructed as: {namespace}_{queue_type}
+// The longest suffix is "_domain_events_dlq" (18 characters)
+// Therefore: MAX_NAMESPACE_LENGTH = 47 - 18 = 29
+
+/// Maximum length for PGMQ queue names (PostgreSQL identifier limit)
+pub const MAX_PGMQ_QUEUE_NAME_LENGTH: usize = 47;
+
+/// Longest queue suffix: "_domain_events_dlq"
+pub const MAX_QUEUE_SUFFIX_LENGTH: usize = 18;
+
+/// Maximum namespace length to ensure queue names fit within PGMQ limits
+/// Calculated as: MAX_PGMQ_QUEUE_NAME_LENGTH - MAX_QUEUE_SUFFIX_LENGTH = 29
+pub const MAX_NAMESPACE_LENGTH: usize = MAX_PGMQ_QUEUE_NAME_LENGTH - MAX_QUEUE_SUFFIX_LENGTH;
+
+/// Validates namespace length for PGMQ queue name compatibility
+///
+/// PGMQ has a 47 character limit on queue names. Since queue names are
+/// constructed as `{namespace}_{queue_type}` and the longest suffix is
+/// `_domain_events_dlq` (18 characters), namespaces must be <= 29 characters.
+pub fn validate_namespace_name(namespace: &str) -> TaskerResult<()> {
+    if namespace.is_empty() {
+        return Err(TaskerError::InvalidInput(
+            "Namespace name cannot be empty".to_string(),
+        ));
+    }
+
+    if namespace.len() > MAX_NAMESPACE_LENGTH {
+        return Err(TaskerError::InvalidInput(format!(
+            "Namespace name '{}' is too long: {} chars (max: {}). \
+             PGMQ queue names are limited to {} chars, and the longest \
+             queue suffix is {} chars.",
+            namespace,
+            namespace.len(),
+            MAX_NAMESPACE_LENGTH,
+            MAX_PGMQ_QUEUE_NAME_LENGTH,
+            MAX_QUEUE_SUFFIX_LENGTH
+        )));
+    }
+
+    // Validate characters (alphanumeric and underscore only for PostgreSQL identifiers)
+    if !namespace
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(TaskerError::InvalidInput(format!(
+            "Namespace name '{}' contains invalid characters. \
+             Only alphanumeric characters and underscores are allowed.",
+            namespace
+        )));
+    }
+
+    // Must start with a letter or underscore (PostgreSQL identifier rules)
+    if let Some(first_char) = namespace.chars().next() {
+        if !first_char.is_ascii_alphabetic() && first_char != '_' {
+            return Err(TaskerError::InvalidInput(format!(
+                "Namespace name '{}' must start with a letter or underscore.",
+                namespace
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// Validator-compatible wrapper for namespace validation.
+///
+/// Use with the `validator` crate's custom validation:
+/// ```ignore
+/// #[validate(custom(function = "crate::validation::validate_namespace_for_validator"))]
+/// pub namespace_name: String,
+/// ```
+pub fn validate_namespace_for_validator(namespace: &str) -> Result<(), ValidationError> {
+    validate_namespace_name(namespace).map_err(|e| {
+        let mut error = ValidationError::new("namespace_length");
+        error.message = Some(e.to_string().into());
+        error
+    })
+}
 
 /// Maximum allowed size for JSONB payloads (1MB)
 const MAX_JSON_SIZE_BYTES: usize = 1024 * 1024;
@@ -325,5 +409,80 @@ mod tests {
             "&lt;script&gt;alert('evil')&lt;/script&gt;"
         ); // <script sanitized
         assert_eq!(sanitized["safe_key"], "safe_value"); // unchanged
+    }
+
+    // =============================================================================
+    // Namespace Validation Tests
+    // =============================================================================
+
+    #[test]
+    fn test_valid_namespace() {
+        // Valid namespaces within the 29 character limit
+        assert!(validate_namespace_name("test").is_ok());
+        assert!(validate_namespace_name("my_namespace").is_ok());
+        assert!(validate_namespace_name("ts_e2e_checkpoint").is_ok());
+        assert!(validate_namespace_name("_private").is_ok());
+        assert!(validate_namespace_name("a").is_ok());
+
+        // Exactly 29 characters (the limit)
+        let max_length_namespace = "a".repeat(MAX_NAMESPACE_LENGTH);
+        assert!(validate_namespace_name(&max_length_namespace).is_ok());
+    }
+
+    #[test]
+    fn test_namespace_too_long() {
+        // 30 characters - one over the limit
+        let too_long = "a".repeat(MAX_NAMESPACE_LENGTH + 1);
+        let result = validate_namespace_name(&too_long);
+        assert!(result.is_err());
+
+        // The original problematic namespace from the bug
+        let problematic = "typescript_e2e_checkpoint_yield"; // 31 chars
+        assert!(validate_namespace_name(problematic).is_err());
+    }
+
+    #[test]
+    fn test_namespace_empty() {
+        assert!(validate_namespace_name("").is_err());
+    }
+
+    #[test]
+    fn test_namespace_invalid_characters() {
+        // Hyphens not allowed (PostgreSQL identifier restriction)
+        assert!(validate_namespace_name("my-namespace").is_err());
+
+        // Spaces not allowed
+        assert!(validate_namespace_name("my namespace").is_err());
+
+        // Special characters not allowed
+        assert!(validate_namespace_name("my@namespace").is_err());
+        assert!(validate_namespace_name("my.namespace").is_err());
+    }
+
+    #[test]
+    fn test_namespace_must_start_with_letter_or_underscore() {
+        // Cannot start with a number
+        assert!(validate_namespace_name("123namespace").is_err());
+        assert!(validate_namespace_name("1_test").is_err());
+
+        // Can start with letter
+        assert!(validate_namespace_name("namespace123").is_ok());
+
+        // Can start with underscore
+        assert!(validate_namespace_name("_namespace").is_ok());
+    }
+
+    #[test]
+    fn test_pgmq_queue_name_calculation() {
+        // Verify our constants are correct
+        assert_eq!(MAX_PGMQ_QUEUE_NAME_LENGTH, 47);
+        assert_eq!(MAX_QUEUE_SUFFIX_LENGTH, 18); // "_domain_events_dlq"
+        assert_eq!(MAX_NAMESPACE_LENGTH, 29); // 47 - 18
+
+        // Verify that a max-length namespace + max suffix fits
+        let max_namespace = "a".repeat(MAX_NAMESPACE_LENGTH);
+        let max_suffix = "_domain_events_dlq";
+        let full_queue_name = format!("{}{}", max_namespace, max_suffix);
+        assert_eq!(full_queue_name.len(), MAX_PGMQ_QUEUE_NAME_LENGTH);
     }
 }

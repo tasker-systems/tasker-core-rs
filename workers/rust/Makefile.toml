@@ -73,14 +73,91 @@ args = ["clean", "-p", "${CRATE_NAME}"]
 # =============================================================================
 
 [tasks.run]
-description = "Run the Rust worker service"
-command = "cargo"
-args = ["run", "-p", "${CRATE_NAME}", "--all-features"]
+description = "Run Rust worker service (port 8081)"
+script = '''
+# Source local .env.test for worker-specific configuration
+set -a
+source .env.test
+set +a
+
+# Override PORT for local execution
+export PORT=8081
+
+echo "🦀 Starting Rust worker..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-start.sh rust-worker \
+    cargo run -p tasker-worker-rust --all-features
+'''
+
+[tasks.run-foreground]
+description = "Run Rust worker in foreground (for debugging)"
+script = '''
+# Source local .env.test for worker-specific configuration
+set -a
+source .env.test
+set +a
+
+# Override PORT for local execution
+export PORT=8081
+
+echo "🦀 Starting Rust worker (foreground)..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+
+cargo run -p tasker-worker-rust --all-features
+'''
 
 [tasks.run-release]
-description = "Run the Rust worker service (release)"
-command = "cargo"
-args = ["run", "-p", "${CRATE_NAME}", "--all-features", "--release"]
+description = "Run Rust worker service (release build)"
+script = '''
+# Source local .env.test for worker-specific configuration
+set -a
+source .env.test
+set +a
+
+# Override PORT for local execution
+export PORT=8081
+
+echo "🦀 Starting Rust worker (release)..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-start.sh rust-worker \
+    cargo run -p tasker-worker-rust --all-features --release
+'''
+
+[tasks.stop]
+description = "Stop Rust worker service"
+script = '''
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-stop.sh rust-worker
+'''
+
+[tasks.status]
+description = "Check Rust worker service status"
+script = '''
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-status.sh rust-worker
+'''
+
+[tasks.logs]
+description = "Tail Rust worker logs"
+script = '''
+LOG_FILE="../../.logs/rust-worker.log"
+if [ -f "$LOG_FILE" ]; then
+    tail -f "$LOG_FILE"
+else
+    echo "No log file found at $LOG_FILE"
+    echo "Start the worker first with: cargo make run"
+fi
+'''
 
 # =============================================================================
 # Setup (no-op for Rust)

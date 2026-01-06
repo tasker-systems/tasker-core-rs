@@ -46,7 +46,10 @@ pub struct TaskTemplate {
     pub name: String,
 
     /// Namespace for organization
-    #[validate(length(min = 1, max = 255))]
+    ///
+    /// Limited to 29 characters to ensure PGMQ queue names (namespace + suffix)
+    /// fit within PostgreSQL's 47 character identifier limit.
+    #[validate(custom(function = "crate::validation::validate_namespace_for_validator"))]
     pub namespace_name: String,
 
     /// Semantic version

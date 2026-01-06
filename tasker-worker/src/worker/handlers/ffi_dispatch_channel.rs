@@ -924,7 +924,7 @@ impl FfiDispatchChannel {
             }
         };
 
-        // Get pending event (do NOT remove - step stays pending for re-dispatch)
+        // Get pending event (clone for processing - we'll remove after successful checkpoint)
         let pending_event = {
             let pending = self
                 .pending_events
@@ -959,6 +959,16 @@ impl FfiDispatchChannel {
 
             match result {
                 Ok(()) => {
+                    // Remove the old pending event - a new continuation with a new event_id
+                    // has been dispatched and will create its own pending entry
+                    {
+                        let mut pending_map = self
+                            .pending_events
+                            .write()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        pending_map.remove(&event_id);
+                    }
+
                     info!(
                         service_id = %self.config.service_id,
                         event_id = %event_id,
@@ -976,6 +986,17 @@ impl FfiDispatchChannel {
                         error = %e,
                         "Checkpoint yield failed"
                     );
+
+                    // Remove the pending event - we're sending a failure result
+                    // which will trigger a retry with a new event
+                    {
+                        let mut pending_map = self
+                            .pending_events
+                            .write()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        pending_map.remove(&event_id);
+                    }
+
                     // Send a failure result so the step can be retried
                     self.send_checkpoint_failure(event_id, &pending.event, e);
                     false
@@ -1014,10 +1035,15 @@ impl FfiDispatchChannel {
             _ => None,
         };
 
+        // 3. Clone task_sequence_step and inject checkpoint data
+        // so the handler can read it on resume via workflow_step.checkpoint
+        let mut task_sequence_step = event.execution_event.payload.task_sequence_step.clone();
+        task_sequence_step.workflow_step.checkpoint = serde_json::to_value(checkpoint_data).ok();
+
         let continuation_msg = DispatchHandlerMessage::from_checkpoint_continuation(
             event.step_uuid,
             event.task_uuid,
-            event.execution_event.payload.task_sequence_step.clone(),
+            task_sequence_step,
             event.correlation_id,
             trace_context,
         );
@@ -1119,5 +1145,57 @@ mod tests {
         // Poll should return None immediately when empty
         let result = channel.poll_async(Duration::from_millis(10)).await;
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_ffi_dispatch_channel_checkpoint_yield_not_configured() {
+        // TAS-125: Test that checkpoint_yield returns false when not configured
+        let (_dispatch_tx, dispatch_rx) = mpsc::channel(100);
+        let (completion_tx, _completion_rx) = mpsc::channel(100);
+        let handle = tokio::runtime::Handle::current();
+        let config = FfiDispatchChannelConfig::new(handle);
+        let callback = Arc::new(NoOpCallback);
+        let channel = FfiDispatchChannel::new(dispatch_rx, completion_tx, config, callback);
+
+        // Without checkpoint_service and dispatch_sender, checkpoint_yield should return false
+        let checkpoint_data = CheckpointYieldData {
+            step_uuid: Uuid::new_v4(),
+            cursor: serde_json::json!(1000),
+            items_processed: 1000,
+            accumulated_results: None,
+        };
+
+        let result = channel.checkpoint_yield(Uuid::new_v4(), checkpoint_data);
+        assert!(
+            !result,
+            "checkpoint_yield should return false when not configured"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ffi_dispatch_channel_checkpoint_data_serialization() {
+        // TAS-125: Test that CheckpointYieldData can be created and serialized correctly
+        let step_uuid = Uuid::new_v4();
+        let checkpoint_data = CheckpointYieldData {
+            step_uuid,
+            cursor: serde_json::json!({"offset": 5000, "partition": "A"}),
+            items_processed: 5000,
+            accumulated_results: Some(serde_json::json!({
+                "total_processed": 5000,
+                "sum": 125000.50
+            })),
+        };
+
+        // Verify all fields are correctly set
+        assert_eq!(checkpoint_data.step_uuid, step_uuid);
+        assert_eq!(checkpoint_data.items_processed, 5000);
+        assert_eq!(checkpoint_data.cursor["offset"], 5000);
+        assert_eq!(checkpoint_data.cursor["partition"], "A");
+
+        // Verify serialization round-trip
+        let json = serde_json::to_value(&checkpoint_data).unwrap();
+        let deserialized: CheckpointYieldData = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.items_processed, 5000);
+        assert_eq!(deserialized.cursor["offset"], 5000);
     }
 }

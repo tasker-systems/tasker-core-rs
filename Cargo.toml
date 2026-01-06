@@ -81,7 +81,8 @@ rust_decimal = { version = "1.37", features = ["serde-with-str"] }
 # Serialization
 # IMPORTANT: Pin to 1.0.219 - serde 1.0.220+ has breaking changes that affect pythonize/pyo3
 # See: https://github.com/swc-project/swc/issues/11092
-serde = { version = "=1.0.219", features = ["derive"] }
+# NOTE: "std" feature required by pythonize (which uses default-features = false)
+serde = { version = "=1.0.219", features = ["derive", "std"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 serial_test = "3.1"

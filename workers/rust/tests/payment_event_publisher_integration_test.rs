@@ -128,6 +128,7 @@ fn create_payment_task_sequence_step(
             inputs: None,
             results: None,
             skippable: false,
+            checkpoint: None,
             created_at: now,
             updated_at: now,
         },

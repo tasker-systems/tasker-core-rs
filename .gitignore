@@ -56,3 +56,6 @@ rspec_results.json
 
 # no log files
 *.log
+
+.pids/*
+.logs/*

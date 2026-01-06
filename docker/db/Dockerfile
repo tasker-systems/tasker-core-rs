@@ -11,9 +11,9 @@ USER root
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
-        build-essential \
-        git \
-        postgresql-server-dev-17 \
+    build-essential \
+    git \
+    postgresql-server-dev-17 \
     && rm -rf /var/lib/apt/lists/*
 
 # Build pg_uuidv7 extension

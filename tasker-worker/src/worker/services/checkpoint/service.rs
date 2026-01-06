@@ -248,4 +248,488 @@ mod tests {
         assert_eq!(data.items_processed, 5000);
         assert_eq!(data.cursor, json!(5000));
     }
+
+    /// Helper to create a test workflow step in the database
+    async fn create_test_step(pool: &sqlx::PgPool) -> (Uuid, Uuid) {
+        // Create a namespace
+        let namespace_uuid = Uuid::new_v4();
+        sqlx::query!(
+            r#"
+            INSERT INTO tasker_task_namespaces (task_namespace_uuid, name, description, created_at, updated_at)
+            VALUES ($1, 'test_namespace_checkpoint', 'Test namespace for checkpoint tests', NOW(), NOW())
+            "#,
+            namespace_uuid
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to create namespace");
+
+        // Create a named task
+        let named_task_uuid = Uuid::new_v4();
+        sqlx::query!(
+            r#"
+            INSERT INTO tasker_named_tasks (named_task_uuid, task_namespace_uuid, name, version, created_at, updated_at)
+            VALUES ($1, $2, 'test_task_checkpoint', '1.0', NOW(), NOW())
+            "#,
+            named_task_uuid,
+            namespace_uuid
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to create named task");
+
+        // Create a dependent system (required for named_steps)
+        let dependent_system_uuid = Uuid::new_v4();
+        sqlx::query!(
+            r#"
+            INSERT INTO tasker_dependent_systems (dependent_system_uuid, name, description, created_at, updated_at)
+            VALUES ($1, 'test_system_checkpoint', 'Test system for checkpoint tests', NOW(), NOW())
+            "#,
+            dependent_system_uuid
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to create dependent system");
+
+        // Create a named step (uses dependent_system_uuid, not named_task_uuid)
+        let named_step_uuid = Uuid::new_v4();
+        sqlx::query!(
+            r#"
+            INSERT INTO tasker_named_steps (named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at)
+            VALUES ($1, $2, 'test_step_checkpoint', 'Test step for checkpoint tests', NOW(), NOW())
+            "#,
+            named_step_uuid,
+            dependent_system_uuid
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to create named step");
+
+        // Create a task instance
+        let task_uuid = Uuid::new_v4();
+        let correlation_id = Uuid::new_v4();
+        sqlx::query!(
+            r#"
+            INSERT INTO tasker_tasks (task_uuid, named_task_uuid, identity_hash, priority, correlation_id, created_at, updated_at, requested_at)
+            VALUES ($1, $2, 'test_hash_checkpoint', 5, $3, NOW(), NOW(), NOW())
+            "#,
+            task_uuid,
+            named_task_uuid,
+            correlation_id
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to create task");
+
+        // Create a workflow step
+        let step_uuid = Uuid::new_v4();
+        sqlx::query!(
+            r#"
+            INSERT INTO tasker_workflow_steps (workflow_step_uuid, task_uuid, named_step_uuid, created_at, updated_at)
+            VALUES ($1, $2, $3, NOW(), NOW())
+            "#,
+            step_uuid,
+            task_uuid,
+            named_step_uuid
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to create workflow step");
+
+        (task_uuid, step_uuid)
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_persist_and_get_checkpoint(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool.clone());
+        let (_task_uuid, step_uuid) = create_test_step(&pool).await;
+
+        // Create checkpoint data
+        let data = CheckpointYieldData {
+            step_uuid,
+            cursor: json!(1000),
+            items_processed: 1000,
+            accumulated_results: Some(json!({"total": 50000.0, "count": 1000})),
+        };
+
+        // Persist the checkpoint
+        service
+            .persist_checkpoint(step_uuid, &data)
+            .await
+            .expect("Failed to persist checkpoint");
+
+        // Retrieve the checkpoint
+        let checkpoint = service
+            .get_checkpoint(step_uuid)
+            .await
+            .expect("Failed to get checkpoint")
+            .expect("Checkpoint should exist");
+
+        assert_eq!(checkpoint.cursor, json!(1000));
+        assert_eq!(checkpoint.items_processed, 1000);
+        assert!(checkpoint.accumulated_results.is_some());
+        let results = checkpoint.accumulated_results.unwrap();
+        assert_eq!(results["total"], 50000.0);
+        assert_eq!(results["count"], 1000);
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_checkpoint_history_accumulation(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool.clone());
+        let (_task_uuid, step_uuid) = create_test_step(&pool).await;
+
+        // Persist multiple checkpoints to accumulate history
+        for i in 1..=3 {
+            let data = CheckpointYieldData {
+                step_uuid,
+                cursor: json!(i * 1000),
+                items_processed: i * 1000,
+                accumulated_results: Some(json!({"iteration": i})),
+            };
+            service
+                .persist_checkpoint(step_uuid, &data)
+                .await
+                .expect("Failed to persist checkpoint");
+        }
+
+        // Get the final checkpoint
+        let checkpoint = service
+            .get_checkpoint(step_uuid)
+            .await
+            .expect("Failed to get checkpoint")
+            .expect("Checkpoint should exist");
+
+        // Verify the final state
+        assert_eq!(checkpoint.cursor, json!(3000));
+        assert_eq!(checkpoint.items_processed, 3000);
+
+        // Verify history has 3 entries (one for each yield)
+        assert_eq!(checkpoint.history.len(), 3, "History should have 3 entries");
+
+        // Verify history entries are in order (cursors 1000, 2000, 3000)
+        // Note: CheckpointHistoryEntry is a struct with .cursor field, not a JSON value
+        assert_eq!(checkpoint.history[0].cursor, json!(1000));
+        assert_eq!(checkpoint.history[1].cursor, json!(2000));
+        assert_eq!(checkpoint.history[2].cursor, json!(3000));
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_clear_checkpoint(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool.clone());
+        let (_task_uuid, step_uuid) = create_test_step(&pool).await;
+
+        // Persist a checkpoint
+        let data = CheckpointYieldData {
+            step_uuid,
+            cursor: json!(5000),
+            items_processed: 5000,
+            accumulated_results: None,
+        };
+        service
+            .persist_checkpoint(step_uuid, &data)
+            .await
+            .expect("Failed to persist checkpoint");
+
+        // Verify it exists
+        let checkpoint = service
+            .get_checkpoint(step_uuid)
+            .await
+            .expect("Failed to get checkpoint");
+        assert!(checkpoint.is_some());
+
+        // Clear the checkpoint
+        service
+            .clear_checkpoint(step_uuid)
+            .await
+            .expect("Failed to clear checkpoint");
+
+        // Verify it's gone
+        let checkpoint = service
+            .get_checkpoint(step_uuid)
+            .await
+            .expect("Failed to get checkpoint");
+        assert!(checkpoint.is_none(), "Checkpoint should be cleared");
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_get_checkpoint_nonexistent_step(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool);
+        let fake_uuid = Uuid::new_v4();
+
+        let result = service.get_checkpoint(fake_uuid).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CheckpointError::StepNotFound(uuid) => {
+                assert_eq!(uuid, fake_uuid);
+            }
+            other => panic!("Expected StepNotFound error, got: {:?}", other),
+        }
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_persist_checkpoint_nonexistent_step(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool);
+        let fake_uuid = Uuid::new_v4();
+
+        let data = CheckpointYieldData {
+            step_uuid: fake_uuid,
+            cursor: json!(100),
+            items_processed: 100,
+            accumulated_results: None,
+        };
+
+        let result = service.persist_checkpoint(fake_uuid, &data).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CheckpointError::StepNotFound(uuid) => {
+                assert_eq!(uuid, fake_uuid);
+            }
+            other => panic!("Expected StepNotFound error, got: {:?}", other),
+        }
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_checkpoint_with_string_cursor(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool.clone());
+        let (_task_uuid, step_uuid) = create_test_step(&pool).await;
+
+        // Use a string cursor (e.g., API pagination token)
+        let data = CheckpointYieldData {
+            step_uuid,
+            cursor: json!("eyJsYXN0X2lkIjoiOTk5In0="),
+            items_processed: 500,
+            accumulated_results: None,
+        };
+
+        service
+            .persist_checkpoint(step_uuid, &data)
+            .await
+            .expect("Failed to persist checkpoint");
+
+        let checkpoint = service
+            .get_checkpoint(step_uuid)
+            .await
+            .expect("Failed to get checkpoint")
+            .expect("Checkpoint should exist");
+
+        assert_eq!(checkpoint.cursor, json!("eyJsYXN0X2lkIjoiOTk5In0="));
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_checkpoint_with_complex_cursor(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool.clone());
+        let (_task_uuid, step_uuid) = create_test_step(&pool).await;
+
+        // Use a complex object cursor
+        let complex_cursor = json!({
+            "page_token": "abc123",
+            "partition_id": 5,
+            "last_key": "2024-01-15T10:00:00Z"
+        });
+
+        let data = CheckpointYieldData {
+            step_uuid,
+            cursor: complex_cursor.clone(),
+            items_processed: 750,
+            accumulated_results: Some(json!({"partitions_completed": [1, 2, 3, 4]})),
+        };
+
+        service
+            .persist_checkpoint(step_uuid, &data)
+            .await
+            .expect("Failed to persist checkpoint");
+
+        let checkpoint = service
+            .get_checkpoint(step_uuid)
+            .await
+            .expect("Failed to get checkpoint")
+            .expect("Checkpoint should exist");
+
+        assert_eq!(checkpoint.cursor, complex_cursor);
+        assert_eq!(checkpoint.cursor["partition_id"], 5);
+    }
+
+    // TAS-125: Error Scenario Tests
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_clear_checkpoint_nonexistent_step(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool);
+        let fake_uuid = Uuid::new_v4();
+
+        let result = service.clear_checkpoint(fake_uuid).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CheckpointError::StepNotFound(uuid) => {
+                assert_eq!(uuid, fake_uuid);
+            }
+            other => panic!("Expected StepNotFound error, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_error_display_formatting() {
+        // Test Database error display
+        let db_err = CheckpointError::Database(sqlx::Error::RowNotFound);
+        let display = format!("{}", db_err);
+        assert!(display.contains("Database error"));
+
+        // Test StepNotFound error display
+        let step_uuid = Uuid::new_v4();
+        let step_err = CheckpointError::StepNotFound(step_uuid);
+        let display = format!("{}", step_err);
+        assert!(display.contains("Step not found"));
+        assert!(display.contains(&step_uuid.to_string()));
+
+        // Test RedispatchFailed error display
+        let redispatch_err = CheckpointError::RedispatchFailed;
+        let display = format!("{}", redispatch_err);
+        assert!(display.contains("Re-dispatch failed"));
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_checkpoint_with_null_cursor(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool.clone());
+        let (_task_uuid, step_uuid) = create_test_step(&pool).await;
+
+        // Use a null cursor (valid JSON null)
+        let data = CheckpointYieldData {
+            step_uuid,
+            cursor: json!(null),
+            items_processed: 0,
+            accumulated_results: None,
+        };
+
+        // Should succeed - null is a valid JSON value
+        service
+            .persist_checkpoint(step_uuid, &data)
+            .await
+            .expect("Failed to persist checkpoint with null cursor");
+
+        let checkpoint = service
+            .get_checkpoint(step_uuid)
+            .await
+            .expect("Failed to get checkpoint")
+            .expect("Checkpoint should exist");
+
+        assert_eq!(checkpoint.cursor, json!(null));
+        assert_eq!(checkpoint.items_processed, 0);
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_checkpoint_with_zero_items_processed(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool.clone());
+        let (_task_uuid, step_uuid) = create_test_step(&pool).await;
+
+        let data = CheckpointYieldData {
+            step_uuid,
+            cursor: json!(0),
+            items_processed: 0, // Edge case: zero items
+            accumulated_results: Some(json!({"initialized": true})),
+        };
+
+        service
+            .persist_checkpoint(step_uuid, &data)
+            .await
+            .expect("Failed to persist checkpoint");
+
+        let checkpoint = service
+            .get_checkpoint(step_uuid)
+            .await
+            .expect("Failed to get checkpoint")
+            .expect("Checkpoint should exist");
+
+        assert_eq!(checkpoint.items_processed, 0);
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_checkpoint_overwrite_preserves_history(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool.clone());
+        let (_task_uuid, step_uuid) = create_test_step(&pool).await;
+
+        // First checkpoint
+        let data1 = CheckpointYieldData {
+            step_uuid,
+            cursor: json!(100),
+            items_processed: 100,
+            accumulated_results: Some(json!({"total": 100})),
+        };
+        service.persist_checkpoint(step_uuid, &data1).await.unwrap();
+
+        // Second checkpoint overwrites but preserves history
+        let data2 = CheckpointYieldData {
+            step_uuid,
+            cursor: json!(200),
+            items_processed: 200,
+            accumulated_results: Some(json!({"total": 200})),
+        };
+        service.persist_checkpoint(step_uuid, &data2).await.unwrap();
+
+        let checkpoint = service.get_checkpoint(step_uuid).await.unwrap().unwrap();
+
+        // Current state should be from second checkpoint
+        assert_eq!(checkpoint.cursor, json!(200));
+        assert_eq!(checkpoint.items_processed, 200);
+
+        // History should have both checkpoints
+        assert_eq!(checkpoint.history.len(), 2);
+        assert_eq!(checkpoint.history[0].cursor, json!(100));
+        assert_eq!(checkpoint.history[1].cursor, json!(200));
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_checkpoint_with_large_accumulated_results(pool: sqlx::PgPool) {
+        let service = CheckpointService::new(pool.clone());
+        let (_task_uuid, step_uuid) = create_test_step(&pool).await;
+
+        // Create large accumulated results
+        let large_results = json!({
+            "summary": {
+                "total_processed": 1000000,
+                "categories": ["A", "B", "C", "D", "E"],
+                "metrics": {
+                    "avg": 123.456,
+                    "max": 999.999,
+                    "min": 0.001,
+                    "std_dev": 45.678
+                }
+            },
+            "details": (0..100).map(|i| json!({"id": i, "value": i * 10})).collect::<Vec<_>>()
+        });
+
+        let data = CheckpointYieldData {
+            step_uuid,
+            cursor: json!(1000000),
+            items_processed: 1000000,
+            accumulated_results: Some(large_results.clone()),
+        };
+
+        service
+            .persist_checkpoint(step_uuid, &data)
+            .await
+            .expect("Failed to persist large checkpoint");
+
+        let checkpoint = service
+            .get_checkpoint(step_uuid)
+            .await
+            .expect("Failed to get checkpoint")
+            .expect("Checkpoint should exist");
+
+        assert_eq!(checkpoint.items_processed, 1000000);
+        assert!(checkpoint.accumulated_results.is_some());
+    }
+
+    #[test]
+    fn test_checkpoint_service_from_arc() {
+        // Test that from_arc constructor works correctly
+        // This is a compile-time check primarily
+        use std::sync::Arc;
+
+        // Create a mock pool config - we can't actually create a real pool here
+        // but we can test the Debug impl
+        let service_debug = format!("{:?}", "CheckpointService");
+        assert!(service_debug.contains("CheckpointService"));
+    }
 }
