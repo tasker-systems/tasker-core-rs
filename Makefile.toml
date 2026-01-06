@@ -114,8 +114,13 @@ description = "Run all Rust quality checks"
 dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-doctests"]
 
 [tasks.test-rust]
-description = "Run all Rust tests with nextest"
+description = "Run all Rust tests with nextest (loads .env.test for E2E tests)"
 script = '''
+#!/bin/bash
+# Load environment from .env.test for E2E tests
+set -a
+source .env.test 2>/dev/null || true
+set +a
 cargo nextest run --workspace --all-features
 '''
 
@@ -128,6 +133,12 @@ cargo nextest run --workspace --all-features -E 'not binary(e2e_tests) & not bin
 [tasks.test-rust-e2e]
 description = "Run Rust e2e and integration tests only (requires services running)"
 script = '''
+#!/bin/bash
+# Load environment from .env.test for fixture paths and config
+set -a
+source .env.test
+set +a
+echo "📋 Loaded environment: TASKER_FIXTURE_PATH=$TASKER_FIXTURE_PATH"
 cargo nextest run --workspace --all-features -E 'binary(e2e_tests) | binary(integration_tests)'
 '''
 

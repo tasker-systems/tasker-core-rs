@@ -1,9 +1,9 @@
 # TAS-125: Checkpoint Yield Implementation Plan
 
-**Status**: In Progress - Phase 4 Complete ✓
+**Status**: In Progress - Phase 5 Complete ✓
 **Author**: Claude (with Pete Taylor)
 **Date**: 2026-01-02
-**Updated**: 2026-01-03
+**Updated**: 2026-01-06
 **Estimated Effort**: 11-16 days
 **Related**: [TAS-59](https://linear.app/tasker-systems/issue/TAS-59) (Batch Processing), [TAS-64](https://linear.app/tasker-systems/issue/TAS-64) (Checkpoint Progress), [TAS-112](https://linear.app/tasker-systems/issue/TAS-112) (Cross-Language Ergonomics)
 
@@ -18,7 +18,7 @@
 | **Phase 3**: FFI Bridge Changes | ✅ Complete | Ruby, Python, TypeScript (Bun/Node/Deno) |
 | **Phase 3.5**: Validation Gate | ✅ Complete | All tests pass, clippy clean, SQLx cache updated |
 | **Phase 4**: Language Handler Updates | ✅ Complete | Batchable mixins, handler result types, context accessors |
-| **Phase 5**: Integration & E2E Testing | 🔲 Not Started | Cross-language tests, error scenarios |
+| **Phase 5**: Integration & E2E Testing | ✅ Complete | Cross-language E2E tests, error scenarios, unit tests |
 | **Phase 6**: Documentation & Tools | 🔲 Not Started | Guides, metrics, DLQ updates |
 
 ### Completed Files (Phases 1-4)
@@ -65,6 +65,31 @@
 
 **Modified (TypeScript Language-Side - Phase 4):**
 - `workers/typescript/src/handler/batchable.ts` - Added checkpointYield() method to interface, mixin, and class
+
+### Completed Files (Phase 5)
+
+**E2E Test Files Created:**
+- `tests/e2e/ruby/checkpoint_yield_test.rs` - Ruby checkpoint yield E2E tests (3 scenarios)
+- `tests/e2e/python/checkpoint_yield_test.rs` - Python checkpoint yield E2E tests (4 scenarios)
+- `tests/e2e/typescript/checkpoint_yield_test.rs` - TypeScript checkpoint yield E2E tests (3 scenarios)
+
+**Task Template Fixtures Created:**
+- `tests/fixtures/task_templates/ruby/checkpoint_yield_test.yaml` - Ruby E2E task template
+- `tests/fixtures/task_templates/python/checkpoint_yield_test.yaml` - Python E2E task template
+- `tests/fixtures/task_templates/typescript/checkpoint_yield_test_ts.yaml` - TypeScript E2E task template
+
+**TypeScript Handler & Test Files:**
+- `workers/typescript/tests/handlers/step_handlers/checkpoint-handlers.ts` - Checkpoint yield example handlers
+- `workers/typescript/tests/handlers/examples/checkpoint_yield/index.ts` - Checkpoint yield exports
+- `workers/typescript/tests/handlers/examples/index.ts` - Updated exports
+- `workers/typescript/tests/unit/handler/batchable.test.ts` - Comprehensive unit tests including checkpointYield
+
+**E2E Test Scenarios Implemented:**
+| Language | Happy Path | Transient Failure Resume | Permanent Failure | Frequent Checkpoints |
+|----------|------------|--------------------------|-------------------|---------------------|
+| Ruby | ✅ | ✅ | ✅ | - |
+| Python | ✅ | ✅ | ✅ | ✅ |
+| TypeScript | ✅ | ✅ | ✅ | - |
 
 **Test Fixtures Updated:**
 - `tests/common/fast_event_test_helper.rs`

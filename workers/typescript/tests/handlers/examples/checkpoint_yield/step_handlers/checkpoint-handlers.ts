@@ -84,6 +84,22 @@ export class CheckpointYieldAnalyzerHandler extends BatchableStepHandler {
  *   - Checkpoint persists cursor position and accumulated results
  *   - On resume, continues from checkpoint cursor with accumulated results
  */
+/** Configuration for checkpoint yield worker */
+interface WorkerConfig {
+  itemsPerCheckpoint: number;
+  failAfterItems: number | undefined;
+  failOnAttempt: number;
+  permanentFailure: boolean;
+}
+
+/** Processing state for checkpoint yield worker */
+interface ProcessingState {
+  startCursor: number;
+  accumulated: { running_total: number; item_ids: string[] };
+  totalProcessed: number;
+  currentAttempt: number;
+}
+
 export class CheckpointYieldWorkerHandler extends BatchableStepHandler {
   static handlerName = 'checkpoint_yield.step_handlers.CheckpointYieldWorkerHandler';
   static handlerVersion = '1.0.0';
@@ -105,56 +121,64 @@ export class CheckpointYieldWorkerHandler extends BatchableStepHandler {
       return this.failure('No batch inputs found', 'batch_error', false);
     }
 
-    // Get configuration from task context
-    const itemsPerCheckpoint =
-      (context.inputData?.items_per_checkpoint as number) ??
-      (context.stepConfig?.items_per_checkpoint as number) ??
-      CheckpointYieldWorkerHandler.DEFAULT_ITEMS_PER_CHECKPOINT;
+    const config = this.getWorkerConfig(context);
+    const state = this.getProcessingState(context, cursor.start_cursor);
+    const endCursor = cursor.end_cursor;
 
-    const failAfterItems = context.inputData?.fail_after_items as number | undefined;
-    const failOnAttempt = (context.inputData?.fail_on_attempt as number) ?? 1;
-    const permanentFailure = (context.inputData?.permanent_failure as boolean) ?? false;
+    return this.processItems(config, state, endCursor);
+  }
 
-    // Determine starting position
-    // Check for checkpoint data from previous execution
-    // NOTE: workflow_step is directly on context.event (not nested under task_sequence_step)
+  private getWorkerConfig(context: StepContext): WorkerConfig {
+    return {
+      itemsPerCheckpoint:
+        (context.inputData?.items_per_checkpoint as number) ??
+        (context.stepConfig?.items_per_checkpoint as number) ??
+        CheckpointYieldWorkerHandler.DEFAULT_ITEMS_PER_CHECKPOINT,
+      failAfterItems: context.inputData?.fail_after_items as number | undefined,
+      failOnAttempt: (context.inputData?.fail_on_attempt as number) ?? 1,
+      permanentFailure: (context.inputData?.permanent_failure as boolean) ?? false,
+    };
+  }
+
+  private getProcessingState(context: StepContext, defaultStartCursor: number): ProcessingState {
     const workflowStep = context.event?.workflow_step as Record<string, unknown> | undefined;
     const checkpoint = workflowStep?.checkpoint as Record<string, unknown> | undefined;
-
-    let startCursor: number;
-    let accumulated: { running_total: number; item_ids: string[] };
-    let totalProcessed: number;
+    const currentAttempt = ((workflowStep?.attempts as number) ?? 0) + 1;
 
     if (checkpoint) {
-      // Resume from checkpoint
-      startCursor = (checkpoint.cursor as number) ?? cursor.start_cursor;
-      accumulated = (checkpoint.accumulated_results as typeof accumulated) ?? {
-        running_total: 0,
-        item_ids: [],
+      return {
+        startCursor: (checkpoint.cursor as number) ?? defaultStartCursor,
+        accumulated: (checkpoint.accumulated_results as ProcessingState['accumulated']) ?? {
+          running_total: 0,
+          item_ids: [],
+        },
+        totalProcessed: (checkpoint.items_processed as number) ?? 0,
+        currentAttempt,
       };
-      totalProcessed = (checkpoint.items_processed as number) ?? 0;
-    } else {
-      // Fresh start
-      startCursor = cursor.start_cursor;
-      accumulated = { running_total: 0, item_ids: [] };
-      totalProcessed = 0;
     }
 
-    const endCursor = cursor.end_cursor;
-    const currentAttempt = ((workflowStep?.attempts as number) ?? 0) + 1; // 1-indexed
+    return {
+      startCursor: defaultStartCursor,
+      accumulated: { running_total: 0, item_ids: [] },
+      totalProcessed: 0,
+      currentAttempt,
+    };
+  }
 
-    // Process items in chunks
-    let currentCursor = startCursor;
+  private processItems(
+    config: WorkerConfig,
+    state: ProcessingState,
+    endCursor: number
+  ): StepHandlerResult {
+    let currentCursor = state.startCursor;
     let itemsInChunk = 0;
+    let totalProcessed = state.totalProcessed;
+    const accumulated = state.accumulated;
 
     while (currentCursor < endCursor) {
       // Check for failure injection
-      if (
-        failAfterItems !== undefined &&
-        totalProcessed >= failAfterItems &&
-        currentAttempt === failOnAttempt
-      ) {
-        return this.injectFailure(totalProcessed, currentCursor, permanentFailure);
+      if (this.shouldInjectFailure(config, totalProcessed, state.currentAttempt)) {
+        return this.injectFailure(totalProcessed, currentCursor, config.permanentFailure);
       }
 
       // Process one item
@@ -167,7 +191,7 @@ export class CheckpointYieldWorkerHandler extends BatchableStepHandler {
       totalProcessed += 1;
 
       // Check if we should yield a checkpoint
-      if (itemsInChunk >= itemsPerCheckpoint && currentCursor < endCursor) {
+      if (itemsInChunk >= config.itemsPerCheckpoint && currentCursor < endCursor) {
         return this.checkpointYield(currentCursor, totalProcessed, accumulated);
       }
     }
@@ -180,16 +204,27 @@ export class CheckpointYieldWorkerHandler extends BatchableStepHandler {
       batch_metadata: {
         ...accumulated,
         final_cursor: currentCursor,
-        checkpoints_used: Math.floor(totalProcessed / itemsPerCheckpoint),
+        checkpoints_used: Math.floor(totalProcessed / config.itemsPerCheckpoint),
       },
     });
   }
 
+  private shouldInjectFailure(
+    config: WorkerConfig,
+    totalProcessed: number,
+    currentAttempt: number
+  ): boolean {
+    return (
+      config.failAfterItems !== undefined &&
+      totalProcessed >= config.failAfterItems &&
+      currentAttempt === config.failOnAttempt
+    );
+  }
+
   private processItem(cursor: number): { id: string; value: number } {
-    // Simple processing - just compute a value based on cursor
     return {
       id: `item_${String(cursor).padStart(4, '0')}`,
-      value: cursor + 1, // 1-indexed value
+      value: cursor + 1,
     };
   }
 
@@ -198,28 +233,15 @@ export class CheckpointYieldWorkerHandler extends BatchableStepHandler {
     cursor: number,
     permanent: boolean
   ): StepHandlerResult {
-    if (permanent) {
-      return this.failure(
-        `Injected permanent failure after ${itemsProcessed} items`,
-        'PermanentError',
-        false, // not retryable
-        {
-          items_processed: itemsProcessed,
-          cursor_at_failure: cursor,
-          failure_type: 'permanent',
-        }
-      );
-    }
-    return this.failure(
-      `Injected transient failure after ${itemsProcessed} items`,
-      'RetryableError',
-      true, // retryable
-      {
-        items_processed: itemsProcessed,
-        cursor_at_failure: cursor,
-        failure_type: 'transient',
-      }
-    );
+    const errorType = permanent ? 'PermanentError' : 'RetryableError';
+    const failureType = permanent ? 'permanent' : 'transient';
+    const message = `Injected ${failureType} failure after ${itemsProcessed} items`;
+
+    return this.failure(message, errorType, !permanent, {
+      items_processed: itemsProcessed,
+      cursor_at_failure: cursor,
+      failure_type: failureType,
+    });
   }
 }
 

@@ -181,13 +181,14 @@ async fn test_python_checkpoint_yield_happy_path() -> Result<()> {
     );
 
     // Verify checkpoint count
-    if let Some(checkpoints_used) = result.get("checkpoints_used") {
-        println!("   Checkpoints used: {}", checkpoints_used);
-        assert!(
-            checkpoints_used.as_u64().unwrap() >= 3,
-            "Should have used at least 3 checkpoints (100/25 = 4 chunks)"
-        );
-    }
+    let checkpoints_used = result
+        .get("checkpoints_used")
+        .expect("Results should contain checkpoints_used");
+    println!("   Checkpoints used: {}", checkpoints_used);
+    assert!(
+        checkpoints_used.as_u64().unwrap() >= 3,
+        "Should have used at least 3 checkpoints (100/25 = 4 chunks)"
+    );
 
     // Verify test passed flag
     let test_passed = result
@@ -292,10 +293,11 @@ async fn test_python_checkpoint_yield_transient_failure_resume() -> Result<()> {
         "Batch worker should complete after retry"
     );
 
-    // The step should have been attempted at least twice (initial + retry)
-    assert!(
-        batch_worker.attempts >= 2,
-        "Batch worker should have been retried at least once"
+    // The step should have been attempted exactly twice (initial + retry)
+    // We inject failure on attempt 1 only, so attempt 2 should succeed
+    assert_eq!(
+        batch_worker.attempts, 2,
+        "Batch worker should have exactly 2 attempts (fail on 1, succeed on 2)"
     );
 
     // Verify aggregate results
@@ -516,18 +518,237 @@ async fn test_python_checkpoint_yield_frequent_checkpoints() -> Result<()> {
         "Should have processed all 50 items"
     );
 
-    if let Some(checkpoints_used) = result.get("checkpoints_used") {
-        println!("   Checkpoints used: {}", checkpoints_used);
-        assert!(
-            checkpoints_used.as_u64().unwrap() >= 8,
-            "Should have used at least 8 checkpoints (50/5 = 10 chunks)"
-        );
-    }
+    let checkpoints_used = result
+        .get("checkpoints_used")
+        .expect("Results should contain checkpoints_used");
+    println!("   Checkpoints used: {}", checkpoints_used);
+    assert!(
+        checkpoints_used.as_u64().unwrap() >= 8,
+        "Should have used at least 8 checkpoints (50/5 = 10 chunks)"
+    );
 
     println!("\n🎉 TAS-125 Frequent Checkpoints Test PASSED!");
     println!("✅ Frequent checkpoint yields: Working");
     println!("✅ Multiple re-dispatches: Working");
     println!("✅ Efficient checkpoint processing: Working");
+
+    Ok(())
+}
+
+/// Test checkpoint yield with zero items edge case.
+///
+/// Validates:
+/// - Handler correctly handles zero items scenario
+/// - No checkpoints needed when there's nothing to process
+/// - Task completes successfully with zero items
+#[tokio::test]
+async fn test_python_checkpoint_yield_zero_items() -> Result<()> {
+    println!("🚀 Starting TAS-125 Zero Items Edge Case Test (Python)");
+    println!("   Total items: 0");
+    println!("   Items per checkpoint: 10");
+    println!("   Expected: No checkpoints, immediate success");
+
+    let manager = IntegrationTestManager::setup().await?;
+
+    // Create task with zero items
+    println!("\n🎯 Creating task with zero items...");
+    let task_request = create_checkpoint_yield_request(
+        0,  // total_items - zero items
+        10, // items_per_checkpoint
+        None, None, false,
+    );
+
+    let task_response = manager
+        .orchestration_client
+        .create_task(task_request)
+        .await?;
+
+    println!("✅ Task created: {}", task_response.task_uuid);
+
+    // Wait for completion
+    let timeout = 30;
+    wait_for_task_completion(
+        &manager.orchestration_client,
+        &task_response.task_uuid,
+        timeout,
+    )
+    .await?;
+
+    // Verify results
+    let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;
+    let final_task = manager.orchestration_client.get_task(task_uuid).await?;
+
+    assert!(
+        final_task.is_execution_complete(),
+        "Task should complete with zero items"
+    );
+    println!(
+        "✅ Task execution status: {} (overall status: {})",
+        final_task.execution_status, final_task.status
+    );
+
+    // Get aggregate step
+    let steps = manager
+        .orchestration_client
+        .list_task_steps(task_uuid)
+        .await?;
+
+    let aggregate_step = steps
+        .iter()
+        .find(|s| s.name == "aggregate_results")
+        .expect("Should have aggregate_results step");
+
+    let results = aggregate_step
+        .results
+        .as_ref()
+        .expect("Aggregate step should have result data");
+
+    let result = results
+        .get("result")
+        .expect("Results should contain result object");
+
+    let total_processed = result
+        .get("total_processed")
+        .expect("Results should contain total_processed");
+    println!("   Total items processed: {}", total_processed);
+    assert_eq!(
+        total_processed.as_u64().unwrap(),
+        0,
+        "Should have processed zero items"
+    );
+
+    // With zero items, no checkpoints should be used
+    // Note: checkpoints_used may be absent or 0 when no processing occurs
+    let checkpoints_used = result
+        .get("checkpoints_used")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    println!("   Checkpoints used: {}", checkpoints_used);
+    assert_eq!(
+        checkpoints_used, 0,
+        "Should have used zero checkpoints with zero items"
+    );
+
+    println!("\n🎉 TAS-125 Zero Items Edge Case Test PASSED!");
+    println!("✅ Zero items handling: Working");
+    println!("✅ Empty batch completion: Working");
+
+    Ok(())
+}
+
+/// Test checkpoint yield with single batch (items fit in one checkpoint interval).
+///
+/// Validates:
+/// - Handler processes all items in a single batch without yielding
+/// - No intermediate checkpoints when items fit in one chunk
+/// - Task completes without re-dispatch
+#[tokio::test]
+async fn test_python_checkpoint_yield_single_batch() -> Result<()> {
+    println!("🚀 Starting TAS-125 Single Batch Edge Case Test (Python)");
+    println!("   Total items: 10");
+    println!("   Items per checkpoint: 20");
+    println!("   Expected: No intermediate checkpoints, single batch completion");
+
+    let manager = IntegrationTestManager::setup().await?;
+
+    // Create task where items fit in a single checkpoint interval
+    println!("\n🎯 Creating task with items fitting in single batch...");
+    let task_request = create_checkpoint_yield_request(
+        10, // total_items
+        20, // items_per_checkpoint - larger than total items
+        None, None, false,
+    );
+
+    let task_response = manager
+        .orchestration_client
+        .create_task(task_request)
+        .await?;
+
+    println!("✅ Task created: {}", task_response.task_uuid);
+
+    // Wait for completion
+    let timeout = 30;
+    wait_for_task_completion(
+        &manager.orchestration_client,
+        &task_response.task_uuid,
+        timeout,
+    )
+    .await?;
+
+    // Verify results
+    let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;
+    let final_task = manager.orchestration_client.get_task(task_uuid).await?;
+
+    assert!(
+        final_task.is_execution_complete(),
+        "Task should complete with single batch"
+    );
+    println!(
+        "✅ Task execution status: {} (overall status: {})",
+        final_task.execution_status, final_task.status
+    );
+
+    // Get aggregate step
+    let steps = manager
+        .orchestration_client
+        .list_task_steps(task_uuid)
+        .await?;
+
+    // Verify batch worker completed in single attempt (no re-dispatches)
+    let batch_worker = steps
+        .iter()
+        .find(|s| s.name.starts_with("checkpoint_yield_batch"))
+        .expect("Should have batch worker step");
+
+    println!("\n📊 Batch Worker Step:");
+    println!("   Step: {}", batch_worker.name);
+    println!("   State: {}", batch_worker.current_state);
+    println!("   Attempts: {}", batch_worker.attempts);
+
+    assert_eq!(
+        batch_worker.attempts, 1,
+        "Single batch should complete in one attempt without re-dispatch"
+    );
+
+    let aggregate_step = steps
+        .iter()
+        .find(|s| s.name == "aggregate_results")
+        .expect("Should have aggregate_results step");
+
+    let results = aggregate_step
+        .results
+        .as_ref()
+        .expect("Aggregate step should have result data");
+
+    let result = results
+        .get("result")
+        .expect("Results should contain result object");
+
+    let total_processed = result
+        .get("total_processed")
+        .expect("Results should contain total_processed");
+    println!("   Total items processed: {}", total_processed);
+    assert_eq!(
+        total_processed.as_u64().unwrap(),
+        10,
+        "Should have processed all 10 items"
+    );
+
+    // With items < checkpoint interval, no intermediate checkpoints should be used
+    let checkpoints_used = result
+        .get("checkpoints_used")
+        .expect("Results should contain checkpoints_used");
+    println!("   Checkpoints used: {}", checkpoints_used);
+    assert_eq!(
+        checkpoints_used.as_u64().unwrap(),
+        0,
+        "Should have used zero intermediate checkpoints when items fit in single batch"
+    );
+
+    println!("\n🎉 TAS-125 Single Batch Edge Case Test PASSED!");
+    println!("✅ Single batch processing: Working");
+    println!("✅ No unnecessary checkpoints: Working");
+    println!("✅ Single attempt completion: Working");
 
     Ok(())
 }

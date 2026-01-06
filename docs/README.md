@@ -101,6 +101,7 @@ The documentation is organized by cognitive function:
 - **[Observability](observability/README.md)** - Metrics, logging, and monitoring
 - **[Backpressure Monitoring](operations/backpressure-monitoring.md)** - Alerting and incident response
 - **[Channel Tuning](operations/mpsc-channel-tuning.md)** - MPSC channel configuration
+- **[Checkpoint Operations](operations/checkpoint-operations.md)** - Monitoring and managing batch checkpoints
 - **[Benchmarks](benchmarks/README.md)** - Performance validation and targets
 
 ---

@@ -181,13 +181,14 @@ async fn test_ruby_checkpoint_yield_happy_path() -> Result<()> {
     );
 
     // Verify checkpoint count
-    if let Some(checkpoints_used) = result.get("checkpoints_used") {
-        println!("   Checkpoints used: {}", checkpoints_used);
-        assert!(
-            checkpoints_used.as_u64().unwrap() >= 3,
-            "Should have used at least 3 checkpoints (100/25 = 4 chunks)"
-        );
-    }
+    let checkpoints_used = result
+        .get("checkpoints_used")
+        .expect("Results should contain checkpoints_used");
+    println!("   Checkpoints used: {}", checkpoints_used);
+    assert!(
+        checkpoints_used.as_u64().unwrap() >= 3,
+        "Should have used at least 3 checkpoints (100/25 = 4 chunks)"
+    );
 
     // Verify test passed flag
     let test_passed = result
@@ -292,10 +293,11 @@ async fn test_ruby_checkpoint_yield_transient_failure_resume() -> Result<()> {
         "Batch worker should complete after retry"
     );
 
-    // The step should have been attempted at least twice (initial + retry)
-    assert!(
-        batch_worker.attempts >= 2,
-        "Batch worker should have been retried at least once"
+    // The step should have been attempted exactly twice (initial + retry)
+    // We inject failure on attempt 1 only, so attempt 2 should succeed
+    assert_eq!(
+        batch_worker.attempts, 2,
+        "Batch worker should have exactly 2 attempts (fail on 1, succeed on 2)"
     );
 
     // Verify aggregate results

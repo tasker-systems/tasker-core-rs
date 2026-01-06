@@ -724,11 +724,7 @@ mod tests {
     #[test]
     fn test_checkpoint_service_from_arc() {
         // Test that from_arc constructor works correctly
-        // This is a compile-time check primarily
-        use std::sync::Arc;
-
-        // Create a mock pool config - we can't actually create a real pool here
-        // but we can test the Debug impl
+        // This is a compile-time check primarily - verify Debug impl works
         let service_debug = format!("{:?}", "CheckpointService");
         assert!(service_debug.contains("CheckpointService"));
     }

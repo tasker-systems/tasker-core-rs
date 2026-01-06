@@ -1,7 +1,7 @@
 # Batch Processing in Tasker
 
-**Last Updated**: 2025-11-18
-**Status**: Production Ready (TAS-59 Complete)
+**Last Updated**: 2026-01-06
+**Status**: Production Ready (TAS-59, TAS-125 Complete)
 **Related**: [Conditional Workflows](./conditional-workflows.md), [DLQ System](./dlq-system.md)
 
 ---
@@ -11,6 +11,7 @@
 - [Overview](#overview)
 - [Architecture Foundations](#architecture-foundations)
 - [Core Concepts](#core-concepts)
+- [Checkpoint Yielding (TAS-125)](#checkpoint-yielding-tas-125)
 - [Workflow Pattern](#workflow-pattern)
 - [Data Structures](#data-structures)
 - [Implementation Patterns](#implementation-patterns)
@@ -507,6 +508,283 @@ async fn call(&self, step_data: &TaskSequenceStep) -> Result<StepExecutionResult
     }
 }
 ```
+
+---
+
+## Checkpoint Yielding (TAS-125)
+
+Checkpoint yielding enables **handler-driven progress persistence** during long-running batch operations. Handlers explicitly checkpoint their progress, persist state to the database, and yield control back to the orchestrator for re-dispatch.
+
+### Key Characteristics
+
+**Handler-Driven**: Handlers decide when to checkpoint based on business logic, not configuration timers. This gives handlers full control over checkpoint frequency and timing.
+
+**Checkpoint-Persist-Then-Redispatch**: Progress is atomically saved to the database before the step is re-dispatched. This ensures no progress is ever lost, even during infrastructure failures.
+
+**Step Remains In-Progress**: During checkpoint yield cycles, the step stays in `InProgress` state. It is not released or re-enqueued through normal channels—the re-dispatch happens internally.
+
+**State Machine Integrity**: Only `Success` or `Failure` results trigger state transitions. Checkpoint yields are internal handler mechanics that don't affect the step state machine.
+
+### When to Use Checkpoint Yielding
+
+**Use checkpoint yielding when**:
+- Processing takes longer than your visibility timeout (prevents DLQ escalation)
+- You want resumable processing after transient failures
+- You need to periodically release resources (memory, connections)
+- Long-running operations need progress visibility
+
+**Don't use checkpoint yielding when**:
+- Batch processing completes quickly (<30 seconds)
+- The overhead of checkpointing exceeds the benefit
+- Operations are inherently non-resumable
+
+### API Reference
+
+All languages provide a `checkpoint_yield()` method (or `checkpointYield()` in TypeScript) on the Batchable mixin:
+
+#### Ruby
+
+```ruby
+class MyBatchWorkerHandler
+  include Tasker::StepHandler::Batchable
+
+  def call(step_data)
+    context = BatchWorkerContext.from_step_data(step_data)
+
+    # Resume from checkpoint if present
+    start_item = context.has_checkpoint? ? context.checkpoint_cursor : 0
+    accumulated = context.accumulated_results || []
+
+    items = fetch_items_to_process(start_item)
+
+    items.each_with_index do |item, idx|
+      result = process_item(item)
+      accumulated << result
+
+      # Checkpoint every 1000 items
+      if (idx + 1) % 1000 == 0
+        checkpoint_yield(
+          cursor: start_item + idx + 1,
+          items_processed: accumulated.size,
+          accumulated_results: { processed: accumulated }
+        )
+        # Handler execution stops here and resumes on re-dispatch
+      end
+    end
+
+    # Return final success result
+    success_result(results: { all_processed: accumulated })
+  end
+end
+```
+
+**BatchWorkerContext Accessors** (Ruby):
+- `checkpoint_cursor` - Current cursor position (or nil if no checkpoint)
+- `accumulated_results` - Previously accumulated results (or nil)
+- `has_checkpoint?` - Returns true if checkpoint data exists
+- `checkpoint_items_processed` - Number of items processed at checkpoint
+
+#### Python
+
+```python
+class MyBatchWorkerHandler(BatchableHandler):
+    def call(self, step_data: TaskSequenceStep) -> StepExecutionResult:
+        context = BatchWorkerContext.from_step_data(step_data)
+
+        # Resume from checkpoint if present
+        start_item = context.checkpoint_cursor if context.has_checkpoint() else 0
+        accumulated = context.accumulated_results or []
+
+        items = self.fetch_items_to_process(start_item)
+
+        for idx, item in enumerate(items):
+            result = self.process_item(item)
+            accumulated.append(result)
+
+            # Checkpoint every 1000 items
+            if (idx + 1) % 1000 == 0:
+                self.checkpoint_yield(
+                    cursor=start_item + idx + 1,
+                    items_processed=len(accumulated),
+                    accumulated_results={"processed": accumulated}
+                )
+                # Handler execution stops here and resumes on re-dispatch
+
+        # Return final success result
+        return self.success_result(results={"all_processed": accumulated})
+```
+
+**BatchWorkerContext Accessors** (Python):
+- `checkpoint_cursor: int | str | dict | None` - Current cursor position
+- `accumulated_results: dict | None` - Previously accumulated results
+- `has_checkpoint() -> bool` - Returns true if checkpoint data exists
+- `checkpoint_items_processed: int` - Number of items processed at checkpoint
+
+#### TypeScript
+
+```typescript
+class MyBatchWorkerHandler extends BatchableHandler {
+  async call(stepData: TaskSequenceStep): Promise<StepExecutionResult> {
+    const context = BatchWorkerContext.fromStepData(stepData);
+
+    // Resume from checkpoint if present
+    const startItem = context.hasCheckpoint() ? context.checkpointCursor : 0;
+    const accumulated = context.accumulatedResults ?? [];
+
+    const items = await this.fetchItemsToProcess(startItem);
+
+    for (let idx = 0; idx < items.length; idx++) {
+      const result = await this.processItem(items[idx]);
+      accumulated.push(result);
+
+      // Checkpoint every 1000 items
+      if ((idx + 1) % 1000 === 0) {
+        await this.checkpointYield({
+          cursor: startItem + idx + 1,
+          itemsProcessed: accumulated.length,
+          accumulatedResults: { processed: accumulated }
+        });
+        // Handler execution stops here and resumes on re-dispatch
+      }
+    }
+
+    // Return final success result
+    return this.successResult({ results: { allProcessed: accumulated } });
+  }
+}
+```
+
+**BatchWorkerContext Properties** (TypeScript):
+- `checkpointCursor: number | string | Record<string, unknown> | undefined`
+- `accumulatedResults: Record<string, unknown> | undefined`
+- `hasCheckpoint(): boolean`
+- `checkpointItemsProcessed: number`
+
+### Checkpoint Data Structure
+
+Checkpoints are persisted in the `checkpoint` JSONB column on `tasker_workflow_steps`:
+
+```json
+{
+  "cursor": 1000,
+  "items_processed": 1000,
+  "timestamp": "2026-01-06T12:00:00Z",
+  "accumulated_results": {
+    "processed": ["item1", "item2", "..."]
+  },
+  "history": [
+    {"cursor": 500, "timestamp": "2026-01-06T11:59:30Z"},
+    {"cursor": 1000, "timestamp": "2026-01-06T12:00:00Z"}
+  ]
+}
+```
+
+**Fields**:
+- `cursor` - Flexible JSON value representing position (integer, string, or object)
+- `items_processed` - Total items processed at this checkpoint
+- `timestamp` - ISO 8601 timestamp when checkpoint was created
+- `accumulated_results` - Optional intermediate results to preserve
+- `history` - Array of previous checkpoint positions (appended automatically)
+
+### Checkpoint Flow
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Handler calls checkpoint_yield(cursor, items_processed, ...)   │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │
+                                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  FFI Bridge: checkpoint_yield_step_event()                       │
+│  Converts language-specific types to CheckpointYieldData         │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │
+                                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  CheckpointService::save_checkpoint()                            │
+│  - Atomic SQL update with history append                         │
+│  - Uses JSONB jsonb_set for history array                        │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │
+                                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Worker re-dispatches step via internal MPSC channel             │
+│  - Step stays InProgress (not released)                          │
+│  - Re-queued for immediate processing                            │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │
+                                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Handler resumes with checkpoint data in workflow_step           │
+│  - BatchWorkerContext provides checkpoint accessors              │
+│  - Handler continues from saved cursor position                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Failure and Recovery
+
+**Transient Failure After Checkpoint**:
+1. Handler checkpoints at position 500
+2. Handler fails at position 750 (transient error)
+3. Step is retried (standard retry semantics)
+4. Handler resumes from checkpoint (position 500)
+5. Items 500-750 are reprocessed (idempotency required)
+6. Processing continues to completion
+
+**Permanent Failure**:
+1. Handler checkpoints at position 500
+2. Handler encounters non-retryable error
+3. Step transitions to Error state
+4. Checkpoint data preserved for operator inspection
+5. Manual intervention may use checkpoint to resume later
+
+### Best Practices
+
+**Checkpoint Frequency**:
+- Too frequent: Overhead dominates (database writes, re-dispatch latency)
+- Too infrequent: Lost progress on failure, long recovery time
+- Rule of thumb: Checkpoint every 1-5 minutes of work, or every 1000-10000 items
+
+**Accumulated Results**:
+- Keep accumulated results small (summaries, counts, IDs)
+- For large result sets, write to external storage and store reference
+- Unbounded accumulated results can cause performance degradation
+
+**Cursor Design**:
+- Use monotonic cursors (integers, timestamps) when possible
+- Complex cursors (objects) are supported but harder to debug
+- Cursor must uniquely identify resume position
+
+**Idempotency**:
+- Items between last checkpoint and failure will be reprocessed
+- Ensure item processing is idempotent or use deduplication
+- Consider storing processed item IDs in accumulated_results
+
+### Monitoring
+
+**Checkpoint Events** (logged automatically):
+```
+INFO checkpoint_yield_step_event step_uuid=abc cursor=1000 items_processed=1000
+INFO checkpoint_saved step_uuid=abc history_length=2
+```
+
+**Metrics to Monitor**:
+- Checkpoint frequency per step
+- Average items processed between checkpoints
+- Checkpoint history size (detect unbounded growth)
+- Re-dispatch latency after checkpoint
+
+### Known Limitations
+
+**History Array Growth**: The `history` array grows with each checkpoint. For very long-running processes with frequent checkpoints, this can lead to large JSONB values. Consider:
+- Setting a maximum history length (future enhancement)
+- Clearing history on step completion
+- Using external storage for detailed history
+
+**Accumulated Results Size**: No built-in size limit on `accumulated_results`. Handlers must self-regulate to prevent database bloat. Consider:
+- Storing summaries instead of raw data
+- Using external storage for large intermediate results
+- Implementing size checks before checkpoint
 
 ---
 

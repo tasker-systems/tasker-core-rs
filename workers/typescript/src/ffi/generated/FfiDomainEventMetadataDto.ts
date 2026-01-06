@@ -6,12 +6,4 @@
  * This provides compile-time type safety for the FFI boundary,
  * replacing the previous manual json!() macro construction.
  */
-export type FfiDomainEventMetadataDto = {
-  taskUuid: string;
-  stepUuid: string | null;
-  stepName: string | null;
-  namespace: string;
-  correlationId: string;
-  firedAt: string;
-  firedBy: string | null;
-};
+export type FfiDomainEventMetadataDto = { taskUuid: string, stepUuid: string | null, stepName: string | null, namespace: string, correlationId: string, firedAt: string, firedBy: string | null, };
