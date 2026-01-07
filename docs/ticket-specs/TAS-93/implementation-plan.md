@@ -396,6 +396,57 @@ modifying `HandlerDispatchService` directly to use `ResolverChain`.
 
 ---
 
+### Architectural Clarification: Cross-Language Design (2025-01-07)
+
+**Context**: During Phase 3 implementation, we discussed why the adapter pattern is
+specifically appropriate for Rust, and how this fits into the broader cross-language design.
+
+**Key Insight**: The `ResolvedHandler` trait is a **resolution output** (metadata about a
+resolved handler), while the **execution mechanism** is inherently language-specific.
+
+**Cross-Language Method Dispatch Comparison**:
+
+| Language   | Method Dispatch Capability | How `method: refund` Works |
+|------------|---------------------------|----------------------------|
+| Ruby       | `handler.public_send(:refund, step)` | Runtime reflection |
+| Python     | `getattr(handler, 'refund')(step)` | Runtime reflection |
+| TypeScript | `handler[method](step)` | Dynamic property access |
+| Rust       | No runtime method dispatch | **Requires adapter/bridge** |
+
+**Why Rust Needs the Adapter Pattern**:
+
+1. **No runtime reflection**: Rust cannot call methods by string name at runtime
+2. **Compile-time dispatch**: Method calls must be statically known
+3. **The adapter bridges resolution to execution**: Converts the resolved handler
+   (with metadata about supported methods) into something executable
+
+**What Each Trait Represents**:
+
+- `ResolvedHandler` (in `tasker-shared`): Cross-language concept of "a resolved handler
+  with metadata" - name, supported methods, but NO execution capability
+- `StepHandler` (in `tasker-worker`): Rust-specific execution contract with `call()` method
+- The adapters: Rust's execution bridge between resolution and invocation
+
+**Why NOT Add `call()` to `ResolvedHandler`**:
+
+If we added `async fn call()` to `ResolvedHandler`:
+- We'd be baking Rust's limitation into a cross-language abstraction
+- Ruby/Python handlers exposing `refund()`, `validate()`, `process()` directly wouldn't fit
+- We'd force a "single entry point" pattern that only Rust needs
+
+**Design Principle**: The adapters we built are NOT migration infrastructure - they are
+**Rust's execution bridge** between the resolution layer (cross-language) and the execution
+layer (Rust-specific). Ruby, Python, and TypeScript won't need adapters because they have
+runtime reflection/dynamic dispatch.
+
+**Documentation Impact**: This clarification should be highlighted in the final handler
+resolution guide (Phase 6) to help developers understand:
+1. Why the architecture looks different in Rust vs other languages
+2. That this is intentional, not a limitation
+3. How to leverage method dispatch in each language idiomatically
+
+---
+
 ### 3.1 Create Resolver Integration Module
 
 **Location**: `tasker-worker/src/worker/handlers/resolver_integration.rs` (new file)

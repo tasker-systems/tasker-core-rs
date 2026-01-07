@@ -30,9 +30,46 @@ module TaskerCore
     end
 
     # Handler definition with callable and initialization
+    #
+    # TAS-93: Extended with handler_method and resolver fields for the resolver chain pattern.
+    # - `handler_method`: Optional method name override (defaults to 'call')
+    # - `resolver`: Optional resolver hint to bypass inferential resolution
+    #
+    # NOTE: We use `handler_method` instead of `method` to avoid collision with
+    # Ruby's built-in `Object#method`.
     class HandlerDefinition < Dry::Struct
       attribute :callable, Types::Strict::String
       attribute :initialization, Types::Hash.default({}.freeze)
+      # TAS-93: Method name to invoke on the handler (defaults to 'call')
+      # Named handler_method to avoid collision with Ruby's Object#method
+      attribute :handler_method, Types::String.optional.default(nil)
+      # TAS-93: Resolver hint to bypass the resolver chain (e.g., 'payment_resolver')
+      attribute :resolver, Types::String.optional.default(nil)
+
+      # TAS-93: Get the effective method name to invoke
+      # Returns the configured method name or defaults to 'call'
+      #
+      # @return [String] The method name to invoke on the handler
+      def effective_method
+        handler_method.presence || 'call'
+      end
+
+      # TAS-93: Check if this handler uses custom method dispatch
+      # Returns true if a non-default method is configured
+      #
+      # @return [Boolean] true if handler_method is something other than 'call'
+      def uses_method_dispatch?
+        handler_method.present? && handler_method != 'call'
+      end
+
+      # TAS-93: Check if a resolver hint is specified
+      # When true, the resolver chain should skip inferential resolution
+      # and directly use the named resolver
+      #
+      # @return [Boolean] true if resolver hint is present
+      def has_resolver_hint?
+        resolver.present?
+      end
     end
 
     # External system dependencies

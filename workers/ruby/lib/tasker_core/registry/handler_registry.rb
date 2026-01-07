@@ -4,138 +4,113 @@ require 'singleton'
 
 module TaskerCore
   module Registry
-    # Simplified handler registry for pure business logic handlers
+    # Handler registry with TAS-93 ResolverChain support
     #
     # Manages the discovery, registration, and instantiation of step handlers
-    # throughout the worker lifecycle. The registry supports multiple discovery
-    # modes to handle different deployment scenarios and environments.
+    # throughout the worker lifecycle. Uses a ResolverChain for flexible
+    # handler resolution with support for:
+    # - Explicit registration (highest priority)
+    # - Class constant resolution (inferential)
+    # - Method dispatch (handler_method redirects .call())
+    # - Resolver hints (bypass chain with specific resolver)
     #
-    # Discovery Modes (in priority order):
-    # 1. **Preloaded Handlers**: Test environment handlers loaded at startup
-    # 2. **Template-Driven Discovery**: YAML templates defining workflow handlers
+    # == Resolution Priority
     #
-    # The registry automatically bootstraps on initialization, discovering and
-    # registering all available handlers based on the current environment and
-    # configuration.
+    # 1. **Explicit Registration** (priority 10): Handlers registered via `register_handler`
+    # 2. **Class Constant** (priority 100): Ruby class lookup via `Object.const_get`
     #
-    # @example Resolving a handler by class name
-    #   registry = TaskerCore::Registry::HandlerRegistry.instance
-    #   handler = registry.resolve_handler("ValidateOrderHandler")
-    #   # => Instance of ValidateOrderHandler or nil if not found
+    # == Method Dispatch (TAS-93)
     #
-    #   if handler
-    #     result = handler.call(context)
-    #   else
-    #     raise "Handler not found: ValidateOrderHandler"
-    #   end
+    # When resolving with a HandlerDefinition that specifies `handler_method`,
+    # the returned handler is wrapped to redirect `.call()` to the specified method:
     #
-    # @example Checking handler availability
-    #   registry.handler_available?("ProcessPaymentHandler")
-    #   # => true/false
+    #   # Template specifies: handler_method: "refund"
+    #   handler = registry.resolve_handler(handler_definition)
+    #   handler.call(context)  # Actually calls handler.refund(context)
     #
-    #   if registry.handler_available?("ProcessPaymentHandler")
-    #     puts "Payment processing is available"
-    #   end
+    # == Usage Examples
     #
-    # @example Getting list of registered handlers
-    #   handlers = registry.registered_handlers
-    #   # => ["LinearStep1Handler", "LinearStep2Handler", "ValidateOrderHandler", ...]
+    # @example Resolving by class name (string)
+    #   handler = registry.resolve_handler("PaymentHandler")
     #
-    #   puts "Available handlers:"
-    #   handlers.each { |name| puts "  - #{name}" }
+    # @example Resolving with HandlerDefinition (full TAS-93 support)
+    #   definition = TaskerCore::Types::HandlerDefinition.new(
+    #     callable: "PaymentHandler",
+    #     handler_method: "refund"
+    #   )
+    #   handler = registry.resolve_handler(definition)
+    #   handler.call(context)  # Calls PaymentHandler#refund
     #
-    # @example Debugging template discovery
-    #   info = registry.template_discovery_info
-    #   # => {
-    #   #   template_path: "/app/config/tasker/tasks",
-    #   #   template_files: ["linear_workflow.yml", "order_fulfillment.yml"],
-    #   #   discovered_handlers: ["ValidateOrderHandler", "ProcessPaymentHandler", ...],
-    #   #   handlers_by_namespace: {
-    #   #     "payments" => ["ProcessPaymentHandler", "RefundHandler"],
-    #   #     "fulfillment" => ["ValidateOrderHandler", "ShipOrderHandler"]
-    #   #   },
-    #   #   environment: "production",
-    #   #   fallback_enabled: false
-    #   # }
+    # @example Resolving from FFI HandlerWrapper
+    #   handler = registry.resolve_handler(step_data.step_definition.handler)
     #
-    #   puts "Template path: #{info[:template_path]}"
-    #   puts "Discovered #{info[:discovered_handlers].size} handlers"
-    #
-    # @example Manual handler registration
-    #   # Register a custom handler at runtime
-    #   registry.register_handler("CustomHandler", CustomHandlerClass)
-    #   # => Logs: "✅ Registered handler: CustomHandler"
-    #
-    # Discovery Priority Explained:
-    #
-    # 1. **Test Environment Preloaded Handlers** (TASKER_ENV=test):
-    #    - Checks if TaskerCore::TestEnvironment has loaded handlers
-    #    - Uses ObjectSpace to find loaded handler classes
-    #    - Fastest discovery, no file I/O needed
-    #
-    # 2. **YAML Template-Driven Discovery**:
-    #    - Scans template directory for YAML files
-    #    - Extracts handler_class from step definitions
-    #    - Loads handler files and registers classes
-    #
-    # Template Path Resolution (in priority order):
-    # 1. **TASKER_TEMPLATE_PATH**: Explicit override (highest priority)
-    # 2. **TASKER_ENV=test**: Defaults to spec/fixtures/templates
-    # 3. **Production/Development**: Uses standard config/tasker/tasks discovery
-    #
-    # Environment Variables:
-    # - **TASKER_ENV**: Current environment (test/development/production)
-    # - **RAILS_ENV**: Rails environment (fallback for TASKER_ENV)
-    # - **TASKER_TEMPLATE_PATH**: Explicit template directory override
-    #
-    # Handler Search Paths:
-    # - app/handlers/
-    # - lib/handlers/
-    # - handlers/
-    # - app/tasker/handlers/
-    # - lib/tasker/handlers/
-    # - spec/handlers/examples/ (test environment only)
-    #
-    # @see TaskerCore::TemplateDiscovery For template discovery implementation
-    # @see TaskerCore::TestEnvironment For test environment integration
-    # @see TaskerCore::StepHandler::Base For handler base class
+    # @see TaskerCore::Registry::ResolverChain For resolution chain details
+    # @see TaskerCore::Registry::Resolvers::MethodDispatchWrapper For method dispatch
     class HandlerRegistry
       include Singleton
 
-      attr_reader :logger, :handlers
+      attr_reader :logger, :handlers, :resolver_chain
 
       def initialize
         @logger = TaskerCore::Logger.instance
-        @handlers = {}
+        @handlers = {} # Legacy compatibility - also populated for direct access
+        @resolver_chain = ResolverChain.default
         bootstrap_handlers!
       end
 
-      # Resolve handler by class name
-      def resolve_handler(handler_class_name)
-        handler_class = @handlers[handler_class_name]
+      # Resolve handler by class name, HandlerDefinition, or HandlerWrapper
+      #
+      # TAS-93: Uses ResolverChain for flexible resolution with method dispatch support.
+      #
+      # @param handler_spec [String, Types::HandlerDefinition, Models::HandlerWrapper]
+      #   Handler specification - can be:
+      #   - String: Class name to resolve (e.g., "PaymentHandler")
+      #   - HandlerDefinition: Full definition with method/resolver hints
+      #   - HandlerWrapper: FFI wrapper from step_definition.handler
+      # @return [Object, nil] Handler instance ready for .call(), or nil if not found
+      def resolve_handler(handler_spec)
+        # Convert to HandlerDefinition for unified resolution
+        definition = normalize_to_definition(handler_spec)
+
+        # Use resolver chain for resolution
+        handler = @resolver_chain.resolve(definition)
+        return handler if handler
+
+        # Fallback: try legacy @handlers hash for backward compatibility
+        handler_class = @handlers[definition.callable]
         return nil unless handler_class
 
-        # Simple instantiation - no infrastructure setup needed
-        handler_class.new
+        instantiate_handler(handler_class, definition)
       rescue StandardError => e
-        logger.error("💥 Failed to instantiate handler #{handler_class_name}: #{e.message}")
+        logger.error("💥 Failed to resolve handler '#{extract_callable(handler_spec)}': #{e.message}")
         nil
       end
 
       # Register handler class
+      #
+      # @param class_name [String] Handler identifier (typically class name)
+      # @param handler_class [Class] Handler class to register
       def register_handler(class_name, handler_class)
+        # Register in both resolver chain and legacy hash
+        @resolver_chain.register(class_name, handler_class)
         @handlers[class_name] = handler_class
         logger.debug("✅ Registered handler: #{class_name}")
       end
 
       # Check if handler is available
+      #
+      # @param class_name [String] Handler class name
+      # @return [Boolean] true if handler can be resolved
       def handler_available?(class_name)
-        @handlers.key?(class_name)
+        definition = TaskerCore::Types::HandlerDefinition.new(callable: class_name)
+        @resolver_chain.can_resolve?(definition) || @handlers.key?(class_name)
       end
 
       # Get all registered handler names
+      #
+      # @return [Array<String>] Sorted list of registered handler names
       def registered_handlers
-        @handlers.keys.sort
+        (@resolver_chain.registered_callables + @handlers.keys).uniq.sort
       end
 
       # ========================================================================
@@ -171,7 +146,91 @@ module TaskerCore
         }
       end
 
+      # TAS-93: Add custom resolver to the chain
+      #
+      # @param resolver [Resolvers::BaseResolver] Resolver to add
+      def add_resolver(resolver)
+        @resolver_chain.add_resolver(resolver)
+        logger.info("✅ Added resolver '#{resolver.name}' (priority #{resolver.priority})")
+      end
+
       private
+
+      # TAS-93: Normalize handler spec to HandlerDefinition for unified resolution
+      #
+      # @param handler_spec [String, Types::HandlerDefinition, Models::HandlerWrapper]
+      # @return [Types::HandlerDefinition]
+      def normalize_to_definition(handler_spec)
+        case handler_spec
+        when String
+          # Simple string callable - create minimal definition
+          TaskerCore::Types::HandlerDefinition.new(callable: handler_spec)
+        when TaskerCore::Types::HandlerDefinition
+          # Already a HandlerDefinition - use as-is
+          handler_spec
+        when TaskerCore::Models::HandlerWrapper
+          # FFI HandlerWrapper - convert to HandlerDefinition
+          # TAS-93: HandlerWrapper now includes handler_method and resolver from Rust FFI
+          TaskerCore::Types::HandlerDefinition.new(
+            callable: handler_spec.callable,
+            initialization: handler_spec.initialization.to_h,
+            handler_method: handler_spec.handler_method,
+            resolver: handler_spec.resolver
+          )
+        else
+          # Try to extract callable from object (duck typing)
+          unless handler_spec.respond_to?(:callable)
+            raise ArgumentError, "Cannot normalize #{handler_spec.class} to HandlerDefinition"
+          end
+
+          attrs = { callable: handler_spec.callable.to_s }
+          attrs[:initialization] = handler_spec.initialization.to_h if handler_spec.respond_to?(:initialization)
+          attrs[:handler_method] = handler_spec.handler_method if handler_spec.respond_to?(:handler_method)
+          attrs[:resolver] = handler_spec.resolver if handler_spec.respond_to?(:resolver)
+          TaskerCore::Types::HandlerDefinition.new(**attrs)
+
+        end
+      end
+
+      # Extract callable string from handler spec for error messages
+      #
+      # @param handler_spec [Object] Handler specification
+      # @return [String] Callable name
+      def extract_callable(handler_spec)
+        case handler_spec
+        when String then handler_spec
+        when TaskerCore::Types::HandlerDefinition then handler_spec.callable
+        else
+          handler_spec.respond_to?(:callable) ? handler_spec.callable.to_s : handler_spec.to_s
+        end
+      end
+
+      # Instantiate handler with method dispatch support
+      #
+      # @param handler_class [Class] Handler class
+      # @param definition [Types::HandlerDefinition] Handler definition
+      # @return [Object] Handler instance (possibly wrapped for method dispatch)
+      def instantiate_handler(handler_class, definition)
+        # Check constructor arity for config support
+        arity = handler_class.instance_method(:initialize).arity
+        handler = if arity.positive? || (arity.negative? && accepts_config_kwarg?(handler_class))
+                    handler_class.new(config: definition.initialization || {})
+                  else
+                    handler_class.new
+                  end
+
+        # Wrap for method dispatch if needed
+        @resolver_chain.wrap_for_method_dispatch(handler, definition)
+      end
+
+      # Check if class accepts config: keyword argument
+      #
+      # @param klass [Class] Class to check
+      # @return [Boolean]
+      def accepts_config_kwarg?(klass)
+        params = klass.instance_method(:initialize).parameters
+        params.any? { |type, name| %i[key keyreq].include?(type) && name == :config }
+      end
 
       def bootstrap_handlers!
         logger.info('🔧 Bootstrapping Ruby handler registry with template-driven discovery')

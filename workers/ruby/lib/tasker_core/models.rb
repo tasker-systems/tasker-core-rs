@@ -297,26 +297,40 @@ module TaskerCore
 
     # Wrapper for handler configuration.
     #
-    # Provides access to handler class name and initialization parameters
-    # from the task template.
+    # Provides access to handler class name, method dispatch, resolver hints,
+    # and initialization parameters from the task template.
+    #
+    # TAS-93: Extended to support method dispatch and resolver hints from
+    # the Rust HandlerDefinition struct.
     #
     # @example Accessing handler configuration
     #   handler.callable       # => "LinearWorkflow::StepHandlers::LinearStep1Handler"
     #   handler.initialization # => { operation: "square", step_number: 1 }
+    #   handler.handler_method # => "refund" (or nil for default .call())
+    #   handler.resolver       # => "explicit" (or nil for chain traversal)
     class HandlerWrapper
       # @return [String] Fully-qualified handler class name
       # @return [ActiveSupport::HashWithIndifferentAccess] Initialization parameters for the handler
-      attr_reader :callable, :initialization
+      # @return [String, nil] TAS-93: Method to invoke instead of default .call()
+      # @return [String, nil] TAS-93: Specific resolver to use (bypasses chain)
+      attr_reader :callable, :initialization, :handler_method, :resolver
 
       # Creates a new HandlerWrapper from template data
       #
       # @param handler_data [Hash] Handler configuration from template
       # @option handler_data [String] :callable Handler class name
       # @option handler_data [Hash] :initialization Handler init params
+      # @option handler_data [String] :method TAS-93: Method to invoke (from Rust FFI)
+      # @option handler_data [String] :resolver TAS-93: Resolver hint (from Rust FFI)
       def initialize(handler_data)
         @callable = handler_data[:callable]
         # Use HashWithIndifferentAccess for initialization parameters
         @initialization = (handler_data[:initialization] || {}).with_indifferent_access
+        # TAS-93: Method dispatch - note Rust field is 'method' but we use 'handler_method'
+        # to avoid conflict with Ruby's Object#method
+        @handler_method = handler_data[:method]
+        # TAS-93: Resolver hint for direct resolver routing
+        @resolver = handler_data[:resolver]
       end
     end
   end

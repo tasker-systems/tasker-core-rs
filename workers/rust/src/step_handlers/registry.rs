@@ -43,6 +43,10 @@ use tasker_shared::types::base::TaskSequenceStep;
 use tasker_shared::TaskerResult;
 use tasker_worker::worker::handlers::{StepHandler, StepHandlerRegistry};
 
+// TAS-93: Import resolver pattern types
+use tasker_shared::registry::{resolvers::ExplicitMappingResolver, ResolvedHandler, ResolverChain};
+use tasker_worker::worker::handlers::StepHandlerAsResolved;
+
 // TAS-65: Domain event publishing support
 use tasker_shared::events::domain_events::DomainEventPublisher;
 use tracing::info;
@@ -723,6 +727,67 @@ impl RustStepHandlerRegistryAdapter {
         let mut inner = self.inner.write().unwrap_or_else(|p| p.into_inner());
         inner.set_event_publisher(publisher);
     }
+
+    // ========================================================================
+    // TAS-93: Resolver Pattern Integration
+    // ========================================================================
+
+    /// Export all handlers to an ExplicitMappingResolver.
+    ///
+    /// This enables integration with the TAS-93 resolver chain pattern while
+    /// maintaining backward compatibility with direct registry usage.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use tasker_worker_rust::step_handlers::RustStepHandlerRegistryAdapter;
+    ///
+    /// let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+    /// let resolver = adapter.to_explicit_resolver();
+    ///
+    /// // Use in a resolver chain
+    /// let chain = ResolverChain::new().with_resolver(Arc::new(resolver));
+    /// ```
+    pub fn to_explicit_resolver(&self) -> ExplicitMappingResolver {
+        let resolver = ExplicitMappingResolver::with_name("RustHandlerResolver");
+        let inner = self.inner.read().unwrap_or_else(|p| p.into_inner());
+
+        for name in inner.get_all_handler_names() {
+            if let Ok(handler) = inner.get_handler(&name) {
+                // Wrap the RustStepHandler as a StepHandler, then as a ResolvedHandler
+                let step_handler: Arc<dyn StepHandler> =
+                    Arc::new(RustStepHandlerAdapter::new(handler));
+                let resolved: Arc<dyn ResolvedHandler> =
+                    Arc::new(StepHandlerAsResolved::new(step_handler));
+                resolver.register_instance(&name, resolved);
+            }
+        }
+
+        resolver
+    }
+
+    /// Create a ResolverChain with all Rust handlers pre-registered.
+    ///
+    /// This is a convenience method for creating a resolver chain that includes
+    /// all registered Rust handlers via the ExplicitMappingResolver pattern.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use tasker_worker_rust::step_handlers::RustStepHandlerRegistryAdapter;
+    /// use tasker_worker::worker::handlers::ResolverChainRegistry;
+    /// use std::sync::Arc;
+    ///
+    /// let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+    /// let chain = adapter.to_resolver_chain();
+    ///
+    /// // Use with ResolverChainRegistry for HandlerDispatchService integration
+    /// let registry = ResolverChainRegistry::new(Arc::new(chain));
+    /// ```
+    pub fn to_resolver_chain(&self) -> ResolverChain {
+        let resolver = Arc::new(self.to_explicit_resolver());
+        ResolverChain::new().with_resolver(resolver)
+    }
 }
 
 #[async_trait]
@@ -761,6 +826,7 @@ impl StepHandlerRegistry for RustStepHandlerRegistryAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tasker_shared::registry::StepHandlerResolver;
 
     #[test]
     fn test_registry_creation() {
@@ -903,5 +969,62 @@ mod tests {
         // The actual integration test will verify end-to-end functionality
         // For now, just verify handler count remains stable
         assert_eq!(registry.handler_count(), 56); // Updated for TAS-65
+    }
+
+    // ========================================================================
+    // TAS-93: Resolver Pattern Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_to_explicit_resolver() {
+        let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+        let resolver = adapter.to_explicit_resolver();
+
+        // Should have all 56 handlers registered
+        assert_eq!(resolver.len(), 56);
+
+        // Should be named correctly
+        assert_eq!(resolver.resolver_name(), "RustHandlerResolver");
+
+        // Should be able to find specific handlers
+        assert!(resolver.is_registered("linear_step_1"));
+        assert!(resolver.is_registered("diamond_start"));
+        assert!(resolver.is_registered("tree_root"));
+        assert!(!resolver.is_registered("nonexistent"));
+    }
+
+    #[test]
+    fn test_to_resolver_chain() {
+        let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+        let chain = adapter.to_resolver_chain();
+
+        // Chain should have one resolver
+        assert_eq!(chain.len(), 1);
+
+        // Should be able to check handler availability via chain
+        let definition = tasker_shared::models::core::task_template::HandlerDefinition::builder()
+            .callable("linear_step_1".to_string())
+            .build();
+        assert!(chain.can_resolve(&definition));
+
+        let unknown_def = tasker_shared::models::core::task_template::HandlerDefinition::builder()
+            .callable("unknown_handler".to_string())
+            .build();
+        assert!(!chain.can_resolve(&unknown_def));
+    }
+
+    #[tokio::test]
+    async fn test_resolver_chain_resolution() {
+        let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+        let chain = adapter.to_resolver_chain();
+
+        let definition = tasker_shared::models::core::task_template::HandlerDefinition::builder()
+            .callable("linear_step_1".to_string())
+            .build();
+        let context = tasker_shared::registry::ResolutionContext::default();
+
+        let result = chain.resolve(&definition, &context).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().name(), "linear_step_1");
     }
 }
