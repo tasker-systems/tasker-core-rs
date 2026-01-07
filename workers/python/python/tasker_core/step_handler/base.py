@@ -3,7 +3,9 @@
 This module provides the StepHandler abstract base class that all step
 handlers must inherit from.
 
-Example:
+Handlers can implement either synchronous or asynchronous call methods:
+
+Example (Synchronous):
     >>> from tasker_core.step_handler import StepHandler
     >>> from tasker_core import StepContext, StepHandlerResult, ErrorType
     >>>
@@ -12,15 +14,33 @@ Example:
     ...
     ...     def call(self, context: StepContext) -> StepHandlerResult:
     ...         return StepHandlerResult.success({"processed": True})
+
+Example (Asynchronous - TAS-131):
+    >>> import asyncio
+    >>> from tasker_core.step_handler import StepHandler
+    >>> from tasker_core import StepContext, StepHandlerResult
+    >>>
+    >>> class MyAsyncHandler(StepHandler):
+    ...     handler_name = "my_async_handler"
+    ...
+    ...     async def call(self, context: StepContext) -> StepHandlerResult:
+    ...         # Can use async operations like aiohttp, asyncpg, etc.
+    ...         await asyncio.sleep(0.1)
+    ...         return StepHandlerResult.success({"processed": True})
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any, Union
 
 if TYPE_CHECKING:
     from tasker_core.types import StepContext, StepHandlerResult
+
+# Type alias for handler call return type (sync or async)
+# Handlers can return StepHandlerResult directly (sync) or Awaitable[StepHandlerResult] (async)
+StepHandlerCallResult = Union["StepHandlerResult", Awaitable["StepHandlerResult"]]
 
 
 class StepHandler(ABC):
@@ -52,11 +72,15 @@ class StepHandler(ABC):
     handler_version: str = "1.0.0"
 
     @abstractmethod
-    def call(self, context: StepContext) -> StepHandlerResult:
+    def call(self, context: StepContext) -> StepHandlerCallResult:
         """Execute the step handler logic.
 
         This method is called by the execution subscriber when a step
         event is received that matches this handler's name.
+
+        TAS-131: This method can be implemented as either synchronous or
+        asynchronous. The execution subscriber will detect which pattern
+        is used and handle accordingly.
 
         Args:
             context: Execution context with input data, dependency results,
@@ -64,12 +88,13 @@ class StepHandler(ABC):
 
         Returns:
             StepHandlerResult indicating success or failure.
+            Can be returned directly (sync) or as an awaitable (async).
 
         Raises:
             Any exception will be caught by the execution subscriber
             and converted to a failure result.
 
-        Example:
+        Example (Synchronous):
             >>> def call(self, context: StepContext) -> StepHandlerResult:
             ...     try:
             ...         result = process(context.input_data)
@@ -79,6 +104,18 @@ class StepHandler(ABC):
             ...             message=str(e),
             ...             error_type=ErrorType.VALIDATION_ERROR,
             ...             retryable=False,
+            ...         )
+
+        Example (Asynchronous):
+            >>> async def call(self, context: StepContext) -> StepHandlerResult:
+            ...     try:
+            ...         result = await fetch_data_async(context.input_data)
+            ...         return StepHandlerResult.success(result)
+            ...     except asyncio.TimeoutError:
+            ...         return StepHandlerResult.failure(
+            ...             message="Request timed out",
+            ...             error_type="timeout_error",
+            ...             retryable=True,
             ...         )
         """
         ...
@@ -179,4 +216,4 @@ class StepHandler(ABC):
         return f"{self.__class__.__name__}(name={self.name!r}, version={self.version!r})"
 
 
-__all__ = ["StepHandler"]
+__all__ = ["StepHandler", "StepHandlerCallResult"]

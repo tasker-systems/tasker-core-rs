@@ -11,6 +11,12 @@
 //! - **Performance**: Native Rust performance with zero-overhead abstractions
 //! - **YAML Integration**: Compatible with `TaskTemplate` initialization configurations
 //!
+//! ## TAS-131: Async Handler Support
+//!
+//! Rust handlers are async by default using the `#[async_trait]` macro. The `call` method
+//! is an async function, enabling efficient handling of I/O-bound operations like database
+//! queries, HTTP requests, and file operations without blocking the worker thread pool.
+//!
 //! ## Usage
 //!
 //! ```ignore

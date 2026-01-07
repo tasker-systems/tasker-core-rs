@@ -25,9 +25,11 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import time
 import traceback
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from tasker_core._tasker_core import (
@@ -253,6 +255,10 @@ class StepExecutionSubscriber:
     ) -> StepHandlerResult:
         """Execute a handler and return the result.
 
+        TAS-131: Supports both synchronous and asynchronous handlers.
+        Detects if the handler's call method is a coroutine function and
+        handles accordingly.
+
         Args:
             event: The FfiStepEvent to process.
             handler: The resolved handler instance.
@@ -271,8 +277,59 @@ class StepExecutionSubscriber:
             },
         )
 
-        # Execute handler
-        return handler.call(context)
+        # TAS-131: Check if handler.call is async and handle accordingly
+        call_method = handler.call
+        if inspect.iscoroutinefunction(call_method):
+            # Async handler - need to run in event loop
+            log_debug(
+                f"Executing async handler {handler.name}",
+                {"step_uuid": event.step_uuid},
+            )
+            return self._run_async_handler(call_method, context)
+        else:
+            # Sync handler - call directly and cast (we know sync handlers
+            # return StepHandlerResult directly, not Awaitable)
+            return cast(StepHandlerResult, call_method(context))
+
+    def _run_async_handler(
+        self,
+        call_method: object,
+        context: StepContext,
+    ) -> StepHandlerResult:
+        """Run an async handler in an event loop.
+
+        TAS-131: Handles running async handlers either in an existing
+        event loop or by creating a new one.
+
+        Args:
+            call_method: The async call method to execute.
+            context: The step context to pass to the handler.
+
+        Returns:
+            StepHandlerResult from handler execution.
+        """
+        try:
+            # Check if we're already in an async context by attempting to
+            # get the running event loop. If this succeeds, we need special
+            # handling since asyncio.run() can't be called from within an
+            # existing event loop.
+            asyncio.get_running_loop()
+            # We're in an async context - run in a thread pool executor.
+            # This case shouldn't happen in normal operation since
+            # _handle_execution_event is synchronous, but we handle it
+            # for completeness.
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    call_method(context),  # type: ignore[operator]
+                )
+                return cast(StepHandlerResult, future.result())
+        except RuntimeError:
+            # No running event loop - use asyncio.run() directly
+            result = asyncio.run(call_method(context))  # type: ignore[operator]
+            return cast(StepHandlerResult, result)
 
     def _create_handler_not_found_result(
         self,
