@@ -208,12 +208,32 @@ jobs:
           echo "✅ Core binaries restored"
           ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli 2>/dev/null || echo "⚠️  Some binaries missing"
 
-          # Restore Ruby extension from worker-artifacts
+          # Restore worker artifacts
           if [ -d artifacts/workers ]; then
+            # Restore Ruby extension
             mkdir -p workers/ruby/lib/tasker_core
-            # Handle nested path structure
-            find artifacts/workers -name "*.so" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
-            find artifacts/workers -name "*.bundle" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
+            find artifacts/workers -name "tasker_worker_rb.so" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
+            find artifacts/workers -name "tasker_worker_rb.bundle" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
+            echo "✅ Ruby extension restored"
+
+            # Restore TypeScript FFI library
+            mkdir -p target/release
+            find artifacts/workers -name "libtasker_worker.so" -exec cp {} target/release/ \; 2>/dev/null || true
+            find artifacts/workers -name "libtasker_worker.dylib" -exec cp {} target/release/ \; 2>/dev/null || true
+            if [ -f target/release/libtasker_worker.so ] || [ -f target/release/libtasker_worker.dylib ]; then
+              echo "✅ TypeScript FFI library restored"
+              ls -lh target/release/libtasker_worker.* 2>/dev/null
+            else
+              echo "⚠️  TypeScript FFI library not found in artifacts"
+            fi
+
+            # Restore TypeScript dist folder
+            if [ -d artifacts/workers/workers/typescript/dist ]; then
+              mkdir -p workers/typescript/dist
+              cp -r artifacts/workers/workers/typescript/dist/* workers/typescript/dist/ 2>/dev/null || true
+              echo "✅ TypeScript dist restored"
+            fi
+
             # Restore rust-worker binary
             find artifacts/workers -name "rust-worker" -exec cp {} target/debug/ \; 2>/dev/null || true
             chmod +x target/debug/rust-worker 2>/dev/null || true
