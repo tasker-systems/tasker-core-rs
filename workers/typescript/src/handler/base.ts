@@ -25,6 +25,10 @@ export interface StepHandlerClass {
  * the `call` method. The handlerName static property must be set
  * to a unique identifier for the handler.
  *
+ * TAS-131: TypeScript handlers are async by default. The `call` method
+ * returns a Promise, enabling use of async/await for I/O operations
+ * like HTTP requests, database queries, and file operations.
+ *
  * Matches Python's StepHandler and Ruby's StepHandler base classes.
  *
  * @example
@@ -35,8 +39,9 @@ export interface StepHandlerClass {
  *
  *   async call(context: StepContext): Promise<StepHandlerResult> {
  *     const orderId = context.getInput<string>('order_id');
- *     // Process the order...
- *     return this.success({ order_id: orderId, status: 'processed' });
+ *     // Can use async operations like fetch, database queries, etc.
+ *     const data = await fetchOrderDetails(orderId);
+ *     return this.success({ order_id: orderId, status: 'processed', data });
  *   }
  * }
  * ```
