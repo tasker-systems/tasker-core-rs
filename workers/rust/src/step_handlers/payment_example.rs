@@ -200,6 +200,8 @@ mod tests {
             description: None,
             handler: HandlerDefinition {
                 callable: "ProcessPaymentHandler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             },
             step_type: tasker_shared::models::task_template::StepType::Standard,

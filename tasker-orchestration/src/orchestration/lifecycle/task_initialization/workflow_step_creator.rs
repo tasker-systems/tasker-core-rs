@@ -192,6 +192,8 @@ mod tests {
             description: Some(format!("Test step: {}", name)),
             handler: HandlerDefinition {
                 callable: "TestHandler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             },
             step_type: StepType::Standard,
@@ -219,6 +221,8 @@ mod tests {
             description: Some(format!("Test step: {}", name)),
             handler: HandlerDefinition {
                 callable: "TestHandler".to_string(),
+                method: None,
+                resolver: None,
                 initialization,
             },
             step_type: StepType::Standard,

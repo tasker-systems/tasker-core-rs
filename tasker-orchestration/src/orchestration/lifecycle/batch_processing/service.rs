@@ -749,6 +749,8 @@ impl BatchProcessingService {
                 )),
                 handler: HandlerDefinition {
                     callable: template.handler.callable.clone(),
+                    method: template.handler.method.clone(),
+                    resolver: template.handler.resolver.clone(),
                     initialization,
                 },
                 step_type: StepType::Standard, // Instantiated as Standard, not template

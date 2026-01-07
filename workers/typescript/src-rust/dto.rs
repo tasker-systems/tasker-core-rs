@@ -214,11 +214,20 @@ impl From<&StepDefinition> for StepDefinitionDto {
 }
 
 /// DTO for HandlerDefinition
+///
+/// TAS-93: Includes method dispatch and resolver hint fields for the
+/// step handler router/resolver strategy pattern.
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(TS))]
 #[cfg_attr(test, ts(export, export_to = "src/ffi/generated/"))]
 pub struct HandlerDefinitionDto {
     pub callable: String,
+    /// The entry point method to invoke (defaults to "call")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    /// Resolution strategy hint (bypass chain and use this resolver)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolver: Option<String>,
     #[cfg_attr(test, ts(type = "Record<string, unknown>"))]
     pub initialization: serde_json::Value,
 }
@@ -227,6 +236,8 @@ impl From<&HandlerDefinition> for HandlerDefinitionDto {
     fn from(handler: &HandlerDefinition) -> Self {
         Self {
             callable: handler.callable.clone(),
+            method: handler.method.clone(),
+            resolver: handler.resolver.clone(),
             // Convert HashMap to Value for consistent JSON output
             initialization: serde_json::to_value(&handler.initialization)
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
