@@ -11,7 +11,7 @@
 //!   initialization:
 //!     fail_after_items: 50      # Fail after processing this many items
 //!     fail_on_attempt: 1        # Only fail on this attempt (1-indexed)
-//!     checkpoint_interval: 25   # Update checkpoint every N items
+//!     items_per_checkpoint: 25  # Handler checkpoints every N items (TAS-125 handler-driven)
 //! ```
 //!
 //! ## Behavior
@@ -67,11 +67,12 @@ impl RustStepHandler for CheckpointAndFailHandler {
             .and_then(|v| v.as_i64())
             .unwrap_or(1) as i32;
 
-        let checkpoint_interval = step_data
+        // TAS-125: Handler-driven checkpoint interval - handler decides when to checkpoint
+        let items_per_checkpoint = step_data
             .step_definition
             .handler
             .initialization
-            .get("checkpoint_interval")
+            .get("items_per_checkpoint")
             .and_then(|v| v.as_u64())
             .unwrap_or(25);
 
@@ -146,8 +147,8 @@ impl RustStepHandler for CheckpointAndFailHandler {
             current_position += 1;
             processed_count += 1;
 
-            // Checkpoint at intervals
-            if processed_count.is_multiple_of(checkpoint_interval) {
+            // Checkpoint at handler-determined intervals (TAS-125)
+            if processed_count.is_multiple_of(items_per_checkpoint) {
                 last_checkpoint = current_position;
                 tracing::debug!(
                     step_uuid = %step_uuid,

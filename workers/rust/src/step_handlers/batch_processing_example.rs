@@ -34,9 +34,15 @@
 //! Each batch worker receives a `CursorConfig` in its initialization defining:
 //! - **start_position**: Starting offset in the dataset
 //! - **end_position**: Ending offset (exclusive)
-//! - **checkpoint_interval**: How often to save progress
 //!
-//! Workers update their progress through checkpoint_progress field, enabling:
+//! ## Handler-Driven Checkpoints (TAS-125)
+//!
+//! Workers call `checkpoint_yield()` when they decide to persist progress based on
+//! business logic. This is more flexible than a fixed interval since handlers know
+//! when checkpointing is appropriate (e.g., after expensive operations or logical
+//! boundaries).
+//!
+//! Workers update their progress through checkpoint yields, enabling:
 //! - **Resume after failure**: Continue from last checkpoint
 //! - **Progress tracking**: Real-time visibility into processing status
 //! - **Staleness detection**: Identify stuck workers via TAS-49 integration
@@ -113,9 +119,9 @@ use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 /// ## Cursor Configuration
 ///
 /// Each worker receives a `CursorConfig`:
-/// - **Worker 1**: start=0, end=1000, checkpoint_interval=100
-/// - **Worker 2**: start=1000, end=2000, checkpoint_interval=100
-/// - **Worker N**: start=(N-1)*1000, end=N*1000, checkpoint_interval=100
+/// - **Worker 1**: start=0, end=1000
+/// - **Worker 2**: start=1000, end=2000
+/// - **Worker N**: start=(N-1)*1000, end=N*1000
 ///
 /// ## Return Value
 ///
@@ -172,13 +178,6 @@ impl RustStepHandler for DatasetAnalyzerHandler {
             .get("max_workers")
             .and_then(|v| v.as_u64())
             .unwrap_or(10);
-        let checkpoint_interval = step_data
-            .step_definition
-            .handler
-            .initialization
-            .get("checkpoint_interval")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(100);
         let worker_template_name = step_data
             .step_definition
             .handler
@@ -192,7 +191,6 @@ impl RustStepHandler for DatasetAnalyzerHandler {
             dataset_size = dataset_size,
             batch_size = batch_size,
             max_workers = max_workers,
-            checkpoint_interval = checkpoint_interval,
             "Batch processing configuration"
         );
 
@@ -302,9 +300,9 @@ impl RustStepHandler for DatasetAnalyzerHandler {
 ///
 /// This handler implements the TAS-59 batch worker pattern with:
 /// - **Cursor-based iteration**: Process items from `start_position` to `end_position`
-/// - **Checkpoint support**: Report progress at `checkpoint_interval`
-/// - **Resumability**: Resume from `checkpoint_progress` after failure
-/// - **Progress tracking**: Update `checkpoint_progress` field during execution
+/// - **Handler-driven checkpoints (TAS-125)**: Call `checkpoint_yield()` when appropriate
+/// - **Resumability**: Resume from persisted checkpoint after failure
+/// - **Progress tracking**: Checkpoint position persisted atomically in database
 ///
 /// ## Input Structure (from workflow_step.inputs)
 ///
@@ -318,11 +316,9 @@ impl RustStepHandler for DatasetAnalyzerHandler {
 ///     "batch_id": "001",
 ///     "start_cursor": 0,
 ///     "end_cursor": 1000,
-///     "batch_size": 1000,
-///     "checkpoint_progress": 0
+///     "batch_size": 1000
 ///   },
 ///   "batch_metadata": {
-///     "checkpoint_interval": 100,
 ///     "cursor_field": "id",
 ///     "failure_strategy": "fail_fast"
 ///   },
@@ -330,20 +326,21 @@ impl RustStepHandler for DatasetAnalyzerHandler {
 /// }
 /// ```
 ///
-/// ## Processing Logic
+/// ## Processing Logic (TAS-125 Handler-Driven Checkpoints)
 ///
-/// 1. Resume from `checkpoint_progress` (or `start_position` if first attempt)
-/// 2. Process items in chunks of `checkpoint_interval`
-/// 3. Update `checkpoint_progress` after each chunk
-/// 4. Continue until reaching `end_position`
-/// 5. Return success with processing summary
+/// 1. Resume from persisted checkpoint (or `start_position` if first attempt)
+/// 2. Process items in handler-determined chunks
+/// 3. Call `checkpoint_yield()` when handler decides to persist progress
+/// 4. Rust persists checkpoint atomically and re-dispatches step
+/// 5. Continue until reaching `end_position`
+/// 6. Return success with processing summary
 ///
-/// ## Checkpoint Updates (Future Enhancement)
+/// ## Checkpoint Persistence
 ///
-/// Currently simulated with logging. In production, this would:
-/// - Update `workflow_steps.initialization.cursor.checkpoint_progress`
-/// - Emit checkpoint events for progress tracking
-/// - Enable resume-from-checkpoint via TAS-49 staleness detection
+/// When handler calls `checkpoint_yield(position, data)`:
+/// - Position is persisted atomically in `workflow_steps.checkpoint` column
+/// - Step is re-dispatched to continue from checkpoint
+/// - TAS-49 staleness detection identifies stuck workers
 #[derive(Debug)]
 pub struct BatchWorkerHandler {
     _config: StepHandlerConfig,
@@ -387,18 +384,24 @@ impl RustStepHandler for BatchWorkerHandler {
             batch_id = %context.batch_id(),
             start_position = context.start_position(),
             end_position = context.end_position(),
-            checkpoint_interval = context.checkpoint_interval(),
+            total_batch_size = context.total_batch_size(),
             "Extracted cursor configuration"
         );
 
-        // Simulate batch processing with checkpoints
+        // Simulate batch processing with handler-driven checkpoints (TAS-125)
+        // Handlers decide when to checkpoint based on business logic, not fixed intervals
         let mut current_position = context.start_position();
         let mut processed_count = 0;
         let mut checkpoint_count = 0;
 
+        // Handler-chosen chunk size - in production this would be based on:
+        // - Cost of operations (checkpoint after expensive items)
+        // - Logical boundaries (checkpoint after each category/group)
+        // - Memory pressure (checkpoint before loading next large batch)
+        const HANDLER_CHUNK_SIZE: u64 = 100;
+
         while current_position < context.end_position() {
-            let chunk_end = (current_position + context.checkpoint_interval() as u64)
-                .min(context.end_position());
+            let chunk_end = (current_position + HANDLER_CHUNK_SIZE).min(context.end_position());
             let chunk_size = chunk_end - current_position;
 
             // Simulate processing chunk
@@ -413,7 +416,7 @@ impl RustStepHandler for BatchWorkerHandler {
             // 1. Fetch items from dataset using cursor_field
             // 2. Apply transformation/validation logic
             // 3. Handle failures per failure_strategy
-            // 4. Update checkpoint_progress in database
+            // 4. Call checkpoint_yield() to persist progress (TAS-125)
 
             processed_count += chunk_size;
             current_position = chunk_end;

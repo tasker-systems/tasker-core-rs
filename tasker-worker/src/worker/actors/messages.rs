@@ -206,3 +206,30 @@ pub struct DispatchHandlerMessage {
 impl Message for DispatchHandlerMessage {
     type Response = (); // Fire-and-forget, no response expected
 }
+
+impl DispatchHandlerMessage {
+    /// Create a continuation message from a checkpoint yield (TAS-125)
+    ///
+    /// This creates a new dispatch message for a step that has yielded at a
+    /// checkpoint. The step will be re-executed with its checkpoint data
+    /// available for resumption.
+    ///
+    /// The new message gets a fresh event_id since this is a new dispatch,
+    /// but preserves the step_uuid, task_uuid, and correlation context.
+    pub fn from_checkpoint_continuation(
+        step_uuid: Uuid,
+        task_uuid: Uuid,
+        task_sequence_step: TaskSequenceStep,
+        correlation_id: Uuid,
+        trace_context: Option<TraceContext>,
+    ) -> Self {
+        Self {
+            event_id: Uuid::new_v4(), // New event ID for this continuation
+            step_uuid,
+            task_uuid,
+            task_sequence_step,
+            correlation_id,
+            trace_context,
+        }
+    }
+}

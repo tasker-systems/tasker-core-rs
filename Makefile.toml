@@ -36,6 +36,7 @@ skip_core_tasks = true
 # Database configuration (can be overridden)
 DATABASE_URL = { value = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test", condition = { env_not_set = ["DATABASE_URL"] } }
 TASKER_ENV = { value = "test", condition = { env_not_set = ["TASKER_ENV"] } }
+
 # Use relative path for scripts to avoid path duplication issues
 SCRIPTS_DIR = "cargo-make/scripts"
 
@@ -113,8 +114,13 @@ description = "Run all Rust quality checks"
 dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-doctests"]
 
 [tasks.test-rust]
-description = "Run all Rust tests with nextest"
+description = "Run all Rust tests with nextest (loads .env.test for E2E tests)"
 script = '''
+#!/bin/bash
+# Load environment from .env.test for E2E tests
+set -a
+source .env.test 2>/dev/null || true
+set +a
 cargo nextest run --workspace --all-features
 '''
 
@@ -127,6 +133,12 @@ cargo nextest run --workspace --all-features -E 'not binary(e2e_tests) & not bin
 [tasks.test-rust-e2e]
 description = "Run Rust e2e and integration tests only (requires services running)"
 script = '''
+#!/bin/bash
+# Load environment from .env.test for fixture paths and config
+set -a
+source .env.test
+set +a
+echo "📋 Loaded environment: TASKER_FIXTURE_PATH=$TASKER_FIXTURE_PATH"
 cargo nextest run --workspace --all-features -E 'binary(e2e_tests) | binary(integration_tests)'
 '''
 
@@ -474,3 +486,284 @@ alias = "build"
 [tasks.tu]
 description = "Alias for test-rust-unit (unit tests only, no services required)"
 alias = "test-rust-unit"
+
+# =============================================================================
+# Service Management Tasks
+# =============================================================================
+# Local service execution for E2E testing without Docker containers.
+# Each service runs as a background process with PID tracking in .pids/
+#
+# Port Mapping:
+#   Orchestration: 8080
+#   Rust Worker:   8081
+#   Ruby Worker:   8082
+#   Python Worker: 8083
+#   TypeScript Worker: 8085
+#
+# Usage:
+#   cargo make services-start      # Start all services
+#   cargo make services-stop       # Stop all services
+#   cargo make services-status     # Check all services status
+#   cargo make services-logs-clear # Clear all log files
+#   cargo make run-orchestration   # Start orchestration service
+#   cargo make run-worker-python   # Start Python worker
+#
+# Prerequisites:
+#   - PostgreSQL running (via docker-compose or locally)
+#   - Run 'cargo make build' first to build all services
+
+[tasks.services-status]
+description = "Check status of all local services"
+script = '''
+PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-status.sh --all
+'''
+
+[tasks.services-start]
+description = "Start all services (orchestration + all workers)"
+script = '''
+echo "🚀 Starting all Tasker services..."
+echo ""
+
+# Start orchestration first
+echo "=== Starting Orchestration ==="
+cargo make run-orchestration
+echo ""
+
+# Start workers in parallel by launching them sequentially
+# (each returns quickly after backgrounding)
+echo "=== Starting Workers ==="
+cargo make run-worker-rust
+cargo make run-worker-python
+cargo make run-worker-ruby
+cargo make run-worker-typescript
+
+echo ""
+echo "⏳ Waiting for services to initialize..."
+sleep 5
+
+echo ""
+cargo make services-status
+'''
+
+[tasks.services-logs-clear]
+description = "Clear all service log files"
+script = '''
+LOG_DIR=".logs"
+if [ -d "$LOG_DIR" ]; then
+    echo "🧹 Clearing service logs..."
+    rm -f "$LOG_DIR"/*.log
+    echo "✅ Logs cleared"
+else
+    echo "No log directory found at $LOG_DIR"
+fi
+'''
+
+[tasks.services-stop]
+description = "Stop all running services"
+script = '''
+echo "🛑 Stopping all services..."
+PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh orchestration || true
+PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh rust-worker || true
+PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh ruby-worker || true
+PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh python-worker || true
+PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh typescript-worker || true
+echo "✅ All services stopped"
+'''
+
+[tasks.services-health-check]
+description = "Check health endpoints of all running services"
+script = '''
+#!/bin/bash
+# Services health check - validates health endpoints for all workers
+# Uses port configuration from worker .env.test files
+
+echo "🏥 Checking service health endpoints..."
+echo ""
+
+# Service definitions: name|port|.env.test path
+services=(
+    "Orchestration|8080|"
+    "Rust Worker|8081|workers/rust/.env.test"
+    "Ruby Worker|8082|workers/ruby/.env.test"
+    "Python Worker|8083|workers/python/.env.test"
+    "TypeScript Worker|8085|workers/typescript/.env.test"
+)
+
+all_healthy=true
+failed_count=0
+success_count=0
+
+for service in "${services[@]}"; do
+    IFS='|' read -r name port env_file <<< "$service"
+
+    # Try to get port from .env.test if specified
+    if [ -n "$env_file" ] && [ -f "$env_file" ]; then
+        env_port=$(grep "^PORT=" "$env_file" | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+        if [ -n "$env_port" ]; then
+            port="$env_port"
+        fi
+    fi
+
+    url="http://localhost:${port}/health"
+    printf "%-20s " "$name (${port}):"
+
+    # Check health endpoint with timeout
+    response=$(curl -s --connect-timeout 2 --max-time 5 "$url" 2>/dev/null)
+
+    if [ -n "$response" ]; then
+        # Parse status using jq if available, otherwise grep
+        if command -v jq &> /dev/null; then
+            status=$(echo "$response" | jq -r '.status // "unknown"' 2>/dev/null)
+        else
+            status=$(echo "$response" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+        fi
+
+        if [ "$status" = "healthy" ]; then
+            echo "✅ healthy"
+            ((success_count++))
+        else
+            echo "⚠️  status: $status"
+            all_healthy=false
+            ((failed_count++))
+        fi
+    else
+        echo "❌ not responding"
+        all_healthy=false
+        ((failed_count++))
+    fi
+done
+
+echo ""
+echo "────────────────────────────────"
+echo "Summary: $success_count healthy, $failed_count failed"
+
+if [ "$all_healthy" = true ]; then
+    echo "✅ All services healthy"
+    exit 0
+else
+    echo "⚠️  Some services not healthy"
+    exit 1
+fi
+'''
+
+# --- Orchestration Service ---
+
+[tasks.run-orchestration]
+description = "Run orchestration service (port 8080)"
+script = '''
+source .env 2>/dev/null || true
+export TASKER_ENV=${TASKER_ENV:-test}
+export PORT=8080
+export TASKER_CONFIG_PATH=${TASKER_CONFIG_PATH:-$(pwd)/config/tasker/orchestration-test.toml}
+
+echo "🎯 Starting orchestration service..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+
+PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-start.sh orchestration \
+    cargo run -p tasker-orchestration
+'''
+
+[tasks.stop-orchestration]
+description = "Stop orchestration service"
+script = '''
+PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh orchestration
+'''
+
+[tasks.status-orchestration]
+description = "Check orchestration service status"
+script = '''
+PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-status.sh orchestration
+'''
+
+[tasks.logs-orchestration]
+description = "Tail orchestration service logs"
+script = '''
+LOG_FILE=".logs/orchestration.log"
+if [ -f "$LOG_FILE" ]; then
+    tail -f "$LOG_FILE"
+else
+    echo "No log file found at $LOG_FILE"
+    echo "Start the service first with: cargo make run-orchestration"
+fi
+'''
+
+# --- Rust Worker ---
+
+[tasks.run-worker-rust]
+description = "Run Rust worker service (port 8081)"
+cwd = "workers/rust"
+command = "cargo"
+args = ["make", "run"]
+
+[tasks.stop-worker-rust]
+description = "Stop Rust worker service"
+cwd = "workers/rust"
+command = "cargo"
+args = ["make", "stop"]
+
+[tasks.status-worker-rust]
+description = "Check Rust worker status"
+cwd = "workers/rust"
+command = "cargo"
+args = ["make", "status"]
+
+# --- Ruby Worker ---
+
+[tasks.run-worker-ruby]
+description = "Run Ruby worker service (port 8082)"
+cwd = "workers/ruby"
+command = "cargo"
+args = ["make", "run"]
+
+[tasks.stop-worker-ruby]
+description = "Stop Ruby worker service"
+cwd = "workers/ruby"
+command = "cargo"
+args = ["make", "stop"]
+
+[tasks.status-worker-ruby]
+description = "Check Ruby worker status"
+cwd = "workers/ruby"
+command = "cargo"
+args = ["make", "status"]
+
+# --- Python Worker ---
+
+[tasks.run-worker-python]
+description = "Run Python worker service (port 8083)"
+cwd = "workers/python"
+command = "cargo"
+args = ["make", "run"]
+
+[tasks.stop-worker-python]
+description = "Stop Python worker service"
+cwd = "workers/python"
+command = "cargo"
+args = ["make", "stop"]
+
+[tasks.status-worker-python]
+description = "Check Python worker status"
+cwd = "workers/python"
+command = "cargo"
+args = ["make", "status"]
+
+# --- TypeScript Worker ---
+
+[tasks.run-worker-typescript]
+description = "Run TypeScript worker service (port 8085)"
+cwd = "workers/typescript"
+command = "cargo"
+args = ["make", "run"]
+
+[tasks.stop-worker-typescript]
+description = "Stop TypeScript worker service"
+cwd = "workers/typescript"
+command = "cargo"
+args = ["make", "stop"]
+
+[tasks.status-worker-typescript]
+description = "Check TypeScript worker status"
+cwd = "workers/typescript"
+command = "cargo"
+args = ["make", "status"]

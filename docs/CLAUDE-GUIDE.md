@@ -16,6 +16,7 @@ This guide helps Claude sessions efficiently navigate Tasker Core documentation.
 | Cross-language API consistency | `docs/principles/cross-language-consistency.md` | `docs/workers/api-convergence-matrix.md` |
 | Retry, backoff, error handling | `docs/guides/retry-semantics.md` | `docs/architecture/circuit-breakers.md` |
 | Batch processing, cursors | `docs/guides/batch-processing.md` | |
+| Checkpoint yielding, progress persistence | `docs/guides/batch-processing.md#checkpoint-yielding-tas-125` | `docs/workers/patterns-and-practices.md#checkpoint-yielding` |
 | Something is stuck/failing | `docs/guides/dlq-system.md` | |
 | Historical context, "why did we..." | `docs/CHRONOLOGY.md` | Specific ticket-spec if referenced |
 | Core philosophy, design values | `docs/principles/tasker-core-tenets.md` | |
@@ -174,6 +175,7 @@ When using search tools:
   - "step handler" (not "handler class")
   - "decision point" (not "conditional")
   - "batch cursor" (not "pagination")
+  - "checkpoint yield" (not "save progress")
   - "domain event" (not "message")
   - "orchestration actor" (not "processor")
 - If results seem thin, try related terms from the tenets or architecture docs
@@ -206,6 +208,13 @@ When using search tools:
 1. Check `docs/principles/composition-over-inheritance.md` for pattern
 2. Check `docs/workers/api-convergence-matrix.md` for API alignment
 3. Check `docs/principles/cross-language-consistency.md` for multi-language considerations
+
+### "How do I checkpoint long-running batch work?"
+
+1. Check `docs/guides/batch-processing.md#checkpoint-yielding-tas-125` for full guide
+2. Check `docs/workers/patterns-and-practices.md#checkpoint-yielding` for code patterns
+3. Ensure handler uses `checkpoint_yield()` (or `checkpointYield()` in TypeScript)
+4. Use `BatchWorkerContext` accessors to resume from checkpoint
 
 ---
 

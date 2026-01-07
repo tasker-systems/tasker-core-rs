@@ -46,7 +46,10 @@ pub struct TaskTemplate {
     pub name: String,
 
     /// Namespace for organization
-    #[validate(length(min = 1, max = 255))]
+    ///
+    /// Limited to 29 characters to ensure PGMQ queue names (namespace + suffix)
+    /// fit within PostgreSQL's 47 character identifier limit.
+    #[validate(custom(function = "crate::validation::validate_namespace_for_validator"))]
     pub namespace_name: String,
 
     /// Semantic version
@@ -423,7 +426,6 @@ pub struct StepDefinition {
     ///   batch_size: 1000
     ///   parallelism: 10
     ///   cursor_field: record_id
-    ///   checkpoint_interval: 100
     ///   worker_template: batch_worker_template
     ///   failure_strategy: continue_on_failure
     /// ```
@@ -504,17 +506,22 @@ pub enum BackoffStrategy {
 ///   batch_size: 1000
 ///   parallelism: 10
 ///   cursor_field: record_id
-///   checkpoint_interval: 100
 ///   worker_template: batch_worker_template
 ///   failure_strategy: continue_on_failure
 /// ```
+///
+/// ## TAS-125: Handler-Driven Checkpoints
+///
+/// Checkpointing is handler-driven, not configuration-driven. Handlers call
+/// `checkpoint_yield()` when they decide to persist progress based on business logic.
+/// This is more flexible than a fixed interval since handlers know when checkpointing
+/// is appropriate (e.g., after expensive operations or logical boundaries).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Display, Builder)]
 #[display(
-    "BatchConfiguration(batch_size: {}, parallelism: {}, cursor_field: {}, checkpoint_interval: {}, worker_template: {}, failure_strategy: {:?})",
+    "BatchConfiguration(batch_size: {}, parallelism: {}, cursor_field: {}, worker_template: {}, failure_strategy: {:?})",
     batch_size,
     parallelism,
     cursor_field,
-    checkpoint_interval,
     worker_template,
     failure_strategy
 )]
@@ -542,14 +549,6 @@ pub struct BatchConfiguration {
     #[validate(length(min = 1, max = 255))]
     #[builder(default = "id".to_string())]
     pub cursor_field: String,
-
-    /// Checkpoint every N items
-    ///
-    /// Batch workers save cursor state after processing this many items.
-    /// Lower values provide finer-grained recovery but more database writes.
-    #[validate(range(min = 1, max = 10000))]
-    #[builder(default = 100)]
-    pub checkpoint_interval: u32,
 
     /// Template step name for workers
     ///

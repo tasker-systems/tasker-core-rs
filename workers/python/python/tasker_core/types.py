@@ -1462,6 +1462,11 @@ class BatchWorkerContext(BaseModel):
         default_factory=dict,
         description="Metadata from the analyzer.",
     )
+    # TAS-125: Checkpoint data from previous yields
+    checkpoint: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Checkpoint data from previous yields (cursor, items_processed, accumulated_results).",
+    )
 
     @property
     def start_cursor(self) -> int:
@@ -1477,6 +1482,67 @@ class BatchWorkerContext(BaseModel):
     def step_size(self) -> int:
         """Get the processing step size."""
         return self.cursor_config.step_size
+
+    # TAS-125: Checkpoint accessor properties
+    @property
+    def checkpoint_cursor(self) -> int | str | dict[str, Any] | None:
+        """Get checkpoint cursor from previous yield.
+
+        When a handler yields a checkpoint, the cursor position is persisted.
+        On re-dispatch, this returns that cursor position to resume from.
+
+        Returns:
+            Last persisted cursor position, or None if no checkpoint.
+
+        Example:
+            >>> start = batch_ctx.checkpoint_cursor or batch_ctx.start_cursor
+        """
+        return self.checkpoint.get("cursor")
+
+    @property
+    def accumulated_results(self) -> dict[str, Any] | None:
+        """Get accumulated results from previous checkpoint yield.
+
+        When a handler yields a checkpoint with accumulated_results, those
+        partial aggregations are persisted. On re-dispatch, this returns
+        them so the handler can continue accumulating.
+
+        Returns:
+            Partial aggregations from previous yields, or None if no checkpoint.
+
+        Example:
+            >>> accumulated = batch_ctx.accumulated_results or {"total": 0}
+            >>> accumulated["total"] += item.value
+        """
+        return self.checkpoint.get("accumulated_results")
+
+    def has_checkpoint(self) -> bool:
+        """Check if checkpoint exists.
+
+        Use this to determine if this is a fresh execution or a resumption
+        from a previous checkpoint yield.
+
+        Returns:
+            True if checkpoint data exists with a cursor.
+
+        Example:
+            >>> if batch_ctx.has_checkpoint():
+            ...     start = batch_ctx.checkpoint_cursor
+            ... else:
+            ...     start = batch_ctx.start_cursor
+        """
+        return bool(self.checkpoint and self.checkpoint.get("cursor") is not None)
+
+    @property
+    def checkpoint_items_processed(self) -> int:
+        """Get items processed count from checkpoint.
+
+        Returns the cumulative count of items processed across all yields.
+
+        Returns:
+            Items processed so far, or 0 if no checkpoint.
+        """
+        return int(self.checkpoint.get("items_processed", 0))
 
     @classmethod
     def from_step_context(cls, step_context: StepContext) -> BatchWorkerContext | None:
@@ -1514,12 +1580,22 @@ class BatchWorkerContext(BaseModel):
             metadata=cursor_data.get("metadata", {}),
         )
 
+        # TAS-125: Extract checkpoint from workflow_step if present
+        checkpoint: dict[str, Any] = {}
+        if hasattr(step_context, "event") and step_context.event:
+            task_sequence_step = getattr(step_context.event, "task_sequence_step", None)
+            if isinstance(task_sequence_step, dict):
+                workflow_step = task_sequence_step.get("workflow_step", {})
+                if isinstance(workflow_step, dict):
+                    checkpoint = workflow_step.get("checkpoint") or {}
+
         return cls(
             batch_id=batch_data.get("batch_id", ""),
             cursor_config=cursor_config,
             batch_index=batch_data.get("batch_index", 0),
             total_batches=batch_data.get("total_batches", 1),
             batch_metadata=batch_data.get("batch_metadata", {}),
+            checkpoint=checkpoint,
         )
 
 
@@ -1657,12 +1733,7 @@ class BatchMetadata(BaseModel):
     batch size calculation logic - just execution parameters.
     """
 
-    checkpoint_interval: int = Field(
-        description=(
-            "Number of items between progress checkpoints. "
-            "Workers should update progress after processing this many items."
-        )
-    )
+    # TAS-125: checkpoint_interval removed - handlers decide when to checkpoint
     cursor_field: str = Field(
         description=(
             "Database field name used for cursor-based pagination. "

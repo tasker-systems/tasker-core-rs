@@ -9,6 +9,7 @@ import { BaseTaskerRuntime } from './runtime-interface.js';
 import type {
   BootstrapConfig,
   BootstrapResult,
+  CheckpointYieldData,
   FfiDispatchMetrics,
   FfiDomainEvent,
   FfiStepEvent,
@@ -41,6 +42,7 @@ interface DenoFfiSymbols {
   poll_step_events: () => PointerValue;
   poll_in_process_events: () => PointerValue;
   complete_step_event: (eventId: BufferValue, resultJson: BufferValue) => number;
+  checkpoint_yield_step_event: (eventId: BufferValue, checkpointJson: BufferValue) => number;
   get_ffi_dispatch_metrics: () => PointerValue;
   check_starvation_warnings: () => void;
   cleanup_timeouts: () => void;
@@ -123,6 +125,10 @@ export class DenoRuntime extends BaseTaskerRuntime {
         result: 'pointer',
       },
       complete_step_event: {
+        parameters: ['buffer', 'buffer'],
+        result: 'i32',
+      },
+      checkpoint_yield_step_event: {
         parameters: ['buffer', 'buffer'],
         result: 'i32',
       },
@@ -316,6 +322,13 @@ export class DenoRuntime extends BaseTaskerRuntime {
     const eventIdBuf = this.toCString(eventId);
     const resultJsonBuf = this.toCString(this.toJson(result));
     return symbols.complete_step_event(eventIdBuf, resultJsonBuf) === 1;
+  }
+
+  checkpointYieldStepEvent(eventId: string, checkpointData: CheckpointYieldData): boolean {
+    const symbols = this.ensureLoaded();
+    const eventIdBuf = this.toCString(eventId);
+    const checkpointJsonBuf = this.toCString(this.toJson(checkpointData));
+    return symbols.checkpoint_yield_step_event(eventIdBuf, checkpointJsonBuf) === 1;
   }
 
   getFfiDispatchMetrics(): FfiDispatchMetrics {

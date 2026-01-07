@@ -6,7 +6,10 @@
 use crate::bootstrap::{
     bootstrap_worker, get_worker_status, stop_worker, transition_to_graceful_shutdown,
 };
-use crate::conversions::{convert_ffi_step_event_to_ruby, convert_ruby_completion_to_step_result};
+use crate::conversions::{
+    convert_ffi_step_event_to_ruby, convert_ruby_checkpoint_to_yield_data,
+    convert_ruby_completion_to_step_result,
+};
 use crate::ffi_logging::{log_debug, log_error, log_info, log_trace, log_warn};
 use magnus::{function, prelude::*, Error, ExceptionClass, RModule, Ruby, Value};
 use std::sync::{Arc, Mutex};
@@ -95,6 +98,17 @@ impl RubyBridgeHandle {
         result: tasker_shared::messaging::StepExecutionResult,
     ) -> bool {
         self.ffi_dispatch_channel.complete(event_id, result)
+    }
+
+    /// TAS-125: Submit a checkpoint yield for a batch processing step
+    /// Returns true if the checkpoint was persisted and step re-dispatched
+    pub fn checkpoint_yield_step_event(
+        &self,
+        event_id: Uuid,
+        checkpoint_data: tasker_shared::models::batch_worker::CheckpointYieldData,
+    ) -> bool {
+        self.ffi_dispatch_channel
+            .checkpoint_yield(event_id, checkpoint_data)
     }
 
     /// TAS-67 Phase 2: Get metrics about FFI dispatch channel health
@@ -194,6 +208,71 @@ pub fn complete_step_event(event_id_str: String, completion_data: Value) -> Resu
     Ok(success)
 }
 
+/// TAS-125: FFI function for Ruby to submit a checkpoint yield
+///
+/// Called from batch processing handlers when they want to persist progress
+/// and be re-dispatched for continuation. Unlike complete_step_event, this
+/// does NOT complete the step - instead it persists checkpoint data and
+/// re-dispatches the step for continued processing.
+///
+/// # Arguments
+/// * `event_id` - The event ID string from the FfiStepEvent
+/// * `checkpoint_data` - Ruby hash with checkpoint data:
+///   - step_uuid: String (UUID of the step)
+///   - cursor: Any JSON value (position to resume from)
+///   - items_processed: Integer (count of items processed so far)
+///   - accumulated_results: Optional JSON value (partial results)
+///
+/// # Returns
+/// `true` if the checkpoint was persisted and step re-dispatched,
+/// `false` if checkpoint support is not configured or an error occurred.
+pub fn checkpoint_yield_step_event(
+    event_id_str: String,
+    checkpoint_data: Value,
+) -> Result<bool, Error> {
+    // Parse event_id
+    let event_id = Uuid::parse_str(&event_id_str).map_err(|e| {
+        error!("Invalid event_id format: {}", e);
+        Error::new(arg_error_class(), format!("Invalid event_id format: {}", e))
+    })?;
+
+    // Convert Ruby checkpoint data to CheckpointYieldData
+    let checkpoint = convert_ruby_checkpoint_to_yield_data(checkpoint_data).map_err(|e| {
+        error!("Failed to convert checkpoint data: {}", e);
+        Error::new(
+            runtime_error_class(),
+            format!("Failed to convert checkpoint data: {}", e),
+        )
+    })?;
+
+    // Get bridge handle and submit checkpoint yield
+    let handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
+        error!("Failed to acquire worker system lock: {}", e);
+        Error::new(runtime_error_class(), "Lock acquisition failed")
+    })?;
+
+    let handle = handle_guard
+        .as_ref()
+        .ok_or_else(|| Error::new(runtime_error_class(), "Worker system not running"))?;
+
+    // Submit checkpoint yield via FfiDispatchChannel
+    let success = handle.checkpoint_yield_step_event(event_id, checkpoint);
+
+    if success {
+        info!(
+            event_id = %event_id,
+            "Checkpoint yield submitted and step re-dispatched"
+        );
+    } else {
+        error!(
+            event_id = %event_id,
+            "Failed to submit checkpoint yield (checkpoint support may not be configured)"
+        );
+    }
+
+    Ok(success)
+}
+
 /// TAS-67 Phase 2: FFI function for Ruby to get FFI dispatch channel metrics
 /// Returns a Ruby hash with metrics for monitoring and observability
 ///
@@ -276,6 +355,11 @@ pub fn init_bridge(module: &RModule) -> Result<(), Error> {
     // TAS-67: Event handling via FfiDispatchChannel
     module.define_singleton_method("poll_step_events", function!(poll_step_events, 0))?;
     module.define_singleton_method("complete_step_event", function!(complete_step_event, 2))?;
+    // TAS-125: Checkpoint yield for batch processing handlers
+    module.define_singleton_method(
+        "checkpoint_yield_step_event",
+        function!(checkpoint_yield_step_event, 2),
+    )?;
 
     // TAS-67 Phase 2: Observability and metrics
     module.define_singleton_method(

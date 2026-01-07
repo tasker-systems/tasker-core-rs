@@ -154,6 +154,9 @@ pub struct WorkflowStepDto {
     pub last_attempted_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Handler-driven checkpoint data for batch processing resumability (TAS-125)
+    #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
+    pub checkpoint: Option<serde_json::Value>,
 }
 
 impl From<&WorkflowStepWithName> for WorkflowStepDto {
@@ -177,6 +180,7 @@ impl From<&WorkflowStepWithName> for WorkflowStepDto {
             last_attempted_at: step.last_attempted_at.map(|t| t.to_string()),
             created_at: step.created_at.to_string(),
             updated_at: step.updated_at.to_string(),
+            checkpoint: step.checkpoint.clone(),
         }
     }
 }

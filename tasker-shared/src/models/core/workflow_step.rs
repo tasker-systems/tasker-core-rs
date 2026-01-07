@@ -98,6 +98,12 @@ pub struct WorkflowStep {
     pub backoff_request_seconds: Option<i32>,
     pub inputs: Option<serde_json::Value>,
     pub results: Option<serde_json::Value>,
+    /// Handler-driven checkpoint data for batch processing resumability (TAS-125)
+    ///
+    /// Contains checkpoint cursor, items processed, accumulated results, and history.
+    /// Populated by handlers calling `checkpoint_yield()` during batch processing.
+    #[sqlx(default)]
+    pub checkpoint: Option<serde_json::Value>,
     pub skippable: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -141,7 +147,7 @@ impl WorkflowStep {
             VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW(), NOW())
             RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                       in_process, processed, processed_at, attempts, last_attempted_at,
-                      backoff_request_seconds, inputs, results, skippable, created_at, updated_at
+                      backoff_request_seconds, inputs, results, checkpoint, skippable, created_at, updated_at
             "#,
             new_step.task_uuid,
             new_step.named_step_uuid,
@@ -170,7 +176,7 @@ impl WorkflowStep {
             VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW(), NOW())
             RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                       in_process, processed, processed_at, attempts, last_attempted_at,
-                      backoff_request_seconds, inputs, results, skippable, created_at, updated_at
+                      backoff_request_seconds, inputs, results, checkpoint, skippable, created_at, updated_at
             "#,
             new_step.task_uuid,
             new_step.named_step_uuid,
@@ -192,7 +198,7 @@ impl WorkflowStep {
             r#"
             SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
-                   backoff_request_seconds, inputs, results, skippable, created_at, updated_at
+                   backoff_request_seconds, inputs, results, checkpoint, skippable, created_at, updated_at
             FROM tasker_workflow_steps
             WHERE workflow_step_uuid = $1::uuid
             "#,
@@ -214,7 +220,7 @@ impl WorkflowStep {
             r#"
             SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
-                   backoff_request_seconds, inputs, results, skippable, created_at, updated_at
+                   backoff_request_seconds, inputs, results, checkpoint, skippable, created_at, updated_at
             FROM tasker_workflow_steps
             WHERE task_uuid = $1::uuid
             ORDER BY workflow_step_uuid
@@ -245,7 +251,7 @@ impl WorkflowStep {
             r#"
             SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
-                   backoff_request_seconds, inputs, results, skippable, created_at, updated_at
+                   backoff_request_seconds, inputs, results, checkpoint, skippable, created_at, updated_at
             FROM tasker_workflow_steps
             WHERE named_step_uuid = $1::uuid
             ORDER BY created_at DESC
@@ -265,7 +271,7 @@ impl WorkflowStep {
             r#"
             SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
-                   backoff_request_seconds, inputs, results, skippable, created_at, updated_at
+                   backoff_request_seconds, inputs, results, checkpoint, skippable, created_at, updated_at
             FROM tasker_workflow_steps
             WHERE processed = false AND in_process = false
             ORDER BY created_at ASC
@@ -284,7 +290,7 @@ impl WorkflowStep {
             r#"
             SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
                    in_process, processed, processed_at, attempts, last_attempted_at,
-                   backoff_request_seconds, inputs, results, skippable, created_at, updated_at
+                   backoff_request_seconds, inputs, results, checkpoint, skippable, created_at, updated_at
             FROM tasker_workflow_steps
             WHERE in_process = true
             ORDER BY last_attempted_at ASC
@@ -530,7 +536,7 @@ impl WorkflowStep {
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
-                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_uuid = ws.workflow_step_uuid
             WHERE wse.to_step_uuid = $1::uuid
@@ -583,6 +589,7 @@ impl WorkflowStep {
                     backoff_request_seconds: row.backoff_request_seconds,
                     inputs: row.inputs,
                     results: row.results,
+                    checkpoint: None, // TAS-125: checkpoint not selected in this query
                     skippable: row.skippable,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
@@ -601,7 +608,8 @@ impl WorkflowStep {
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
-                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.checkpoint, ws.skippable,
+                   ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_edges wse ON wse.to_step_uuid = ws.workflow_step_uuid
             WHERE wse.from_step_uuid = $1::uuid
@@ -627,7 +635,7 @@ impl WorkflowStep {
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
-                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_uuid = wst.workflow_step_uuid
@@ -650,7 +658,7 @@ impl WorkflowStep {
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
-                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_uuid = wst.workflow_step_uuid
@@ -673,7 +681,7 @@ impl WorkflowStep {
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
-                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             LEFT JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_uuid = wst.workflow_step_uuid AND wst.most_recent = true
@@ -701,7 +709,7 @@ impl WorkflowStep {
                     SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                            ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                            ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
-                           ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                           ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
                     FROM tasker_workflow_steps ws
                     LEFT JOIN tasker_workflow_step_transitions wst
                         ON ws.workflow_step_uuid = wst.workflow_step_uuid AND wst.most_recent = true
@@ -724,7 +732,7 @@ impl WorkflowStep {
                     SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable,
                            max_attempts, in_process, processed, processed_at,
                            attempts, last_attempted_at, backoff_request_seconds,
-                           inputs, results, skippable, created_at, updated_at
+                           inputs, results, checkpoint, skippable, created_at, updated_at
                     FROM tasker_workflow_steps
                     ORDER BY workflow_step_uuid
                     "#
@@ -748,7 +756,7 @@ impl WorkflowStep {
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
-                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_uuid = wst.workflow_step_uuid
@@ -776,7 +784,7 @@ impl WorkflowStep {
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
-                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_uuid = wst.workflow_step_uuid
@@ -804,7 +812,7 @@ impl WorkflowStep {
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
-                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_tasks t ON ws.task_uuid = t.task_uuid
             WHERE t.created_at >= $1
@@ -879,7 +887,8 @@ impl WorkflowStep {
             r#"
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
-                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.checkpoint, ws.skippable,
+                   ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
             WHERE ws.task_uuid = $1::uuid AND ns.name = $2
@@ -969,7 +978,7 @@ impl WorkflowStep {
             SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable,
                    max_attempts, in_process, processed, processed_at,
                    attempts, last_attempted_at, backoff_request_seconds,
-                   inputs, results, skippable, created_at, updated_at
+                   inputs, results, checkpoint, skippable, created_at, updated_at
             FROM tasker_workflow_steps
             WHERE workflow_step_uuid = ANY($1)
             ORDER BY workflow_step_uuid
@@ -1430,6 +1439,12 @@ pub struct WorkflowStepWithName {
     pub backoff_request_seconds: Option<i32>,
     pub inputs: Option<serde_json::Value>,
     pub results: Option<serde_json::Value>,
+    /// Handler-driven checkpoint data for batch processing resumability (TAS-125)
+    ///
+    /// Contains checkpoint cursor, items processed, accumulated results, and history.
+    /// Populated by handlers calling `checkpoint_yield()` during batch processing.
+    #[sqlx(default)]
+    pub checkpoint: Option<serde_json::Value>,
     pub skippable: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -1461,7 +1476,8 @@ impl WorkflowStepWithName {
                    COALESCE(ws.inputs->>'__template_step_name', ns.name) as "template_step_name!",
                    ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
-                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.checkpoint, ws.skippable,
+                   ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_named_steps ns ON ws.named_step_uuid = ns.named_step_uuid
             WHERE workflow_step_uuid = ANY($1)
@@ -1485,7 +1501,8 @@ impl WorkflowStepWithName {
                    COALESCE(ws.inputs->>'__template_step_name', ns.name) as "template_step_name!",
                    ws.retryable, ws.max_attempts,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
-                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.checkpoint, ws.skippable,
+                   ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_named_steps ns ON ws.named_step_uuid = ns.named_step_uuid
             WHERE workflow_step_uuid = $1
@@ -1515,6 +1532,7 @@ impl From<WorkflowStepWithName> for WorkflowStep {
             backoff_request_seconds: step.backoff_request_seconds,
             inputs: step.inputs,
             results: step.results,
+            checkpoint: step.checkpoint,
             skippable: step.skippable,
             created_at: step.created_at,
             updated_at: step.updated_at,

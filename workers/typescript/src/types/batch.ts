@@ -55,7 +55,8 @@ export interface BatchAnalyzerOutcome {
 /**
  * Context for a batch worker step.
  *
- * Provides information about the specific batch this worker should process.
+ * Provides information about the specific batch this worker should process,
+ * including checkpoint data from previous yields (TAS-125).
  */
 export interface BatchWorkerContext {
   /** Unique identifier for this batch */
@@ -68,12 +69,23 @@ export interface BatchWorkerContext {
   totalBatches: number;
   /** Metadata from the analyzer */
   batchMetadata: Record<string, unknown>;
+  /** TAS-125: Checkpoint data from previous yields */
+  checkpoint: Record<string, unknown>;
   /** Convenience accessor for start cursor */
   readonly startCursor: number;
   /** Convenience accessor for end cursor */
   readonly endCursor: number;
   /** Convenience accessor for step size */
   readonly stepSize: number;
+  // TAS-125: Checkpoint accessor properties
+  /** TAS-125: Get checkpoint cursor from previous yield */
+  readonly checkpointCursor: number | string | Record<string, unknown> | undefined;
+  /** TAS-125: Get accumulated results from previous checkpoint yield */
+  readonly accumulatedResults: Record<string, unknown> | undefined;
+  /** TAS-125: Get items processed count from checkpoint */
+  readonly checkpointItemsProcessed: number;
+  /** TAS-125: Check if checkpoint exists */
+  hasCheckpoint(): boolean;
 }
 
 /**
@@ -107,9 +119,14 @@ export interface BatchWorkerOutcome {
  * - Nested: { batch_id, cursor_config: { start_cursor, end_cursor, ... } }
  * - Flat: { batch_id, start_cursor, end_cursor, ... }
  *
+ * TAS-125: Also extracts checkpoint data if present.
+ *
  * @internal
  */
-export function createBatchWorkerContext(batchData: Record<string, unknown>): BatchWorkerContext {
+export function createBatchWorkerContext(
+  batchData: Record<string, unknown>,
+  checkpoint?: Record<string, unknown>
+): BatchWorkerContext {
   // Handle both nested cursor_config and flat format
   const cursorData = (batchData.cursor_config as Record<string, unknown>) || batchData;
   const cursorConfig: CursorConfig = {
@@ -119,12 +136,16 @@ export function createBatchWorkerContext(batchData: Record<string, unknown>): Ba
     metadata: (cursorData.metadata as Record<string, unknown>) ?? {},
   };
 
+  // TAS-125: Extract checkpoint data
+  const checkpointData = checkpoint ?? {};
+
   return {
     batchId: (batchData.batch_id as string) ?? '',
     cursorConfig,
     batchIndex: (batchData.batch_index as number) ?? 0,
     totalBatches: (batchData.total_batches as number) ?? 1,
     batchMetadata: (batchData.batch_metadata as Record<string, unknown>) ?? {},
+    checkpoint: checkpointData,
     get startCursor() {
       return this.cursorConfig.startCursor;
     },
@@ -133,6 +154,19 @@ export function createBatchWorkerContext(batchData: Record<string, unknown>): Ba
     },
     get stepSize() {
       return this.cursorConfig.stepSize;
+    },
+    // TAS-125: Checkpoint accessor properties
+    get checkpointCursor() {
+      return this.checkpoint?.cursor as number | string | Record<string, unknown> | undefined;
+    },
+    get accumulatedResults() {
+      return this.checkpoint?.accumulated_results as Record<string, unknown> | undefined;
+    },
+    get checkpointItemsProcessed() {
+      return (this.checkpoint?.items_processed as number) ?? 0;
+    },
+    hasCheckpoint() {
+      return Boolean(this.checkpoint && this.checkpoint.cursor !== undefined);
     },
   };
 }
@@ -229,13 +263,7 @@ export type FailureStrategy = 'continue_on_failure' | 'fail_fast' | 'isolate';
  * batch size calculation logic - just execution parameters.
  */
 export interface BatchMetadata {
-  /**
-   * Number of items between progress checkpoints.
-   *
-   * Workers should update progress after processing this many items.
-   * This enables resumability after failures and progress observability.
-   */
-  checkpoint_interval: number;
+  // TAS-125: checkpoint_interval removed - handlers decide when to checkpoint
 
   /**
    * Database field name used for cursor-based pagination.

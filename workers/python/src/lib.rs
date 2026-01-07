@@ -115,6 +115,11 @@ fn _tasker_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(event_dispatch::cleanup_timeouts, m)?)?;
+    // TAS-125: Checkpoint yield for batch processing handlers
+    m.add_function(wrap_pyfunction!(
+        event_dispatch::checkpoint_yield_step_event,
+        m
+    )?)?;
 
     // Observability functions (Phase 5)
     m.add_function(wrap_pyfunction!(observability::poll_in_process_events, m)?)?;

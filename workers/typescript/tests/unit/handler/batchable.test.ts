@@ -731,4 +731,290 @@ describe('BatchAggregationScenario', () => {
       expect(Object.keys(result.result?.batch_results as object)).toHaveLength(2);
     });
   });
+
+  // TAS-125: Checkpoint Yield Tests
+  describe('checkpointYield', () => {
+    let mixin: BatchableMixin;
+
+    beforeEach(() => {
+      mixin = new BatchableMixin();
+    });
+
+    test('should create checkpoint yield result with integer cursor', () => {
+      const result = mixin.checkpointYield(5000, 5000);
+
+      expect(result.success).toBe(true);
+      expect(result.result?.type).toBe('checkpoint_yield');
+      expect(result.result?.cursor).toBe(5000);
+      expect(result.result?.items_processed).toBe(5000);
+      expect(result.metadata?.checkpoint_yield).toBe(true);
+      expect(result.metadata?.batch_worker).toBe(true);
+    });
+
+    test('should create checkpoint yield result with string cursor (pagination token)', () => {
+      const result = mixin.checkpointYield('eyJsYXN0X2lkIjoiOTk5In0=', 100);
+
+      expect(result.success).toBe(true);
+      expect(result.result?.cursor).toBe('eyJsYXN0X2lkIjoiOTk5In0=');
+      expect(result.result?.items_processed).toBe(100);
+    });
+
+    test('should create checkpoint yield result with object cursor (complex pagination)', () => {
+      const complexCursor = { page: 5, partition: 'A', lastTimestamp: '2024-01-15T10:00:00Z' };
+      const result = mixin.checkpointYield(complexCursor, 250);
+
+      expect(result.success).toBe(true);
+      expect(result.result?.cursor).toEqual(complexCursor);
+      expect((result.result?.cursor as Record<string, unknown>).page).toBe(5);
+    });
+
+    test('should include accumulated results when provided', () => {
+      const result = mixin.checkpointYield(7500, 7500, {
+        runningTotal: 375000.5,
+        processedCount: 7500,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.result?.accumulated_results).toEqual({
+        runningTotal: 375000.5,
+        processedCount: 7500,
+      });
+    });
+
+    test('should not include accumulated_results when not provided', () => {
+      const result = mixin.checkpointYield(1000, 1000);
+
+      expect(result.success).toBe(true);
+      expect(result.result?.accumulated_results).toBeUndefined();
+    });
+  });
+});
+
+// =============================================================================
+// TAS-125: Checkpoint Yield with applyBatchable
+// =============================================================================
+
+describe('Checkpoint Yield with applyBatchable', () => {
+  test('should add checkpointYield method to handler', () => {
+    const handler = new TestBatchHandler();
+
+    expect(typeof (handler as Batchable).checkpointYield).toBe('function');
+  });
+
+  test('should work correctly on handler instance', () => {
+    const handler = new TestBatchHandler();
+    const batchableHandler = handler as Batchable;
+
+    const result = batchableHandler.checkpointYield(3000, 3000, {
+      partialSum: 150000,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result?.type).toBe('checkpoint_yield');
+    expect(result.result?.cursor).toBe(3000);
+    expect(result.result?.items_processed).toBe(3000);
+    expect(result.result?.accumulated_results).toEqual({ partialSum: 150000 });
+  });
+});
+
+// =============================================================================
+// TAS-125: Checkpoint Yield Error Scenarios
+// =============================================================================
+
+describe('Checkpoint Yield Error Scenarios', () => {
+  let mixin: BatchableMixin;
+
+  beforeEach(() => {
+    mixin = new BatchableMixin();
+  });
+
+  test('should handle zero items processed (edge case)', () => {
+    const result = mixin.checkpointYield(0, 0);
+
+    expect(result.success).toBe(true);
+    expect(result.result?.cursor).toBe(0);
+    expect(result.result?.items_processed).toBe(0);
+  });
+
+  test('should handle null cursor', () => {
+    const result = mixin.checkpointYield(null as unknown as number, 0);
+
+    expect(result.success).toBe(true);
+    expect(result.result?.cursor).toBeNull();
+  });
+
+  test('should handle undefined cursor', () => {
+    const result = mixin.checkpointYield(undefined as unknown as number, 100);
+
+    expect(result.success).toBe(true);
+    expect(result.result?.cursor).toBeUndefined();
+  });
+
+  test('should handle empty object cursor', () => {
+    const result = mixin.checkpointYield({}, 100);
+
+    expect(result.success).toBe(true);
+    expect(result.result?.cursor).toEqual({});
+  });
+
+  test('should handle empty string cursor', () => {
+    const result = mixin.checkpointYield('', 0);
+
+    expect(result.success).toBe(true);
+    expect(result.result?.cursor).toBe('');
+  });
+
+  test('should handle very large items processed', () => {
+    const largeCount = Number.MAX_SAFE_INTEGER;
+    const result = mixin.checkpointYield(largeCount, largeCount);
+
+    expect(result.success).toBe(true);
+    expect(result.result?.items_processed).toBe(largeCount);
+  });
+
+  test('should handle deeply nested accumulated results', () => {
+    const nestedResults = {
+      level1: {
+        level2: {
+          level3: {
+            level4: {
+              value: 12345,
+              items: [1, 2, 3, 4, 5],
+            },
+          },
+        },
+      },
+    };
+    const result = mixin.checkpointYield(5000, 5000, nestedResults);
+
+    expect(result.success).toBe(true);
+    const accumulated = result.result?.accumulated_results as Record<string, unknown>;
+    expect(
+      (
+        ((accumulated.level1 as Record<string, unknown>).level2 as Record<string, unknown>)
+          .level3 as Record<string, unknown>
+      ).level4
+    ).toEqual({ value: 12345, items: [1, 2, 3, 4, 5] });
+  });
+
+  test('should handle special characters in string cursor', () => {
+    const specialCursor = 'cursor_with_émojis_🎉_and_中文';
+    const result = mixin.checkpointYield(specialCursor, 100);
+
+    expect(result.success).toBe(true);
+    expect(result.result?.cursor).toBe(specialCursor);
+  });
+
+  test('should handle boolean cursor (edge case)', () => {
+    // Unusual but technically valid JSON value
+    const result = mixin.checkpointYield(true as unknown as number, 100);
+
+    expect(result.success).toBe(true);
+    expect(result.result?.cursor).toBe(true);
+  });
+
+  test('should handle array cursor', () => {
+    const arrayCursor = [1, 2, 3, 'last_id'];
+    const result = mixin.checkpointYield(arrayCursor as unknown as Record<string, unknown>, 100);
+
+    expect(result.success).toBe(true);
+    expect(result.result?.cursor).toEqual(arrayCursor);
+  });
+});
+
+// =============================================================================
+// TAS-125: Batchable Validation Error Scenarios
+// =============================================================================
+
+describe('Batchable Validation Errors', () => {
+  let mixin: BatchableMixin;
+
+  beforeEach(() => {
+    mixin = new BatchableMixin();
+  });
+
+  test('should return empty array for zero items', () => {
+    const ranges = mixin.createCursorRanges(0, 100);
+
+    expect(ranges).toHaveLength(0);
+  });
+
+  test('should handle single item correctly', () => {
+    const ranges = mixin.createCursorRanges(1, 100);
+
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0].startCursor).toBe(0);
+    expect(ranges[0].endCursor).toBe(1);
+  });
+
+  test('should throw error for zero batch size', () => {
+    expect(() => mixin.createCursorRanges(100, 0)).toThrow('batchSize must be > 0');
+  });
+
+  test('should throw error for negative batch size', () => {
+    expect(() => mixin.createCursorRanges(100, -10)).toThrow('batchSize must be > 0');
+  });
+
+  test('should handle batch size larger than total', () => {
+    const ranges = mixin.createCursorRanges(50, 1000);
+
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0].startCursor).toBe(0);
+    expect(ranges[0].endCursor).toBe(50);
+  });
+
+  test('should handle very large total items', () => {
+    const largeTotal = 1000000;
+    const ranges = mixin.createCursorRanges(largeTotal, 100000);
+
+    expect(ranges).toHaveLength(10);
+    expect(ranges[0].startCursor).toBe(0);
+    expect(ranges[0].endCursor).toBe(100000);
+    expect(ranges[9].startCursor).toBe(900000);
+    expect(ranges[9].endCursor).toBe(1000000);
+  });
+
+  test('should return null for getBatchContext when no context exists', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+    });
+
+    const batchContext = mixin.getBatchContext(context);
+
+    expect(batchContext).toBeNull();
+  });
+
+  test('should return null for getBatchContext with empty stepConfig', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+      stepConfig: {},
+    });
+
+    const batchContext = mixin.getBatchContext(context);
+
+    expect(batchContext).toBeNull();
+  });
+
+  test('should handle malformed batch_context gracefully', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+      stepConfig: {
+        batch_context: {
+          // Missing required fields
+          batch_id: 'batch-123',
+        },
+      },
+    });
+
+    // Should return a context with default values for missing fields
+    const batchContext = mixin.getBatchContext(context);
+
+    // Implementation may return null or fill in defaults
+    if (batchContext !== null) {
+      expect(batchContext.batchId).toBe('batch-123');
+    }
+  });
 });

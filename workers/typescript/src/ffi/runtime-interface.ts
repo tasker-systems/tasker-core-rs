@@ -8,6 +8,7 @@
 import type {
   BootstrapConfig,
   BootstrapResult,
+  CheckpointYieldData,
   FfiDispatchMetrics,
   FfiDomainEvent,
   FfiStepEvent,
@@ -122,6 +123,20 @@ export interface TaskerRuntime {
    */
   completeStepEvent(eventId: string, result: StepExecutionResult): boolean;
 
+  /**
+   * TAS-125: Submit a checkpoint yield for batch processing
+   *
+   * Called from batch processing handlers when they want to persist progress
+   * and be re-dispatched for continuation. Unlike completeStepEvent, this
+   * does NOT complete the step - instead it persists checkpoint data and
+   * re-dispatches the step for continued processing.
+   *
+   * @param eventId The event ID from the step event
+   * @param checkpointData The checkpoint data to persist
+   * @returns true if checkpoint persisted and step re-dispatched, false otherwise
+   */
+  checkpointYieldStepEvent(eventId: string, checkpointData: CheckpointYieldData): boolean;
+
   // ============================================================================
   // Metrics and Monitoring
   // ============================================================================
@@ -197,6 +212,7 @@ export abstract class BaseTaskerRuntime implements TaskerRuntime {
   abstract pollStepEvents(): FfiStepEvent | null;
   abstract pollInProcessEvents(): FfiDomainEvent | null;
   abstract completeStepEvent(eventId: string, result: StepExecutionResult): boolean;
+  abstract checkpointYieldStepEvent(eventId: string, checkpointData: CheckpointYieldData): boolean;
 
   abstract getFfiDispatchMetrics(): FfiDispatchMetrics;
   abstract checkStarvationWarnings(): void;

@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from tasker_core.models import DependencyResultsWrapper
 from tasker_core.types import (
     BatchAnalyzerOutcome,
     BatchWorkerContext,
@@ -129,18 +130,18 @@ class BatchAggregationScenario:
             ...     "process_csv_batch_"
             ... )
         """
-        # Find the batchable step result
-        batchable_result = dependency_results.get(batchable_step_name)
-        if batchable_result is None:
+        # Wrap raw dict in DependencyResultsWrapper for proper result extraction
+        # This mirrors Ruby's behavior where get_results() unwraps {"result": ...} structure
+        deps = DependencyResultsWrapper.from_dict(dependency_results)
+
+        # Find the batchable step result using the wrapper's unwrapping logic
+        result_data = deps.get_results(batchable_step_name)
+        if result_data is None:
             msg = f"Missing batchable step dependency: {batchable_step_name}"
             raise ValueError(msg)
 
-        # Extract the result dict (handle both raw dict and wrapped result)
-        if isinstance(batchable_result, dict):
-            result_data = batchable_result
-        elif hasattr(batchable_result, "result"):
-            result_data = batchable_result.result
-        else:
+        # Ensure result_data is a dict for further processing
+        if not isinstance(result_data, dict):
             result_data = {}
 
         # Check for NoBatches scenario
@@ -155,15 +156,14 @@ class BatchAggregationScenario:
                 worker_count=0,
             )
 
-        # WithBatches scenario - find all batch workers
+        # WithBatches scenario - find all batch workers using wrapper for proper unwrapping
         batch_results: dict[str, dict[str, Any]] = {}
-        for step_name, step_result in dependency_results.items():
+        for step_name in deps:
             if step_name.startswith(batch_worker_prefix):
-                # Extract result dict
-                if isinstance(step_result, dict):
-                    batch_results[step_name] = step_result
-                elif hasattr(step_result, "result"):
-                    batch_results[step_name] = step_result.result
+                # Use get_results() to properly unwrap {"result": ...} structure
+                worker_result = deps.get_results(step_name)
+                if isinstance(worker_result, dict):
+                    batch_results[step_name] = worker_result
                 else:
                     batch_results[step_name] = {}
 
@@ -373,6 +373,9 @@ class Batchable:
         """
         if total_items == 0:
             return []
+
+        if batch_size <= 0:
+            raise ValueError("batch_size must be > 0")
 
         # If max_batches is specified and would create more than max_batches,
         # adjust the batch_size to create exactly max_batches
@@ -954,6 +957,85 @@ class Batchable:
 
         # Call the success method from StepHandler (assumes mixin is used with StepHandler)
         return self.success(result, metadata=combined_metadata)  # type: ignore[attr-defined, no-any-return]
+
+    def checkpoint_yield(
+        self,
+        cursor: int | str | dict[str, Any],
+        items_processed: int,
+        accumulated_results: dict[str, Any] | None = None,
+    ) -> StepHandlerResult:
+        """TAS-125: Yield checkpoint for batch processing.
+
+        Use this method when your handler needs to persist progress and be
+        re-dispatched for continued processing. This is useful for:
+        - Processing very large datasets that exceed memory limits
+        - Providing progress visibility for long-running batch jobs
+        - Enabling graceful shutdown with resumption capability
+
+        Unlike batch_worker_success, this does NOT complete the step.
+        Instead, it persists the checkpoint and causes the step to be
+        re-dispatched with the updated checkpoint context.
+
+        Args:
+            cursor: Position to resume from (Integer, String, or Dict).
+                - int: For offset-based pagination (row number)
+                - str: For cursor-based pagination (opaque token)
+                - dict: For complex cursors (e.g., {"page_token": "..."})
+            items_processed: Total items processed so far (cumulative across all yields).
+            accumulated_results: Partial aggregations to carry forward.
+
+        Returns:
+            A StepHandlerResult with checkpoint_yield type that will be handled
+            specially by the FFI layer.
+
+        Example:
+            >>> def call(self, context: StepContext) -> StepHandlerResult:
+            ...     batch_ctx = self.get_batch_context(context)
+            ...     start = batch_ctx.checkpoint_cursor or batch_ctx.start_cursor
+            ...     accumulated = batch_ctx.accumulated_results or {"total": 0}
+            ...
+            ...     # Process a chunk
+            ...     chunk_size = 1000
+            ...     for i, item in enumerate(items):
+            ...         if i >= chunk_size:
+            ...             break
+            ...         accumulated["total"] += item.value
+            ...
+            ...     new_cursor = start + chunk_size
+            ...     if new_cursor < batch_ctx.end_cursor:
+            ...         # More work to do - yield checkpoint
+            ...         return self.checkpoint_yield(
+            ...             cursor=new_cursor,
+            ...             items_processed=new_cursor,
+            ...             accumulated_results=accumulated,
+            ...         )
+            ...
+            ...     # Done - return final success
+            ...     return self.batch_worker_success(
+            ...         items_processed=batch_ctx.batch_size,
+            ...         items_succeeded=batch_ctx.batch_size,
+            ...         batch_metadata=accumulated,
+            ...     )
+        """
+        result: dict[str, Any] = {
+            "type": "checkpoint_yield",
+            "cursor": cursor,
+            "items_processed": items_processed,
+        }
+
+        if accumulated_results is not None:
+            result["accumulated_results"] = accumulated_results
+
+        # Return as a special result that the FFI layer will handle
+        # The handler execution layer needs to detect this and call
+        # checkpoint_yield_step_event instead of complete_step_event
+        return StepHandlerResult.success(
+            result,
+            metadata={
+                "checkpoint_yield": True,
+                "batch_worker": True,
+            },
+        )
 
     def batch_worker_partial_failure(
         self,

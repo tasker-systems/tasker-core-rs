@@ -261,6 +261,24 @@ export interface Batchable {
     metadata?: Record<string, unknown>
   ): StepHandlerResult;
 
+  /**
+   * TAS-125: Yield checkpoint for batch processing.
+   *
+   * Use this method when your handler needs to persist progress and be
+   * re-dispatched for continued processing. Unlike batchWorkerSuccess,
+   * this does NOT complete the step.
+   *
+   * @param cursor - Position to resume from (number, string, or object)
+   * @param itemsProcessed - Total items processed so far (cumulative)
+   * @param accumulatedResults - Partial aggregations to carry forward
+   * @returns A StepHandlerResult with checkpoint_yield type
+   */
+  checkpointYield(
+    cursor: number | string | Record<string, unknown>,
+    itemsProcessed: number,
+    accumulatedResults?: Record<string, unknown>
+  ): StepHandlerResult;
+
   // =========================================================================
   // Aggregation Helpers (TAS-112)
   // =========================================================================
@@ -391,6 +409,10 @@ export class BatchableMixin implements Batchable {
   ): CursorConfig[] {
     if (totalItems === 0) {
       return [];
+    }
+
+    if (batchSize <= 0) {
+      throw new Error('batchSize must be > 0');
     }
 
     let adjustedBatchSize = batchSize;
@@ -694,6 +716,75 @@ export class BatchableMixin implements Batchable {
     return StepHandlerResult.success(result, metadata);
   }
 
+  /**
+   * TAS-125: Yield checkpoint for batch processing.
+   *
+   * Use this method when your handler needs to persist progress and be
+   * re-dispatched for continued processing. This is useful for:
+   * - Processing very large datasets that exceed memory limits
+   * - Providing progress visibility for long-running batch jobs
+   * - Enabling graceful shutdown with resumption capability
+   *
+   * Unlike batchWorkerSuccess, this does NOT complete the step.
+   * Instead, it persists the checkpoint and causes the step to be
+   * re-dispatched with the updated checkpoint context.
+   *
+   * @param cursor - Position to resume from
+   *   - number: For offset-based pagination (row number)
+   *   - string: For cursor-based pagination (opaque token)
+   *   - object: For complex cursors (e.g., {page_token: "..."})
+   * @param itemsProcessed - Total items processed so far (cumulative across all yields)
+   * @param accumulatedResults - Partial aggregations to carry forward
+   * @returns A StepHandlerResult with checkpoint_yield type
+   *
+   * @example
+   * ```typescript
+   * async call(context: StepContext): Promise<StepHandlerResult> {
+   *   const batchCtx = this.getBatchContext(context);
+   *   const start = batchCtx?.checkpointCursor ?? batchCtx?.startCursor ?? 0;
+   *   const accumulated = batchCtx?.accumulatedResults ?? { total: 0 };
+   *
+   *   // Process a chunk
+   *   const chunkSize = 1000;
+   *   for (let i = 0; i < chunkSize && start + i < batchCtx.endCursor; i++) {
+   *     accumulated.total += await processItem(start + i);
+   *   }
+   *
+   *   const newCursor = start + chunkSize;
+   *   if (newCursor < batchCtx.endCursor) {
+   *     // More work to do - yield checkpoint
+   *     return this.checkpointYield(newCursor, newCursor, accumulated);
+   *   }
+   *
+   *   // Done - return final success
+   *   return this.batchWorkerSuccess(
+   *     this.createWorkerOutcome(batchCtx.endCursor - batchCtx.startCursor)
+   *   );
+   * }
+   * ```
+   */
+  checkpointYield(
+    cursor: number | string | Record<string, unknown>,
+    itemsProcessed: number,
+    accumulatedResults?: Record<string, unknown>
+  ): StepHandlerResult {
+    const result: Record<string, unknown> = {
+      type: 'checkpoint_yield',
+      cursor,
+      items_processed: itemsProcessed,
+    };
+
+    if (accumulatedResults !== undefined) {
+      result.accumulated_results = accumulatedResults;
+    }
+
+    // Return as a special result that the FFI layer will handle
+    return StepHandlerResult.success(result, {
+      checkpoint_yield: true,
+      batch_worker: true,
+    });
+  }
+
   // =========================================================================
   // Aggregation Helpers (Instance Methods - TAS-112)
   // =========================================================================
@@ -881,6 +972,8 @@ export function applyBatchable<T extends object>(target: T): T & Batchable {
   (target as T & Batchable).handleNoOpWorker = mixin.handleNoOpWorker.bind(mixin);
   (target as T & Batchable).batchAnalyzerSuccess = mixin.batchAnalyzerSuccess.bind(mixin);
   (target as T & Batchable).batchWorkerSuccess = mixin.batchWorkerSuccess.bind(mixin);
+  // TAS-125: Checkpoint yield
+  (target as T & Batchable).checkpointYield = mixin.checkpointYield.bind(mixin);
   // TAS-112: Aggregation helpers
   (target as T & Batchable).detectAggregationScenario = mixin.detectAggregationScenario.bind(mixin);
   (target as T & Batchable).noBatchesAggregationResult =
@@ -1007,6 +1100,19 @@ export abstract class BatchableStepHandler extends StepHandler implements Batcha
     metadata?: Record<string, unknown>
   ): StepHandlerResult {
     return this._batchMixin.batchWorkerSuccess(outcome, metadata);
+  }
+
+  /**
+   * TAS-125: Yield checkpoint for batch processing.
+   *
+   * Delegates to BatchableMixin.checkpointYield.
+   */
+  checkpointYield(
+    cursor: number | string | Record<string, unknown>,
+    itemsProcessed: number,
+    accumulatedResults?: Record<string, unknown>
+  ): StepHandlerResult {
+    return this._batchMixin.checkpointYield(cursor, itemsProcessed, accumulatedResults);
   }
 
   // =========================================================================

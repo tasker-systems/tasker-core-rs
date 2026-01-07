@@ -1,8 +1,8 @@
 # Worker Crates: Common Patterns and Practices
 
-**Last Updated**: 2025-12-17
+**Last Updated**: 2026-01-06
 **Audience**: Developers, Architects
-**Status**: Active
+**Status**: Active (TAS-125 Complete)
 **Related Docs**: [Worker Event Systems](../worker-event-systems.md) | [Worker Actors](../worker-actors.md)
 
 <- Back to [Worker Crates Overview](README.md)
@@ -20,6 +20,7 @@ This document describes the common patterns and practices shared across all thre
 - [Event Bridge Pattern](#event-bridge-pattern)
 - [Singleton Pattern](#singleton-pattern)
 - [Observability](#observability)
+- [Checkpoint Yielding](#checkpoint-yielding)
 
 ---
 
@@ -554,6 +555,124 @@ class CsvProcessorHandler(StepHandler, Batchable):
         # Process records using batch_ctx.start_cursor, batch_ctx.end_cursor
         return self.batch_worker_success(processed_count=batch_ctx.batch_size)
 ```
+
+---
+
+## Checkpoint Yielding
+
+Checkpoint yielding (TAS-125) enables batch workers to persist progress and yield control back to the orchestrator for re-dispatch. This is essential for long-running batch operations.
+
+### When to Use
+
+- Processing takes longer than visibility timeout
+- You need resumable processing after failures
+- Long-running operations need progress visibility
+
+### Cross-Language API
+
+All Batchable handlers provide `checkpoint_yield()` (or `checkpointYield()` in TypeScript):
+
+**Ruby**:
+```ruby
+class MyBatchWorker < TaskerCore::StepHandler::Batchable
+  def call(context)
+    batch_ctx = get_batch_context(context)
+
+    # Resume from checkpoint if present
+    start = batch_ctx.has_checkpoint? ? batch_ctx.checkpoint_cursor : 0
+
+    items.each_with_index do |item, idx|
+      process_item(item)
+
+      # Checkpoint every 1000 items
+      if (idx + 1) % 1000 == 0
+        checkpoint_yield(
+          cursor: start + idx + 1,
+          items_processed: idx + 1,
+          accumulated_results: { partial: "data" }
+        )
+      end
+    end
+
+    batch_worker_complete(processed_count: items.size)
+  end
+end
+```
+
+**Python**:
+```python
+class MyBatchWorker(StepHandler, Batchable):
+    def call(self, context):
+        batch_ctx = self.get_batch_context(context)
+
+        # Resume from checkpoint if present
+        start = batch_ctx.checkpoint_cursor if batch_ctx.has_checkpoint() else 0
+
+        for idx, item in enumerate(items):
+            self.process_item(item)
+
+            # Checkpoint every 1000 items
+            if (idx + 1) % 1000 == 0:
+                self.checkpoint_yield(
+                    cursor=start + idx + 1,
+                    items_processed=idx + 1,
+                    accumulated_results={"partial": "data"}
+                )
+
+        return self.batch_worker_success(processed_count=len(items))
+```
+
+**TypeScript**:
+```typescript
+class MyBatchWorker extends BatchableHandler {
+  async call(context: StepContext): Promise<StepHandlerResult> {
+    const batchCtx = this.getBatchContext(context);
+
+    // Resume from checkpoint if present
+    const start = batchCtx.hasCheckpoint() ? batchCtx.checkpointCursor : 0;
+
+    for (let idx = 0; idx < items.length; idx++) {
+      await this.processItem(items[idx]);
+
+      // Checkpoint every 1000 items
+      if ((idx + 1) % 1000 === 0) {
+        await this.checkpointYield({
+          cursor: start + idx + 1,
+          itemsProcessed: idx + 1,
+          accumulatedResults: { partial: "data" }
+        });
+      }
+    }
+
+    return this.batchWorkerSuccess({ processedCount: items.length });
+  }
+}
+```
+
+### BatchWorkerContext Checkpoint Accessors
+
+All languages provide consistent accessors for checkpoint data:
+
+| Accessor | Ruby | Python | TypeScript |
+|----------|------|--------|------------|
+| Cursor position | `checkpoint_cursor` | `checkpoint_cursor` | `checkpointCursor` |
+| Accumulated data | `accumulated_results` | `accumulated_results` | `accumulatedResults` |
+| Has checkpoint? | `has_checkpoint?` | `has_checkpoint()` | `hasCheckpoint()` |
+| Items processed | `checkpoint_items_processed` | `checkpoint_items_processed` | `checkpointItemsProcessed` |
+
+### FFI Contract
+
+| Function | Description |
+|----------|-------------|
+| `checkpoint_yield_step_event(event_id, data)` | Persist checkpoint and re-dispatch step |
+
+### Key Invariants
+
+1. **Checkpoint-Persist-Then-Redispatch**: Progress saved before re-dispatch
+2. **Step Stays InProgress**: No state machine transitions during yield
+3. **Handler-Driven**: Handlers decide when to checkpoint
+
+See [Batch Processing Guide - Checkpoint Yielding](../guides/batch-processing.md#checkpoint-yielding-tas-125) for comprehensive documentation.
 
 ---
 

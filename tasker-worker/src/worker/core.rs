@@ -55,6 +55,7 @@ use tokio::sync::RwLock as TokioRwLock;
 /// This struct contains the channels needed by language-specific handler dispatch:
 /// - `dispatch_receiver`: Consumed by HandlerDispatchService (Rust) or FfiDispatchChannel bridge (FFI)
 /// - `completion_sender`: Used to send results back to CompletionProcessorService
+/// - `dispatch_sender`: TAS-125: Used for checkpoint re-dispatch (cloned from internal sender)
 ///
 /// The `completion_receiver` is kept by `WorkerCore` and consumed by `CompletionProcessorService`.
 pub struct DispatchHandles {
@@ -62,6 +63,8 @@ pub struct DispatchHandles {
     pub dispatch_receiver: mpsc::Receiver<DispatchHandlerMessage>,
     /// Sender for completion results (used by handler dispatch to send results)
     pub completion_sender: mpsc::Sender<StepExecutionResult>,
+    /// TAS-125: Sender for dispatch messages (used for checkpoint re-dispatch)
+    pub dispatch_sender: mpsc::Sender<DispatchHandlerMessage>,
 }
 
 impl std::fmt::Debug for DispatchHandles {
@@ -72,6 +75,7 @@ impl std::fmt::Debug for DispatchHandles {
                 &"mpsc::Receiver<DispatchHandlerMessage>",
             )
             .field("completion_sender", &"mpsc::Sender<StepExecutionResult>")
+            .field("dispatch_sender", &"mpsc::Sender<DispatchHandlerMessage>")
             .finish()
     }
 }
@@ -350,9 +354,11 @@ impl WorkerCore {
         // TAS-67: Split channels - completion_receiver stays with WorkerCore for
         // CompletionProcessorService, dispatch_receiver goes to caller for
         // language-specific handler dispatch
+        // TAS-125: dispatch_sender also exposed for checkpoint re-dispatch
         let dispatch_handles = DispatchHandles {
             dispatch_receiver: dispatch_channels.dispatch_receiver,
             completion_sender: dispatch_channels.completion_sender,
+            dispatch_sender: dispatch_channels.dispatch_sender,
         };
         let completion_receiver = dispatch_channels.completion_receiver;
 

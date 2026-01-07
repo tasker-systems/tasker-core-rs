@@ -5,6 +5,11 @@ require 'spec_helper'
 RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
   let(:mock_workflow_step) { instance_double(TaskerCore::Models::WorkflowStepWrapper) }
 
+  # TAS-125: All tests need to stub :checkpoint method since constructor now reads it
+  before do
+    allow(mock_workflow_step).to receive(:checkpoint).and_return(nil)
+  end
+
   describe '.from_step_data' do
     it 'extracts context from workflow step wrapper' do
       allow(mock_workflow_step).to receive(:inputs).and_return({
@@ -13,9 +18,7 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
                                                                    'start_cursor' => 0,
                                                                    'end_cursor' => 100
                                                                  },
-                                                                 'batch_metadata' => {
-                                                                   'checkpoint_interval' => 50
-                                                                 }
+                                                                 'batch_metadata' => {}
                                                                })
 
       context = described_class.from_step_data(mock_workflow_step)
@@ -25,7 +28,6 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
       expect(context.batch_id).to eq('001')
       expect(context.start_cursor).to eq(0)
       expect(context.end_cursor).to eq(100)
-      expect(context.checkpoint_interval).to eq(50)
     end
 
     it 'handles symbol keys correctly' do
@@ -192,56 +194,7 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
     end
   end
 
-  describe '#checkpoint_interval' do
-    it 'extracts checkpoint_interval from batch_metadata' do
-      allow(mock_workflow_step).to receive(:inputs).and_return({
-                                                                 'cursor' => {
-                                                                   'batch_id' => '001',
-                                                                   'start_cursor' => 0,
-                                                                   'end_cursor' => 100
-                                                                 },
-                                                                 'batch_metadata' => {
-                                                                   'checkpoint_interval' => 25
-                                                                 }
-                                                               })
-
-      context = described_class.from_step_data(mock_workflow_step)
-
-      expect(context.checkpoint_interval).to eq(25)
-    end
-
-    it 'defaults to 100 when missing' do
-      allow(mock_workflow_step).to receive(:inputs).and_return({
-                                                                 'cursor' => {
-                                                                   'batch_id' => '001',
-                                                                   'start_cursor' => 0,
-                                                                   'end_cursor' => 100
-                                                                 },
-                                                                 'batch_metadata' => {}
-                                                               })
-
-      context = described_class.from_step_data(mock_workflow_step)
-
-      expect(context.checkpoint_interval).to eq(100)
-    end
-
-    it 'converts string to integer' do
-      allow(mock_workflow_step).to receive(:inputs).and_return({
-                                                                 'cursor' => {
-                                                                   'batch_id' => '001',
-                                                                   'start_cursor' => 0,
-                                                                   'end_cursor' => 100
-                                                                 },
-                                                                 'batch_metadata' => {
-                                                                   'checkpoint_interval' => '75'
-                                                                 }
-                                                               })
-
-      context = described_class.from_step_data(mock_workflow_step)
-
-      expect(context.checkpoint_interval).to eq(75)
-    end
-  end
+  # TAS-125: checkpoint_interval tests removed - handlers decide when to checkpoint
 
   describe 'validation' do
     context 'when cursor configuration is invalid' do
@@ -331,6 +284,147 @@ RSpec.describe TaskerCore::BatchProcessing::BatchWorkerContext do
 
       expect(context.start_cursor).to eq(0)
       expect(context.end_cursor).to eq(0)
+    end
+  end
+
+  # TAS-125: Checkpoint accessor tests
+  # Note: checkpoint comes from workflow_step.checkpoint, NOT workflow_step.inputs
+  describe 'checkpoint accessors' do
+    let(:default_inputs) do
+      {
+        'cursor' => {
+          'batch_id' => '001',
+          'start_cursor' => 0,
+          'end_cursor' => 100
+        },
+        'batch_metadata' => {}
+      }
+    end
+
+    before do
+      allow(mock_workflow_step).to receive(:inputs).and_return(default_inputs)
+    end
+
+    describe '#has_checkpoint?' do
+      context 'when checkpoint exists with cursor' do
+        it 'returns true' do
+          allow(mock_workflow_step).to receive(:checkpoint).and_return({
+                                                                         'cursor' => 50,
+                                                                         'items_processed' => 50
+                                                                       })
+
+          context = described_class.from_step_data(mock_workflow_step)
+
+          expect(context.has_checkpoint?).to be true
+        end
+      end
+
+      context 'when checkpoint is empty' do
+        it 'returns false' do
+          allow(mock_workflow_step).to receive(:checkpoint).and_return({})
+
+          context = described_class.from_step_data(mock_workflow_step)
+
+          expect(context.has_checkpoint?).to be false
+        end
+      end
+
+      context 'when checkpoint is nil' do
+        it 'returns false' do
+          allow(mock_workflow_step).to receive(:checkpoint).and_return(nil)
+
+          context = described_class.from_step_data(mock_workflow_step)
+
+          expect(context.has_checkpoint?).to be false
+        end
+      end
+    end
+
+    describe '#checkpoint_cursor' do
+      it 'returns the cursor from checkpoint' do
+        allow(mock_workflow_step).to receive(:checkpoint).and_return({
+                                                                       'cursor' => 75,
+                                                                       'items_processed' => 75
+                                                                     })
+
+        context = described_class.from_step_data(mock_workflow_step)
+
+        expect(context.checkpoint_cursor).to eq(75)
+      end
+
+      it 'returns nil when checkpoint does not exist' do
+        allow(mock_workflow_step).to receive(:checkpoint).and_return(nil)
+
+        context = described_class.from_step_data(mock_workflow_step)
+
+        expect(context.checkpoint_cursor).to be_nil
+      end
+
+      it 'handles complex cursor (hash)' do
+        complex_cursor = { 'page' => 5, 'partition' => 'A' }
+        allow(mock_workflow_step).to receive(:checkpoint).and_return({
+                                                                       'cursor' => complex_cursor,
+                                                                       'items_processed' => 250
+                                                                     })
+
+        context = described_class.from_step_data(mock_workflow_step)
+
+        # Keys remain as strings from JSON deserialization
+        expect(context.checkpoint_cursor).to eq({ 'page' => 5, 'partition' => 'A' })
+      end
+    end
+
+    describe '#checkpoint_items_processed' do
+      it 'returns items_processed from checkpoint' do
+        allow(mock_workflow_step).to receive(:checkpoint).and_return({
+                                                                       'cursor' => 60,
+                                                                       'items_processed' => 60
+                                                                     })
+
+        context = described_class.from_step_data(mock_workflow_step)
+
+        expect(context.checkpoint_items_processed).to eq(60)
+      end
+
+      it 'returns 0 when checkpoint does not exist' do
+        allow(mock_workflow_step).to receive(:checkpoint).and_return(nil)
+
+        context = described_class.from_step_data(mock_workflow_step)
+
+        expect(context.checkpoint_items_processed).to eq(0)
+      end
+    end
+
+    describe '#accumulated_results' do
+      it 'returns accumulated results from checkpoint' do
+        allow(mock_workflow_step).to receive(:checkpoint).and_return({
+                                                                       'cursor' => 50,
+                                                                       'items_processed' => 50,
+                                                                       'accumulated_results' => {
+                                                                         'running_total' => 2500.50,
+                                                                         'processed_count' => 50
+                                                                       }
+                                                                     })
+
+        context = described_class.from_step_data(mock_workflow_step)
+
+        # Keys remain as strings from JSON deserialization
+        expect(context.accumulated_results).to eq({
+                                                    'running_total' => 2500.50,
+                                                    'processed_count' => 50
+                                                  })
+      end
+
+      it 'returns nil when no accumulated results exist' do
+        allow(mock_workflow_step).to receive(:checkpoint).and_return({
+                                                                       'cursor' => 50,
+                                                                       'items_processed' => 50
+                                                                     })
+
+        context = described_class.from_step_data(mock_workflow_step)
+
+        expect(context.accumulated_results).to be_nil
+      end
     end
   end
 end

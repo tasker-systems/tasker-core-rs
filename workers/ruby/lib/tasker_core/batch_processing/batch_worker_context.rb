@@ -60,7 +60,7 @@ module TaskerCore
     #     end_cursor: '2024-01-31T23:59:59Z'
     #   }
     class BatchWorkerContext
-      attr_reader :cursor, :batch_metadata, :is_no_op
+      attr_reader :cursor, :batch_metadata, :is_no_op, :checkpoint
 
       # Extract context from WorkflowStepWrapper
       #
@@ -82,6 +82,11 @@ module TaskerCore
         inputs = (workflow_step.inputs || {}).deep_symbolize_keys
 
         @is_no_op = inputs[:is_no_op] == true
+
+        # TAS-125: Extract checkpoint data from workflow step
+        # Checkpoint contains persisted progress from previous yields
+        # Use with_indifferent_access for flexible string/symbol key access
+        @checkpoint = (workflow_step.checkpoint || {}).with_indifferent_access
 
         if @is_no_op
           # Placeholder worker - minimal context
@@ -116,20 +121,67 @@ module TaskerCore
         cursor[:batch_id] || 'unknown'
       end
 
-      # Get the checkpoint interval
-      #
-      # Workers should update checkpoint progress after processing this many items.
-      #
-      # @return [Integer] Checkpoint interval
-      def checkpoint_interval
-        batch_metadata[:checkpoint_interval]&.to_i || 100
-      end
-
       # Check if this is a no-op/placeholder worker
       #
       # @return [Boolean] True if this worker should skip processing
       def no_op?
         @is_no_op
+      end
+
+      # TAS-125: Get checkpoint cursor from previous yield
+      #
+      # When a handler yields a checkpoint, the cursor position is persisted.
+      # On re-dispatch, this returns that cursor position to resume from.
+      #
+      # @return [Integer, String, Hash, nil] Last persisted cursor position, or nil if no checkpoint
+      #
+      # @example Resume from checkpoint
+      #   start = batch_ctx.checkpoint_cursor || batch_ctx.start_cursor
+      def checkpoint_cursor
+        checkpoint[:cursor]
+      end
+
+      # TAS-125: Get accumulated results from previous checkpoint yield
+      #
+      # When a handler yields a checkpoint with accumulated_results, those
+      # partial aggregations are persisted. On re-dispatch, this returns
+      # them so the handler can continue accumulating.
+      #
+      # @return [Hash, nil] Partial aggregations from previous yields
+      #
+      # @example Continue accumulating totals
+      #   accumulated = batch_ctx.accumulated_results || { 'total' => 0 }
+      #   accumulated['total'] += item.value
+      def accumulated_results
+        checkpoint[:accumulated_results]
+      end
+
+      # TAS-125: Check if checkpoint exists
+      #
+      # Use this to determine if this is a fresh execution or a resumption
+      # from a previous checkpoint yield.
+      #
+      # @return [Boolean] True if checkpoint data exists
+      #
+      # @example Conditional initialization
+      #   if batch_ctx.has_checkpoint?
+      #     # Resuming from previous checkpoint
+      #     start = batch_ctx.checkpoint_cursor
+      #   else
+      #     # Fresh start
+      #     start = batch_ctx.start_cursor
+      #   end
+      def has_checkpoint?
+        checkpoint.present? && checkpoint[:cursor].present?
+      end
+
+      # TAS-125: Get items processed count from checkpoint
+      #
+      # Returns the cumulative count of items processed across all yields.
+      #
+      # @return [Integer] Items processed so far, or 0 if no checkpoint
+      def checkpoint_items_processed
+        checkpoint[:items_processed] || 0
       end
 
       private

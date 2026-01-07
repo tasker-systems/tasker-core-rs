@@ -13,8 +13,15 @@ dependencies = ["test-python-ffi", "test-ruby-ffi", "test-typescript-ffi"]
 [tasks.test-e2e]
 description = "Run E2E tests (requires services running)"
 dependencies = ["check-services"]
-command = "cargo"
-args = ["nextest", "run", "--all-features", "-E", "test(e2e::)"]
+script = '''
+#!/bin/bash
+# Load environment from .env.test using set -a (auto-export)
+set -a
+source .env.test
+set +a
+echo "Loaded environment: TASKER_FIXTURE_PATH=$TASKER_FIXTURE_PATH"
+cargo nextest run --all-features -E "test(e2e::)"
+'''
 
 [tasks.check-services]
 description = "Check required services are running"

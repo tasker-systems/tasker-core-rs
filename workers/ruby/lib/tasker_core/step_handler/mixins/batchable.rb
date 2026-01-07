@@ -330,6 +330,65 @@ module TaskerCore
           )
         end
 
+        # TAS-125: Yield checkpoint for batch processing
+        #
+        # Use this method when your handler needs to persist progress and be
+        # re-dispatched for continued processing. This is useful for:
+        # - Processing very large datasets that exceed memory limits
+        # - Providing progress visibility for long-running batch jobs
+        # - Enabling graceful shutdown with resumption capability
+        #
+        # Unlike batch_worker_success, this does NOT complete the step.
+        # Instead, it persists the checkpoint and causes the step to be
+        # re-dispatched with the updated checkpoint context.
+        #
+        # @param cursor [Integer, String, Hash] Position to resume from
+        #   - Integer: For offset-based pagination (row number)
+        #   - String: For cursor-based pagination (opaque token)
+        #   - Hash: For complex cursors (e.g., { page_token: "..." })
+        # @param items_processed [Integer] Total items processed so far (cumulative)
+        # @param accumulated_results [Hash, nil] Partial aggregations to carry forward
+        # @return [StepHandlerCallResult::CheckpointYield] Checkpoint yield result
+        #
+        # @example Simple offset checkpoint
+        #   def call(context)
+        #     batch_ctx = get_batch_context(context)
+        #     start = batch_ctx.checkpoint_cursor || batch_ctx.start_cursor
+        #     accumulated = batch_ctx.accumulated_results || { 'total' => 0 }
+        #
+        #     # Process a chunk
+        #     chunk_size = 1000
+        #     items.each_with_index do |item, idx|
+        #       break if idx >= chunk_size
+        #       process(item)
+        #       accumulated['total'] += item.value
+        #     end
+        #
+        #     new_cursor = start + chunk_size
+        #     if new_cursor < batch_ctx.end_cursor
+        #       # More work to do - yield checkpoint
+        #       return checkpoint_yield(
+        #         cursor: new_cursor,
+        #         items_processed: new_cursor,
+        #         accumulated_results: accumulated
+        #       )
+        #     end
+        #
+        #     # Done - return final success
+        #     batch_worker_success(
+        #       items_processed: batch_ctx.batch_size,
+        #       items_succeeded: batch_ctx.batch_size,
+        #       metadata: accumulated
+        #     )
+        #   end
+        def checkpoint_yield(cursor:, items_processed:, accumulated_results: nil)
+          TaskerCore::Types::StepHandlerCallResult.checkpoint_yield(
+            cursor: cursor,
+            items_processed: items_processed,
+            accumulated_results: accumulated_results
+          )
+        end
+
         # ========================================================================
         # Category 5: Aggregation Helpers
         # ========================================================================

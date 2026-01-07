@@ -327,6 +327,88 @@ pub unsafe extern "C" fn complete_step_event(
     }
 }
 
+/// Yield a checkpoint for batch processing (TAS-125).
+///
+/// Signals a checkpoint yield, persisting the checkpoint data and causing
+/// the step to be re-dispatched for continued processing. Unlike
+/// `complete_step_event`, this does NOT complete the step.
+///
+/// # Parameters
+///
+/// - `event_id`: UUID string of the event
+/// - `checkpoint_json`: JSON string containing the checkpoint data with fields:
+///   - `step_uuid`: UUID of the step being checkpointed
+///   - `cursor`: Current cursor position (where to resume)
+///   - `items_processed`: Number of items successfully processed so far
+///   - `accumulated_results`: Optional partial results to carry forward
+///
+/// # Returns
+///
+/// 1 on success (checkpoint persisted and step re-dispatched), 0 on failure.
+///
+/// # Safety
+///
+/// Both parameters must be valid null-terminated C strings.
+#[no_mangle]
+pub unsafe extern "C" fn checkpoint_yield_step_event(
+    event_id: *const c_char,
+    checkpoint_json: *const c_char,
+) -> c_int {
+    if event_id.is_null() || checkpoint_json.is_null() {
+        tracing::error!(
+            "checkpoint_yield_step_event: null pointer received (event_id={}, checkpoint_json={})",
+            event_id.is_null(),
+            checkpoint_json.is_null()
+        );
+        return 0;
+    }
+
+    // SAFETY: Caller guarantees event_id is a valid null-terminated C string
+    let event_id_str = match unsafe { CStr::from_ptr(event_id) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(
+                "checkpoint_yield_step_event: invalid UTF-8 in event_id: {}",
+                e
+            );
+            return 0;
+        }
+    };
+
+    // SAFETY: Caller guarantees checkpoint_json is a valid null-terminated C string
+    let checkpoint_str = match unsafe { CStr::from_ptr(checkpoint_json) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(
+                "checkpoint_yield_step_event: invalid UTF-8 in checkpoint_json: {}",
+                e
+            );
+            return 0;
+        }
+    };
+
+    tracing::info!(
+        event_id = %event_id_str,
+        checkpoint_json_len = checkpoint_str.len(),
+        "checkpoint_yield_step_event: FFI call received"
+    );
+
+    match bridge::checkpoint_yield_step_event_internal(event_id_str, checkpoint_str) {
+        Ok(true) => {
+            tracing::info!(event_id = %event_id_str, "checkpoint_yield_step_event: SUCCESS");
+            1
+        }
+        Ok(false) => {
+            tracing::warn!(event_id = %event_id_str, "checkpoint_yield_step_event: returned false (checkpoint support not configured or event not found)");
+            0
+        }
+        Err(e) => {
+            tracing::error!(event_id = %event_id_str, error = %e, "checkpoint_yield_step_event: internal error");
+            0
+        }
+    }
+}
+
 /// Get FFI dispatch metrics.
 ///
 /// # Returns

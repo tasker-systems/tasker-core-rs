@@ -88,7 +88,7 @@ async fn test_batch_worker_resumes_from_checkpoint() -> Result<()> {
                     println!("   Total processed: {:?}", total_processed);
 
                     // Verify cursor-based resumption with explicit checkpoint assertion
-                    // Config: fail_after_items=50, checkpoint_interval=25
+                    // Config: fail_after_items=50, items_per_checkpoint=25 (TAS-125 handler-driven)
                     // Expected: processes 25 items (checkpoint at 25), then 25 more (checkpoint at 50), fails at 50
                     // On retry: resumes from checkpoint position 50
                     if let Some(resume_pos) = resumed_from {

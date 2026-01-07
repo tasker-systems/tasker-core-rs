@@ -42,6 +42,14 @@
     }
   },
   "files": {
-    "includes": ["**", "!node_modules", "!dist", "!target", "!*.d.ts", "!bindings"]
+    "includes": [
+      "**",
+      "!node_modules",
+      "!dist",
+      "!target",
+      "!*.d.ts",
+      "!bindings",
+      "!src/ffi/generated"
+    ]
   }
 }

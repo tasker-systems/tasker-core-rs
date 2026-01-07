@@ -27,6 +27,13 @@ from .batch_processing_handlers import (
     CsvResultsAggregatorHandler,
 )
 
+# TAS-125 - Checkpoint yield handlers
+from .checkpoint_yield_handlers import (
+    CheckpointYieldAggregatorHandler,
+    CheckpointYieldAnalyzerHandler,
+    CheckpointYieldWorkerHandler,
+)
+
 # Phase 6b handlers - Conditional approval (decision points)
 from .conditional_approval_handlers import (
     AutoApproveHandler,
@@ -108,6 +115,10 @@ __all__ = [
     "CsvAnalyzerHandler",
     "CsvBatchProcessorHandler",
     "CsvResultsAggregatorHandler",
+    # TAS-125 - Checkpoint yield handlers
+    "CheckpointYieldAnalyzerHandler",
+    "CheckpointYieldWorkerHandler",
+    "CheckpointYieldAggregatorHandler",
     # TAS-65/TAS-69 - Domain event handlers
     "ValidateOrderHandler",
     "ProcessPaymentHandler",

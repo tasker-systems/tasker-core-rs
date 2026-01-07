@@ -54,6 +54,15 @@ export interface StepCompletionSentPayload {
   sentAt: Date;
 }
 
+/** TAS-125: Checkpoint yield event payload */
+export interface StepCheckpointYieldSentPayload {
+  eventId: string;
+  stepUuid: string;
+  cursor: unknown;
+  itemsProcessed: number;
+  timestamp: Date;
+}
+
 export interface WorkerEventPayload {
   workerId?: string;
   timestamp: Date;
@@ -88,6 +97,8 @@ export interface TaskerEventMap {
   'step.execution.failed': StepExecutionFailedPayload;
   'step.completion.sent': StepCompletionSentPayload;
   'step.execution.timeout': StepExecutionFailedPayload;
+  // TAS-125: Checkpoint yield event
+  'step.checkpoint_yield.sent': StepCheckpointYieldSentPayload;
 
   // Worker events
   'worker.started': WorkerEventPayload;

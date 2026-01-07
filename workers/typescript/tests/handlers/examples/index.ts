@@ -20,6 +20,12 @@ export {
   CsvBatchProcessorHandler,
   CsvResultsAggregatorHandler,
 } from './batch_processing/index.js';
+// TAS-125: Checkpoint Yield Handlers
+export {
+  CheckpointYieldAggregatorHandler,
+  CheckpointYieldAnalyzerHandler,
+  CheckpointYieldWorkerHandler,
+} from './checkpoint_yield/index.js';
 // Conditional Approval Handlers
 export {
   AutoApproveHandler,
@@ -64,6 +70,11 @@ import {
   CsvBatchProcessorHandler,
   CsvResultsAggregatorHandler,
 } from './batch_processing/index.js';
+import {
+  CheckpointYieldAggregatorHandler,
+  CheckpointYieldAnalyzerHandler,
+  CheckpointYieldWorkerHandler,
+} from './checkpoint_yield/index.js';
 import {
   AutoApproveHandler,
   FinalizeApprovalHandler,
@@ -128,6 +139,10 @@ export const ALL_EXAMPLE_HANDLERS = [
   CsvAnalyzerHandler,
   CsvBatchProcessorHandler,
   CsvResultsAggregatorHandler,
+  // TAS-125: Checkpoint Yield
+  CheckpointYieldAnalyzerHandler,
+  CheckpointYieldWorkerHandler,
+  CheckpointYieldAggregatorHandler,
   // Domain Events
   ValidateOrderHandler,
   ProcessPaymentHandler,

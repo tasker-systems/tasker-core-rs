@@ -215,3 +215,24 @@ def cleanup_timeouts() -> int:
         RuntimeError: If worker system is not running.
     """
     ...
+
+def checkpoint_yield_step_event(event_id: str, checkpoint_data: dict[str, Any]) -> bool:
+    """Submit checkpoint yield for a batchable step event.
+
+    This signals that the step has made progress and should be re-dispatched
+    to continue processing from the checkpoint state.
+
+    Args:
+        event_id: The event ID string from the FfiStepEvent.
+        checkpoint_data: Dict with checkpoint data matching CheckpointYieldData structure.
+            Keys include: step_uuid, checkpoint_state, items_processed, total_items,
+            accumulated_results, retry_count
+
+    Returns:
+        True if checkpoint yield was successfully submitted, False otherwise.
+
+    Raises:
+        ValueError: If event_id format is invalid.
+        RuntimeError: If worker system is not running.
+    """
+    ...

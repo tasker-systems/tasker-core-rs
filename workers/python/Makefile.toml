@@ -214,3 +214,89 @@ rm -rf target/
 rm -rf *.egg-info/
 find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 '''
+
+# =============================================================================
+# Service Management Tasks
+# =============================================================================
+# Run the Python worker as a local service for E2E testing.
+# Uses the .env.test file for configuration.
+#
+# Prerequisites:
+#   - cargo make build-extension (builds the Rust FFI layer)
+#   - PostgreSQL running on localhost:5432
+#   - Orchestration service running on localhost:8080
+#
+# Usage:
+#   cargo make run      # Start Python worker on port 8083
+#   cargo make stop     # Stop the running worker
+#   cargo make status   # Check worker status
+
+[tasks.run]
+description = "Run Python worker service (port 8083)"
+dependencies = ["setup", "build-extension"]
+script = '''
+# Source environment from .env.test
+set -a
+source .env.test
+set +a
+
+# Override PORT for local execution
+export PORT=8083
+
+echo "🐍 Starting Python worker..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+echo "   Handlers: ${PYTHON_HANDLER_PATH}"
+
+# Start the Python server (use uv run to get dependencies)
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-start.sh python-worker \
+    uv run python bin/server.py
+'''
+
+[tasks.run-foreground]
+description = "Run Python worker in foreground (for debugging)"
+dependencies = ["setup", "build-extension"]
+script = '''
+# Source environment from .env.test
+set -a
+source .env.test
+set +a
+
+# Override PORT for local execution
+export PORT=8083
+
+echo "🐍 Starting Python worker (foreground)..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+
+# Run directly in foreground (use uv run to get dependencies)
+uv run python bin/server.py
+'''
+
+[tasks.stop]
+description = "Stop running Python worker service"
+script = '''
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-stop.sh python-worker
+'''
+
+[tasks.status]
+description = "Check Python worker service status"
+script = '''
+PROJECT_ROOT="$(cd ../.. && pwd)" \
+../../cargo-make/scripts/service-status.sh python-worker
+'''
+
+[tasks.logs]
+description = "Tail Python worker logs"
+script = '''
+LOG_FILE="../../.logs/python-worker.log"
+if [ -f "$LOG_FILE" ]; then
+    tail -f "$LOG_FILE"
+else
+    echo "No log file found at $LOG_FILE"
+    echo "Start the worker first with: cargo make run"
+fi
+'''

@@ -41,7 +41,6 @@ steps:
       initialization:
         batch_size: 1000 # Items per batch
         max_workers: 10 # Maximum parallel workers
-        checkpoint_interval: 100 # Checkpoint every N items
         worker_template_name: "process_batch" # Template step to instantiate
 
   #
@@ -56,16 +55,16 @@ steps:
   # Each instance receives BatchWorkerInputs in its initialization:
   # {
   #   "cursor": {
-  #     "start_position": 0,
-  #     "end_position": 1000,
-  #     "checkpoint_interval": 100,
-  #     "checkpoint_progress": 0
+  #     "batch_id": "001",
+  #     "start_cursor": 0,
+  #     "end_cursor": 1000,
+  #     "batch_size": 1000
   #   },
   #   "batch_metadata": {
-  #     "checkpoint_interval": 100,
   #     "cursor_field": "id",
   #     "failure_strategy": "halt_on_first"
-  #   }
+  #   },
+  #   "is_no_op": false
   # }
   #
   - name: process_batch
@@ -81,7 +80,6 @@ steps:
       batch_size: 1000
       parallelism: 10
       cursor_field: "id"
-      checkpoint_interval: 100
       worker_template: "process_batch"
       failure_strategy: "fail_fast"
 

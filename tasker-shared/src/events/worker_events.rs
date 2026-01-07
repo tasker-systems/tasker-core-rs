@@ -499,6 +499,7 @@ mod tests {
                 created_at: chrono::Utc::now().naive_utc(),
                 updated_at: chrono::Utc::now().naive_utc(),
                 template_step_name: step_name.to_string(),
+                checkpoint: None,
             },
             dependency_results,
             step_definition: StepDefinition {

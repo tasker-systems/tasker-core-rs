@@ -30,7 +30,12 @@ import traceback
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from tasker_core._tasker_core import complete_step_event as _complete_step_event
+from tasker_core._tasker_core import (
+    checkpoint_yield_step_event as _checkpoint_yield_step_event,
+)
+from tasker_core._tasker_core import (
+    complete_step_event as _complete_step_event,
+)
 
 from .event_bridge import EventBridge, EventNames
 from .handler import HandlerRegistry, StepHandler
@@ -317,11 +322,21 @@ class StepExecutionSubscriber:
         Converts the StepHandlerResult to StepExecutionResult and
         submits it via the FFI complete_step_event function.
 
+        TAS-125: If handler returns with checkpoint_yield=True in metadata,
+        we call checkpoint_yield_step_event instead of complete_step_event
+        to persist progress and trigger re-dispatch.
+
         Args:
             event: The original FfiStepEvent.
             handler_result: The result from handler execution.
             execution_time_ms: Execution time in milliseconds.
         """
+        # TAS-125: Check for checkpoint yield - this is a special case where
+        # we persist progress and re-dispatch instead of completing the step
+        if handler_result.metadata.get("checkpoint_yield") is True:
+            self._submit_checkpoint_yield(event, handler_result)
+            return
+
         # Convert handler result to step execution result
         step_uuid = UUID(event.step_uuid)
         task_uuid = UUID(event.task_uuid)
@@ -380,6 +395,60 @@ class StepExecutionSubscriber:
         except Exception as e:
             log_error(f"Failed to submit result: {e}")
             # Result submission failure is serious - log but don't retry
+            raise
+
+    def _submit_checkpoint_yield(
+        self,
+        event: FfiStepEvent,
+        handler_result: StepHandlerResult,
+    ) -> None:
+        """Submit checkpoint yield via FFI.
+
+        TAS-125: Handler returned checkpoint_yield=True in metadata.
+        This persists progress and triggers re-dispatch instead of completing the step.
+
+        Args:
+            event: The original FfiStepEvent.
+            handler_result: The result from handler execution containing checkpoint data.
+        """
+        step_uuid = UUID(event.step_uuid)
+
+        # Extract checkpoint data from the handler result
+        result_data = handler_result.result or {}
+        checkpoint_data = {
+            "step_uuid": str(step_uuid),
+            "cursor": result_data.get("cursor"),
+            "items_processed": result_data.get("items_processed", 0),
+            "accumulated_results": result_data.get("accumulated_results"),
+        }
+
+        try:
+            success = _checkpoint_yield_step_event(str(event.event_id), checkpoint_data)
+
+            if success:
+                log_info(
+                    "Checkpoint yield submitted - step will be re-dispatched",
+                    {
+                        "event_id": event.event_id,
+                        "step_uuid": str(step_uuid),
+                        "cursor": str(result_data.get("cursor")),
+                        "items_processed": str(result_data.get("items_processed", 0)),
+                    },
+                )
+                # Publish checkpoint event for monitoring
+                self._event_bridge.publish(
+                    EventNames.STEP_CHECKPOINT_YIELD,
+                    checkpoint_data,
+                )
+            else:
+                log_error(
+                    "Failed to submit checkpoint yield (checkpoint support may not be configured)",
+                    {"event_id": event.event_id},
+                )
+
+        except Exception as e:
+            log_error(f"Failed to submit checkpoint yield: {e}")
+            # Checkpoint failure is serious - log but don't retry
             raise
 
 

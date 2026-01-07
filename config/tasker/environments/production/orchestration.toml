@@ -25,9 +25,9 @@ steps_in_process_minutes = 60
 task_max_lifetime_hours = 48
 
 # TAS-59: Batch Processing Configuration Overrides for Production Environment
+# TAS-125: Removed checkpoint_interval_default - handlers decide when to checkpoint
 [orchestration.batch_processing]
 enabled = true                   # Enable batch processing for production
 max_parallel_batches = 100       # Higher concurrency for production
 default_batch_size = 2000        # Larger batches for efficiency
-checkpoint_interval_default = 200  # Less frequent checkpoints (more efficiency)
 checkpoint_stall_minutes = 30    # More conservative stall detection for production

@@ -1253,7 +1253,7 @@ impl Task {
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
-                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
             WHERE ws.task_uuid = $1::uuid AND ns.name = $2

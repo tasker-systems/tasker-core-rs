@@ -436,20 +436,25 @@ class TestBatchAggregationScenario:
             BatchAggregationScenario.detect(dependency_results, "analyze_csv", "process_csv_batch_")
 
     def test_detect_with_wrapped_result(self):
-        """Test detection handles wrapped result objects."""
+        """Test detection handles wrapped result dicts.
+
+        The actual FFI data comes from the database as dicts with a 'result' key:
+        {"result": {...actual_data...}, "error": null, "metadata": {...}}
+
+        DependencyResultsWrapper.get_results() handles this by extracting the inner
+        'result' value, matching Ruby's get_results() behavior.
+        """
         from tasker_core import BatchAggregationScenario
 
-        # Simulate a result wrapper with .result attribute
-        class ResultWrapper:
-            def __init__(self, result):
-                self.result = result
-
+        # Simulate actual wrapped results from FFI (dict with "result" key)
         dependency_results = {
-            "analyze_csv": ResultWrapper(
-                {
+            "analyze_csv": {
+                "result": {
                     "batch_processing_outcome": {"type": "no_batches"},
-                }
-            ),
+                },
+                "error": None,
+                "metadata": {},
+            },
         }
         scenario = BatchAggregationScenario.detect(
             dependency_results, "analyze_csv", "process_csv_batch_"
@@ -594,3 +599,327 @@ class TestBatchableAggregationHelpers:
         # Default aggregation passes through batch_results
         assert "batch_results" in result.result
         assert len(result.result["batch_results"]) == 2
+
+
+class TestCheckpointYield:
+    """TAS-125: Test checkpoint_yield for batch processing resumption."""
+
+    def test_checkpoint_yield_with_integer_cursor(self):
+        """Test checkpoint_yield with integer cursor."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        result = handler.checkpoint_yield(cursor=5000, items_processed=5000)
+
+        assert result.is_success is True
+        assert result.result["type"] == "checkpoint_yield"
+        assert result.result["cursor"] == 5000
+        assert result.result["items_processed"] == 5000
+        assert result.metadata.get("checkpoint_yield") is True
+        assert result.metadata.get("batch_worker") is True
+
+    def test_checkpoint_yield_with_string_cursor(self):
+        """Test checkpoint_yield with string cursor (pagination token)."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        result = handler.checkpoint_yield(
+            cursor="eyJsYXN0X2lkIjoiOTk5In0=",
+            items_processed=100,
+        )
+
+        assert result.is_success is True
+        assert result.result["cursor"] == "eyJsYXN0X2lkIjoiOTk5In0="
+        assert result.result["items_processed"] == 100
+
+    def test_checkpoint_yield_with_dict_cursor(self):
+        """Test checkpoint_yield with dict cursor (complex pagination)."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        complex_cursor = {"page": 5, "partition": "A", "last_timestamp": "2024-01-15T10:00:00Z"}
+        result = handler.checkpoint_yield(
+            cursor=complex_cursor,
+            items_processed=250,
+        )
+
+        assert result.is_success is True
+        assert result.result["cursor"] == complex_cursor
+        assert result.result["cursor"]["page"] == 5
+
+    def test_checkpoint_yield_with_accumulated_results(self):
+        """Test checkpoint_yield with accumulated results."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        result = handler.checkpoint_yield(
+            cursor=7500,
+            items_processed=7500,
+            accumulated_results={"running_total": 375000.50, "processed_count": 7500},
+        )
+
+        assert result.is_success is True
+        assert result.result["accumulated_results"]["running_total"] == 375000.50
+        assert result.result["accumulated_results"]["processed_count"] == 7500
+
+    def test_checkpoint_yield_without_accumulated_results(self):
+        """Test checkpoint_yield without accumulated results."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        result = handler.checkpoint_yield(cursor=1000, items_processed=1000)
+
+        assert result.is_success is True
+        assert "accumulated_results" not in result.result
+
+
+class TestCheckpointYieldErrorScenarios:
+    """TAS-125: Error scenario tests for checkpoint_yield."""
+
+    def test_checkpoint_yield_with_zero_items_processed(self):
+        """Test checkpoint_yield with zero items processed (edge case)."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        # Zero items is valid - it's an initialization checkpoint
+        result = handler.checkpoint_yield(cursor=0, items_processed=0)
+
+        assert result.is_success is True
+        assert result.result["items_processed"] == 0
+        assert result.result["cursor"] == 0
+
+    def test_checkpoint_yield_with_none_cursor(self):
+        """Test checkpoint_yield with None cursor (edge case)."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        # None cursor should be allowed (represents "beginning of data")
+        result = handler.checkpoint_yield(cursor=None, items_processed=0)
+
+        assert result.is_success is True
+        assert result.result["cursor"] is None
+
+    def test_checkpoint_yield_with_empty_dict_cursor(self):
+        """Test checkpoint_yield with empty dict cursor."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        result = handler.checkpoint_yield(cursor={}, items_processed=100)
+
+        assert result.is_success is True
+        assert result.result["cursor"] == {}
+
+    def test_checkpoint_yield_with_empty_string_cursor(self):
+        """Test checkpoint_yield with empty string cursor."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        result = handler.checkpoint_yield(cursor="", items_processed=0)
+
+        assert result.is_success is True
+        assert result.result["cursor"] == ""
+
+    def test_checkpoint_yield_with_large_items_processed(self):
+        """Test checkpoint_yield with very large items_processed value."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        # Test with a very large number (10 billion items)
+        large_count = 10_000_000_000
+        result = handler.checkpoint_yield(cursor=large_count, items_processed=large_count)
+
+        assert result.is_success is True
+        assert result.result["items_processed"] == large_count
+
+    def test_checkpoint_yield_with_deeply_nested_accumulated_results(self):
+        """Test checkpoint_yield with deeply nested accumulated results."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        nested_results = {
+            "level1": {
+                "level2": {
+                    "level3": {
+                        "level4": {
+                            "value": 12345,
+                            "items": [1, 2, 3, 4, 5],
+                        }
+                    }
+                }
+            }
+        }
+        result = handler.checkpoint_yield(
+            cursor=5000,
+            items_processed=5000,
+            accumulated_results=nested_results,
+        )
+
+        assert result.is_success is True
+        assert (
+            result.result["accumulated_results"]["level1"]["level2"]["level3"]["level4"]["value"]
+            == 12345
+        )
+
+    def test_checkpoint_yield_with_special_characters_in_cursor(self):
+        """Test checkpoint_yield with special characters in string cursor."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_checkpoint_worker"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        # Unicode and special characters in cursor
+        special_cursor = "cursor_with_émojis_🎉_and_中文"
+        result = handler.checkpoint_yield(cursor=special_cursor, items_processed=100)
+
+        assert result.is_success is True
+        assert result.result["cursor"] == special_cursor
+
+
+class TestBatchableValidationErrors:
+    """TAS-125: Test validation error scenarios for Batchable mixin."""
+
+    def test_create_cursor_configs_with_zero_workers(self):
+        """Test create_cursor_configs with zero workers raises error."""
+        import pytest
+
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        with pytest.raises(ValueError, match="worker_count must be > 0"):
+            handler.create_cursor_configs(1000, 0)
+
+    def test_create_cursor_configs_with_negative_workers(self):
+        """Test create_cursor_configs with negative workers raises error."""
+        import pytest
+
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        with pytest.raises(ValueError, match="worker_count must be > 0"):
+            handler.create_cursor_configs(1000, -1)
+
+    def test_create_cursor_configs_with_zero_items(self):
+        """Test create_cursor_configs with zero items returns empty list."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        configs = handler.create_cursor_configs(0, 5)
+
+        assert len(configs) == 0
+
+    def test_create_cursor_ranges_with_zero_items(self):
+        """Test create_cursor_ranges with zero items returns empty list."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        ranges = handler.create_cursor_ranges(0, 100)
+
+        assert len(ranges) == 0
+
+    def test_create_cursor_ranges_with_zero_batch_size(self):
+        """Test create_cursor_ranges with zero batch_size raises error."""
+        import pytest
+
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        with pytest.raises(ValueError, match="batch_size must be > 0"):
+            handler.create_cursor_ranges(1000, 0)
+
+    def test_create_cursor_ranges_with_negative_batch_size(self):
+        """Test create_cursor_ranges with negative batch_size raises error."""
+        import pytest
+
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        with pytest.raises(ValueError, match="batch_size must be > 0"):
+            handler.create_cursor_ranges(1000, -10)

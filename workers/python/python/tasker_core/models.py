@@ -25,6 +25,7 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -218,6 +219,14 @@ class DependencyResultsWrapper:
             List of step names that have results
         """
         return list(self._results.keys())
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over dependency result step names.
+
+        Returns:
+            Iterator over step names
+        """
+        return iter(self._results.keys())
 
     def __contains__(self, step_name: str) -> bool:
         """Check if a dependency result exists.

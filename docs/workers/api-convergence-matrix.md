@@ -1,8 +1,8 @@
 # API Convergence Matrix
 
-**Last Updated**: 2026-01-01
+**Last Updated**: 2026-01-06
 **Status**: Active
-**Related Tickets**: TAS-92, TAS-95, TAS-96, TAS-97, TAS-98, TAS-112
+**Related Tickets**: TAS-92, TAS-95, TAS-96, TAS-97, TAS-98, TAS-112, TAS-125
 
 <- Back to [Worker Crates Overview](README.md)
 
@@ -188,6 +188,36 @@ Use these standard values for consistent error classification:
 **Cursor Indexing (TAS-112):**
 - All languages use **0-indexed cursors** (start at 0, not 1)
 - Ruby was updated from 1-indexed to 0-indexed for consistency
+
+### Checkpoint Yielding (TAS-125)
+
+Checkpoint yielding enables batch workers to persist progress and yield control for re-dispatch.
+
+| Operation | Ruby | Python | TypeScript |
+|-----------|------|--------|------------|
+| Checkpoint | `checkpoint_yield(cursor:, items_processed:, accumulated_results:)` | `checkpoint_yield(cursor, items_processed, accumulated_results)` | `checkpointYield({ cursor, itemsProcessed, accumulatedResults })` |
+
+**BatchWorkerContext Checkpoint Accessors:**
+
+| Accessor | Ruby | Python | TypeScript |
+|----------|------|--------|------------|
+| Cursor | `checkpoint_cursor` | `checkpoint_cursor` | `checkpointCursor` |
+| Accumulated Results | `accumulated_results` | `accumulated_results` | `accumulatedResults` |
+| Has Checkpoint? | `has_checkpoint?` | `has_checkpoint()` | `hasCheckpoint()` |
+| Items Processed | `checkpoint_items_processed` | `checkpoint_items_processed` | `checkpointItemsProcessed` |
+
+**FFI Contract:**
+
+| Function | Description |
+|----------|-------------|
+| `checkpoint_yield_step_event(event_id, data)` | Persist checkpoint and re-dispatch step |
+
+**Key Invariants:**
+- Progress is atomically saved before re-dispatch
+- Step remains `InProgress` during checkpoint yield cycle
+- Only `Success`/`Failure` trigger state transitions
+
+See [Batch Processing Guide - Checkpoint Yielding](../guides/batch-processing.md#checkpoint-yielding-tas-125) for full documentation.
 
 ---
 

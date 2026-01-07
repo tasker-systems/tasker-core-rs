@@ -1,0 +1,145 @@
+# TAS-125: Checkpoint Yield Test Template - TypeScript Implementation
+#
+# Demonstrates checkpoint yielding functionality:
+# 1. Batchable (analyze_items_ts): Create a single batch for checkpoint testing
+# 2. Batch Worker (checkpoint_yield_batch_ts): Process items with checkpoint yields
+# 3. Deferred Convergence (aggregate_results_ts): Aggregate final output
+#
+# Test Scenarios:
+# - Happy path: Checkpoint yields work correctly
+# - Transient failure: Resume from checkpoint after retryable error
+# - Permanent failure: Correctly fail on non-retryable error
+#
+# Template: ts_e2e_checkpoint/checkpoint_yield_test_ts:1.0.0
+# Implementation: TypeScript FFI
+# Updated: 2025-01-04
+#
+---
+name: checkpoint_yield_test_ts
+namespace_name: ts_e2e_checkpoint
+version: 1.0.0
+description: "TAS-125: Test checkpoint yielding with TypeScript handlers"
+metadata:
+  author: TAS-125 E2E Testing
+  tags:
+    - namespace:ts_e2e_checkpoint
+    - pattern:batch_processing
+    - feature:checkpoint_yield
+    - feature:batchable
+    - feature:batch_worker
+    - feature:deferred_convergence
+    - implementation:typescript_ffi
+    - language:typescript
+    - tas:TAS-125
+  documentation_url:
+  created_at: "2025-01-04T00:00:00Z"
+  updated_at: "2025-01-04T00:00:00Z"
+  notes: "E2E test for TAS-125 checkpoint yield functionality with TypeScript handlers"
+task_handler:
+  callable: typescript_ffi_handler
+  initialization: {}
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - total_items
+    - items_per_checkpoint
+  properties:
+    total_items:
+      type: integer
+      default: 100
+      description: "Total number of items to process"
+    items_per_checkpoint:
+      type: integer
+      default: 25
+      description: "Number of items to process before yielding a checkpoint"
+    fail_after_items:
+      type: integer
+      description: "Optional: Inject failure after processing this many items"
+    fail_on_attempt:
+      type: integer
+      default: 1
+      description: "Optional: Only fail on this attempt number (1-indexed)"
+    permanent_failure:
+      type: boolean
+      default: false
+      description: "If true, injected failure is non-retryable"
+steps:
+  # Step 1: Batchable - Create batch configuration
+  - name: analyze_items_ts
+    type: batchable
+    description: "Analyze items and create batch worker configurations"
+    handler:
+      callable: checkpoint_yield.step_handlers.CheckpointYieldAnalyzerHandler
+      initialization:
+        worker_template_name: checkpoint_yield_batch_ts
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+
+  # Step 2: Batch Worker Template - Process with checkpoint yields
+  - name: checkpoint_yield_batch_ts
+    type: batch_worker
+    description: "Process items with checkpoint yielding"
+    handler:
+      callable: checkpoint_yield.step_handlers.CheckpointYieldWorkerHandler
+      initialization:
+        items_per_checkpoint: 25
+    system_dependency:
+    dependencies:
+      - analyze_items_ts
+    batch_config:
+      batch_size: 100
+      parallelism: 1
+      cursor_field: item_index
+      worker_template: checkpoint_yield_batch_ts
+      failure_strategy: continue_on_failure
+    retry:
+      retryable: true
+      max_attempts: 5
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 300
+    lifecycle:
+      max_steps_in_process_minutes: 120
+      max_retries: 5
+      backoff_multiplier: 2.0
+    publishes_events: []
+
+  # Step 3: Deferred Convergence - Aggregate results
+  - name: aggregate_results_ts
+    type: deferred_convergence
+    description: "Aggregate results from batch workers"
+    handler:
+      callable: checkpoint_yield.step_handlers.CheckpointYieldAggregatorHandler
+      initialization: {}
+    system_dependency:
+    dependencies:
+      - checkpoint_yield_batch_ts
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+
+environments:
+  test:
+    steps:
+      - name: ALL
+        timeout_seconds: 60
+        retry:
+          max_attempts: 5

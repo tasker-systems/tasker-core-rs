@@ -215,12 +215,65 @@ module TaskerCore
         raise
       end
 
+      # TAS-125: Send checkpoint yield back to Rust for batch processing
+      #
+      # Called by batch processing handlers when they want to persist progress
+      # and be re-dispatched for continuation. Unlike publish_step_completion,
+      # this does NOT complete the step - instead it persists checkpoint data
+      # and causes the step to be re-dispatched for continued processing.
+      #
+      # @param checkpoint_data [Hash] Checkpoint data to persist:
+      #   - :event_id [String] Required, UUID of the original execution event
+      #   - :step_uuid [String] Required, UUID of the step
+      #   - :cursor [Object] Required, position to resume from (Integer, String, or Hash)
+      #   - :items_processed [Integer] Required, count of items processed so far
+      #   - :accumulated_results [Hash] Optional, partial results to carry forward
+      # @return [Boolean] true if checkpoint was persisted and step re-dispatched
+      #
+      # @example Yield checkpoint in batch processing
+      #   bridge.publish_step_checkpoint_yield({
+      #     event_id: "550e8400-e29b-41d4-a716-446655440000",
+      #     step_uuid: "123e4567-e89b-12d3-a456-426614174000",
+      #     cursor: 1000,
+      #     items_processed: 1000,
+      #     accumulated_results: { total_amount: 50000.00, processed_count: 1000 }
+      #   })
+      def publish_step_checkpoint_yield(checkpoint_data)
+        return false unless active?
+
+        logger.debug "Sending checkpoint yield to Rust: #{checkpoint_data[:event_id]}"
+
+        # Validate checkpoint data
+        validate_checkpoint_yield!(checkpoint_data)
+
+        # Send to Rust via FFI (TAS-125)
+        success = TaskerCore::FFI.checkpoint_yield_step_event(
+          checkpoint_data[:event_id].to_s,
+          checkpoint_data
+        )
+
+        if success
+          # Publish locally for monitoring/debugging
+          publish('step.checkpoint_yield.sent', checkpoint_data)
+          logger.debug 'Checkpoint yield sent to Rust - step will be re-dispatched'
+        else
+          logger.warn 'Checkpoint yield failed - checkpoint support may not be configured'
+        end
+
+        success
+      rescue StandardError => e
+        logger.error "Failed to send checkpoint yield: #{e.message}"
+        logger.error e.backtrace.join("\n")
+        raise
+      end
+
       private
 
       def setup_event_schema!
         # Register event types
         register_event('step.execution.received')
         register_event('step.completion.sent')
+        register_event('step.checkpoint_yield.sent') # TAS-125
         register_event('bridge.error')
       end
 
@@ -256,6 +309,21 @@ module TaskerCore
 
         # Ensure timestamps
         completion_data[:completed_at] ||= Time.now.utc.iso8601
+      end
+
+      # TAS-125: Validate checkpoint yield data before sending to Rust
+      def validate_checkpoint_yield!(checkpoint_data)
+        required_fields = %i[event_id step_uuid cursor items_processed]
+        missing_fields = required_fields - checkpoint_data.keys
+
+        if missing_fields.any?
+          raise ArgumentError, "Missing required fields in checkpoint yield: #{missing_fields.join(', ')}"
+        end
+
+        # Validate items_processed is a non-negative integer
+        return if checkpoint_data[:items_processed].is_a?(Integer) && checkpoint_data[:items_processed] >= 0
+
+        raise ArgumentError, 'items_processed must be a non-negative integer'
       end
     end
   end
