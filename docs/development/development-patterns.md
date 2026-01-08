@@ -398,9 +398,87 @@ cd workers/ruby
 cargo make compile-clean   # Clean and recompile
 ```
 
+## Extension Patterns
+
+### Custom Step Handler Resolvers (TAS-93)
+
+The resolver chain pattern allows extending handler resolution with custom strategies. This is useful for:
+- Service discovery integration
+- Dynamic handler loading from plugins
+- Environment-specific resolution
+- Custom naming conventions
+
+#### Creating a Custom Resolver
+
+All resolvers implement the `StepHandlerResolver` trait/interface:
+
+```rust
+// Rust
+#[async_trait]
+pub trait StepHandlerResolver: Send + Sync + Debug {
+    fn resolver_name(&self) -> &str;
+    fn priority(&self) -> u32;
+    fn can_resolve(&self, definition: &HandlerDefinition) -> bool;
+    async fn resolve(&self, definition: &HandlerDefinition, context: &ResolutionContext)
+        -> Result<Arc<dyn ResolvedHandler>, ResolutionError>;
+}
+```
+
+```ruby
+# Ruby
+class CustomResolver < TaskerCore::Registry::BaseResolver
+  def resolver_name = "custom"
+  def priority = 50
+  def can_resolve?(definition) = definition.callable.start_with?("custom://")
+  def resolve(definition, context) = # Return handler instance
+end
+```
+
+```python
+# Python
+class CustomResolver(BaseResolver):
+    def resolver_name(self) -> str: return "custom"
+    def priority(self) -> int: return 50
+    def can_resolve(self, definition: HandlerDefinition) -> bool: ...
+    async def resolve(self, definition, context) -> ResolvedHandler: ...
+```
+
+```typescript
+// TypeScript
+class CustomResolver extends BaseResolver {
+  resolverName(): string { return 'custom'; }
+  priority(): number { return 50; }
+  canResolve(definition: HandlerDefinition): boolean { ... }
+  async resolve(definition, context): Promise<ResolvedHandler> { ... }
+}
+```
+
+#### Registering Custom Resolvers
+
+Add your resolver to the chain during worker initialization:
+
+```rust
+// Rust (in worker setup)
+let mut chain = ResolverChain::new();
+chain.register(Arc::new(ExplicitMappingResolver::new()));
+chain.register(Arc::new(CustomResolver::new(config))); // Your resolver
+chain.register(Arc::new(ClassConstantResolver::new()));
+```
+
+**Priority Guidelines**:
+| Priority | Use Case |
+|----------|----------|
+| 1-9 | Override all other resolvers |
+| 10 | ExplicitMappingResolver (default) |
+| 20-90 | Custom domain resolvers |
+| 100 | ClassConstantResolver (fallback) |
+
+See [Handler Resolution Guide](../guides/handler-resolution.md) for complete documentation.
+
 ## Related Documentation
 
-- [Crate Architecture](../crate-architecture.md) - Workspace structure
+- [Crate Architecture](../architecture/crate-architecture.md) - Workspace structure
 - [MPSC Channel Guidelines](./mpsc-channel-guidelines.md) - Channel patterns
-- [Configuration Management](../configuration-management.md) - TOML configuration
-- [Deployment Patterns](../deployment-patterns.md) - Production deployment
+- [Configuration Management](../guides/configuration-management.md) - TOML configuration
+- [Deployment Patterns](../architecture/deployment-patterns.md) - Production deployment
+- [Handler Resolution Guide](../guides/handler-resolution.md) - Custom resolvers (TAS-93)
