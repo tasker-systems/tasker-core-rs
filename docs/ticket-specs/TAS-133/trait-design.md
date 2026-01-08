@@ -326,7 +326,98 @@ impl<T: MessagingService> CircuitBreakerWrapper<T> {
 
 ---
 
-## FFI Considerations
+## Implicit vs Explicit Nack Handling
+
+### Current Tasker Pattern: Implicit Nack
+
+Tasker's current PGMQ code **never explicitly requeues** messages. It relies on visibility timeout expiry:
+
+```rust
+// Current pattern in command_processor.rs
+match process_message(&msg).await {
+    Ok(_) => {
+        // SUCCESS: Delete the message
+        pgmq.delete_message(queue, msg.msg_id).await?;
+    }
+    Err(_) => {
+        // FAILURE: Do nothing - VTT will expire and message will reappear
+        error!("Processing failed, message will be retried");
+    }
+}
+```
+
+This is "implicit nack" - the absence of an ack causes eventual requeue.
+
+### RabbitMQ Requirement: Explicit Nack
+
+RabbitMQ requires explicit acknowledgment. Unacked messages stay "in flight" until:
+1. Explicit `basic_ack` (success)
+2. Explicit `basic_nack` (failure, with requeue option)
+3. Consumer disconnection (requeues all unacked)
+4. Consumer timeout (requeues, closes channel)
+
+### Abstraction Strategy: RAII-Style Guard
+
+```rust
+/// Guard that auto-nacks on Drop if not explicitly acked
+pub struct MessageGuard<'a> {
+    service: &'a dyn MessagingService,
+    queue_name: String,
+    receipt_handle: ReceiptHandle,
+    acked: bool,
+}
+
+impl<'a> MessageGuard<'a> {
+    pub async fn ack(mut self) -> Result<(), MessagingError> {
+        self.acked = true;
+        self.service.ack_message(&self.queue_name, &self.receipt_handle).await
+    }
+    
+    pub async fn nack(mut self, requeue: bool) -> Result<(), MessagingError> {
+        self.acked = true;  // Prevent Drop from double-nacking
+        self.service.nack_message(&self.queue_name, &self.receipt_handle, requeue).await
+    }
+}
+
+impl Drop for MessageGuard<'_> {
+    fn drop(&mut self) {
+        if !self.acked {
+            // Auto-nack with requeue on panic/early return
+            // Note: Can't await in Drop, need to spawn or use sync path
+            warn!("MessageGuard dropped without explicit ack/nack - auto-nacking");
+            // Provider-specific: PGMQ no-op, RabbitMQ needs nack
+        }
+    }
+}
+```
+
+### Provider Behavior
+
+| Scenario | PGMQ | RabbitMQ |
+|----------|------|----------|
+| Explicit `ack_message` | `delete_message` | `basic_ack` |
+| Explicit `nack_message(requeue=true)` | No-op (VTT handles) | `basic_nack(requeue=true)` |
+| Explicit `nack_message(requeue=false)` | `archive` (if DLQ) | `basic_nack(requeue=false)` → DLX |
+| Drop without ack | No-op (VTT handles) | Must `basic_nack(requeue=true)` |
+| Process panic | Message reappears after VTT | Channel closes, messages requeue |
+
+### Implementation Options
+
+**Option A: Transparent Auto-Nack (Recommended)**
+
+Existing Tasker code continues to work unchanged:
+- PGMQ: Current behavior preserved
+- RabbitMQ: Auto-nack on Drop
+
+**Option B: Require Explicit Nack**
+
+Force callers to handle all outcomes:
+- More explicit error handling
+- Breaking change to existing code
+- Better for dead letter routing
+
+**Recommendation**: Option A for Phase 1 (backward compatibility), Option B as opt-in for Phase 3.
+
 
 ### Message Types Cross FFI
 

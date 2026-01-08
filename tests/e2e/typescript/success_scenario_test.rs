@@ -74,7 +74,7 @@ async fn test_typescript_success_no_input() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
     // Create task without optional message
-    let task_request = create_task_request("test_scenarios", "success_only_ts", json!({}));
+    let task_request = create_task_request("test_scenarios_ts", "success_only_ts", json!({}));
 
     let response = manager
         .orchestration_client

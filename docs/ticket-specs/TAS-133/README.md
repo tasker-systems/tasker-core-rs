@@ -142,6 +142,14 @@ pub struct QueueStats {
     pub oldest_message_age: Option<Duration>,
 }
 
+/// Result of verify_queues health check
+#[derive(Debug, Clone)]
+pub struct QueueHealthReport {
+    pub healthy: Vec<String>,
+    pub missing: Vec<String>,
+    pub errors: Vec<(String, String)>,  // (queue_name, error_message)
+}
+
 /// A message received from a queue
 #[derive(Debug, Clone)]
 pub struct QueuedMessage<T> {
@@ -156,6 +164,21 @@ pub struct QueuedMessage<T> {
 pub trait MessagingService: Send + Sync + 'static {
     /// Create a queue if it doesn't exist
     async fn ensure_queue(&self, queue_name: &str) -> Result<(), MessagingError>;
+    
+    /// Bulk queue creation (called during worker bootstrap)
+    /// 
+    /// After TaskTemplateManager discovers namespaces, this creates
+    /// all required queues. Providers may optimize (single transaction,
+    /// reuse channel, etc.)
+    async fn ensure_queues(&self, queue_names: &[String]) -> Result<(), MessagingError> {
+        for queue_name in queue_names {
+            self.ensure_queue(queue_name).await?;
+        }
+        Ok(())
+    }
+    
+    /// Verify expected queues exist (startup health check)
+    async fn verify_queues(&self, queue_names: &[String]) -> Result<QueueHealthReport, MessagingError>;
 
     /// Send a message to a queue
     async fn send_message<T: QueueMessage>(
@@ -563,10 +586,9 @@ impl MessagingServiceFactory {
 ## Out of Scope
 
 1. **Kafka implementation** - Different paradigm (event streaming vs work queues), better as contrib
-2. **Push-based delivery** - Tasker uses pull model consistently
-3. **Multi-provider routing** - Single provider per deployment
-4. **Message transformation** - Messages are passed through unchanged
-5. **Ruby/Python/TypeScript service classes** - FFI to Rust traits only
+2. **Multi-provider routing** - Single provider per deployment
+3. **Message transformation** - Messages are passed through unchanged
+4. **Ruby/Python/TypeScript service classes** - FFI to Rust traits only
 
 ---
 
@@ -583,9 +605,24 @@ impl MessagingServiceFactory {
 
 ## References
 
+### Specification Documents
+
+- [Trait Design Deep Dive](./trait-design.md) - Method semantics, FFI, error handling
+- [Push Notifications Research](./push-notifications-research.md) - Provider push capabilities analysis
+- [Queue Lifecycle Management](./queue-lifecycle.md) - Task template discovery integration
+- [Message Lifecycle Patterns](./message-lifecycle-patterns.md) - Read → Evaluate → Delete patterns analysis
+
+### Related Tickets
+
 - [TAS-35](https://linear.app/tasker-systems/issue/TAS-35) - Original ticket (superseded)
 - [TAS-43](https://linear.app/tasker-systems/issue/TAS-43) - Event-Driven Task Claiming
+
+### Architecture Docs
+
 - [Backpressure Architecture](../../architecture/backpressure-architecture.md)
 - [Events and Commands](../../architecture/events-and-commands.md)
+
+### External References
+
 - [lapin documentation](https://docs.rs/lapin/latest/lapin/)
 - [PGMQ documentation](https://github.com/tembo-io/pgmq)

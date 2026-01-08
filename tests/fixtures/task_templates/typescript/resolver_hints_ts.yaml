@@ -1,0 +1,125 @@
+# TaskTemplate Configuration - TypeScript Implementation
+#
+# TAS-93 Phase 5: Resolver Hints E2E Test
+# Tests that the resolver chain respects resolver hints.
+#
+# Template: resolver_tests/resolver_hints_ts:1.0.0
+# Implementation: TypeScript FFI with tasker-worker-ts
+#
+# This template demonstrates resolver hints where the framework
+# bypasses the resolver chain and routes directly to a named resolver.
+#
+# Resolver hint behavior:
+# - When `resolver: "explicit_mapping"` is set, only ExplicitMappingResolver is used
+# - When no resolver is set, the chain is traversed in priority order
+#
+---
+name: resolver_hints_ts
+namespace_name: resolver_tests_ts
+version: 1.0.0
+description: "TAS-93: Resolver hints E2E test - bypasses chain with explicit resolver (TypeScript)"
+metadata:
+  author: TAS-93 Phase 5 Implementation
+  tags:
+    - namespace:resolver_tests_ts
+    - pattern:linear
+    - feature:resolver_hints
+    - implementation:typescript_ffi
+    - language:typescript
+    - tas-93:phase-5
+  documentation_url:
+  created_at: "2026-01-07T00:00:00Z"
+  updated_at: "2026-01-07T00:00:00Z"
+  notes: "Tests resolver hints feature where framework routes directly to named resolver"
+task_handler:
+  callable: ResolverTests.TaskHandler
+  initialization:
+    test_type: resolver_hints
+    expected_resolvers:
+      - explicit_mapping
+      - class_lookup
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - action_type
+  properties:
+    action_type:
+      type: string
+      description: "Type of action to execute"
+steps:
+  - name: explicit_resolver_step
+    description: "Step 1: Use explicit_mapping resolver hint"
+    handler:
+      callable: ResolverTests.StepHandlers.MultiMethodHandler
+      resolver: explicit_mapping
+      initialization:
+        step_number: 1
+        resolver_used: explicit_mapping
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: combined_hint_step
+    description: "Step 2: Use both resolver hint and method dispatch"
+    handler:
+      callable: ResolverTests.StepHandlers.AlternateMethodHandler
+      method: execute_action
+      resolver: explicit_mapping
+      initialization:
+        step_number: 2
+        resolver_used: explicit_mapping
+        method_used: execute_action
+    system_dependency:
+    dependencies:
+      - explicit_resolver_step
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: chain_resolution_step
+    description: "Step 3: No resolver hint - uses resolver chain (default)"
+    handler:
+      callable: ResolverTests.StepHandlers.MultiMethodHandler
+      initialization:
+        step_number: 3
+        resolver_used: chain_default
+    system_dependency:
+    dependencies:
+      - combined_hint_step
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: explicit_resolver_step
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1
+      - name: combined_hint_step
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1
+      - name: chain_resolution_step
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1

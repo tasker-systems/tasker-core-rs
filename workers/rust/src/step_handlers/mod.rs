@@ -395,6 +395,9 @@ pub mod capabilities;
 // TAS-112: Example handlers demonstrating capability traits
 pub mod capability_examples;
 
+// TAS-93 Phase 5: Resolver chain test handlers
+pub mod resolver_tests;
+
 // Re-export core types for convenience
 // TAS-67: Export registry and adapter
 pub use registry::{
