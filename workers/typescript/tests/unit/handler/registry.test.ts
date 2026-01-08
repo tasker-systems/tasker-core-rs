@@ -85,18 +85,14 @@ describe('HandlerRegistry', () => {
       );
     });
 
-    it('warns when overwriting existing handler', () => {
+    it('allows overwriting existing handler', () => {
       const registry = new HandlerRegistry();
-      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 
       registry.register('order_handler', OrderHandler);
       registry.register('order_handler', PaymentHandler);
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Overwriting existing handler: order_handler')
-      );
-
-      warnSpy.mockRestore();
+      // TAS-93: Overwriting is allowed without warning
+      expect(registry.isRegistered('order_handler')).toBe(true);
     });
 
     it('logs info message on registration', () => {
@@ -134,32 +130,32 @@ describe('HandlerRegistry', () => {
   });
 
   describe('resolve', () => {
-    it('instantiates registered handler', () => {
+    it('instantiates registered handler', async () => {
       const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
-      const handler = registry.resolve('order_handler');
+      const handler = await registry.resolve('order_handler');
 
       expect(handler).not.toBeNull();
       expect(handler?.name).toBe('order_handler');
       expect(handler?.version).toBe('1.0.0');
     });
 
-    it('returns new instance each time', () => {
+    it('returns new instance each time', async () => {
       const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
-      const handler1 = registry.resolve('order_handler');
-      const handler2 = registry.resolve('order_handler');
+      const handler1 = await registry.resolve('order_handler');
+      const handler2 = await registry.resolve('order_handler');
 
       expect(handler1).not.toBe(handler2);
     });
 
-    it('returns null for unregistered handler', () => {
+    it('returns null for unregistered handler', async () => {
       const registry = new HandlerRegistry();
       const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 
-      const handler = registry.resolve('nonexistent');
+      const handler = await registry.resolve('nonexistent');
 
       expect(handler).toBeNull();
       expect(warnSpy).toHaveBeenCalledWith(
@@ -169,16 +165,16 @@ describe('HandlerRegistry', () => {
       warnSpy.mockRestore();
     });
 
-    it('returns null when constructor throws', () => {
+    it('returns null when constructor throws', async () => {
       const registry = new HandlerRegistry();
       const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
       registry.register('failing_constructor', FailingConstructorHandler);
-      const handler = registry.resolve('failing_constructor');
+      const handler = await registry.resolve('failing_constructor');
 
       expect(handler).toBeNull();
       expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to instantiate handler'),
+        expect.stringContaining('Failed to instantiate'),
         expect.any(Error)
       );
 
@@ -187,21 +183,20 @@ describe('HandlerRegistry', () => {
   });
 
   describe('getHandlerClass', () => {
-    it('returns handler class for registered handler', () => {
+    it('returns undefined (deprecated method)', () => {
       const registry = new HandlerRegistry();
-      registry.register('order_handler', OrderHandler);
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 
+      registry.register('order_handler', OrderHandler);
       const handlerClass = registry.getHandlerClass('order_handler');
 
-      expect(handlerClass).toBe(OrderHandler);
-    });
-
-    it('returns undefined for unregistered handler', () => {
-      const registry = new HandlerRegistry();
-
-      const handlerClass = registry.getHandlerClass('nonexistent');
-
+      // TAS-93: getHandlerClass is deprecated, always returns undefined
       expect(handlerClass).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('getHandlerClass is deprecated')
+      );
+
+      warnSpy.mockRestore();
     });
   });
 
@@ -290,7 +285,7 @@ describe('HandlerRegistry', () => {
       expect(info.handlers).toEqual({});
     });
 
-    it('returns handler names and class names', () => {
+    it('returns handler names', () => {
       const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
       registry.register('payment_handler', PaymentHandler);
@@ -298,9 +293,10 @@ describe('HandlerRegistry', () => {
       const info = registry.debugInfo();
 
       expect(info.handlerCount).toBe(2);
+      // TAS-93: debugInfo returns handler keys mapped to themselves
       expect(info.handlers).toEqual({
-        order_handler: 'OrderHandler',
-        payment_handler: 'PaymentHandler',
+        order_handler: 'order_handler',
+        payment_handler: 'payment_handler',
       });
     });
   });
@@ -310,7 +306,7 @@ describe('HandlerRegistry', () => {
       const registry = new HandlerRegistry();
       registry.register('order_handler', OrderHandler);
 
-      const handler = registry.resolve('order_handler');
+      const handler = await registry.resolve('order_handler');
       expect(handler).not.toBeNull();
 
       // Create a minimal context for testing

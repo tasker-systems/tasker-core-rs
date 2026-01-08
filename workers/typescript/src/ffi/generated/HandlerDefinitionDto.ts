@@ -2,5 +2,16 @@
 
 /**
  * DTO for HandlerDefinition
+ *
+ * TAS-93: Includes method dispatch and resolver hint fields for the
+ * step handler router/resolver strategy pattern.
  */
-export type HandlerDefinitionDto = { callable: string, initialization: Record<string, unknown>, };
+export type HandlerDefinitionDto = { callable: string, 
+/**
+ * The entry point method to invoke (defaults to "call")
+ */
+method: string | null, 
+/**
+ * Resolution strategy hint (bypass chain and use this resolver)
+ */
+resolver: string | null, initialization: Record<string, unknown>, };

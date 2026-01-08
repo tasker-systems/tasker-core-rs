@@ -35,10 +35,12 @@ const pinoLog: Logger = pino(loggerOptions);
 
 /**
  * Interface for handler registry required by StepExecutionSubscriber.
+ *
+ * TAS-93: Updated to support async resolution via ResolverChain.
  */
 export interface HandlerRegistryInterface {
-  /** Resolve and instantiate a handler by name */
-  resolve(name: string): StepHandler | null;
+  /** Resolve and instantiate a handler by name (async for resolver chain support) */
+  resolve(name: string): Promise<StepHandler | null>;
 }
 
 /**
@@ -361,9 +363,9 @@ export class StepExecutionSubscriber {
         timestamp: new Date(),
       });
 
-      // Resolve handler from registry
+      // Resolve handler from registry (TAS-93: async for resolver chain support)
       pinoLog.info({ component: 'subscriber', handlerName }, 'Resolving handler from registry...');
-      const handler = this.registry.resolve(handlerName);
+      const handler = await this.registry.resolve(handlerName);
       pinoLog.info(
         { component: 'subscriber', handlerName, handlerFound: !!handler },
         'Handler resolution result'

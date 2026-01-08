@@ -53,6 +53,8 @@ export {
   SubscriberRegistry,
   type SubscriberStats,
 } from './domain-events';
+// Handler system (TAS-92)
+export { HandlerSystem } from './handler-system.js';
 // TAS-112: Composition pattern mixins
 export type { APICapable, DecisionCapable } from './mixins/index.js';
 export { APIMixin, applyAPI, applyDecision, DecisionMixin } from './mixins/index.js';
