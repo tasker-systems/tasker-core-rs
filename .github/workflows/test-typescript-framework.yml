@@ -86,32 +86,15 @@ jobs:
 
       - name: Setup FFI library path
         run: |
-          echo "📦 Setting up FFI library..."
-          # Create target/release at repo root (not in workers/typescript)
-          mkdir -p ../../target/release
-
-          # Artifacts are downloaded to repo root (download-artifact ignores working-directory)
-          echo "📋 Looking for FFI library in artifacts..."
-          find ../../artifacts -name "*.so" -o -name "*.dylib" 2>/dev/null || echo "No .so/.dylib files found"
-
-          # Copy FFI library from typescript-artifacts (try various paths)
-          if [ -f "../../artifacts/target/release/libtasker_worker.so" ]; then
-            cp ../../artifacts/target/release/libtasker_worker.so ../../target/release/
-            echo "✅ Copied libtasker_worker.so from artifacts/target/release/"
-          elif [ -f "../../artifacts/libtasker_worker.so" ]; then
-            cp ../../artifacts/libtasker_worker.so ../../target/release/
-            echo "✅ Copied libtasker_worker.so from artifacts/ (flat)"
+          echo "📦 Setting up FFI library and TypeScript artifacts..."
+          # Run from repo root since script paths are relative to there
+          cd ../..
+          if [ -d artifacts ]; then
+            ARTIFACTS_DIR=artifacts cargo-make/scripts/ci-restore-typescript-artifacts.sh
           else
-            echo "⚠️ FFI library not found in artifacts, FFI tests will skip"
+            echo "⚠️ No artifacts directory found, FFI tests may skip"
           fi
-
-          # Restore TypeScript dist folder if present
-          if [ -d "../../artifacts/dist" ]; then
-            cp -r ../../artifacts/dist/* dist/ 2>/dev/null || true
-            echo "✅ TypeScript dist restored from artifacts"
-          fi
-
-          ls -la ../../target/release/ || true
+          ls -la target/release/ 2>/dev/null || echo "No FFI library available"
 
       # ========================================================================
       # Quality Checks and Unit Tests (no FFI required)

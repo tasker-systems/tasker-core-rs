@@ -92,14 +92,9 @@ jobs:
       - name: Restore or compile Ruby FFI extension
         run: |
           # Try to use pre-built extension from build-ruby job
-          # Artifact contains: tasker_worker_rb.{bundle,so}
-          if ls artifacts/*.bundle 2>/dev/null || ls artifacts/*.so 2>/dev/null; then
-            echo "📦 Using pre-built Ruby extension from ruby-extension artifact..."
-            mkdir -p lib/tasker_core
-            cp -f artifacts/*.bundle lib/tasker_core/ 2>/dev/null || true
-            cp -f artifacts/*.so lib/tasker_core/ 2>/dev/null || true
-            ls -lh lib/tasker_core/
-            echo "✅ Pre-built extension restored"
+          if [ -d artifacts ] && (ls artifacts/*.bundle 2>/dev/null || ls artifacts/*.so 2>/dev/null); then
+            echo "📦 Restoring pre-built Ruby extension..."
+            ARTIFACTS_DIR=artifacts ../../cargo-make/scripts/ci-restore-ruby-extension.sh
           else
             echo "🔨 Building Ruby extension from source..."
             bundle exec rake compile
