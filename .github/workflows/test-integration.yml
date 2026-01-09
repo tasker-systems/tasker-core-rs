@@ -182,44 +182,63 @@ jobs:
         with:
           tools: "nextest sqlx-cli make"
 
-      - name: Download build artifacts
+      # ========================================================================
+      # Download artifacts from multi-job build-workers workflow
+      # ========================================================================
+      - name: Download core artifacts
         uses: actions/download-artifact@v7
         with:
-          name: build-artifacts
-          path: artifacts/build
+          name: core-artifacts
+          path: artifacts/core
 
-      - name: Download worker artifacts
+      - name: Download Ruby extension artifact
         uses: actions/download-artifact@v7
         with:
-          name: worker-artifacts
-          path: artifacts/workers
+          name: ruby-extension
+          path: artifacts/ruby
+        continue-on-error: true
+
+      - name: Download TypeScript artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: typescript-artifacts
+          path: artifacts/typescript
+        continue-on-error: true
+
+      - name: Download Rust worker artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: rust-worker-artifact
+          path: artifacts/rust-worker
         continue-on-error: true
 
       - name: Restore artifacts to correct locations
         run: |
           echo "📦 Restoring build artifacts..."
 
-          # Restore core binaries
+          # Restore core binaries from core-artifacts
           mkdir -p target/debug
-          if [ -d artifacts/build ]; then
-            cp -f artifacts/build/tasker-* target/debug/ 2>/dev/null || true
+          if [ -d artifacts/core ]; then
+            cp -f artifacts/core/tasker-* target/debug/ 2>/dev/null || true
             chmod +x target/debug/tasker-* 2>/dev/null || true
           fi
           echo "✅ Core binaries restored"
           ls -lh target/debug/tasker-server target/debug/tasker-worker target/debug/tasker-cli 2>/dev/null || echo "⚠️  Some binaries missing"
 
-          # Restore worker artifacts
-          if [ -d artifacts/workers ]; then
-            # Restore Ruby extension
+          # Restore Ruby extension from ruby-extension artifact
+          if [ -d artifacts/ruby ]; then
             mkdir -p workers/ruby/lib/tasker_core
-            find artifacts/workers -name "tasker_worker_rb.so" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
-            find artifacts/workers -name "tasker_worker_rb.bundle" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
+            find artifacts/ruby -name "tasker_worker_rb.so" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
+            find artifacts/ruby -name "tasker_worker_rb.bundle" -exec cp {} workers/ruby/lib/tasker_core/ \; 2>/dev/null || true
             echo "✅ Ruby extension restored"
+            ls -lh workers/ruby/lib/tasker_core/ 2>/dev/null || true
+          fi
 
-            # Restore TypeScript FFI library
+          # Restore TypeScript FFI library from typescript-artifacts
+          if [ -d artifacts/typescript ]; then
             mkdir -p target/release
-            find artifacts/workers -name "libtasker_worker.so" -exec cp {} target/release/ \; 2>/dev/null || true
-            find artifacts/workers -name "libtasker_worker.dylib" -exec cp {} target/release/ \; 2>/dev/null || true
+            find artifacts/typescript -name "libtasker_worker.so" -exec cp {} target/release/ \; 2>/dev/null || true
+            find artifacts/typescript -name "libtasker_worker.dylib" -exec cp {} target/release/ \; 2>/dev/null || true
             if [ -f target/release/libtasker_worker.so ] || [ -f target/release/libtasker_worker.dylib ]; then
               echo "✅ TypeScript FFI library restored"
               ls -lh target/release/libtasker_worker.* 2>/dev/null
@@ -228,16 +247,22 @@ jobs:
             fi
 
             # Restore TypeScript dist folder
-            if [ -d artifacts/workers/workers/typescript/dist ]; then
+            if [ -d artifacts/typescript/workers/typescript/dist ]; then
               mkdir -p workers/typescript/dist
-              cp -r artifacts/workers/workers/typescript/dist/* workers/typescript/dist/ 2>/dev/null || true
+              cp -r artifacts/typescript/workers/typescript/dist/* workers/typescript/dist/ 2>/dev/null || true
               echo "✅ TypeScript dist restored"
+            elif [ -d artifacts/typescript/dist ]; then
+              mkdir -p workers/typescript/dist
+              cp -r artifacts/typescript/dist/* workers/typescript/dist/ 2>/dev/null || true
+              echo "✅ TypeScript dist restored (flat)"
             fi
+          fi
 
-            # Restore rust-worker binary
-            find artifacts/workers -name "rust-worker" -exec cp {} target/debug/ \; 2>/dev/null || true
+          # Restore rust-worker binary from rust-worker-artifact
+          if [ -d artifacts/rust-worker ]; then
+            find artifacts/rust-worker -name "rust-worker" -exec cp {} target/debug/ \; 2>/dev/null || true
             chmod +x target/debug/rust-worker 2>/dev/null || true
-            echo "✅ Worker artifacts restored"
+            echo "✅ Rust worker restored"
           fi
 
       - name: Build Ruby FFI extension (if not from artifacts)

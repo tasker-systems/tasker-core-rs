@@ -85,23 +85,16 @@ jobs:
       - name: Download pre-built Ruby extension
         uses: actions/download-artifact@v7
         with:
-          name: worker-artifacts
+          name: ruby-extension
           path: artifacts
         continue-on-error: true
 
       - name: Restore or compile Ruby FFI extension
         run: |
-          # Try to use pre-built extension from integration tests (build-workers job)
-          # Artifact path: workers/ruby/lib/tasker_core/tasker_worker_rb.{bundle,so}
-          if [ -d artifacts/workers/ruby/lib/tasker_core ]; then
-            echo "📦 Using pre-built Ruby extension from worker artifacts..."
-            mkdir -p lib/tasker_core
-            cp -rf artifacts/workers/ruby/lib/tasker_core/* lib/tasker_core/
-            ls -lh lib/tasker_core/
-            echo "✅ Pre-built extension restored"
-          elif ls artifacts/*.{bundle,so} 2>/dev/null; then
-            # Handle flat artifact structure
-            echo "📦 Using pre-built Ruby extension (flat structure)..."
+          # Try to use pre-built extension from build-ruby job
+          # Artifact contains: tasker_worker_rb.{bundle,so}
+          if ls artifacts/*.bundle 2>/dev/null || ls artifacts/*.so 2>/dev/null; then
+            echo "📦 Using pre-built Ruby extension from ruby-extension artifact..."
             mkdir -p lib/tasker_core
             cp -f artifacts/*.bundle lib/tasker_core/ 2>/dev/null || true
             cp -f artifacts/*.so lib/tasker_core/ 2>/dev/null || true

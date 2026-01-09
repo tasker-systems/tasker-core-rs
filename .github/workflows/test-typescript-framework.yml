@@ -75,13 +75,14 @@ jobs:
         run: bun install --frozen-lockfile
 
       # ========================================================================
-      # Download FFI library artifact from build-workers
+      # Download FFI library artifact from build-typescript job
       # ========================================================================
-      - name: Download worker artifacts
+      - name: Download TypeScript artifacts
         uses: actions/download-artifact@v7
         with:
-          name: worker-artifacts
+          name: typescript-artifacts
           path: artifacts/
+        continue-on-error: true
 
       - name: Setup FFI library path
         run: |
@@ -93,7 +94,7 @@ jobs:
           echo "📋 Looking for FFI library in artifacts..."
           find ../../artifacts -name "*.so" -o -name "*.dylib" 2>/dev/null || echo "No .so/.dylib files found"
 
-          # Copy FFI library from artifacts (try various paths)
+          # Copy FFI library from typescript-artifacts (try various paths)
           if [ -f "../../artifacts/target/release/libtasker_worker.so" ]; then
             cp ../../artifacts/target/release/libtasker_worker.so ../../target/release/
             echo "✅ Copied libtasker_worker.so from artifacts/target/release/"
@@ -102,6 +103,12 @@ jobs:
             echo "✅ Copied libtasker_worker.so from artifacts/ (flat)"
           else
             echo "⚠️ FFI library not found in artifacts, FFI tests will skip"
+          fi
+
+          # Restore TypeScript dist folder if present
+          if [ -d "../../artifacts/dist" ]; then
+            cp -r ../../artifacts/dist/* dist/ 2>/dev/null || true
+            echo "✅ TypeScript dist restored from artifacts"
           fi
 
           ls -la ../../target/release/ || true
