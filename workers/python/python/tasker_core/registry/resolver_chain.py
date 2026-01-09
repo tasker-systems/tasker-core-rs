@@ -218,7 +218,10 @@ class ResolverChain:
         if explicit is None:
             raise RuntimeError("No ExplicitMappingResolver in chain")
 
-        # Access the register method - we know it exists on ExplicitMappingResolver
+        # Type ignore rationale: explicit_resolver property returns BaseResolver
+        # (common interface), but we know at runtime it's ExplicitMappingResolver
+        # which has a register() method. A Protocol type would fix this but adds
+        # complexity for a single use case.
         explicit.register(key, handler)  # type: ignore[attr-defined]
         return self
 

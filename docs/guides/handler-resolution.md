@@ -191,20 +191,22 @@ registry.register("process_payment", ProcessPaymentHandler);
 - Performance-critical handlers
 - Explicit, predictable resolution
 
-### ClassConstantResolver (Priority 100)
+### Class Lookup Resolvers (Priority 100)
 
-**Dynamic language only** (Ruby, Python, TypeScript). Interprets the callable as a class path and instantiates it at runtime:
+**Dynamic language only** (Ruby, Python, TypeScript). Interprets the callable as a class path and instantiates it at runtime.
+
+> **Naming Note**: Ruby uses `ClassConstantResolver` (Ruby terminology for classes). Python and TypeScript use `ClassLookupResolver`. The functionality is equivalent.
 
 ```yaml
-# Ruby: Uses Object.const_get
+# Ruby: Uses Object.const_get (ClassConstantResolver)
 handler:
   callable: PaymentHandlers::ProcessPaymentHandler
 
-# Python: Uses importlib
+# Python: Uses importlib (ClassLookupResolver)
 handler:
   callable: payment_handlers.ProcessPaymentHandler
 
-# TypeScript: Uses dynamic import
+# TypeScript: Uses dynamic import (ClassLookupResolver)
 handler:
   callable: PaymentHandlers.ProcessPaymentHandler
 ```
@@ -216,7 +218,7 @@ handler:
 - Handlers that don't need explicit registration
 - Dynamic handler loading
 
-**Not available in Rust:** Rust has no runtime reflection, so ClassConstantResolver always returns `None`. Use ExplicitMappingResolver instead.
+**Not available in Rust:** Rust has no runtime reflection, so class lookup resolvers always return `None`. Use ExplicitMappingResolver instead.
 
 ---
 
@@ -470,7 +472,7 @@ Rust has **no runtime reflection**, which affects handler resolution:
 
 | Capability | Ruby/Python/TypeScript | Rust |
 |------------|------------------------|------|
-| ClassConstantResolver | ✅ Works | ❌ Always returns None |
+| Class Lookup Resolver | ✅ Works | ❌ Always returns None |
 | Method dispatch | ✅ Native (`send`, `getattr`) | ⚠️ Requires `invoke_method` |
 | Dynamic handler loading | ✅ `const_get`, `importlib` | ❌ Must pre-register |
 
@@ -620,7 +622,7 @@ fn test_handler_resolution() {
 | `method` | Entry point method | `"call"` |
 | `resolver` | Resolution strategy hint | Chain iteration |
 | ExplicitMappingResolver | Registered handlers | Priority 10 |
-| ClassConstantResolver | Dynamic class lookup | Priority 100 |
+| ClassConstantResolver / ClassLookupResolver | Dynamic class lookup | Priority 100 |
 | MethodDispatchWrapper | Multi-method support | Applied when `method` != `"call"` |
 
 The resolver chain provides a flexible, extensible system for handler resolution that works consistently across all language workers while respecting each language's capabilities.

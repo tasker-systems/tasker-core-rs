@@ -6,8 +6,12 @@
  *
  * Supports callable formats:
  * - "./path/to/handler.js" - Relative module path
- * - "/absolute/path/to/handler.js" - Absolute module path
- * - "@scope/package/handler" - Package path
+ * - "../parent/handler.js" - Parent-relative module path
+ * - "@scope/package/handler" - Scoped package path
+ *
+ * NOT supported (security):
+ * - "/absolute/path/to/handler.js" - Absolute paths are blocked to prevent
+ *   loading arbitrary code in shared hosting environments.
  *
  * The module must export a class with a static `handlerName` property
  * matching the expected handler interface.
@@ -36,10 +40,13 @@ import type { HandlerDefinition } from '../handler-definition.js';
  *
  * Matches:
  * - Relative paths: ./foo, ../foo
- * - Absolute paths: /foo/bar
- * - Package paths: @scope/foo, package/foo
+ * - Package paths: @scope/foo
+ *
+ * Note: Absolute paths (/foo/bar) are intentionally NOT supported
+ * to prevent loading arbitrary code from the filesystem in shared
+ * hosting environments.
  */
-const IMPORTABLE_PATTERN = /^(\.\.?\/|\/|@[\w-]+\/)/;
+const IMPORTABLE_PATTERN = /^(\.\.?\/|@[\w-]+\/)/;
 
 /**
  * Resolver that infers handlers from module paths via dynamic import.
@@ -76,6 +83,11 @@ export class ClassLookupResolver implements BaseResolver {
     definition: HandlerDefinition,
     _config?: ResolverConfig
   ): Promise<StepHandler | null> {
+    // Security check: only allow paths that pass canResolve
+    if (!this.canResolve(definition)) {
+      return null;
+    }
+
     const modulePath = definition.callable;
 
     try {

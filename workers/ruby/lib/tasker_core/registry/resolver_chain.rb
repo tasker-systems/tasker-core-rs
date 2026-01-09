@@ -183,6 +183,30 @@ module TaskerCore
         @resolvers.map(&:name)
       end
 
+      # Wrap handler for method dispatch if needed.
+      #
+      # This method is public because HandlerRegistry needs to wrap handlers
+      # that it instantiates directly (outside the resolver chain flow).
+      #
+      # @param handler [Object] Resolved handler instance
+      # @param definition [TaskerCore::Types::HandlerDefinition] Handler configuration
+      # @return [Object, nil] Handler (possibly wrapped), or nil if method not found
+      def wrap_for_method_dispatch(handler, definition)
+        # No wrapping needed if using default .call method
+        return handler unless definition.uses_method_dispatch?
+
+        effective_method = definition.effective_method.to_sym
+
+        # Verify handler responds to the target method
+        unless handler.respond_to?(effective_method)
+          @logger.warn("ResolverChain: Handler #{handler.class} doesn't respond to ##{effective_method}")
+          return nil
+        end
+
+        @logger.debug("ResolverChain: Wrapping #{handler.class} for method dispatch → ##{effective_method}")
+        Resolvers::MethodDispatchWrapper.new(handler, effective_method)
+      end
+
       private
 
       # Resolve using explicit resolver hint (bypasses chain)
@@ -228,28 +252,6 @@ module TaskerCore
 
         @logger.debug("ResolverChain: No resolver could handle '#{definition.callable}'")
         nil
-      end
-
-      # Wrap handler for method dispatch if needed
-      #
-      # @param handler [Object] Resolved handler
-      # @param definition [TaskerCore::Types::HandlerDefinition] Handler configuration
-      # @return [Object] Handler (possibly wrapped)
-      def wrap_for_method_dispatch(handler, definition)
-        # No wrapping needed if using default .call method
-        return handler unless definition.uses_method_dispatch?
-
-        effective_method = definition.effective_method.to_sym
-
-        # If handler already responds to .call AND the target method,
-        # wrap it to redirect call → target_method
-        unless handler.respond_to?(effective_method)
-          @logger.warn("ResolverChain: Handler #{handler.class} doesn't respond to ##{effective_method}")
-          return nil
-        end
-
-        @logger.debug("ResolverChain: Wrapping #{handler.class} for method dispatch → ##{effective_method}")
-        Resolvers::MethodDispatchWrapper.new(handler, effective_method)
       end
     end
   end

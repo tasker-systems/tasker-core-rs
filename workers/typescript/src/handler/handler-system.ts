@@ -21,7 +21,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createLogger } from '../logging/index.js';
 import type { BaseResolver, HandlerSpec, ResolverChain } from '../registry/index.js';
-import type { StepHandler, StepHandlerClass } from './base.js';
+import type { ExecutableHandler, StepHandlerClass } from './base.js';
 import { HandlerRegistry } from './registry.js';
 
 const log = createLogger({ component: 'handler-system' });
@@ -210,7 +210,7 @@ export class HandlerSystem {
    * });
    * ```
    */
-  async resolve(handlerSpec: HandlerSpec): Promise<StepHandler | null> {
+  async resolve(handlerSpec: HandlerSpec): Promise<ExecutableHandler | null> {
     return this.registry.resolve(handlerSpec);
   }
 

@@ -25,7 +25,7 @@
  * ```
  */
 
-import type { StepHandler } from '../handler/base.js';
+import type { ExecutableHandler, StepHandler } from '../handler/base.js';
 import type { StepContext } from '../types/step-context.js';
 import type { StepHandlerResult } from '../types/step-handler-result.js';
 import { MethodDispatchError } from './errors.js';
@@ -33,14 +33,11 @@ import { MethodDispatchError } from './errors.js';
 /**
  * Wrapper that redirects .call() to a specified method.
  *
- * Structurally compatible with StepHandler so it can be used
- * transparently in place of the wrapped handler.
- *
- * Note: We don't use `implements StepHandler` because that would require
- * implementing protected helper methods (success, failure) that are not
- * part of the public interface.
+ * Implements ExecutableHandler to be type-safe when used in place of
+ * a regular StepHandler. This avoids unsafe type casting while providing
+ * the same public interface.
  */
-export class MethodDispatchWrapper {
+export class MethodDispatchWrapper implements ExecutableHandler {
   /** The wrapped handler instance */
   readonly handler: StepHandler;
 

@@ -211,7 +211,8 @@ HandlerDefinition                    ResolverChain                    Handler
 | Resolver | Priority | Function |
 |----------|----------|----------|
 | `ExplicitMappingResolver` | 10 | Hash lookup of registered handlers |
-| `ClassConstantResolver` | 100 | Runtime class lookup (Ruby/Python/TS only) |
+| `ClassConstantResolver` | 100 | Runtime class lookup (Ruby only) |
+| `ClassLookupResolver` | 100 | Runtime class lookup (Python/TypeScript only) |
 
 **Method Dispatch**: When `handler.method` is specified and not `"call"`, a `MethodDispatchWrapper` is applied to invoke the specified method instead of the default `call()` method.
 

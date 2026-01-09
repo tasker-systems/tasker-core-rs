@@ -27,7 +27,8 @@
  * ```
  */
 
-import type { StepHandler } from '../handler/base.js';
+import type { ExecutableHandler, StepHandler } from '../handler/base.js';
+import { createLogger } from '../logging/index.js';
 import type { BaseResolver, ResolverConfig } from './base-resolver.js';
 import { ResolverNotFoundError } from './errors.js';
 import {
@@ -38,9 +39,10 @@ import {
 } from './handler-definition.js';
 import { MethodDispatchWrapper } from './method-dispatch-wrapper.js';
 
-// Lazy imports to avoid circular dependencies
-let ExplicitMappingResolver: typeof import('./resolvers/explicit-mapping.js').ExplicitMappingResolver;
-let ClassLookupResolver: typeof import('./resolvers/class-lookup.js').ClassLookupResolver;
+const log = createLogger({ component: 'resolver-chain' });
+
+// Lazy imports to avoid circular dependencies - uses Promise caching for thread safety
+let defaultChainPromise: Promise<ResolverChain> | null = null;
 
 /**
  * Priority-ordered chain of resolvers for handler resolution.
@@ -56,23 +58,42 @@ export class ResolverChain {
    * - ExplicitMappingResolver (priority 10)
    * - ClassLookupResolver (priority 100)
    *
+   * Note: Uses Promise caching to prevent race conditions when called
+   * concurrently. Multiple callers will receive the same chain instance.
+   *
    * @returns Configured resolver chain
    */
-  static async default(): Promise<ResolverChain> {
+  static default(): Promise<ResolverChain> {
+    // Use Promise caching to prevent race conditions on concurrent calls
+    if (!defaultChainPromise) {
+      defaultChainPromise = ResolverChain.createDefaultChain();
+    }
+    return defaultChainPromise;
+  }
+
+  /**
+   * Reset the default chain (for testing only).
+   *
+   * @internal
+   */
+  static resetDefault(): void {
+    defaultChainPromise = null;
+  }
+
+  /**
+   * Internal method to create the default chain.
+   */
+  private static async createDefaultChain(): Promise<ResolverChain> {
     const chain = new ResolverChain();
 
     // Lazy load to avoid circular dependencies
-    if (!ExplicitMappingResolver) {
-      const mod = await import('./resolvers/explicit-mapping.js');
-      ExplicitMappingResolver = mod.ExplicitMappingResolver;
-    }
-    if (!ClassLookupResolver) {
-      const mod = await import('./resolvers/class-lookup.js');
-      ClassLookupResolver = mod.ClassLookupResolver;
-    }
+    const [explicitMod, classLookupMod] = await Promise.all([
+      import('./resolvers/explicit-mapping.js'),
+      import('./resolvers/class-lookup.js'),
+    ]);
 
-    chain.addResolver(new ExplicitMappingResolver());
-    chain.addResolver(new ClassLookupResolver());
+    chain.addResolver(new explicitMod.ExplicitMappingResolver());
+    chain.addResolver(new classLookupMod.ClassLookupResolver());
 
     return chain;
   }
@@ -135,12 +156,12 @@ export class ResolverChain {
    *
    * @param definition - Handler definition to resolve
    * @param config - Optional resolver configuration
-   * @returns Handler instance (possibly wrapped) or null
+   * @returns ExecutableHandler instance (possibly wrapped) or null
    */
   async resolve(
     definition: HandlerDefinition,
     config?: ResolverConfig
-  ): Promise<StepHandler | null> {
+  ): Promise<ExecutableHandler | null> {
     let handler: StepHandler | null;
 
     if (hasResolverHint(definition)) {
@@ -161,9 +182,9 @@ export class ResolverChain {
    *
    * @param handler - Handler to potentially wrap
    * @param definition - Handler definition with method info
-   * @returns Original handler or wrapped handler
+   * @returns Original handler or MethodDispatchWrapper (both implement ExecutableHandler)
    */
-  wrapForMethodDispatch(handler: StepHandler, definition: HandlerDefinition): StepHandler {
+  wrapForMethodDispatch(handler: StepHandler, definition: HandlerDefinition): ExecutableHandler {
     if (!usesMethodDispatch(definition)) {
       return handler;
     }
@@ -173,12 +194,16 @@ export class ResolverChain {
     // Check if handler has the method
     const handlerWithMethod = handler as unknown as Record<string, unknown>;
     if (typeof handlerWithMethod[method] !== 'function') {
-      console.warn(`[ResolverChain] Handler '${handler.name}' does not have method '${method}'`);
+      log.warn(`Handler does not have requested method`, {
+        operation: 'wrap_for_method_dispatch',
+        handler_name: handler.name,
+        method,
+      });
       return handler;
     }
 
-    // Cast to StepHandler since MethodDispatchWrapper is structurally compatible
-    return new MethodDispatchWrapper(handler, method) as unknown as StepHandler;
+    // MethodDispatchWrapper implements ExecutableHandler, so no casting needed
+    return new MethodDispatchWrapper(handler, method);
   }
 
   /**

@@ -121,8 +121,12 @@ class ClassLookupResolver(BaseResolver):
             return handler_class
 
         except ImportError:
+            # Module not found - expected for non-existent paths
             return None
         except Exception:
+            # Other import errors (syntax, etc.) - silently fail
+            # as this is an inferential resolver; explicit registration
+            # should be used if the handler must succeed
             return None
 
     def _instantiate_handler(
@@ -147,15 +151,17 @@ class ClassLookupResolver(BaseResolver):
         try:
             return handler_class()
         except TypeError:
-            # May need config - try with it
+            # Handler requires arguments - fall through to try with config
             pass
         except Exception:
-            # Other error - fail
+            # Instantiation error (not just missing args) - fail silently
+            # as this is an inferential resolver
             return None
 
-        # Second try: instantiate with config
+        # Second try: instantiate with config keyword argument
         try:
             return handler_class(config=definition.initialization or {})
         except Exception:
-            # Instantiation failed - return None
+            # Instantiation failed - handler may have incompatible constructor
+            # Fail silently; use explicit registration for handlers that must succeed
             return None

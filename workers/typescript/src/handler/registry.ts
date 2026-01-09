@@ -40,7 +40,7 @@ import {
   normalizeToDefinition,
   ResolverChain,
 } from '../registry/index.js';
-import type { StepHandler, StepHandlerClass } from './base';
+import type { ExecutableHandler, StepHandler, StepHandlerClass } from './base';
 
 /**
  * Registry for step handler classes.
@@ -182,7 +182,7 @@ export class HandlerRegistry {
    * - HandlerSpec: Union type for all formats
    *
    * @param handlerSpec - Handler specification
-   * @returns Instantiated handler or null if not found
+   * @returns ExecutableHandler (StepHandler or MethodDispatchWrapper) or null if not found
    *
    * @example
    * ```typescript
@@ -196,7 +196,7 @@ export class HandlerRegistry {
    * });
    * ```
    */
-  async resolve(handlerSpec: HandlerSpec): Promise<StepHandler | null> {
+  async resolve(handlerSpec: HandlerSpec): Promise<ExecutableHandler | null> {
     await this.ensureInitialized();
 
     const definition = normalizeToDefinition(handlerSpec);

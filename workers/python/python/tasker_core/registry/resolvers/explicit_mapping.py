@@ -174,15 +174,17 @@ class ExplicitMappingResolver(BaseResolver):
         try:
             return handler_class()
         except TypeError:
-            # May need config - try with it
+            # Handler requires arguments - fall through to try with config
             pass
         except Exception:
-            # Other error - fail
+            # Instantiation error (not just missing args) - fail silently
+            # and return None to allow chain to continue
             return None
 
-        # Second try: instantiate with config
+        # Second try: instantiate with config keyword argument
         try:
             return handler_class(config=definition.initialization or {})
         except Exception:
-            # Instantiation failed - return None
+            # Instantiation failed - handler may have incompatible constructor
+            # Return None to indicate resolution failure
             return None

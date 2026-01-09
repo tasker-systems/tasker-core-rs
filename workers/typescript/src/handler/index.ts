@@ -9,7 +9,7 @@
 
 // Specialized handlers (TAS-103)
 export { ApiHandler, ApiResponse } from './api.js';
-export type { StepHandlerClass } from './base.js';
+export type { ExecutableHandler, StepHandlerClass } from './base.js';
 // Base handler class
 export { StepHandler } from './base.js';
 export type { Batchable } from './batchable.js';

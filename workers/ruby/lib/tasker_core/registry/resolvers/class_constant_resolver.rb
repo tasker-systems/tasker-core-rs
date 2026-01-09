@@ -50,14 +50,16 @@ module TaskerCore
           PRIORITY
         end
 
-        # Always return true - we'll try to resolve any callable
+        # Check if callable looks like a Ruby class constant path.
         #
-        # Since this is the fallback resolver, we attempt resolution
-        # for any callable string that looks like a class path.
+        # This method checks the STRING FORMAT, not whether the class exists.
+        # Actual class existence is verified in resolve() - this allows the
+        # resolver chain to skip this resolver for callables that are clearly
+        # not class paths (e.g., "payment_handler", "./path/to/handler").
         #
         # @param definition [TaskerCore::Types::HandlerDefinition] Handler configuration
         # @param config [Hash] Additional context
-        # @return [Boolean] true (always attempts resolution)
+        # @return [Boolean] true if callable looks like a class constant
         def can_resolve?(definition, _config)
           callable = definition.callable.to_s
 

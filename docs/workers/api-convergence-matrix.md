@@ -161,10 +161,10 @@ Handler resolution uses a chain-of-responsibility pattern to convert callable ad
 
 | Method | Ruby | Python | TypeScript | Rust |
 |--------|------|--------|------------|------|
-| Get Name | `resolver_name` | `resolver_name()` | `resolverName()` | `resolver_name(&self)` |
+| Get Name | `name` | `resolver_name()` | `resolverName()` | `resolver_name(&self)` |
 | Get Priority | `priority` | `priority()` | `priority()` | `priority(&self)` |
-| Can Resolve? | `can_resolve?(definition)` | `can_resolve(definition)` | `canResolve(definition)` | `can_resolve(&self, definition)` |
-| Resolve | `resolve(definition, context)` | `resolve(definition, context)` | `resolve(definition, context)` | `resolve(&self, definition, context)` |
+| Can Resolve? | `can_resolve?(definition, config)` | `can_resolve(definition)` | `canResolve(definition)` | `can_resolve(&self, definition)` |
+| Resolve | `resolve(definition, config)` | `resolve(definition, context)` | `resolve(definition, context)` | `resolve(&self, definition, context)` |
 
 ### ResolverChain Operations
 
@@ -181,9 +181,10 @@ Handler resolution uses a chain-of-responsibility pattern to convert callable ad
 | Resolver | Priority | Function | Rust | Ruby | Python | TypeScript |
 |----------|----------|----------|------|------|--------|------------|
 | ExplicitMappingResolver | 10 | Hash lookup of registered handlers | ✅ | ✅ | ✅ | ✅ |
-| ClassConstantResolver | 100 | Runtime class lookup | ❌ | ✅ | ✅ | ✅ |
+| ClassConstantResolver | 100 | Runtime class lookup (Ruby) | ❌ | ✅ | - | - |
+| ClassLookupResolver | 100 | Runtime class lookup (Python/TS) | ❌ | - | ✅ | ✅ |
 
-**Note**: ClassConstantResolver is not available in Rust due to lack of runtime reflection. Rust handlers must use ExplicitMappingResolver.
+**Note**: Class lookup resolvers are not available in Rust due to lack of runtime reflection. Rust handlers must use ExplicitMappingResolver. Ruby uses `ClassConstantResolver` (Ruby terminology); Python and TypeScript use `ClassLookupResolver` (same functionality, language-appropriate naming).
 
 ### HandlerDefinition Fields
 

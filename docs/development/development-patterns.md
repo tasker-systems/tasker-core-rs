@@ -471,7 +471,7 @@ chain.register(Arc::new(ClassConstantResolver::new()));
 | 1-9 | Override all other resolvers |
 | 10 | ExplicitMappingResolver (default) |
 | 20-90 | Custom domain resolvers |
-| 100 | ClassConstantResolver (fallback) |
+| 100 | Class lookup resolver (fallback) - `ClassConstantResolver` (Ruby), `ClassLookupResolver` (Python/TS) |
 
 See [Handler Resolution Guide](../guides/handler-resolution.md) for complete documentation.
 
