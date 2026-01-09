@@ -110,18 +110,129 @@ pub struct TemplateMetadata {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
-/// Handler definition with callable and initialization
+/// Handler definition with callable, method dispatch, and resolver configuration.
+///
+/// ## TAS-93: Step Handler Router/Resolver Strategy Pattern
+///
+/// This structure represents the "address" for handler resolution with three concerns:
+///
+/// | Field | Purpose | Owner |
+/// |-------|---------|-------|
+/// | `callable` | Address/lookup key for finding the handler | Resolver interprets |
+/// | `method` | Entry point method to invoke on the handler | Framework handles |
+/// | `resolver` | Resolution strategy hint (bypass chain) | Framework routes |
+///
+/// The `callable` field is like a URL - its format depends on which resolver interprets it:
+/// - `Module::ClassName` → ClassConstantResolver (Ruby)
+/// - `module.ClassName` → ClassLookupResolver (Python/TS)
+/// - `my_handler_key` → ExplicitMappingResolver (all languages)
+/// - `payments:stripe:refund` → Custom domain resolver
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder, Display)]
-#[display("HandlerDefinition(callable: {})", callable)]
+#[display("HandlerDefinition(callable: {}, method: {:?})", callable, method)]
 pub struct HandlerDefinition {
-    /// Callable reference (class, proc, lambda)
+    /// The address - a lookup key interpreted by resolvers.
+    ///
+    /// Format depends on which resolver handles it (like URL schemes).
+    /// Examples:
+    /// - `"PaymentProcessing::ValidationHandler"` - Ruby class path
+    /// - `"payment_processing.ValidationHandler"` - Python module path
+    /// - `"validate_payment"` - Explicit mapping key
     #[validate(length(min = 1, max = 500))]
     pub callable: String,
 
-    /// Initialization parameters
+    /// The entry point - which method to invoke on the resolved handler.
+    ///
+    /// Defaults to `"call"` when not specified. The framework handles method
+    /// dispatch wrapping; resolvers just return handler instances.
+    ///
+    /// Example: `method: "validate"` will invoke `handler.validate(context)`
+    /// instead of the default `handler.call(context)`.
+    #[serde(default)]
+    pub method: Option<String>,
+
+    /// Resolution strategy hint - bypass the chain and use this resolver directly.
+    ///
+    /// When set, the framework skips the resolver chain and routes directly
+    /// to the named resolver. If unset, resolvers are tried in priority order.
+    ///
+    /// Example: `resolver: "explicit_mapping"` forces use of ExplicitMappingResolver.
+    #[serde(default)]
+    pub resolver: Option<String>,
+
+    /// Initialization parameters passed to resolver/handler constructor.
     #[serde(default)]
     #[builder(default)]
     pub initialization: HashMap<String, Value>,
+}
+
+impl HandlerDefinition {
+    /// Get the effective method name (defaults to "call").
+    ///
+    /// This is the method that will be invoked on the resolved handler.
+    /// When `method` is `None` or explicitly `"call"`, returns `"call"`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tasker_shared::models::core::task_template::HandlerDefinition;
+    ///
+    /// let handler = HandlerDefinition::builder()
+    ///     .callable("MyHandler".to_string())
+    ///     .build();
+    /// assert_eq!(handler.effective_method(), "call");
+    ///
+    /// let handler_with_method = HandlerDefinition::builder()
+    ///     .callable("MyHandler".to_string())
+    ///     .method("validate".to_string())
+    ///     .build();
+    /// assert_eq!(handler_with_method.effective_method(), "validate");
+    /// ```
+    #[must_use]
+    pub fn effective_method(&self) -> &str {
+        self.method.as_deref().unwrap_or("call")
+    }
+
+    /// Check if this definition uses method dispatch (non-default method).
+    ///
+    /// Returns `true` if a method is specified AND it's not the default `"call"`.
+    /// The framework uses this to determine whether to wrap the handler
+    /// with a `MethodDispatchWrapper`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tasker_shared::models::core::task_template::HandlerDefinition;
+    ///
+    /// let default_handler = HandlerDefinition::builder()
+    ///     .callable("MyHandler".to_string())
+    ///     .build();
+    /// assert!(!default_handler.uses_method_dispatch());
+    ///
+    /// let explicit_call = HandlerDefinition::builder()
+    ///     .callable("MyHandler".to_string())
+    ///     .method("call".to_string())
+    ///     .build();
+    /// assert!(!explicit_call.uses_method_dispatch());
+    ///
+    /// let custom_method = HandlerDefinition::builder()
+    ///     .callable("MyHandler".to_string())
+    ///     .method("validate".to_string())
+    ///     .build();
+    /// assert!(custom_method.uses_method_dispatch());
+    /// ```
+    #[must_use]
+    pub fn uses_method_dispatch(&self) -> bool {
+        self.method.is_some() && self.method.as_deref() != Some("call")
+    }
+
+    /// Check if this definition specifies a resolver hint.
+    ///
+    /// When `true`, the framework should bypass the resolver chain
+    /// and route directly to the named resolver.
+    #[must_use]
+    pub fn has_resolver_hint(&self) -> bool {
+        self.resolver.is_some()
+    }
 }
 
 /// External system dependencies
@@ -1619,6 +1730,8 @@ steps:
             description: None,
             handler: HandlerDefinition {
                 callable: "Handler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             },
             step_type: StepType::Standard,
@@ -1636,6 +1749,8 @@ steps:
             description: None,
             handler: HandlerDefinition {
                 callable: "Handler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             },
             step_type: StepType::Decision,
@@ -1993,6 +2108,8 @@ steps:
             description: None,
             handler: HandlerDefinition {
                 callable: "Handler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             },
             step_type: StepType::Decision,
@@ -2016,6 +2133,8 @@ steps:
             description: None,
             handler: HandlerDefinition {
                 callable: "Handler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             },
             step_type: StepType::Decision,
@@ -2036,6 +2155,8 @@ steps:
             description: None,
             handler: HandlerDefinition {
                 callable: "Handler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             },
             step_type: StepType::Standard,
@@ -2830,5 +2951,252 @@ steps:
         assert!(schema_obj.contains_key("properties"));
         assert!(schema_obj.contains_key("required"));
         assert_eq!(schema_obj.get("additionalProperties").unwrap(), false);
+    }
+
+    // =========================================================================
+    // TAS-93: HandlerDefinition tests for method dispatch and resolver hints
+    // =========================================================================
+
+    mod handler_definition_tests {
+        use super::*;
+
+        #[test]
+        fn test_effective_method_defaults_to_call() {
+            let handler = HandlerDefinition::builder()
+                .callable("MyHandler".to_string())
+                .build();
+
+            assert_eq!(handler.effective_method(), "call");
+        }
+
+        #[test]
+        fn test_effective_method_returns_specified_method() {
+            let handler = HandlerDefinition::builder()
+                .callable("MyHandler".to_string())
+                .method("validate".to_string())
+                .build();
+
+            assert_eq!(handler.effective_method(), "validate");
+        }
+
+        #[test]
+        fn test_effective_method_explicit_call() {
+            let handler = HandlerDefinition::builder()
+                .callable("MyHandler".to_string())
+                .method("call".to_string())
+                .build();
+
+            assert_eq!(handler.effective_method(), "call");
+        }
+
+        #[test]
+        fn test_uses_method_dispatch_false_when_none() {
+            let handler = HandlerDefinition::builder()
+                .callable("MyHandler".to_string())
+                .build();
+
+            assert!(!handler.uses_method_dispatch());
+        }
+
+        #[test]
+        fn test_uses_method_dispatch_false_when_call() {
+            let handler = HandlerDefinition::builder()
+                .callable("MyHandler".to_string())
+                .method("call".to_string())
+                .build();
+
+            assert!(!handler.uses_method_dispatch());
+        }
+
+        #[test]
+        fn test_uses_method_dispatch_true_for_other_methods() {
+            let handler = HandlerDefinition::builder()
+                .callable("MyHandler".to_string())
+                .method("validate".to_string())
+                .build();
+
+            assert!(handler.uses_method_dispatch());
+        }
+
+        #[test]
+        fn test_has_resolver_hint_false_when_none() {
+            let handler = HandlerDefinition::builder()
+                .callable("MyHandler".to_string())
+                .build();
+
+            assert!(!handler.has_resolver_hint());
+        }
+
+        #[test]
+        fn test_has_resolver_hint_true_when_set() {
+            let handler = HandlerDefinition::builder()
+                .callable("my_handler_key".to_string())
+                .resolver("explicit_mapping".to_string())
+                .build();
+
+            assert!(handler.has_resolver_hint());
+            assert_eq!(handler.resolver.as_deref(), Some("explicit_mapping"));
+        }
+
+        #[test]
+        fn test_serde_backward_compatible_without_new_fields() {
+            // Existing YAML format without method/resolver fields should still parse
+            let yaml = r#"
+callable: "PaymentProcessing::ValidationHandler"
+initialization:
+  timeout_ms: 5000
+"#;
+            let handler: HandlerDefinition =
+                serde_yaml::from_str(yaml).expect("Should parse without new fields");
+
+            assert_eq!(handler.callable, "PaymentProcessing::ValidationHandler");
+            assert!(handler.method.is_none());
+            assert!(handler.resolver.is_none());
+            assert_eq!(handler.effective_method(), "call");
+            assert!(!handler.uses_method_dispatch());
+            assert!(!handler.has_resolver_hint());
+        }
+
+        #[test]
+        fn test_serde_with_method_field() {
+            let yaml = r#"
+callable: "OrderHandler"
+method: "validate_order"
+initialization: {}
+"#;
+            let handler: HandlerDefinition =
+                serde_yaml::from_str(yaml).expect("Should parse with method field");
+
+            assert_eq!(handler.callable, "OrderHandler");
+            assert_eq!(handler.method.as_deref(), Some("validate_order"));
+            assert_eq!(handler.effective_method(), "validate_order");
+            assert!(handler.uses_method_dispatch());
+        }
+
+        #[test]
+        fn test_serde_with_resolver_field() {
+            let yaml = r#"
+callable: "my_custom_key"
+resolver: "explicit_mapping"
+"#;
+            let handler: HandlerDefinition =
+                serde_yaml::from_str(yaml).expect("Should parse with resolver field");
+
+            assert_eq!(handler.callable, "my_custom_key");
+            assert_eq!(handler.resolver.as_deref(), Some("explicit_mapping"));
+            assert!(handler.has_resolver_hint());
+        }
+
+        #[test]
+        fn test_serde_with_all_fields() {
+            let yaml = r#"
+callable: "payments:stripe:refund"
+method: "execute"
+resolver: "payment_resolver"
+initialization:
+  api_version: "2024-01"
+"#;
+            let handler: HandlerDefinition =
+                serde_yaml::from_str(yaml).expect("Should parse with all fields");
+
+            assert_eq!(handler.callable, "payments:stripe:refund");
+            assert_eq!(handler.method.as_deref(), Some("execute"));
+            assert_eq!(handler.resolver.as_deref(), Some("payment_resolver"));
+            assert_eq!(handler.effective_method(), "execute");
+            assert!(handler.uses_method_dispatch());
+            assert!(handler.has_resolver_hint());
+        }
+
+        #[test]
+        fn test_serde_roundtrip() {
+            let original = HandlerDefinition::builder()
+                .callable("MyHandler".to_string())
+                .method("process".to_string())
+                .resolver("custom".to_string())
+                .initialization(HashMap::from([(
+                    "key".to_string(),
+                    serde_json::json!("value"),
+                )]))
+                .build();
+
+            let yaml = serde_yaml::to_string(&original).expect("Should serialize");
+            let deserialized: HandlerDefinition =
+                serde_yaml::from_str(&yaml).expect("Should deserialize");
+
+            assert_eq!(original, deserialized);
+        }
+
+        #[test]
+        fn test_display_includes_method() {
+            let handler = HandlerDefinition::builder()
+                .callable("MyHandler".to_string())
+                .method("validate".to_string())
+                .build();
+
+            let display = format!("{}", handler);
+            assert!(display.contains("MyHandler"));
+            assert!(display.contains("validate"));
+        }
+    }
+
+    #[test]
+    fn test_task_template_with_method_dispatch() {
+        // Test that TaskTemplate parsing works with new handler fields
+        let yaml_content = r#"
+name: method_dispatch_test
+namespace_name: resolver_tests
+version: "1.0.0"
+
+steps:
+  - name: validate_step
+    handler:
+      callable: "ValidationHandler"
+      method: "validate_input"
+
+  - name: process_step
+    handler:
+      callable: "ValidationHandler"
+      method: "process_result"
+    dependencies: [validate_step]
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+
+        assert_eq!(template.steps.len(), 2);
+
+        let validate_step = &template.steps[0];
+        assert_eq!(
+            validate_step.handler.method.as_deref(),
+            Some("validate_input")
+        );
+        assert!(validate_step.handler.uses_method_dispatch());
+
+        let process_step = &template.steps[1];
+        assert_eq!(
+            process_step.handler.method.as_deref(),
+            Some("process_result")
+        );
+        assert!(process_step.handler.uses_method_dispatch());
+    }
+
+    #[test]
+    fn test_task_template_with_resolver_hint() {
+        let yaml_content = r#"
+name: resolver_hint_test
+namespace_name: resolver_tests
+version: "1.0.0"
+
+steps:
+  - name: mapped_step
+    handler:
+      callable: "my_handler_key"
+      resolver: "explicit_mapping"
+"#;
+
+        let template = TaskTemplate::from_yaml(yaml_content).expect("Should parse YAML");
+
+        let step = &template.steps[0];
+        assert_eq!(step.handler.resolver.as_deref(), Some("explicit_mapping"));
+        assert!(step.handler.has_resolver_hint());
     }
 }

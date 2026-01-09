@@ -138,6 +138,8 @@ fn create_payment_task_sequence_step(
             description: Some("Process payment transaction".to_string()),
             handler: HandlerDefinition {
                 callable: "ProcessPaymentHandler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             },
             step_type: Default::default(),

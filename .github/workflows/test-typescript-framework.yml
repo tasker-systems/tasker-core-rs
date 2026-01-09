@@ -75,36 +75,26 @@ jobs:
         run: bun install --frozen-lockfile
 
       # ========================================================================
-      # Download FFI library artifact from build-workers
+      # Download FFI library artifact from build-typescript job
       # ========================================================================
-      - name: Download worker artifacts
+      - name: Download TypeScript artifacts
         uses: actions/download-artifact@v7
         with:
-          name: worker-artifacts
+          name: typescript-artifacts
           path: artifacts/
+        continue-on-error: true
 
       - name: Setup FFI library path
         run: |
-          echo "📦 Setting up FFI library..."
-          # Create target/release at repo root (not in workers/typescript)
-          mkdir -p ../../target/release
-
-          # Artifacts are downloaded to repo root (download-artifact ignores working-directory)
-          echo "📋 Looking for FFI library in artifacts..."
-          find ../../artifacts -name "*.so" -o -name "*.dylib" 2>/dev/null || echo "No .so/.dylib files found"
-
-          # Copy FFI library from artifacts (try various paths)
-          if [ -f "../../artifacts/target/release/libtasker_worker.so" ]; then
-            cp ../../artifacts/target/release/libtasker_worker.so ../../target/release/
-            echo "✅ Copied libtasker_worker.so from artifacts/target/release/"
-          elif [ -f "../../artifacts/libtasker_worker.so" ]; then
-            cp ../../artifacts/libtasker_worker.so ../../target/release/
-            echo "✅ Copied libtasker_worker.so from artifacts/ (flat)"
+          echo "📦 Setting up FFI library and TypeScript artifacts..."
+          # Run from repo root since script paths are relative to there
+          cd ../..
+          if [ -d artifacts ]; then
+            ARTIFACTS_DIR=artifacts cargo-make/scripts/ci-restore-typescript-artifacts.sh
           else
-            echo "⚠️ FFI library not found in artifacts, FFI tests will skip"
+            echo "⚠️ No artifacts directory found, FFI tests may skip"
           fi
-
-          ls -la ../../target/release/ || true
+          ls -la target/release/ 2>/dev/null || echo "No FFI library available"
 
       # ========================================================================
       # Quality Checks and Unit Tests (no FFI required)

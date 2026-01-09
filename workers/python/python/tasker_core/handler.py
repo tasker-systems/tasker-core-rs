@@ -4,6 +4,9 @@ This module provides the StepHandler abstract base class that all step
 handlers must inherit from, and the HandlerRegistry for registering
 and resolving handlers.
 
+TAS-93: HandlerRegistry uses ResolverChain for flexible handler
+resolution with support for method dispatch and resolver hints.
+
 Note:
     StepHandler is now defined in tasker_core.step_handler.base and
     re-exported here for backwards compatibility. New specialized handlers
@@ -27,6 +30,12 @@ Example:
     >>> # Resolve and execute
     >>> handler = registry.resolve("my_handler")
     >>> result = handler.call(context)
+    >>>
+    >>> # Resolve with method dispatch
+    >>> from tasker_core.registry import HandlerDefinition
+    >>> definition = HandlerDefinition(callable="my_handler", handler_method="process")
+    >>> handler = registry.resolve(definition)
+    >>> result = handler.call(context)  # Actually calls handler.process(context)
 """
 
 from __future__ import annotations
@@ -39,6 +48,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .logging import log_debug, log_error, log_info, log_warn
+from .models import HandlerWrapper
+from .registry import HandlerDefinition, ResolverChain
 
 # Import StepHandler from its new canonical location
 from .step_handler.base import StepHandler
@@ -46,12 +57,18 @@ from .step_handler.base import StepHandler
 if TYPE_CHECKING:
     pass
 
+# Type alias for handler specification
+HandlerSpec = str | HandlerDefinition | HandlerWrapper
+
 
 class HandlerRegistry:
     """Registry for step handler classes.
 
     Provides handler discovery, registration, and resolution.
     Implements singleton pattern for global handler management.
+
+    TAS-93: Uses ResolverChain for flexible handler resolution
+    with support for method dispatch and resolver hints.
 
     Supports multiple discovery modes:
     - Manual registration via register()
@@ -63,9 +80,14 @@ class HandlerRegistry:
         >>> # Manual registration
         >>> registry.register("my_handler", MyHandler)
         >>>
-        >>> # Resolve handler
+        >>> # Resolve handler by name
         >>> handler = registry.resolve("my_handler")
         >>> assert handler is not None
+        >>>
+        >>> # Resolve with method dispatch
+        >>> definition = HandlerDefinition(callable="my_handler", handler_method="process")
+        >>> handler = registry.resolve(definition)
+        >>> result = handler.call(context)  # Calls handler.process(context)
         >>>
         >>> # Discover handlers from package
         >>> count = registry.discover_handlers("myapp.handlers")
@@ -77,11 +99,13 @@ class HandlerRegistry:
     def __init__(self) -> None:
         """Initialize the HandlerRegistry.
 
-        Creates an empty handler registry. Prefer using
-        HandlerRegistry.instance() to get the singleton.
+        Creates an empty handler registry with a default resolver chain.
+        Prefer using HandlerRegistry.instance() to get the singleton.
         """
         self._handlers: dict[str, type[StepHandler]] = {}
         self._bootstrapped: bool = False
+        # TAS-93: Initialize resolver chain for flexible resolution
+        self._resolver_chain: ResolverChain = ResolverChain.default()
 
     @classmethod
     def instance(cls, skip_bootstrap: bool = False) -> HandlerRegistry:
@@ -136,6 +160,10 @@ class HandlerRegistry:
         Raises:
             ValueError: If handler_class is not a StepHandler subclass.
 
+        Note:
+            TAS-93: This also registers the handler with the explicit mapping
+            resolver, making it available via resolve_handler().
+
         Example:
             >>> registry.register("my_handler", MyHandler)
         """
@@ -146,6 +174,12 @@ class HandlerRegistry:
             log_warn(f"Overwriting existing handler: {name}")
 
         self._handlers[name] = handler_class
+
+        # TAS-93: Also register with explicit mapping resolver
+        explicit_resolver = self._resolver_chain.get_resolver("explicit_mapping")
+        if explicit_resolver is not None and hasattr(explicit_resolver, "register"):
+            explicit_resolver.register(name, handler_class)
+
         log_info(f"Registered handler: {name} -> {handler_class.__name__}")
 
     def unregister(self, name: str) -> bool:
@@ -163,34 +197,101 @@ class HandlerRegistry:
         """
         if name in self._handlers:
             del self._handlers[name]
+
+            # TAS-93: Also unregister from explicit mapping resolver
+            explicit_resolver = self._resolver_chain.get_resolver("explicit_mapping")
+            if explicit_resolver is not None and hasattr(explicit_resolver, "unregister"):
+                explicit_resolver.unregister(name)
+
             log_debug(f"Unregistered handler: {name}")
             return True
         return False
 
-    def resolve(self, name: str) -> StepHandler | None:
-        """Resolve and instantiate a handler by name.
+    def resolve(self, handler_spec: HandlerSpec) -> Any | None:
+        """Resolve a handler using the resolver chain.
+
+        TAS-93: Supports flexible handler resolution with:
+        - Method dispatch (handler_method field)
+        - Resolver hints (resolver field)
+        - Multiple input formats (string, HandlerDefinition, HandlerWrapper)
 
         Args:
-            name: Handler name to resolve.
+            handler_spec: Handler specification - can be:
+                - str: Simple handler name
+                - HandlerDefinition: Full definition with method/resolver
+                - HandlerWrapper: FFI wrapper from Rust
 
         Returns:
-            Instantiated handler or None if not found or instantiation fails.
+            Handler instance (possibly wrapped for method dispatch) or None.
 
         Example:
+            >>> # Simple string lookup
             >>> handler = registry.resolve("my_handler")
-            >>> if handler:
-            ...     result = handler.call(context)
+            >>>
+            >>> # With method dispatch
+            >>> definition = HandlerDefinition(
+            ...     callable="payment_handler",
+            ...     handler_method="refund"
+            ... )
+            >>> handler = registry.resolve(definition)
+            >>> handler.call(context)  # Actually calls handler.refund(context)
+            >>>
+            >>> # From FFI wrapper
+            >>> wrapper = HandlerWrapper.from_dict(step_definition["handler"])
+            >>> handler = registry.resolve(wrapper)
         """
-        handler_class = self._handlers.get(name)
-        if handler_class is None:
-            log_warn(f"Handler not found: {name}")
+        definition = self._normalize_to_definition(handler_spec)
+        if definition is None:
+            log_warn(f"Failed to normalize handler spec: {handler_spec}")
             return None
 
-        try:
-            return handler_class()
-        except Exception as e:
-            log_error(f"Failed to instantiate handler {name}: {e}")
+        # Use resolver chain for resolution
+        handler = self._resolver_chain.resolve(definition)
+        if handler is None:
+            log_warn(f"Handler not resolved: {definition.callable}")
             return None
+
+        # Apply method dispatch wrapper if needed
+        return self._resolver_chain.wrap_for_method_dispatch(handler, definition)
+
+    def _normalize_to_definition(self, handler_spec: HandlerSpec) -> HandlerDefinition | None:
+        """Normalize various input types to HandlerDefinition.
+
+        Args:
+            handler_spec: Input to normalize.
+
+        Returns:
+            HandlerDefinition or None if invalid input.
+        """
+        if isinstance(handler_spec, str):
+            return HandlerDefinition(callable=handler_spec)
+
+        if isinstance(handler_spec, HandlerDefinition):
+            return handler_spec
+
+        if isinstance(handler_spec, HandlerWrapper):
+            return HandlerDefinition(
+                callable=handler_spec.callable,
+                handler_method=handler_spec.handler_method,
+                resolver=handler_spec.resolver,
+                initialization=handler_spec.initialization,
+            )
+
+        log_warn(f"Unknown handler spec type: {type(handler_spec)}")
+        return None
+
+    @property
+    def resolver_chain(self) -> ResolverChain:
+        """Get the resolver chain for advanced configuration.
+
+        Returns:
+            The ResolverChain instance.
+
+        Example:
+            >>> # Add a custom resolver
+            >>> registry.resolver_chain.add_resolver(MyCustomResolver())
+        """
+        return self._resolver_chain
 
     def get_handler_class(self, name: str) -> type[StepHandler] | None:
         """Get a handler class without instantiation.
@@ -250,6 +351,8 @@ class HandlerRegistry:
         """
         self._handlers.clear()
         self._bootstrapped = False
+        # TAS-93: Reset resolver chain to default state
+        self._resolver_chain = ResolverChain.default()
         log_debug("Cleared all handlers from registry")
 
     def discover_handlers(

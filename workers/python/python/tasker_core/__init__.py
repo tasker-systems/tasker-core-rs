@@ -140,6 +140,19 @@ from tasker_core.observability import (
     get_metrics,
     get_worker_config,
 )
+
+# Import TAS-93: Resolver chain infrastructure
+from tasker_core.registry import (
+    BaseResolver,
+    ClassLookupResolver,
+    ExplicitMappingResolver,
+    HandlerDefinition,
+    MethodDispatchWrapper,
+    RegistryResolver,
+    ResolutionError,
+    ResolverChain,
+    ResolverNotFoundError,
+)
 from tasker_core.step_execution_subscriber import (
     StepExecutionError,
     StepExecutionSubscriber,
@@ -239,6 +252,16 @@ __all__ = [
     "EventNames",
     "HandlerRegistry",
     "StepHandler",
+    # TAS-93: Resolver chain infrastructure
+    "BaseResolver",
+    "ResolverChain",
+    "ResolverNotFoundError",
+    "ResolutionError",
+    "HandlerDefinition",
+    "MethodDispatchWrapper",
+    "RegistryResolver",
+    "ExplicitMappingResolver",
+    "ClassLookupResolver",
     # Template discovery (for manual usage)
     "TemplatePath",
     "TemplateParser",

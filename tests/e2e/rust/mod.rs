@@ -9,6 +9,7 @@ mod domain_event_publishing_test; // TAS-65: Domain event publishing
 mod linear_workflow;
 mod mixed_dag_workflow;
 mod order_fulfillment;
+mod resolver_tests; // TAS-93 Phase 5
 mod retry_mechanics_test;
 mod simple_integration_tests;
 mod tree_workflow;

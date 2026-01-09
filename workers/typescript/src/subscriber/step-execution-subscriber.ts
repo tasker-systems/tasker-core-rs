@@ -12,7 +12,7 @@ import type { StepExecutionReceivedPayload, TaskerEventEmitter } from '../events
 import { StepEventNames } from '../events/event-names.js';
 import type { TaskerRuntime } from '../ffi/runtime-interface.js';
 import type { CheckpointYieldData, FfiStepEvent, StepExecutionResult } from '../ffi/types.js';
-import type { StepHandler } from '../handler/base.js';
+import type { ExecutableHandler } from '../handler/base.js';
 import { logDebug, logError, logInfo, logWarn } from '../logging/index.js';
 import { StepContext } from '../types/step-context.js';
 import type { StepHandlerResult } from '../types/step-handler-result.js';
@@ -35,10 +35,13 @@ const pinoLog: Logger = pino(loggerOptions);
 
 /**
  * Interface for handler registry required by StepExecutionSubscriber.
+ *
+ * TAS-93: Updated to support async resolution via ResolverChain.
+ * Returns ExecutableHandler which includes both StepHandler and MethodDispatchWrapper.
  */
 export interface HandlerRegistryInterface {
-  /** Resolve and instantiate a handler by name */
-  resolve(name: string): StepHandler | null;
+  /** Resolve and instantiate a handler by name (async for resolver chain support) */
+  resolve(name: string): Promise<ExecutableHandler | null>;
 }
 
 /**
@@ -361,9 +364,9 @@ export class StepExecutionSubscriber {
         timestamp: new Date(),
       });
 
-      // Resolve handler from registry
+      // Resolve handler from registry (TAS-93: async for resolver chain support)
       pinoLog.info({ component: 'subscriber', handlerName }, 'Resolving handler from registry...');
-      const handler = this.registry.resolve(handlerName);
+      const handler = await this.registry.resolve(handlerName);
       pinoLog.info(
         { component: 'subscriber', handlerName, handlerFound: !!handler },
         'Handler resolution result'

@@ -1,8 +1,8 @@
 # API Convergence Matrix
 
-**Last Updated**: 2026-01-06
+**Last Updated**: 2026-01-08
 **Status**: Active
-**Related Tickets**: TAS-92, TAS-95, TAS-96, TAS-97, TAS-98, TAS-112, TAS-125
+**Related Tickets**: TAS-92, TAS-93, TAS-95, TAS-96, TAS-97, TAS-98, TAS-112, TAS-125
 
 <- Back to [Worker Crates Overview](README.md)
 
@@ -17,6 +17,12 @@ This document provides a quick reference for the aligned APIs across Ruby, Pytho
 - Added composition pattern (mixin/trait) documentation
 - Added lifecycle hooks for publishers and subscribers
 - Updated domain events section with cross-language parity
+
+**TAS-93 Updates (2026-01-08)**:
+- Added Resolver Chain API section with cross-language parity
+- Documented StepHandlerResolver interface for custom resolvers
+- Added HandlerDefinition fields and method dispatch patterns
+- Links to new Handler Resolution Guide
 
 ---
 
@@ -144,6 +150,72 @@ Use these standard values for consistent error classification:
 | List | `list_handlers` | `list_handlers()` | `list_handlers()` |
 
 **Note**: Ruby also provides original method names (`register_handler`, `handler_available?`, `resolve_handler`, `registered_handlers`) as the primary API with the above as cross-language aliases.
+
+---
+
+## Resolver Chain API (TAS-93)
+
+Handler resolution uses a chain-of-responsibility pattern to convert callable addresses into executable handlers.
+
+### StepHandlerResolver Interface
+
+| Method | Ruby | Python | TypeScript | Rust |
+|--------|------|--------|------------|------|
+| Get Name | `name` | `resolver_name()` | `resolverName()` | `resolver_name(&self)` |
+| Get Priority | `priority` | `priority()` | `priority()` | `priority(&self)` |
+| Can Resolve? | `can_resolve?(definition, config)` | `can_resolve(definition)` | `canResolve(definition)` | `can_resolve(&self, definition)` |
+| Resolve | `resolve(definition, config)` | `resolve(definition, context)` | `resolve(definition, context)` | `resolve(&self, definition, context)` |
+
+### ResolverChain Operations
+
+| Operation | Ruby | Python | TypeScript | Rust |
+|-----------|------|--------|------------|------|
+| Create | `ResolverChain.new` | `ResolverChain()` | `new ResolverChain()` | `ResolverChain::new()` |
+| Register | `register(resolver)` | `register(resolver)` | `register(resolver)` | `register(resolver)` |
+| Resolve | `resolve(definition, context)` | `resolve(definition, context)` | `resolve(definition, context)` | `resolve(definition, context)` |
+| Can Resolve? | `can_resolve?(definition)` | `can_resolve(definition)` | `canResolve(definition)` | `can_resolve(definition)` |
+| List | `resolvers` | `resolvers` | `resolvers` | `resolvers()` |
+
+### Built-in Resolvers
+
+| Resolver | Priority | Function | Rust | Ruby | Python | TypeScript |
+|----------|----------|----------|------|------|--------|------------|
+| ExplicitMappingResolver | 10 | Hash lookup of registered handlers | ✅ | ✅ | ✅ | ✅ |
+| ClassConstantResolver | 100 | Runtime class lookup (Ruby) | ❌ | ✅ | - | - |
+| ClassLookupResolver | 100 | Runtime class lookup (Python/TS) | ❌ | - | ✅ | ✅ |
+
+**Note**: Class lookup resolvers are not available in Rust due to lack of runtime reflection. Rust handlers must use ExplicitMappingResolver. Ruby uses `ClassConstantResolver` (Ruby terminology); Python and TypeScript use `ClassLookupResolver` (same functionality, language-appropriate naming).
+
+### HandlerDefinition Fields
+
+| Field | Type | Description | Required |
+|-------|------|-------------|----------|
+| `callable` | String | Handler address (name or class path) | Yes |
+| `method` | String | Entry point method (default: `"call"`) | No |
+| `resolver` | String | Resolution hint to bypass chain | No |
+| `initialization` | Dict/Hash | Handler configuration | No |
+
+### Method Dispatch
+
+Multi-method handlers expose multiple entry points through the `method` field:
+
+| Language | Default Method | Dynamic Dispatch |
+|----------|---------------|------------------|
+| Ruby | `call` | `handler.public_send(method, context)` |
+| Python | `call` | `getattr(handler, method)(context)` |
+| TypeScript | `call` | `handler[method](context)` |
+| Rust | `call` | `handler.invoke_method(method, step)` |
+
+**Creating Multi-Method Handlers:**
+
+| Language | Signature |
+|----------|-----------|
+| Ruby | Define additional methods alongside `call` |
+| Python | Define additional methods alongside `call` |
+| TypeScript | Define additional async methods alongside `call` |
+| Rust | Implement `invoke_method` to dispatch to internal methods |
+
+See [Handler Resolution Guide](../guides/handler-resolution.md) for complete documentation.
 
 ---
 
@@ -333,3 +405,4 @@ All languages support subscriber lifecycle hooks:
 - [Rust Worker](rust.md) - Rust implementation details
 - [Composition Over Inheritance](../principles/composition-over-inheritance.md) - Why mixins over inheritance
 - [FFI Boundary Types](../reference/ffi-boundary-types.md) - Cross-language type alignment
+- [Handler Resolution Guide](../guides/handler-resolution.md) - Custom resolver strategies (TAS-93)

@@ -1,0 +1,154 @@
+# TaskTemplate Configuration - Ruby Implementation
+#
+# TAS-93 Phase 5: Method Dispatch E2E Test
+# Tests that the resolver chain correctly invokes non-default methods.
+#
+# Template: resolver_tests/method_dispatch:1.0.0
+# Implementation: Ruby FFI with tasker-core gem
+#
+# This template demonstrates method dispatch where each step calls
+# a different method on the same handler class:
+# 1. Step 1: Call validate method
+# 2. Step 2: Call process method
+# 3. Step 3: Call refund method
+# 4. Step 4: Call default call method
+#
+---
+name: method_dispatch
+namespace_name: resolver_tests
+version: 1.0.0
+description: "TAS-93: Method dispatch E2E test - invokes different methods on same handler (Ruby)"
+metadata:
+  author: TAS-93 Phase 5 Implementation
+  tags:
+    - namespace:resolver_tests
+    - pattern:linear
+    - feature:method_dispatch
+    - implementation:ruby_ffi
+    - language:ruby
+    - tas-93:phase-5
+  documentation_url:
+  created_at: "2026-01-07T00:00:00Z"
+  updated_at: "2026-01-07T00:00:00Z"
+  notes: "Tests method dispatch feature where handler.method() is called instead of handler.call()"
+task_handler:
+  callable: ResolverTests::TaskHandler
+  initialization:
+    test_type: method_dispatch
+    expected_methods:
+      - validate
+      - process
+      - refund
+      - call
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - data
+  properties:
+    data:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: "Amount for processing"
+        reason:
+          type: string
+          description: "Reason for refund"
+steps:
+  - name: validate_step
+    description: "Step 1: Invoke validate method on MultiMethodHandler"
+    handler:
+      callable: ResolverTests::StepHandlers::MultiMethodHandler
+      method: validate
+      initialization:
+        step_number: 1
+        expected_method: validate
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: process_step
+    description: "Step 2: Invoke process method on MultiMethodHandler"
+    handler:
+      callable: ResolverTests::StepHandlers::MultiMethodHandler
+      method: process
+      initialization:
+        step_number: 2
+        expected_method: process
+    system_dependency:
+    dependencies:
+      - validate_step
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: refund_step
+    description: "Step 3: Invoke refund method on MultiMethodHandler"
+    handler:
+      callable: ResolverTests::StepHandlers::MultiMethodHandler
+      method: refund
+      initialization:
+        step_number: 3
+        expected_method: refund
+    system_dependency:
+    dependencies:
+      - process_step
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: default_call_step
+    description: "Step 4: Invoke default call method (no method specified)"
+    handler:
+      callable: ResolverTests::StepHandlers::MultiMethodHandler
+      initialization:
+        step_number: 4
+        expected_method: call
+    system_dependency:
+    dependencies:
+      - refund_step
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 10000
+    timeout_seconds: 30
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: validate_step
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1
+      - name: process_step
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1
+      - name: refund_step
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1
+      - name: default_call_step
+        timeout_seconds: 10
+        retry:
+          max_attempts: 1

@@ -7,3 +7,4 @@ mod ecommerce_order_test;
 mod error_scenarios_test;
 mod microservices_coordination_test;
 mod namespace_isolation_test;
+mod resolver_tests; // TAS-93 Phase 5

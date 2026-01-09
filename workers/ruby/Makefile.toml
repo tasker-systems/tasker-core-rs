@@ -92,7 +92,7 @@ bundle exec rubocop
 description = "Auto-fix RuboCop issues"
 dependencies = ["setup"]
 script = '''
-bundle exec rubocop --auto-correct
+bundle exec rubocop --autocorrect
 '''
 
 [tasks.lint-fix-all]

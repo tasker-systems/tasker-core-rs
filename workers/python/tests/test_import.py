@@ -217,6 +217,19 @@ class TestModuleExports:
             "PublishContext",
         }
 
+        # TAS-93 exports (Step Handler Router/Resolver)
+        tas93_exports = {
+            "BaseResolver",
+            "ResolverChain",
+            "ResolverNotFoundError",
+            "ResolutionError",
+            "HandlerDefinition",
+            "MethodDispatchWrapper",
+            "RegistryResolver",
+            "ExplicitMappingResolver",
+            "ClassLookupResolver",
+        }
+
         expected = (
             phase1_exports
             | phase2_exports
@@ -227,6 +240,7 @@ class TestModuleExports:
             | phase6b_exports
             | tas95_exports
             | tas112_exports
+            | tas93_exports
         )
         assert set(tasker_core.__all__) == expected
 

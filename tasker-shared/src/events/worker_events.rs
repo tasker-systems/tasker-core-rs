@@ -507,6 +507,8 @@ mod tests {
                 description: Some(format!("Test step: {}", step_name)),
                 handler: HandlerDefinition {
                     callable: handler_class.to_string(),
+                    method: None,
+                    resolver: None,
                     initialization: HashMap::new(),
                 },
                 step_type: crate::models::core::task_template::StepType::Standard,

@@ -74,6 +74,12 @@ from .linear_workflow_handlers import (
     LinearStep3Handler,
     LinearStep4Handler,
 )
+
+# TAS-93 Phase 5 - Resolver tests handlers
+from .resolver_tests_handlers import (
+    AlternateMethodHandler,
+    MultiMethodHandler,
+)
 from .test_scenarios_handlers import (
     PermanentErrorStepHandler,
     RetryableErrorStepHandler,
@@ -124,4 +130,7 @@ __all__ = [
     "ProcessPaymentHandler",
     "UpdateInventoryHandler",
     "SendNotificationHandler",
+    # TAS-93 Phase 5 - Resolver tests handlers
+    "MultiMethodHandler",
+    "AlternateMethodHandler",
 ]

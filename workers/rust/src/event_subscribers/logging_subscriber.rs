@@ -228,6 +228,8 @@ mod tests {
                         description: None,
                         handler: HandlerDefinition {
                             callable: "TestHandler".to_string(),
+                            method: None,
+                            resolver: None,
                             initialization: HashMap::new(),
                         },
                         step_type: Default::default(),

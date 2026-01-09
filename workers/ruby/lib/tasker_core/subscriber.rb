@@ -41,8 +41,9 @@ module TaskerCore
         @stats[:processed] += 1
 
         begin
-          # Resolve step handler from registry
-          handler = @handler_registry.resolve_handler(step_data.step_definition.handler.callable)
+          # TAS-93: Resolve step handler from registry using full handler definition
+          # This enables method dispatch (handler_method) and resolver hints (resolver)
+          handler = @handler_registry.resolve_handler(step_data.step_definition.handler)
 
           unless handler
             raise Errors::ConfigurationError,

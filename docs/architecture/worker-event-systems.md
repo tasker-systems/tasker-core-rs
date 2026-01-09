@@ -181,6 +181,43 @@ tokio::spawn(async move {
 | Handler error | Failure result with `error_type=handler_error` |
 | Semaphore closed | Failure result with `error_type=semaphore_acquisition_failed` |
 
+#### Handler Resolution (TAS-93)
+
+Before handler execution, the dispatch service resolves the handler using a **resolver chain pattern**:
+
+```
+HandlerDefinition                    ResolverChain                    Handler
+     │                                    │                              │
+     │  callable: "process_payment"       │                              │
+     │  method: "refund"                  │                              │
+     │  resolver: null                    │                              │
+     │                                    │                              │
+     ├───────────────────────────────────►│                              │
+     │                                    │                              │
+     │                    ┌───────────────┴───────────────┐              │
+     │                    │ ExplicitMappingResolver (10)  │              │
+     │                    │ can_resolve? ─► YES           │              │
+     │                    │ resolve() ─────────────────────────────────►│
+     │                    └───────────────────────────────┘              │
+     │                                                                   │
+     │                    ┌───────────────────────────────┐              │
+     │                    │ MethodDispatchWrapper         │              │
+     │                    │ (if method != "call")         │◄─────────────┤
+     │                    └───────────────────────────────┘              │
+```
+
+**Built-in Resolvers**:
+
+| Resolver | Priority | Function |
+|----------|----------|----------|
+| `ExplicitMappingResolver` | 10 | Hash lookup of registered handlers |
+| `ClassConstantResolver` | 100 | Runtime class lookup (Ruby only) |
+| `ClassLookupResolver` | 100 | Runtime class lookup (Python/TypeScript only) |
+
+**Method Dispatch**: When `handler.method` is specified and not `"call"`, a `MethodDispatchWrapper` is applied to invoke the specified method instead of the default `call()` method.
+
+See [Handler Resolution Guide](../guides/handler-resolution.md) for complete documentation.
+
 ### 3. FfiDispatchChannel
 
 **Location**: `tasker-worker/src/worker/handlers/ffi_dispatch_channel.rs`

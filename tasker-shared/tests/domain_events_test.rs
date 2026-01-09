@@ -79,6 +79,8 @@ fn create_test_task_sequence_step() -> TaskSequenceStep {
             description: Some("Test step".to_string()),
             handler: HandlerDefinition {
                 callable: "TestHandler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             },
             step_type: Default::default(),

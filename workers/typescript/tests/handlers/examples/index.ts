@@ -12,6 +12,7 @@
  * - ConditionalApproval.StepHandlers.ValidateRequestHandler
  * - BatchProcessing.StepHandlers.CsvAnalyzerHandler
  * - DomainEvents.StepHandlers.ValidateOrderHandler
+ * - ResolverTests.StepHandlers.MultiMethodHandler
  */
 
 // Batch Processing Handlers
@@ -56,6 +57,8 @@ export {
   LinearStep3Handler,
   LinearStep4Handler,
 } from './linear_workflow/index.js';
+// TAS-93 Phase 5: Resolver Tests Handlers
+export { AlternateMethodHandler, MultiMethodHandler } from './resolver_tests/index.js';
 // Error Testing Handlers
 export {
   PermanentErrorHandler,
@@ -95,15 +98,14 @@ import {
   UpdateInventoryHandler,
   ValidateOrderHandler,
 } from './domain_events/index.js';
-/**
- * Array of all example handler classes for easy registration.
- */
 import {
   LinearStep1Handler,
   LinearStep2Handler,
   LinearStep3Handler,
   LinearStep4Handler,
 } from './linear_workflow/index.js';
+// TAS-93 Phase 5: Resolver Tests Handlers
+import { AlternateMethodHandler, MultiMethodHandler } from './resolver_tests/index.js';
 import {
   PermanentErrorHandler,
   RetryableErrorHandler,
@@ -111,6 +113,9 @@ import {
 } from './test_errors/index.js';
 import { SuccessStepHandler } from './test_scenarios/index.js';
 
+/**
+ * Array of all example handler classes for easy registration.
+ */
 export const ALL_EXAMPLE_HANDLERS = [
   // Linear Workflow
   LinearStep1Handler,
@@ -148,4 +153,7 @@ export const ALL_EXAMPLE_HANDLERS = [
   ProcessPaymentHandler,
   UpdateInventoryHandler,
   SendNotificationHandler,
+  // TAS-93 Phase 5: Resolver Tests
+  MultiMethodHandler,
+  AlternateMethodHandler,
 ];

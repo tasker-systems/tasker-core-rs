@@ -376,6 +376,8 @@ mod tests {
                 description: Some(format!("Test step: {}", step_name)),
                 handler: HandlerDefinition {
                     callable: handler_class.to_string(),
+                    method: None,
+                    resolver: None,
                     initialization: HashMap::new(),
                 },
                 system_dependency: None,

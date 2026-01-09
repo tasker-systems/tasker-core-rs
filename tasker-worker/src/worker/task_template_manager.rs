@@ -729,6 +729,8 @@ mod tests {
             metadata: None,
             task_handler: Some(HandlerDefinition {
                 callable: "TestHandler".to_string(),
+                method: None,
+                resolver: None,
                 initialization: HashMap::new(),
             }),
             system_dependencies: Default::default(),
@@ -740,6 +742,8 @@ mod tests {
                 description: Some("Test step".to_string()),
                 handler: HandlerDefinition {
                     callable: "TestStepHandler".to_string(),
+                    method: None,
+                    resolver: None,
                     initialization: HashMap::new(),
                 },
                 system_dependency: None,

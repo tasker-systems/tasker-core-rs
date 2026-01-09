@@ -43,6 +43,10 @@ use tasker_shared::types::base::TaskSequenceStep;
 use tasker_shared::TaskerResult;
 use tasker_worker::worker::handlers::{StepHandler, StepHandlerRegistry};
 
+// TAS-93: Import resolver pattern types
+use tasker_shared::registry::{resolvers::ExplicitMappingResolver, ResolvedHandler, ResolverChain};
+use tasker_worker::worker::handlers::StepHandlerAsResolved;
+
 // TAS-65: Domain event publishing support
 use tasker_shared::events::domain_events::DomainEventPublisher;
 use tracing::info;
@@ -96,6 +100,9 @@ use super::domain_event_publishing::{
     ValidateOrderHandler as DomainEventsValidateOrderHandler,
 };
 
+// TAS-93 Phase 5: Resolver chain test handlers
+use super::resolver_tests::{AlternateMethodHandler, MultiMethodHandler};
+
 /// Central registry for all Rust step handlers
 ///
 /// Provides O(1) handler lookup by name with compile-time type safety.
@@ -116,7 +123,7 @@ impl std::fmt::Debug for RustStepHandlerRegistry {
 impl RustStepHandlerRegistry {
     /// Create a new registry with all handlers pre-registered
     ///
-    /// This method registers all 52 step handlers across 9 workflow patterns:
+    /// This method registers all 58 step handlers across 11 workflow patterns:
     /// - Linear Workflow (4 handlers)
     /// - Diamond Workflow (4 handlers)
     /// - Tree Workflow (8 handlers)
@@ -126,6 +133,9 @@ impl RustStepHandlerRegistry {
     /// - Batch Processing Example (3 handlers)
     /// - Batch Processing Products CSV (3 handlers)
     /// - Diamond-Decision-Batch (10 handlers)
+    /// - Error Injection/TAS-64 (3 handlers)
+    /// - Domain Event Publishing/TAS-65 (4 handlers)
+    /// - Resolver Tests/TAS-93 (2 handlers)
     #[must_use]
     pub fn new() -> Self {
         let mut registry = Self {
@@ -328,6 +338,12 @@ impl RustStepHandlerRegistry {
                 Some(Arc::new(DomainEventsSendNotificationHandler::new(config)))
             }
 
+            // TAS-93 Phase 5: Resolver chain test handlers
+            "resolver_tests_multi_method" => Some(Arc::new(MultiMethodHandler::new(config))),
+            "resolver_tests_alternate_method" => {
+                Some(Arc::new(AlternateMethodHandler::new(config)))
+            }
+
             // Unknown handler
             _ => None,
         }
@@ -464,6 +480,15 @@ impl RustStepHandlerRegistry {
             ],
         );
 
+        // TAS-93 Phase 5: Resolver Chain Test
+        workflows.insert(
+            "resolver_tests".to_string(),
+            vec![
+                "resolver_tests_multi_method".to_string(),
+                "resolver_tests_alternate_method".to_string(),
+            ],
+        );
+
         workflows
     }
 
@@ -586,6 +611,10 @@ impl RustStepHandlerRegistry {
         self.register_handler(Arc::new(DomainEventsSendNotificationHandler::new(
             empty_config.clone(),
         )));
+
+        // TAS-93 Phase 5: Resolver Chain Test Handlers (2)
+        self.register_handler(Arc::new(MultiMethodHandler::new(empty_config.clone())));
+        self.register_handler(Arc::new(AlternateMethodHandler::new(empty_config)));
     }
 
     /// Register a single handler in the registry
@@ -723,16 +752,85 @@ impl RustStepHandlerRegistryAdapter {
         let mut inner = self.inner.write().unwrap_or_else(|p| p.into_inner());
         inner.set_event_publisher(publisher);
     }
+
+    // ========================================================================
+    // TAS-93: Resolver Pattern Integration
+    // ========================================================================
+
+    /// Export all handlers to an ExplicitMappingResolver.
+    ///
+    /// This enables integration with the TAS-93 resolver chain pattern while
+    /// maintaining backward compatibility with direct registry usage.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use tasker_worker_rust::step_handlers::RustStepHandlerRegistryAdapter;
+    ///
+    /// let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+    /// let resolver = adapter.to_explicit_resolver();
+    ///
+    /// // Use in a resolver chain
+    /// let chain = ResolverChain::new().with_resolver(Arc::new(resolver));
+    /// ```
+    pub fn to_explicit_resolver(&self) -> ExplicitMappingResolver {
+        let resolver = ExplicitMappingResolver::with_name("RustHandlerResolver");
+        let inner = self.inner.read().unwrap_or_else(|p| p.into_inner());
+
+        for name in inner.get_all_handler_names() {
+            if let Ok(handler) = inner.get_handler(&name) {
+                // Wrap the RustStepHandler as a StepHandler, then as a ResolvedHandler
+                let step_handler: Arc<dyn StepHandler> =
+                    Arc::new(RustStepHandlerAdapter::new(handler));
+                let resolved: Arc<dyn ResolvedHandler> =
+                    Arc::new(StepHandlerAsResolved::new(step_handler));
+                resolver.register_instance(&name, resolved);
+            }
+        }
+
+        resolver
+    }
+
+    /// Create a ResolverChain with all Rust handlers pre-registered.
+    ///
+    /// This is a convenience method for creating a resolver chain that includes
+    /// all registered Rust handlers via the ExplicitMappingResolver pattern.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use tasker_worker_rust::step_handlers::RustStepHandlerRegistryAdapter;
+    /// use tasker_worker::worker::handlers::ResolverChainRegistry;
+    /// use std::sync::Arc;
+    ///
+    /// let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+    /// let chain = adapter.to_resolver_chain();
+    ///
+    /// // Use with ResolverChainRegistry for HandlerDispatchService integration
+    /// let registry = ResolverChainRegistry::new(Arc::new(chain));
+    /// ```
+    pub fn to_resolver_chain(&self) -> ResolverChain {
+        let resolver = Arc::new(self.to_explicit_resolver());
+        ResolverChain::new().with_resolver(resolver)
+    }
 }
 
 #[async_trait]
 impl StepHandlerRegistry for RustStepHandlerRegistryAdapter {
     async fn get(&self, step: &TaskSequenceStep) -> Option<Arc<dyn StepHandler>> {
-        // Use template_step_name for handler lookup (matches existing RustEventHandler logic)
-        let handler_name = &step.workflow_step.template_step_name;
-
         let inner = self.inner.read().unwrap_or_else(|p| p.into_inner());
-        inner.get_handler(handler_name).ok().map(|handler| {
+
+        // TAS-93: Try handler.callable first (for resolver tests pattern with short names)
+        let handler_callable = &step.step_definition.handler.callable;
+        if let Ok(handler) = inner.get_handler(handler_callable) {
+            let adapter: Arc<dyn StepHandler> = Arc::new(RustStepHandlerAdapter::new(handler));
+            return Some(adapter);
+        }
+
+        // Fall back to template_step_name (for backward compatibility with existing templates
+        // that use fully qualified names like tasker_worker_rust::step_handlers::...)
+        let template_step_name = &step.workflow_step.template_step_name;
+        inner.get_handler(template_step_name).ok().map(|handler| {
             let adapter: Arc<dyn StepHandler> = Arc::new(RustStepHandlerAdapter::new(handler));
             adapter
         })
@@ -761,17 +859,18 @@ impl StepHandlerRegistry for RustStepHandlerRegistryAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tasker_shared::registry::StepHandlerResolver;
 
     #[test]
     fn test_registry_creation() {
         let registry = RustStepHandlerRegistry::new();
 
-        // Should have all 56 handlers (4+4+8+7+4+6+3+3+10+3+4)
+        // Should have all 58 handlers (4+4+8+7+4+6+3+3+10+3+4+2)
         // Linear(4) + Diamond(4) + Tree(8) + MixedDAG(7) + OrderFulfillment(4)
         // + ConditionalApproval(6) + BatchProcessingExample(3) + BatchProcessingProductsCsv(3)
         // + DiamondDecisionBatch(10) + TAS-64 ErrorInjection(3 step registrations)
-        // + TAS-65 DomainEventPublishing(4)
-        assert_eq!(registry.handler_count(), 56);
+        // + TAS-65 DomainEventPublishing(4) + TAS-93 ResolverTests(2)
+        assert_eq!(registry.handler_count(), 58);
     }
 
     #[test]
@@ -842,7 +941,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let workflows = registry.get_handlers_by_workflow();
 
-        assert_eq!(workflows.len(), 10); // Added domain_event_publishing
+        assert_eq!(workflows.len(), 11); // Added resolver_tests (TAS-93)
         assert_eq!(workflows["linear_workflow"].len(), 4);
         assert_eq!(workflows["diamond_workflow"].len(), 4);
         assert_eq!(workflows["tree_workflow"].len(), 8);
@@ -853,6 +952,7 @@ mod tests {
         assert_eq!(workflows["batch_processing_products_csv"].len(), 3);
         assert_eq!(workflows["diamond_decision_batch"].len(), 10);
         assert_eq!(workflows["domain_event_publishing"].len(), 4); // TAS-65
+        assert_eq!(workflows["resolver_tests"].len(), 2); // TAS-93
     }
 
     #[test]
@@ -862,7 +962,7 @@ mod tests {
 
         // Should be the same instance
         assert_eq!(registry1 as *const _, registry2 as *const _);
-        assert_eq!(registry1.handler_count(), 56); // Updated for TAS-65
+        assert_eq!(registry1.handler_count(), 58); // Updated for TAS-93
     }
 
     #[test]
@@ -870,8 +970,8 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let names = registry.get_all_handler_names();
 
-        // Should have 56 handlers (updated for TAS-65)
-        assert_eq!(names.len(), 56);
+        // Should have 58 handlers (updated for TAS-93)
+        assert_eq!(names.len(), 58);
 
         // Should be sorted
         let mut sorted_names = names.clone();
@@ -893,7 +993,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
 
         // Verify all handlers start with empty config (no publisher)
-        assert_eq!(registry.handler_count(), 56); // Updated for TAS-65
+        assert_eq!(registry.handler_count(), 58); // Updated for TAS-93
 
         // Create mock publisher (we can't fully test without a real message client,
         // but we can verify the method doesn't panic and maintains handler count)
@@ -902,6 +1002,63 @@ mod tests {
 
         // The actual integration test will verify end-to-end functionality
         // For now, just verify handler count remains stable
-        assert_eq!(registry.handler_count(), 56); // Updated for TAS-65
+        assert_eq!(registry.handler_count(), 58); // Updated for TAS-93
+    }
+
+    // ========================================================================
+    // TAS-93: Resolver Pattern Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_to_explicit_resolver() {
+        let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+        let resolver = adapter.to_explicit_resolver();
+
+        // Should have all 58 handlers registered (TAS-93)
+        assert_eq!(resolver.len(), 58);
+
+        // Should be named correctly
+        assert_eq!(resolver.resolver_name(), "RustHandlerResolver");
+
+        // Should be able to find specific handlers
+        assert!(resolver.is_registered("linear_step_1"));
+        assert!(resolver.is_registered("diamond_start"));
+        assert!(resolver.is_registered("tree_root"));
+        assert!(!resolver.is_registered("nonexistent"));
+    }
+
+    #[test]
+    fn test_to_resolver_chain() {
+        let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+        let chain = adapter.to_resolver_chain();
+
+        // Chain should have one resolver
+        assert_eq!(chain.len(), 1);
+
+        // Should be able to check handler availability via chain
+        let definition = tasker_shared::models::core::task_template::HandlerDefinition::builder()
+            .callable("linear_step_1".to_string())
+            .build();
+        assert!(chain.can_resolve(&definition));
+
+        let unknown_def = tasker_shared::models::core::task_template::HandlerDefinition::builder()
+            .callable("unknown_handler".to_string())
+            .build();
+        assert!(!chain.can_resolve(&unknown_def));
+    }
+
+    #[tokio::test]
+    async fn test_resolver_chain_resolution() {
+        let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
+        let chain = adapter.to_resolver_chain();
+
+        let definition = tasker_shared::models::core::task_template::HandlerDefinition::builder()
+            .callable("linear_step_1".to_string())
+            .build();
+        let context = tasker_shared::registry::ResolutionContext::default();
+
+        let result = chain.resolve(&definition, &context).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().name(), "linear_step_1");
     }
 }

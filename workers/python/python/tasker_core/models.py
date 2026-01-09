@@ -35,21 +35,36 @@ from typing import Any
 class HandlerWrapper:
     """Wrapper for handler configuration from task template.
 
-    Provides access to handler class name and initialization parameters.
+    Provides access to handler class name, method dispatch, resolver hints,
+    and initialization parameters from the task template.
+
+    TAS-93: Extended to support method dispatch and resolver hints from
+    the Rust HandlerDefinition struct.
 
     Attributes:
         callable: Fully-qualified handler class name (e.g., "linear_workflow.step_handlers.LinearStep1Handler")
         initialization: Handler initialization parameters from template
+        handler_method: TAS-93: Method to invoke instead of default .call() (or None)
+        resolver: TAS-93: Specific resolver to use, bypassing chain (or None)
 
     Example:
         >>> handler.callable
         'linear_workflow.step_handlers.LinearStep1Handler'
         >>> handler.initialization
         {'operation': 'square', 'step_number': 1}
+        >>> handler.handler_method  # TAS-93
+        'refund'
+        >>> handler.resolver  # TAS-93
+        'explicit_mapping'
     """
 
     callable: str
     initialization: dict[str, Any] = field(default_factory=dict)
+    # TAS-93: Method dispatch - note Rust field is 'method' but we use 'handler_method'
+    # to avoid confusion with Python's built-in method() function
+    handler_method: str | None = None
+    # TAS-93: Resolver hint for direct resolver routing
+    resolver: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> HandlerWrapper:
@@ -66,6 +81,9 @@ class HandlerWrapper:
         return cls(
             callable=data.get("callable", ""),
             initialization=data.get("initialization") or {},
+            # TAS-93: Rust uses 'method' field, we use 'handler_method' internally
+            handler_method=data.get("method"),
+            resolver=data.get("resolver"),
         )
 
 

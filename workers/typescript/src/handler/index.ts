@@ -9,7 +9,7 @@
 
 // Specialized handlers (TAS-103)
 export { ApiHandler, ApiResponse } from './api.js';
-export type { StepHandlerClass } from './base.js';
+export type { ExecutableHandler, StepHandlerClass } from './base.js';
 // Base handler class
 export { StepHandler } from './base.js';
 export type { Batchable } from './batchable.js';
@@ -53,6 +53,8 @@ export {
   SubscriberRegistry,
   type SubscriberStats,
 } from './domain-events';
+// Handler system (TAS-92)
+export { HandlerSystem } from './handler-system.js';
 // TAS-112: Composition pattern mixins
 export type { APICapable, DecisionCapable } from './mixins/index.js';
 export { APIMixin, applyAPI, applyDecision, DecisionMixin } from './mixins/index.js';

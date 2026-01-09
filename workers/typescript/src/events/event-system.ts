@@ -17,12 +17,17 @@
 
 import pino, { type Logger, type LoggerOptions } from 'pino';
 import type { TaskerRuntime } from '../ffi/runtime-interface.js';
-import type { StepHandler } from '../handler/base.js';
-import { StepExecutionSubscriber } from '../subscriber/step-execution-subscriber.js';
+import {
+  type HandlerRegistryInterface,
+  StepExecutionSubscriber,
+} from '../subscriber/step-execution-subscriber.js';
 import type { StepExecutionReceivedPayload } from './event-emitter.js';
 import { TaskerEventEmitter } from './event-emitter.js';
 import { StepEventNames } from './event-names.js';
 import { EventPoller } from './event-poller.js';
+
+// Re-export for backwards compatibility
+export type { HandlerRegistryInterface };
 
 // Create a pino logger for the event system (for debugging)
 const loggerOptions: LoggerOptions = {
@@ -39,21 +44,6 @@ if (process.env.TASKER_ENV !== 'production') {
 }
 
 const log: Logger = pino(loggerOptions);
-
-/**
- * Interface for handler registry required by EventSystem.
- *
- * This allows EventSystem to accept both the singleton HandlerRegistry
- * and the HandlerSystem's internal registry.
- */
-export interface HandlerRegistryInterface {
-  /** Resolve and instantiate a handler by name */
-  resolve(name: string): StepHandler | null;
-  /** Check if a handler is registered */
-  isRegistered(name: string): boolean;
-  /** List all registered handler names */
-  listHandlers(): string[];
-}
 
 /**
  * Configuration for EventPoller within EventSystem.

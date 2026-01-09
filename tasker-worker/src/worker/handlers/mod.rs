@@ -37,6 +37,7 @@ mod dispatch_service;
 mod domain_event_callback;
 mod ffi_completion_circuit_breaker;
 mod ffi_dispatch_channel;
+mod resolver_integration;
 mod traits;
 
 // Re-export core traits
@@ -64,3 +65,9 @@ pub use ffi_completion_circuit_breaker::{
 
 // Re-export domain event callback (shared by Rust/Ruby/Python workers)
 pub use domain_event_callback::DomainEventCallback;
+
+// TAS-93: Re-export resolver integration (adapter pattern for ResolverChain)
+pub use resolver_integration::{
+    ExecutableHandler, HandlerExecutor, HybridStepHandlerRegistry, ResolverChainRegistry,
+    StepHandlerAsResolved, StepHandlerExecutor,
+};

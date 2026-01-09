@@ -154,6 +154,7 @@ RSpec/FilePath:
     - "spec/batch_processing/**/*" # Batch processing specs in dedicated directory
     - "spec/domain_events/**/*" # Domain events specs in dedicated directory
     - "spec/handlers/**/*" # Handler specs organized by workflow type
+    - "spec/registry/**/*" # Registry specs in dedicated directory
 
 RSpec/SpecFilePathFormat:
   Exclude:
@@ -167,6 +168,7 @@ RSpec/SpecFilePathFormat:
     - "spec/batch_processing/**/*" # Batch processing specs in dedicated directory
     - "spec/domain_events/**/*" # Domain events specs in dedicated directory
     - "spec/handlers/**/*" # Handler specs organized by workflow type
+    - "spec/registry/**/*" # Registry specs in dedicated directory
 
 RSpec/DescribeMethod:
   Exclude:

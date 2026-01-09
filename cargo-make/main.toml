@@ -133,3 +133,29 @@ dependencies = [
     "rust-docs",
     "rust-audit"
 ]
+
+# =============================================================================
+# CI Artifact Restoration Tasks
+# =============================================================================
+# These tasks restore build artifacts from GitHub Actions workflow jobs.
+# Used by test workflows to avoid rebuilding already-built components.
+
+[tasks.ci-restore-core-artifacts]
+description = "Restore core binaries from CI artifacts"
+script = { file = "${SCRIPTS_DIR}/ci-restore-core-artifacts.sh" }
+
+[tasks.ci-restore-ruby-extension]
+description = "Restore Ruby FFI extension from CI artifacts"
+script = { file = "${SCRIPTS_DIR}/ci-restore-ruby-extension.sh" }
+
+[tasks.ci-restore-typescript-artifacts]
+description = "Restore TypeScript dist and FFI library from CI artifacts"
+script = { file = "${SCRIPTS_DIR}/ci-restore-typescript-artifacts.sh" }
+
+[tasks.ci-restore-rust-worker]
+description = "Restore Rust worker binary from CI artifacts"
+script = { file = "${SCRIPTS_DIR}/ci-restore-rust-worker.sh" }
+
+[tasks.ci-restore-all-artifacts]
+description = "Restore all CI artifacts (core, ruby, typescript, rust-worker)"
+script = { file = "${SCRIPTS_DIR}/ci-restore-all-artifacts.sh" }

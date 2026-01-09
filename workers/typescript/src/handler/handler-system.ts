@@ -1,96 +1,30 @@
 /**
  * HandlerSystem - Owns handler registration and discovery.
  *
+ * TAS-93: Uses HandlerRegistry with resolver chain for flexible handler resolution.
+ *
  * This class encapsulates handler management:
- * - Owns the HandlerRegistry (no singleton)
+ * - Owns a HandlerRegistry instance (no singleton)
  * - Provides handler discovery from directories
  * - Manages handler registration lifecycle
+ * - Full resolver chain support via HandlerRegistry
  *
  * Design principles:
  * - Explicit construction: No singleton pattern
  * - Clear ownership: Owns the registry instance
  * - Encapsulated discovery: Handler loading logic contained here
+ * - Single registry: Uses HandlerRegistry for all resolution
  */
 
 import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createLogger } from '../logging/index.js';
-import type { StepHandler, StepHandlerClass } from './base.js';
+import type { BaseResolver, HandlerSpec, ResolverChain } from '../registry/index.js';
+import type { ExecutableHandler, StepHandlerClass } from './base.js';
+import { HandlerRegistry } from './registry.js';
 
 const log = createLogger({ component: 'handler-system' });
-
-/**
- * Internal registry for step handler classes.
- *
- * This is an internal implementation used by HandlerSystem.
- * Unlike HandlerRegistry, it's not a singleton.
- */
-class InternalRegistry {
-  private handlers: Map<string, StepHandlerClass> = new Map();
-
-  register(name: string, handlerClass: StepHandlerClass): void {
-    if (!name || typeof name !== 'string') {
-      throw new Error('Handler name must be a non-empty string');
-    }
-
-    if (typeof handlerClass !== 'function') {
-      throw new Error(`handlerClass must be a StepHandler subclass, got ${typeof handlerClass}`);
-    }
-
-    if (this.handlers.has(name)) {
-      log.warn(`Overwriting existing handler: ${name}`, { operation: 'register' });
-    }
-
-    this.handlers.set(name, handlerClass);
-    log.info(`Registered handler: ${name} -> ${handlerClass.name}`, { operation: 'register' });
-  }
-
-  unregister(name: string): boolean {
-    if (this.handlers.has(name)) {
-      this.handlers.delete(name);
-      log.debug(`Unregistered handler: ${name}`, { operation: 'unregister' });
-      return true;
-    }
-    return false;
-  }
-
-  resolve(name: string): StepHandler | null {
-    const handlerClass = this.handlers.get(name);
-    if (!handlerClass) {
-      log.warn(`Handler not found: ${name}`, { operation: 'resolve' });
-      return null;
-    }
-
-    try {
-      return new handlerClass();
-    } catch (error) {
-      log.error(`Failed to instantiate handler ${name}: ${error}`, { operation: 'resolve' });
-      return null;
-    }
-  }
-
-  getHandlerClass(name: string): StepHandlerClass | undefined {
-    return this.handlers.get(name);
-  }
-
-  isRegistered(name: string): boolean {
-    return this.handlers.has(name);
-  }
-
-  listHandlers(): string[] {
-    return Array.from(this.handlers.keys());
-  }
-
-  handlerCount(): number {
-    return this.handlers.size;
-  }
-
-  clear(): void {
-    this.handlers.clear();
-    log.debug('Cleared all handlers from registry', { operation: 'clear' });
-  }
-}
 
 /**
  * Configuration for HandlerSystem.
@@ -103,10 +37,12 @@ export interface HandlerSystemConfig {
 /**
  * Owns handler registration and discovery.
  *
- * Unlike the singleton HandlerRegistry, this class:
- * - Is NOT a singleton - created and passed explicitly
- * - Owns the registry instance directly
- * - Encapsulates handler discovery logic
+ * TAS-93: Uses HandlerRegistry internally for unified resolution.
+ *
+ * Unlike using HandlerRegistry directly, this class:
+ * - Encapsulates handler discovery from directories
+ * - Provides convenience methods for loading handlers
+ * - Manages the full handler lifecycle
  *
  * @example
  * ```typescript
@@ -118,19 +54,51 @@ export interface HandlerSystemConfig {
  * // Or load from directory
  * await handlerSystem.loadFromPath('./handlers');
  *
- * // Resolve handler
- * const handler = handlerSystem.resolve('my_handler');
+ * // Resolve with full resolver chain support
+ * const handler = await handlerSystem.resolve('my_handler');
+ *
+ * // Resolve with method dispatch
+ * const handler2 = await handlerSystem.resolve({
+ *   callable: 'my_handler',
+ *   method: 'process',
+ * });
  * ```
  */
 export class HandlerSystem {
-  private readonly registry: InternalRegistry;
+  private readonly registry: HandlerRegistry;
 
   /**
    * Create a new HandlerSystem.
    */
   constructor() {
-    this.registry = new InternalRegistry();
+    this.registry = new HandlerRegistry();
   }
+
+  // ==========================================================================
+  // Initialization
+  // ==========================================================================
+
+  /**
+   * Initialize the handler system.
+   *
+   * Initializes the underlying HandlerRegistry with resolver chain.
+   * Call this before using resolve() for best performance.
+   */
+  async initialize(): Promise<void> {
+    await this.registry.initialize();
+    log.info('HandlerSystem initialized', { operation: 'initialize' });
+  }
+
+  /**
+   * Check if the system is initialized.
+   */
+  get initialized(): boolean {
+    return this.registry.debugInfo().initialized as boolean;
+  }
+
+  // ==========================================================================
+  // Handler Loading
+  // ==========================================================================
 
   /**
    * Load handlers from a directory path.
@@ -188,6 +156,10 @@ export class HandlerSystem {
     return this.loadFromPath(handlerPath);
   }
 
+  // ==========================================================================
+  // Registration (delegates to HandlerRegistry)
+  // ==========================================================================
+
   /**
    * Register a handler class.
    *
@@ -208,24 +180,38 @@ export class HandlerSystem {
     return this.registry.unregister(name);
   }
 
-  /**
-   * Resolve and instantiate a handler by name.
-   *
-   * @param name - Handler name to resolve
-   * @returns Instantiated handler or null if not found
-   */
-  resolve(name: string): StepHandler | null {
-    return this.registry.resolve(name);
-  }
+  // ==========================================================================
+  // Resolution (delegates to HandlerRegistry)
+  // ==========================================================================
 
   /**
-   * Get a handler class without instantiation.
+   * Resolve and instantiate a handler.
    *
-   * @param name - Handler name to look up
-   * @returns Handler class or undefined
+   * TAS-93: Supports full resolver chain with method dispatch and resolver hints.
+   *
+   * @param handlerSpec - Handler specification (string, definition, or DTO)
+   * @returns Instantiated handler or null if not found
+   *
+   * @example
+   * ```typescript
+   * // String callable
+   * const handler = await handlerSystem.resolve('my_handler');
+   *
+   * // With method dispatch
+   * const handler2 = await handlerSystem.resolve({
+   *   callable: 'my_handler',
+   *   method: 'process',
+   * });
+   *
+   * // With resolver hint
+   * const handler3 = await handlerSystem.resolve({
+   *   callable: 'my_handler',
+   *   resolver: 'explicit_mapping',
+   * });
+   * ```
    */
-  getHandlerClass(name: string): StepHandlerClass | undefined {
-    return this.registry.getHandlerClass(name);
+  async resolve(handlerSpec: HandlerSpec): Promise<ExecutableHandler | null> {
+    return this.registry.resolve(handlerSpec);
   }
 
   /**
@@ -256,26 +242,76 @@ export class HandlerSystem {
     this.registry.clear();
   }
 
+  // ==========================================================================
+  // Resolver Chain Access (delegates to HandlerRegistry)
+  // ==========================================================================
+
   /**
-   * Get a compatible registry interface.
+   * Add a custom resolver to the chain.
    *
-   * Returns an object that conforms to the registry interface expected
-   * by other components (StepExecutionSubscriber, etc.).
+   * TAS-93: Allows adding custom domain-specific resolvers.
+   *
+   * @param resolver - Resolver to add
    */
-  getRegistry(): {
-    resolve(name: string): StepHandler | null;
-    isRegistered(name: string): boolean;
-    listHandlers(): string[];
-  } {
+  async addResolver(resolver: BaseResolver): Promise<void> {
+    await this.registry.addResolver(resolver);
+    log.info(`Added custom resolver: ${resolver.name}`, { operation: 'add_resolver' });
+  }
+
+  /**
+   * Get a resolver by name.
+   *
+   * @param name - Resolver name
+   * @returns Resolver or undefined
+   */
+  async getResolver(name: string): Promise<BaseResolver | undefined> {
+    return this.registry.getResolver(name);
+  }
+
+  /**
+   * List all resolvers with priorities.
+   *
+   * @returns Array of [name, priority] tuples
+   */
+  async listResolvers(): Promise<Array<[string, number]>> {
+    return this.registry.listResolvers();
+  }
+
+  /**
+   * Get the underlying resolver chain.
+   *
+   * Useful for advanced configuration.
+   */
+  async getResolverChain(): Promise<ResolverChain | null> {
+    return this.registry.getResolverChain();
+  }
+
+  // ==========================================================================
+  // Registry Access
+  // ==========================================================================
+
+  /**
+   * Get the underlying HandlerRegistry.
+   *
+   * TAS-93: Returns the HandlerRegistry directly for use with
+   * StepExecutionSubscriber and other components.
+   */
+  getRegistry(): HandlerRegistry {
+    return this.registry;
+  }
+
+  /**
+   * Get debug information about the handler system.
+   */
+  debugInfo(): Record<string, unknown> {
     return {
-      resolve: (name: string) => this.registry.resolve(name),
-      isRegistered: (name: string) => this.registry.isRegistered(name),
-      listHandlers: () => this.registry.listHandlers(),
+      ...this.registry.debugInfo(),
+      component: 'HandlerSystem',
     };
   }
 
   // ==========================================================================
-  // Private Methods
+  // Private Methods - Handler Discovery
   // ==========================================================================
 
   /**

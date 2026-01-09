@@ -3,6 +3,41 @@ import type { StepContext } from '../types/step-context';
 import { StepHandlerResult } from '../types/step-handler-result';
 
 /**
+ * Public interface for executable handlers (TAS-93).
+ *
+ * This interface defines the contract that all handlers must fulfill
+ * to be executed by the resolver chain. Both StepHandler and
+ * MethodDispatchWrapper implement this interface.
+ *
+ * Use this type when you need to accept either a handler or a wrapped handler.
+ */
+export interface ExecutableHandler {
+  /** Unique identifier for this handler */
+  readonly name: string;
+
+  /** Version string for the handler */
+  readonly version: string;
+
+  /** List of capability strings the handler supports */
+  readonly capabilities: string[];
+
+  /**
+   * Execute the step handler logic.
+   *
+   * @param context - Execution context with input data and configuration
+   * @returns Promise resolving to handler result
+   */
+  call(context: StepContext): Promise<StepHandlerResult>;
+
+  /**
+   * Return JSON schema for handler configuration.
+   *
+   * @returns JSON schema object, or null if no schema is defined
+   */
+  configSchema(): Record<string, unknown> | null;
+}
+
+/**
  * Interface for step handler class metadata.
  *
  * Handler classes must implement these static properties.

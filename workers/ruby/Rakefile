@@ -80,7 +80,7 @@ task :format do
   sh 'cargo fmt'
 
   puts '✨ Formatting Ruby code...'
-  sh 'bundle exec rubocop --auto-correct'
+  sh 'bundle exec rubocop --autocorrect'
 end
 
 # Release preparation
