@@ -169,7 +169,7 @@ jobs:
           bundle install
           bundle exec rake compile
         env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SQLX_OFFLINE: "true"
 
       - name: Upload Ruby extension artifact
         uses: actions/upload-artifact@v6
@@ -243,7 +243,7 @@ jobs:
           uv sync --dev
           uv run maturin develop
         env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SQLX_OFFLINE: "true"
 
       # Python extension is installed in-place via maturin develop
       # No artifact upload needed - framework tests will build it fresh
@@ -309,7 +309,7 @@ jobs:
           cd workers/typescript
           cargo make build
         env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SQLX_OFFLINE: "true"
 
       - name: Upload TypeScript artifacts
         uses: actions/upload-artifact@v6
@@ -372,7 +372,7 @@ jobs:
           echo "🔨 Building Rust worker..."
           cargo build --package tasker-worker-rust
         env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SQLX_OFFLINE: "true"
 
       - name: Upload Rust worker artifact
         uses: actions/upload-artifact@v6
