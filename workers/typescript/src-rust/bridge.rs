@@ -146,9 +146,10 @@ pub fn bootstrap_worker_internal(config_json: Option<&str>) -> Result<String> {
             .with_completion_timeout(std::time::Duration::from_secs(30));
 
         // TAS-125: Get database pool for checkpoint service
+        // TAS-78: database_pool() returns tasker pool (backward compatible)
         let db_pool = runtime.block_on(async {
             let worker_core = system_handle.worker_core.lock().await;
-            worker_core.context.database_pool.clone()
+            worker_core.context.database_pool().clone()
         });
 
         // TAS-125: Create checkpoint service for batch processing handlers

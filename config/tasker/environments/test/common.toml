@@ -28,6 +28,19 @@ max_lifetime_seconds = 3600
 [common.database.variables]
 statement_timeout = 5000
 
+# PGMQ Database (uses main database by default in tests)
+[common.pgmq_database]
+url = "${PGMQ_DATABASE_URL:-}"
+enabled = true
+skip_migration_check = false
+
+[common.pgmq_database.pool]
+max_connections = 10
+min_connections = 1
+acquire_timeout_seconds = 5
+idle_timeout_seconds = 60
+max_lifetime_seconds = 3600
+
 [common.queues]
 default_batch_size = 5
 health_check_interval = 60

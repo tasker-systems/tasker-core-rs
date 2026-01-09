@@ -1,6 +1,8 @@
 // TAS-61 Phase 6C/6D: V2 config is now canonical
+// TAS-78: Added DatabasePools for separate PGMQ database support
 use crate::config::tasker::TaskerConfig;
 use crate::config::ConfigManager;
+use crate::database::DatabasePools;
 use crate::events::EventPublisher;
 use crate::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use crate::registry::TaskHandlerRegistry;
@@ -44,8 +46,11 @@ pub struct SystemContext {
     /// Unified message queue client (PGMQ/RabbitMQ abstraction)
     pub message_client: Arc<UnifiedPgmqClient>,
 
-    /// Database connection pool
-    pub database_pool: PgPool,
+    /// Database connection pools (TAS-78: supports separate PGMQ database)
+    ///
+    /// Contains both the main Tasker pool and the PGMQ pool.
+    /// In single-database deployments, both pools point to the same database.
+    database_pools: DatabasePools,
 
     /// Task handler registry
     pub task_handler_registry: Arc<TaskHandlerRegistry>,
@@ -63,10 +68,7 @@ impl std::fmt::Debug for SystemContext {
             .field("processor_uuid", &self.processor_uuid)
             .field("tasker_config", &"Arc<TaskerConfig>")
             .field("message_client", &"Arc<UnifiedMessageClient>")
-            .field(
-                "database_pool",
-                &format!("PgPool(size={})", self.database_pool.size()),
-            )
+            .field("database_pools", &self.database_pools)
             .field("task_handler_registry", &"Arc<TaskHandlerRegistry>")
             .field(
                 "circuit_breaker_manager",
@@ -178,59 +180,31 @@ impl SystemContext {
         info!("Initializing SystemContext from configuration (environment-aware)");
 
         // TAS-61 Phase 6C/6D: Use V2 config directly
+        // TAS-78: Use DatabasePools for separate PGMQ database support
         let config = config_manager.config();
 
-        // Extract database connection settings from configuration
-        let database_url = config.common.database_url();
+        // Create database pools (handles both single-DB and split-DB configurations)
+        let database_pools = DatabasePools::from_config(config).await?;
+
         info!(
-            "Database URL derived from V2 config: {} (pool options: {:?})",
-            database_url.chars().take(30).collect::<String>(),
-            config.common.database.pool
+            "Database pools created: pgmq_is_separate={}",
+            database_pools.pgmq_is_separate()
         );
 
-        // Create database connection pool with configuration
-        let database_pool = Self::get_pg_pool_options(config)
-            .connect(&database_url)
-            .await
-            .map_err(|e| {
-                TaskerError::DatabaseError(format!(
-                    "Failed to connect to database with config: {e}"
-                ))
-            })?;
-
-        info!("Database connection established from configuration");
-
         // Pass config_manager (already Arc) for component initialization
-        Self::from_pool_and_config(database_pool, config_manager).await
-    }
-
-    fn get_pg_pool_options(config: &TaskerConfig) -> sqlx::postgres::PgPoolOptions {
-        // TAS-61 Phase 6C/6D: Use V2 config structure (common.database.pool)
-        let pool_config = &config.common.database.pool;
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(pool_config.max_connections)
-            .min_connections(pool_config.min_connections)
-            .acquire_timeout(std::time::Duration::from_secs(
-                pool_config.acquire_timeout_seconds as u64,
-            ))
-            .idle_timeout(Some(std::time::Duration::from_secs(
-                pool_config.idle_timeout_seconds as u64,
-            )))
-            .max_lifetime(Some(std::time::Duration::from_secs(
-                pool_config.max_lifetime_seconds as u64,
-            )))
+        Self::from_pools_and_config(database_pools, config_manager).await
     }
 
     async fn get_circuit_breaker_and_queue_client(
         config: &TaskerConfig,
-        database_pool: PgPool,
+        pgmq_pool: PgPool,
     ) -> (Option<Arc<CircuitBreakerManager>>, Arc<UnifiedPgmqClient>) {
         // TAS-61 Phase 6C/6D: Use V2 config structure (common.circuit_breakers)
         let circuit_breaker_config = if config.common.circuit_breakers.enabled {
             info!("Circuit breakers enabled in configuration");
             Some(config.common.circuit_breakers.clone())
         } else {
-            info!("📤 Circuit breakers disabled in configuration");
+            info!("Circuit breakers disabled in configuration");
             None
         };
 
@@ -239,12 +213,12 @@ impl SystemContext {
             info!("Circuit breaker configuration found but ignored - sqlx provides this functionality");
             Some(Arc::new(CircuitBreakerManager::from_config(&cb_config)))
         } else {
-            info!("📤 Using standard PgmqClient with sqlx connection pooling");
+            info!("Using standard PgmqClient with sqlx connection pooling");
             None
         };
 
-        // Create unified client with sqlx pool (which handles retries, timeouts, etc.)
-        let standard_client = PgmqClient::new_with_pool(database_pool.clone()).await;
+        // TAS-78: Create unified client with PGMQ pool (may be separate from Tasker pool)
+        let standard_client = PgmqClient::new_with_pool(pgmq_pool).await;
         let message_client = Arc::new(UnifiedPgmqClient::new_standard(standard_client));
         (circuit_breaker_manager, message_client)
     }
@@ -255,11 +229,12 @@ impl SystemContext {
     /// components with proper configuration passed to each component.
     ///
     /// ## TAS-61 Phase 6C/6D: V2 Configuration (Canonical)
+    /// ## TAS-78: DatabasePools for separate PGMQ database support
     ///
     /// Uses V2 config directly as the single source of truth.
     /// No bridge conversion - all components use V2 config structure.
-    async fn from_pool_and_config(
-        database_pool: PgPool,
+    async fn from_pools_and_config(
+        database_pools: DatabasePools,
         config_manager: Arc<ConfigManager>,
     ) -> TaskerResult<Self> {
         info!("Creating system components with V2 configuration (TAS-61 Phase 6C/6D: canonical config)");
@@ -268,11 +243,16 @@ impl SystemContext {
         let config = config_manager.config();
         let tasker_config = Arc::new(config.clone());
 
-        let (circuit_breaker_manager, message_client) =
-            Self::get_circuit_breaker_and_queue_client(&tasker_config, database_pool.clone()).await;
+        // TAS-78: Use PGMQ pool for message client
+        let (circuit_breaker_manager, message_client) = Self::get_circuit_breaker_and_queue_client(
+            &tasker_config,
+            database_pools.pgmq().clone(),
+        )
+        .await;
 
-        // Create task handler registry with configuration
-        let task_handler_registry = Arc::new(TaskHandlerRegistry::new(database_pool.clone()));
+        // Create task handler registry with Tasker pool
+        let task_handler_registry =
+            Arc::new(TaskHandlerRegistry::new(database_pools.tasker().clone()));
 
         // Create system instance ID
         let system_id = Uuid::now_v7();
@@ -291,7 +271,7 @@ impl SystemContext {
             processor_uuid: system_id,
             tasker_config,
             message_client,
-            database_pool,
+            database_pools,
             task_handler_registry,
             circuit_breaker_manager,
             event_publisher,
@@ -390,9 +370,27 @@ impl SystemContext {
         Ok(())
     }
 
-    /// Get database pool reference
+    /// Get main Tasker database pool reference (backward compatible)
+    ///
+    /// This returns the Tasker pool for task, step, and transition operations.
+    /// For PGMQ-specific operations, use `pgmq_pool()`.
     pub fn database_pool(&self) -> &PgPool {
-        &self.database_pool
+        self.database_pools.tasker()
+    }
+
+    /// Get PGMQ database pool reference (TAS-78)
+    ///
+    /// This returns the PGMQ pool for queue operations.
+    /// May be the same as `database_pool()` in single-database deployments.
+    pub fn pgmq_pool(&self) -> &PgPool {
+        self.database_pools.pgmq()
+    }
+
+    /// Get database pools reference (TAS-78)
+    ///
+    /// Provides access to the full `DatabasePools` struct for advanced usage.
+    pub fn database_pools(&self) -> &DatabasePools {
+        &self.database_pools
     }
 
     /// Get message client reference
@@ -420,6 +418,7 @@ impl SystemContext {
     /// suitable for unit tests that need database access.
     ///
     /// ## TAS-61 Phase 6C/6D: V2 Configuration (Canonical)
+    /// ## TAS-78: Uses provided pool for both Tasker and PGMQ (single-DB test mode)
     ///
     /// Uses V2 config directly as the single source of truth.
     #[cfg(any(test, feature = "test-utils"))]
@@ -440,13 +439,18 @@ impl SystemContext {
         let config = config_manager.config();
         let tasker_config = Arc::new(config.clone());
 
+        // TAS-78: Create DatabasePools with the provided pool (uses config for PGMQ if separate)
+        let database_pools = DatabasePools::with_tasker_pool(config, database_pool.clone()).await?;
+
         // Create standard PGMQ client (no circuit breaker for simplicity)
+        // TAS-78: Use PGMQ pool from DatabasePools
         let message_client = Arc::new(UnifiedPgmqClient::new_standard(
-            PgmqClient::new_with_pool(database_pool.clone()).await,
+            PgmqClient::new_with_pool(database_pools.pgmq().clone()).await,
         ));
 
-        // Create task handler registry
-        let task_handler_registry = Arc::new(TaskHandlerRegistry::new(database_pool.clone()));
+        // Create task handler registry with Tasker pool
+        let task_handler_registry =
+            Arc::new(TaskHandlerRegistry::new(database_pools.tasker().clone()));
 
         // Create event publisher with bounded channel (TAS-51)
         let event_publisher_buffer_size = tasker_config
@@ -460,7 +464,7 @@ impl SystemContext {
             processor_uuid: system_id,
             tasker_config,
             message_client,
-            database_pool,
+            database_pools,
             task_handler_registry,
             circuit_breaker_manager: None, // Disabled for testing
             event_publisher,
