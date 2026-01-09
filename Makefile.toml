@@ -35,6 +35,9 @@ skip_core_tasks = true
 [env]
 # Database configuration (can be overridden)
 DATABASE_URL = { value = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test", condition = { env_not_set = ["DATABASE_URL"] } }
+# TAS-78: Optional separate PGMQ database URL (when not set, uses DATABASE_URL)
+# Set this to test split database mode locally
+# PGMQ_DATABASE_URL = { value = "", condition = { env_not_set = ["PGMQ_DATABASE_URL"] } }
 TASKER_ENV = { value = "test", condition = { env_not_set = ["TASKER_ENV"] } }
 
 # Use relative path for scripts to avoid path duplication issues
@@ -351,6 +354,66 @@ script = { file = "${SCRIPTS_DIR}/run-migrations.sh" }
 [tasks.db-reset]
 description = "Reset database (drop and recreate)"
 script = { file = "${SCRIPTS_DIR}/reset-db.sh" }
+
+# TAS-78: Split Database Mode Tasks
+[tasks.db-migrate-split]
+description = "Run migrations in split database mode (requires PGMQ_DATABASE_URL)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+if [ -z "${PGMQ_DATABASE_URL:-}" ]; then
+    echo "❌ PGMQ_DATABASE_URL not set"
+    echo ""
+    echo "Usage:"
+    echo "  PGMQ_DATABASE_URL=postgresql://... cargo make db-migrate-split"
+    echo ""
+    echo "Or use docker-compose for dual-database testing:"
+    echo "  docker compose -f docker/docker-compose.dual-pg.test.yml up -d"
+    echo "  source docker/dual-pg.env"
+    echo "  cargo make db-migrate-split"
+    exit 1
+fi
+
+echo "🔀 Running split database migrations..."
+${SCRIPTS_DIR}/run-migrations.sh
+'''
+
+[tasks.db-setup-split]
+description = "Setup split databases with migrations (requires PGMQ_DATABASE_URL)"
+dependencies = ["db-check-split", "db-migrate-split"]
+
+[tasks.db-check-split]
+description = "Check connectivity to both Tasker and PGMQ databases"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "🔍 Checking database connectivity..."
+
+# Check Tasker database
+echo -n "Tasker DB: "
+if pg_isready -d "${DATABASE_URL}" > /dev/null 2>&1; then
+    echo "✓ connected"
+else
+    echo "❌ not reachable"
+    exit 1
+fi
+
+# Check PGMQ database (if set)
+if [ -n "${PGMQ_DATABASE_URL:-}" ]; then
+    echo -n "PGMQ DB:   "
+    if pg_isready -d "${PGMQ_DATABASE_URL}" > /dev/null 2>&1; then
+        echo "✓ connected"
+    else
+        echo "❌ not reachable"
+        exit 1
+    fi
+fi
+
+echo ""
+echo "✓ All databases reachable"
+'''
 
 # =============================================================================
 # SQLX Cache Tasks
