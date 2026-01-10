@@ -42,6 +42,7 @@ use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 /// let evaluator = StatusEvaluator::new(
 ///     caches.clone(),
 ///     db_pool.clone(),
+///     pgmq_pool.clone(),  // TAS-78: Separate PGMQ pool
 ///     channel_monitor,
 ///     command_sender,
 ///     queue_names,
@@ -59,8 +60,14 @@ pub struct StatusEvaluator {
     /// Caches to update
     caches: HealthStatusCaches,
 
-    /// Database pool for health checks
+    /// Database pool for Tasker table health checks
     db_pool: PgPool,
+
+    /// TAS-78: PGMQ pool for queue metrics
+    ///
+    /// Separate pool for PGMQ operations to support split-database deployments
+    /// where PGMQ runs on a dedicated database.
+    pgmq_pool: PgPool,
 
     /// Channel monitor for saturation tracking
     channel_monitor: ChannelMonitor,
@@ -98,7 +105,8 @@ impl StatusEvaluator {
     ///
     /// # Arguments
     /// * `caches` - Shared caches to update
-    /// * `db_pool` - Database connection pool
+    /// * `db_pool` - Database connection pool for Tasker table operations
+    /// * `pgmq_pool` - TAS-78: PGMQ pool for queue metrics (may be same as db_pool)
     /// * `channel_monitor` - Monitor for command channel
     /// * `command_sender` - Sender for capacity checks
     /// * `queue_names` - List of queue names to monitor
@@ -108,6 +116,7 @@ impl StatusEvaluator {
     pub fn new(
         caches: HealthStatusCaches,
         db_pool: PgPool,
+        pgmq_pool: PgPool,
         channel_monitor: ChannelMonitor,
         command_sender: mpsc::Sender<OrchestrationCommand>,
         queue_names: Vec<String>,
@@ -117,6 +126,7 @@ impl StatusEvaluator {
         Self {
             caches,
             db_pool,
+            pgmq_pool,
             channel_monitor,
             command_sender,
             queue_names,
@@ -186,8 +196,9 @@ impl StatusEvaluator {
 
         // 3. Check queue depths (if enabled)
         // When disabled, returns default with tier=Unknown to indicate "not evaluated"
+        // TAS-78: Use PGMQ pool for queue metrics (supports split-database deployments)
         let queue_status = if self.config.check_queues {
-            evaluate_queue_status(&self.db_pool, &self.queue_names, &self.config.queues).await
+            evaluate_queue_status(&self.pgmq_pool, &self.queue_names, &self.config.queues).await
         } else {
             debug!("Queue depth check disabled - returning Unknown tier");
             QueueDepthStatus::default() // tier=Unknown indicates "not evaluated"

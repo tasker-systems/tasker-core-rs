@@ -175,15 +175,18 @@ impl WorkerQueueListener {
             .as_ref()
             .map(|w| w.mpsc_channels.event_listeners.pgmq_event_buffer_size as usize)
             .expect("Worker configuration required for pgmq event buffer size");
-        let mut listener = PgmqNotifyListener::new(
-            self.context.database_pool().clone(),
-            pgmq_config,
-            buffer_size,
-        )
-        .await
-        .map_err(|e| {
-            TaskerError::WorkerError(format!("Failed to create pgmq-notify listener: {}", e))
-        })?;
+        // TAS-78: Use PGMQ pool for notification listener - PostgreSQL LISTEN/NOTIFY
+        // only works within the same database, so the listener must connect to
+        // the same database where pgmq_send_with_notify sends notifications
+        let mut listener =
+            PgmqNotifyListener::new(self.context.pgmq_pool().clone(), pgmq_config, buffer_size)
+                .await
+                .map_err(|e| {
+                    TaskerError::WorkerError(format!(
+                        "Failed to create pgmq-notify listener: {}",
+                        e
+                    ))
+                })?;
 
         listener.connect().await.map_err(|e| {
             TaskerError::WorkerError(format!("Failed to connect to pgmq-notify listener: {}", e))

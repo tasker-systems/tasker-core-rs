@@ -263,9 +263,11 @@ impl OrchestrationCore {
         let health_config = HealthConfig::default();
 
         // Create the status evaluator
+        // TAS-78: Pass separate PGMQ pool for queue metrics (supports split-database deployments)
         let evaluator = StatusEvaluator::new(
             self.health_caches.clone(),
             self.context.database_pool().clone(),
+            self.context.pgmq_pool().clone(),
             self.command_channel_monitor.clone(),
             self.command_sender.clone(),
             queue_names,

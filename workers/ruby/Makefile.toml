@@ -234,7 +234,7 @@ bundle exec bin/console
 # Service Management Tasks
 # =============================================================================
 # Run the Ruby worker as a local service for E2E testing.
-# Uses the .env.test file for configuration.
+# Uses the .env file for configuration.
 #
 # Prerequisites:
 #   - cargo make build (compiles Rust extension)
@@ -250,9 +250,9 @@ bundle exec bin/console
 description = "Run Ruby worker service (port 8082)"
 dependencies = ["setup", "compile"]
 script = '''
-# Source environment from .env.test
+# Source environment from .env
 set -a
-source .env.test
+source .env
 set +a
 
 # Override PORT for local execution
@@ -273,9 +273,9 @@ PROJECT_ROOT="$(cd ../.. && pwd)" \
 description = "Run Ruby worker in foreground (for debugging)"
 dependencies = ["setup", "compile"]
 script = '''
-# Source environment from .env.test
+# Source environment from .env
 set -a
-source .env.test
+source .env
 set +a
 
 # Override PORT for local execution

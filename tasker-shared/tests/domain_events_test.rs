@@ -157,6 +157,9 @@ async fn test_publish_event(pool: PgPool) -> sqlx::Result<()> {
         .await
         .expect("Failed to create system context");
 
+    // TAS-78: Use PGMQ pool for PGMQ operations (supports split-db mode)
+    let pgmq_pool = context.database_pools().pgmq();
+
     // Use short namespace to avoid PGMQ 47-char queue name limit
     let namespace = format!("test_{}", &Uuid::new_v4().to_string()[..8]);
 
@@ -185,22 +188,22 @@ async fn test_publish_event(pool: PgPool) -> sqlx::Result<()> {
 
     assert!(!event_id.is_nil(), "Event ID should not be nil");
 
-    // Verify event was published to queue
+    // Verify event was published to queue (TAS-78: use PGMQ pool)
     let queue_name = format!("{}_domain_events", namespace);
     let message_count: i64 =
         sqlx::query_scalar(&format!("SELECT COUNT(*) FROM pgmq.q_{}", queue_name))
-            .fetch_one(&pool)
+            .fetch_one(pgmq_pool)
             .await?;
 
     assert_eq!(message_count, 1, "Should have exactly one message in queue");
 
-    // Cleanup
+    // Cleanup (TAS-78: use PGMQ pool for cleanup)
     let dlq_queue = format!("{}_domain_events_dlq", namespace);
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
 
     Ok(())
@@ -211,6 +214,9 @@ async fn test_publish_event_with_correlation(pool: PgPool) -> sqlx::Result<()> {
     let context = SystemContext::with_pool(pool.clone())
         .await
         .expect("Failed to create system context");
+
+    // TAS-78: Use PGMQ pool for PGMQ operations (supports split-db mode)
+    let pgmq_pool = context.database_pools().pgmq();
 
     // Use short namespace to avoid PGMQ 47-char queue name limit
     let namespace = format!("test_{}", &Uuid::new_v4().to_string()[..8]);
@@ -244,13 +250,13 @@ async fn test_publish_event_with_correlation(pool: PgPool) -> sqlx::Result<()> {
         .await
         .map_err(|e| sqlx::Error::Protocol(format!("Failed to publish event: {}", e)))?;
 
-    // Read message from queue and verify correlation_id
+    // Read message from queue and verify correlation_id (TAS-78: use PGMQ pool)
     let queue_name = format!("{}_domain_events", namespace);
     let message: Option<(serde_json::Value,)> = sqlx::query_as(&format!(
         "SELECT message FROM pgmq.q_{} LIMIT 1",
         queue_name
     ))
-    .fetch_optional(&pool)
+    .fetch_optional(pgmq_pool)
     .await?;
 
     assert!(message.is_some(), "Message should exist in queue");
@@ -264,13 +270,13 @@ async fn test_publish_event_with_correlation(pool: PgPool) -> sqlx::Result<()> {
         "Correlation ID should match"
     );
 
-    // Cleanup
+    // Cleanup (TAS-78: use PGMQ pool for cleanup)
     let dlq_queue = format!("{}_domain_events_dlq", namespace);
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
 
     Ok(())
@@ -282,6 +288,9 @@ async fn test_multiple_namespaces(pool: PgPool) -> sqlx::Result<()> {
         .await
         .expect("Failed to create system context");
 
+    // TAS-78: Use PGMQ pool for PGMQ operations (supports split-db mode)
+    let pgmq_pool = context.database_pools().pgmq();
+
     // Create two namespaces
     let namespace1 = format!("test_{}", &Uuid::new_v4().to_string()[..8]);
     let namespace2 = format!("test_{}", &Uuid::new_v4().to_string()[..8]);
@@ -292,7 +301,7 @@ async fn test_multiple_namespaces(pool: PgPool) -> sqlx::Result<()> {
         .await
         .expect("Failed to initialize domain event queues");
 
-    // Verify all queues exist
+    // Verify all queues exist (TAS-78: use PGMQ pool)
     let queues = vec![
         format!("{}_domain_events", namespace1),
         format!("{}_domain_events_dlq", namespace1),
@@ -304,16 +313,16 @@ async fn test_multiple_namespaces(pool: PgPool) -> sqlx::Result<()> {
         let exists: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pgmq.meta WHERE queue_name = $1)")
                 .bind(queue_name)
-                .fetch_one(&pool)
+                .fetch_one(pgmq_pool)
                 .await?;
 
         assert!(exists, "Queue {} should exist", queue_name);
     }
 
-    // Cleanup
+    // Cleanup (TAS-78: use PGMQ pool for cleanup)
     for queue_name in &queues {
         let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-            .execute(&pool)
+            .execute(pgmq_pool)
             .await;
     }
 

@@ -43,6 +43,13 @@ fn get_env_var_allowlist() -> Vec<EnvVarRule> {
             pattern: r"^postgresql://([a-zA-Z0-9_-]+:[^@]+@)?[a-zA-Z0-9._-]+(:[0-9]+)?/[a-zA-Z0-9_-]+(\?.*)?$",
         },
         EnvVarRule {
+            name: "PGMQ_DATABASE_URL",
+            description:
+                "PostgreSQL connection URL for PGMQ (optional, falls back to DATABASE_URL)",
+            // Same pattern as DATABASE_URL but allows empty string for fallback behavior
+            pattern: r"^(postgresql://([a-zA-Z0-9_-]+:[^@]+@)?[a-zA-Z0-9._-]+(:[0-9]+)?/[a-zA-Z0-9_-]+(\?.*)?)?$",
+        },
+        EnvVarRule {
             name: "TASKER_ENV",
             description: "Environment name (test, development, production)",
             pattern: r"^(test|development|production)$",

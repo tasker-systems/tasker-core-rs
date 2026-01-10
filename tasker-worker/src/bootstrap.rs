@@ -324,10 +324,14 @@ impl WorkerBootstrap {
         // Clone the Arc<Mutex<WorkerCore>> for web API
         let web_worker_core = worker_core.clone();
 
-        // Get database pool (need to lock briefly to access context)
-        let database_pool = {
+        // Get database pools (need to lock briefly to access context)
+        // TAS-78: Get both Tasker pool and PGMQ pool (supports split-database deployments)
+        let (database_pool, pgmq_pool) = {
             let core = worker_core.lock().await;
-            Arc::new(core.context.database_pool().clone())
+            (
+                Arc::new(core.context.database_pool().clone()),
+                Arc::new(core.context.pgmq_pool().clone()),
+            )
         };
 
         let web_state = Arc::new(
@@ -335,6 +339,7 @@ impl WorkerBootstrap {
                 config.web_config.clone(),
                 web_worker_core,
                 database_pool,
+                pgmq_pool,
                 (*system_context.tasker_config).clone(),
             )
             .await?,

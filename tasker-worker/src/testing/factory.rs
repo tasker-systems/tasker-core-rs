@@ -43,24 +43,71 @@ pub enum TestFactoryError {
 ///
 /// Provides factory methods for creating test tasks, steps, and related
 /// objects without FFI dependencies.
+///
+/// ## TAS-78: Split Database Support
+///
+/// The factory supports separate pools for Tasker tables and PGMQ queues:
+/// - `database_pool`: Used for Tasker tables (tasks, steps, namespaces)
+/// - `pgmq_pool`: Used for PGMQ queue operations (queue creation, messages)
+///
+/// For backward compatibility, if `pgmq_pool` is not specified, it defaults
+/// to using the same pool as `database_pool`.
 #[derive(Clone, Debug)]
 pub struct WorkerTestFactory {
+    /// Pool for Tasker table operations (tasks, steps, namespaces)
     database_pool: Arc<PgPool>,
+    /// Pool for PGMQ queue operations (TAS-78: may be separate database)
+    pgmq_pool: Arc<PgPool>,
     api_client: Option<Arc<OrchestrationApiClient>>,
 }
 
 impl WorkerTestFactory {
-    /// Create a new factory with database connection
+    /// Create a new factory with database connection (single pool mode)
+    ///
+    /// For backward compatibility, uses the same pool for both Tasker tables
+    /// and PGMQ operations. Use `new_with_pools()` for split-database mode.
     pub fn new(database_pool: Arc<PgPool>) -> Self {
         Self {
+            pgmq_pool: database_pool.clone(), // TAS-78: default to same pool
             database_pool,
             api_client: None,
         }
     }
 
+    /// Create a new factory with separate pools for Tasker and PGMQ (TAS-78)
+    ///
+    /// Use this constructor when testing in split-database mode where PGMQ
+    /// tables are in a separate database from Tasker tables.
+    pub fn new_with_pools(database_pool: Arc<PgPool>, pgmq_pool: Arc<PgPool>) -> Self {
+        Self {
+            database_pool,
+            pgmq_pool,
+            api_client: None,
+        }
+    }
+
     /// Create a factory with orchestration API client for task initialization
+    ///
+    /// Uses single pool mode. For split-database mode, use `with_api_client_and_pools()`.
     pub fn with_api_client(
         database_pool: Arc<PgPool>,
+        orchestration_url: String,
+        auth_token: Option<String>,
+    ) -> Result<Self, TestFactoryError> {
+        Self::with_api_client_and_pools(
+            database_pool.clone(),
+            database_pool, // TAS-78: default to same pool
+            orchestration_url,
+            auth_token,
+        )
+    }
+
+    /// Create a factory with API client and separate pools (TAS-78)
+    ///
+    /// Use this constructor when testing in split-database mode.
+    pub fn with_api_client_and_pools(
+        database_pool: Arc<PgPool>,
+        pgmq_pool: Arc<PgPool>,
         orchestration_url: String,
         auth_token: Option<String>,
     ) -> Result<Self, TestFactoryError> {
@@ -81,6 +128,7 @@ impl WorkerTestFactory {
 
         Ok(Self {
             database_pool,
+            pgmq_pool,
             api_client: Some(Arc::new(client)),
         })
     }
@@ -106,21 +154,24 @@ impl WorkerTestFactory {
     }
 
     /// Create test namespace and related infrastructure
+    ///
+    /// Uses the Tasker pool for namespace creation and PGMQ pool for queue creation.
     pub async fn create_test_namespace(
         &self,
         name: &str,
     ) -> Result<TestNamespace, TestFactoryError> {
-        let pool = self.database_pool.as_ref();
+        // TAS-78: Use Tasker pool for namespace (Tasker table)
+        let tasker_pool = self.database_pool.as_ref();
 
-        // Find or create namespace
-        let namespace = TaskNamespace::find_or_create(pool, name)
+        // Find or create namespace in Tasker database
+        let namespace = TaskNamespace::find_or_create(tasker_pool, name)
             .await
             .map_err(|e| {
                 TestFactoryError::DatabaseError(format!("Namespace creation failed: {}", e))
             })?;
 
-        // Create pgmq queue for namespace
-        let pgmq_client = PgmqClient::new_with_pool(pool.clone()).await;
+        // TAS-78: Use PGMQ pool for queue creation (PGMQ database)
+        let pgmq_client = PgmqClient::new_with_pool(self.pgmq_pool.as_ref().clone()).await;
         let queue_name = format!("worker_{}_queue", name);
 
         pgmq_client.create_queue(&queue_name).await.map_err(|e| {
@@ -241,9 +292,17 @@ impl WorkerTestFactory {
         Ok(created_steps)
     }
 
-    /// Get database pool for custom operations
+    /// Get Tasker database pool for custom operations
     pub fn database_pool(&self) -> &PgPool {
         &self.database_pool
+    }
+
+    /// Get PGMQ database pool for custom queue operations (TAS-78)
+    ///
+    /// In single-database mode, this returns the same pool as `database_pool()`.
+    /// In split-database mode, this returns a separate pool connected to the PGMQ database.
+    pub fn pgmq_pool(&self) -> &PgPool {
+        &self.pgmq_pool
     }
 }
 

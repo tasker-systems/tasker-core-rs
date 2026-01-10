@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Load test environment variables if .env.test exists
+# Load test environment variables if .env exists
 #
 # Usage: source scripts/load-env.sh
 #
@@ -9,7 +9,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-ENV_FILE="$PROJECT_ROOT/.env.test"
+ENV_FILE="$PROJECT_ROOT/.env"
 
 if [[ -f "$ENV_FILE" ]]; then
     set -a

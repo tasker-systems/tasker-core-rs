@@ -1,0 +1,101 @@
+# =============================================================================
+# TAS-78: Dual Database Test Configuration
+# =============================================================================
+# Tests split-database deployment where PGMQ runs on a separate database
+# from the main Tasker tables.
+#
+# This configuration:
+# - Creates two databases in the same PostgreSQL instance
+# - Tasker DB: tasker_split_test (NO pgmq extension - proves isolation)
+# - PGMQ DB: pgmq_split_test (PGMQ + pg_uuidv7 extensions)
+# - Forces any code depending on pgmq.metrics() in Tasker DB to fail
+#
+# Usage:
+#   docker compose -f docker/docker-compose.dual-pg.test.yml up -d
+#   source docker/dual-pg.env
+#   cargo make db-migrate-split
+#
+# Access:
+# - PostgreSQL: localhost:5433 (different from standard 5432)
+# - Tasker DB: postgresql://tasker:tasker@localhost:5433/tasker_split_test
+# - PGMQ DB:   postgresql://tasker:tasker@localhost:5433/pgmq_split_test
+# - Grafana:   http://localhost:3001 (different from standard 3000)
+
+services:
+  # ==========================================================================
+  # PostgreSQL with Dual Database Setup
+  # ==========================================================================
+  postgres-dual:
+    build:
+      context: ..
+      dockerfile: docker/db/Dockerfile
+    container_name: tasker-dual-pg-test
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=128MB"
+    environment:
+      # Primary database (will be created by default)
+      POSTGRES_DB: postgres
+      POSTGRES_USER: tasker
+      POSTGRES_PASSWORD: tasker
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      # Use non-standard port to avoid conflicts with standard test setup
+      - "5433:5432"
+    volumes:
+      - dual_pg_data:/var/lib/postgresql/data
+      # Mount custom init script for dual database setup
+      # Script runs AFTER base image init scripts (01, 02, 99) due to naming (10-)
+      - ./dual-pg-init/01-create-databases.sh:/docker-entrypoint-initdb.d/10-create-dual-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasker -d tasker_split_test && pg_isready -U tasker -d pgmq_split_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - tasker-dual-test
+
+  # ==========================================================================
+  # Observability Stack (Optional - for debugging)
+  # ==========================================================================
+  observability-dual:
+    image: grafana/otel-lgtm:latest
+    container_name: tasker-dual-observability
+    ports:
+      # Use non-standard ports to avoid conflicts
+      - "3001:3000"   # Grafana UI
+      - "4319:4317"   # OTLP gRPC
+      - "4320:4318"   # OTLP HTTP
+      - "9091:9090"   # Prometheus
+    environment:
+      ENABLE_LOGS: "true"
+      ENABLE_METRICS: "true"
+      ENABLE_TRACES: "true"
+    volumes:
+      - dual_grafana_data:/var/lib/grafana
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ready || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - tasker-dual-test
+    profiles:
+      - observability  # Only start with --profile observability
+
+volumes:
+  dual_pg_data:
+  dual_grafana_data:
+
+networks:
+  tasker-dual-test:
+    driver: bridge

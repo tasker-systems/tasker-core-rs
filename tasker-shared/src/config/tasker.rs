@@ -214,6 +214,12 @@ pub struct CommonConfig {
     #[validate(nested)]
     pub task_templates: TaskTemplatesConfig,
 
+    /// PGMQ separate database configuration (optional)
+    /// When not configured or url is empty, PGMQ uses main database
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub pgmq_database: Option<PgmqDatabaseConfig>,
+
     /// Telemetry configuration (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
@@ -230,6 +236,56 @@ impl CommonConfig {
         } else {
             self.database.url.clone()
         }
+    }
+
+    /// Get PGMQ database URL, falling back to main database if not configured
+    ///
+    /// Returns the PGMQ-specific database URL if configured and non-empty,
+    /// otherwise falls back to the main database URL.
+    ///
+    /// TAS-78: After config loading, env vars have already been substituted.
+    /// The URL will contain the resolved value, not the placeholder.
+    pub fn pgmq_database_url(&self) -> String {
+        if let Some(ref pgmq) = self.pgmq_database {
+            if !pgmq.url.is_empty() {
+                return pgmq.url.clone();
+            }
+        }
+        // Fallback to main database
+        self.database_url()
+    }
+
+    /// Check if PGMQ uses a separate database
+    ///
+    /// TAS-78: Returns true when PGMQ database URL differs from main database URL.
+    /// After config loading, env vars have already been substituted, so we compare
+    /// the actual URLs rather than checking for placeholders.
+    pub fn pgmq_is_separate(&self) -> bool {
+        if let Some(ref pgmq) = self.pgmq_database {
+            if !pgmq.url.is_empty() {
+                // Compare resolved URLs - if different, PGMQ is on separate database
+                return pgmq.url != self.database_url();
+            }
+        }
+        false
+    }
+
+    /// Check if PGMQ messaging is enabled
+    ///
+    /// Returns true (default) unless explicitly disabled in configuration.
+    pub fn pgmq_enabled(&self) -> bool {
+        self.pgmq_database
+            .as_ref()
+            .map(|p| p.enabled)
+            .unwrap_or(true)
+    }
+
+    /// Get the PGMQ pool configuration, falling back to main database pool if not configured
+    pub fn pgmq_pool_config(&self) -> &PoolConfig {
+        self.pgmq_database
+            .as_ref()
+            .map(|p| &p.pool)
+            .unwrap_or(&self.database.pool)
     }
 }
 
@@ -334,6 +390,34 @@ pub struct DatabaseVariablesConfig {
 }
 
 impl_builder_default!(DatabaseVariablesConfig);
+
+/// PGMQ separate database configuration
+///
+/// When url is empty or not set, PGMQ operations use the main database.
+/// This maintains backward compatibility while enabling separate database deployments.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct PgmqDatabaseConfig {
+    /// PostgreSQL connection URL for PGMQ database
+    /// When empty, falls back to main database URL
+    #[builder(default = String::new())]
+    pub url: String,
+
+    /// Whether PGMQ messaging is enabled
+    #[builder(default = true)]
+    pub enabled: bool,
+
+    /// Skip migration check on startup
+    #[builder(default = false)]
+    pub skip_migration_check: bool,
+
+    /// Connection pool configuration (reuses PoolConfig)
+    #[validate(nested)]
+    #[builder(default)]
+    pub pool: PoolConfig,
+}
+
+impl_builder_default!(PgmqDatabaseConfig);
 
 /// Message queue configuration (PGMQ)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -2434,6 +2518,7 @@ mod tests {
             task_templates: TaskTemplatesConfig {
                 search_paths: vec!["config/templates/*.yml".to_string()],
             },
+            pgmq_database: None,
             telemetry: None,
         };
 

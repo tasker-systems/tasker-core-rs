@@ -70,9 +70,9 @@ description = "Run E2E tests (requires services running)"
 dependencies = ["check-services"]
 script = '''
 #!/bin/bash
-# Load environment from .env.test using set -a (auto-export)
+# Load environment from .env using set -a (auto-export)
 set -a
-source .env.test
+source .env
 set +a
 echo "📋 Loaded environment: TASKER_FIXTURE_PATH=$TASKER_FIXTURE_PATH"
 cargo nextest run --all-features -E "test(e2e::)"

@@ -49,6 +49,7 @@ pub type SharedCircuitBreakerProvider =
 /// async fn example(
 ///     worker_id: String,
 ///     database_pool: Arc<PgPool>,
+///     pgmq_pool: Arc<PgPool>,  // TAS-78: Separate PGMQ pool
 ///     worker_core: Arc<Mutex<WorkerCore>>,
 /// ) {
 ///     let circuit_breaker_provider: SharedCircuitBreakerProvider =
@@ -58,6 +59,7 @@ pub type SharedCircuitBreakerProvider =
 ///     let service = HealthService::new(
 ///         worker_id,
 ///         database_pool,
+///         pgmq_pool,
 ///         worker_core,
 ///         circuit_breaker_provider,
 ///         start_time,
@@ -74,8 +76,14 @@ pub struct HealthService {
     /// Worker identification
     worker_id: String,
 
-    /// Database connection pool for connectivity checks
+    /// Database connection pool for Tasker table connectivity checks
     database_pool: Arc<PgPool>,
+
+    /// TAS-78: PGMQ pool for queue metrics
+    ///
+    /// Separate pool for PGMQ operations to support split-database deployments
+    /// where PGMQ runs on a dedicated database.
+    pgmq_pool: Arc<PgPool>,
 
     /// Worker core for processor and step execution stats
     worker_core: Arc<tokio::sync::Mutex<WorkerCore>>,
@@ -102,11 +110,17 @@ impl HealthService {
     /// Create a new HealthService
     ///
     /// # Arguments
+    /// * `worker_id` - Unique worker identifier
+    /// * `database_pool` - Tasker database pool for connectivity checks
+    /// * `pgmq_pool` - TAS-78: PGMQ pool for queue metrics (may be same as database_pool)
+    /// * `worker_core` - Worker core for processing stats
     /// * `circuit_breaker_provider` - Shared reference to circuit breaker provider.
     ///   This is shared with `WorkerWebState` so updates are visible to both.
+    /// * `start_time` - Service start time for uptime calculation
     pub fn new(
         worker_id: String,
         database_pool: Arc<PgPool>,
+        pgmq_pool: Arc<PgPool>,
         worker_core: Arc<tokio::sync::Mutex<WorkerCore>>,
         circuit_breaker_provider: SharedCircuitBreakerProvider,
         start_time: std::time::Instant,
@@ -114,6 +128,7 @@ impl HealthService {
         Self {
             worker_id,
             database_pool,
+            pgmq_pool,
             worker_core,
             circuit_breaker_provider,
             start_time,
@@ -321,14 +336,17 @@ impl HealthService {
     }
 
     /// Check queue processing capability and queue depths
+    ///
+    /// TAS-78: Uses PGMQ pool for queue metrics (supports split-database deployments)
     pub async fn check_queue(&self) -> HealthCheck {
         let start = std::time::Instant::now();
 
         // Check PGMQ queue metrics for worker namespaces
+        // TAS-78: Use PGMQ pool (may be separate from Tasker database)
         match sqlx::query(
             "SELECT queue_name, queue_length FROM pgmq.metrics_all() WHERE queue_name LIKE '%_queue'",
         )
-        .fetch_all(self.database_pool.as_ref())
+        .fetch_all(self.pgmq_pool.as_ref())
         .await
         {
             Ok(rows) => {

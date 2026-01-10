@@ -252,6 +252,9 @@ async fn test_payment_event_publisher_success_flow(pool: PgPool) -> sqlx::Result
         .await
         .expect("Failed to create system context");
 
+    // TAS-78: Use PGMQ pool for PGMQ operations (supports split-db mode)
+    let pgmq_pool = context.database_pools().pgmq();
+
     // Use short namespace to avoid PGMQ 47-char limit
     let namespace = format!("pay_{}", &Uuid::new_v4().to_string()[..8]);
 
@@ -314,11 +317,11 @@ async fn test_payment_event_publisher_success_flow(pool: PgPool) -> sqlx::Result
         "Should have published at least 1 event"
     );
 
-    // Verify events were published to the queue
+    // Verify events were published to the queue (TAS-78: use PGMQ pool)
     let queue_name = format!("{}_domain_events", namespace);
     let message_count: i64 =
         sqlx::query_scalar(&format!("SELECT COUNT(*) FROM pgmq.q_{}", queue_name))
-            .fetch_one(&pool)
+            .fetch_one(pgmq_pool)
             .await?;
 
     assert!(
@@ -326,13 +329,13 @@ async fn test_payment_event_publisher_success_flow(pool: PgPool) -> sqlx::Result
         "Should have at least one message in queue"
     );
 
-    // Cleanup
+    // Cleanup (TAS-78: use PGMQ pool for cleanup)
     let dlq_queue = format!("{}_domain_events_dlq", namespace);
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
 
     Ok(())
@@ -345,6 +348,9 @@ async fn test_payment_event_publisher_failure_flow(pool: PgPool) -> sqlx::Result
     let context = SystemContext::with_pool(pool.clone())
         .await
         .expect("Failed to create system context");
+
+    // TAS-78: Use PGMQ pool for PGMQ operations (supports split-db mode)
+    let pgmq_pool = context.database_pools().pgmq();
 
     let namespace = format!("pay_{}", &Uuid::new_v4().to_string()[..8]);
 
@@ -389,11 +395,11 @@ async fn test_payment_event_publisher_failure_flow(pool: PgPool) -> sqlx::Result
         "Should have published at least 1 event"
     );
 
-    // Verify events in queue
+    // Verify events in queue (TAS-78: use PGMQ pool)
     let queue_name = format!("{}_domain_events", namespace);
     let message_count: i64 =
         sqlx::query_scalar(&format!("SELECT COUNT(*) FROM pgmq.q_{}", queue_name))
-            .fetch_one(&pool)
+            .fetch_one(pgmq_pool)
             .await?;
 
     assert!(
@@ -401,13 +407,13 @@ async fn test_payment_event_publisher_failure_flow(pool: PgPool) -> sqlx::Result
         "Should have at least one message in queue"
     );
 
-    // Cleanup
+    // Cleanup (TAS-78: use PGMQ pool for cleanup)
     let dlq_queue = format!("{}_domain_events_dlq", namespace);
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
 
     Ok(())
@@ -420,6 +426,9 @@ async fn test_end_to_end_payment_flow(pool: PgPool) -> sqlx::Result<()> {
     let context = SystemContext::with_pool(pool.clone())
         .await
         .expect("Failed to create system context");
+
+    // TAS-78: Use PGMQ pool for PGMQ operations (supports split-db mode)
+    let pgmq_pool = context.database_pools().pgmq();
 
     let namespace = format!("pay_{}", &Uuid::new_v4().to_string()[..8]);
 
@@ -481,11 +490,11 @@ async fn test_end_to_end_payment_flow(pool: PgPool) -> sqlx::Result<()> {
         "Should have published events"
     );
 
-    // Verify events in queue
+    // Verify events in queue (TAS-78: use PGMQ pool)
     let queue_name = format!("{}_domain_events", namespace);
     let message_count: i64 =
         sqlx::query_scalar(&format!("SELECT COUNT(*) FROM pgmq.q_{}", queue_name))
-            .fetch_one(&pool)
+            .fetch_one(pgmq_pool)
             .await?;
 
     assert!(
@@ -501,13 +510,13 @@ async fn test_end_to_end_payment_flow(pool: PgPool) -> sqlx::Result<()> {
         queue_name
     );
 
-    // Cleanup
+    // Cleanup (TAS-78: use PGMQ pool for cleanup)
     let dlq_queue = format!("{}_domain_events_dlq", namespace);
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
 
     Ok(())
@@ -557,6 +566,9 @@ async fn test_no_events_when_not_declared(pool: PgPool) -> sqlx::Result<()> {
         .await
         .expect("Failed to create system context");
 
+    // TAS-78: Use PGMQ pool for PGMQ operations (supports split-db mode)
+    let pgmq_pool = context.database_pools().pgmq();
+
     let namespace = format!("pay_{}", &Uuid::new_v4().to_string()[..8]);
 
     context
@@ -600,14 +612,14 @@ async fn test_no_events_when_not_declared(pool: PgPool) -> sqlx::Result<()> {
     // The publisher checks is_event_declared(), so events not declared are skipped
     // or not published at all
 
-    // Cleanup
+    // Cleanup (TAS-78: use PGMQ pool for cleanup)
     let queue_name = format!("{}_domain_events", namespace);
     let dlq_queue = format!("{}_domain_events_dlq", namespace);
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
     let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
-        .execute(&pool)
+        .execute(pgmq_pool)
         .await;
 
     Ok(())

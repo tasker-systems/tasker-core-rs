@@ -70,6 +70,21 @@ min_connections = 1
 [common.database.variables]
 statement_timeout = 5000
 
+# TAS-78: PGMQ Separate Database Configuration
+# When PGMQ_DATABASE_URL is set and different from DATABASE_URL,
+# PGMQ operations use a separate database pool.
+[common.pgmq_database]
+url = "${PGMQ_DATABASE_URL:-}"
+enabled = true
+skip_migration_check = false
+
+[common.pgmq_database.pool]
+max_connections = 10
+min_connections = 1
+acquire_timeout_seconds = 5
+idle_timeout_seconds = 60
+max_lifetime_seconds = 3600
+
 [common.execution]
 connection_timeout_seconds = 30
 default_timeout_seconds = 3600

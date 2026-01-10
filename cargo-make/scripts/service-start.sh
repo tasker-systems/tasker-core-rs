@@ -27,6 +27,13 @@ if [ -z "$COMMAND" ]; then
     exit 1
 fi
 
+# TAS-78: Enable SQLX_OFFLINE in split-database mode
+# (SQLx compile-time checking requires single database)
+if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
+    echo "🔀 Split database mode - using SQLX_OFFLINE=true"
+    export SQLX_OFFLINE=true
+fi
+
 # Setup directories
 PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 PID_DIR="${PROJECT_ROOT}/.pids"
