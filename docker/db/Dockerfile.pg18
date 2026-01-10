@@ -1,0 +1,40 @@
+# PostgreSQL 18 with native UUIDv7 support and PGMQ
+#
+# This image provides:
+# - PostgreSQL 18 with native uuidv7() function
+# - PGMQ extension for message queuing
+# - Compatibility alias uuid_generate_v7() -> uuidv7()
+#
+# No extension compilation needed - pg18 includes native UUIDv7 support.
+
+FROM ghcr.io/pgmq/pg18-pgmq:v1.8.1 AS base-with-pgmq
+
+# Switch to root for setup
+USER root
+
+# Create initialization scripts
+
+# 1. Create postgres role for pg_partman background worker compatibility
+RUN echo "CREATE ROLE postgres WITH SUPERUSER LOGIN;" > /docker-entrypoint-initdb.d/01-create-postgres-role.sql
+
+# 2. Create compatibility alias for uuid_generate_v7()
+# This allows existing migrations and code to work unchanged with pg18's native uuidv7()
+RUN echo "CREATE OR REPLACE FUNCTION uuid_generate_v7() RETURNS uuid AS \$\$ SELECT uuidv7(); \$\$ LANGUAGE SQL IMMUTABLE PARALLEL SAFE;" > /docker-entrypoint-initdb.d/02-uuid_v7_alias.sql
+
+# 3. Test script to verify extensions work
+RUN echo "SELECT uuid_generate_v7() as test_uuid_v7, 'PGMQ and UUID v7 ready!' as status;" > /docker-entrypoint-initdb.d/99-test-extensions.sql
+
+# Switch back to postgres user for runtime
+USER postgres
+
+# Labels for identification
+LABEL description="PostgreSQL 18 with PGMQ and native UUID v7 support"
+LABEL maintainer="tasker-systems"
+LABEL base-image="ghcr.io/pgmq/pg18-pgmq:v1.8.1"
+LABEL extensions="pgmq"
+LABEL pg-version="18"
+
+# Default environment variables for Tasker development
+ENV POSTGRES_DB=tasker_test
+ENV POSTGRES_USER=tasker
+ENV POSTGRES_PASSWORD=tasker
