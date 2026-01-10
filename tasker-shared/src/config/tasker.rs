@@ -242,19 +242,13 @@ impl CommonConfig {
     ///
     /// Returns the PGMQ-specific database URL if configured and non-empty,
     /// otherwise falls back to the main database URL.
+    ///
+    /// TAS-78: After config loading, env vars have already been substituted.
+    /// The URL will contain the resolved value, not the placeholder.
     pub fn pgmq_database_url(&self) -> String {
         if let Some(ref pgmq) = self.pgmq_database {
             if !pgmq.url.is_empty() {
-                // Check for env var template
-                if pgmq.url.contains("${PGMQ_DATABASE_URL}") {
-                    if let Ok(url) = std::env::var("PGMQ_DATABASE_URL") {
-                        if !url.is_empty() {
-                            return url;
-                        }
-                    }
-                } else {
-                    return pgmq.url.clone();
-                }
+                return pgmq.url.clone();
             }
         }
         // Fallback to main database
@@ -263,17 +257,14 @@ impl CommonConfig {
 
     /// Check if PGMQ uses a separate database
     ///
-    /// Returns true only when PGMQ_DATABASE_URL is explicitly set to a non-empty value.
+    /// TAS-78: Returns true when PGMQ database URL differs from main database URL.
+    /// After config loading, env vars have already been substituted, so we compare
+    /// the actual URLs rather than checking for placeholders.
     pub fn pgmq_is_separate(&self) -> bool {
         if let Some(ref pgmq) = self.pgmq_database {
             if !pgmq.url.is_empty() {
-                // Check if env var is actually set
-                if pgmq.url.contains("${PGMQ_DATABASE_URL}") {
-                    return std::env::var("PGMQ_DATABASE_URL")
-                        .map(|v| !v.is_empty())
-                        .unwrap_or(false);
-                }
-                return true;
+                // Compare resolved URLs - if different, PGMQ is on separate database
+                return pgmq.url != self.database_url();
             }
         }
         false

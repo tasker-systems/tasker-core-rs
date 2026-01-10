@@ -178,8 +178,11 @@ impl OrchestrationQueueListener {
             .as_ref()
             .map(|o| o.mpsc_channels.event_listeners.pgmq_event_buffer_size)
             .unwrap_or(10000);
+        // TAS-78: Use PGMQ pool for notification listener - PostgreSQL LISTEN/NOTIFY
+        // only works within the same database, so the listener must connect to
+        // the same database where pgmq_send_with_notify sends notifications
         let mut listener = PgmqNotifyListener::new(
-            self.context.database_pool().clone(),
+            self.context.pgmq_pool().clone(),
             pgmq_config,
             buffer_size as usize,
         )

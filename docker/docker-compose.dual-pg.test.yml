@@ -48,7 +48,8 @@ services:
     volumes:
       - dual_pg_data:/var/lib/postgresql/data
       # Mount custom init script for dual database setup
-      - ./dual-pg-init:/docker-entrypoint-initdb.d/init-dual:ro
+      # Script runs AFTER base image init scripts (01, 02, 99) due to naming (10-)
+      - ./dual-pg-init/01-create-databases.sh:/docker-entrypoint-initdb.d/10-create-dual-databases.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tasker -d tasker_split_test && pg_isready -U tasker -d pgmq_split_test"]
       interval: 5s

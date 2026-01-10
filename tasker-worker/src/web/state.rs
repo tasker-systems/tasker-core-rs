@@ -84,8 +84,14 @@ pub struct WorkerWebState {
     /// Wrapped in Arc<Mutex<>> for thread-safe shared access
     pub worker_core: Arc<tokio::sync::Mutex<crate::worker::core::WorkerCore>>,
 
-    /// Database connection pool
+    /// Database connection pool for Tasker tables
     pub database_pool: Arc<PgPool>,
+
+    /// TAS-78: PGMQ pool for queue metrics
+    ///
+    /// Separate pool for PGMQ operations to support split-database deployments
+    /// where PGMQ runs on a dedicated database.
+    pub pgmq_pool: Arc<PgPool>,
 
     /// Unified message client for queue metrics and monitoring
     pub message_client: Arc<UnifiedMessageClient>,
@@ -143,10 +149,18 @@ pub trait CircuitBreakerHealthProvider: Send + Sync + std::fmt::Debug {
 
 impl WorkerWebState {
     /// Create new worker web state with all required components
+    ///
+    /// # Arguments
+    /// * `config` - Web API configuration
+    /// * `worker_core` - Worker core for processing stats
+    /// * `database_pool` - Tasker database pool for table operations
+    /// * `pgmq_pool` - TAS-78: PGMQ pool for queue metrics (may be same as database_pool)
+    /// * `system_config` - System configuration
     pub async fn new(
         config: WorkerWebConfig,
         worker_core: Arc<tokio::sync::Mutex<crate::worker::core::WorkerCore>>,
         database_pool: Arc<PgPool>,
+        pgmq_pool: Arc<PgPool>,
         system_config: TaskerConfig,
     ) -> TaskerResult<Self> {
         info!(
@@ -193,9 +207,11 @@ impl WorkerWebState {
             Arc::new(TokioRwLock::new(None));
 
         // TAS-77: Create service instances for handler delegation
+        // TAS-78: Pass PGMQ pool for queue metrics (supports split-database deployments)
         let health_service = Arc::new(HealthService::new(
             worker_id.clone(),
             database_pool.clone(),
+            pgmq_pool.clone(),
             worker_core.clone(),
             circuit_breaker_health_provider.clone(), // Shared reference
             start_time,
@@ -221,6 +237,7 @@ impl WorkerWebState {
         Ok(Self {
             worker_core,
             database_pool,
+            pgmq_pool,
             message_client,
             task_template_manager,
             event_router,

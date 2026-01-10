@@ -315,7 +315,7 @@ fi
 # Service Management Tasks
 # =============================================================================
 # Run the TypeScript worker as a local service for E2E testing.
-# Uses the .env.test file for configuration.
+# Uses the .env file for configuration.
 #
 # Prerequisites:
 #   - cargo make build (builds FFI library and TypeScript)
@@ -331,7 +331,7 @@ fi
 description = "Run TypeScript worker service (port 8085)"
 dependencies = ["build"]
 script = '''
-# Load environment from .env.test
+# Load environment from .env
 source scripts/load-env.sh
 
 # Override PORT for local execution
@@ -352,7 +352,7 @@ PROJECT_ROOT="$(cd ../.. && pwd)" \
 description = "Run TypeScript worker in foreground (for debugging)"
 dependencies = ["build"]
 script = '''
-# Load environment from .env.test
+# Load environment from .env
 source scripts/load-env.sh
 
 # Override PORT for local execution

@@ -75,9 +75,9 @@ args = ["clean", "-p", "${CRATE_NAME}"]
 [tasks.run]
 description = "Run Rust worker service (port 8081)"
 script = '''
-# Source local .env.test for worker-specific configuration
+# Source local .env for worker-specific configuration
 set -a
-source .env.test
+source .env
 set +a
 
 # Override PORT for local execution
@@ -96,9 +96,9 @@ PROJECT_ROOT="$(cd ../.. && pwd)" \
 [tasks.run-foreground]
 description = "Run Rust worker in foreground (for debugging)"
 script = '''
-# Source local .env.test for worker-specific configuration
+# Source local .env for worker-specific configuration
 set -a
-source .env.test
+source .env
 set +a
 
 # Override PORT for local execution
@@ -115,9 +115,9 @@ cargo run -p tasker-worker-rust --all-features
 [tasks.run-release]
 description = "Run Rust worker service (release build)"
 script = '''
-# Source local .env.test for worker-specific configuration
+# Source local .env for worker-specific configuration
 set -a
-source .env.test
+source .env
 set +a
 
 # Override PORT for local execution

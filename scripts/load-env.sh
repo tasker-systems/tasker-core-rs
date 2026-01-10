@@ -3,14 +3,14 @@
 #
 # Usage:
 #   source scripts/load-env.sh [env_file]
-#   source scripts/load-env.sh              # defaults to .env.test
+#   source scripts/load-env.sh              # defaults to .env
 #   source scripts/load-env.sh .env.dev     # load specific file
 #
 # This script properly exports variables (unlike plain `source .env`)
 
 set -a  # Auto-export all variables that are set
 
-ENV_FILE="${1:-.env.test}"
+ENV_FILE="${1:-.env}"
 
 if [[ ! -f "$ENV_FILE" ]]; then
     echo "Warning: $ENV_FILE not found" >&2

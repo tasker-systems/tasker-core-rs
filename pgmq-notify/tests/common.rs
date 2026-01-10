@@ -13,10 +13,18 @@ pub struct TestDb {
 
 impl TestDb {
     /// Create a new test database connection with unique test ID
+    ///
+    /// TAS-78: In split-database mode, PGMQ operations need a separate database.
+    /// This helper uses PGMQ_DATABASE_URL when set, falling back to DATABASE_URL.
     pub async fn new() -> Result<Self, sqlx::Error> {
-        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://tasker:tasker@localhost:5432/tasker_rust_test".to_string()
-        });
+        // TAS-78: Prefer PGMQ_DATABASE_URL for PGMQ tests (split-db mode)
+        let database_url = std::env::var("PGMQ_DATABASE_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| std::env::var("DATABASE_URL").ok())
+            .unwrap_or_else(|| {
+                "postgresql://tasker:tasker@localhost:5432/tasker_rust_test".to_string()
+            });
 
         let pool = PgPool::connect(&database_url).await?;
         let test_id = Uuid::new_v4().to_string()[..8].to_string();

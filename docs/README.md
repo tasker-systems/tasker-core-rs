@@ -12,9 +12,10 @@ Welcome to the Tasker Core documentation hub. This page provides organized acces
 
 **New to Tasker Core?** Start here:
 
-1. **[Quick Start Guide](guides/quick-start.md)** - Get running in 5 minutes
-2. **[Crate Architecture](architecture/crate-architecture.md)** - Understand the workspace structure
-3. **[Use Cases & Patterns](guides/use-cases-and-patterns.md)** - See when and how to use Tasker
+1. **[Why Tasker?](why-tasker.md)** - Philosophy, landscape comparison, and honest assessment
+2. **[Quick Start Guide](guides/quick-start.md)** - Get running in 5 minutes
+3. **[Crate Architecture](architecture/crate-architecture.md)** - Understand the workspace structure
+4. **[Use Cases & Patterns](guides/use-cases-and-patterns.md)** - See when and how to use Tasker
 
 **Looking for something specific?** Jump to a section below or use the search (Cmd/Ctrl+F).
 
@@ -111,6 +112,7 @@ The documentation is organized by cognitive function:
 ```
 docs/
 ├── README.md                           # You are here (documentation hub)
+├── why-tasker.md                       # Philosophy, landscape comparison, and honest assessment
 ├── CLAUDE-GUIDE.md                     # Navigation guide for Claude sessions
 ├── CHRONOLOGY.md                       # Development timeline and lessons learned
 │
@@ -197,6 +199,7 @@ docs/
 
 ### By Use Case
 
+- **"Why should I use Tasker?"** -> [Why Tasker](why-tasker.md)
 - **"I want to build a workflow"** -> [Use Cases & Patterns](guides/use-cases-and-patterns.md)
 - **"I need dynamic step creation"** -> [Conditional Workflows](guides/conditional-workflows.md)
 - **"I need to process large datasets"** -> [Batch Processing](guides/batch-processing.md)

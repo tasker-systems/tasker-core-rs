@@ -18,13 +18,13 @@ echo "============================================="
 
 # Create the Tasker database (WITHOUT pgmq extension)
 echo "Creating tasker_split_test database..."
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname=postgres <<-EOSQL
     CREATE DATABASE tasker_split_test;
 EOSQL
 
 # Create the PGMQ database (WITH pgmq extension)
 echo "Creating pgmq_split_test database..."
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname=postgres <<-EOSQL
     CREATE DATABASE pgmq_split_test;
 EOSQL
 
@@ -67,7 +67,11 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname=pgmq_split_test <<-
     SELECT pgmq.send('test_queue', '{"test": "message"}'::jsonb);
     SELECT pgmq.purge_queue('test_queue');
 
-    RAISE NOTICE 'PGMQ verified working in pgmq_split_test';
+    DO \$\$
+    BEGIN
+        RAISE NOTICE 'PGMQ verified working in pgmq_split_test';
+    END
+    \$\$;
 EOSQL
 
 echo ""
