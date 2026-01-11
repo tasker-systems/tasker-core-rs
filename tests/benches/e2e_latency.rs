@@ -105,7 +105,7 @@ fn create_task_request(
         source_system: "criterion-benchmarks".to_string(),
         reason: "E2E latency measurement".to_string(),
         tags: vec!["benchmark".to_string(), "e2e".to_string()],
-        bypass_steps: vec![],
+
         requested_at: chrono::Utc::now().naive_utc(),
         options: None,
         priority: Some(5),

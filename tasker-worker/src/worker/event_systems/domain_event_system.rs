@@ -618,7 +618,6 @@ mod tests {
                     initiator: Some("test".to_string()),
                     source_system: None,
                     reason: None,
-                    bypass_steps: None,
                     tags: None,
                     context: Some(serde_json::json!({})),
                     identity_hash: "test_hash".to_string(),
@@ -632,6 +631,7 @@ mod tests {
                 task_version: "1.0".to_string(),
                 namespace_name: "test".to_string(),
             },
+
             workflow_step: WorkflowStepWithName {
                 workflow_step_uuid: Uuid::new_v4(),
                 task_uuid: Uuid::new_v4(),
@@ -648,7 +648,6 @@ mod tests {
                 backoff_request_seconds: None,
                 inputs: None,
                 results: None,
-                skippable: false,
                 created_at: Utc::now().naive_utc(),
                 updated_at: Utc::now().naive_utc(),
                 checkpoint: None,

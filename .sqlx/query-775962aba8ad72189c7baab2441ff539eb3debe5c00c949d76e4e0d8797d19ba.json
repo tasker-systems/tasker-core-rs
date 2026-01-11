@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tasker.task_transitions\n            SET most_recent = false, updated_at = NOW()\n            WHERE task_uuid = $1::uuid AND most_recent = true\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "775962aba8ad72189c7baab2441ff539eb3debe5c00c949d76e4e0d8797d19ba"
+}

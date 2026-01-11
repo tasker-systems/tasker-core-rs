@@ -127,7 +127,7 @@ fn create_task_request(
         source_system: "criterion-benchmarks".to_string(),
         reason: "API latency benchmark measurement".to_string(),
         tags: vec!["benchmark".to_string(), "phase-5.4".to_string()],
-        bypass_steps: vec![],
+
         requested_at: chrono::Utc::now().naive_utc(),
         options: None,
         priority: Some(5),

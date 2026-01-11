@@ -15,12 +15,13 @@
  *   TASKER_ENV=production bun run bin/server.ts
  *
  * Environment Variables:
- *   DATABASE_URL        - PostgreSQL connection string (required)
- *   TASKER_ENV          - Environment: development, test, production
- *   RUST_LOG            - Log level: trace, debug, info, warn, error
- *   TASKER_NAMESPACE    - Task namespace to handle (default: "default")
- *   TASKER_CONFIG_PATH  - Path to TOML configuration file
- *   TASKER_TEMPLATE_PATH - Path to task template directory
+ *   DATABASE_URL            - PostgreSQL connection string (required)
+ *   TASKER_FFI_LIBRARY_PATH - Path to compiled FFI library (required)
+ *   TASKER_ENV              - Environment: development, test, production
+ *   RUST_LOG                - Log level: trace, debug, info, warn, error
+ *   TASKER_NAMESPACE        - Task namespace to handle (default: "default")
+ *   TASKER_CONFIG_PATH      - Path to TOML configuration file
+ *   TASKER_TEMPLATE_PATH    - Path to task template directory
  */
 
 import pino from 'pino';
@@ -154,6 +155,7 @@ function showBanner(): void {
     runtime: process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`,
     pid: process.pid,
     databaseUrl: process.env.DATABASE_URL ? '[REDACTED]' : 'Not set',
+    ffiLibraryPath: process.env.TASKER_FFI_LIBRARY_PATH ?? 'Not set',
     templatePath: process.env.TASKER_TEMPLATE_PATH ?? 'Not set',
     configPath: process.env.TASKER_CONFIG_PATH ?? 'Not set',
     namespace: process.env.TASKER_NAMESPACE ?? 'default',

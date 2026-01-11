@@ -308,25 +308,18 @@ mod tests {
         // Create named steps and workflow steps
         let mut step_mapping = HashMap::new();
 
-        // Create named step
-        let named_step = tasker_shared::models::NamedStep::find_or_create_by_name(
-            &pool,
-            "test_step",
-            "test_system",
-        )
-        .await?;
+        let named_step =
+            tasker_shared::models::NamedStep::find_or_create_by_name(&pool, "test_step").await?;
 
         // Begin transaction
         let mut tx = pool.begin().await?;
 
-        // Create workflow step
         let new_workflow_step = tasker_shared::models::core::workflow_step::NewWorkflowStep {
             task_uuid,
             named_step_uuid: named_step.named_step_uuid,
             retryable: Some(true),
             max_attempts: Some(3),
             inputs: None,
-            skippable: None,
         };
 
         let workflow_step = tasker_shared::models::WorkflowStep::create_with_transaction(

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key\n            FROM tasker.workflow_step_transitions\n            WHERE workflow_step_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "next_sort_key",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "85b29eeda84a9c0866253d092c0bcd5ab0e66b65edf4d862bef6a5154d2d3369"
+}

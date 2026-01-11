@@ -50,7 +50,7 @@ pub async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Cl
                 source_system: "cli".to_string(),
                 reason: "CLI task creation".to_string(),
                 tags: Vec::new(),
-                bypass_steps: Vec::new(),
+
                 requested_at: chrono::Utc::now().naive_utc(),
                 options: None,
                 priority: Some(priority as i32),

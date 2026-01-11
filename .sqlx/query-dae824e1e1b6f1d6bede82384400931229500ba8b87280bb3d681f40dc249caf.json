@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*) as count\n            FROM tasker.workflow_steps ws\n            LEFT JOIN (\n                SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state\n                FROM tasker.workflow_step_transitions\n                WHERE most_recent = true\n                ORDER BY workflow_step_uuid, sort_key DESC\n            ) current_states ON current_states.workflow_step_uuid = ws.workflow_step_uuid\n            WHERE ws.task_uuid = $1::uuid\n              AND (current_states.to_state IS NULL\n                   OR current_states.to_state NOT IN ('complete', 'resolved_manually'))\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dae824e1e1b6f1d6bede82384400931229500ba8b87280bb3d681f40dc249caf"
+}

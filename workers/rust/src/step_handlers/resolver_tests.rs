@@ -67,7 +67,8 @@ impl RustStepHandler for MultiMethodHandler {
             "validate" => self.handle_validate(step_data, start_time).await,
             "process" => self.handle_process(step_data, start_time).await,
             "refund" => self.handle_refund(step_data, start_time).await,
-            "call" | _ => self.handle_call(step_data, start_time).await,
+            "call" => self.handle_call(step_data, start_time).await,
+            _ => self.handle_call(step_data, start_time).await,
         }
     }
 
@@ -267,7 +268,8 @@ impl RustStepHandler for AlternateMethodHandler {
 
         match method {
             "execute_action" => self.handle_execute_action(step_data, start_time).await,
-            "call" | _ => self.handle_call(step_data, start_time).await,
+            "call" => self.handle_call(step_data, start_time).await,
+            _ => self.handle_call(step_data, start_time).await,
         }
     }
 

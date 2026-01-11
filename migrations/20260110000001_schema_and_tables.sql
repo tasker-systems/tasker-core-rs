@@ -60,82 +60,10 @@ CREATE TYPE tasker.dlq_resolution_status AS ENUM (
 -- =============================================================================
 -- Note: Foreign key constraints are added in the next migration to ensure
 -- proper table creation order.
-
-CREATE TABLE tasker.annotation_types (
-    annotation_type_id integer NOT NULL,
-    name character varying(64) NOT NULL,
-    description character varying(255),
-    created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
-);
-
-
 --
--- Name: annotation_types_annotation_type_id_seq; Type: SEQUENCE; Schema: tasker; Owner: -
---
-
-CREATE SEQUENCE tasker.annotation_types_annotation_type_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: annotation_types_annotation_type_id_seq; Type: SEQUENCE OWNED BY; Schema: tasker; Owner: -
---
-
-ALTER SEQUENCE tasker.annotation_types_annotation_type_id_seq OWNED BY tasker.annotation_types.annotation_type_id;
-
-
---
--- Name: dependent_system_object_maps; Type: TABLE; Schema: tasker; Owner: -
---
-
-CREATE TABLE tasker.dependent_system_object_maps (
-    dependent_system_object_map_id bigint NOT NULL,
-    dependent_system_one_uuid uuid NOT NULL,
-    dependent_system_two_uuid uuid NOT NULL,
-    remote_id_one character varying(128) NOT NULL,
-    remote_id_two character varying(128) NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
-);
-
-
---
--- Name: dependent_system_objec_dependent_system_object_map_i_seq; Type: SEQUENCE; Schema: tasker; Owner: -
---
-
-CREATE SEQUENCE tasker.dependent_system_objec_dependent_system_object_map_i_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: dependent_system_objec_dependent_system_object_map_i_seq; Type: SEQUENCE OWNED BY; Schema: tasker; Owner: -
---
-
-ALTER SEQUENCE tasker.dependent_system_objec_dependent_system_object_map_i_seq OWNED BY tasker.dependent_system_object_maps.dependent_system_object_map_id;
-
-
---
--- Name: dependent_systems; Type: TABLE; Schema: tasker; Owner: -
---
-
-CREATE TABLE tasker.dependent_systems (
-    dependent_system_uuid uuid DEFAULT uuid_generate_v7() NOT NULL,
-    name character varying(64) NOT NULL,
-    description character varying(255),
-    created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
-);
-
+-- TAS-136: Removed legacy tables (annotation_types, task_annotations,
+-- dependent_systems, dependent_system_object_maps) and deprecated columns
+-- (bypass_steps, skippable, dependent_system_uuid). See docs/architecture/schema-design.md.
 
 --
 -- Name: named_steps; Type: TABLE; Schema: tasker; Owner: -
@@ -143,7 +71,6 @@ CREATE TABLE tasker.dependent_systems (
 
 CREATE TABLE tasker.named_steps (
     named_step_uuid uuid DEFAULT uuid_generate_v7() NOT NULL,
-    dependent_system_uuid uuid NOT NULL,
     name character varying(128) NOT NULL,
     description character varying(255),
     created_at timestamp(6) without time zone NOT NULL,
@@ -175,7 +102,6 @@ CREATE TABLE tasker.named_tasks_named_steps (
     ntns_uuid uuid DEFAULT uuid_generate_v7() NOT NULL,
     named_task_uuid uuid NOT NULL,
     named_step_uuid uuid NOT NULL,
-    skippable boolean DEFAULT false NOT NULL,
     default_retryable boolean DEFAULT true NOT NULL,
     default_max_attempts integer DEFAULT 3 NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
@@ -215,7 +141,6 @@ CREATE TABLE tasker.workflow_steps (
     backoff_request_seconds integer,
     inputs jsonb,
     results jsonb,
-    skippable boolean DEFAULT false NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     priority integer DEFAULT 0 NOT NULL,
@@ -285,39 +210,6 @@ CREATE VIEW tasker.step_dag_relationships AS
 
 
 --
--- Name: task_annotations; Type: TABLE; Schema: tasker; Owner: -
---
-
-CREATE TABLE tasker.task_annotations (
-    task_annotation_id bigint NOT NULL,
-    task_uuid uuid NOT NULL,
-    annotation_type_id integer NOT NULL,
-    annotation jsonb,
-    created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
-);
-
-
---
--- Name: task_annotations_task_annotation_id_seq; Type: SEQUENCE; Schema: tasker; Owner: -
---
-
-CREATE SEQUENCE tasker.task_annotations_task_annotation_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: task_annotations_task_annotation_id_seq; Type: SEQUENCE OWNED BY; Schema: tasker; Owner: -
---
-
-ALTER SEQUENCE tasker.task_annotations_task_annotation_id_seq OWNED BY tasker.task_annotations.task_annotation_id;
-
-
---
 -- Name: task_namespaces; Type: TABLE; Schema: tasker; Owner: -
 --
 
@@ -364,7 +256,6 @@ CREATE TABLE tasker.tasks (
     initiator character varying(128),
     source_system character varying(128),
     reason character varying(128),
-    bypass_steps json,
     tags jsonb,
     context jsonb,
     identity_hash character varying(128) NOT NULL,

@@ -151,7 +151,6 @@ impl SqlxFactory<Task> for TaskFactory {
             initiator: self.initiator.clone(),
             source_system: self.source_system.clone(),
             reason: self.reason.clone(),
-            bypass_steps: None,
             tags: Some(tags),
             context: Some(context),
             identity_hash,
@@ -239,7 +238,7 @@ pub struct WorkflowStepFactory {
     max_attempts: Option<i32>,
     in_process: bool,
     processed: bool,
-    skippable: bool,
+
     with_transitions: bool,
     initial_state: Option<String>,
 }
@@ -255,7 +254,7 @@ impl Default for WorkflowStepFactory {
             max_attempts: Some(3),
             in_process: false,
             processed: false,
-            skippable: false,
+
             with_transitions: false,
             initial_state: Some("pending".to_string()),
         }
@@ -341,7 +340,6 @@ impl SqlxFactory<WorkflowStep> for WorkflowStepFactory {
             retryable: Some(self.retryable),
             max_attempts: self.max_attempts,
             inputs,
-            skippable: Some(self.skippable),
         };
 
         let mut step = WorkflowStep::create(pool, new_step).await?;

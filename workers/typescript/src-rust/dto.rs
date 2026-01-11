@@ -144,7 +144,7 @@ pub struct WorkflowStepDto {
     pub attempts: i32,
     pub in_process: bool,
     pub processed: bool,
-    pub skippable: bool,
+
     #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
     pub inputs: Option<serde_json::Value>,
     #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
@@ -172,7 +172,7 @@ impl From<&WorkflowStepWithName> for WorkflowStepDto {
             attempts: step.attempts.unwrap_or(0),
             in_process: step.in_process,
             processed: step.processed,
-            skippable: step.skippable,
+
             inputs: step.inputs.clone(),
             results: step.results.clone(),
             backoff_request_seconds: step.backoff_request_seconds,

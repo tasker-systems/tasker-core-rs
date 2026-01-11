@@ -232,7 +232,7 @@ pub fn create_test_task_request() -> TaskRequest {
         source_system: "test_suite".to_string(),
         reason: "Web API integration testing".to_string(),
         tags: vec![],
-        bypass_steps: vec![],
+
         requested_at: chrono::Utc::now().naive_utc(),
         options: None,
         priority: Some(5),

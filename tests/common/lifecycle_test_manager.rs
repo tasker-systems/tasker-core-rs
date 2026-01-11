@@ -173,7 +173,7 @@ impl LifecycleTestManager {
             source_system: "integration_test".to_string(),
             reason: format!("Testing {} lifecycle", template_name),
             tags: vec!["test".to_string(), "lifecycle".to_string()],
-            bypass_steps: vec![],
+
             requested_at: chrono::Utc::now().naive_utc(),
             options: None,
             priority: Some(5),

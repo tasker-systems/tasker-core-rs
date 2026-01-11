@@ -4,8 +4,8 @@
 
 use serde_json::json;
 use sqlx::PgPool;
+
 use tasker_shared::models::{
-    dependent_system::{DependentSystem, NewDependentSystem},
     named_step::{NamedStep, NewNamedStep},
     named_task::{NamedTask, NewNamedTask},
     task::{NewTask, Task},
@@ -46,29 +46,21 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
             initiator: None,
             source_system: None,
             reason: None,
-            bypass_steps: None,
+
             tags: None,
             context: Some(serde_json::json!({"test": "context"})),
             identity_hash: "test_hash_workflow_step".to_string(),
             priority: Some(5),
-            claim_timeout_seconds: Some(300),
+            correlation_id: Uuid::now_v7(),
+            parent_correlation_id: None,
         },
     )
     .await?;
 
-    let dependent_system = DependentSystem::create(
-        &pool,
-        NewDependentSystem {
-            name: "test_system_workflow_step".to_string(),
-            description: None,
-        },
-    )
-    .await?;
-
+    // Create named_step directly without dependent_system_uuid
     let named_step = NamedStep::create(
         &pool,
         NewNamedStep {
-            dependent_system_uuid: dependent_system.dependent_system_uuid,
             name: "test_step_workflow_step".to_string(),
             description: None,
         },

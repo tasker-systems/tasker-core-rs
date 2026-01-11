@@ -72,6 +72,7 @@ impl TaskStateMachine {
 
         // For now, create a minimal task with just the UUID
         // This can be enhanced later when Task::find_by_uuid is available
+
         let task = Task {
             task_uuid,
             named_task_uuid: Uuid::nil(), // Placeholder
@@ -80,7 +81,6 @@ impl TaskStateMachine {
             initiator: None,
             source_system: None,
             reason: None,
-            bypass_steps: None,
             tags: None,
             context: None,
             identity_hash: "placeholder".to_string(),

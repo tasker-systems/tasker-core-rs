@@ -5,7 +5,7 @@
  * consistent, expected values.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import {
   detectRuntime,
   getLibraryPath,
@@ -94,15 +94,36 @@ describe('Runtime Detection', () => {
   });
 
   describe('getLibraryPath', () => {
-    it('returns a path string', () => {
-      const path = getLibraryPath();
-      expect(typeof path).toBe('string');
-      expect(path.length).toBeGreaterThan(0);
+    const originalEnv = process.env.TASKER_FFI_LIBRARY_PATH;
+
+    afterEach(() => {
+      // Restore original env
+      if (originalEnv !== undefined) {
+        process.env.TASKER_FFI_LIBRARY_PATH = originalEnv;
+      } else {
+        delete process.env.TASKER_FFI_LIBRARY_PATH;
+      }
     });
 
-    it('includes the correct library extension for the platform', () => {
+    it('returns TASKER_FFI_LIBRARY_PATH when set', () => {
+      const testPath = '/test/path/libtasker_worker.dylib';
+      process.env.TASKER_FFI_LIBRARY_PATH = testPath;
       const path = getLibraryPath();
+      expect(path).toBe(testPath);
+    });
+
+    it('uses provided base path when env not set', () => {
+      delete process.env.TASKER_FFI_LIBRARY_PATH;
+      const basePath = '/custom/path';
+      const path = getLibraryPath(basePath);
+      expect(path).toStartWith(basePath);
+      expect(path).toContain('tasker_worker');
+    });
+
+    it('includes correct library extension when using base path', () => {
+      delete process.env.TASKER_FFI_LIBRARY_PATH;
       const info = getRuntimeInfo();
+      const path = getLibraryPath('/test');
 
       switch (info.platform) {
         case 'darwin':
@@ -117,20 +138,16 @@ describe('Runtime Detection', () => {
       }
     });
 
-    it('uses provided base path', () => {
-      const basePath = '/custom/path';
-      const path = getLibraryPath(basePath);
-      expect(path).toStartWith(basePath);
+    it('throws error when no env var and no base path', () => {
+      delete process.env.TASKER_FFI_LIBRARY_PATH;
+      expect(() => getLibraryPath()).toThrow('TASKER_FFI_LIBRARY_PATH');
     });
 
-    it('defaults to debug build path', () => {
-      const path = getLibraryPath();
-      expect(path).toContain('target/debug');
-    });
-
-    it('includes the library name', () => {
-      const path = getLibraryPath();
-      expect(path).toContain('tasker_worker');
+    it('prefers env var over base path', () => {
+      const envPath = '/env/path/libtasker_worker.dylib';
+      process.env.TASKER_FFI_LIBRARY_PATH = envPath;
+      const path = getLibraryPath('/ignored/base');
+      expect(path).toBe(envPath);
     });
   });
 });

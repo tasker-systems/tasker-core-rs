@@ -24,14 +24,14 @@ fn create_test_task() -> Task {
         initiator: Some("test_user".to_string()),
         source_system: Some("test_system".to_string()),
         reason: Some("test_reason".to_string()),
-        bypass_steps: None,
+
         tags: None,
         context: Some(serde_json::json!({"test": "data"})),
         identity_hash: "test_hash".to_string(),
-        claimed_at: None,
-        claimed_by: None,
         priority: 5,
-        claim_timeout_seconds: 300,
+
+        correlation_id: Uuid::now_v7(),
+        parent_correlation_id: None,
         created_at: chrono::Utc::now().naive_utc(),
         updated_at: chrono::Utc::now().naive_utc(),
     }

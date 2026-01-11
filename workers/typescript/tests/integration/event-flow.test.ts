@@ -31,11 +31,18 @@ function createMockRuntime(): TaskerRuntime {
     getVersion: () => '0.0.0-mock',
     getRustVersion: () => '0.0.0-mock',
     healthCheck: () => true,
-    bootstrapWorker: () => ({ success: true, status: 'running', message: 'Mock bootstrap' }),
+    bootstrapWorker: () => ({
+      success: true,
+      status: 'running',
+      message: 'Mock bootstrap',
+    }),
     isWorkerRunning: () => true,
     getWorkerStatus: () => ({ running: true, state: 'running' }),
     stopWorker: () => ({ success: true, message: 'stopped' }),
-    transitionToGracefulShutdown: () => ({ success: true, message: 'shutting down' }),
+    transitionToGracefulShutdown: () => ({
+      success: true,
+      message: 'shutting down',
+    }),
     pollStepEvents: () => null,
     completeStepEvent: () => true, // Accept result submissions
     getFfiDispatchMetrics: () => ({
@@ -96,7 +103,7 @@ function createMockEvent(handlerName: string): FfiStepEvent {
       attempts: 0,
       in_process: false,
       processed: false,
-      skippable: false,
+
       inputs: null,
       results: null,
       backoff_request_seconds: null,
@@ -112,7 +119,7 @@ function createMockEvent(handlerName: string): FfiStepEvent {
         callable: handlerName,
         initialization: {},
       },
-      system_dependency: null,
+
       dependencies: [],
       timeout_seconds: 60,
       retry: {

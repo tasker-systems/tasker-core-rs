@@ -93,7 +93,7 @@ fn create_payment_task_sequence_step(
                 initiator: Some("test".to_string()),
                 source_system: Some("payment_system".to_string()),
                 reason: Some("Payment integration test".to_string()),
-                bypass_steps: None,
+
                 tags: None,
                 context: Some(serde_json::json!({
                     "amount": amount,
@@ -127,7 +127,7 @@ fn create_payment_task_sequence_step(
             backoff_request_seconds: None,
             inputs: None,
             results: None,
-            skippable: false,
+
             checkpoint: None,
             created_at: now,
             updated_at: now,

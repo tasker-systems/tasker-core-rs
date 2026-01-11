@@ -94,7 +94,7 @@ function createMockEvent(handlerName: string, overrides: Partial<FfiStepEvent> =
       attempts: 0,
       in_process: false,
       processed: false,
-      skippable: false,
+
       inputs: null,
       results: null,
       backoff_request_seconds: null,
@@ -110,7 +110,7 @@ function createMockEvent(handlerName: string, overrides: Partial<FfiStepEvent> =
         callable: handlerName,
         initialization: {},
       },
-      system_dependency: null,
+
       dependencies: [],
       timeout_seconds: 60,
       retry: {

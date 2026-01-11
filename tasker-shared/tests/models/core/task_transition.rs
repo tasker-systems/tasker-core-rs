@@ -40,12 +40,13 @@ async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
             initiator: None,
             source_system: None,
             reason: None,
-            bypass_steps: None,
+
             tags: None,
             context: None,
             identity_hash: "test_hash".to_string(),
             priority: Some(5),
-            claim_timeout_seconds: Some(300),
+            correlation_id: uuid::Uuid::now_v7(),
+            parent_correlation_id: None,
         },
     )
     .await?;
@@ -158,11 +159,12 @@ async fn test_task_transition_status_tracking(pool: PgPool) -> sqlx::Result<()> 
             initiator: None,
             source_system: None,
             reason: None,
-            bypass_steps: None,
+
             tags: None,
             context: None,
             priority: Some(5),
-            claim_timeout_seconds: Some(300),
+            correlation_id: uuid::Uuid::now_v7(),
+            parent_correlation_id: None,
         },
     )
     .await?;

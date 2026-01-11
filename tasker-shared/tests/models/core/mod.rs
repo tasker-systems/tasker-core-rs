@@ -1,11 +1,8 @@
-pub mod annotation_type;
-pub mod dependent_system;
-pub mod dependent_system_object_map;
+// task_annotation - these tables removed from schema
 pub mod named_step;
 pub mod named_task;
 pub mod named_tasks_named_step;
 pub mod task;
-pub mod task_annotation;
 pub mod task_namespace;
 pub mod task_transition;
 pub mod workflow_step;

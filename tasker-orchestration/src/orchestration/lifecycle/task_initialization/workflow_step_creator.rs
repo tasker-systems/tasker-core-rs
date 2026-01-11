@@ -73,13 +73,13 @@ impl WorkflowStepCreator {
         let inputs = self.serialize_handler_initialization(step_definition)?;
 
         // Create workflow step
+
         let new_workflow_step = NewWorkflowStep {
             task_uuid,
             named_step_uuid: named_step.named_step_uuid,
             retryable: Some(step_definition.retry.retryable),
             max_attempts: Some(step_definition.retry.max_attempts as i32),
             inputs,
-            skippable: None,
         };
 
         let workflow_step = WorkflowStep::create_with_transaction(tx, new_workflow_step)
@@ -126,7 +126,8 @@ impl WorkflowStepCreator {
         step_definition: &StepDefinition,
     ) -> Result<NamedStep, TaskInitializationError> {
         // Search for existing named step
-        let named_steps =
+
+        let existing_step =
             NamedStep::find_by_name(self.context.database_pool(), &step_definition.name)
                 .await
                 .map_err(|e| {
@@ -136,16 +137,15 @@ impl WorkflowStepCreator {
                     ))
                 })?;
 
-        if let Some(existing_step) = named_steps.first() {
-            Ok(existing_step.clone())
+        if let Some(named_step) = existing_step {
+            Ok(named_step)
         } else {
             // Create new named step using transaction
-            let system_name = "tasker_core_rust";
+
             NamedStep::find_or_create_by_name_with_transaction(
                 tx,
                 self.context.database_pool(),
                 &step_definition.name,
-                system_name,
             )
             .await
             .map_err(|e| {

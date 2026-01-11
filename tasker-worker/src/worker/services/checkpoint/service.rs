@@ -278,28 +278,14 @@ mod tests {
         .await
         .expect("Failed to create named task");
 
-        // Create a dependent system (required for named_steps)
-        let dependent_system_uuid = Uuid::new_v4();
-        sqlx::query!(
-            r#"
-            INSERT INTO tasker.dependent_systems (dependent_system_uuid, name, description, created_at, updated_at)
-            VALUES ($1, 'test_system_checkpoint', 'Test system for checkpoint tests', NOW(), NOW())
-            "#,
-            dependent_system_uuid
-        )
-        .execute(pool)
-        .await
-        .expect("Failed to create dependent system");
-
-        // Create a named step (uses dependent_system_uuid, not named_task_uuid)
+        // Create a named step (no longer requires dependent_system_uuid)
         let named_step_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker.named_steps (named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at)
-            VALUES ($1, $2, 'test_step_checkpoint', 'Test step for checkpoint tests', NOW(), NOW())
+            INSERT INTO tasker.named_steps (named_step_uuid, name, description, created_at, updated_at)
+            VALUES ($1, 'test_step_checkpoint', 'Test step for checkpoint tests', NOW(), NOW())
             "#,
-            named_step_uuid,
-            dependent_system_uuid
+            named_step_uuid
         )
         .execute(pool)
         .await

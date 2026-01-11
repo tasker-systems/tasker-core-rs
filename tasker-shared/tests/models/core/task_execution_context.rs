@@ -49,13 +49,16 @@ async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
             initiator: Some("test".to_string()),
             source_system: Some("test".to_string()),
             reason: Some("test".to_string()),
-            bypass_steps: None,
+
             tags: None,
             context: None,
             identity_hash: format!(
                 "test_hash_{}",
                 chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
             ),
+            priority: None,
+            correlation_id: uuid::Uuid::now_v7(),
+            parent_correlation_id: None,
         },
     )
     .await

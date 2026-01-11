@@ -288,7 +288,7 @@ mod tests {
                             initiator: Some("test".to_string()),
                             source_system: None,
                             reason: None,
-                            bypass_steps: None,
+
                             tags: None,
                             context: Some(json!({})),
                             identity_hash: "test".to_string(),
@@ -318,7 +318,7 @@ mod tests {
                         backoff_request_seconds: None,
                         inputs: None,
                         results: None,
-                        skippable: false,
+
                         checkpoint: None,
                         created_at: chrono::Utc::now().naive_utc(),
                         updated_at: Utc::now().naive_utc(),

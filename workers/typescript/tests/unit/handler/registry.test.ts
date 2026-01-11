@@ -350,7 +350,7 @@ describe('HandlerRegistry', () => {
           attempts: 0,
           in_process: false,
           processed: false,
-          skippable: false,
+
           inputs: null,
           results: null,
           backoff_request_seconds: null,
@@ -363,7 +363,7 @@ describe('HandlerRegistry', () => {
           name: 'step',
           description: 'Test step',
           handler: { callable: 'OrderHandler', initialization: {} },
-          system_dependency: null,
+
           dependencies: [],
           timeout_seconds: 30,
           retry: {

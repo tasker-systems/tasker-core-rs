@@ -318,7 +318,7 @@ function createMockFfiStepEvent(): FfiStepEvent {
       attempts: 0,
       in_process: false,
       processed: false,
-      skippable: false,
+
       inputs: null,
       results: null,
       backoff_request_seconds: null,
@@ -334,7 +334,7 @@ function createMockFfiStepEvent(): FfiStepEvent {
         callable: 'TestHandler',
         initialization: {},
       },
-      system_dependency: null,
+
       dependencies: [],
       timeout_seconds: 30,
       retry: {

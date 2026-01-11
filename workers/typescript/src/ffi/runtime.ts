@@ -122,29 +122,52 @@ export function getRuntimeInfo(): RuntimeInfo {
 }
 
 /**
- * Get the path to the native library based on runtime and platform
+ * Get the library filename based on platform.
  *
- * @param basePath Optional base path to the library directory
- * @returns Path to the native library
+ * @returns The platform-specific library filename
  */
-export function getLibraryPath(basePath?: string): string {
-  const base = basePath ?? process?.cwd?.() ?? '.';
+export function getLibraryFilename(): string {
   const platform = process?.platform ?? 'unknown';
 
-  // Library naming conventions by platform
-  const libName = (() => {
-    switch (platform) {
-      case 'darwin':
-        return 'libtasker_worker.dylib';
-      case 'linux':
-        return 'libtasker_worker.so';
-      case 'win32':
-        return 'tasker_worker.dll';
-      default:
-        throw new Error(`Unsupported platform: ${platform}`);
-    }
-  })();
+  switch (platform) {
+    case 'darwin':
+      return 'libtasker_worker.dylib';
+    case 'linux':
+      return 'libtasker_worker.so';
+    case 'win32':
+      return 'tasker_worker.dll';
+    default:
+      throw new Error(`Unsupported platform: ${platform}`);
+  }
+}
 
-  // Default to debug build path (matches sccache config for CI)
-  return `${base}/target/debug/${libName}`;
+/**
+ * Get the path to the native library.
+ *
+ * REQUIRES: TASKER_FFI_LIBRARY_PATH environment variable to be set,
+ * OR an explicit basePath parameter must be provided.
+ *
+ * This explicit requirement prevents confusion from automatic debug/release
+ * library discovery and ensures intentional configuration at build/runtime.
+ *
+ * @param basePath Optional explicit base path to the library directory
+ * @returns Path to the native library
+ * @throws Error if TASKER_FFI_LIBRARY_PATH is not set and no basePath provided
+ */
+export function getLibraryPath(basePath?: string): string {
+  // Check environment variable first
+  const envPath = process.env.TASKER_FFI_LIBRARY_PATH;
+  if (envPath) {
+    return envPath;
+  }
+
+  // If explicit basePath provided, use it
+  if (basePath) {
+    return `${basePath}/${getLibraryFilename()}`;
+  }
+
+  throw new Error(
+    'FFI library path not configured. Set TASKER_FFI_LIBRARY_PATH environment variable.\n' +
+      'Example: export TASKER_FFI_LIBRARY_PATH=/path/to/target/debug/libtasker_worker.dylib'
+  );
 }
