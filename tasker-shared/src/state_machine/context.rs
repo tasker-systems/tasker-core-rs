@@ -5,7 +5,7 @@
 //! This module provides the `TransitionContext` struct which carries attribution
 //! data (worker_uuid, correlation_id) through state machine transitions. This
 //! context is merged into transition metadata and used by the SQL trigger to
-//! populate the `tasker_workflow_step_result_audit` table.
+//! populate the `tasker.workflow_step_result_audit` table.
 //!
 //! ## Usage
 //!

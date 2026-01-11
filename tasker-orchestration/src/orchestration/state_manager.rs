@@ -210,7 +210,7 @@ impl StateManager {
 
         // 1. First get the task_uuid for this step
         let task_uuid_result = sqlx::query!(
-            "SELECT task_uuid FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
+            "SELECT task_uuid FROM tasker.workflow_steps WHERE workflow_step_uuid = $1",
             step_uuid
         )
         .fetch_optional(self.database_pool())

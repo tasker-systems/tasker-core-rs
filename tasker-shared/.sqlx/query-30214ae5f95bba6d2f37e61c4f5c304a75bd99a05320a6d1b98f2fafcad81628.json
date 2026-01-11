@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM tasker.task_annotations WHERE task_uuid = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "30214ae5f95bba6d2f37e61c4f5c304a75bd99a05320a6d1b98f2fafcad81628"
+}

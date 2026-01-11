@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tasker.workflow_steps SET processed = true, results = $2\n             WHERE workflow_step_uuid = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bd79883d408349edd5fa733dff7b9a2b506bacc91056097788c87833f61be00e"
+}

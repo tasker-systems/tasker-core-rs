@@ -60,8 +60,8 @@ use utoipa::ToSchema;
 /// # Computed Fields
 ///
 /// All fields are calculated dynamically by analyzing:
-/// - Current step state from `tasker_workflow_step_transitions`
-/// - Step dependencies from `tasker_workflow_step_edges`
+/// - Current step state from `tasker.workflow_step_transitions`
+/// - Step dependencies from `tasker.workflow_step_edges`
 /// - Step retry state and configuration
 /// - Parent/child completion status
 ///

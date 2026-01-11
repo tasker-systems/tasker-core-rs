@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
 /// AnnotationType represents categories for task annotations
-/// Maps to `tasker_annotation_types` table - simple categorization system (669B Rails model)
+/// Maps to `tasker.annotation_types` table - simple categorization system (669B Rails model)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct AnnotationType {
     pub annotation_type_id: i32,
@@ -40,7 +40,7 @@ impl AnnotationType {
         let annotation_type = sqlx::query_as!(
             AnnotationType,
             r#"
-            INSERT INTO tasker_annotation_types (name, description, created_at, updated_at)
+            INSERT INTO tasker.annotation_types (name, description, created_at, updated_at)
             VALUES ($1, $2, NOW(), NOW())
             RETURNING annotation_type_id, name, description, created_at, updated_at
             "#,
@@ -59,7 +59,7 @@ impl AnnotationType {
             AnnotationType,
             r#"
             SELECT annotation_type_id, name, description, created_at, updated_at
-            FROM tasker_annotation_types
+            FROM tasker.annotation_types
             WHERE annotation_type_id = $1
             "#,
             id
@@ -79,7 +79,7 @@ impl AnnotationType {
             AnnotationType,
             r#"
             SELECT annotation_type_id, name, description, created_at, updated_at
-            FROM tasker_annotation_types
+            FROM tasker.annotation_types
             WHERE name = $1
             "#,
             name
@@ -115,7 +115,7 @@ impl AnnotationType {
             AnnotationType,
             r#"
             SELECT annotation_type_id, name, description, created_at, updated_at
-            FROM tasker_annotation_types
+            FROM tasker.annotation_types
             ORDER BY name
             "#
         )
@@ -139,8 +139,8 @@ impl AnnotationType {
                 at.created_at,
                 at.updated_at,
                 COUNT(ta.task_annotation_id) as annotation_count
-            FROM tasker_annotation_types at
-            LEFT JOIN tasker_task_annotations ta ON ta.annotation_type_id = at.annotation_type_id
+            FROM tasker.annotation_types at
+            LEFT JOIN tasker.task_annotations ta ON ta.annotation_type_id = at.annotation_type_id
             GROUP BY at.annotation_type_id, at.name, at.description, at.created_at, at.updated_at
             ORDER BY annotation_count DESC, at.name
             "#
@@ -157,7 +157,7 @@ impl AnnotationType {
             AnnotationType,
             r#"
             SELECT annotation_type_id, name, description, created_at, updated_at
-            FROM tasker_annotation_types
+            FROM tasker.annotation_types
             WHERE name ILIKE $1 OR description ILIKE $1
             ORDER BY name
             "#,
@@ -179,7 +179,7 @@ impl AnnotationType {
             AnnotationType,
             r#"
             SELECT annotation_type_id, name, description, created_at, updated_at
-            FROM tasker_annotation_types
+            FROM tasker.annotation_types
             ORDER BY created_at DESC
             LIMIT $1
             "#,
@@ -200,7 +200,7 @@ impl AnnotationType {
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
-            UPDATE tasker_annotation_types
+            UPDATE tasker.annotation_types
             SET name = COALESCE($2, name),
                 description = COALESCE($3, description),
                 updated_at = NOW()
@@ -228,7 +228,7 @@ impl AnnotationType {
     pub async fn delete(pool: &PgPool, id: i32) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            DELETE FROM tasker_annotation_types
+            DELETE FROM tasker.annotation_types
             WHERE annotation_type_id = $1
             "#,
             id
@@ -244,7 +244,7 @@ impl AnnotationType {
         let count = sqlx::query!(
             r#"
             SELECT COUNT(*) as count
-            FROM tasker_task_annotations
+            FROM tasker.task_annotations
             WHERE annotation_type_id = $1
             "#,
             self.annotation_type_id
@@ -260,7 +260,7 @@ impl AnnotationType {
         let count = sqlx::query!(
             r#"
             SELECT COUNT(*) as count
-            FROM tasker_task_annotations
+            FROM tasker.task_annotations
             WHERE annotation_type_id = $1
             "#,
             self.annotation_type_id

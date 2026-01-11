@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO tasker.task_namespaces (task_namespace_uuid, name, created_at, updated_at)\n        VALUES ($1, $2, NOW(), NOW())\n        ON CONFLICT (task_namespace_uuid) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7c80fd700cd58360681ef3e1a16343303399112f25dc8e8a470729dd6eec9351"
+}

@@ -304,7 +304,7 @@ impl LifecycleTestManager {
     #[allow(dead_code)]
     pub async fn get_current_task_state(&self, task_uuid: Uuid) -> Result<Option<String>> {
         let state = sqlx::query_scalar!(
-            "SELECT to_state FROM tasker_task_transitions
+            "SELECT to_state FROM tasker.task_transitions
              WHERE task_uuid = $1 AND most_recent = true",
             task_uuid
         )
@@ -428,8 +428,8 @@ impl LifecycleTestManager {
         let step = sqlx::query_as::<_, WorkflowStep>(
             r#"
             SELECT ws.*
-            FROM tasker_workflow_steps ws
-            JOIN tasker_named_steps ns ON ws.named_step_uuid = ns.named_step_uuid
+            FROM tasker.workflow_steps ws
+            JOIN tasker.named_steps ns ON ws.named_step_uuid = ns.named_step_uuid
             WHERE ws.task_uuid = $1 AND ns.name = $2
             "#,
         )
@@ -453,7 +453,7 @@ impl LifecycleTestManager {
         if matches!(new_state, WorkflowStepState::InProgress) && matches!(event, StepEvent::Start) {
             let now = chrono::Utc::now().naive_utc();
             sqlx::query!(
-                "UPDATE tasker_workflow_steps
+                "UPDATE tasker.workflow_steps
                  SET attempts = COALESCE(attempts, 0) + 1,
                      last_attempted_at = $2,
                      updated_at = NOW()
@@ -479,7 +479,7 @@ impl LifecycleTestManager {
 
         // Transition to InProgress first if needed
         let current_state = sqlx::query_scalar!(
-            "SELECT to_state FROM tasker_workflow_step_transitions
+            "SELECT to_state FROM tasker.workflow_step_transitions
              WHERE workflow_step_uuid = $1 AND most_recent = true",
             step.workflow_step_uuid
         )
@@ -542,7 +542,7 @@ impl LifecycleTestManager {
 
         // Update step results in database
         sqlx::query!(
-            "UPDATE tasker_workflow_steps SET processed = true, results = $2
+            "UPDATE tasker.workflow_steps SET processed = true, results = $2
              WHERE workflow_step_uuid = $1",
             step.workflow_step_uuid,
             result_data
@@ -576,7 +576,7 @@ impl LifecycleTestManager {
 
         // Check current state
         let current_state = sqlx::query_scalar!(
-            "SELECT to_state FROM tasker_workflow_step_transitions
+            "SELECT to_state FROM tasker.workflow_step_transitions
              WHERE workflow_step_uuid = $1 AND most_recent = true",
             step.workflow_step_uuid
         )
@@ -690,7 +690,7 @@ impl LifecycleTestManager {
         let current_state: Option<String> = sqlx::query_scalar(
             r#"
             SELECT to_state
-            FROM tasker_task_transitions
+            FROM tasker.task_transitions
             WHERE task_uuid = $1 AND most_recent = true
             "#,
         )
@@ -707,7 +707,7 @@ impl LifecycleTestManager {
         // Mark existing transitions as not most_recent
         sqlx::query(
             r#"
-            UPDATE tasker_task_transitions
+            UPDATE tasker.task_transitions
             SET most_recent = false
             WHERE task_uuid = $1
             "#,
@@ -720,7 +720,7 @@ impl LifecycleTestManager {
         let max_sort_key: Option<i32> = sqlx::query_scalar(
             r#"
             SELECT MAX(sort_key)
-            FROM tasker_task_transitions
+            FROM tasker.task_transitions
             WHERE task_uuid = $1
             "#,
         )
@@ -733,7 +733,7 @@ impl LifecycleTestManager {
         // Insert transition to 'complete' state
         sqlx::query(
             r#"
-            INSERT INTO tasker_task_transitions (
+            INSERT INTO tasker.task_transitions (
                 task_transition_uuid,
                 task_uuid,
                 to_state,
@@ -759,7 +759,7 @@ impl LifecycleTestManager {
         // Update task complete flag
         sqlx::query(
             r#"
-            UPDATE tasker_tasks
+            UPDATE tasker.tasks
             SET complete = true, updated_at = NOW()
             WHERE task_uuid = $1
             "#,

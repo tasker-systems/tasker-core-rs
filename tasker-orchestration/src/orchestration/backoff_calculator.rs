@@ -231,7 +231,7 @@ impl BackoffCalculator {
         // This blocks other transactions from modifying this row until we commit
         sqlx::query!(
             "SELECT workflow_step_uuid
-             FROM tasker_workflow_steps
+             FROM tasker.workflow_steps
              WHERE workflow_step_uuid = $1
              FOR UPDATE",
             step_uuid
@@ -243,7 +243,7 @@ impl BackoffCalculator {
         // Update both backoff and timestamp within locked transaction
         // The timestamp ensures SQL fallback calculations use consistent timing
         sqlx::query!(
-            "UPDATE tasker_workflow_steps
+            "UPDATE tasker.workflow_steps
              SET backoff_request_seconds = $1,
                  last_attempted_at = NOW(),
                  updated_at = NOW()
@@ -288,7 +288,7 @@ impl BackoffCalculator {
     ) -> Result<BackoffResult, BackoffError> {
         // Get current attempt count
         let step = sqlx::query!(
-            "SELECT attempts FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
+            "SELECT attempts FROM tasker.workflow_steps WHERE workflow_step_uuid = $1",
             step_uuid
         )
         .fetch_one(&self.pool)
@@ -345,7 +345,7 @@ impl BackoffCalculator {
         let step = sqlx::query!(
             r#"
             SELECT backoff_request_seconds, last_attempted_at
-            FROM tasker_workflow_steps
+            FROM tasker.workflow_steps
             WHERE workflow_step_uuid = $1
             "#,
             step_uuid
@@ -366,7 +366,7 @@ impl BackoffCalculator {
     /// Clear backoff for a step (e.g., after successful execution)
     pub async fn clear_backoff(&self, step_uuid: Uuid) -> Result<(), BackoffError> {
         sqlx::query!(
-            "UPDATE tasker_workflow_steps SET backoff_request_seconds = NULL WHERE workflow_step_uuid = $1",
+            "UPDATE tasker.workflow_steps SET backoff_request_seconds = NULL WHERE workflow_step_uuid = $1",
             step_uuid
         )
         .execute(&self.pool)

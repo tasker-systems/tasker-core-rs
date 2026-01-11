@@ -32,7 +32,7 @@ crate::debug_with_query_builder!(TaskScope {
 impl Task {
     /// Start building a scoped query
     pub fn scope() -> TaskScope {
-        let query = QueryBuilder::new("SELECT tasker_tasks.* FROM tasker_tasks");
+        let query = QueryBuilder::new("SELECT tasker.tasks.* FROM tasker.tasks");
         TaskScope {
             query,
             has_current_transitions_join: false,
@@ -63,9 +63,9 @@ impl TaskScope {
             self.query.push(
                 " INNER JOIN ( \
                 SELECT DISTINCT ON (task_uuid) task_uuid, to_state, created_at \
-                FROM tasker_task_transitions \
+                FROM tasker.task_transitions \
                 ORDER BY task_uuid, sort_key DESC \
-            ) current_transitions ON current_transitions.task_uuid = tasker_tasks.task_uuid",
+            ) current_transitions ON current_transitions.task_uuid = tasker.tasks.task_uuid",
             );
             self.has_current_transitions_join = true;
         }
@@ -106,7 +106,7 @@ impl TaskScope {
     fn ensure_named_tasks_join(&mut self) {
         if !self.has_named_tasks_join {
             if !self.has_conditions {
-                self.query.push(" INNER JOIN tasker_named_tasks ON tasker_named_tasks.named_task_uuid = tasker_tasks.named_task_uuid");
+                self.query.push(" INNER JOIN tasker.named_tasks ON tasker.named_tasks.named_task_uuid = tasker.tasks.named_task_uuid");
                 self.has_named_tasks_join = true;
             } else {
                 eprintln!("Warning: Cannot add named_tasks JOIN after WHERE conditions. Call .with_task_name() before other scopes.");
@@ -121,7 +121,7 @@ impl TaskScope {
         self.ensure_named_tasks_join();
         if !self.has_namespaces_join {
             if !self.has_conditions {
-                self.query.push(" INNER JOIN tasker_task_namespaces ON tasker_task_namespaces.task_namespace_uuid = tasker_named_tasks.task_namespace_uuid");
+                self.query.push(" INNER JOIN tasker.task_namespaces ON tasker.task_namespaces.task_namespace_uuid = tasker.named_tasks.task_namespace_uuid");
                 self.has_namespaces_join = true;
             } else {
                 eprintln!("Warning: Cannot add namespaces JOIN after WHERE conditions. Call namespace scopes before other scopes.");
@@ -132,7 +132,7 @@ impl TaskScope {
     /// Ensure workflow steps join exists
     fn ensure_workflow_steps_join(&mut self) {
         if !self.has_workflow_steps_join {
-            self.query.push(" INNER JOIN tasker_workflow_steps ON tasker_workflow_steps.task_uuid = tasker_tasks.task_uuid");
+            self.query.push(" INNER JOIN tasker.workflow_steps ON tasker.workflow_steps.task_uuid = tasker.tasks.task_uuid");
             self.has_workflow_steps_join = true;
         }
     }
@@ -143,16 +143,16 @@ impl TaskScope {
         if !self.has_workflow_step_transitions_join {
             self.query.push(" INNER JOIN ( \
                 SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state, created_at, most_recent \
-                FROM tasker_workflow_step_transitions \
+                FROM tasker.workflow_step_transitions \
                 ORDER BY workflow_step_uuid, sort_key DESC \
-            ) wst ON wst.workflow_step_uuid = tasker_workflow_steps.workflow_step_uuid");
+            ) wst ON wst.workflow_step_uuid = tasker.workflow_steps.workflow_step_uuid");
             self.has_workflow_step_transitions_join = true;
         }
     }
 
     /// Scope: created_since - Tasks created after a specific time
     pub fn created_since(mut self, since: DateTime<Utc>) -> Self {
-        self.add_condition("tasker_tasks.created_at > ");
+        self.add_condition("tasker.tasks.created_at > ");
         self.query.push_bind(since.naive_utc());
         self
     }
@@ -176,9 +176,9 @@ impl TaskScope {
             self.query.push(
                 " INNER JOIN ( \
                 SELECT DISTINCT ON (task_uuid) task_uuid, to_state, created_at \
-                FROM tasker_task_transitions \
+                FROM tasker.task_transitions \
                 ORDER BY task_uuid, sort_key DESC \
-            ) current_transitions ON current_transitions.task_uuid = tasker_tasks.task_uuid",
+            ) current_transitions ON current_transitions.task_uuid = tasker.tasks.task_uuid",
             );
             self.has_current_transitions_join = true;
         }
@@ -196,7 +196,7 @@ impl TaskScope {
         self.ensure_namespaces_join();
         // Only add the condition if the join was successfully added
         if self.has_namespaces_join {
-            self.add_condition("tasker_task_namespaces.name = ");
+            self.add_condition("tasker.task_namespaces.name = ");
             self.query.push_bind(namespace_name);
         }
         // If the join wasn't added (due to existing conditions), silently continue
@@ -207,7 +207,7 @@ impl TaskScope {
     /// Scope: with_task_name - Tasks with a specific named task
     pub fn with_task_name(mut self, task_name: String) -> Self {
         self.ensure_named_tasks_join();
-        self.add_condition("tasker_named_tasks.name = ");
+        self.add_condition("tasker.named_tasks.name = ");
         self.query.push_bind(task_name);
         self
     }
@@ -215,7 +215,7 @@ impl TaskScope {
     /// Scope: with_version - Tasks with a specific version
     pub fn with_version(mut self, version: String) -> Self {
         self.ensure_named_tasks_join();
-        self.add_condition("tasker_named_tasks.version = ");
+        self.add_condition("tasker.named_tasks.version = ");
         self.query.push_bind(version);
         self
     }
@@ -223,9 +223,9 @@ impl TaskScope {
     /// Add ordering
     pub fn order_by_created_at(mut self, ascending: bool) -> Self {
         if ascending {
-            self.query.push(" ORDER BY tasker_tasks.created_at ASC");
+            self.query.push(" ORDER BY tasker.tasks.created_at ASC");
         } else {
-            self.query.push(" ORDER BY tasker_tasks.created_at DESC");
+            self.query.push(" ORDER BY tasker.tasks.created_at DESC");
         }
         self
     }
@@ -270,8 +270,8 @@ impl ScopeBuilder<Task> for TaskScope {
 
     async fn count(self, pool: &PgPool) -> Result<i64, sqlx::Error> {
         let count_query = self.query.sql().replace(
-            "SELECT tasker_tasks.* FROM tasker_tasks",
-            "SELECT COUNT(*) as count FROM tasker_tasks",
+            "SELECT tasker.tasks.* FROM tasker.tasks",
+            "SELECT COUNT(*) as count FROM tasker.tasks",
         );
 
         let row: (i64,) = sqlx::query_as(&count_query).fetch_one(pool).await?;

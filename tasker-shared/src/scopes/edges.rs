@@ -28,7 +28,7 @@ impl WorkflowStepEdge {
     /// Start building a scoped query
     pub fn scope() -> WorkflowStepEdgeScope {
         let query = QueryBuilder::new(
-            "SELECT tasker_workflow_step_edges.* FROM tasker_workflow_step_edges",
+            "SELECT tasker.workflow_step_edges.* FROM tasker.workflow_step_edges",
         );
         WorkflowStepEdgeScope {
             query,
@@ -60,25 +60,25 @@ impl WorkflowStepEdgeScope {
             r"
             WITH step_parents AS (
                 SELECT from_step_uuid
-                FROM tasker_workflow_step_edges
+                FROM tasker.workflow_step_edges
                 WHERE to_step_uuid = $1
             ),
             potential_siblings AS (
                 SELECT to_step_uuid
-                FROM tasker_workflow_step_edges
+                FROM tasker.workflow_step_edges
                 WHERE from_step_uuid IN (SELECT from_step_uuid FROM step_parents)
                 AND to_step_uuid != $1
             ),
             siblings AS (
                 SELECT to_step_uuid
-                FROM tasker_workflow_step_edges
+                FROM tasker.workflow_step_edges
                 WHERE to_step_uuid IN (SELECT to_step_uuid FROM potential_siblings)
                 GROUP BY to_step_uuid
                 HAVING ARRAY_AGG(from_step_uuid ORDER BY from_step_uuid) =
                       (SELECT ARRAY_AGG(from_step_uuid ORDER BY from_step_uuid) FROM step_parents)
             )
             SELECT e.*
-            FROM tasker_workflow_step_edges e
+            FROM tasker.workflow_step_edges e
             JOIN siblings ON e.to_step_uuid = siblings.to_step_uuid
             ",
         )
@@ -94,12 +94,12 @@ impl WorkflowStepEdgeScope {
     ) -> Result<Vec<WorkflowStepEdge>, sqlx::Error> {
         sqlx::query_as::<_, WorkflowStepEdge>(
             r"
-            SELECT tasker_workflow_step_edges.*
-            FROM tasker_workflow_step_edges
-            WHERE tasker_workflow_step_edges.name = 'provides'
-            AND tasker_workflow_step_edges.to_step_uuid IN (
+            SELECT tasker.workflow_step_edges.*
+            FROM tasker.workflow_step_edges
+            WHERE tasker.workflow_step_edges.name = 'provides'
+            AND tasker.workflow_step_edges.to_step_uuid IN (
                 SELECT to_step_uuid
-                FROM tasker_workflow_step_edges
+                FROM tasker.workflow_step_edges
                 WHERE from_step_uuid = $1
             )
             ",
@@ -114,7 +114,7 @@ impl WorkflowStepEdgeScope {
     /// This finds all workflow steps that are direct children of the given step.
     /// Essential for DAG forward navigation.
     pub fn children_of(mut self, step_uuid: Uuid) -> Self {
-        self.add_condition("tasker_workflow_step_edges.from_step_uuid = ");
+        self.add_condition("tasker.workflow_step_edges.from_step_uuid = ");
         self.query.push_bind(step_uuid);
         self
     }
@@ -124,7 +124,7 @@ impl WorkflowStepEdgeScope {
     /// This finds all workflow steps that are direct parents of the given step.
     /// Essential for DAG backward navigation and dependency checking.
     pub fn parents_of(mut self, step_uuid: Uuid) -> Self {
-        self.add_condition("tasker_workflow_step_edges.to_step_uuid = ");
+        self.add_condition("tasker.workflow_step_edges.to_step_uuid = ");
         self.query.push_bind(step_uuid);
         self
     }
@@ -134,7 +134,7 @@ impl WorkflowStepEdgeScope {
     /// Filters to only 'provides' relationship edges, which are the standard
     /// dependency relationships in the workflow DAG.
     pub fn provides_edges(mut self) -> Self {
-        self.add_condition("tasker_workflow_step_edges.name = 'provides'");
+        self.add_condition("tasker.workflow_step_edges.name = 'provides'");
         self
     }
 
@@ -212,8 +212,8 @@ impl ScopeBuilder<WorkflowStepEdge> for WorkflowStepEdgeScope {
         } else {
             // For simple queries, replace SELECT clause
             self.query.sql().replace(
-                "SELECT tasker_workflow_step_edges.* FROM tasker_workflow_step_edges",
-                "SELECT COUNT(*) as count FROM tasker_workflow_step_edges",
+                "SELECT tasker.workflow_step_edges.* FROM tasker.workflow_step_edges",
+                "SELECT COUNT(*) as count FROM tasker.workflow_step_edges",
             )
         };
 

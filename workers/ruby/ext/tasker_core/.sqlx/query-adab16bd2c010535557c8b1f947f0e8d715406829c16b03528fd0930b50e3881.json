@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tasker.named_tasks_named_steps\n            (named_task_uuid, named_step_uuid, skippable, default_retryable, default_max_attempts, created_at, updated_at)\n            VALUES ($1::uuid, $2::uuid, false, true, 3, NOW(), NOW())\n            RETURNING ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,\n                      default_max_attempts, created_at, updated_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ntns_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "named_task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "named_step_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "skippable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "default_retryable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "default_max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "adab16bd2c010535557c8b1f947f0e8d715406829c16b03528fd0930b50e3881"
+}

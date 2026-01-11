@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        ta.task_annotation_id,\n                        ta.task_uuid,\n                        ta.annotation_type_id,\n                        ta.annotation,\n                        at.name as annotation_type_name,\n                        at.description as annotation_type_description,\n                        ta.created_at,\n                        ta.updated_at\n                    FROM tasker.task_annotations ta\n                    INNER JOIN tasker.annotation_types at ON at.annotation_type_id = ta.annotation_type_id\n                    ORDER BY ta.created_at DESC\n                    LIMIT $1\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_annotation_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "annotation_type_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "annotation",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "annotation_type_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "annotation_type_description",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b523b571f4b6165294962fd002be90ed43d2532c677082fdede612e4066abfd9"
+}

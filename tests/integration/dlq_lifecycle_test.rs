@@ -33,7 +33,7 @@ async fn create_test_namespace(
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
-        INSERT INTO tasker_task_namespaces (task_namespace_uuid, name, created_at, updated_at)
+        INSERT INTO tasker.task_namespaces (task_namespace_uuid, name, created_at, updated_at)
         VALUES ($1, $2, NOW(), NOW())
         ON CONFLICT (task_namespace_uuid) DO NOTHING
         "#,
@@ -55,7 +55,7 @@ async fn create_test_named_task(
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
-        INSERT INTO tasker_named_tasks (
+        INSERT INTO tasker.named_tasks (
             named_task_uuid,
             task_namespace_uuid,
             name,
@@ -92,7 +92,7 @@ async fn create_task_in_state(
     // Create task
     sqlx::query!(
         r#"
-        INSERT INTO tasker_tasks (
+        INSERT INTO tasker.tasks (
             task_uuid,
             named_task_uuid,
             correlation_id,
@@ -117,7 +117,7 @@ async fn create_task_in_state(
     // Create state transition
     sqlx::query!(
         r#"
-        INSERT INTO tasker_task_transitions (
+        INSERT INTO tasker.task_transitions (
             task_uuid,
             from_state,
             to_state,
@@ -148,7 +148,7 @@ async fn manipulate_task_state_timestamp(
     // Use raw query to avoid PgInterval type issues in test helpers
     let query = format!(
         r#"
-        UPDATE tasker_task_transitions
+        UPDATE tasker.task_transitions
         SET created_at = NOW() - INTERVAL '{} seconds',
             updated_at = NOW() - INTERVAL '{} seconds'
         WHERE task_uuid = $1 AND most_recent = true

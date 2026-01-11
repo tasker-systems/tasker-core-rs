@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tasker.workflow_step_edges (from_step_uuid, to_step_uuid, name, created_at, updated_at)\n            VALUES ($1::uuid, $2::uuid, $3, NOW(), NOW())\n            ON CONFLICT (from_step_uuid, to_step_uuid) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b918b512e7b80439343f1822e5eb507b5c3b9bfc39d793126c255ff4b02a7718"
+}

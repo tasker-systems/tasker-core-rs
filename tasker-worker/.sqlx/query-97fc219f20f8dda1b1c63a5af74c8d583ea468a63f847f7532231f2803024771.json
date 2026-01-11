@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tasker.workflow_steps\n            SET checkpoint = jsonb_set(\n                $2::jsonb,\n                '{history}',\n                COALESCE(\n                    (SELECT checkpoint->'history' FROM tasker.workflow_steps WHERE workflow_step_uuid = $1::uuid),\n                    '[]'::jsonb\n                ) || jsonb_build_array(jsonb_build_object(\n                    'cursor', $3::jsonb,\n                    'timestamp', to_jsonb(now())\n                ))\n            ),\n            updated_at = NOW()\n            WHERE workflow_step_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "97fc219f20f8dda1b1c63a5af74c8d583ea468a63f847f7532231f2803024771"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tasker.annotation_types\n            SET name = COALESCE($2, name),\n                description = COALESCE($3, description),\n                updated_at = NOW()\n            WHERE annotation_type_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8ef334028af8d8bbf02f5f2e34aae1bf04c158237ce621f7cb6f00bfbf5cae7b"
+}

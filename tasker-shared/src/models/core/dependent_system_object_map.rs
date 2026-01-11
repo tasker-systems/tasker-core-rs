@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 /// DependentSystemObjectMap represents bidirectional mappings between objects in different dependent systems
 /// Uses integer primary key but UUID foreign keys to dependent systems
-/// Maps to `tasker_dependent_system_object_maps` table - bidirectional system object relationships
+/// Maps to `tasker.dependent_system_object_maps` table - bidirectional system object relationships
 ///
 /// This table enables mapping objects between two different systems, allowing for complex
 /// system integrations where objects in one system correspond to objects in another.
@@ -62,7 +62,7 @@ impl DependentSystemObjectMap {
         let mapping = sqlx::query_as!(
             DependentSystemObjectMap,
             r#"
-            INSERT INTO tasker_dependent_system_object_maps
+            INSERT INTO tasker.dependent_system_object_maps
             (dependent_system_one_uuid, dependent_system_two_uuid, remote_id_one, remote_id_two, created_at, updated_at)
             VALUES ($1::uuid, $2::uuid, $3, $4, NOW(), NOW())
             RETURNING dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
@@ -89,7 +89,7 @@ impl DependentSystemObjectMap {
             r#"
             SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
-            FROM tasker_dependent_system_object_maps
+            FROM tasker.dependent_system_object_maps
             WHERE dependent_system_object_map_id = $1
             "#,
             id
@@ -113,7 +113,7 @@ impl DependentSystemObjectMap {
             r#"
             SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
-            FROM tasker_dependent_system_object_maps
+            FROM tasker.dependent_system_object_maps
             WHERE dependent_system_one_uuid = $1::uuid
               AND dependent_system_two_uuid = $2::uuid
               AND remote_id_one = $3
@@ -141,7 +141,7 @@ impl DependentSystemObjectMap {
             r#"
             SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
-            FROM tasker_dependent_system_object_maps
+            FROM tasker.dependent_system_object_maps
             WHERE dependent_system_one_uuid = $1::uuid AND dependent_system_two_uuid = $2::uuid
             ORDER BY created_at DESC
             "#,
@@ -164,7 +164,7 @@ impl DependentSystemObjectMap {
             r#"
             SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
-            FROM tasker_dependent_system_object_maps
+            FROM tasker.dependent_system_object_maps
             WHERE remote_id_one = $1 OR remote_id_two = $1
             ORDER BY created_at DESC
             "#,
@@ -196,9 +196,9 @@ impl DependentSystemObjectMap {
                 ds2.name as system_two_name,
                 dsom.created_at,
                 dsom.updated_at
-            FROM tasker_dependent_system_object_maps dsom
-            INNER JOIN tasker_dependent_systems ds1 ON ds1.dependent_system_uuid = dsom.dependent_system_one_uuid
-            INNER JOIN tasker_dependent_systems ds2 ON ds2.dependent_system_uuid = dsom.dependent_system_two_uuid
+            FROM tasker.dependent_system_object_maps dsom
+            INNER JOIN tasker.dependent_systems ds1 ON ds1.dependent_system_uuid = dsom.dependent_system_one_uuid
+            INNER JOIN tasker.dependent_systems ds2 ON ds2.dependent_system_uuid = dsom.dependent_system_two_uuid
             ORDER BY dsom.created_at DESC
             LIMIT $1
             "#,
@@ -221,9 +221,9 @@ impl DependentSystemObjectMap {
                 ds1.name as system_one_name,
                 ds2.name as system_two_name,
                 COUNT(*)::BIGINT as "total_mappings!: i64"
-            FROM tasker_dependent_system_object_maps dsom
-            INNER JOIN tasker_dependent_systems ds1 ON ds1.dependent_system_uuid = dsom.dependent_system_one_uuid
-            INNER JOIN tasker_dependent_systems ds2 ON ds2.dependent_system_uuid = dsom.dependent_system_two_uuid
+            FROM tasker.dependent_system_object_maps dsom
+            INNER JOIN tasker.dependent_systems ds1 ON ds1.dependent_system_uuid = dsom.dependent_system_one_uuid
+            INNER JOIN tasker.dependent_systems ds2 ON ds2.dependent_system_uuid = dsom.dependent_system_two_uuid
             GROUP BY dsom.dependent_system_one_uuid, dsom.dependent_system_two_uuid, ds1.name, ds2.name
             ORDER BY COUNT(*) DESC
             "#
@@ -237,7 +237,7 @@ impl DependentSystemObjectMap {
     /// Delete a mapping
     pub async fn delete(pool: &PgPool, id: i64) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
-            "DELETE FROM tasker_dependent_system_object_maps WHERE dependent_system_object_map_id = $1",
+            "DELETE FROM tasker.dependent_system_object_maps WHERE dependent_system_object_map_id = $1",
             id
         )
         .execute(pool)
@@ -255,7 +255,7 @@ impl DependentSystemObjectMap {
         let mapping = sqlx::query_as!(
             DependentSystemObjectMap,
             r#"
-            UPDATE tasker_dependent_system_object_maps
+            UPDATE tasker.dependent_system_object_maps
             SET dependent_system_one_uuid = $2::uuid,
                 dependent_system_two_uuid = $3::uuid,
                 remote_id_one = $4,
@@ -313,7 +313,7 @@ impl DependentSystemObjectMap {
             r#"
             SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
-            FROM tasker_dependent_system_object_maps
+            FROM tasker.dependent_system_object_maps
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2
             "#,

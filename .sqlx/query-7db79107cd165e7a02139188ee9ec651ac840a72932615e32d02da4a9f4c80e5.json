@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT to_state FROM tasker.task_transitions\n             WHERE task_uuid = $1 AND most_recent = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "to_state",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7db79107cd165e7a02139188ee9ec651ac840a72932615e32d02da4a9f4c80e5"
+}

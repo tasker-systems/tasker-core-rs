@@ -18,7 +18,7 @@ async fn create_test_task_with_priority(pool: &PgPool, priority: i32) -> Result<
 
     // Set the priority manually
     sqlx::query!(
-        "UPDATE tasker_tasks SET priority = $1 WHERE task_uuid = $2",
+        "UPDATE tasker.tasks SET priority = $1 WHERE task_uuid = $2",
         priority,
         task.task_uuid
     )
@@ -44,7 +44,7 @@ async fn test_priority_decay_ordering(pool: PgPool) -> sqlx::Result<()> {
 
     // Age the aging task to 6 hours old
     sqlx::query!(
-        "UPDATE tasker_task_transitions
+        "UPDATE tasker.task_transitions
          SET created_at = NOW() - INTERVAL '6 hours'
          WHERE task_uuid = $1 AND most_recent = true",
         aging_task.task_uuid
@@ -171,7 +171,7 @@ async fn test_priority_decay_over_time(pool: PgPool) -> sqlx::Result<()> {
         .map_err(|e| sqlx::Error::Protocol(format!("{e}")))?;
 
     sqlx::query!(
-        "UPDATE tasker_task_transitions
+        "UPDATE tasker.task_transitions
          SET created_at = NOW() - INTERVAL '1 hour'
          WHERE task_uuid = $1 AND most_recent = true",
         slightly_aged_task.task_uuid
@@ -184,7 +184,7 @@ async fn test_priority_decay_over_time(pool: PgPool) -> sqlx::Result<()> {
         .map_err(|e| sqlx::Error::Protocol(format!("{e}")))?;
 
     sqlx::query!(
-        "UPDATE tasker_task_transitions
+        "UPDATE tasker.task_transitions
          SET created_at = NOW() - INTERVAL '12 hours'
          WHERE task_uuid = $1 AND most_recent = true",
         very_aged_task.task_uuid

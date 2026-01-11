@@ -23,7 +23,7 @@ crate::debug_with_query_builder!(NamedTaskScope {
 impl NamedTask {
     /// Start building a scoped query
     pub fn scope() -> NamedTaskScope {
-        let query = QueryBuilder::new("SELECT tasker_named_tasks.* FROM tasker_named_tasks");
+        let query = QueryBuilder::new("SELECT tasker.named_tasks.* FROM tasker.named_tasks");
         NamedTaskScope {
             query,
             has_conditions: false,
@@ -47,7 +47,7 @@ impl NamedTaskScope {
     /// Ensure task namespace join exists
     fn ensure_task_namespace_join(&mut self) {
         if !self.has_task_namespace_join {
-            self.query.push(" INNER JOIN tasker_task_namespaces task_namespace ON task_namespace.task_namespace_uuid = tasker_named_tasks.task_namespace_uuid");
+            self.query.push(" INNER JOIN tasker.task_namespaces task_namespace ON task_namespace.task_namespace_uuid = tasker.named_tasks.task_namespace_uuid");
             self.has_task_namespace_join = true;
         }
     }
@@ -68,7 +68,7 @@ impl NamedTaskScope {
     /// Filters to named tasks with a specific version string.
     /// Useful for testing specific versions or rollback scenarios.
     pub fn with_version(mut self, version: String) -> Self {
-        self.add_condition("tasker_named_tasks.version = ");
+        self.add_condition("tasker.named_tasks.version = ");
         self.query.push_bind(version);
         self
     }
@@ -79,17 +79,17 @@ impl NamedTaskScope {
     /// Critical for getting the current production versions of all tasks.
     ///
     /// This matches the Rails SQL:
-    /// SELECT DISTINCT ON (task_namespace_id, name) * FROM tasker_named_tasks
+    /// SELECT DISTINCT ON (task_namespace_id, name) * FROM tasker.named_tasks
     /// ORDER BY task_namespace_id ASC, name ASC, version DESC
     pub fn latest_versions(mut self) -> Self {
         // Replace the entire SELECT clause with DISTINCT ON
         let mut new_query = QueryBuilder::new(
-            "SELECT DISTINCT ON (tasker_named_tasks.task_namespace_uuid, tasker_named_tasks.name) tasker_named_tasks.* FROM tasker_named_tasks"
+            "SELECT DISTINCT ON (tasker.named_tasks.task_namespace_uuid, tasker.named_tasks.name) tasker.named_tasks.* FROM tasker.named_tasks"
         );
 
         // Add any existing JOINs
         if self.has_task_namespace_join {
-            new_query.push(" INNER JOIN tasker_task_namespaces task_namespace ON task_namespace.task_namespace_uuid = tasker_named_tasks.task_namespace_uuid");
+            new_query.push(" INNER JOIN tasker.task_namespaces task_namespace ON task_namespace.task_namespace_uuid = tasker.named_tasks.task_namespace_uuid");
         }
 
         // Add any existing WHERE conditions
@@ -104,7 +104,7 @@ impl NamedTaskScope {
         }
 
         // Add the required ORDER BY for DISTINCT ON
-        new_query.push(" ORDER BY tasker_named_tasks.task_namespace_uuid ASC, tasker_named_tasks.name ASC, tasker_named_tasks.version DESC");
+        new_query.push(" ORDER BY tasker.named_tasks.task_namespace_uuid ASC, tasker.named_tasks.name ASC, tasker.named_tasks.version DESC");
 
         self.query = new_query;
         self
@@ -152,7 +152,7 @@ impl TaskNamespace {
     /// Start building a scoped query
     pub fn scope() -> TaskNamespaceScope {
         let query =
-            QueryBuilder::new("SELECT tasker_task_namespaces.* FROM tasker_task_namespaces");
+            QueryBuilder::new("SELECT tasker.task_namespaces.* FROM tasker.task_namespaces");
         TaskNamespaceScope {
             query,
             has_conditions: false,
@@ -177,7 +177,7 @@ impl TaskNamespaceScope {
     /// Excludes the 'default' namespace, returning only custom/user-created namespaces.
     /// Useful for listing user-defined organizational categories.
     pub fn custom(mut self) -> Self {
-        self.add_condition("tasker_task_namespaces.name != 'default'");
+        self.add_condition("tasker.task_namespaces.name != 'default'");
         self
     }
 }
@@ -197,8 +197,8 @@ impl ScopeBuilder<TaskNamespace> for TaskNamespaceScope {
     async fn count(self, pool: &PgPool) -> Result<i64, sqlx::Error> {
         // Simple count for TaskNamespace - no complex queries
         let count_query = self.query.sql().replace(
-            "SELECT tasker_task_namespaces.* FROM tasker_task_namespaces",
-            "SELECT COUNT(*) as count FROM tasker_task_namespaces",
+            "SELECT tasker.task_namespaces.* FROM tasker.task_namespaces",
+            "SELECT COUNT(*) as count FROM tasker.task_namespaces",
         );
 
         let row: (i64,) = sqlx::query_as(&count_query).fetch_one(pool).await?;

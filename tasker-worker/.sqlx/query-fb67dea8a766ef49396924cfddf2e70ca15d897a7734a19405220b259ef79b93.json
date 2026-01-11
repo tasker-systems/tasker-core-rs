@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM tasker.dependent_system_object_maps WHERE dependent_system_object_map_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fb67dea8a766ef49396924cfddf2e70ca15d897a7734a19405220b259ef79b93"
+}

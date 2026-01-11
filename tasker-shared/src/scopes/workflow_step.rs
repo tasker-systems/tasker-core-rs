@@ -29,7 +29,7 @@ crate::debug_with_query_builder!(WorkflowStepScope {
 impl WorkflowStep {
     /// Start building a scoped query
     pub fn scope() -> WorkflowStepScope {
-        let query = QueryBuilder::new("SELECT tasker_workflow_steps.* FROM tasker_workflow_steps");
+        let query = QueryBuilder::new("SELECT tasker.workflow_steps.* FROM tasker.workflow_steps");
         WorkflowStepScope {
             query,
             has_conditions: false,
@@ -55,7 +55,7 @@ impl WorkflowStepScope {
     /// Ensure workflow step transitions join exists
     fn ensure_workflow_step_transitions_join(&mut self) {
         if !self.has_workflow_step_transitions_join {
-            self.query.push(" INNER JOIN tasker_workflow_step_transitions ON tasker_workflow_step_transitions.workflow_step_uuid = tasker_workflow_steps.workflow_step_uuid");
+            self.query.push(" INNER JOIN tasker.workflow_step_transitions ON tasker.workflow_step_transitions.workflow_step_uuid = tasker.workflow_steps.workflow_step_uuid");
             self.has_workflow_step_transitions_join = true;
         }
     }
@@ -66,9 +66,9 @@ impl WorkflowStepScope {
             self.query.push(
                 " INNER JOIN ( \
                 SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state, created_at \
-                FROM tasker_workflow_step_transitions \
+                FROM tasker.workflow_step_transitions \
                 ORDER BY workflow_step_uuid, sort_key DESC \
-            ) current_wst ON current_wst.workflow_step_uuid = tasker_workflow_steps.workflow_step_uuid",
+            ) current_wst ON current_wst.workflow_step_uuid = tasker.workflow_steps.workflow_step_uuid",
             );
             self.has_current_transitions_join = true;
         }
@@ -78,7 +78,7 @@ impl WorkflowStepScope {
     fn ensure_tasks_join(&mut self) {
         if !self.has_tasks_join {
             self.query.push(
-                " INNER JOIN tasker_tasks ON tasker_tasks.task_uuid = tasker_workflow_steps.task_uuid",
+                " INNER JOIN tasker.tasks ON tasker.tasks.task_uuid = tasker.workflow_steps.task_uuid",
             );
             self.has_tasks_join = true;
         }
@@ -89,7 +89,7 @@ impl WorkflowStepScope {
     /// Filters workflow steps to those belonging to a specific task ID.
     /// Essential for task-scoped operations and workflow analysis.
     pub fn for_task(mut self, task_uuid: Uuid) -> Self {
-        self.add_condition("tasker_workflow_steps.task_uuid = ");
+        self.add_condition("tasker.workflow_steps.task_uuid = ");
         self.query.push_bind(task_uuid);
         self
     }
@@ -99,7 +99,7 @@ impl WorkflowStepScope {
     /// Filters to workflow steps created from a specific named step template.
     /// Useful for finding all instances of a particular step type.
     pub fn for_named_step(mut self, named_step_uuid: i32) -> Self {
-        self.add_condition("tasker_workflow_steps.named_step_uuid = ");
+        self.add_condition("tasker.workflow_steps.named_step_uuid = ");
         self.query.push_bind(named_step_uuid);
         self
     }
@@ -151,7 +151,7 @@ impl WorkflowStepScope {
     /// Finds workflow steps that can be retried based on their retry settings.
     /// Combines retryable flag with attempt count validation.
     pub fn retryable(mut self) -> Self {
-        self.add_condition("tasker_workflow_steps.retryable = true AND (tasker_workflow_steps.attempts IS NULL OR tasker_workflow_steps.attempts < tasker_workflow_steps.max_attempts)");
+        self.add_condition("tasker.workflow_steps.retryable = true AND (tasker.workflow_steps.attempts IS NULL OR tasker.workflow_steps.attempts < tasker.workflow_steps.max_attempts)");
         self
     }
 
@@ -160,7 +160,7 @@ impl WorkflowStepScope {
     /// Simple boolean flag check for processed status.
     /// Faster than state machine queries for basic processing flags.
     pub fn processed(mut self) -> Self {
-        self.add_condition("tasker_workflow_steps.processed = true");
+        self.add_condition("tasker.workflow_steps.processed = true");
         self
     }
 
@@ -169,7 +169,7 @@ impl WorkflowStepScope {
     /// Finds steps that haven't been marked as processed.
     /// Used for identifying pending work and workflow bottlenecks.
     pub fn unprocessed(mut self) -> Self {
-        self.add_condition("tasker_workflow_steps.processed = false");
+        self.add_condition("tasker.workflow_steps.processed = false");
         self
     }
 
@@ -190,7 +190,7 @@ impl WorkflowStepScope {
     /// Requires JOIN with tasks table for creation timestamp access.
     pub fn for_tasks_since(mut self, since: DateTime<Utc>) -> Self {
         self.ensure_tasks_join();
-        self.add_condition("tasker_tasks.created_at > ");
+        self.add_condition("tasker.tasks.created_at > ");
         self.query.push_bind(since.naive_utc());
         self
     }
@@ -200,7 +200,7 @@ impl WorkflowStepScope {
     /// Filters to steps that completed with result data.
     /// Useful for analysis and result processing workflows.
     pub fn with_results(mut self) -> Self {
-        self.add_condition("tasker_workflow_steps.results IS NOT NULL");
+        self.add_condition("tasker.workflow_steps.results IS NOT NULL");
         self
     }
 
@@ -210,7 +210,7 @@ impl WorkflowStepScope {
     /// Useful for retry queue processing and debugging.
     pub fn latest_attempts(mut self) -> Self {
         self.query
-            .push(" ORDER BY tasker_workflow_steps.last_attempted_at DESC NULLS LAST");
+            .push(" ORDER BY tasker.workflow_steps.last_attempted_at DESC NULLS LAST");
         self
     }
 
@@ -226,9 +226,9 @@ impl WorkflowStepScope {
     pub fn completed_since(mut self, since: DateTime<Utc>) -> Self {
         self.ensure_workflow_step_transitions_join();
         self.add_condition(
-            "tasker_workflow_step_transitions.most_recent = TRUE \
-             AND tasker_workflow_step_transitions.to_state = 'complete' \
-             AND tasker_workflow_step_transitions.created_at > ",
+            "tasker.workflow_step_transitions.most_recent = TRUE \
+             AND tasker.workflow_step_transitions.to_state = 'complete' \
+             AND tasker.workflow_step_transitions.created_at > ",
         );
         self.query.push_bind(since.naive_utc());
         self
@@ -238,9 +238,9 @@ impl WorkflowStepScope {
     pub fn failed_since(mut self, since: DateTime<Utc>) -> Self {
         self.ensure_workflow_step_transitions_join();
         self.add_condition(
-            "tasker_workflow_step_transitions.most_recent = TRUE \
-             AND tasker_workflow_step_transitions.to_state = 'error' \
-             AND tasker_workflow_step_transitions.created_at > ",
+            "tasker.workflow_step_transitions.most_recent = TRUE \
+             AND tasker.workflow_step_transitions.to_state = 'error' \
+             AND tasker.workflow_step_transitions.created_at > ",
         );
         self.query.push_bind(since.naive_utc());
         self
@@ -261,8 +261,8 @@ impl ScopeBuilder<WorkflowStep> for WorkflowStepScope {
 
     async fn count(self, pool: &PgPool) -> Result<i64, sqlx::Error> {
         let count_query = self.query.sql().replace(
-            "SELECT tasker_workflow_steps.* FROM tasker_workflow_steps",
-            "SELECT COUNT(*) as count FROM tasker_workflow_steps",
+            "SELECT tasker.workflow_steps.* FROM tasker.workflow_steps",
+            "SELECT COUNT(*) as count FROM tasker.workflow_steps",
         );
 
         let row: (i64,) = sqlx::query_as(&count_query).fetch_one(pool).await?;

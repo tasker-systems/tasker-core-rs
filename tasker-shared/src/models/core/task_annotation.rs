@@ -5,7 +5,7 @@ use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 /// TaskAnnotation represents metadata annotations attached to tasks
-/// Maps to `tasker_task_annotations` table - task metadata storage
+/// Maps to `tasker.task_annotations` table - task metadata storage
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 #[sqlx(rename_all = "snake_case")]
 pub struct TaskAnnotation {
@@ -56,7 +56,7 @@ impl TaskAnnotation {
         let annotation = sqlx::query_as!(
             TaskAnnotation,
             r#"
-            INSERT INTO tasker_task_annotations (task_uuid, annotation_type_id, annotation, created_at, updated_at)
+            INSERT INTO tasker.task_annotations (task_uuid, annotation_type_id, annotation, created_at, updated_at)
             VALUES ($1, $2, $3, NOW(), NOW())
             RETURNING task_annotation_id, task_uuid, annotation_type_id, annotation, created_at, updated_at
             "#,
@@ -76,7 +76,7 @@ impl TaskAnnotation {
             TaskAnnotation,
             r#"
             SELECT task_annotation_id, task_uuid, annotation_type_id, annotation, created_at, updated_at
-            FROM tasker_task_annotations
+            FROM tasker.task_annotations
             WHERE task_annotation_id = $1
             "#,
             id
@@ -96,7 +96,7 @@ impl TaskAnnotation {
             TaskAnnotation,
             r#"
             SELECT task_annotation_id, task_uuid, annotation_type_id, annotation, created_at, updated_at
-            FROM tasker_task_annotations
+            FROM tasker.task_annotations
             WHERE task_uuid = $1
             ORDER BY created_at DESC
             "#,
@@ -117,7 +117,7 @@ impl TaskAnnotation {
             TaskAnnotation,
             r#"
             SELECT task_annotation_id, task_uuid, annotation_type_id, annotation, created_at, updated_at
-            FROM tasker_task_annotations
+            FROM tasker.task_annotations
             WHERE annotation_type_id = $1
             ORDER BY created_at DESC
             "#,
@@ -139,7 +139,7 @@ impl TaskAnnotation {
             TaskAnnotation,
             r#"
             SELECT task_annotation_id, task_uuid, annotation_type_id, annotation, created_at, updated_at
-            FROM tasker_task_annotations
+            FROM tasker.task_annotations
             WHERE task_uuid = $1 AND annotation_type_id = $2
             ORDER BY created_at DESC
             "#,
@@ -165,7 +165,7 @@ impl TaskAnnotation {
             TaskAnnotation,
             r#"
             SELECT task_annotation_id, task_uuid, annotation_type_id, annotation, created_at, updated_at
-            FROM tasker_task_annotations
+            FROM tasker.task_annotations
             WHERE annotation #> $1::text[] = $2
             ORDER BY created_at DESC
             LIMIT $3
@@ -192,7 +192,7 @@ impl TaskAnnotation {
             TaskAnnotation,
             r#"
             SELECT task_annotation_id, task_uuid, annotation_type_id, annotation, created_at, updated_at
-            FROM tasker_task_annotations
+            FROM tasker.task_annotations
             WHERE annotation @> $1
             ORDER BY created_at DESC
             LIMIT $2
@@ -228,8 +228,8 @@ impl TaskAnnotation {
                         at.description as annotation_type_description,
                         ta.created_at,
                         ta.updated_at
-                    FROM tasker_task_annotations ta
-                    JOIN tasker_annotation_types at ON ta.annotation_type_id = at.annotation_type_id
+                    FROM tasker.task_annotations ta
+                    JOIN tasker.annotation_types at ON ta.annotation_type_id = at.annotation_type_id
                     WHERE ta.task_uuid = $1
                     ORDER BY ta.created_at DESC
                     LIMIT $2
@@ -253,8 +253,8 @@ impl TaskAnnotation {
                         at.description as annotation_type_description,
                         ta.created_at,
                         ta.updated_at
-                    FROM tasker_task_annotations ta
-                    INNER JOIN tasker_annotation_types at ON at.annotation_type_id = ta.annotation_type_id
+                    FROM tasker.task_annotations ta
+                    INNER JOIN tasker.annotation_types at ON at.annotation_type_id = ta.annotation_type_id
                     ORDER BY ta.created_at DESC
                     LIMIT $1
                     "#,
@@ -279,8 +279,8 @@ impl TaskAnnotation {
                 at.annotation_type_id,
                 at.name as annotation_type_name,
                 COUNT(ta.task_annotation_id)::BIGINT as "usage_count!: i64"
-            FROM tasker_annotation_types at
-            LEFT JOIN tasker_task_annotations ta ON ta.annotation_type_id = at.annotation_type_id
+            FROM tasker.annotation_types at
+            LEFT JOIN tasker.task_annotations ta ON ta.annotation_type_id = at.annotation_type_id
             GROUP BY at.annotation_type_id, at.name
             ORDER BY COUNT(ta.task_annotation_id) DESC, at.name
             "#
@@ -300,7 +300,7 @@ impl TaskAnnotation {
         let annotation = sqlx::query_as!(
             TaskAnnotation,
             r#"
-            UPDATE tasker_task_annotations
+            UPDATE tasker.task_annotations
             SET task_uuid = $2,
                 annotation_type_id = $3,
                 annotation = $4,
@@ -322,7 +322,7 @@ impl TaskAnnotation {
     /// Delete an annotation
     pub async fn delete(pool: &PgPool, id: i64) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
-            "DELETE FROM tasker_task_annotations WHERE task_annotation_id = $1",
+            "DELETE FROM tasker.task_annotations WHERE task_annotation_id = $1",
             id
         )
         .execute(pool)
@@ -334,7 +334,7 @@ impl TaskAnnotation {
     /// Delete all annotations for a task
     pub async fn delete_by_task(pool: &PgPool, task_uuid: Uuid) -> Result<i64, sqlx::Error> {
         let result = sqlx::query!(
-            "DELETE FROM tasker_task_annotations WHERE task_uuid = $1",
+            "DELETE FROM tasker.task_annotations WHERE task_uuid = $1",
             task_uuid
         )
         .execute(pool)
@@ -346,7 +346,7 @@ impl TaskAnnotation {
     /// Count annotations by task
     pub async fn count_by_task(pool: &PgPool, task_uuid: Uuid) -> Result<i64, sqlx::Error> {
         let count = sqlx::query!(
-            "SELECT COUNT(*) as count FROM tasker_task_annotations WHERE task_uuid = $1",
+            "SELECT COUNT(*) as count FROM tasker.task_annotations WHERE task_uuid = $1",
             task_uuid
         )
         .fetch_one(pool)
@@ -368,7 +368,7 @@ impl TaskAnnotation {
             TaskAnnotation,
             r#"
             SELECT task_annotation_id, task_uuid, annotation_type_id, annotation, created_at, updated_at
-            FROM tasker_task_annotations
+            FROM tasker.task_annotations
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2
             "#,

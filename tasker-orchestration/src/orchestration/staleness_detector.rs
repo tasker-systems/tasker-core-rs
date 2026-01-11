@@ -407,7 +407,7 @@ impl StalenessDetector {
             match executor.pool().acquire().await {
                 Ok(mut conn) => {
                     match sqlx::query_scalar::<_, i64>(
-                        "SELECT COUNT(*) FROM tasker_tasks_dlq WHERE resolution_status = 'pending'",
+                        "SELECT COUNT(*) FROM tasker.tasks_dlq WHERE resolution_status = 'pending'",
                     )
                     .fetch_one(&mut *conn)
                     .await
@@ -523,7 +523,7 @@ impl StalenessDetector {
     /// # Implementation Notes
     ///
     /// This method queries workflow steps in 'in_progress' state by joining with the
-    /// `tasker_workflow_step_transitions` table (state machine pattern). The current state
+    /// `tasker.workflow_step_transitions` table (state machine pattern). The current state
     /// is determined by the transition with `most_recent = true`.
     async fn should_task_be_stale(&self, task_uuid: Uuid) -> TaskerResult<bool> {
         // Query workflow steps for this task to check batch worker health
@@ -531,8 +531,8 @@ impl StalenessDetector {
         let steps = sqlx::query!(
             r#"
             SELECT ws.workflow_step_uuid, ws.results
-            FROM tasker_workflow_steps ws
-            INNER JOIN tasker_workflow_step_transitions wst
+            FROM tasker.workflow_steps ws
+            INNER JOIN tasker.workflow_step_transitions wst
                 ON ws.workflow_step_uuid = wst.workflow_step_uuid
             WHERE ws.task_uuid = $1
                 AND wst.most_recent = true

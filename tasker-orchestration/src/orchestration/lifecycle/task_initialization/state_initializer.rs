@@ -256,7 +256,7 @@ mod tests {
 
         // Verify task transition was created
         let transitions = sqlx::query!(
-            "SELECT to_state, from_state FROM tasker_task_transitions WHERE task_uuid = $1",
+            "SELECT to_state, from_state FROM tasker.task_transitions WHERE task_uuid = $1",
             task_uuid
         )
         .fetch_all(&pool)
@@ -347,7 +347,7 @@ mod tests {
 
         // Verify step transition was created
         let transitions = sqlx::query!(
-            "SELECT to_state, from_state FROM tasker_workflow_step_transitions WHERE workflow_step_uuid = $1",
+            "SELECT to_state, from_state FROM tasker.workflow_step_transitions WHERE workflow_step_uuid = $1",
             workflow_step.workflow_step_uuid
         )
         .fetch_all(&pool)

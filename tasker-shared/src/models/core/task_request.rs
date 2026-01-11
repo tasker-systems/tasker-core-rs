@@ -225,7 +225,7 @@ impl TaskRequest {
     async fn find_named_task(&self, pool: &PgPool) -> TaskerResult<NamedTask> {
         // First, find the task namespace
         let namespace = sqlx::query!(
-            "SELECT task_namespace_uuid FROM tasker_task_namespaces WHERE name = $1",
+            "SELECT task_namespace_uuid FROM tasker.task_namespaces WHERE name = $1",
             self.namespace
         )
         .fetch_optional(pool)
@@ -241,7 +241,7 @@ impl TaskRequest {
             r#"
             SELECT named_task_uuid, name, version, description, task_namespace_uuid,
                    configuration, created_at, updated_at
-            FROM tasker_named_tasks
+            FROM tasker.named_tasks
             WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3
             "#,
             self.name,

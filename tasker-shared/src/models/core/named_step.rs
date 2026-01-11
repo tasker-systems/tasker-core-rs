@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 /// NamedStep represents step definitions/templates
 /// Uses UUID v7 for primary key and foreign keys to ensure time-ordered UUIDs
-/// Maps to `tasker_named_steps` table
+/// Maps to `tasker.named_steps` table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct NamedStep {
     pub named_step_uuid: Uuid,
@@ -30,7 +30,7 @@ impl NamedStep {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            INSERT INTO tasker_named_steps (dependent_system_uuid, name, description, created_at, updated_at)
+            INSERT INTO tasker.named_steps (dependent_system_uuid, name, description, created_at, updated_at)
             VALUES ($1::uuid, $2, $3, NOW(), NOW())
             RETURNING named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             "#,
@@ -50,7 +50,7 @@ impl NamedStep {
             NamedStep,
             r#"
             SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_named_steps
+            FROM tasker.named_steps
             WHERE named_step_uuid = $1::uuid
             "#,
             uuid
@@ -74,7 +74,7 @@ impl NamedStep {
             NamedStep,
             r#"
             SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_named_steps
+            FROM tasker.named_steps
             WHERE named_step_uuid = ANY($1)
             ORDER BY named_step_uuid
             "#,
@@ -95,7 +95,7 @@ impl NamedStep {
             NamedStep,
             r#"
             SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_named_steps
+            FROM tasker.named_steps
             WHERE dependent_system_uuid = $1::uuid
             ORDER BY name
             "#,
@@ -113,7 +113,7 @@ impl NamedStep {
             NamedStep,
             r#"
             SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_named_steps
+            FROM tasker.named_steps
             WHERE name = $1
             ORDER BY created_at
             "#,
@@ -135,7 +135,7 @@ impl NamedStep {
             NamedStep,
             r#"
             SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_named_steps
+            FROM tasker.named_steps
             WHERE dependent_system_uuid = $1::uuid AND name = $2
             "#,
             system_uuid,
@@ -156,7 +156,7 @@ impl NamedStep {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            UPDATE tasker_named_steps 
+            UPDATE tasker.named_steps 
             SET dependent_system_uuid = $2::uuid,
                 name = $3,
                 description = $4,
@@ -178,7 +178,7 @@ impl NamedStep {
     /// Delete a named step
     pub async fn delete(pool: &PgPool, uuid: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
-            "DELETE FROM tasker_named_steps WHERE named_step_uuid = $1::uuid",
+            "DELETE FROM tasker.named_steps WHERE named_step_uuid = $1::uuid",
             uuid
         )
         .execute(pool)
@@ -217,7 +217,7 @@ impl NamedStep {
             NamedStep,
             r#"
             SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_named_steps
+            FROM tasker.named_steps
             ORDER BY name
             LIMIT $1 OFFSET $2
             "#,
@@ -233,7 +233,7 @@ impl NamedStep {
     /// Count steps by system
     pub async fn count_by_system(pool: &PgPool, system_uuid: Uuid) -> Result<i64, sqlx::Error> {
         let count = sqlx::query!(
-            "SELECT COUNT(*) as count FROM tasker_named_steps WHERE dependent_system_uuid = $1::uuid",
+            "SELECT COUNT(*) as count FROM tasker.named_steps WHERE dependent_system_uuid = $1::uuid",
             system_uuid
         )
         .fetch_one(pool)
@@ -255,7 +255,7 @@ impl NamedStep {
             NamedStep,
             r#"
             SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_named_steps
+            FROM tasker.named_steps
             WHERE name ILIKE $1
             ORDER BY name
             LIMIT $2
@@ -354,7 +354,7 @@ impl NamedStep {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            INSERT INTO tasker_named_steps (dependent_system_uuid, name, description, created_at, updated_at)
+            INSERT INTO tasker.named_steps (dependent_system_uuid, name, description, created_at, updated_at)
             VALUES ($1::uuid, $2, $3, NOW(), NOW())
             RETURNING named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             "#,

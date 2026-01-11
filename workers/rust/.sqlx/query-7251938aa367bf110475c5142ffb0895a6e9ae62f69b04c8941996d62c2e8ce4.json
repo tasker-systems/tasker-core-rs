@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                nt.name,\n                ns.name as namespace,\n                nt.version,\n                COALESCE(tec.execution_status, 'unknown') as status\n            FROM tasker.tasks t\n            INNER JOIN tasker.named_tasks nt ON t.named_task_uuid = nt.named_task_uuid\n            INNER JOIN tasker.task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid\n            LEFT JOIN LATERAL get_task_execution_context(t.task_uuid) tec ON true\n            WHERE t.task_uuid = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "namespace",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "7251938aa367bf110475c5142ffb0895a6e9ae62f69b04c8941996d62c2e8ce4"
+}
