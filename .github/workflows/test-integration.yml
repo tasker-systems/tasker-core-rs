@@ -299,6 +299,7 @@ jobs:
           .github/scripts/start-native-services.sh
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SKIP_MIGRATIONS: "true"
 
       - name: Run integration tests
         run: |
