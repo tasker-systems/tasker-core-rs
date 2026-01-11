@@ -514,13 +514,12 @@ impl PgmqEventHandler for OrchestrationEventHandler {
     async fn handle_parse_error(
         &self,
         channel: &str,
-        payload: &str,
+        _payload: &str,
         error: pgmq_notify::PgmqNotifyError,
     ) {
         warn!(
             listener_id = %self.listener_id,
             channel = %channel,
-            payload = %payload,
             error = %error,
             "Failed to parse PGMQ notification in orchestration listener"
         );

@@ -94,7 +94,6 @@ impl StepResultHydrator {
             .map_err(|e| {
                 error!(
                     msg_id = message.msg_id,
-                    raw_message = %message.message,
                     error = %e,
                     "HYDRATOR: Failed to parse SimpleStepMessage"
                 );
@@ -168,7 +167,6 @@ impl StepResultHydrator {
                 error!(
                     step_uuid = %simple_message.step_uuid,
                     task_uuid = %workflow_step.task_uuid,
-                    results_json = %results_json,
                     error = %e,
                     "HYDRATOR: Failed to deserialize StepExecutionResult from results JSONB"
                 );

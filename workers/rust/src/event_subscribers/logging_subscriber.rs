@@ -114,10 +114,10 @@ pub fn create_debug_logging_subscriber(prefix: &str) -> EventHandler {
     })
 }
 
-/// Create a logging subscriber that also logs the payload
+/// Create a verbose logging subscriber with additional metadata
 ///
-/// More verbose logging that includes the business payload.
-/// Use with caution in production as payloads may contain sensitive data.
+/// More verbose logging that includes additional event metadata fields.
+/// Note: Payload data is intentionally excluded to prevent logging sensitive business data.
 pub fn create_verbose_logging_subscriber(prefix: &str) -> EventHandler {
     let prefix = prefix.to_string();
 
@@ -126,26 +126,25 @@ pub fn create_verbose_logging_subscriber(prefix: &str) -> EventHandler {
 
         Box::pin(async move {
             let step_name = event.metadata.step_name.as_deref().unwrap_or("unknown");
-
-            // Serialize payload for logging (truncate if too long)
-            let payload_str = serde_json::to_string(&event.payload.payload)
-                .unwrap_or_else(|_| "<serialization error>".to_string());
-            let payload_preview = if payload_str.len() > 500 {
-                format!("{}...(truncated)", &payload_str[..500])
-            } else {
-                payload_str
-            };
+            let step_uuid = event
+                .metadata
+                .step_uuid
+                .map(|u| u.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
 
             info!(
                 prefix = %prefix,
                 event_name = %event.event_name,
                 event_id = %event.event_id,
+                event_version = %event.event_version,
                 task_uuid = %event.metadata.task_uuid,
+                step_uuid = %step_uuid,
                 step_name = %step_name,
                 namespace = %event.metadata.namespace,
                 correlation_id = %event.metadata.correlation_id,
-                payload = %payload_preview,
-                "Domain event with payload"
+                fired_at = %event.metadata.fired_at,
+                fired_by = %event.metadata.fired_by,
+                "Domain event (verbose)"
             );
 
             Ok(())
