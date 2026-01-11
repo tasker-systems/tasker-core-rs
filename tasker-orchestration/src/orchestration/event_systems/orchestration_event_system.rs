@@ -937,14 +937,10 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 }
             }
 
-            OrchestrationQueueEvent::Unknown {
-                queue_name,
-                payload,
-            } => {
+            OrchestrationQueueEvent::Unknown { queue_name, .. } => {
                 debug!(
                     system_id = %self.system_id,
                     queue_name = %queue_name,
-                    payload = %payload,
                     "Unknown orchestration queue event received"
                 );
             }
@@ -1219,13 +1215,9 @@ impl OrchestrationEventSystem {
                     }
                 }
 
-                OrchestrationQueueEvent::Unknown {
-                    queue_name,
-                    payload,
-                } => {
+                OrchestrationQueueEvent::Unknown { queue_name, .. } => {
                     warn!(
                         queue = %queue_name,
-                        payload = %payload,
                         "Received unknown orchestration queue event"
                     );
                     statistics.events_failed.fetch_add(1, Ordering::Relaxed);
