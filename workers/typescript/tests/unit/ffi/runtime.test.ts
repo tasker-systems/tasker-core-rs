@@ -123,9 +123,9 @@ describe('Runtime Detection', () => {
       expect(path).toStartWith(basePath);
     });
 
-    it('defaults to release build path', () => {
+    it('defaults to debug build path', () => {
       const path = getLibraryPath();
-      expect(path).toContain('target/release');
+      expect(path).toContain('target/debug');
     });
 
     it('includes the library name', () => {

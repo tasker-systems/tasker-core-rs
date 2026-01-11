@@ -151,7 +151,10 @@ async fn run_single_migration(
     .map_err(sqlx::migrate::MigrateError::Execute)?;
 
     if applied.is_some() {
-        info!("    Migration {} already applied, skipping", migration.version);
+        info!(
+            "    Migration {} already applied, skipping",
+            migration.version
+        );
         return Ok(());
     }
 

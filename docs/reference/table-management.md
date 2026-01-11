@@ -1,11 +1,13 @@
 # Table Management and Growth Strategies
 
-**Last Updated**: 2025-11-01
+**Last Updated**: 2026-01-10
 **Status**: Active Recommendation
 
 ## Problem Statement
 
-In high-throughput workflow orchestration systems, the core task tables (`tasker_tasks`, `tasker_workflow_steps`, `tasker_task_transitions`, `tasker_workflow_step_transitions`) can grow to millions of rows over time. Without proper management, this growth can lead to:
+In high-throughput workflow orchestration systems, the core task tables (`tasks`, `workflow_steps`, `task_transitions`, `workflow_step_transitions`) can grow to millions of rows over time. Without proper management, this growth can lead to:
+
+> **Note**: As of TAS-128, all tables reside in the `tasker` schema with simplified names (e.g., `tasks` instead of `tasker_tasks`). With `search_path = tasker, public`, queries use unqualified table names.
 
 - **Query Performance Degradation**: Even with proper indexes, very large tables require more I/O operations
 - **Maintenance Overhead**: VACUUM, ANALYZE, and index maintenance become increasingly expensive
@@ -22,97 +24,97 @@ The tasker-core system employs several strategies to maintain query performance 
 
 The most critical indexes use PostgreSQL's `INCLUDE` clause to create covering indexes that satisfy queries without table lookups:
 
-**Active Task Processing** (`migrations/20250810140000_uuid_v7_initial_schema.sql`):
+**Active Task Processing** (`migrations/tasker/20250810140000_uuid_v7_initial_schema.sql`):
 ```sql
 -- Covering index for active task queries with priority sorting
 CREATE INDEX IF NOT EXISTS idx_tasks_active_with_priority_covering
-    ON tasker_tasks (complete, priority, task_uuid)
+    ON tasks (complete, priority, task_uuid)
     INCLUDE (named_task_uuid, requested_at)
     WHERE complete = false;
 ```
 *Impact*: Task discovery queries can be satisfied entirely from the index without accessing the main table.
 
-**Step Readiness Processing** (`migrations/20250810140000_uuid_v7_initial_schema.sql`):
+**Step Readiness Processing** (`migrations/tasker/20250810140000_uuid_v7_initial_schema.sql`):
 ```sql
 -- Covering index for step readiness queries
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_ready_covering
-    ON tasker_workflow_steps (task_uuid, processed, in_process)
+    ON workflow_steps (task_uuid, processed, in_process)
     INCLUDE (workflow_step_uuid, attempts, max_attempts, retryable)
     WHERE processed = false;
 
 -- Covering index for task-based step grouping
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_task_covering
-    ON tasker_workflow_steps (task_uuid)
+    ON workflow_steps (task_uuid)
     INCLUDE (workflow_step_uuid, processed, in_process, attempts, max_attempts);
 ```
 *Impact*: Step dependency resolution and retry logic queries avoid heap lookups.
 
-**Transitive Dependency Optimization** (`migrations/20250810140000_uuid_v7_initial_schema.sql`):
+**Transitive Dependency Optimization** (`migrations/tasker/20250810140000_uuid_v7_initial_schema.sql`):
 ```sql
 -- Covering index for transitive dependency traversal
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_transitive_deps
-    ON tasker_workflow_steps (workflow_step_uuid, named_step_uuid)
+    ON workflow_steps (workflow_step_uuid, named_step_uuid)
     INCLUDE (task_uuid, results, processed);
 ```
 *Impact*: DAG traversal operations can read all needed columns from the index.
 
 #### State Transition Lookups (Partial Indexes)
 
-**Current State Resolution** (`migrations/20250810140000_uuid_v7_initial_schema.sql`):
+**Current State Resolution** (`migrations/tasker/20250810140000_uuid_v7_initial_schema.sql`):
 ```sql
 -- Fast current state resolution (only indexes most_recent = true)
 CREATE INDEX IF NOT EXISTS idx_task_transitions_state_lookup
-    ON tasker_task_transitions (task_uuid, to_state, most_recent)
+    ON task_transitions (task_uuid, to_state, most_recent)
     WHERE most_recent = true;
 
 CREATE INDEX IF NOT EXISTS idx_workflow_step_transitions_state_lookup
-    ON tasker_workflow_step_transitions (workflow_step_uuid, to_state, most_recent)
+    ON workflow_step_transitions (workflow_step_uuid, to_state, most_recent)
     WHERE most_recent = true;
 ```
 *Impact*: State lookups index only current state, not full audit history. Reduces index size by >90%.
 
 #### Correlation and Tracing Indexes (TAS-41)
 
-**Distributed Tracing Support** (`migrations/20251007000000_add_correlation_ids.sql`):
+**Distributed Tracing Support** (`migrations/tasker/20251007000000_add_correlation_ids.sql`):
 ```sql
 -- Primary correlation ID lookups
-CREATE INDEX IF NOT EXISTS idx_tasker_tasks_correlation_id
-    ON tasker_tasks(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_correlation_id
+    ON tasks(correlation_id);
 
 -- Hierarchical workflow traversal (parent-child relationships)
-CREATE INDEX IF NOT EXISTS idx_tasker_tasks_correlation_hierarchy
-    ON tasker_tasks(parent_correlation_id, correlation_id)
+CREATE INDEX IF NOT EXISTS idx_tasks_correlation_hierarchy
+    ON tasks(parent_correlation_id, correlation_id)
     WHERE parent_correlation_id IS NOT NULL;
 ```
 *Impact*: Enables efficient distributed tracing and workflow hierarchy queries.
 
 #### Processor Ownership and Monitoring (TAS-41)
 
-**Processor Tracking** (`migrations/20250912000000_tas41_richer_task_states.sql`):
+**Processor Tracking** (`migrations/tasker/20250912000000_tas41_richer_task_states.sql`):
 ```sql
 -- Index for processor ownership queries (audit trail only after TAS-54)
 CREATE INDEX IF NOT EXISTS idx_task_transitions_processor
-    ON tasker_task_transitions(processor_uuid)
+    ON task_transitions(processor_uuid)
     WHERE processor_uuid IS NOT NULL;
 
 -- Index for timeout monitoring using JSONB metadata
 CREATE INDEX IF NOT EXISTS idx_task_transitions_timeout
-    ON tasker_task_transitions((transition_metadata->>'timeout_at'))
+    ON task_transitions((transition_metadata->>'timeout_at'))
     WHERE most_recent = true;
 ```
 *Impact*: Enables processor-level debugging and timeout monitoring. Processor ownership enforcement removed in TAS-54 but audit trail preserved.
 
 #### Dependency Graph Navigation
 
-**Step Edges for DAG Operations** (`migrations/20250810140000_uuid_v7_initial_schema.sql`):
+**Step Edges for DAG Operations** (`migrations/tasker/20250810140000_uuid_v7_initial_schema.sql`):
 ```sql
 -- Parent-to-child navigation for dependency resolution
-CREATE INDEX IF NOT EXISTS idx_tasker_workflow_step_edges_from_step
-    ON tasker_workflow_step_edges (from_step_uuid);
+CREATE INDEX IF NOT EXISTS idx_workflow_step_edges_from_step
+    ON workflow_step_edges (from_step_uuid);
 
 -- Child-to-parent navigation for completion propagation
-CREATE INDEX IF NOT EXISTS idx_tasker_workflow_step_edges_to_step
-    ON tasker_workflow_step_edges (to_step_uuid);
+CREATE INDEX IF NOT EXISTS idx_workflow_step_edges_to_step
+    ON workflow_step_edges (to_step_uuid);
 ```
 *Impact*: Bidirectional DAG traversal for readiness checks and completion propagation.
 
@@ -143,7 +145,7 @@ Example from `get_next_ready_tasks()`:
 -- First filter to active tasks with priority sorting (uses index)
 WITH prioritized_tasks AS (
   SELECT task_uuid, priority
-  FROM tasker_tasks
+  FROM tasks
   WHERE current_state IN ('pending', 'steps_in_process')
   ORDER BY priority DESC, created_at ASC
   LIMIT $1 * 2  -- Get more candidates than needed for filtering
@@ -169,7 +171,7 @@ This prevents the active query set from growing indefinitely, even if old tasks 
 During TAS-49 implementation, we initially designed an archive-and-delete strategy:
 
 **Architecture**:
-- Mirror tables: `archived_tasks`, `archived_workflow_steps`, `archived_task_transitions`, `archived_workflow_step_transitions`
+- Mirror tables: `tasker.archived_tasks`, `tasker.archived_workflow_steps`, `tasker.archived_task_transitions`, `tasker.archived_workflow_step_transitions`
 - Background service running every 24 hours
 - Batch processing: 1000 tasks per run
 - Transactional archival: INSERT into archive tables → DELETE from main tables
@@ -183,13 +185,13 @@ pub async fn archive_completed_tasks(
     retention_days: i32,
     batch_size: i32,
 ) -> Result<ArchiveStats> {
-    // 1. INSERT INTO archived_tasks SELECT * FROM tasker_tasks WHERE ...
+    // 1. INSERT INTO archived_tasks SELECT * FROM tasks WHERE ...
     // 2. INSERT INTO archived_workflow_steps SELECT * WHERE task_uuid IN (...)
     // 3. INSERT INTO archived_task_transitions SELECT * WHERE task_uuid IN (...)
-    // 4. DELETE FROM tasker_workflow_step_transitions WHERE ...
-    // 5. DELETE FROM tasker_task_transitions WHERE ...
-    // 6. DELETE FROM tasker_workflow_steps WHERE ...
-    // 7. DELETE FROM tasker_tasks WHERE ...
+    // 4. DELETE FROM workflow_step_transitions WHERE ...
+    // 5. DELETE FROM task_transitions WHERE ...
+    // 6. DELETE FROM workflow_steps WHERE ...
+    // 7. DELETE FROM tasks WHERE ...
 }
 ```
 
@@ -262,26 +264,26 @@ PostgreSQL's native table partitioning with `pg_partman` provides zero-runtime-c
 ### How It Works
 
 ```sql
--- 1. Create partitioned parent table
-CREATE TABLE tasker_tasks (
+-- 1. Create partitioned parent table (in tasker schema)
+CREATE TABLE tasker.tasks (
     task_uuid UUID NOT NULL,
     created_at TIMESTAMP NOT NULL,
     -- ... other columns
 ) PARTITION BY RANGE (created_at);
 
 -- 2. pg_partman automatically creates child partitions
--- tasker_tasks_p2025_01  (Jan 2025)
--- tasker_tasks_p2025_02  (Feb 2025)
--- tasker_tasks_p2025_03  (Mar 2025)
+-- tasker.tasks_p2025_01  (Jan 2025)
+-- tasker.tasks_p2025_02  (Feb 2025)
+-- tasker.tasks_p2025_03  (Mar 2025)
 -- ... etc
 
 -- 3. Queries transparently use appropriate partitions
-SELECT * FROM tasker_tasks WHERE task_uuid = $1;
+SELECT * FROM tasks WHERE task_uuid = $1;
 -- → PostgreSQL automatically queries correct partition
 
 -- 4. Dropping old partitions is instant
-ALTER TABLE tasker_tasks DETACH PARTITION tasker_tasks_p2024_12;
-DROP TABLE tasker_tasks_p2024_12;  -- Instant, no row-by-row deletion
+ALTER TABLE tasker.tasks DETACH PARTITION tasker.tasks_p2024_12;
+DROP TABLE tasker.tasks_p2024_12;  -- Instant, no row-by-row deletion
 ```
 
 ### Performance Characteristics
@@ -304,7 +306,7 @@ DROP TABLE tasker_tasks_p2024_12;  -- Instant, no row-by-row deletion
 CREATE EXTENSION pg_partman;
 ```
 
-#### Setup for tasker_tasks
+#### Setup for tasks
 
 ```sql
 -- 1. Create partitioned table structure
@@ -312,7 +314,7 @@ CREATE EXTENSION pg_partman;
 
 -- 2. Initialize pg_partman for monthly partitions
 SELECT partman.create_parent(
-    p_parent_table := 'public.tasker_tasks',
+    p_parent_table := 'tasker.tasks',
     p_control := 'created_at',
     p_type := 'native',
     p_interval := 'monthly',
@@ -323,10 +325,10 @@ SELECT partman.create_parent(
 UPDATE partman.part_config
 SET retention = '90 days',
     retention_keep_table = false  -- Drop old partitions entirely
-WHERE parent_table = 'public.tasker_tasks';
+WHERE parent_table = 'tasker.tasks';
 
 -- 4. Enable automatic maintenance
-SELECT partman.run_maintenance(p_parent_table := 'public.tasker_tasks');
+SELECT partman.run_maintenance(p_parent_table := 'tasker.tasks');
 ```
 
 #### Automation
@@ -387,12 +389,12 @@ Before implementing partitioning:
 1. **Analyze Current Growth Rate**:
 ```sql
 SELECT
-    pg_size_pretty(pg_total_relation_size('tasker_tasks')) as total_size,
+    pg_size_pretty(pg_total_relation_size('tasker.tasks')) as total_size,
     count(*) as row_count,
     min(created_at) as oldest_task,
     max(created_at) as newest_task,
     count(*) / EXTRACT(day FROM (max(created_at) - min(created_at))) as avg_tasks_per_day
-FROM tasker_tasks;
+FROM tasks;
 ```
 
 2. **Determine Partition Strategy**:
@@ -422,13 +424,13 @@ SELECT
     schemaname || '.' || tablename as partition_name,
     pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
 FROM pg_tables
-WHERE tablename LIKE 'tasker_tasks_p%'
+WHERE schemaname = 'tasker' AND tablename LIKE 'tasks_p%'
 ORDER BY tablename;
 
 -- Verify partition pruning is working
-EXPLAIN SELECT * FROM tasker_tasks
+EXPLAIN SELECT * FROM tasks
 WHERE created_at > NOW() - INTERVAL '7 days';
--- Should show: "Seq Scan on tasker_tasks_p2025_11" (only current partition)
+-- Should show: "Seq Scan on tasker.tasks_p2025_11" (only current partition)
 ```
 
 ## Decision Summary

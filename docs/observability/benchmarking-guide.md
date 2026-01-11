@@ -335,11 +335,11 @@ Based on Phase 3 metrics verification (26 tasks executed):
 
 **Symptom**: Exponential scaling with data volume
 
-**EXPLAIN shows**: `Seq Scan on tasker_tasks`
+**EXPLAIN shows**: `Seq Scan on tasks`
 
 **Solution**:
 ```sql
-CREATE INDEX idx_tasks_state ON tasker_tasks(current_state)
+CREATE INDEX idx_tasks_state ON tasker.tasks(current_state)
 WHERE complete = false;
 ```
 
@@ -354,7 +354,7 @@ WHERE complete = false;
 WITH parent_status AS (
   SELECT ... -- Pre-compute parent completions
 )
-SELECT ... FROM tasker_workflow_steps s
+SELECT ... FROM tasker.workflow_steps s
 JOIN parent_status ps ON ...
 ```
 
@@ -362,11 +362,11 @@ JOIN parent_status ps ON ...
 
 **Symptom**: State transition slowing over time
 
-**EXPLAIN shows**: Large scan of `tasker_task_transitions`
+**EXPLAIN shows**: Large scan of `task_transitions`
 
 **Solution**: Partition by date or archive old transitions
 ```sql
-CREATE TABLE tasker_task_transitions_archive (LIKE tasker_task_transitions);
+CREATE TABLE tasker.task_transitions_archive (LIKE tasker.task_transitions);
 -- Move old data periodically
 ```
 

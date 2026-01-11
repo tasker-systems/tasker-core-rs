@@ -34,8 +34,8 @@ SELECT
     t.task_uuid,
     jsonb_array_length(ws.checkpoint->'history') as history_length,
     ws.checkpoint->>'timestamp' as last_checkpoint
-FROM tasker_workflow_steps ws
-JOIN tasker_tasks t ON ws.task_uuid = t.task_uuid
+FROM tasker.workflow_steps ws
+JOIN tasker.tasks t ON ws.task_uuid = t.task_uuid
 WHERE ws.checkpoint IS NOT NULL
   AND jsonb_array_length(ws.checkpoint->'history') > 50
 ORDER BY history_length DESC
@@ -51,7 +51,7 @@ SELECT
     ws.current_state,
     ws.checkpoint->>'timestamp' as last_checkpoint,
     NOW() - (ws.checkpoint->>'timestamp')::timestamptz as checkpoint_age
-FROM tasker_workflow_steps ws
+FROM tasker.workflow_steps ws
 WHERE ws.current_state = 'in_progress'
   AND ws.checkpoint IS NOT NULL
   AND (ws.checkpoint->>'timestamp')::timestamptz < NOW() - INTERVAL '10 minutes'
@@ -66,7 +66,7 @@ SELECT
     ws.name,
     pg_column_size(ws.checkpoint->'accumulated_results') as results_size_bytes,
     pg_size_pretty(pg_column_size(ws.checkpoint->'accumulated_results')::bigint) as results_size
-FROM tasker_workflow_steps ws
+FROM tasker.workflow_steps ws
 WHERE ws.checkpoint->'accumulated_results' IS NOT NULL
   AND pg_column_size(ws.checkpoint->'accumulated_results') > 100000
 ORDER BY results_size_bytes DESC
@@ -99,7 +99,7 @@ INFO checkpoint_saved step_uuid=abc-123 history_length=5
 **Checks**:
 1. Verify checkpoint exists:
    ```sql
-   SELECT checkpoint FROM tasker_workflow_steps WHERE workflow_step_uuid = 'uuid';
+   SELECT checkpoint FROM tasker.workflow_steps WHERE workflow_step_uuid = 'uuid';
    ```
 2. Check handler uses `BatchWorkerContext` accessors:
    - `has_checkpoint?` / `has_checkpoint()` / `hasCheckpoint()`
@@ -151,7 +151,7 @@ Completed steps retain checkpoint data for debugging. To clear:
 
 ```sql
 -- Clear checkpoints for completed steps older than 7 days
-UPDATE tasker_workflow_steps
+UPDATE tasker.workflow_steps
 SET checkpoint = NULL
 WHERE current_state = 'complete'
   AND checkpoint IS NOT NULL
@@ -164,7 +164,7 @@ For steps with excessive history:
 
 ```sql
 -- Keep only last 10 history entries
-UPDATE tasker_workflow_steps
+UPDATE tasker.workflow_steps
 SET checkpoint = jsonb_set(
     checkpoint,
     '{history}',
@@ -185,7 +185,7 @@ When manually resetting a step to reprocess from scratch:
 
 ```sql
 -- Clear checkpoint to force reprocessing from beginning
-UPDATE tasker_workflow_steps
+UPDATE tasker.workflow_steps
 SET checkpoint = NULL
 WHERE workflow_step_uuid = 'step-uuid-here';
 ```
@@ -259,7 +259,7 @@ For periodic SQL-based monitoring:
 ```sql
 -- Return non-zero if any issues detected
 SELECT COUNT(*)
-FROM tasker_workflow_steps
+FROM tasker.workflow_steps
 WHERE (
     -- Stale in-progress checkpoints
     (current_state = 'in_progress'
