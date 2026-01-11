@@ -530,7 +530,7 @@ function createValidWorkflowStep(): WorkflowStep {
     attempts: 0,
     in_process: false,
     processed: false,
-    skippable: false,
+
     inputs: null,
     results: null,
     backoff_request_seconds: null,
@@ -549,7 +549,7 @@ function createValidStepDefinition(): StepDefinition {
       callable: 'TestHandler',
       initialization: {},
     },
-    system_dependency: null,
+
     dependencies: [],
     timeout_seconds: 30,
     retry: {

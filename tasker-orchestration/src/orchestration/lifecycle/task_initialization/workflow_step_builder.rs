@@ -176,7 +176,6 @@ mod tests {
             retryable: Some(true),
             max_attempts: Some(3),
             inputs: Some(serde_json::json!({"test": "value"})),
-            skippable: None,
         };
 
         assert_eq!(new_step.task_uuid, task_uuid);

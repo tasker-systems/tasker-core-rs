@@ -210,20 +210,6 @@ pub fn validate_task_tags(tags: &Value) -> TaskerResult<()> {
     }
 }
 
-/// Validates bypass steps JSON
-pub fn validate_bypass_steps(bypass_steps: &Value) -> TaskerResult<()> {
-    validate_jsonb_input(bypass_steps)?;
-
-    // Bypass steps should be an array
-    if let Value::Array(_) = bypass_steps {
-        Ok(())
-    } else {
-        Err(TaskerError::InvalidInput(
-            "Bypass steps must be a JSON array".to_string(),
-        ))
-    }
-}
-
 /// Validates workflow step inputs JSON
 pub fn validate_step_inputs(inputs: &Value) -> TaskerResult<()> {
     validate_jsonb_input(inputs)?;
@@ -264,14 +250,6 @@ pub fn validate_transition_metadata(metadata: &Value) -> TaskerResult<()> {
             "Transition metadata must be a JSON object".to_string(),
         ))
     }
-}
-
-/// Validates annotation JSON
-pub fn validate_annotation(annotation: &Value) -> TaskerResult<()> {
-    validate_jsonb_input(annotation)?;
-
-    // Annotations can be any valid JSON structure
-    Ok(())
 }
 
 /// Validates configuration JSON (for NamedTask)

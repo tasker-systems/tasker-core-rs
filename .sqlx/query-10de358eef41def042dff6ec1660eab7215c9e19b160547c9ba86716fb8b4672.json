@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT backoff_request_seconds, last_attempted_at\n            FROM tasker.workflow_steps\n            WHERE workflow_step_uuid = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "backoff_request_seconds",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_attempted_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "10de358eef41def042dff6ec1660eab7215c9e19b160547c9ba86716fb8b4672"
+}

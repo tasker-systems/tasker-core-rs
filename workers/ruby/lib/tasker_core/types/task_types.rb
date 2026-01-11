@@ -43,7 +43,7 @@ module TaskerCore
         attribute? :timeout_seconds, Types::Integer.default(300)
         attribute? :parent_task_uuid, Types::String
         attribute? :correlation_id, Types::Coercible::String
-        attribute? :bypass_steps, Types::Array.of(Types::Coercible::String).default([].freeze)
+
         attribute?(:requested_at, Types::Constructor(Time) do |value|
           value.is_a?(Time) ? value : Time.parse(value.to_s)
         end.default { Time.now })
@@ -79,7 +79,7 @@ module TaskerCore
             complete: complete,
             tags: tags,
             context: context,
-            bypass_steps: bypass_steps,
+
             requested_at: requested_at&.utc&.strftime('%Y-%m-%dT%H:%M:%S'),
             # New direct fields for distributed orchestration
             priority: priority,

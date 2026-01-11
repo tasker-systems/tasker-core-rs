@@ -47,7 +47,7 @@ pub fn create_task_request(
         source_system: "test".to_string(),
         reason: "Integration test execution".to_string(),
         tags: vec!["integration-test".to_string()],
-        bypass_steps: vec![],
+
         requested_at: chrono::Utc::now().naive_utc(),
         options: None,
         priority: Some(5),
@@ -166,31 +166,4 @@ pub async fn wait_for_task_failure(
         "Task did not fail within {}s",
         max_wait_seconds
     ))
-}
-
-/// Create a task request with bypass_steps support
-///
-/// This allows selective step execution for testing specific scenarios.
-pub fn create_task_request_with_bypass(
-    namespace: &str,
-    name: &str,
-    input_context: serde_json::Value,
-    bypass_steps: Vec<String>,
-) -> TaskRequest {
-    TaskRequest {
-        namespace: namespace.to_string(),
-        name: name.to_string(),
-        version: "1.0.0".to_string(),
-        context: input_context,
-        correlation_id: Uuid::now_v7(),
-        parent_correlation_id: None,
-        initiator: "integration-test".to_string(),
-        source_system: "test".to_string(),
-        reason: "Integration test execution with bypass steps".to_string(),
-        tags: vec!["integration-test".to_string()],
-        bypass_steps,
-        requested_at: chrono::Utc::now().naive_utc(),
-        options: None,
-        priority: Some(5),
-    }
 }

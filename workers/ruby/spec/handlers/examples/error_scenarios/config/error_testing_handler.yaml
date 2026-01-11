@@ -3,7 +3,7 @@ name: error_testing
 namespace_name: test_errors
 version: 1.0.0
 task_handler_class: ErrorTestingHandler
-default_dependent_system: "test_system"
+# TAS-136: Removed default_dependent_system - dependent_systems table removed from schema
 
 description: "Error scenario testing workflows for validation of failure handling patterns"
 

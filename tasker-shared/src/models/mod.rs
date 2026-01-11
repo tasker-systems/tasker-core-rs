@@ -28,10 +28,9 @@
 //!
 //! Configuration and metadata:
 //! - [`NamedTasksNamedStep`] - Junction table with step configuration
-//! - [`DependentSystem`] - External system references for step handlers
-//! - [`DependentSystemObjectMap`] - Bidirectional system object mappings
-//! - [`AnnotationType`] - Annotation categorization and metadata
-//! - [`TaskAnnotation`] - Task metadata storage with JSONB annotations
+//!
+
+//! AnnotationType, TaskAnnotation) - these were vestigial Rails Engine prototypes.
 //!
 //! ### Specialized Model Modules
 //!
@@ -86,7 +85,6 @@
 //!     initiator: Some("system".to_string()),
 //!     source_system: None,
 //!     reason: None,
-//!     bypass_steps: None,
 //!     tags: None,
 //!     context: Some(json!({"input": "data"})),
 //!     identity_hash: "example_hash".to_string(),
@@ -108,19 +106,12 @@ pub mod insights;
 pub mod orchestration;
 
 // Re-export core models for easy access
-pub use core::annotation_type::{AnnotationType, AnnotationTypeWithStats, NewAnnotationType};
-pub use core::dependent_system::{DependentSystem, NewDependentSystem};
-pub use core::dependent_system_object_map::{
-    DependentSystemObjectMap, DependentSystemObjectMapWithSystems, MappingStats,
-    NewDependentSystemObjectMap,
-};
+
+// dependent_system, dependent_system_object_map)
 pub use core::named_step::NamedStep;
 pub use core::named_task::NamedTask;
 pub use core::named_tasks_named_step::{NamedTasksNamedStep, NewNamedTasksNamedStep};
 pub use core::task::Task;
-pub use core::task_annotation::{
-    AnnotationTypeCount, NewTaskAnnotation, TaskAnnotation, TaskAnnotationWithType,
-};
 pub use core::task_namespace::TaskNamespace;
 pub use core::task_transition::{NewTaskTransition, TaskTransition};
 pub use core::workflow_step::WorkflowStep;

@@ -2,10 +2,10 @@
 //!
 //! Tests for the cycle detection enforcement in WorkflowStepBuilder.
 //! This ensures that workflows cannot create circular dependencies.
+//!
 
 use sqlx::PgPool;
 use tasker_shared::models::{
-    dependent_system::{DependentSystem, NewDependentSystem},
     named_step::{NamedStep, NewNamedStep},
     named_task::{NamedTask, NewNamedTask},
     task::{NewTask, Task},
@@ -46,7 +46,6 @@ async fn create_test_task(pool: &PgPool, identity_hash: &str) -> sqlx::Result<Ta
             initiator: None,
             source_system: None,
             reason: None,
-            bypass_steps: None,
             tags: None,
             context: Some(serde_json::json!({"test": "cycle_detection"})),
             identity_hash: identity_hash.to_string(),
@@ -59,36 +58,25 @@ async fn create_test_task(pool: &PgPool, identity_hash: &str) -> sqlx::Result<Ta
 }
 
 /// Helper to create test workflow steps
+
 async fn create_test_steps(
     pool: &PgPool,
     task_uuid: Uuid,
     step_names: &[&str],
 ) -> sqlx::Result<Vec<WorkflowStep>> {
-    // Create dependent system
-    let system = DependentSystem::create(
-        pool,
-        NewDependentSystem {
-            name: format!("test_system_{}", task_uuid),
-            description: Some("Test system for cycle detection".to_string()),
-        },
-    )
-    .await?;
-
     let mut workflow_steps = Vec::new();
 
     for name in step_names {
-        // Create named step
+        // Create named step (no longer requires dependent_system)
         let named_step = NamedStep::create(
             pool,
             NewNamedStep {
-                dependent_system_uuid: system.dependent_system_uuid,
                 name: format!("{}_{}", name, task_uuid),
                 description: Some(format!("Test step: {}", name)),
             },
         )
         .await?;
 
-        // Create workflow step
         let workflow_step = WorkflowStep::create(
             pool,
             NewWorkflowStep {
@@ -97,7 +85,6 @@ async fn create_test_steps(
                 retryable: Some(true),
                 max_attempts: Some(3),
                 inputs: None,
-                skippable: Some(false),
             },
         )
         .await?;

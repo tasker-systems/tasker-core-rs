@@ -67,10 +67,7 @@ pub struct TaskRequest {
     #[builder(default)]
     pub tags: Vec<String>,
 
-    /// List of step names that should be bypassed during task execution (Rails: bypass_steps)
-    #[builder(default)]
-    pub bypass_steps: Vec<String>,
-
+    // conditional workflows (decision points, deferred steps) not step-level bypass flags.
     /// Timestamp when the task was initially requested (Rails: requested_at)
     #[builder(default = chrono::Utc::now().naive_utc())]
     pub requested_at: NaiveDateTime,
@@ -152,12 +149,6 @@ impl TaskRequest {
     /// Add reason for task execution
     pub fn with_reason(mut self, reason: String) -> Self {
         self.reason = reason;
-        self
-    }
-
-    /// Set bypass steps
-    pub fn with_bypass_steps(mut self, bypass_steps: Vec<String>) -> Self {
-        self.bypass_steps = bypass_steps;
         self
     }
 
@@ -323,13 +314,7 @@ impl ResolvedTaskRequest {
             initiator: Some(self.task_request.initiator.clone()),
             source_system: Some(self.task_request.source_system.clone()),
             reason: Some(self.task_request.reason.clone()),
-            bypass_steps: Some(serde_json::Value::Array(
-                self.task_request
-                    .bypass_steps
-                    .iter()
-                    .map(|s| serde_json::Value::String(s.clone()))
-                    .collect(),
-            )),
+
             tags: Some(serde_json::Value::Array(
                 self.task_request
                     .tags

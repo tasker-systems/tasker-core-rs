@@ -4,7 +4,7 @@
 use sqlx::PgPool;
 use tasker_shared::models::factories::base::SqlxFactory; // Trait providing create() method
 use tasker_shared::models::factories::core::{TaskFactory, WorkflowStepFactory};
-use tasker_shared::models::factories::foundation::{DependentSystemFactory, TaskNamespaceFactory};
+use tasker_shared::models::factories::foundation::TaskNamespaceFactory;
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_namespace_factory_basic(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -21,26 +21,10 @@ async fn test_namespace_factory_basic(pool: PgPool) -> Result<(), Box<dyn std::e
 }
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_system_factory_basic(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let system = DependentSystemFactory::new()
-        .with_name("test_api")
-        .with_description("Test API system")
-        .create(&pool)
-        .await?;
-
-    assert_eq!(system.name, "test_api");
-    assert_eq!(system.description, Some("Test API system".to_string()));
-
-    Ok(())
-}
-
-#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_common_foundations_creation(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let namespaces = TaskNamespaceFactory::create_common_namespaces(&pool).await?;
-    let systems = DependentSystemFactory::create_common_systems(&pool).await?;
 
     assert_eq!(namespaces.len(), 5);
-    assert_eq!(systems.len(), 4);
 
     // Test find_or_create pattern
     let default_ns = TaskNamespaceFactory::new()

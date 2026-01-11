@@ -56,7 +56,7 @@ export const SKIP_DATABASE_MESSAGE = 'Skipping: DATABASE_URL not set';
  * Skip message for tests requiring FFI library.
  */
 export const SKIP_LIBRARY_MESSAGE =
-  'Skipping: FFI library not found. Build with: cargo build -p tasker-worker-ts --release';
+  'Skipping: TASKER_FFI_LIBRARY_PATH not set. Set the environment variable and build with: cargo build -p tasker-worker-ts';
 
 /**
  * Assert that a value is a non-empty string.

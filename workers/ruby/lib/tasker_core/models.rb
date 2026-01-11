@@ -138,14 +138,14 @@ module TaskerCore
       # @return [Integer] Backoff delay in seconds for retry
       # @return [ActiveSupport::HashWithIndifferentAccess] Step inputs from template
       # @return [ActiveSupport::HashWithIndifferentAccess] Step execution results
-      # @return [Boolean] Whether step can be skipped
+
       # @return [Time] When step was created
       # @return [Time] When step was last updated
       # @return [ActiveSupport::HashWithIndifferentAccess, nil] TAS-125: Checkpoint data for batch processing resumption
       attr_reader :workflow_step_uuid, :task_uuid, :named_step_uuid, :name,
                   :retryable, :max_attempts, :in_process, :processed, :processed_at,
                   :attempts, :last_attempted_at, :backoff_request_seconds,
-                  :inputs, :results, :skippable, :created_at, :updated_at, :checkpoint
+                  :inputs, :results, :created_at, :updated_at, :checkpoint
 
       # Creates a new WorkflowStepWrapper from FFI data
       #
@@ -166,7 +166,7 @@ module TaskerCore
         # Use HashWithIndifferentAccess for nested hashes
         @inputs = (step_data[:inputs] || {}).with_indifferent_access
         @results = (step_data[:results] || {}).with_indifferent_access
-        @skippable = step_data[:skippable]
+
         @created_at = step_data[:created_at]
         @updated_at = step_data[:updated_at]
         # TAS-125: Checkpoint data for batch processing resumption
@@ -271,12 +271,12 @@ module TaskerCore
       # @return [String] Step name
       # @return [String] Human-readable description
       # @return [HandlerWrapper] Handler configuration
-      # @return [String, nil] System dependency name
+
       # @return [Array<String>] Names of parent steps this depends on
       # @return [ActiveSupport::HashWithIndifferentAccess] Retry configuration
       # @return [Integer] Timeout in seconds
       # @return [Array<String>] Events this step publishes
-      attr_reader :name, :description, :handler, :system_dependency,
+      attr_reader :name, :description, :handler,
                   :dependencies, :retry, :timeout_seconds, :publishes_events
 
       # Creates a new StepDefinitionWrapper from template data
@@ -286,7 +286,7 @@ module TaskerCore
         @name = definition_data[:name]
         @description = definition_data[:description]
         @handler = HandlerWrapper.new(definition_data[:handler])
-        @system_dependency = definition_data[:system_dependency]
+
         @dependencies = definition_data[:dependencies] || []
         # Use HashWithIndifferentAccess for retry configuration
         @retry = (definition_data[:retry] || {}).with_indifferent_access

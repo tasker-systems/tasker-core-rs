@@ -87,12 +87,6 @@ impl ComplexWorkflowFactory {
         task_uuid: Uuid,
         pool: &PgPool,
     ) -> FactoryResult<Vec<Uuid>> {
-        let system = DependentSystemFactory::new()
-            .with_name("linear-system")
-            .with_description("System for linear workflows")
-            .find_or_create(pool)
-            .await?;
-
         let mut step_uuids = Vec::new();
         let step_count = self.step_count.unwrap_or(4);
 
@@ -100,7 +94,6 @@ impl ComplexWorkflowFactory {
             let step_name = format!("linear_step_{i}");
             let named_step = NamedStepFactory::new()
                 .with_name(&step_name)
-                .with_system(&system.name)
                 .find_or_create(pool)
                 .await?;
 
@@ -135,18 +128,11 @@ impl ComplexWorkflowFactory {
         task_uuid: Uuid,
         pool: &PgPool,
     ) -> FactoryResult<Vec<Uuid>> {
-        let system = DependentSystemFactory::new()
-            .with_name("diamond-system")
-            .with_description("System for diamond workflows")
-            .find_or_create(pool)
-            .await?;
-
         let mut step_uuids = Vec::new();
 
         // Create step A
         let step_a = NamedStepFactory::new()
             .with_name("diamond_start")
-            .with_system(&system.name)
             .find_or_create(pool)
             .await?;
 
@@ -163,7 +149,6 @@ impl ComplexWorkflowFactory {
             let step_name = format!("diamond_branch_{letter}");
             let named_step = NamedStepFactory::new()
                 .with_name(&step_name)
-                .with_system(&system.name)
                 .find_or_create(pool)
                 .await?;
 
@@ -189,7 +174,6 @@ impl ComplexWorkflowFactory {
         // Create step D
         let step_d = NamedStepFactory::new()
             .with_name("diamond_merge")
-            .with_system(&system.name)
             .find_or_create(pool)
             .await?;
 
@@ -222,12 +206,6 @@ impl ComplexWorkflowFactory {
         task_uuid: Uuid,
         pool: &PgPool,
     ) -> FactoryResult<Vec<Uuid>> {
-        let system = DependentSystemFactory::new()
-            .with_name("parallel-system")
-            .with_description("System for parallel workflows")
-            .find_or_create(pool)
-            .await?;
-
         let mut step_uuids = Vec::new();
         let parallel_count = self.step_count.unwrap_or(3);
 
@@ -236,7 +214,6 @@ impl ComplexWorkflowFactory {
             let step_name = format!("parallel_step_{i}");
             let named_step = NamedStepFactory::new()
                 .with_name(&step_name)
-                .with_system(&system.name)
                 .find_or_create(pool)
                 .await?;
 
@@ -256,7 +233,6 @@ impl ComplexWorkflowFactory {
         // Create merge step
         let merge_step = NamedStepFactory::new()
             .with_name("parallel_merge")
-            .with_system(&system.name)
             .find_or_create(pool)
             .await?;
 
@@ -291,18 +267,11 @@ impl ComplexWorkflowFactory {
     ) -> FactoryResult<Vec<Uuid>> {
         // Implementation for tree workflow
         // A -> (B -> (D, E), C -> (F, G))
-        let system = DependentSystemFactory::new()
-            .with_name("tree-system")
-            .with_description("System for tree workflows")
-            .find_or_create(pool)
-            .await?;
-
         let mut step_uuids = Vec::new();
 
         // Create root step A
         let step_a = NamedStepFactory::new()
             .with_name("tree_root")
-            .with_system(&system.name)
             .find_or_create(pool)
             .await?;
 
@@ -317,7 +286,6 @@ impl ComplexWorkflowFactory {
         // Create branch steps B and C
         let step_b = NamedStepFactory::new()
             .with_name("tree_branch_left")
-            .with_system(&system.name)
             .find_or_create(pool)
             .await?;
 
@@ -330,7 +298,6 @@ impl ComplexWorkflowFactory {
 
         let step_c = NamedStepFactory::new()
             .with_name("tree_branch_right")
-            .with_system(&system.name)
             .find_or_create(pool)
             .await?;
 
@@ -362,10 +329,10 @@ impl ComplexWorkflowFactory {
         }
 
         // Create leaf steps: D, E (children of B)
+
         for (i, child_name) in ["tree_leaf_d", "tree_leaf_e"].iter().enumerate() {
             let leaf_step = NamedStepFactory::new()
                 .with_name(child_name)
-                .with_system(&system.name)
                 .find_or_create(pool)
                 .await?;
 
@@ -393,10 +360,10 @@ impl ComplexWorkflowFactory {
         }
 
         // Create leaf steps: F, G (children of C)
+
         for (i, child_name) in ["tree_leaf_f", "tree_leaf_g"].iter().enumerate() {
             let leaf_step = NamedStepFactory::new()
                 .with_name(child_name)
-                .with_system(&system.name)
                 .find_or_create(pool)
                 .await?;
 
@@ -434,12 +401,6 @@ impl ComplexWorkflowFactory {
         // Implementation for mixed DAG workflow
         // Complex pattern with various dependency types:
         // A -> B, A -> C, B -> D, C -> D, B -> E, C -> F, (D,E,F) -> G
-        let system = DependentSystemFactory::new()
-            .with_name("mixed-dag-system")
-            .with_description("System for mixed DAG workflows")
-            .find_or_create(pool)
-            .await?;
-
         let mut step_uuids = Vec::new();
 
         // Create all named steps first
@@ -456,7 +417,6 @@ impl ComplexWorkflowFactory {
         for name in step_names.iter() {
             NamedStepFactory::new()
                 .with_name(name)
-                .with_system(&system.name)
                 .find_or_create(pool)
                 .await?;
         }

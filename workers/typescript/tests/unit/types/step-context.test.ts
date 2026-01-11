@@ -105,7 +105,10 @@ describe('StepContext', () => {
 
     it('extracts step config from handler initialization', () => {
       const event = createValidFfiStepEvent();
-      event.step_definition.handler.initialization = { api_key: 'secret', timeout: 30 };
+      event.step_definition.handler.initialization = {
+        api_key: 'secret',
+        timeout: 30,
+      };
       const context = StepContext.fromFfiEvent(event, 'my_handler');
 
       expect(context.stepConfig).toEqual({ api_key: 'secret', timeout: 30 });
@@ -326,7 +329,7 @@ function createValidFfiStepEvent(): FfiStepEvent {
       attempts: 0,
       in_process: false,
       processed: false,
-      skippable: false,
+
       inputs: null,
       results: null,
       backoff_request_seconds: null,
@@ -342,7 +345,7 @@ function createValidFfiStepEvent(): FfiStepEvent {
         callable: 'TestHandler',
         initialization: {},
       },
-      system_dependency: null,
+
       dependencies: [],
       timeout_seconds: 30,
       retry: {

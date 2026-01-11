@@ -94,7 +94,17 @@ jobs:
           else
             echo "⚠️ No artifacts directory found, FFI tests may skip"
           fi
-          ls -la target/release/ 2>/dev/null || echo "No FFI library available"
+          # Set TASKER_FFI_LIBRARY_PATH for subsequent steps
+          if [ -f target/debug/libtasker_worker.so ]; then
+            echo "TASKER_FFI_LIBRARY_PATH=$(pwd)/target/debug/libtasker_worker.so" >> $GITHUB_ENV
+            echo "✅ FFI library path set: $(pwd)/target/debug/libtasker_worker.so"
+          elif [ -f target/debug/libtasker_worker.dylib ]; then
+            echo "TASKER_FFI_LIBRARY_PATH=$(pwd)/target/debug/libtasker_worker.dylib" >> $GITHUB_ENV
+            echo "✅ FFI library path set: $(pwd)/target/debug/libtasker_worker.dylib"
+          else
+            echo "⚠️ No FFI library available - FFI tests will skip"
+          fi
+          ls -la target/debug/libtasker_worker* 2>/dev/null || echo "No FFI library available"
 
       # ========================================================================
       # Quality Checks and Unit Tests (no FFI required)

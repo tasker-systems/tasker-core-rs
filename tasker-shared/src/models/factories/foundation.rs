@@ -5,11 +5,11 @@
 //! and ensure consistent test data across test runs.
 
 use super::base::*;
+
 use crate::models::core::{
-    dependent_system::NewDependentSystem, named_step::NewNamedStep, named_task::NewNamedTask,
-    task_namespace::NewTaskNamespace,
+    named_step::NewNamedStep, named_task::NewNamedTask, task_namespace::NewTaskNamespace,
 };
-use crate::models::{DependentSystem, NamedStep, NamedTask, TaskNamespace};
+use crate::models::{NamedStep, NamedTask, TaskNamespace};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -84,83 +84,6 @@ impl SqlxFactory<TaskNamespace> for TaskNamespaceFactory {
     async fn find_or_create(&self, pool: &PgPool) -> FactoryResult<TaskNamespace> {
         // Try to find existing namespace first
         if let Some(existing) = TaskNamespace::find_by_name(pool, &self.name).await? {
-            return Ok(existing);
-        }
-
-        // Create new if not found
-        self.create(pool).await
-    }
-}
-
-/// Factory for creating dependent systems
-#[derive(Debug, Clone)]
-pub struct DependentSystemFactory {
-    name: String,
-    description: Option<String>,
-}
-
-impl Default for DependentSystemFactory {
-    fn default() -> Self {
-        Self {
-            name: "api".to_string(),
-            description: Some("HTTP API system for testing".to_string()),
-        }
-    }
-}
-
-impl DependentSystemFactory {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_name(mut self, name: &str) -> Self {
-        self.name = name.to_string();
-        self
-    }
-
-    pub fn with_description(mut self, description: &str) -> Self {
-        self.description = Some(description.to_string());
-        self
-    }
-
-    /// Create common systems used in Rails factories
-    pub async fn create_common_systems(pool: &PgPool) -> FactoryResult<Vec<DependentSystem>> {
-        let systems = vec![
-            ("api", "HTTP API system for external integrations"),
-            ("database", "PostgreSQL database system"),
-            ("notification", "Email notification service"),
-            ("dummy-system", "Test mock system that always succeeds"),
-        ];
-
-        let mut results = Vec::new();
-        for (name, description) in systems {
-            let system = Self::new()
-                .with_name(name)
-                .with_description(description)
-                .find_or_create(pool)
-                .await?;
-            results.push(system);
-        }
-
-        Ok(results)
-    }
-}
-
-#[async_trait]
-impl SqlxFactory<DependentSystem> for DependentSystemFactory {
-    async fn create(&self, pool: &PgPool) -> FactoryResult<DependentSystem> {
-        let new_system = NewDependentSystem {
-            name: self.name.clone(),
-            description: self.description.clone(),
-        };
-
-        let system = DependentSystem::create(pool, new_system).await?;
-        Ok(system)
-    }
-
-    async fn find_or_create(&self, pool: &PgPool) -> FactoryResult<DependentSystem> {
-        // Try to find existing system first
-        if let Some(existing) = DependentSystem::find_by_name(pool, &self.name).await? {
             return Ok(existing);
         }
 
@@ -264,11 +187,11 @@ impl SqlxFactory<NamedTask> for NamedTaskFactory {
 }
 
 /// Factory for creating named steps (step templates)
+
 #[derive(Debug, Clone)]
 pub struct NamedStepFactory {
     name: String,
     step_type: String,
-    dependent_system_name: String,
     configuration: Option<Value>,
 }
 
@@ -277,7 +200,6 @@ impl Default for NamedStepFactory {
         Self {
             name: "dummy_step".to_string(),
             step_type: "generic".to_string(),
-            dependent_system_name: "dummy-system".to_string(),
             configuration: Some(json!({
                 "test_mode": true,
                 "always_succeed": true
@@ -295,32 +217,16 @@ impl NamedStepFactory {
         self.name = name.to_string();
         self
     }
-
-    // NOTE: Clippy false positive - this method is used across multiple test files
-    // but clippy's dead code detection doesn't always catch cross-file test usage
-    #[allow(dead_code)]
-    pub fn with_system(mut self, system_name: &str) -> Self {
-        self.dependent_system_name = system_name.to_string();
-        self
-    }
 }
 
 #[async_trait]
 impl SqlxFactory<NamedStep> for NamedStepFactory {
     async fn create(&self, pool: &PgPool) -> FactoryResult<NamedStep> {
-        // Ensure dependent system exists
-        let system = DependentSystemFactory::new()
-            .with_name(&self.dependent_system_name)
-            .find_or_create(pool)
-            .await?;
-        let dependent_system_uuid = system.dependent_system_uuid;
-
         let config = self.configuration.clone().unwrap_or_else(|| json!({}));
         utils::validate_jsonb(&config)?;
 
         let new_step = NewNamedStep {
             name: self.name.clone(),
-            dependent_system_uuid,
             description: Some(format!("{} step", self.step_type)),
         };
 
@@ -329,9 +235,8 @@ impl SqlxFactory<NamedStep> for NamedStepFactory {
     }
 
     async fn find_or_create(&self, pool: &PgPool) -> FactoryResult<NamedStep> {
-        // Try to find existing step by name (returns Vec, so take first)
-        let existing_steps = NamedStep::find_by_name(pool, &self.name).await?;
-        if let Some(existing) = existing_steps.into_iter().next() {
+        // Try to find existing step by name
+        if let Some(existing) = NamedStep::find_by_name(pool, &self.name).await? {
             return Ok(existing);
         }
 
@@ -359,26 +264,10 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
-    async fn test_system_factory(pool: PgPool) -> FactoryResult<()> {
-        let system = DependentSystemFactory::new()
-            .with_name("test_api")
-            .with_description("Test API system")
-            .create(&pool)
-            .await?;
-
-        assert_eq!(system.name, "test_api");
-        assert_eq!(system.description, Some("Test API system".to_string()));
-
-        Ok(())
-    }
-
-    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_common_foundations_creation(pool: PgPool) -> FactoryResult<()> {
         let namespaces = TaskNamespaceFactory::create_common_namespaces(&pool).await?;
-        let systems = DependentSystemFactory::create_common_systems(&pool).await?;
 
         assert_eq!(namespaces.len(), 5);
-        assert_eq!(systems.len(), 4);
 
         // Test find_or_create pattern
         let default_ns = TaskNamespaceFactory::new()

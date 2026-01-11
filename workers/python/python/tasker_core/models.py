@@ -98,7 +98,6 @@ class StepDefinitionWrapper:
         name: Step name from template
         description: Human-readable description
         handler: Handler configuration wrapper
-        system_dependency: System dependency name (optional)
         dependencies: Names of parent steps this depends on
         retry: Retry configuration dictionary
         timeout_seconds: Timeout in seconds
@@ -116,7 +115,7 @@ class StepDefinitionWrapper:
     name: str
     description: str
     handler: HandlerWrapper
-    system_dependency: str | None = None
+
     dependencies: list[str] = field(default_factory=list)
     retry: dict[str, Any] = field(default_factory=dict)
     timeout_seconds: int = 30
@@ -138,7 +137,6 @@ class StepDefinitionWrapper:
             name=data.get("name", ""),
             description=data.get("description", ""),
             handler=HandlerWrapper.from_dict(data.get("handler")),
-            system_dependency=data.get("system_dependency"),
             dependencies=data.get("dependencies") or [],
             retry=data.get("retry") or {},
             timeout_seconds=data.get("timeout_seconds", 30),
@@ -279,7 +277,6 @@ class WorkflowStepWrapper:
         backoff_request_seconds: Backoff delay in seconds for retry
         inputs: Step inputs from template
         results: Step execution results
-        skippable: Whether step can be skipped
         created_at: When step was created
         updated_at: When step was last updated
 
@@ -306,7 +303,7 @@ class WorkflowStepWrapper:
     backoff_request_seconds: int = 0
     inputs: dict[str, Any] = field(default_factory=dict)
     results: dict[str, Any] = field(default_factory=dict)
-    skippable: bool = False
+
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -337,7 +334,6 @@ class WorkflowStepWrapper:
             backoff_request_seconds=data.get("backoff_request_seconds", 0),
             inputs=data.get("inputs") or {},
             results=data.get("results") or {},
-            skippable=data.get("skippable", False),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
         )

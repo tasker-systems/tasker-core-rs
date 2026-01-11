@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key\n            FROM tasker.task_transitions\n            WHERE task_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "next_sort_key",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7633924f4540f1f6d05c7f6b86059876fcb413ebf6aa54a1f24ffaac0a406812"
+}

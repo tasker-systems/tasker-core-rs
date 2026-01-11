@@ -236,7 +236,7 @@ impl TaskTemplateManager {
             source_system: "task_template_manager".to_string(),
             reason: "Handler metadata lookup".to_string(),
             tags: Vec::new(),
-            bypass_steps: Vec::new(),
+
             requested_at: chrono::Utc::now().naive_utc(),
             options: None,
             priority: Some(5),
@@ -550,7 +550,7 @@ impl TaskTemplateManager {
                 source_system: "task_template_manager".to_string(),
                 reason: "Template retrieval".to_string(),
                 tags: Vec::new(),
-                bypass_steps: Vec::new(),
+
                 requested_at: chrono::Utc::now().naive_utc(),
                 options: None,
                 priority: Some(5),

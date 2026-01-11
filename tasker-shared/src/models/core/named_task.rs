@@ -286,7 +286,7 @@ impl NamedTask {
         format!("{}:{}", self.name, self.version)
     }
 
-    /// Get associated step definitions
+    /// Get associated step definitions.
     pub async fn get_step_associations(
         &self,
         pool: &PgPool,
@@ -294,7 +294,7 @@ impl NamedTask {
         let associations = sqlx::query_as!(
             NamedTaskStepAssociation,
             r#"
-            SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
+            SELECT ntns_uuid, named_task_uuid, named_step_uuid, default_retryable,
                    default_max_attempts, created_at, updated_at
             FROM tasker.named_tasks_named_steps
             WHERE named_task_uuid = $1::uuid
@@ -308,7 +308,7 @@ impl NamedTask {
         Ok(associations)
     }
 
-    /// Add step association (simplified for actual schema)
+    /// Add step association (simplified for actual schema).
     pub async fn add_step_association(
         &self,
         pool: &PgPool,
@@ -318,9 +318,9 @@ impl NamedTask {
             NamedTaskStepAssociation,
             r#"
             INSERT INTO tasker.named_tasks_named_steps
-            (named_task_uuid, named_step_uuid, skippable, default_retryable, default_max_attempts, created_at, updated_at)
-            VALUES ($1::uuid, $2::uuid, false, true, 3, NOW(), NOW())
-            RETURNING ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
+            (named_task_uuid, named_step_uuid, default_retryable, default_max_attempts, created_at, updated_at)
+            VALUES ($1::uuid, $2::uuid, true, 3, NOW(), NOW())
+            RETURNING ntns_uuid, named_task_uuid, named_step_uuid, default_retryable,
                       default_max_attempts, created_at, updated_at
             "#,
             self.named_task_uuid,
@@ -366,7 +366,7 @@ impl NamedTask {
         let tasks = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT nt.named_task_uuid, nt.name, nt.version, nt.description, 
+            SELECT nt.named_task_uuid, nt.name, nt.version, nt.description,
                    nt.task_namespace_uuid, nt.configuration, nt.created_at, nt.updated_at
             FROM tasker.named_tasks nt
             JOIN tasker.task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid

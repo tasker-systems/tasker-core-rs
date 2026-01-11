@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tasker.named_steps (named_step_uuid, name, description, created_at, updated_at)\n            VALUES ($1, 'test_step_checkpoint', 'Test step for checkpoint tests', NOW(), NOW())\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d19ddde5c82a115f5aa27099c2629ce342f13ccf7b73a2ea7a024517ec8c10f8"
+}

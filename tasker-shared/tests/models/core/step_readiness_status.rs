@@ -48,13 +48,16 @@ async fn test_get_step_readiness_status(pool: PgPool) -> sqlx::Result<()> {
             initiator: None,
             source_system: None,
             reason: None,
-            bypass_steps: None,
+
             tags: None,
             context: None,
             identity_hash: format!(
                 "test_hash_{}",
                 chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
             ),
+            priority: None,
+            correlation_id: uuid::Uuid::now_v7(),
+            parent_correlation_id: None,
         },
     )
     .await
@@ -115,9 +118,12 @@ async fn test_readiness_summary(pool: PgPool) -> sqlx::Result<()> {
             initiator: None,
             source_system: None,
             reason: None,
-            bypass_steps: None,
+
             tags: None,
             context: None,
+            priority: None,
+            correlation_id: uuid::Uuid::now_v7(),
+            parent_correlation_id: None,
         },
     )
     .await

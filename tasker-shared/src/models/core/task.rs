@@ -87,6 +87,9 @@ use uuid::Uuid;
 ///   "metadata": { "source": "api", "version": "1.0" }
 /// }
 /// ```
+///
+/// Conditional execution is handled via conditional workflows (decision points, deferred steps)
+/// not step-level flags.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Task {
     pub task_uuid: Uuid,
@@ -96,7 +99,6 @@ pub struct Task {
     pub initiator: Option<String>,
     pub source_system: Option<String>,
     pub reason: Option<String>,
-    pub bypass_steps: Option<serde_json::Value>,
     pub tags: Option<serde_json::Value>,
     pub context: Option<serde_json::Value>,
     pub identity_hash: String,
@@ -117,7 +119,6 @@ pub struct NewTask {
     pub initiator: Option<String>,
     pub source_system: Option<String>,
     pub reason: Option<String>,
-    pub bypass_steps: Option<serde_json::Value>,
     pub tags: Option<serde_json::Value>,
     pub context: Option<serde_json::Value>,
     pub identity_hash: String,
@@ -199,12 +200,12 @@ impl Task {
             r#"
             INSERT INTO tasker.tasks (
                 named_task_uuid, complete, requested_at, initiator, source_system,
-                reason, bypass_steps, tags, context, identity_hash,
+                reason, tags, context, identity_hash,
                 priority, correlation_id, parent_correlation_id, created_at, updated_at
             )
-            VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+            VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
             RETURNING task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
-                      reason, bypass_steps, tags, context, identity_hash,
+                      reason, tags, context, identity_hash,
                     priority, created_at, updated_at, correlation_id, parent_correlation_id
             "#,
             sanitized_task.named_task_uuid,
@@ -212,7 +213,6 @@ impl Task {
             sanitized_task.initiator,
             sanitized_task.source_system,
             sanitized_task.reason,
-            sanitized_task.bypass_steps,
             sanitized_task.tags,
             sanitized_task.context,
             sanitized_task.identity_hash,
@@ -236,12 +236,12 @@ impl Task {
             r#"
         INSERT INTO tasker.tasks (
             named_task_uuid, complete, requested_at, initiator, source_system,
-            reason, bypass_steps, tags, context, identity_hash,
+            reason, tags, context, identity_hash,
             priority, correlation_id, parent_correlation_id, created_at, updated_at
         )
-        VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+        VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
         RETURNING task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
-                  reason, bypass_steps, tags, context, identity_hash,
+                  reason, tags, context, identity_hash,
                   priority, created_at, updated_at, correlation_id, parent_correlation_id
         "#,
             sanitized_task.named_task_uuid,
@@ -249,7 +249,6 @@ impl Task {
             sanitized_task.initiator,
             sanitized_task.source_system,
             sanitized_task.reason,
-            sanitized_task.bypass_steps,
             sanitized_task.tags,
             sanitized_task.context,
             sanitized_task.identity_hash,
@@ -281,18 +280,9 @@ impl Task {
             }
         }
 
-        if let Some(ref bypass_steps) = new_task.bypass_steps {
-            if let Err(validation_error) = crate::validation::validate_bypass_steps(bypass_steps) {
-                return Err(sqlx::Error::Protocol(format!(
-                    "Invalid bypass_steps: {validation_error}"
-                )));
-            }
-        }
-
         // Sanitize JSONB inputs
         let sanitized_context = new_task.context.map(crate::validation::sanitize_json);
         let sanitized_tags = new_task.tags.map(crate::validation::sanitize_json);
-        let sanitized_bypass_steps = new_task.bypass_steps.map(crate::validation::sanitize_json);
 
         let requested_at = new_task
             .requested_at
@@ -307,7 +297,6 @@ impl Task {
             initiator: new_task.initiator,
             source_system: new_task.source_system,
             reason: new_task.reason,
-            bypass_steps: sanitized_bypass_steps,
             tags: sanitized_tags,
             context: sanitized_context,
             identity_hash,
@@ -323,7 +312,7 @@ impl Task {
             Task,
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash,
+                   reason, tags, context, identity_hash,
                    priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker.tasks
             WHERE task_uuid = $1::uuid
@@ -345,7 +334,7 @@ impl Task {
             Task,
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash,
+                   reason, tags, context, identity_hash,
                    priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker.tasks
             WHERE identity_hash = $1
@@ -367,7 +356,7 @@ impl Task {
             Task,
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash,
+                   reason, tags, context, identity_hash,
                    priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker.tasks
             WHERE named_task_uuid = $1::uuid
@@ -387,7 +376,7 @@ impl Task {
             Task,
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash,
+                   reason, tags, context, identity_hash,
                    priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker.tasks
             WHERE complete = false
@@ -457,7 +446,7 @@ impl Task {
             r#"
             SELECT
                 t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
-                t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
+                t.source_system, t.reason, t.tags, t.context,
                 t.identity_hash, t.priority, t.created_at, t.updated_at,
                 t.correlation_id, t.parent_correlation_id,
                 nt.name as task_name, nt.version as task_version, ns.name as namespace_name
@@ -599,7 +588,6 @@ impl Task {
                     initiator: row.get("initiator"),
                     source_system: row.get("source_system"),
                     reason: row.get("reason"),
-                    bypass_steps: row.get("bypass_steps"),
                     tags: row.get("tags"),
                     context: row.get("context"),
                     identity_hash: row.get("identity_hash"),
@@ -917,7 +905,7 @@ impl Task {
                     Task,
                     r#"
                     SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
-                           t.initiator, t.source_system, t.reason, t.bypass_steps,
+                           t.initiator, t.source_system, t.reason,
                            t.tags, t.context, t.identity_hash, t.priority,
                            t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
                     FROM tasker.tasks t
@@ -940,7 +928,7 @@ impl Task {
                     Task,
                     r#"
                     SELECT task_uuid, named_task_uuid, complete, requested_at,
-                           initiator, source_system, reason, bypass_steps,
+                           initiator, source_system, reason,
                            tags, context, identity_hash, priority,
                            created_at, updated_at, correlation_id, parent_correlation_id
                     FROM tasker.tasks
@@ -970,7 +958,7 @@ impl Task {
             Task,
             r#"
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator,
-                   source_system, reason, bypass_steps, tags, context,
+                   source_system, reason, tags, context,
                    identity_hash, priority, created_at, updated_at, correlation_id, parent_correlation_id
             FROM tasker.tasks
             WHERE created_at >= $1
@@ -996,7 +984,7 @@ impl Task {
             Task,
             r#"
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
-                   t.initiator, t.source_system, t.reason, t.bypass_steps,
+                   t.initiator, t.source_system, t.reason,
                    t.tags, t.context, t.identity_hash, t.priority,
                    t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker.tasks t
@@ -1027,7 +1015,7 @@ impl Task {
             Task,
             r#"
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
-                   t.initiator, t.source_system, t.reason, t.bypass_steps,
+                   t.initiator, t.source_system, t.reason,
                    t.tags, t.context, t.identity_hash, t.priority,
                    t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker.tasks t
@@ -1055,7 +1043,7 @@ impl Task {
             Task,
             r#"
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
-                   t.initiator, t.source_system, t.reason, t.bypass_steps,
+                   t.initiator, t.source_system, t.reason,
                    t.tags, t.context, t.identity_hash, t.priority,
                    t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker.tasks t
@@ -1081,7 +1069,7 @@ impl Task {
             Task,
             r#"
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
-                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
+                   t.source_system, t.reason, t.tags, t.context,
                    t.identity_hash, t.priority, t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker.tasks t
             JOIN tasker.named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
@@ -1103,7 +1091,7 @@ impl Task {
             Task,
             r#"
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
-                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
+                   t.source_system, t.reason, t.tags, t.context,
                    t.identity_hash, t.priority, t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker.tasks t
             JOIN tasker.named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
@@ -1124,7 +1112,7 @@ impl Task {
             Task,
             r#"
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
-                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
+                   t.source_system, t.reason, t.tags, t.context,
                    t.identity_hash, t.priority, t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
             FROM tasker.tasks t
             JOIN tasker.named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
@@ -1162,13 +1150,6 @@ impl Task {
             initiator: Some(task_request.initiator),
             source_system: Some(task_request.source_system),
             reason: Some(task_request.reason),
-            bypass_steps: Some(serde_json::Value::Array(
-                task_request
-                    .bypass_steps
-                    .iter()
-                    .map(|s| serde_json::Value::String(s.clone()))
-                    .collect(),
-            )),
             tags: Some(serde_json::Value::Array(
                 task_request
                     .tags
@@ -1224,8 +1205,7 @@ impl Task {
         Ok(serde_json::json!({
             "default_timeout": 3600,
             "max_attempts": 3,
-            "retryable": true,
-            "skippable": false
+            "retryable": true
         }))
     }
 
@@ -1238,7 +1218,7 @@ impl Task {
         }
     }
 
-    /// Find workflow step by name (Rails: get_step_by_name)
+    /// Find workflow step by name (Rails: get_step_by_name).
     ///
     /// Looks up a workflow step within this task by its named step name.
     /// Returns the workflow step if found, None if not found.
@@ -1253,7 +1233,7 @@ impl Task {
             SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
-                   ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
+                   ws.inputs, ws.results, ws.checkpoint, ws.created_at, ws.updated_at
             FROM tasker.workflow_steps ws
             INNER JOIN tasker.named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
             WHERE ws.task_uuid = $1::uuid AND ns.name = $2
@@ -1475,7 +1455,6 @@ impl Task {
     ///     initiator: Some("order_service".to_string()),
     ///     source_system: Some("e_commerce_api".to_string()),
     ///     reason: Some(format!("Process order {}", order_id)),
-    ///     bypass_steps: None,
     ///     tags: Some(json!({"order_id": order_id, "department": "fulfillment"})),
     ///     context: Some(context),
     ///     identity_hash,

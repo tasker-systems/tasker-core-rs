@@ -13,7 +13,6 @@
  */
 
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { detectRuntime, type RuntimeType } from './runtime.js';
 import type { TaskerRuntime } from './runtime-interface.js';
 
@@ -78,7 +77,9 @@ export class FfiLayer {
 
     if (!path) {
       throw new Error(
-        'FFI library not found. Set TASKER_FFI_LIBRARY_PATH or build with: cargo build -p tasker-worker-ts'
+        'FFI library not found. TASKER_FFI_LIBRARY_PATH environment variable must be set to the path of the compiled library.\n' +
+          'Example: export TASKER_FFI_LIBRARY_PATH=/path/to/target/debug/libtasker_worker.dylib\n' +
+          'Build the library with: cargo build -p tasker-worker-ts'
       );
     }
 
@@ -139,64 +140,26 @@ export class FfiLayer {
    * Static method for finding the library path without creating an instance.
    * Useful for test utilities and pre-flight checks.
    *
-   * Searches for the native library in the following order:
-   * 1. TASKER_FFI_LIBRARY_PATH environment variable (if set and file exists)
-   * 2. CARGO_TARGET_DIR environment variable (release, then debug)
-   * 3. Relative to cwd: ../../target/release/
-   * 4. Relative to cwd: ../../target/debug/
+   * REQUIRES: TASKER_FFI_LIBRARY_PATH environment variable to be set.
+   * This explicit requirement prevents confusion from automatic debug/release
+   * library discovery and ensures intentional configuration at build/runtime.
    *
-   * @param callerDir Optional directory to search relative to (defaults to cwd)
-   * @returns Path to the library if found, null otherwise
+   * @param _callerDir Deprecated parameter, kept for API compatibility
+   * @returns Path to the library if found and exists, null otherwise
    */
-  static findLibraryPath(callerDir?: string): string | null {
-    // Environment variable takes precedence
+  static findLibraryPath(_callerDir?: string): string | null {
     const envPath = process.env.TASKER_FFI_LIBRARY_PATH;
-    if (envPath && existsSync(envPath)) {
-      return envPath;
+
+    if (!envPath) {
+      return null;
     }
 
-    const libName =
-      process.platform === 'darwin'
-        ? 'libtasker_worker.dylib'
-        : process.platform === 'win32'
-          ? 'tasker_worker.dll'
-          : 'libtasker_worker.so';
-
-    const searchPaths: string[] = [];
-
-    // Check CARGO_TARGET_DIR if set (custom target directory)
-    // Prefer debug builds (matches sccache config for CI)
-    const cargoTargetDir = process.env.CARGO_TARGET_DIR;
-    if (cargoTargetDir) {
-      searchPaths.push(join(cargoTargetDir, 'debug', libName));
-      searchPaths.push(join(cargoTargetDir, 'release', libName));
+    if (!existsSync(envPath)) {
+      console.warn(`TASKER_FFI_LIBRARY_PATH is set to "${envPath}" but the file does not exist`);
+      return null;
     }
 
-    // Build search paths relative to caller/cwd
-    // Prefer debug builds (matches sccache config for CI)
-    const baseDir = callerDir ?? process.cwd();
-    searchPaths.push(
-      join(baseDir, '..', '..', 'target', 'debug', libName),
-      join(baseDir, '..', '..', 'target', 'release', libName),
-      join(baseDir, 'target', 'debug', libName),
-      join(baseDir, 'target', 'release', libName)
-    );
-
-    // Relative to cwd (if different from callerDir)
-    if (callerDir) {
-      searchPaths.push(
-        join(process.cwd(), '..', '..', 'target', 'debug', libName),
-        join(process.cwd(), '..', '..', 'target', 'release', libName)
-      );
-    }
-
-    for (const path of searchPaths) {
-      if (existsSync(path)) {
-        return path;
-      }
-    }
-
-    return null;
+    return envPath;
   }
 
   /**

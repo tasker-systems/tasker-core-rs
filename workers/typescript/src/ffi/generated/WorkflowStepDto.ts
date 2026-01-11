@@ -3,7 +3,7 @@
 /**
  * DTO for WorkflowStep information (uses WorkflowStepWithName which has name fields)
  */
-export type WorkflowStepDto = { workflow_step_uuid: string, task_uuid: string, named_step_uuid: string, name: string, template_step_name: string, retryable: boolean, max_attempts: number, attempts: number, in_process: boolean, processed: boolean, skippable: boolean, inputs: Record<string, unknown> | null, results: Record<string, unknown> | null, backoff_request_seconds: number | null, processed_at: string | null, last_attempted_at: string | null, created_at: string, updated_at: string, 
+export type WorkflowStepDto = { workflow_step_uuid: string, task_uuid: string, named_step_uuid: string, name: string, template_step_name: string, retryable: boolean, max_attempts: number, attempts: number, in_process: boolean, processed: boolean, inputs: Record<string, unknown> | null, results: Record<string, unknown> | null, backoff_request_seconds: number | null, processed_at: string | null, last_attempted_at: string | null, created_at: string, updated_at: string, 
 /**
  * Handler-driven checkpoint data for batch processing resumability (TAS-125)
  */

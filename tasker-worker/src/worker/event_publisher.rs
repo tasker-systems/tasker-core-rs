@@ -334,7 +334,6 @@ mod tests {
                     initiator: Some("test".to_string()),
                     source_system: Some("test_system".to_string()),
                     reason: Some("test_reason".to_string()),
-                    bypass_steps: None,
                     tags: None,
                     context: Some(task_context),
                     identity_hash: "test_hash".to_string(),
@@ -348,6 +347,7 @@ mod tests {
                 task_version: "1.0.0".to_string(),
                 namespace_name: "test_namespace".to_string(),
             },
+
             workflow_step: WorkflowStepWithName {
                 workflow_step_uuid: step_uuid,
                 task_uuid,
@@ -363,7 +363,6 @@ mod tests {
                 backoff_request_seconds: None,
                 inputs: Some(step_payload),
                 results: None,
-                skippable: false,
                 created_at: chrono::Utc::now().naive_utc(),
                 updated_at: chrono::Utc::now().naive_utc(),
                 template_step_name: step_name.to_string(),

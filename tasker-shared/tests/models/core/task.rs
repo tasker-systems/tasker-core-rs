@@ -40,7 +40,7 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
         initiator: Some("test_user".to_string()),
         source_system: Some("test_system".to_string()),
         reason: Some("Testing task creation".to_string()),
-        bypass_steps: None,
+
         tags: Some(json!({"priority": "high", "team": "engineering"})),
         context: Some(json!({"input_data": "test_value"})),
         identity_hash: Task::generate_identity_hash(
@@ -48,7 +48,8 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
             &Some(json!({"input_data": "test_value"})),
         ),
         priority: Some(5),
-        claim_timeout_seconds: Some(300),
+        correlation_id: Uuid::now_v7(),
+        parent_correlation_id: None,
     };
 
     let created = Task::create(&pool, new_task).await?;

@@ -16,15 +16,8 @@ SET search_path TO tasker, public;
 -- =============================================================================
 -- PRIMARY KEY CONSTRAINTS
 -- =============================================================================
-
-ALTER TABLE ONLY tasker.annotation_types
-    ADD CONSTRAINT annotation_types_pkey PRIMARY KEY (annotation_type_id);
-
-ALTER TABLE ONLY tasker.dependent_system_object_maps
-    ADD CONSTRAINT dependent_system_object_maps_pkey PRIMARY KEY (dependent_system_object_map_id);
-
-ALTER TABLE ONLY tasker.dependent_systems
-    ADD CONSTRAINT dependent_systems_pkey PRIMARY KEY (dependent_system_uuid);
+-- TAS-136: Removed constraints for dropped tables (annotation_types, task_annotations,
+-- dependent_systems, dependent_system_object_maps). See docs/architecture/schema-design.md.
 
 ALTER TABLE ONLY tasker.named_steps
     ADD CONSTRAINT named_steps_pkey PRIMARY KEY (named_step_uuid);
@@ -34,9 +27,6 @@ ALTER TABLE ONLY tasker.named_tasks_named_steps
 
 ALTER TABLE ONLY tasker.named_tasks
     ADD CONSTRAINT named_tasks_pkey PRIMARY KEY (named_task_uuid);
-
-ALTER TABLE ONLY tasker.task_annotations
-    ADD CONSTRAINT task_annotations_pkey PRIMARY KEY (task_annotation_id);
 
 ALTER TABLE ONLY tasker.task_namespaces
     ADD CONSTRAINT task_namespaces_pkey PRIMARY KEY (task_namespace_uuid);
@@ -66,20 +56,8 @@ ALTER TABLE ONLY tasker.workflow_steps
 -- UNIQUE CONSTRAINTS
 -- =============================================================================
 
-ALTER TABLE ONLY tasker.annotation_types
-    ADD CONSTRAINT annotation_types_name_key UNIQUE (name);
-
-ALTER TABLE ONLY tasker.annotation_types
-    ADD CONSTRAINT annotation_types_name_unique UNIQUE (name);
-
-ALTER TABLE ONLY tasker.dependent_systems
-    ADD CONSTRAINT dependent_systems_name_key UNIQUE (name);
-
-ALTER TABLE ONLY tasker.dependent_systems
-    ADD CONSTRAINT dependent_systems_name_unique UNIQUE (name);
-
 ALTER TABLE ONLY tasker.named_steps
-    ADD CONSTRAINT named_steps_system_name_unique UNIQUE (dependent_system_uuid, name);
+    ADD CONSTRAINT named_steps_name_unique UNIQUE (name);
 
 ALTER TABLE ONLY tasker.named_tasks_named_steps
     ADD CONSTRAINT named_tasks_named_steps_unique UNIQUE (named_task_uuid, named_step_uuid);
@@ -105,15 +83,6 @@ ALTER TABLE ONLY tasker.workflow_step_result_audit
 -- FOREIGN KEY CONSTRAINTS
 -- =============================================================================
 
-ALTER TABLE ONLY tasker.dependent_system_object_maps
-    ADD CONSTRAINT dependent_system_object_maps_dependent_system_one_uuid_f FOREIGN KEY (dependent_system_one_uuid) REFERENCES tasker.dependent_systems(dependent_system_uuid);
-
-ALTER TABLE ONLY tasker.dependent_system_object_maps
-    ADD CONSTRAINT dependent_system_object_maps_dependent_system_two_uuid_f FOREIGN KEY (dependent_system_two_uuid) REFERENCES tasker.dependent_systems(dependent_system_uuid);
-
-ALTER TABLE ONLY tasker.named_steps
-    ADD CONSTRAINT named_steps_dependent_system_uuid_fkey FOREIGN KEY (dependent_system_uuid) REFERENCES tasker.dependent_systems(dependent_system_uuid);
-
 ALTER TABLE ONLY tasker.named_tasks_named_steps
     ADD CONSTRAINT named_tasks_named_steps_named_step_uuid_fkey FOREIGN KEY (named_step_uuid) REFERENCES tasker.named_steps(named_step_uuid);
 
@@ -122,12 +91,6 @@ ALTER TABLE ONLY tasker.named_tasks_named_steps
 
 ALTER TABLE ONLY tasker.named_tasks
     ADD CONSTRAINT named_tasks_task_namespace_uuid_fkey FOREIGN KEY (task_namespace_uuid) REFERENCES tasker.task_namespaces(task_namespace_uuid);
-
-ALTER TABLE ONLY tasker.task_annotations
-    ADD CONSTRAINT task_annotations_annotation_type_id_fkey FOREIGN KEY (annotation_type_id) REFERENCES tasker.annotation_types(annotation_type_id);
-
-ALTER TABLE ONLY tasker.task_annotations
-    ADD CONSTRAINT task_annotations_task_uuid_fkey FOREIGN KEY (task_uuid) REFERENCES tasker.tasks(task_uuid);
 
 ALTER TABLE ONLY tasker.task_transitions
     ADD CONSTRAINT task_transitions_task_uuid_fkey FOREIGN KEY (task_uuid) REFERENCES tasker.tasks(task_uuid);
@@ -201,14 +164,8 @@ CREATE INDEX idx_task_transitions_uuid_temporal ON tasker.task_transitions USING
 CREATE INDEX idx_task_transitions_most_recent ON tasker.task_transitions USING btree (most_recent) WHERE (most_recent = true);
 CREATE INDEX idx_task_transitions_task_uuid ON tasker.task_transitions USING btree (task_uuid);
 
--- Dependent systems and named steps indexes
-CREATE INDEX idx_dependent_systems_name ON tasker.dependent_systems USING btree (name);
-CREATE INDEX idx_named_steps_system_uuid ON tasker.named_steps USING btree (dependent_system_uuid);
+-- Named tasks index
 CREATE INDEX idx_named_tasks_namespace_uuid ON tasker.named_tasks USING btree (task_namespace_uuid);
-
--- Task annotations indexes
-CREATE INDEX idx_task_annotations_task_uuid ON tasker.task_annotations USING btree (task_uuid);
-CREATE INDEX idx_task_annotations_type_id ON tasker.task_annotations USING btree (annotation_type_id);
 
 -- Task namespaces index
 CREATE INDEX idx_task_namespaces_name ON tasker.task_namespaces USING btree (name);

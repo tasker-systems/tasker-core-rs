@@ -273,13 +273,13 @@ impl WorkerTestFactory {
                 })?;
 
             // Create workflow step
+
             let new_step = tasker_shared::models::core::workflow_step::NewWorkflowStep {
                 task_uuid,
                 named_step_uuid: named_step.named_step_uuid,
                 retryable: Some(config.retryable),
                 max_attempts: Some(config.max_attempts),
                 inputs: Some(config.inputs),
-                skippable: Some(config.skippable),
             };
 
             let step = WorkflowStep::create(pool, new_step).await.map_err(|e| {
