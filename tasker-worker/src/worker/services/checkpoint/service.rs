@@ -113,12 +113,12 @@ impl CheckpointService {
         // 3. Sets all other checkpoint fields from the new record
         let result = sqlx::query!(
             r#"
-            UPDATE tasker_workflow_steps
+            UPDATE tasker.workflow_steps
             SET checkpoint = jsonb_set(
                 $2::jsonb,
                 '{history}',
                 COALESCE(
-                    (SELECT checkpoint->'history' FROM tasker_workflow_steps WHERE workflow_step_uuid = $1::uuid),
+                    (SELECT checkpoint->'history' FROM tasker.workflow_steps WHERE workflow_step_uuid = $1::uuid),
                     '[]'::jsonb
                 ) || jsonb_build_array(jsonb_build_object(
                     'cursor', $3::jsonb,
@@ -157,7 +157,7 @@ impl CheckpointService {
 
         let result = sqlx::query!(
             r#"
-            UPDATE tasker_workflow_steps
+            UPDATE tasker.workflow_steps
             SET checkpoint = NULL,
                 updated_at = NOW()
             WHERE workflow_step_uuid = $1::uuid
@@ -187,7 +187,7 @@ impl CheckpointService {
         let row = sqlx::query!(
             r#"
             SELECT checkpoint
-            FROM tasker_workflow_steps
+            FROM tasker.workflow_steps
             WHERE workflow_step_uuid = $1::uuid
             "#,
             step_uuid
@@ -255,7 +255,7 @@ mod tests {
         let namespace_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_task_namespaces (task_namespace_uuid, name, description, created_at, updated_at)
+            INSERT INTO tasker.task_namespaces (task_namespace_uuid, name, description, created_at, updated_at)
             VALUES ($1, 'test_namespace_checkpoint', 'Test namespace for checkpoint tests', NOW(), NOW())
             "#,
             namespace_uuid
@@ -268,7 +268,7 @@ mod tests {
         let named_task_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_named_tasks (named_task_uuid, task_namespace_uuid, name, version, created_at, updated_at)
+            INSERT INTO tasker.named_tasks (named_task_uuid, task_namespace_uuid, name, version, created_at, updated_at)
             VALUES ($1, $2, 'test_task_checkpoint', '1.0', NOW(), NOW())
             "#,
             named_task_uuid,
@@ -282,7 +282,7 @@ mod tests {
         let dependent_system_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_dependent_systems (dependent_system_uuid, name, description, created_at, updated_at)
+            INSERT INTO tasker.dependent_systems (dependent_system_uuid, name, description, created_at, updated_at)
             VALUES ($1, 'test_system_checkpoint', 'Test system for checkpoint tests', NOW(), NOW())
             "#,
             dependent_system_uuid
@@ -295,7 +295,7 @@ mod tests {
         let named_step_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_named_steps (named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at)
+            INSERT INTO tasker.named_steps (named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at)
             VALUES ($1, $2, 'test_step_checkpoint', 'Test step for checkpoint tests', NOW(), NOW())
             "#,
             named_step_uuid,
@@ -310,7 +310,7 @@ mod tests {
         let correlation_id = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_tasks (task_uuid, named_task_uuid, identity_hash, priority, correlation_id, created_at, updated_at, requested_at)
+            INSERT INTO tasker.tasks (task_uuid, named_task_uuid, identity_hash, priority, correlation_id, created_at, updated_at, requested_at)
             VALUES ($1, $2, 'test_hash_checkpoint', 5, $3, NOW(), NOW(), NOW())
             "#,
             task_uuid,
@@ -325,7 +325,7 @@ mod tests {
         let step_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_workflow_steps (workflow_step_uuid, task_uuid, named_step_uuid, created_at, updated_at)
+            INSERT INTO tasker.workflow_steps (workflow_step_uuid, task_uuid, named_step_uuid, created_at, updated_at)
             VALUES ($1, $2, $3, NOW(), NOW())
             "#,
             step_uuid,

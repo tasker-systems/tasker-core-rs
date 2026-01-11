@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                COUNT(*) as total_steps,\n                COUNT(*) FILTER (WHERE processed = true) as completed_steps\n            FROM tasker.workflow_steps\n            WHERE task_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_steps",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "completed_steps",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "fe46106e0a9a1affb3f0c473978d6c53edf0538ea476121e0946bc1b1dcbc43e"
+}

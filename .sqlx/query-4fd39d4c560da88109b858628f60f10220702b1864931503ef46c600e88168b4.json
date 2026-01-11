@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT to_state FROM tasker.workflow_step_transitions\n             WHERE workflow_step_uuid = $1 AND most_recent = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "to_state",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4fd39d4c560da88109b858628f60f10220702b1864931503ef46c600e88168b4"
+}

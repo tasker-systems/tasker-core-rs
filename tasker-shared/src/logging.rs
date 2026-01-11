@@ -21,7 +21,7 @@
 //! ```text
 //! 1. Task Creation
 //!    - Client creates TaskRequest with correlation_id
-//!    - correlation_id stored in tasker_tasks table
+//!    - correlation_id stored in tasker.tasks table
 //!    - correlation_id propagated to all workflow steps
 //!
 //! 2. Orchestration Layer

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT nt.name as task_name, nt.version as task_version, tn.name as namespace_name\n            FROM tasker.tasks t\n            INNER JOIN tasker.named_tasks nt ON nt.named_task_uuid = t.named_task_uuid\n            INNER JOIN tasker.task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid\n            WHERE t.task_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_version",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "namespace_name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "fbc8f12b23f5f8e30066e1e5abafe23c596e402f237016157b81d6d74f211b90"
+}

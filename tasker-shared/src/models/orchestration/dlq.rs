@@ -237,11 +237,11 @@ impl fmt::Display for StalenessAction {
 
 /// DLQ Entry
 ///
-/// Complete DLQ investigation record. Maps to `tasker_tasks_dlq` table.
+/// Complete DLQ investigation record. Maps to `tasker.tasks_dlq` table.
 ///
 /// Architecture:
 /// - DLQ is an INVESTIGATION TRACKER (not task manipulation layer)
-/// - Tasks remain in tasker_tasks table (typically in Error state)
+/// - Tasks remain in tasker.tasks table (typically in Error state)
 /// - DLQ entries track "why stuck" and "what operator did"
 /// - Multiple DLQ entries per task allowed (historical trail)
 /// - Only one "pending" investigation per task at a time
@@ -524,7 +524,7 @@ impl DlqEntry {
                 metadata,
                 created_at,
                 updated_at
-            FROM tasker_tasks_dlq
+            FROM tasker.tasks_dlq
             WHERE ($1::text IS NULL OR resolution_status::text = $1)
             ORDER BY dlq_timestamp DESC
             LIMIT $2
@@ -583,7 +583,7 @@ impl DlqEntry {
                 metadata,
                 created_at,
                 updated_at
-            FROM tasker_tasks_dlq
+            FROM tasker.tasks_dlq
             WHERE task_uuid = $1
             ORDER BY created_at DESC
             LIMIT 1
@@ -656,7 +656,7 @@ impl DlqEntry {
                         metadata,
                         created_at,
                         updated_at
-                    FROM tasker_tasks_dlq
+                    FROM tasker.tasks_dlq
                     WHERE dlq_entry_uuid = $1
                     "#,
                     dlq_entry_uuid
@@ -691,8 +691,8 @@ impl DlqEntry {
 
         let result = sqlx::query!(
             r#"
-            UPDATE tasker_tasks_dlq
-            SET resolution_status = COALESCE($2::text::dlq_resolution_status, resolution_status),
+            UPDATE tasker.tasks_dlq
+            SET resolution_status = COALESCE($2::text::tasker.dlq_resolution_status, resolution_status),
                 resolution_timestamp = CASE WHEN $2 IS NOT NULL THEN NOW() ELSE resolution_timestamp END,
                 resolution_notes = COALESCE($3, resolution_notes),
                 resolved_by = COALESCE($4, resolved_by),

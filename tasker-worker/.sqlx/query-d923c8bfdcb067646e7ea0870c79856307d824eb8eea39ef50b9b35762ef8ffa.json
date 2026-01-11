@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM tasker.workflow_step_edges\n            WHERE from_step_uuid = $1::uuid AND to_step_uuid = $2::uuid\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d923c8bfdcb067646e7ea0870c79856307d824eb8eea39ef50b9b35762ef8ffa"
+}

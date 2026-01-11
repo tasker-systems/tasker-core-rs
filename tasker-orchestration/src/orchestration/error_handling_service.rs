@@ -295,7 +295,7 @@ impl ErrorHandlingService {
     /// Get step name from named step
     async fn get_step_name(&self, step: &WorkflowStep) -> Result<String, TaskerError> {
         let result = sqlx::query!(
-            "SELECT name FROM tasker_named_steps WHERE named_step_uuid = $1",
+            "SELECT name FROM tasker.named_steps WHERE named_step_uuid = $1",
             step.named_step_uuid
         )
         .fetch_optional(self.system_context.database_pool())

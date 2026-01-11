@@ -24,7 +24,7 @@ async fn create_test_namespace(
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
-        INSERT INTO tasker_task_namespaces (task_namespace_uuid, name, created_at, updated_at)
+        INSERT INTO tasker.task_namespaces (task_namespace_uuid, name, created_at, updated_at)
         VALUES ($1, $2, NOW(), NOW())
         ON CONFLICT (task_namespace_uuid) DO NOTHING
         "#,
@@ -46,7 +46,7 @@ async fn create_test_named_task(
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
-        INSERT INTO tasker_named_tasks (
+        INSERT INTO tasker.named_tasks (
             named_task_uuid,
             task_namespace_uuid,
             name,
@@ -83,7 +83,7 @@ async fn create_stale_task(
     // Create task
     sqlx::query!(
         r#"
-        INSERT INTO tasker_tasks (
+        INSERT INTO tasker.tasks (
             task_uuid,
             named_task_uuid,
             correlation_id,
@@ -108,7 +108,7 @@ async fn create_stale_task(
     // Create state transition
     sqlx::query!(
         r#"
-        INSERT INTO tasker_task_transitions (
+        INSERT INTO tasker.task_transitions (
             task_uuid,
             from_state,
             to_state,
@@ -228,7 +228,7 @@ async fn test_create_dlq_entry(pool: PgPool) -> Result<(), sqlx::Error> {
     // Verify entry exists in database
     let count = sqlx::query_scalar::<_, i64>(
         r#"
-        SELECT COUNT(*) FROM tasker_tasks_dlq WHERE dlq_entry_uuid = $1
+        SELECT COUNT(*) FROM tasker.tasks_dlq WHERE dlq_entry_uuid = $1
         "#,
     )
     .bind(dlq_uuid.unwrap())
@@ -344,7 +344,7 @@ async fn test_transition_stale_task_to_error(pool: PgPool) -> Result<(), sqlx::E
     // Verify task is in error state
     let current_state = sqlx::query_scalar::<_, String>(
         r#"
-        SELECT to_state FROM tasker_task_transitions
+        SELECT to_state FROM tasker.task_transitions
         WHERE task_uuid = $1 AND most_recent = true
         "#,
     )
@@ -538,7 +538,7 @@ async fn test_detect_and_transition_stale_tasks_dry_run(pool: PgPool) -> Result<
 
     // Verify no DLQ entry was created
     let dlq_count =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tasker_tasks_dlq WHERE task_uuid = $1")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tasker.tasks_dlq WHERE task_uuid = $1")
             .bind(task_uuid)
             .fetch_one(&pool)
             .await?;
@@ -546,7 +546,7 @@ async fn test_detect_and_transition_stale_tasks_dry_run(pool: PgPool) -> Result<
 
     // Verify task state unchanged
     let state = sqlx::query_scalar::<_, String>(
-        "SELECT to_state FROM tasker_task_transitions WHERE task_uuid = $1 AND most_recent = true",
+        "SELECT to_state FROM tasker.task_transitions WHERE task_uuid = $1 AND most_recent = true",
     )
     .bind(task_uuid)
     .fetch_one(&pool)
@@ -609,7 +609,7 @@ async fn test_detect_and_transition_stale_tasks_real_execution(
 
     // Verify DLQ entry was created
     let dlq_count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM tasker_tasks_dlq WHERE task_uuid = $1 AND resolution_status = 'pending'",
+        "SELECT COUNT(*) FROM tasker.tasks_dlq WHERE task_uuid = $1 AND resolution_status = 'pending'",
     )
     .bind(task_uuid)
     .fetch_one(&pool)
@@ -618,7 +618,7 @@ async fn test_detect_and_transition_stale_tasks_real_execution(
 
     // Verify task transitioned to error
     let state = sqlx::query_scalar::<_, String>(
-        "SELECT to_state FROM tasker_task_transitions WHERE task_uuid = $1 AND most_recent = true",
+        "SELECT to_state FROM tasker.task_transitions WHERE task_uuid = $1 AND most_recent = true",
     )
     .bind(task_uuid)
     .fetch_one(&pool)
@@ -871,11 +871,11 @@ async fn test_dlq_stats_view_integration(pool: PgPool) -> Result<(), sqlx::Error
         // Create DLQ entry
         sqlx::query!(
             r#"
-            INSERT INTO tasker_tasks_dlq (
+            INSERT INTO tasker.tasks_dlq (
                 dlq_entry_uuid, task_uuid, original_state, dlq_reason,
                 dlq_timestamp, resolution_status, task_snapshot, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4::text::dlq_reason, NOW() - INTERVAL '1 hour',
-                     $5::text::dlq_resolution_status, '{}'::jsonb, NOW(), NOW())
+            ) VALUES ($1, $2, $3, $4::text::tasker.dlq_reason, NOW() - INTERVAL '1 hour',
+                     $5::text::tasker.dlq_resolution_status, '{}'::jsonb, NOW(), NOW())
             "#,
             Uuid::new_v4(),
             task_uuid,
@@ -1036,13 +1036,13 @@ async fn test_investigation_queue_view_integration(pool: PgPool) -> Result<(), s
         // Create DLQ entry with specific timestamp
         sqlx::query!(
             r#"
-            INSERT INTO tasker_tasks_dlq (
+            INSERT INTO tasker.tasks_dlq (
                 dlq_entry_uuid, task_uuid, original_state, dlq_reason,
                 dlq_timestamp, resolution_status,
                 task_snapshot, created_at, updated_at
-            ) VALUES ($1, $2, $3::text, $4::text::dlq_reason,
+            ) VALUES ($1, $2, $3::text, $4::text::tasker.dlq_reason,
                      NOW() - make_interval(mins => $5::integer),
-                     $6::text::dlq_resolution_status,
+                     $6::text::tasker.dlq_resolution_status,
                      jsonb_build_object(
                          'namespace', 'test_namespace',
                          'task_name', 'test_task',

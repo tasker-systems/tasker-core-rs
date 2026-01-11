@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) as count\n                FROM tasker.named_tasks\n                WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3::uuid AND named_task_uuid != $4::uuid\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d36f33dba56e83262126a35cb0bf78a3c5960928e2f4ee98ba817593ada1de90"
+}

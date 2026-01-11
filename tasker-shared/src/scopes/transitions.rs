@@ -24,7 +24,7 @@ impl TaskTransition {
     /// Start building a scoped query
     pub fn scope() -> TaskTransitionScope {
         let query =
-            QueryBuilder::new("SELECT tasker_task_transitions.* FROM tasker_task_transitions");
+            QueryBuilder::new("SELECT tasker.task_transitions.* FROM tasker.task_transitions");
         TaskTransitionScope {
             query,
             has_conditions: false,
@@ -49,7 +49,7 @@ impl TaskTransitionScope {
     /// Filters transitions to those belonging to a specific task.
     /// Essential for tracking task state history and audit trails.
     pub fn for_task(mut self, task_uuid: Uuid) -> Self {
-        self.add_condition("tasker_task_transitions.task_uuid = ");
+        self.add_condition("tasker.task_transitions.task_uuid = ");
         self.query.push_bind(task_uuid);
         self
     }
@@ -59,7 +59,7 @@ impl TaskTransitionScope {
     /// Filters transitions by their target state.
     /// Useful for finding all instances of specific state changes.
     pub fn to_state(mut self, state: crate::state_machine::TaskState) -> Self {
-        self.add_condition("tasker_task_transitions.to_state = ");
+        self.add_condition("tasker.task_transitions.to_state = ");
         self.query.push_bind(state.to_string());
         self
     }
@@ -69,7 +69,7 @@ impl TaskTransitionScope {
     /// Filters to only the current state of each task.
     /// Critical for getting current task states efficiently.
     pub fn most_recent(mut self) -> Self {
-        self.add_condition("tasker_task_transitions.most_recent = true");
+        self.add_condition("tasker.task_transitions.most_recent = true");
         self
     }
 
@@ -78,7 +78,7 @@ impl TaskTransitionScope {
     /// Temporal filtering for transition analysis and reporting.
     /// Useful for change tracking and activity monitoring.
     pub fn since(mut self, since: DateTime<Utc>) -> Self {
-        self.add_condition("tasker_task_transitions.created_at > ");
+        self.add_condition("tasker.task_transitions.created_at > ");
         self.query.push_bind(since.naive_utc());
         self
     }
@@ -88,7 +88,7 @@ impl TaskTransitionScope {
     /// Filters transitions that contain a specific key in their metadata JSON.
     /// Enables rich querying of transition context and audit information.
     pub fn with_metadata_key(mut self, key: String) -> Self {
-        self.add_condition("tasker_task_transitions.metadata ? ");
+        self.add_condition("tasker.task_transitions.metadata ? ");
         self.query.push_bind(key);
         self
     }
@@ -99,14 +99,14 @@ impl TaskTransitionScope {
     /// Essential for state machine analysis and history reconstruction.
     pub fn ordered_by_sort_key(mut self) -> Self {
         self.query
-            .push(" ORDER BY tasker_task_transitions.sort_key ASC");
+            .push(" ORDER BY tasker.task_transitions.sort_key ASC");
         self
     }
 
     /// Scope: recent - Order by most recent transitions first
     pub fn recent(mut self) -> Self {
         self.query
-            .push(" ORDER BY tasker_task_transitions.sort_key DESC");
+            .push(" ORDER BY tasker.task_transitions.sort_key DESC");
         self
     }
 }
@@ -125,8 +125,8 @@ impl ScopeBuilder<TaskTransition> for TaskTransitionScope {
 
     async fn count(self, pool: &PgPool) -> Result<i64, sqlx::Error> {
         let count_query = self.query.sql().replace(
-            "SELECT tasker_task_transitions.* FROM tasker_task_transitions",
-            "SELECT COUNT(*) as count FROM tasker_task_transitions",
+            "SELECT tasker.task_transitions.* FROM tasker.task_transitions",
+            "SELECT COUNT(*) as count FROM tasker.task_transitions",
         );
 
         let row: (i64,) = sqlx::query_as(&count_query).fetch_one(pool).await?;
@@ -158,7 +158,7 @@ impl WorkflowStepTransition {
     /// Start building a scoped query
     pub fn scope() -> WorkflowStepTransitionScope {
         let query = QueryBuilder::new(
-            "SELECT tasker_workflow_step_transitions.* FROM tasker_workflow_step_transitions",
+            "SELECT tasker.workflow_step_transitions.* FROM tasker.workflow_step_transitions",
         );
         WorkflowStepTransitionScope {
             query,
@@ -183,7 +183,7 @@ impl WorkflowStepTransitionScope {
     /// Ensure workflow steps join exists
     fn ensure_workflow_steps_join(&mut self) {
         if !self.has_workflow_steps_join {
-            self.query.push(" INNER JOIN tasker_workflow_steps ON tasker_workflow_steps.workflow_step_uuid = tasker_workflow_step_transitions.workflow_step_uuid");
+            self.query.push(" INNER JOIN tasker.workflow_steps ON tasker.workflow_steps.workflow_step_uuid = tasker.workflow_step_transitions.workflow_step_uuid");
             self.has_workflow_steps_join = true;
         }
     }
@@ -194,7 +194,7 @@ impl WorkflowStepTransitionScope {
     /// Useful for monitoring recent activity and debugging workflow execution.
     pub fn recent(mut self) -> Self {
         self.query
-            .push(" ORDER BY tasker_workflow_step_transitions.created_at DESC");
+            .push(" ORDER BY tasker.workflow_step_transitions.created_at DESC");
         self
     }
 
@@ -203,7 +203,7 @@ impl WorkflowStepTransitionScope {
     /// Filters workflow step transitions by their target state.
     /// Essential for tracking specific state changes across workflow steps.
     pub fn to_state(mut self, state: String) -> Self {
-        self.add_condition("tasker_workflow_step_transitions.to_state = ");
+        self.add_condition("tasker.workflow_step_transitions.to_state = ");
         self.query.push_bind(state);
         self
     }
@@ -213,7 +213,7 @@ impl WorkflowStepTransitionScope {
     /// Filters to transitions that contain a specific key in their metadata JSONB field.
     /// Enables rich querying of transition context, error details, and execution metadata.
     pub fn with_metadata_key(mut self, key: String) -> Self {
-        self.add_condition("tasker_workflow_step_transitions.metadata ? ");
+        self.add_condition("tasker.workflow_step_transitions.metadata ? ");
         self.query.push_bind(key);
         self
     }
@@ -224,7 +224,7 @@ impl WorkflowStepTransitionScope {
     /// Requires JOIN with workflow_steps table to access task_uuid.
     pub fn for_task(mut self, task_uuid: Uuid) -> Self {
         self.ensure_workflow_steps_join();
-        self.add_condition("tasker_workflow_steps.task_uuid = ");
+        self.add_condition("tasker.workflow_steps.task_uuid = ");
         self.query.push_bind(task_uuid);
         self
     }

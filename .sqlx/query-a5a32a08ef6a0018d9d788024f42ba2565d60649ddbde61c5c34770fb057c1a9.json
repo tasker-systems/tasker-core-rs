@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO tasker.named_tasks (\n            named_task_uuid,\n            task_namespace_uuid,\n            name,\n            version,\n            configuration,\n            created_at,\n            updated_at\n        )\n        VALUES ($1, $2, $3, '1.0.0', $4, NOW(), NOW())\n        ON CONFLICT (named_task_uuid) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Varchar",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a5a32a08ef6a0018d9d788024f42ba2565d60649ddbde61c5c34770fb057c1a9"
+}

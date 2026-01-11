@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) as count\n                FROM tasker.task_transitions\n                WHERE to_state = $1 AND most_recent = true\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2bcf5c29f88b051b7a626263a2b643e7695104688591144cf5f42ded3b9016c5"
+}

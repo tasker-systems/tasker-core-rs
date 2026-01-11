@@ -6,7 +6,7 @@
 //! ## Key Design Principle
 //!
 //! These types are aligned with Ruby StepHandlerCallResult structure to ensure consistent
-//! data persistence to `tasker_workflow_steps.results`. All results follow the pattern:
+//! data persistence to `tasker.workflow_steps.results`. All results follow the pattern:
 //! `{ success: bool, result: Any, metadata: OrchestrationMetadata }`
 //!
 //! Even failures include result and metadata attributes for API-level backoff evaluation.
@@ -58,7 +58,7 @@ pub struct StepBatchResponse {
 /// Individual step execution result within a batch response
 ///
 /// This structure aligns with Ruby StepHandlerCallResult to ensure consistent
-/// data serialization to `tasker_workflow_steps.results`.
+/// data serialization to `tasker.workflow_steps.results`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct StepExecutionResult {
@@ -565,7 +565,7 @@ impl StepExecutionResult {
 
     /// Get the result as the expected structure for persistence
     ///
-    /// Returns the structure that will be persisted to tasker_workflow_steps.results:
+    /// Returns the structure that will be persisted to tasker.workflow_steps.results:
     /// { success: bool, result: Any, metadata: OrchestrationMetadata }
     pub fn to_persistence_format(&self) -> Value {
         serde_json::json!({
@@ -1140,7 +1140,7 @@ mod tests {
 
         let persistence_format = result.to_persistence_format();
 
-        // Verify the expected structure for tasker_workflow_steps.results
+        // Verify the expected structure for tasker.workflow_steps.results
         assert_eq!(persistence_format["success"], true);
         assert_eq!(persistence_format["result"]["order_id"], 12345);
         assert_eq!(persistence_format["result"]["total"], 99.99);

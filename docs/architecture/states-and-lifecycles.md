@@ -163,7 +163,7 @@ if target_state.requires_ownership() {
 
 **Ownership Rules**:
 - States requiring ownership: `Initializing`, `EnqueuingSteps`, `StepsInProcess`, `EvaluatingResults`
-- Processor UUID stored in `tasker_task_transitions.processor_uuid` column
+- Processor UUID stored in `tasker.task_transitions.processor_uuid` column
 - Atomic ownership claiming prevents concurrent processing
 - Ownership validated on each transition attempt
 
@@ -357,9 +357,9 @@ The persistence layer in `tasker-shared/src/state_machine/persistence.rs` implem
 
 ### Transition Storage
 
-#### Task Transitions (`tasker_task_transitions`)
+#### Task Transitions (`tasker.task_transitions`)
 ```sql
-CREATE TABLE tasker_task_transitions (
+CREATE TABLE tasker.task_transitions (
   task_transition_uuid UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
   task_uuid UUID NOT NULL,
   to_state VARCHAR NOT NULL,
@@ -373,9 +373,9 @@ CREATE TABLE tasker_task_transitions (
 );
 ```
 
-#### Step Transitions (`tasker_workflow_step_transitions`)  
+#### Step Transitions (`tasker.workflow_step_transitions`)
 ```sql
-CREATE TABLE tasker_workflow_step_transitions (
+CREATE TABLE tasker.workflow_step_transitions (
   workflow_step_transition_uuid UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
   workflow_step_uuid UUID NOT NULL,
   to_state VARCHAR NOT NULL,
@@ -476,14 +476,14 @@ The step result audit system provides SOC2-compliant audit trails for workflow s
 
 ### Audit Table Design
 
-The `tasker_workflow_step_result_audit` table stores lightweight references with attribution data:
+The `tasker.workflow_step_result_audit` table stores lightweight references with attribution data:
 
 ```sql
-CREATE TABLE tasker_workflow_step_result_audit (
+CREATE TABLE tasker.workflow_step_result_audit (
     workflow_step_result_audit_uuid UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-    workflow_step_uuid UUID NOT NULL REFERENCES tasker_workflow_steps,
-    workflow_step_transition_uuid UUID NOT NULL REFERENCES tasker_workflow_step_transitions,
-    task_uuid UUID NOT NULL REFERENCES tasker_tasks,
+    workflow_step_uuid UUID NOT NULL REFERENCES tasker.workflow_steps,
+    workflow_step_transition_uuid UUID NOT NULL REFERENCES tasker.workflow_step_transitions,
+    task_uuid UUID NOT NULL REFERENCES tasker.tasks,
     recorded_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- Attribution (NEW data not in transitions)
@@ -502,7 +502,7 @@ CREATE TABLE tasker_workflow_step_result_audit (
 
 ### Design Principles
 
-1. **No Data Duplication**: Full execution results already exist in `tasker_workflow_step_transitions.metadata`. The audit table stores references only.
+1. **No Data Duplication**: Full execution results already exist in `tasker.workflow_step_transitions.metadata`. The audit table stores references only.
 
 2. **Attribution Capture**: The audit system captures NEW attribution data:
    - `worker_uuid`: Which worker instance processed the step

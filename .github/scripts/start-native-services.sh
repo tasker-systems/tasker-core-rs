@@ -43,9 +43,13 @@ for port in $ORCHESTRATION_PORT $WORKER_PORT $RUBY_WORKER_PORT $PYTHON_WORKER_PO
   fi
 done
 
-# 1. Run database migrations (idempotent)
-echo "📊 Running database migrations..."
-DATABASE_URL="$POSTGRES_URL" cargo sqlx migrate run
+# 1. Run database migrations (skip if already done by CI)
+if [[ "${SKIP_MIGRATIONS:-false}" == "true" ]]; then
+  echo "📊 Skipping migrations (SKIP_MIGRATIONS=true)"
+else
+  echo "📊 Running database migrations..."
+  DATABASE_URL="$POSTGRES_URL" cargo sqlx migrate run
+fi
 
 # 2. Start orchestration service in background
 echo "🎯 Starting orchestration service on port $ORCHESTRATION_PORT..."

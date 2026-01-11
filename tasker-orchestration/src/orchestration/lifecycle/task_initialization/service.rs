@@ -122,7 +122,7 @@ impl TaskInitializer {
 
         logging::log_database_operation(
             "TRANSACTION_BEGIN",
-            Some("tasker_tasks"),
+            Some("tasker.tasks"),
             None,
             "SUCCESS",
             None,

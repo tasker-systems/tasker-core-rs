@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at\n            FROM tasker.named_tasks\n            WHERE named_task_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "named_task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "task_namespace_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "configuration",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "ec62ec6cbb76b0fdd5ec3f86e07d622348e735a2316c76e591f28f34de7e6fb9"
+}

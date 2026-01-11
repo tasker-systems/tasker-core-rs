@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                ntns.ntns_uuid,\n                ntns.named_task_uuid,\n                ntns.named_step_uuid,\n                ntns.skippable,\n                ntns.default_retryable,\n                ntns.default_max_attempts,\n                nt.name as task_name,\n                ns.name as step_name,\n                ds.name as step_system_name,\n                ntns.created_at,\n                ntns.updated_at\n            FROM tasker.named_tasks_named_steps ntns\n            INNER JOIN tasker.named_tasks nt ON nt.named_task_uuid = ntns.named_task_uuid\n            INNER JOIN tasker.named_steps ns ON ns.named_step_uuid = ntns.named_step_uuid\n            INNER JOIN tasker.dependent_systems ds ON ds.dependent_system_uuid = ns.dependent_system_uuid\n            ORDER BY ntns.ntns_uuid\n            LIMIT $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ntns_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "named_task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "named_step_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "skippable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "default_retryable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "default_max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "task_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "step_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "step_system_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "01254858a7cc1cf6cd732935ffb89c83c1708ed2abc07a8540f931a7fd109035"
+}

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 /// TaskNamespace represents organizational hierarchy for tasks
 /// Uses UUID v7 for primary key to ensure time-ordered UUIDs
-/// Maps to `tasker_task_namespaces` table
+/// Maps to `tasker.task_namespaces` table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct TaskNamespace {
     pub task_namespace_uuid: Uuid,
@@ -31,7 +31,7 @@ impl TaskNamespace {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"
-            INSERT INTO tasker_task_namespaces (name, description, created_at, updated_at)
+            INSERT INTO tasker.task_namespaces (name, description, created_at, updated_at)
             VALUES ($1, $2, NOW(), NOW())
             RETURNING task_namespace_uuid, name, description, created_at, updated_at
             "#,
@@ -53,7 +53,7 @@ impl TaskNamespace {
             TaskNamespace,
             r#"
             SELECT task_namespace_uuid, name, description, created_at, updated_at
-            FROM tasker_task_namespaces
+            FROM tasker.task_namespaces
             WHERE task_namespace_uuid = $1::uuid
             "#,
             uuid
@@ -73,7 +73,7 @@ impl TaskNamespace {
             TaskNamespace,
             r#"
             SELECT task_namespace_uuid, name, description, created_at, updated_at
-            FROM tasker_task_namespaces
+            FROM tasker.task_namespaces
             WHERE name = $1
             "#,
             name
@@ -90,7 +90,7 @@ impl TaskNamespace {
             TaskNamespace,
             r#"
             SELECT task_namespace_uuid, name, description, created_at, updated_at
-            FROM tasker_task_namespaces
+            FROM tasker.task_namespaces
             ORDER BY name
             "#
         )
@@ -110,7 +110,7 @@ impl TaskNamespace {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"
-            UPDATE tasker_task_namespaces
+            UPDATE tasker.task_namespaces
             SET
                 name = COALESCE($2, name),
                 description = COALESCE($3, description),
@@ -132,7 +132,7 @@ impl TaskNamespace {
     pub async fn delete(pool: &PgPool, uuid: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            DELETE FROM tasker_task_namespaces
+            DELETE FROM tasker.task_namespaces
             WHERE task_namespace_uuid = $1::uuid
             "#,
             uuid
@@ -153,7 +153,7 @@ impl TaskNamespace {
             sqlx::query!(
                 r#"
                 SELECT COUNT(*) as count
-                FROM tasker_task_namespaces
+                FROM tasker.task_namespaces
                 WHERE name = $1 AND task_namespace_uuid != $2::uuid
                 "#,
                 name,
@@ -166,7 +166,7 @@ impl TaskNamespace {
             sqlx::query!(
                 r#"
                 SELECT COUNT(*) as count
-                FROM tasker_task_namespaces
+                FROM tasker.task_namespaces
                 WHERE name = $1
                 "#,
                 name
@@ -208,8 +208,8 @@ impl TaskNamespace {
                 tn.created_at,
                 tn.updated_at,
                 COUNT(nt.named_task_uuid) as handler_count
-            FROM tasker_task_namespaces tn
-            LEFT JOIN tasker_named_tasks nt ON tn.task_namespace_uuid = nt.task_namespace_uuid
+            FROM tasker.task_namespaces tn
+            LEFT JOIN tasker.named_tasks nt ON tn.task_namespace_uuid = nt.task_namespace_uuid
             GROUP BY tn.task_namespace_uuid, tn.name, tn.description, tn.created_at, tn.updated_at
             ORDER BY tn.name
             "#
@@ -261,7 +261,7 @@ impl TaskNamespace {
             TaskNamespace,
             r#"
             SELECT task_namespace_uuid, name, description, created_at, updated_at
-            FROM tasker_task_namespaces
+            FROM tasker.task_namespaces
             WHERE name = $1
             "#,
             name
@@ -279,7 +279,7 @@ impl TaskNamespace {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"
-            INSERT INTO tasker_task_namespaces (name, description, created_at, updated_at)
+            INSERT INTO tasker.task_namespaces (name, description, created_at, updated_at)
             VALUES ($1, $2, NOW(), NOW())
             RETURNING task_namespace_uuid, name, description, created_at, updated_at
             "#,

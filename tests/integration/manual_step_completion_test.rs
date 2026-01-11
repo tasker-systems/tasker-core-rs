@@ -229,7 +229,7 @@ async fn test_attempt_counter_reset_functionality(pool: PgPool) -> Result<()> {
     // Simulate step with 5 failed attempts
     sqlx::query!(
         r#"
-        UPDATE tasker_workflow_steps
+        UPDATE tasker.workflow_steps
         SET attempts = 5,
             updated_at = NOW()
         WHERE workflow_step_uuid = $1
@@ -241,7 +241,7 @@ async fn test_attempt_counter_reset_functionality(pool: PgPool) -> Result<()> {
 
     // Verify attempts count before reset
     let attempts_before = sqlx::query_scalar!(
-        "SELECT attempts FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
+        "SELECT attempts FROM tasker.workflow_steps WHERE workflow_step_uuid = $1",
         first_step.workflow_step_uuid
     )
     .fetch_one(&pool)
@@ -255,7 +255,7 @@ async fn test_attempt_counter_reset_functionality(pool: PgPool) -> Result<()> {
     // Reset attempt counter (simulating PATCH request behavior)
     sqlx::query!(
         r#"
-        UPDATE tasker_workflow_steps
+        UPDATE tasker.workflow_steps
         SET attempts = 0,
             updated_at = NOW()
         WHERE workflow_step_uuid = $1
@@ -267,7 +267,7 @@ async fn test_attempt_counter_reset_functionality(pool: PgPool) -> Result<()> {
 
     // Verify attempts reset to 0
     let attempts_after = sqlx::query_scalar!(
-        "SELECT attempts FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
+        "SELECT attempts FROM tasker.workflow_steps WHERE workflow_step_uuid = $1",
         first_step.workflow_step_uuid
     )
     .fetch_one(&pool)

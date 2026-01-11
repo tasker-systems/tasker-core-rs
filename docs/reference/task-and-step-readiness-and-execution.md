@@ -1,6 +1,6 @@
 # Task and Step Readiness and Execution
 
-**Last Updated**: 2025-10-10
+**Last Updated**: 2026-01-10
 **Audience**: Developers, Architects
 **Status**: Active
 **Related Docs**: [Documentation Hub](README.md) | [States and Lifecycles](states-and-lifecycles.md) | [Events and Commands](events-and-commands.md)
@@ -69,29 +69,31 @@ The SQL functions are organized into logical categories as defined in
 ### Core Tables
 
 The SQL functions operate on a comprehensive schema designed for UUID v7
-performance and scalability:
+performance and scalability. As of TAS-128, all tables reside in the `tasker` schema
+with simplified names. With `search_path = tasker, public`, queries use unqualified
+table names.
 
 #### Primary Tables
-- **`tasker_tasks`**: Main workflow instances with UUID v7 primary keys
-- **`tasker_workflow_steps`**: Individual workflow steps with dependency relationships
-- **`tasker_task_transitions`**: Task state change audit trail with processor tracking
-- **`tasker_workflow_step_transitions`**: Step state change audit trail
+- **`tasks`**: Main workflow instances with UUID v7 primary keys
+- **`workflow_steps`**: Individual workflow steps with dependency relationships
+- **`task_transitions`**: Task state change audit trail with processor tracking
+- **`workflow_step_transitions`**: Step state change audit trail
 
 #### Registry Tables
-- **`tasker_task_namespaces`**: Workflow namespace definitions
-- **`tasker_named_tasks`**: Task type templates and metadata
-- **`tasker_named_steps`**: Step type definitions and handlers
-- **`tasker_workflow_step_edges`**: Step dependency relationships (DAG structure)
+- **`task_namespaces`**: Workflow namespace definitions
+- **`named_tasks`**: Task type templates and metadata
+- **`named_steps`**: Step type definitions and handlers
+- **`workflow_step_edges`**: Step dependency relationships (DAG structure)
 
 #### TAS-41 Enhancements
 
-The TAS-41 migration (`20251209000000_tas41_richer_task_states.sql`) enhanced the
+The TAS-41 migration (`migrations/tasker/20251209000000_tas41_richer_task_states.sql`) enhanced the
 schema with:
 
 **Task State Management**:
 ```sql
 -- 12 comprehensive task states
-ALTER TABLE tasker_task_transitions
+ALTER TABLE task_transitions
 ADD CONSTRAINT chk_task_transitions_to_state
 CHECK (to_state IN (
     'pending', 'initializing', 'enqueuing_steps', 'steps_in_process',
@@ -102,7 +104,7 @@ CHECK (to_state IN (
 
 **Processor Ownership Tracking**:
 ```sql
-ALTER TABLE tasker_task_transitions
+ALTER TABLE task_transitions
 ADD COLUMN processor_uuid UUID,
 ADD COLUMN transition_metadata JSONB DEFAULT '{}';
 ```
@@ -314,11 +316,11 @@ BEGIN
     SELECT
       ws.workflow_step_uuid,
       0 as level
-    FROM tasker_workflow_steps ws
+    FROM workflow_steps ws
     WHERE ws.task_uuid = input_task_uuid
       AND NOT EXISTS (
         SELECT 1
-        FROM tasker_workflow_step_edges wse
+        FROM workflow_step_edges wse
         WHERE wse.to_step_uuid = ws.workflow_step_uuid
       )
 
@@ -329,8 +331,8 @@ BEGIN
       wse.to_step_uuid as workflow_step_uuid,
       dl.level + 1 as level
     FROM dependency_levels dl
-    JOIN tasker_workflow_step_edges wse ON wse.from_step_uuid = dl.workflow_step_uuid
-    JOIN tasker_workflow_steps ws ON ws.workflow_step_uuid = wse.to_step_uuid
+    JOIN workflow_step_edges wse ON wse.from_step_uuid = dl.workflow_step_uuid
+    JOIN workflow_steps ws ON ws.workflow_step_uuid = wse.to_step_uuid
     WHERE ws.task_uuid = input_task_uuid
   )
   SELECT
@@ -507,13 +509,13 @@ DECLARE
 BEGIN
     -- Get next sort key
     SELECT COALESCE(MAX(sort_key), 0) + 1 INTO v_sort_key
-    FROM tasker_task_transitions
+    FROM task_transitions
     WHERE task_uuid = p_task_uuid;
 
     -- Atomically transition only if in expected state
     WITH current_state AS (
         SELECT to_state, processor_uuid
-        FROM tasker_task_transitions
+        FROM task_transitions
         WHERE task_uuid = p_task_uuid
         AND most_recent = true
         FOR UPDATE
@@ -532,14 +534,14 @@ BEGIN
         WHERE cs.to_state = p_from_state
     ),
     do_update AS (
-        UPDATE tasker_task_transitions
+        UPDATE task_transitions
         SET most_recent = false
         WHERE task_uuid = p_task_uuid
         AND most_recent = true
         AND EXISTS (SELECT 1 FROM ownership_check WHERE can_transition)
         RETURNING task_uuid
     )
-    INSERT INTO tasker_task_transitions (
+    INSERT INTO task_transitions (
         task_uuid, from_state, to_state,
         processor_uuid, transition_metadata,
         sort_key, most_recent, created_at, updated_at
@@ -853,7 +855,7 @@ RETURNS TABLE(
    ```sql
    WITH ready_steps AS (
        SELECT task_uuid, COUNT(*) as ready_count
-       FROM tasker_workflow_steps
+       FROM workflow_steps
        WHERE current_state IN ('pending', 'error')
        AND [dependency checks]
        GROUP BY task_uuid
@@ -925,8 +927,8 @@ CREATE OR REPLACE FUNCTION get_step_readiness_status(
            edge.to_step_uuid,
            COUNT(*) as total_parents,
            COUNT(CASE WHEN parent.current_state = 'complete' THEN 1 END) as completed_parents
-       FROM tasker_workflow_step_edges edge
-       JOIN tasker_workflow_steps parent ON parent.workflow_step_uuid = edge.from_step_uuid
+       FROM workflow_step_edges edge
+       JOIN workflow_steps parent ON parent.workflow_step_uuid = edge.from_step_uuid
        WHERE parent.task_uuid = input_task_uuid
        GROUP BY edge.to_step_uuid
    )

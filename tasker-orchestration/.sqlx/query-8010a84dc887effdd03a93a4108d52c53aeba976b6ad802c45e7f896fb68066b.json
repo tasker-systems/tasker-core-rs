@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tasker.tasks\n            SET tags = $2, updated_at = NOW()\n            WHERE task_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8010a84dc887effdd03a93a4108d52c53aeba976b6ad802c45e7f896fb68066b"
+}

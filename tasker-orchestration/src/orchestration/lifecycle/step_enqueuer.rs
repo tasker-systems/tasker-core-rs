@@ -618,7 +618,7 @@ impl StepEnqueuer {
     /// Get task UUID and correlation_id from database by task_uuid
     async fn get_task_info(&self, task_uuid: Uuid) -> TaskerResult<(Uuid, Uuid)> {
         let row = sqlx::query!(
-            "SELECT task_uuid, correlation_id FROM tasker_tasks WHERE task_uuid = $1",
+            "SELECT task_uuid, correlation_id FROM tasker.tasks WHERE task_uuid = $1",
             task_uuid
         )
         .fetch_one(self.context.database_pool())
@@ -631,7 +631,7 @@ impl StepEnqueuer {
     /// Get step UUID from database by workflow_step_uuid
     async fn get_step_uuid(&self, step_uuid: Uuid) -> TaskerResult<Uuid> {
         let row = sqlx::query!(
-            "SELECT workflow_step_uuid FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
+            "SELECT workflow_step_uuid FROM tasker.workflow_steps WHERE workflow_step_uuid = $1",
             step_uuid
         )
         .fetch_one(self.context.database_pool())
@@ -648,12 +648,12 @@ impl StepEnqueuer {
     /// Get task execution context for step processing
     #[allow(dead_code)]
     async fn get_task_execution_context(&self, task_uuid: Uuid) -> TaskerResult<Value> {
-        // Join with tasker_named_tasks to get task name and version for step handler registry
+        // Join with tasker.named_tasks to get task name and version for step handler registry
         let query = "
             SELECT t.context, t.tags, nt.name as task_name, nt.version, ns.name as namespace_name
-            FROM tasker_tasks t
-            JOIN tasker_named_tasks nt ON t.named_task_uuid = nt.named_task_uuid
-            JOIN tasker_task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid
+            FROM tasker.tasks t
+            JOIN tasker.named_tasks nt ON t.named_task_uuid = nt.named_task_uuid
+            JOIN tasker.task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid
             WHERE t.task_uuid = $1::UUID
         ";
 

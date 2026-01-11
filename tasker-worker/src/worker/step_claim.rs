@@ -301,7 +301,7 @@ impl StepClaim {
 
                             sqlx::query!(
                                 r#"
-                                UPDATE tasker_workflow_steps
+                                UPDATE tasker.workflow_steps
                                 SET attempts = COALESCE(attempts, 0) + 1,
                                     last_attempted_at = $2,
                                     updated_at = NOW()

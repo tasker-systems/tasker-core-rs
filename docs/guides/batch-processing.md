@@ -662,7 +662,7 @@ class MyBatchWorkerHandler extends BatchableHandler {
 
 ### Checkpoint Data Structure
 
-Checkpoints are persisted in the `checkpoint` JSONB column on `tasker_workflow_steps`:
+Checkpoints are persisted in the `checkpoint` JSONB column on `workflow_steps`:
 
 ```json
 {
@@ -1715,7 +1715,7 @@ SELECT
     dlq.dlq_reason,
     dlq.resolution_status,
     dlq.task_snapshot->'workflow_steps' as steps
-FROM tasker_tasks_dlq dlq
+FROM tasker.tasks_dlq dlq
 WHERE dlq.task_uuid = 'task-uuid-here'
   AND dlq.resolution_status = 'pending';
 
@@ -1726,7 +1726,7 @@ SELECT
     ws.current_state,
     ws.attempts,
     ws.last_error
-FROM tasker_workflow_steps ws
+FROM tasker.workflow_steps ws
 WHERE ws.task_uuid = 'task-uuid-here'
   AND ws.name LIKE 'process_csv_batch_%'
   AND ws.current_state = 'Error';
@@ -1794,7 +1794,7 @@ SELECT
     ws.current_state,
     ws.attempts,
     ws.last_error
-FROM tasker_workflow_steps ws
+FROM tasker.workflow_steps ws
 WHERE ws.workflow_step_uuid = 'uuid-worker-3';
 ```
 
@@ -1872,7 +1872,7 @@ SELECT
     ws.results->>'last_checkpoint_cursor' as last_checkpoint,
     ws.results->>'checkpoint_timestamp' as checkpoint_time,
     NOW() - (ws.results->>'checkpoint_timestamp')::timestamptz as time_since_checkpoint
-FROM tasker_workflow_steps ws
+FROM tasker.workflow_steps ws
 WHERE ws.workflow_step_uuid = 'uuid-worker-1';
 ```
 
@@ -1970,7 +1970,7 @@ SELECT
     dlq.task_snapshot->'namespace_name' as namespace,
     dlq.task_snapshot->'template_name' as template,
     dlq.task_snapshot->'current_state' as task_state
-FROM tasker_tasks_dlq dlq
+FROM tasker.tasks_dlq dlq
 WHERE dlq.task_uuid = :task_uuid
   AND dlq.resolution_status = 'pending'
 ORDER BY dlq.dlq_timestamp DESC
@@ -1986,7 +1986,7 @@ SELECT
     COUNT(*) FILTER (WHERE ws.current_state = 'Pending') as pending_workers,
     COUNT(*) FILTER (WHERE ws.current_state = 'WaitingForRetry') as waiting_retry,
     COUNT(*) as total_workers
-FROM tasker_workflow_steps ws
+FROM tasker.workflow_steps ws
 WHERE ws.task_uuid = :task_uuid
   AND ws.name LIKE 'process_%_batch_%';
 ```
@@ -2002,7 +2002,7 @@ SELECT
     NOW() - (ws.results->>'checkpoint_timestamp')::timestamptz as time_since_checkpoint,
     ws.attempts,
     ws.last_error
-FROM tasker_workflow_steps ws
+FROM tasker.workflow_steps ws
 WHERE ws.task_uuid = :task_uuid
   AND ws.name LIKE 'process_%_batch_%'
   AND ws.current_state = 'InProgress'
@@ -2026,9 +2026,9 @@ SELECT
     ) FILTER (WHERE ws.name LIKE 'process_%_batch_%') as worker_states,
     dlq.dlq_reason,
     dlq.resolution_status
-FROM tasker_tasks t
-JOIN tasker_workflow_steps ws ON ws.task_uuid = t.task_uuid
-LEFT JOIN tasker_tasks_dlq dlq ON dlq.task_uuid = t.task_uuid
+FROM tasker.tasks t
+JOIN tasker.workflow_steps ws ON ws.task_uuid = t.task_uuid
+LEFT JOIN tasker.tasks_dlq dlq ON dlq.task_uuid = t.task_uuid
     AND dlq.resolution_status = 'pending'
 WHERE t.task_uuid = :task_uuid
 GROUP BY t.task_uuid, t.namespace_name, t.template_name, t.current_state, t.execution_status,
@@ -2048,9 +2048,9 @@ SELECT
     t.current_state,
     COUNT(DISTINCT ws.workflow_step_uuid) FILTER (WHERE ws.name LIKE 'process_%_batch_%') as batch_worker_count,
     COUNT(DISTINCT ws.workflow_step_uuid) FILTER (WHERE ws.current_state = 'Error' AND ws.name LIKE 'process_%_batch_%') as failed_workers
-FROM tasker_tasks_dlq dlq
-JOIN tasker_tasks t ON t.task_uuid = dlq.task_uuid
-JOIN tasker_workflow_steps ws ON ws.task_uuid = dlq.task_uuid
+FROM tasker.tasks_dlq dlq
+JOIN tasker.tasks t ON t.task_uuid = dlq.task_uuid
+JOIN tasker.workflow_steps ws ON ws.task_uuid = dlq.task_uuid
 WHERE dlq.resolution_status = 'pending'
 GROUP BY dlq.dlq_entry_uuid, dlq.task_uuid, dlq.dlq_reason, dlq.dlq_timestamp,
          t.namespace_name, t.template_name, t.current_state
@@ -3020,7 +3020,7 @@ SELECT
     AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) as avg_worker_duration_sec,
     MAX(EXTRACT(EPOCH FROM (updated_at - created_at))) as max_worker_duration_sec,
     COUNT(*) FILTER (WHERE current_state = 'Error') as failed_workers
-FROM tasker_workflow_steps
+FROM tasker.workflow_steps
 WHERE task_uuid = :task_uuid
   AND step_type = 'batch_worker';
 ```

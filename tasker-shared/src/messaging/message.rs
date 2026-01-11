@@ -65,11 +65,11 @@ pub struct StepMessageParams {
 /// - TAS-29: Correlation ID available immediately without database query
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimpleStepMessage {
-    /// Task UUID from tasker_tasks.task_uuid column
+    /// Task UUID from tasker.tasks.task_uuid column
     pub task_uuid: Uuid,
-    /// Step UUID from tasker_workflow_steps.step_uuid column
+    /// Step UUID from tasker.workflow_steps.step_uuid column
     pub step_uuid: Uuid,
-    /// TAS-29: Correlation ID for distributed tracing (from tasker_tasks.correlation_id)
+    /// TAS-29: Correlation ID for distributed tracing (from tasker.tasks.correlation_id)
     pub correlation_id: Uuid,
     // Removed ready_dependency_step_uuids - workers will query dependencies as needed
 }

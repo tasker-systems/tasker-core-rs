@@ -18,7 +18,7 @@ The DLQ (Dead Letter Queue) system is an **investigation tracking system**, NOT 
 - DLQ is for audit, visibility, and investigation only
 
 **Architecture**: PostgreSQL-based system with:
-- `tasker_tasks_dlq` table for investigation tracking
+- `tasks_dlq` table for investigation tracking
 - 3 database views for monitoring and analysis
 - 6 REST endpoints for operator interaction
 - Background staleness detection service
@@ -136,10 +136,10 @@ lifecycle:
 
 ## Database Schema
 
-### tasker_tasks_dlq Table
+### tasks_dlq Table
 
 ```sql
-CREATE TABLE tasker_tasks_dlq (
+CREATE TABLE tasker.tasks_dlq (
     dlq_entry_uuid UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
     task_uuid UUID NOT NULL UNIQUE,  -- One pending entry per task
     original_state VARCHAR(50) NOT NULL,
@@ -157,7 +157,7 @@ CREATE TABLE tasker_tasks_dlq (
 
 -- Unique constraint: Only one pending DLQ entry per task
 CREATE UNIQUE INDEX idx_dlq_unique_pending_task
-    ON tasker_tasks_dlq (task_uuid)
+    ON tasker.tasks_dlq (task_uuid)
     WHERE resolution_status = 'pending';
 ```
 
@@ -623,7 +623,7 @@ Example (base=1000ms, max=30000ms):
 
 ### Attempt Tracking
 
-**Fields** (on `tasker_workflow_steps` table):
+**Fields** (on `workflow_steps` table):
 - `attempts` - Current attempt count
 - `max_attempts` - Configuration limit
 - `last_attempted_at` - Timestamp of last execution

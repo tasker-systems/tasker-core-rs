@@ -38,7 +38,7 @@
 //!
 //! This module integrates with the PostgreSQL VIEW:
 //!
-//! ### `tasker_step_dag_relationships`
+//! ### `tasker.step_dag_relationships`
 //! - Computes DAG relationships and hierarchy for workflow steps
 //! - Provides parent/child step relationships with JSONB arrays
 //! - Calculates step depth and identifies root/leaf steps
@@ -75,12 +75,12 @@ use sqlx::{types::Uuid, FromRow, PgPool};
 /// Represents computed DAG relationship analysis for workflow steps.
 ///
 /// **IMPORTANT**: This is NOT a database table - it's the result of querying
-/// the `tasker_step_dag_relationships` SQL VIEW.
+/// the `tasker.step_dag_relationships` SQL VIEW.
 ///
 /// # Computed Fields
 ///
 /// All fields are calculated dynamically by analyzing:
-/// - Step dependencies from `tasker_workflow_step_edges`
+/// - Step dependencies from `tasker.workflow_step_edges`
 /// - Parent/child relationships and counts
 /// - Step hierarchy depth using recursive traversal
 /// - Root/leaf identification for workflow entry/exit points
@@ -135,7 +135,7 @@ impl StepDagRelationship {
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
-            FROM tasker_step_dag_relationships
+            FROM tasker.step_dag_relationships
             ORDER BY task_uuid, min_depth_from_root NULLS LAST, workflow_step_uuid
             "#
         )
@@ -164,7 +164,7 @@ impl StepDagRelationship {
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
-            FROM tasker_step_dag_relationships
+            FROM tasker.step_dag_relationships
             WHERE task_uuid = $1::uuid
             ORDER BY min_depth_from_root NULLS LAST, workflow_step_uuid
             "#,
@@ -195,7 +195,7 @@ impl StepDagRelationship {
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
-            FROM tasker_step_dag_relationships
+            FROM tasker.step_dag_relationships
             WHERE workflow_step_uuid = $1::uuid
             "#,
             workflow_step_uuid
@@ -225,7 +225,7 @@ impl StepDagRelationship {
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
-            FROM tasker_step_dag_relationships
+            FROM tasker.step_dag_relationships
             WHERE task_uuid = $1::uuid AND is_root_step = true
             ORDER BY workflow_step_uuid
             "#,
@@ -256,7 +256,7 @@ impl StepDagRelationship {
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
-            FROM tasker_step_dag_relationships
+            FROM tasker.step_dag_relationships
             WHERE task_uuid = $1::uuid AND is_leaf_step = true
             ORDER BY workflow_step_uuid
             "#,
@@ -288,7 +288,7 @@ impl StepDagRelationship {
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
-            FROM tasker_step_dag_relationships
+            FROM tasker.step_dag_relationships
             WHERE task_uuid = $1::uuid AND min_depth_from_root = $2
             ORDER BY workflow_step_uuid
             "#,

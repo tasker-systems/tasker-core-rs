@@ -696,9 +696,9 @@ mod tests {
         // Verify edges were created
         let edge_count = sqlx::query_scalar!(
             "SELECT COUNT(*)
-             FROM tasker_workflow_step_edges e
-             JOIN tasker_workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
-             JOIN tasker_workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
+             FROM tasker.workflow_step_edges e
+             JOIN tasker.workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
+             JOIN tasker.workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
              WHERE s1.task_uuid = $1 AND s2.task_uuid = $1",
             task_uuid
         )
@@ -723,9 +723,9 @@ mod tests {
         // Verify edges were created
         let edge_count = sqlx::query_scalar!(
             "SELECT COUNT(*)
-             FROM tasker_workflow_step_edges e
-             JOIN tasker_workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
-             JOIN tasker_workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
+             FROM tasker.workflow_step_edges e
+             JOIN tasker.workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
+             JOIN tasker.workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
              WHERE s1.task_uuid = $1 AND s2.task_uuid = $1",
             task_uuid
         )
@@ -750,9 +750,9 @@ mod tests {
         // Verify edges were created
         let edge_count = sqlx::query_scalar!(
             "SELECT COUNT(*)
-             FROM tasker_workflow_step_edges e
-             JOIN tasker_workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
-             JOIN tasker_workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
+             FROM tasker.workflow_step_edges e
+             JOIN tasker.workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
+             JOIN tasker.workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
              WHERE s1.task_uuid = $1 AND s2.task_uuid = $1",
             task_uuid
         )
@@ -774,9 +774,9 @@ mod tests {
         // Verify edges were created for tree structure
         let edge_count = sqlx::query_scalar!(
             "SELECT COUNT(*)
-             FROM tasker_workflow_step_edges e
-             JOIN tasker_workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
-             JOIN tasker_workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
+             FROM tasker.workflow_step_edges e
+             JOIN tasker.workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
+             JOIN tasker.workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
              WHERE s1.task_uuid = $1 AND s2.task_uuid = $1",
             task_uuid
         )
@@ -801,9 +801,9 @@ mod tests {
         // Verify edges were created for complex DAG structure
         let edge_count = sqlx::query_scalar!(
             "SELECT COUNT(*)
-             FROM tasker_workflow_step_edges e
-             JOIN tasker_workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
-             JOIN tasker_workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
+             FROM tasker.workflow_step_edges e
+             JOIN tasker.workflow_steps s1 ON e.from_step_uuid = s1.workflow_step_uuid
+             JOIN tasker.workflow_steps s2 ON e.to_step_uuid = s2.workflow_step_uuid
              WHERE s1.task_uuid = $1 AND s2.task_uuid = $1",
             task_uuid
         )
@@ -828,7 +828,7 @@ mod tests {
         // Verify all tasks exist
         for (task_uuid, _) in &results {
             let exists = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM tasker_tasks WHERE task_uuid = $1) as exists",
+                "SELECT EXISTS(SELECT 1 FROM tasker.tasks WHERE task_uuid = $1) as exists",
                 task_uuid
             )
             .fetch_one(&pool)

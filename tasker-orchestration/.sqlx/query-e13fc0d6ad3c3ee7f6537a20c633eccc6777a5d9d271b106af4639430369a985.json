@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                dsom.dependent_system_one_uuid as system_one_uuid,\n                dsom.dependent_system_two_uuid as system_two_uuid,\n                ds1.name as system_one_name,\n                ds2.name as system_two_name,\n                COUNT(*)::BIGINT as \"total_mappings!: i64\"\n            FROM tasker.dependent_system_object_maps dsom\n            INNER JOIN tasker.dependent_systems ds1 ON ds1.dependent_system_uuid = dsom.dependent_system_one_uuid\n            INNER JOIN tasker.dependent_systems ds2 ON ds2.dependent_system_uuid = dsom.dependent_system_two_uuid\n            GROUP BY dsom.dependent_system_one_uuid, dsom.dependent_system_two_uuid, ds1.name, ds2.name\n            ORDER BY COUNT(*) DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "system_one_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "system_two_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "system_one_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "system_two_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "total_mappings!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "e13fc0d6ad3c3ee7f6537a20c633eccc6777a5d9d271b106af4639430369a985"
+}

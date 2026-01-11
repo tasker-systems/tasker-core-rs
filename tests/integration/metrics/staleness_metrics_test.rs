@@ -45,7 +45,7 @@ async fn create_test_namespace(
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
-        INSERT INTO tasker_task_namespaces (task_namespace_uuid, name, created_at, updated_at)
+        INSERT INTO tasker.task_namespaces (task_namespace_uuid, name, created_at, updated_at)
         VALUES ($1, $2, NOW(), NOW())
         ON CONFLICT (task_namespace_uuid) DO NOTHING
         "#,
@@ -67,7 +67,7 @@ async fn create_test_named_task(
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
-        INSERT INTO tasker_named_tasks (
+        INSERT INTO tasker.named_tasks (
             named_task_uuid,
             task_namespace_uuid,
             name,
@@ -104,7 +104,7 @@ async fn create_stale_task(
     // Create task
     sqlx::query!(
         r#"
-        INSERT INTO tasker_tasks (
+        INSERT INTO tasker.tasks (
             task_uuid,
             named_task_uuid,
             correlation_id,
@@ -129,7 +129,7 @@ async fn create_stale_task(
     // Create state transition
     sqlx::query!(
         r#"
-        INSERT INTO tasker_task_transitions (
+        INSERT INTO tasker.task_transitions (
             task_uuid,
             from_state,
             to_state,
@@ -373,7 +373,7 @@ async fn test_pending_investigations_gauge_query(pool: PgPool) -> sqlx::Result<(
 
     // Execute: Query pending DLQ count (same query used by gauge update)
     let pending_count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM tasker_tasks_dlq WHERE resolution_status = 'pending'",
+        "SELECT COUNT(*) FROM tasker.tasks_dlq WHERE resolution_status = 'pending'",
     )
     .fetch_one(&pool)
     .await?;
@@ -403,7 +403,7 @@ async fn test_pending_investigations_gauge_query(pool: PgPool) -> sqlx::Result<(
 
     // Verify: Pending count decreased
     let pending_count_after = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM tasker_tasks_dlq WHERE resolution_status = 'pending'",
+        "SELECT COUNT(*) FROM tasker.tasks_dlq WHERE resolution_status = 'pending'",
     )
     .fetch_one(&pool)
     .await?;

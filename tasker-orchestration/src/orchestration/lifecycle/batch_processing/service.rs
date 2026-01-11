@@ -130,7 +130,7 @@ impl BatchProcessingService {
         let existing_workers = sqlx::query!(
             r#"
             SELECT COUNT(*) as "count!"
-            FROM tasker_workflow_step_edges
+            FROM tasker.workflow_step_edges
             WHERE from_step_uuid = $1 AND name = 'batch_dependency'
             "#,
             batchable_step.workflow_step_uuid
@@ -592,9 +592,9 @@ impl BatchProcessingService {
         let task_info = sqlx::query!(
             r#"
             SELECT tn.name as namespace_name, nt.name, nt.version
-            FROM tasker_tasks t
-            JOIN tasker_named_tasks nt ON t.named_task_uuid = nt.named_task_uuid
-            JOIN tasker_task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
+            FROM tasker.tasks t
+            JOIN tasker.named_tasks nt ON t.named_task_uuid = nt.named_task_uuid
+            JOIN tasker.task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
             WHERE t.task_uuid = $1
             "#,
             task_uuid
@@ -788,8 +788,8 @@ impl BatchProcessingService {
         let record = sqlx::query!(
             r#"
             SELECT ns.name
-            FROM tasker_workflow_steps ws
-            JOIN tasker_named_steps ns ON ws.named_step_uuid = ns.named_step_uuid
+            FROM tasker.workflow_steps ws
+            JOIN tasker.named_steps ns ON ws.named_step_uuid = ns.named_step_uuid
             WHERE ws.workflow_step_uuid = $1
             "#,
             workflow_step_uuid

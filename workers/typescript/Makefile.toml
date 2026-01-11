@@ -74,14 +74,14 @@ echo "✅ TypeScript bindings generated in src/ffi/generated/"
 '''
 
 [tasks.build-ffi]
-description = "Build Rust FFI library (release)"
-command = "cargo"
-args = ["build", "-p", "tasker-worker-ts", "--release"]
-
-[tasks.build-ffi-debug]
-description = "Build Rust FFI library (debug, faster)"
+description = "Build Rust FFI library (debug mode - aligns with sccache)"
 command = "cargo"
 args = ["build", "-p", "tasker-worker-ts"]
+
+[tasks.build-ffi-release]
+description = "Build Rust FFI library (release, for production)"
+command = "cargo"
+args = ["build", "-p", "tasker-worker-ts", "--release"]
 
 [tasks.build-ts]
 description = "Build TypeScript package"

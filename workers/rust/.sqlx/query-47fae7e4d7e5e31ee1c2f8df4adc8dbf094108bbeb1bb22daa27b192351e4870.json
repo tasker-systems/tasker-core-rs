@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT task_uuid\n            FROM tasker.task_transitions\n            WHERE to_state = $1 AND most_recent = true\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "47fae7e4d7e5e31ee1c2f8df4adc8dbf094108bbeb1bb22daa27b192351e4870"
+}

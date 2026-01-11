@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tasker.task_namespaces (task_namespace_uuid, name, description, created_at, updated_at)\n            VALUES ($1, 'test_namespace_checkpoint', 'Test namespace for checkpoint tests', NOW(), NOW())\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c34fd251f22b59bbfd6f505dcffa63c0335c39e78d76a2dfc00ac854e05c6483"
+}

@@ -1,20 +1,38 @@
 name: Build PostgreSQL Image
 
+# =============================================================================
+# PostgreSQL Version Selection (TAS-128)
+# =============================================================================
+# Default: PostgreSQL 18 with native UUIDv7 support
+# Override: Add PR label 'postgres-17' to use PostgreSQL 17 with pg_uuidv7 extension
+#
+# Dockerfile mapping:
+#   - postgres-17 label → docker/db/Dockerfile.pg17 (pg_uuidv7 extension)
+#   - postgres-18 label or default → docker/db/Dockerfile.pg18 (native uuidv7)
+# =============================================================================
+
 on:
   workflow_call:
+    inputs:
+      postgres-version:
+        description: "PostgreSQL version to build (17 or 18)"
+        required: false
+        type: string
+        default: "18"
     outputs:
       postgres-image:
         description: "PostgreSQL with PGMQ image tag"
         value: ${{ jobs.build-postgres.outputs.image }}
-
-env:
-  POSTGRES_IMAGE: ghcr.io/${{ github.repository_owner }}/tasker-pgmq:${{ github.sha }}
+      postgres-version:
+        description: "PostgreSQL version used"
+        value: ${{ jobs.build-postgres.outputs.version }}
 
 jobs:
   build-postgres:
     runs-on: ubuntu-22.04
     outputs:
       image: ${{ steps.image.outputs.image }}
+      version: ${{ steps.determine-version.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -25,6 +43,35 @@ jobs:
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+
+      - name: Determine PostgreSQL version
+        id: determine-version
+        run: |
+          # Check for explicit input first
+          if [[ -n "${{ inputs.postgres-version }}" ]]; then
+            PG_VERSION="${{ inputs.postgres-version }}"
+            echo "Using input postgres-version: $PG_VERSION"
+          # Check for PR labels (only works in pull_request context)
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+            if echo "$LABELS" | grep -q '"postgres-17"'; then
+              PG_VERSION="17"
+              echo "Found postgres-17 label on PR"
+            elif echo "$LABELS" | grep -q '"postgres-18"'; then
+              PG_VERSION="18"
+              echo "Found postgres-18 label on PR"
+            else
+              PG_VERSION="18"
+              echo "No postgres label found, defaulting to pg18"
+            fi
+          else
+            PG_VERSION="18"
+            echo "Not a PR context, defaulting to pg18"
+          fi
+
+          echo "version=$PG_VERSION" >> $GITHUB_OUTPUT
+          echo "dockerfile=./docker/db/Dockerfile.pg${PG_VERSION}" >> $GITHUB_OUTPUT
+          echo "::notice::Building PostgreSQL $PG_VERSION image"
 
       - name: Log in to GitHub Container Registry
         id: ghcr-login
@@ -41,20 +88,27 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./docker/db/Dockerfile
+          file: ${{ steps.determine-version.outputs.dockerfile }}
           push: true
           tags: |
-            ${{ env.POSTGRES_IMAGE }}
-            ghcr.io/${{ github.repository_owner }}/tasker-pgmq:latest
+            ghcr.io/${{ github.repository_owner }}/tasker-pgmq:pg${{ steps.determine-version.outputs.version }}-${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/tasker-pgmq:pg${{ steps.determine-version.outputs.version }}-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Output image strategy
         id: image
         run: |
+          PG_VERSION="${{ steps.determine-version.outputs.version }}"
           if [[ "${{ steps.docker-build.outcome }}" == "success" ]]; then
-            echo "image=${{ env.POSTGRES_IMAGE }}" >> $GITHUB_OUTPUT
+            echo "image=ghcr.io/${{ github.repository_owner }}/tasker-pgmq:pg${PG_VERSION}-${{ github.sha }}" >> $GITHUB_OUTPUT
           else
-            echo "image=ghcr.io/pgmq/pg17-pgmq:v1.5.1" >> $GITHUB_OUTPUT
-            echo "::warning::Using fallback PGMQ image without pg_uuidv7 extension"
+            # Fallback to upstream PGMQ images
+            if [[ "$PG_VERSION" == "17" ]]; then
+              echo "image=ghcr.io/pgmq/pg17-pgmq:v1.5.1" >> $GITHUB_OUTPUT
+              echo "::warning::Using fallback pg17 PGMQ image (no uuid_generate_v7 alias)"
+            else
+              echo "image=ghcr.io/pgmq/pg18-pgmq:v1.8.1" >> $GITHUB_OUTPUT
+              echo "::warning::Using fallback pg18 PGMQ image (no uuid_generate_v7 alias)"
+            fi
           fi

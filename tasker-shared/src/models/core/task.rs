@@ -18,7 +18,7 @@
 //!
 //! ## Database Schema
 //!
-//! Maps to `tasker_tasks` table with the following key columns:
+//! Maps to `tasker.tasks` table with the following key columns:
 //! - `task_uuid`: Primary key (UUID v7)
 //! - `named_task_uuid`: References task template (UUID)
 //! - `identity_hash`: SHA-256 for deduplication (VARCHAR, indexed)
@@ -59,9 +59,9 @@ use uuid::Uuid;
 ///
 /// # Database Mapping
 ///
-/// Maps directly to the `tasker_tasks` table with Rails-compatible schema:
+/// Maps directly to the `tasker.tasks` table with Rails-compatible schema:
 /// ```sql
-/// CREATE TABLE tasker_tasks (
+/// CREATE TABLE tasker.tasks (
 ///   task_uuid UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
 ///   named_task_uuid UUID NOT NULL,
 ///   complete BOOLEAN DEFAULT false,
@@ -197,7 +197,7 @@ impl Task {
         let task = sqlx::query_as!(
             Task,
             r#"
-            INSERT INTO tasker_tasks (
+            INSERT INTO tasker.tasks (
                 named_task_uuid, complete, requested_at, initiator, source_system,
                 reason, bypass_steps, tags, context, identity_hash,
                 priority, correlation_id, parent_correlation_id, created_at, updated_at
@@ -234,7 +234,7 @@ impl Task {
         let task = sqlx::query_as!(
             Task,
             r#"
-        INSERT INTO tasker_tasks (
+        INSERT INTO tasker.tasks (
             named_task_uuid, complete, requested_at, initiator, source_system,
             reason, bypass_steps, tags, context, identity_hash,
             priority, correlation_id, parent_correlation_id, created_at, updated_at
@@ -325,7 +325,7 @@ impl Task {
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                    reason, bypass_steps, tags, context, identity_hash,
                    priority, created_at, updated_at, correlation_id, parent_correlation_id
-            FROM tasker_tasks
+            FROM tasker.tasks
             WHERE task_uuid = $1::uuid
             "#,
             id
@@ -347,7 +347,7 @@ impl Task {
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                    reason, bypass_steps, tags, context, identity_hash,
                    priority, created_at, updated_at, correlation_id, parent_correlation_id
-            FROM tasker_tasks
+            FROM tasker.tasks
             WHERE identity_hash = $1
             "#,
             hash
@@ -369,7 +369,7 @@ impl Task {
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                    reason, bypass_steps, tags, context, identity_hash,
                    priority, created_at, updated_at, correlation_id, parent_correlation_id
-            FROM tasker_tasks
+            FROM tasker.tasks
             WHERE named_task_uuid = $1::uuid
             ORDER BY created_at DESC
             "#,
@@ -389,7 +389,7 @@ impl Task {
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
                    reason, bypass_steps, tags, context, identity_hash,
                    priority, created_at, updated_at, correlation_id, parent_correlation_id
-            FROM tasker_tasks
+            FROM tasker.tasks
             WHERE complete = false
             ORDER BY requested_at ASC
             "#
@@ -461,9 +461,9 @@ impl Task {
                 t.identity_hash, t.priority, t.created_at, t.updated_at,
                 t.correlation_id, t.parent_correlation_id,
                 nt.name as task_name, nt.version as task_version, ns.name as namespace_name
-            FROM tasker_tasks t
-            INNER JOIN tasker_named_tasks nt ON t.named_task_uuid = nt.named_task_uuid
-            INNER JOIN tasker_task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid
+            FROM tasker.tasks t
+            INNER JOIN tasker.named_tasks nt ON t.named_task_uuid = nt.named_task_uuid
+            INNER JOIN tasker.task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid
             "#,
         );
 
@@ -519,7 +519,7 @@ impl Task {
         // Clone the query builder for count query
         let mut count_query_builder = {
             let mut count_builder = QueryBuilder::new(
-                "SELECT COUNT(*) as total FROM (SELECT DISTINCT t.task_uuid FROM tasker_tasks t INNER JOIN tasker_named_tasks nt ON t.named_task_uuid = nt.named_task_uuid INNER JOIN tasker_task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid"
+                "SELECT COUNT(*) as total FROM (SELECT DISTINCT t.task_uuid FROM tasker.tasks t INNER JOIN tasker.named_tasks nt ON t.named_task_uuid = nt.named_task_uuid INNER JOIN tasker.task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid"
             );
 
             // Rebuild the WHERE clause for count query
@@ -645,7 +645,7 @@ impl Task {
     pub async fn mark_complete(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
-            UPDATE tasker_tasks
+            UPDATE tasker.tasks
             SET complete = true, updated_at = NOW()
             WHERE task_uuid = $1::uuid
             "#,
@@ -676,7 +676,7 @@ impl Task {
 
         sqlx::query!(
             r#"
-            UPDATE tasker_tasks
+            UPDATE tasker.tasks
             SET context = $2, updated_at = NOW()
             WHERE task_uuid = $1::uuid
             "#,
@@ -708,7 +708,7 @@ impl Task {
 
         sqlx::query!(
             r#"
-            UPDATE tasker_tasks
+            UPDATE tasker.tasks
             SET tags = $2, updated_at = NOW()
             WHERE task_uuid = $1::uuid
             "#,
@@ -726,7 +726,7 @@ impl Task {
     pub async fn delete(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            DELETE FROM tasker_tasks
+            DELETE FROM tasker.tasks
             WHERE task_uuid = $1::uuid
             "#,
             id
@@ -746,7 +746,7 @@ impl Task {
     ///
     /// ```sql
     /// SELECT to_state
-    /// FROM tasker_task_transitions
+    /// FROM tasker.task_transitions
     /// WHERE task_uuid = $1::uuid AND most_recent = true
     /// ORDER BY sort_key DESC
     /// LIMIT 1
@@ -772,7 +772,7 @@ impl Task {
         let row = sqlx::query!(
             r#"
             SELECT to_state
-            FROM tasker_task_transitions
+            FROM tasker.task_transitions
             WHERE task_uuid = $1::uuid AND most_recent = true
             ORDER BY sort_key DESC
             LIMIT 1
@@ -790,7 +790,7 @@ impl Task {
         let count = sqlx::query!(
             r#"
             SELECT COUNT(*) as count
-            FROM tasker_workflow_steps
+            FROM tasker.workflow_steps
             WHERE task_uuid = $1::uuid
             "#,
             self.task_uuid
@@ -810,9 +810,9 @@ impl Task {
         let task_metadata = sqlx::query!(
             r#"
             SELECT nt.name as task_name, nt.version as task_version, tn.name as namespace_name
-            FROM tasker_tasks t
-            INNER JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
-            INNER JOIN tasker_task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
+            FROM tasker.tasks t
+            INNER JOIN tasker.named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
+            INNER JOIN tasker.task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
             WHERE t.task_uuid = $1::uuid
             "#,
             self.task_uuid
@@ -920,8 +920,8 @@ impl Task {
                            t.initiator, t.source_system, t.reason, t.bypass_steps,
                            t.tags, t.context, t.identity_hash, t.priority,
                            t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
-                    FROM tasker_tasks t
-                    INNER JOIN tasker_task_transitions tt
+                    FROM tasker.tasks t
+                    INNER JOIN tasker.task_transitions tt
                         ON t.task_uuid = tt.task_uuid
                     WHERE tt.most_recent = true
                         AND tt.to_state = $1
@@ -943,7 +943,7 @@ impl Task {
                            initiator, source_system, reason, bypass_steps,
                            tags, context, identity_hash, priority,
                            created_at, updated_at, correlation_id, parent_correlation_id
-                    FROM tasker_tasks
+                    FROM tasker.tasks
                     ORDER BY task_uuid
                     "#
                 )
@@ -972,7 +972,7 @@ impl Task {
             SELECT task_uuid, named_task_uuid, complete, requested_at, initiator,
                    source_system, reason, bypass_steps, tags, context,
                    identity_hash, priority, created_at, updated_at, correlation_id, parent_correlation_id
-            FROM tasker_tasks
+            FROM tasker.tasks
             WHERE created_at >= $1
             ORDER BY created_at DESC
             "#,
@@ -999,8 +999,8 @@ impl Task {
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
                    t.tags, t.context, t.identity_hash, t.priority,
                    t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
-            FROM tasker_tasks t
-            INNER JOIN tasker_task_transitions tt
+            FROM tasker.tasks t
+            INNER JOIN tasker.task_transitions tt
                 ON t.task_uuid = tt.task_uuid
             WHERE tt.most_recent = true
                 AND tt.to_state = 'complete'
@@ -1030,8 +1030,8 @@ impl Task {
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
                    t.tags, t.context, t.identity_hash, t.priority,
                    t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
-            FROM tasker_tasks t
-            INNER JOIN tasker_task_transitions tt
+            FROM tasker.tasks t
+            INNER JOIN tasker.task_transitions tt
                 ON t.task_uuid = tt.task_uuid
             WHERE tt.most_recent = true
                 AND tt.to_state = 'error'
@@ -1058,8 +1058,8 @@ impl Task {
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
                    t.tags, t.context, t.identity_hash, t.priority,
                    t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
-            FROM tasker_tasks t
-            LEFT JOIN tasker_task_transitions tt
+            FROM tasker.tasks t
+            LEFT JOIN tasker.task_transitions tt
                 ON t.task_uuid = tt.task_uuid AND tt.most_recent = true
             WHERE tt.to_state IS NULL
                 OR tt.to_state NOT IN ('complete', 'error', 'cancelled')
@@ -1083,9 +1083,9 @@ impl Task {
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
                    t.identity_hash, t.priority, t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
-            FROM tasker_tasks t
-            JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
-            JOIN tasker_task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
+            FROM tasker.tasks t
+            JOIN tasker.named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
+            JOIN tasker.task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
             WHERE tn.name = $1
             ORDER BY t.created_at DESC
             "#,
@@ -1105,8 +1105,8 @@ impl Task {
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
                    t.identity_hash, t.priority, t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
-            FROM tasker_tasks t
-            JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
+            FROM tasker.tasks t
+            JOIN tasker.named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
             WHERE nt.name = $1
             ORDER BY t.created_at DESC
             "#,
@@ -1126,8 +1126,8 @@ impl Task {
             SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
                    t.identity_hash, t.priority, t.created_at, t.updated_at, t.correlation_id, t.parent_correlation_id
-            FROM tasker_tasks t
-            JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
+            FROM tasker.tasks t
+            JOIN tasker.named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
             WHERE nt.version = $1
             ORDER BY t.created_at DESC
             "#,
@@ -1189,8 +1189,8 @@ impl Task {
         let count = sqlx::query!(
             r#"
             SELECT COUNT(DISTINCT nt.name) as count
-            FROM tasker_tasks t
-            INNER JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
+            FROM tasker.tasks t
+            INNER JOIN tasker.named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
             "#
         )
         .fetch_one(pool)
@@ -1215,7 +1215,7 @@ impl Task {
     ) -> Result<serde_json::Value, sqlx::Error> {
         // Placeholder - would load from named_task configuration and apply defaults
         let _named_task = sqlx::query!(
-            "SELECT configuration FROM tasker_named_tasks WHERE named_task_uuid = $1::uuid",
+            "SELECT configuration FROM tasker.named_tasks WHERE named_task_uuid = $1::uuid",
             named_task_uuid
         )
         .fetch_optional(pool)
@@ -1254,8 +1254,8 @@ impl Task {
                    ws.max_attempts, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.checkpoint, ws.skippable, ws.created_at, ws.updated_at
-            FROM tasker_workflow_steps ws
-            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
+            FROM tasker.workflow_steps ws
+            INNER JOIN tasker.named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
             WHERE ws.task_uuid = $1::uuid AND ns.name = $2
             LIMIT 1
             "#,
@@ -1296,7 +1296,7 @@ impl Task {
     /// SELECT
     ///     COUNT(*) as total_steps,
     ///     COUNT(*) FILTER (WHERE processed = true) as completed_steps
-    /// FROM tasker_workflow_steps
+    /// FROM tasker.workflow_steps
     /// WHERE task_uuid = $1::uuid
     /// ```
     ///
@@ -1341,7 +1341,7 @@ impl Task {
             SELECT
                 COUNT(*) as total_steps,
                 COUNT(*) FILTER (WHERE processed = true) as completed_steps
-            FROM tasker_workflow_steps
+            FROM tasker.workflow_steps
             WHERE task_uuid = $1::uuid
             "#,
             self.task_uuid
@@ -1381,7 +1381,7 @@ impl Task {
     /// Get task name (Rails: delegate :name, to: :named_task)
     pub async fn name(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
         let name = sqlx::query!(
-            "SELECT name FROM tasker_named_tasks WHERE named_task_uuid = $1::uuid",
+            "SELECT name FROM tasker.named_tasks WHERE named_task_uuid = $1::uuid",
             self.named_task_uuid
         )
         .fetch_one(pool)
@@ -1409,8 +1409,8 @@ impl Task {
         let namespace_name = sqlx::query!(
             r#"
             SELECT tn.name
-            FROM tasker_named_tasks nt
-            INNER JOIN tasker_task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
+            FROM tasker.named_tasks nt
+            INNER JOIN tasker.task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
             WHERE nt.named_task_uuid = $1::uuid
             "#,
             self.named_task_uuid
@@ -1425,7 +1425,7 @@ impl Task {
     /// Get version (Rails: delegate :version, to: :named_task)
     pub async fn version(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
         let version = sqlx::query!(
-            "SELECT version FROM tasker_named_tasks WHERE named_task_uuid = $1::uuid",
+            "SELECT version FROM tasker.named_tasks WHERE named_task_uuid = $1::uuid",
             self.named_task_uuid
         )
         .fetch_one(pool)
@@ -1709,10 +1709,10 @@ impl Task {
         let incomplete_count = sqlx::query!(
             r#"
             SELECT COUNT(*) as count
-            FROM tasker_workflow_steps ws
+            FROM tasker.workflow_steps ws
             LEFT JOIN (
                 SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state
-                FROM tasker_workflow_step_transitions
+                FROM tasker.workflow_step_transitions
                 WHERE most_recent = true
                 ORDER BY workflow_step_uuid, sort_key DESC
             ) current_states ON current_states.workflow_step_uuid = ws.workflow_step_uuid
@@ -1763,10 +1763,10 @@ impl Task {
         let result = sqlx::query!(
             r#"
             SELECT COUNT(*) as count
-            FROM tasker_workflow_steps ws
+            FROM tasker.workflow_steps ws
             LEFT JOIN (
                 SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state
-                FROM tasker_workflow_step_transitions
+                FROM tasker.workflow_step_transitions
                 WHERE most_recent = true
                 ORDER BY workflow_step_uuid, sort_key DESC
             ) current_states ON current_states.workflow_step_uuid = ws.workflow_step_uuid
@@ -1965,9 +1965,9 @@ impl Task {
                 ns.name as namespace,
                 nt.version,
                 COALESCE(tec.execution_status, 'unknown') as status
-            FROM tasker_tasks t
-            INNER JOIN tasker_named_tasks nt ON t.named_task_uuid = nt.named_task_uuid
-            INNER JOIN tasker_task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid
+            FROM tasker.tasks t
+            INNER JOIN tasker.named_tasks nt ON t.named_task_uuid = nt.named_task_uuid
+            INNER JOIN tasker.task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid
             LEFT JOIN LATERAL get_task_execution_context(t.task_uuid) tec ON true
             WHERE t.task_uuid = $1
             "#,

@@ -38,13 +38,10 @@ skip_core_tasks = true
 # To use split-db mode: cargo make setup-env-all-split
 # To use single-db mode: cargo make setup-env-all
 env_files = [".env"]
-
 # NOTE: DATABASE_URL is NOT set here - it comes from .env file
 # This allows split-db mode (test-split.env) to work correctly
 # If .env doesn't exist, run: cargo make setup-env-all
-
 TASKER_ENV = { value = "test", condition = { env_not_set = ["TASKER_ENV"] } }
-
 # Use relative path for scripts to avoid path duplication issues
 SCRIPTS_DIR = "cargo-make/scripts"
 
@@ -79,39 +76,19 @@ echo "Run 'cargo make --list-all-steps' for all tasks"
 
 [tasks.check]
 description = "Run all quality checks across workspace"
-dependencies = [
-    "check-rust",
-    "check-python",
-    "check-ruby",
-    "check-typescript"
-]
+dependencies = ["check-rust", "check-python", "check-ruby", "check-typescript"]
 
 [tasks.test]
 description = "Run all tests across workspace"
-dependencies = [
-    "test-rust",
-    "test-python",
-    "test-ruby",
-    "test-typescript"
-]
+dependencies = ["test-rust", "test-python", "test-ruby", "test-typescript"]
 
 [tasks.fix]
 description = "Auto-fix all fixable issues"
-dependencies = [
-    "fix-rust",
-    "fix-python",
-    "fix-ruby",
-    "fix-typescript"
-]
+dependencies = ["fix-rust", "fix-python", "fix-ruby", "fix-typescript"]
 
 [tasks.build]
 description = "Build everything"
-dependencies = [
-    "build-rust",
-    "build-python",
-    "build-ruby",
-    "build-typescript"
-]
+dependencies = ["build-rust", "build-python", "build-ruby", "build-typescript"]
 
 # =============================================================================
 # Rust Core Tasks
@@ -189,7 +166,14 @@ args = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]
 [tasks.rust-clippy-fix]
 description = "Fix Clippy issues"
 command = "cargo"
-args = ["clippy", "--all-targets", "--all-features", "--fix", "--allow-dirty", "--allow-staged"]
+args = [
+  "clippy",
+  "--all-targets",
+  "--all-features",
+  "--fix",
+  "--allow-dirty",
+  "--allow-staged"
+]
 
 [tasks.rust-docs]
 description = "Check documentation builds"
@@ -209,7 +193,7 @@ args = ["check", "--benches", "--features", "benchmarks"]
 [tasks.rust-doctests]
 description = "Run documentation tests"
 command = "cargo"
-args = ["test", "--doc", "--all-features"]
+args = ["test", "--doc", "--workspace", "--all-features"]
 
 # =============================================================================
 # Python Worker Tasks
@@ -409,12 +393,12 @@ ${SCRIPTS_DIR}/setup-env.sh --target=typescript-worker --mode=test
 [tasks.setup-env-all]
 description = "Generate .env files for all targets"
 dependencies = [
-    "setup-env",
-    "setup-env-orchestration",
-    "setup-env-rust-worker",
-    "setup-env-ruby-worker",
-    "setup-env-python-worker",
-    "setup-env-typescript-worker",
+  "setup-env",
+  "setup-env-orchestration",
+  "setup-env-rust-worker",
+  "setup-env-ruby-worker",
+  "setup-env-python-worker",
+  "setup-env-typescript-worker",
 ]
 
 [tasks.setup-env-all-split]
@@ -578,10 +562,7 @@ $COMPOSE_CMD -f docker/docker-compose.dual-pg.test.yml down -v
 
 [tasks.clean]
 description = "Clean all build artifacts"
-dependencies = [
-    "clean-rust",
-    "clean-workers"
-]
+dependencies = ["clean-rust", "clean-workers"]
 
 [tasks.clean-rust]
 description = "Clean Rust build artifacts"
@@ -598,12 +579,7 @@ script = { file = "${SCRIPTS_DIR}/clean-workers.sh" }
 
 [tasks.ci-check]
 description = "CI: Run all quality checks"
-dependencies = [
-    "rust-fmt-check",
-    "rust-clippy",
-    "rust-docs",
-    "rust-audit"
-]
+dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-audit"]
 
 [tasks.ci-test]
 description = "CI: Run all tests"
@@ -621,11 +597,7 @@ dependencies = ["sqlx-prepare"]
 
 [tasks.setup]
 description = "Full development setup (auto-detects split mode)"
-dependencies = [
-    "docker-up",
-    "db-setup",
-    "setup-workers"
-]
+dependencies = ["docker-up", "db-setup", "setup-workers"]
 
 [tasks.setup-split]
 description = "Full development setup for split-database mode (TAS-78)"

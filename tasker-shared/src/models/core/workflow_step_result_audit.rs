@@ -6,7 +6,7 @@
 //!
 //! The `WorkflowStepResultAudit` model provides SOC2-compliant audit trails for workflow
 //! step execution results. It stores references and attribution only—full result data
-//! is retrieved via JOIN to `tasker_workflow_step_transitions` which already captures
+//! is retrieved via JOIN to `tasker.workflow_step_transitions` which already captures
 //! the complete `StepExecutionResult` in its metadata.
 //!
 //! ## Design Principles
@@ -19,13 +19,13 @@
 //!
 //! ## Database Schema
 //!
-//! Maps to `tasker_workflow_step_result_audit` table:
+//! Maps to `tasker.workflow_step_result_audit` table:
 //! ```sql
-//! CREATE TABLE tasker_workflow_step_result_audit (
+//! CREATE TABLE tasker.workflow_step_result_audit (
 //!     workflow_step_result_audit_uuid UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-//!     workflow_step_uuid UUID NOT NULL REFERENCES tasker_workflow_steps,
-//!     workflow_step_transition_uuid UUID NOT NULL REFERENCES tasker_workflow_step_transitions,
-//!     task_uuid UUID NOT NULL REFERENCES tasker_tasks,
+//!     workflow_step_uuid UUID NOT NULL REFERENCES tasker.workflow_steps,
+//!     workflow_step_transition_uuid UUID NOT NULL REFERENCES tasker.workflow_step_transitions,
+//!     task_uuid UUID NOT NULL REFERENCES tasker.tasks,
 //!     recorded_at TIMESTAMP NOT NULL DEFAULT NOW(),
 //!     worker_uuid UUID,
 //!     correlation_id UUID,
@@ -159,12 +159,12 @@ impl WorkflowStepResultAudit {
                 t.to_state,
                 t.metadata as transition_metadata,
                 ns.name as step_name
-            FROM tasker_workflow_step_result_audit a
-            INNER JOIN tasker_workflow_step_transitions t
+            FROM tasker.workflow_step_result_audit a
+            INNER JOIN tasker.workflow_step_transitions t
                 ON t.workflow_step_transition_uuid = a.workflow_step_transition_uuid
-            INNER JOIN tasker_workflow_steps ws
+            INNER JOIN tasker.workflow_steps ws
                 ON ws.workflow_step_uuid = a.workflow_step_uuid
-            INNER JOIN tasker_named_steps ns
+            INNER JOIN tasker.named_steps ns
                 ON ns.named_step_uuid = ws.named_step_uuid
             WHERE a.workflow_step_uuid = $1
             ORDER BY a.recorded_at DESC
@@ -211,12 +211,12 @@ impl WorkflowStepResultAudit {
                 t.to_state,
                 t.metadata as transition_metadata,
                 ns.name as step_name
-            FROM tasker_workflow_step_result_audit a
-            INNER JOIN tasker_workflow_step_transitions t
+            FROM tasker.workflow_step_result_audit a
+            INNER JOIN tasker.workflow_step_transitions t
                 ON t.workflow_step_transition_uuid = a.workflow_step_transition_uuid
-            INNER JOIN tasker_workflow_steps ws
+            INNER JOIN tasker.workflow_steps ws
                 ON ws.workflow_step_uuid = a.workflow_step_uuid
-            INNER JOIN tasker_named_steps ns
+            INNER JOIN tasker.named_steps ns
                 ON ns.named_step_uuid = ws.named_step_uuid
             WHERE a.task_uuid = $1
             ORDER BY a.recorded_at DESC
@@ -249,7 +249,7 @@ impl WorkflowStepResultAudit {
                 execution_time_ms,
                 created_at,
                 updated_at
-            FROM tasker_workflow_step_result_audit
+            FROM tasker.workflow_step_result_audit
             WHERE workflow_step_result_audit_uuid = $1
             "#,
             uuid
@@ -286,7 +286,7 @@ impl WorkflowStepResultAudit {
                 execution_time_ms,
                 created_at,
                 updated_at
-            FROM tasker_workflow_step_result_audit
+            FROM tasker.workflow_step_result_audit
             WHERE worker_uuid = $1
             ORDER BY recorded_at DESC
             LIMIT $2
@@ -322,7 +322,7 @@ impl WorkflowStepResultAudit {
                 execution_time_ms,
                 created_at,
                 updated_at
-            FROM tasker_workflow_step_result_audit
+            FROM tasker.workflow_step_result_audit
             WHERE correlation_id = $1
             ORDER BY recorded_at DESC
             "#,
@@ -358,7 +358,7 @@ impl WorkflowStepResultAudit {
                 execution_time_ms,
                 created_at,
                 updated_at
-            FROM tasker_workflow_step_result_audit
+            FROM tasker.workflow_step_result_audit
             WHERE recorded_at BETWEEN $1 AND $2
             ORDER BY recorded_at DESC
             LIMIT $3
@@ -378,7 +378,7 @@ impl WorkflowStepResultAudit {
         let count = sqlx::query!(
             r#"
             SELECT COUNT(*) as count
-            FROM tasker_workflow_step_result_audit
+            FROM tasker.workflow_step_result_audit
             WHERE success = $1
             "#,
             success

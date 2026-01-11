@@ -71,7 +71,7 @@ opentelemetry_sdk = { version = "0.31", features = [
 ] }
 opentelemetry-semantic-conventions = "0.31"
 # Message queue management
-pgmq = "0.31.1"
+pgmq = "0.31.2"
 pgmq-notify = { path = "pgmq-notify" }
 rand = "0.9.1"
 regex = "1.0"

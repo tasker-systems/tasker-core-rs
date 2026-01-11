@@ -116,7 +116,7 @@ mod tests {
 
             // Update step with retry information
             sqlx::query!(
-                "UPDATE tasker_workflow_steps
+                "UPDATE tasker.workflow_steps
                  SET attempts = 1, max_attempts = 3, retryable = true,
                      last_attempted_at = NOW() - INTERVAL '30 seconds'
                  WHERE workflow_step_uuid = $1",
@@ -193,7 +193,7 @@ mod tests {
                 .map_err(|e| sqlx::Error::Protocol(format!("Factory error: {e}")))?;
 
                 sqlx::query!(
-                    "UPDATE tasker_workflow_steps
+                    "UPDATE tasker.workflow_steps
                      SET attempts = 1, max_attempts = 3
                      WHERE workflow_step_uuid = $1",
                     first_step
@@ -364,19 +364,19 @@ mod tests {
     #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_handles_empty_database_correctly(pool: PgPool) -> sqlx::Result<()> {
         // Clear all test data in proper foreign key order
-        sqlx::query!("DELETE FROM tasker_workflow_step_transitions")
+        sqlx::query!("DELETE FROM tasker.workflow_step_transitions")
             .execute(&pool)
             .await?;
-        sqlx::query!("DELETE FROM tasker_task_transitions")
+        sqlx::query!("DELETE FROM tasker.task_transitions")
             .execute(&pool)
             .await?;
-        sqlx::query!("DELETE FROM tasker_workflow_step_edges")
+        sqlx::query!("DELETE FROM tasker.workflow_step_edges")
             .execute(&pool)
             .await?;
-        sqlx::query!("DELETE FROM tasker_workflow_steps")
+        sqlx::query!("DELETE FROM tasker.workflow_steps")
             .execute(&pool)
             .await?;
-        sqlx::query!("DELETE FROM tasker_tasks")
+        sqlx::query!("DELETE FROM tasker.tasks")
             .execute(&pool)
             .await?;
 

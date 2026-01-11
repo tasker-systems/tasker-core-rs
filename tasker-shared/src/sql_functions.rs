@@ -75,7 +75,7 @@ pub mod task_execution {
     /// The function uses a sophisticated CTE (Common Table Expression) structure:
     ///
     /// 1. **Step Analysis**: Calls `get_step_readiness_status()` for comprehensive step data
-    /// 2. **Task State**: Joins with `tasker_task_transitions` for current task status
+    /// 2. **Task State**: Joins with `tasker.task_transitions` for current task status
     /// 3. **Statistical Aggregation**: Uses conditional aggregation for step counts
     /// 4. **Health Computation**: Calculates execution status and recommended actions
     /// 5. **Progress Metrics**: Computes completion percentage and health indicators
@@ -211,7 +211,7 @@ pub mod step_readiness {
     ///
     /// ## Core Logic
     ///
-    /// 1. **Dependency Mapping**: Analyzes `tasker_workflow_step_edges` for step relationships
+    /// 1. **Dependency Mapping**: Analyzes `tasker.workflow_step_edges` for step relationships
     /// 2. **Status Resolution**: Checks current step states from transitions
     /// 3. **Readiness Calculation**: Determines if all dependencies are satisfied
     /// 4. **Priority Scoring**: Assigns priority based on dependency depth and criticality
@@ -395,7 +395,7 @@ pub mod views {
     ///
     /// ## View Definition
     /// ```sql
-    /// CREATE VIEW tasker_step_dag_relationships AS
+    /// CREATE VIEW tasker.step_dag_relationships AS
     /// SELECT
     ///   workflow_step_uuid,
     ///   task_uuid,
@@ -428,7 +428,7 @@ pub mod views {
     /// - **Always Current**: Real-time calculation ensures accuracy
     /// - **Efficient**: Leverages indexes on workflow_step_edges
     /// - **Recursive**: Uses CTEs for depth calculation
-    pub fn tasker_step_dag_relationships() {}
+    pub fn step_dag_relationships() {}
 }
 
 /// Integration examples and common patterns.

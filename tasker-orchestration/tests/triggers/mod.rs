@@ -26,7 +26,7 @@ impl DatabaseTestContext {
         let named_task_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_named_tasks (named_task_uuid, task_namespace_uuid, name, version, description)
+            INSERT INTO tasker.named_tasks (named_task_uuid, task_namespace_uuid, name, version, description)
             VALUES ($1, $2, $3, $4, $5)
             "#,
             named_task_uuid,
@@ -42,7 +42,7 @@ impl DatabaseTestContext {
         let task_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_tasks (task_uuid, named_task_uuid, priority, context, complete)
+            INSERT INTO tasker.tasks (task_uuid, named_task_uuid, priority, context, complete)
             VALUES ($1, $2, $3, $4, $5)
             "#,
             task_uuid,
@@ -65,7 +65,7 @@ impl DatabaseTestContext {
         let named_step_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_named_steps (named_step_uuid, name, description)
+            INSERT INTO tasker.named_steps (named_step_uuid, name, description)
             VALUES ($1, $2, $3)
             "#,
             named_step_uuid,
@@ -78,7 +78,7 @@ impl DatabaseTestContext {
         // Create workflow step
         sqlx::query!(
             r#"
-            INSERT INTO tasker_workflow_steps (workflow_step_uuid, task_uuid, named_step_uuid, step_payload, current_state)
+            INSERT INTO tasker.workflow_steps (workflow_step_uuid, task_uuid, named_step_uuid, step_payload, current_state)
             VALUES ($1, $2, $3, $4, $5)
             "#,
             step_uuid,
@@ -98,7 +98,7 @@ impl DatabaseTestContext {
         // Insert step transition record
         sqlx::query!(
             r#"
-            INSERT INTO tasker_workflow_step_transitions (workflow_step_uuid, from_state, to_state)
+            INSERT INTO tasker.workflow_step_transitions (workflow_step_uuid, from_state, to_state)
             VALUES ($1, $2, $3)
             "#,
             step_uuid,
@@ -111,7 +111,7 @@ impl DatabaseTestContext {
         // Update the workflow step state
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_steps
+            UPDATE tasker.workflow_steps
             SET current_state = $2
             WHERE workflow_step_uuid = $1
             "#,
@@ -129,7 +129,7 @@ impl DatabaseTestContext {
         // Insert task transition record
         sqlx::query!(
             r#"
-            INSERT INTO tasker_task_transitions (task_uuid, from_state, to_state)
+            INSERT INTO tasker.task_transitions (task_uuid, from_state, to_state)
             VALUES ($1, $2, $3)
             "#,
             task_uuid,
@@ -142,7 +142,7 @@ impl DatabaseTestContext {
         // Update the task state
         sqlx::query!(
             r#"
-            UPDATE tasker_tasks
+            UPDATE tasker.tasks
             SET complete = true
             WHERE task_uuid = $1
             "#,
@@ -160,7 +160,7 @@ impl DatabaseTestContext {
 
         sqlx::query!(
             r#"
-            INSERT INTO tasker_task_namespaces (task_namespace_uuid, name, description)
+            INSERT INTO tasker.task_namespaces (task_namespace_uuid, name, description)
             VALUES ($1, $2, $3)
             ON CONFLICT (name) DO NOTHING
             "#,
@@ -173,7 +173,7 @@ impl DatabaseTestContext {
 
         // Get the actual UUID (in case of conflict)
         let result = sqlx::query!(
-            "SELECT task_namespace_uuid FROM tasker_task_namespaces WHERE name = $1",
+            "SELECT task_namespace_uuid FROM tasker.task_namespaces WHERE name = $1",
             name
         )
         .fetch_one(&self.pool)
@@ -190,7 +190,7 @@ impl DatabaseTestContext {
         // Set task to in_progress so it shows up in tasker_ready_tasks view
         sqlx::query!(
             r#"
-            INSERT INTO tasker_task_transitions (task_uuid, from_state, to_state)
+            INSERT INTO tasker.task_transitions (task_uuid, from_state, to_state)
             VALUES ($1, $2, $3)
             "#,
             task_uuid,
@@ -304,7 +304,7 @@ impl TriggerTestSuite {
         let namespace_uuid = Uuid::new_v4();
         sqlx::query!(
             r#"
-            INSERT INTO tasker_task_namespaces (task_namespace_uuid, name, description)
+            INSERT INTO tasker.task_namespaces (task_namespace_uuid, name, description)
             VALUES ($1, $2, $3)
             "#,
             namespace_uuid,
@@ -452,7 +452,7 @@ mod tests {
 
         // Verify step state was updated
         let result = sqlx::query!(
-            "SELECT current_state FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
+            "SELECT current_state FROM tasker.workflow_steps WHERE workflow_step_uuid = $1",
             step_uuid
         )
         .fetch_one(&pool)

@@ -123,7 +123,7 @@ mod tests {
 
         // Exhaust retries
         sqlx::query!(
-            "UPDATE tasker_workflow_steps
+            "UPDATE tasker.workflow_steps
              SET attempts = 3, max_attempts = 3
              WHERE workflow_step_uuid = $1",
             step_uuids[0]
@@ -161,7 +161,7 @@ mod tests {
 
         // Set retry info and back-date the error to be past the backoff period
         sqlx::query!(
-            "UPDATE tasker_workflow_steps
+            "UPDATE tasker.workflow_steps
              SET attempts = 1, max_attempts = 3, retryable = true,
                  last_attempted_at = NOW() - INTERVAL '30 seconds'
              WHERE workflow_step_uuid = $1",
@@ -172,7 +172,7 @@ mod tests {
 
         // Back-date the error transition to be past the exponential backoff period
         sqlx::query!(
-            "UPDATE tasker_workflow_step_transitions
+            "UPDATE tasker.workflow_step_transitions
              SET created_at = NOW() - INTERVAL '5 seconds'
              WHERE workflow_step_uuid = $1 AND to_state = 'error' AND most_recent = true",
             step_uuids[0]
@@ -376,7 +376,7 @@ mod tests {
 
         // Set backoff information
         sqlx::query!(
-            "UPDATE tasker_workflow_steps
+            "UPDATE tasker.workflow_steps
              SET attempts = 1, max_attempts = 3, retryable = true,
                  backoff_request_seconds = 120,
                  last_attempted_at = NOW()

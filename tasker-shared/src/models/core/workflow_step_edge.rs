@@ -69,7 +69,7 @@ impl WorkflowStepEdge {
         let edge = sqlx::query_as!(
             WorkflowStepEdge,
             r#"
-            INSERT INTO tasker_workflow_step_edges (from_step_uuid, to_step_uuid, name, created_at, updated_at)
+            INSERT INTO tasker.workflow_step_edges (from_step_uuid, to_step_uuid, name, created_at, updated_at)
             VALUES ($1::uuid, $2::uuid, $3, NOW(), NOW())
             RETURNING workflow_step_edge_uuid, from_step_uuid, to_step_uuid, name, created_at, updated_at
             "#,
@@ -91,7 +91,7 @@ impl WorkflowStepEdge {
         let edge = sqlx::query_as!(
             WorkflowStepEdge,
             r#"
-            INSERT INTO tasker_workflow_step_edges (from_step_uuid, to_step_uuid, name, created_at, updated_at)
+            INSERT INTO tasker.workflow_step_edges (from_step_uuid, to_step_uuid, name, created_at, updated_at)
             VALUES ($1::uuid, $2::uuid, $3, NOW(), NOW())
             RETURNING workflow_step_edge_uuid, from_step_uuid, to_step_uuid, name, created_at, updated_at
             "#,
@@ -113,7 +113,7 @@ impl WorkflowStepEdge {
         let dependencies = sqlx::query!(
             r#"
             SELECT from_step_uuid
-            FROM tasker_workflow_step_edges
+            FROM tasker.workflow_step_edges
             WHERE to_step_uuid = $1::uuid
             "#,
             step_uuid
@@ -132,7 +132,7 @@ impl WorkflowStepEdge {
         let dependents = sqlx::query!(
             r#"
             SELECT to_step_uuid
-            FROM tasker_workflow_step_edges
+            FROM tasker.workflow_step_edges
             WHERE from_step_uuid = $1::uuid
             "#,
             step_uuid
@@ -155,9 +155,9 @@ impl WorkflowStepEdge {
             WorkflowStepEdge,
             r#"
             SELECT wse.workflow_step_edge_uuid, wse.from_step_uuid, wse.to_step_uuid, wse.name, wse.created_at, wse.updated_at
-            FROM tasker_workflow_step_edges wse
-            INNER JOIN tasker_workflow_steps ws_from ON wse.from_step_uuid = ws_from.workflow_step_uuid
-            INNER JOIN tasker_workflow_steps ws_to ON wse.to_step_uuid = ws_to.workflow_step_uuid
+            FROM tasker.workflow_step_edges wse
+            INNER JOIN tasker.workflow_steps ws_from ON wse.from_step_uuid = ws_from.workflow_step_uuid
+            INNER JOIN tasker.workflow_steps ws_to ON wse.to_step_uuid = ws_to.workflow_step_uuid
             WHERE ws_from.task_uuid = $1::uuid AND ws_to.task_uuid = $1::uuid
             "#,
             task_uuid
@@ -244,7 +244,7 @@ impl WorkflowStepEdge {
             WITH RECURSIVE step_path AS (
                 -- Base case: direct dependencies
                 SELECT from_step_uuid, to_step_uuid, 1 as depth
-                FROM tasker_workflow_step_edges
+                FROM tasker.workflow_step_edges
                 WHERE from_step_uuid = $1::uuid
 
                 UNION ALL
@@ -252,7 +252,7 @@ impl WorkflowStepEdge {
                 -- Recursive case: follow the path
                 SELECT sp.from_step_uuid, wse.to_step_uuid, sp.depth + 1
                 FROM step_path sp
-                JOIN tasker_workflow_step_edges wse ON sp.to_step_uuid = wse.from_step_uuid
+                JOIN tasker.workflow_step_edges wse ON sp.to_step_uuid = wse.from_step_uuid
                 WHERE sp.depth < 100  -- Prevent infinite recursion
             )
             SELECT COUNT(*) as count
@@ -280,7 +280,7 @@ impl WorkflowStepEdge {
             WorkflowStepEdge,
             r#"
             SELECT workflow_step_edge_uuid, from_step_uuid, to_step_uuid, name, created_at, updated_at
-            FROM tasker_workflow_step_edges
+            FROM tasker.workflow_step_edges
             WHERE from_step_uuid = $1::uuid AND to_step_uuid = $2::uuid AND name = $3
             "#,
             from_step_uuid,
@@ -301,7 +301,7 @@ impl WorkflowStepEdge {
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            DELETE FROM tasker_workflow_step_edges
+            DELETE FROM tasker.workflow_step_edges
             WHERE from_step_uuid = $1::uuid AND to_step_uuid = $2::uuid
             "#,
             from_step_uuid,
@@ -318,11 +318,11 @@ impl WorkflowStepEdge {
         let root_steps = sqlx::query!(
             r#"
             SELECT ws.workflow_step_uuid
-            FROM tasker_workflow_steps ws
+            FROM tasker.workflow_steps ws
             WHERE ws.task_uuid = $1::uuid
               AND NOT EXISTS (
                 SELECT 1
-                FROM tasker_workflow_step_edges wse
+                FROM tasker.workflow_step_edges wse
                 WHERE wse.to_step_uuid = ws.workflow_step_uuid
               )
             "#,
@@ -342,11 +342,11 @@ impl WorkflowStepEdge {
         let leaf_steps = sqlx::query!(
             r#"
             SELECT ws.workflow_step_uuid
-            FROM tasker_workflow_steps ws
+            FROM tasker.workflow_steps ws
             WHERE ws.task_uuid = $1::uuid
               AND NOT EXISTS (
                 SELECT 1
-                FROM tasker_workflow_step_edges wse
+                FROM tasker.workflow_step_edges wse
                 WHERE wse.from_step_uuid = ws.workflow_step_uuid
               )
             "#,

@@ -60,7 +60,7 @@ pub mod state_helpers {
             .collect();
 
         format!(
-            "tasker_workflow_step_transitions.most_recent = TRUE AND tasker_workflow_step_transitions.to_state IN ({})",
+            "tasker.workflow_step_transitions.most_recent = TRUE AND tasker.workflow_step_transitions.to_state IN ({})",
             completion_states.join(", ")
         )
     }
@@ -68,7 +68,7 @@ pub mod state_helpers {
     /// Generate SQL condition for failed workflow steps
     pub fn failed_step_condition() -> String {
         format!(
-            "tasker_workflow_step_transitions.most_recent = TRUE AND tasker_workflow_step_transitions.to_state = '{}'",
+            "tasker.workflow_step_transitions.most_recent = TRUE AND tasker.workflow_step_transitions.to_state = '{}'",
             WorkflowStepState::Error
         )
     }

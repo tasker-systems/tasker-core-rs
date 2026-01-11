@@ -104,7 +104,7 @@ fn sample_task_uuids(
         let result = sqlx::query_scalar::<_, Uuid>(
             "WITH task_types AS (
                 SELECT DISTINCT named_task_uuid
-                FROM tasker_tasks
+                FROM tasker.tasks
                 WHERE named_task_uuid IS NOT NULL
                 ORDER BY named_task_uuid
             ),
@@ -113,7 +113,7 @@ fn sample_task_uuids(
                     t.task_uuid,
                     t.named_task_uuid,
                     ROW_NUMBER() OVER (PARTITION BY t.named_task_uuid ORDER BY t.task_uuid) as rn
-                FROM tasker_tasks t
+                FROM tasker.tasks t
                 INNER JOIN task_types tt ON t.named_task_uuid = tt.named_task_uuid
             )
             SELECT task_uuid
@@ -132,7 +132,7 @@ fn sample_task_uuids(
         }
 
         // Fallback: just grab any tasks
-        sqlx::query_scalar("SELECT task_uuid FROM tasker_tasks ORDER BY task_uuid LIMIT $1")
+        sqlx::query_scalar("SELECT task_uuid FROM tasker.tasks ORDER BY task_uuid LIMIT $1")
             .bind(target_count as i32)
             .fetch_all(pool)
             .await
@@ -156,7 +156,7 @@ fn sample_step_uuids(
                     workflow_step_uuid,
                     task_uuid,
                     ROW_NUMBER() OVER (PARTITION BY task_uuid ORDER BY workflow_step_uuid) as rn
-                FROM tasker_workflow_steps
+                FROM tasker.workflow_steps
             )
             SELECT workflow_step_uuid
             FROM step_samples
@@ -174,7 +174,7 @@ fn sample_step_uuids(
         }
 
         // Fallback: just grab any steps
-        sqlx::query_scalar("SELECT workflow_step_uuid FROM tasker_workflow_steps ORDER BY workflow_step_uuid LIMIT $1")
+        sqlx::query_scalar("SELECT workflow_step_uuid FROM tasker.workflow_steps ORDER BY workflow_step_uuid LIMIT $1")
             .bind(target_count as i32)
             .fetch_all(pool)
             .await
@@ -415,7 +415,7 @@ fn bench_explain_analyze(c: &mut Criterion) {
 
     // Get a task UUID for task_execution_context plan
     let task_uuid: Option<Uuid> = runtime.block_on(async {
-        sqlx::query_scalar("SELECT task_uuid FROM tasker_tasks LIMIT 1")
+        sqlx::query_scalar("SELECT task_uuid FROM tasker.tasks LIMIT 1")
             .fetch_optional(&pool)
             .await
             .ok()
@@ -447,7 +447,7 @@ fn bench_explain_analyze(c: &mut Criterion) {
 
     // Get a step UUID for step_transitive_dependencies plan
     let step_uuid: Option<Uuid> = runtime.block_on(async {
-        sqlx::query_scalar("SELECT workflow_step_uuid FROM tasker_workflow_steps LIMIT 1")
+        sqlx::query_scalar("SELECT workflow_step_uuid FROM tasker.workflow_steps LIMIT 1")
             .fetch_optional(&pool)
             .await
             .ok()

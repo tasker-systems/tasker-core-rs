@@ -310,7 +310,7 @@ psql $DATABASE_URL -c "
     from_state,
     to_state,
     metadata->>'duration_ms' as duration
-  FROM tasker_task_transitions
+  FROM tasker.task_transitions
   WHERE metadata->>'correlation_id' = '{correlation_id}'
   ORDER BY created_at;
 "

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tasker.workflow_steps (workflow_step_uuid, task_uuid, named_step_uuid, created_at, updated_at)\n            VALUES ($1, $2, $3, NOW(), NOW())\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "95eefb2e55512ecbaab47c63d3c55ba38a2a2f916e8e4ea1107246ad352c53cf"
+}

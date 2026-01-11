@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tasker.task_transitions\n         SET created_at = NOW() - INTERVAL '6 hours'\n         WHERE task_uuid = $1 AND most_recent = true",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a44fda297ff8772042b6bfb1b3d7c52abe4f028e40991f103737355a75200af"
+}

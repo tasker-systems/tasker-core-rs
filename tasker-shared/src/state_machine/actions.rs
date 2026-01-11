@@ -148,7 +148,7 @@ impl TransitionActions {
         // This ensures compatibility with SQL functions and queries that rely on this flag
         sqlx::query!(
             r#"
-            UPDATE tasker_tasks
+            UPDATE tasker.tasks
             SET complete = true, completed_at = NOW(), updated_at = NOW()
             WHERE task_uuid = $1
             "#,
@@ -513,7 +513,7 @@ impl UpdateStepResultsAction {
         // When a step fails, it's no longer in process
         sqlx::query!(
             r#"
-        UPDATE tasker_workflow_steps
+        UPDATE tasker.workflow_steps
         SET in_process = false,
             updated_at = NOW()
         WHERE workflow_step_uuid = $1
@@ -544,7 +544,7 @@ impl UpdateStepResultsAction {
     ) -> ActionResult<()> {
         sqlx::query!(
             r#"
-        UPDATE tasker_workflow_steps
+        UPDATE tasker.workflow_steps
         SET in_process = false,
             processed = true,
             processed_at = NOW(),
@@ -582,7 +582,7 @@ impl UpdateStepResultsAction {
         // but don't mark as processed yet - orchestration will do that
         sqlx::query!(
             r#"
-        UPDATE tasker_workflow_steps
+        UPDATE tasker.workflow_steps
         SET in_process = false,
             results = $2,
             updated_at = NOW()
@@ -621,7 +621,7 @@ impl UpdateStepResultsAction {
         // but don't mark as processed yet - orchestration will do that
         sqlx::query!(
             r#"
-        UPDATE tasker_workflow_steps
+        UPDATE tasker.workflow_steps
         SET in_process = false,
             results = $2,
             updated_at = NOW()
@@ -655,7 +655,7 @@ impl UpdateStepResultsAction {
     ) -> ActionResult<()> {
         sqlx::query!(
             r#"
-        UPDATE tasker_workflow_steps
+        UPDATE tasker.workflow_steps
         SET in_process = false,
             processed = true,
             processed_at = NOW(),
@@ -906,7 +906,7 @@ impl StateAction<WorkflowStep> for ResetAttemptsAction {
         {
             sqlx::query!(
                 r#"
-                UPDATE tasker_workflow_steps
+                UPDATE tasker.workflow_steps
                 SET attempts = 0,
                     updated_at = NOW()
                 WHERE workflow_step_uuid = $1

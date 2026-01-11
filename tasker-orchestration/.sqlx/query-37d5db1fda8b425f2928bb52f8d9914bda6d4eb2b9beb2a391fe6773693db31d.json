@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT to_state, from_state FROM tasker.workflow_step_transitions WHERE workflow_step_uuid = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "to_state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "from_state",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "37d5db1fda8b425f2928bb52f8d9914bda6d4eb2b9beb2a391fe6773693db31d"
+}

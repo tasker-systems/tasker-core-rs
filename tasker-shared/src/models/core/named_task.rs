@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 /// NamedTask represents task templates/definitions with versioning
 /// Uses UUID v7 for primary key to ensure time-ordered UUIDs
-/// Maps to `tasker_named_tasks` table
+/// Maps to `tasker.named_tasks` table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct NamedTask {
     pub named_task_uuid: Uuid,
@@ -49,7 +49,7 @@ impl NamedTask {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            INSERT INTO tasker_named_tasks (name, version, description, task_namespace_uuid, configuration, created_at, updated_at)
+            INSERT INTO tasker.named_tasks (name, version, description, task_namespace_uuid, configuration, created_at, updated_at)
             VALUES ($1, $2, $3, $4::uuid, $5, NOW(), NOW())
             RETURNING named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
             "#,
@@ -71,7 +71,7 @@ impl NamedTask {
             NamedTask,
             r#"
             SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
-            FROM tasker_named_tasks
+            FROM tasker.named_tasks
             WHERE named_task_uuid = $1::uuid
             "#,
             uuid
@@ -93,7 +93,7 @@ impl NamedTask {
             NamedTask,
             r#"
             SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
-            FROM tasker_named_tasks
+            FROM tasker.named_tasks
             WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3::uuid
             "#,
             name,
@@ -116,7 +116,7 @@ impl NamedTask {
             NamedTask,
             r#"
             SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
-            FROM tasker_named_tasks
+            FROM tasker.named_tasks
             WHERE name = $1 AND task_namespace_uuid = $2::uuid
             ORDER BY created_at DESC
             LIMIT 1
@@ -140,7 +140,7 @@ impl NamedTask {
             NamedTask,
             r#"
             SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
-            FROM tasker_named_tasks
+            FROM tasker.named_tasks
             WHERE name = $1 AND task_namespace_uuid = $2::uuid
             ORDER BY created_at DESC
             "#,
@@ -162,7 +162,7 @@ impl NamedTask {
             NamedTask,
             r#"
             SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
-            FROM tasker_named_tasks
+            FROM tasker.named_tasks
             WHERE task_namespace_uuid = $1::uuid
             ORDER BY name, created_at DESC
             "#,
@@ -184,7 +184,7 @@ impl NamedTask {
             r#"
             SELECT DISTINCT ON (name)
                 named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
-            FROM tasker_named_tasks
+            FROM tasker.named_tasks
             WHERE task_namespace_uuid = $1::uuid
             ORDER BY name, created_at DESC
             "#,
@@ -206,7 +206,7 @@ impl NamedTask {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            UPDATE tasker_named_tasks
+            UPDATE tasker.named_tasks
             SET
                 description = COALESCE($2, description),
                 configuration = COALESCE($3, configuration),
@@ -228,7 +228,7 @@ impl NamedTask {
     pub async fn delete(pool: &PgPool, uuid: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            DELETE FROM tasker_named_tasks
+            DELETE FROM tasker.named_tasks
             WHERE named_task_uuid = $1::uuid
             "#,
             uuid
@@ -251,7 +251,7 @@ impl NamedTask {
             sqlx::query!(
                 r#"
                 SELECT COUNT(*) as count
-                FROM tasker_named_tasks
+                FROM tasker.named_tasks
                 WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3::uuid AND named_task_uuid != $4::uuid
                 "#,
                 name,
@@ -266,7 +266,7 @@ impl NamedTask {
             sqlx::query!(
                 r#"
                 SELECT COUNT(*) as count
-                FROM tasker_named_tasks
+                FROM tasker.named_tasks
                 WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3::uuid
                 "#,
                 name,
@@ -296,7 +296,7 @@ impl NamedTask {
             r#"
             SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                    default_max_attempts, created_at, updated_at
-            FROM tasker_named_tasks_named_steps
+            FROM tasker.named_tasks_named_steps
             WHERE named_task_uuid = $1::uuid
             ORDER BY created_at
             "#,
@@ -317,7 +317,7 @@ impl NamedTask {
         let association = sqlx::query_as!(
             NamedTaskStepAssociation,
             r#"
-            INSERT INTO tasker_named_tasks_named_steps
+            INSERT INTO tasker.named_tasks_named_steps
             (named_task_uuid, named_step_uuid, skippable, default_retryable, default_max_attempts, created_at, updated_at)
             VALUES ($1::uuid, $2::uuid, false, true, 3, NOW(), NOW())
             RETURNING ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
@@ -368,8 +368,8 @@ impl NamedTask {
             r#"
             SELECT nt.named_task_uuid, nt.name, nt.version, nt.description, 
                    nt.task_namespace_uuid, nt.configuration, nt.created_at, nt.updated_at
-            FROM tasker_named_tasks nt
-            JOIN tasker_task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
+            FROM tasker.named_tasks nt
+            JOIN tasker.task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
             WHERE tn.name = $1
             ORDER BY nt.name, nt.version
             "#,
@@ -392,8 +392,8 @@ impl NamedTask {
             r#"
             SELECT nt.named_task_uuid, nt.name, nt.version, nt.description,
                    nt.task_namespace_uuid, nt.configuration, nt.created_at, nt.updated_at
-            FROM tasker_named_tasks nt
-            JOIN tasker_task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
+            FROM tasker.named_tasks nt
+            JOIN tasker.task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
             WHERE tn.name = $1 AND nt.name = $2
             ORDER BY nt.created_at DESC
             LIMIT 1

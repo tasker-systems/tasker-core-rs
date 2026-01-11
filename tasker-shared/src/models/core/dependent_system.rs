@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 /// DependentSystem represents external systems that steps depend on
 /// Uses UUID v7 for primary key to ensure time-ordered UUIDs
-/// Maps to `tasker_dependent_systems` table - simple lookup table (738B Rails model)
+/// Maps to `tasker.dependent_systems` table - simple lookup table (738B Rails model)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct DependentSystem {
     pub dependent_system_uuid: Uuid,
@@ -31,7 +31,7 @@ impl DependentSystem {
         let system = sqlx::query_as!(
             DependentSystem,
             r#"
-            INSERT INTO tasker_dependent_systems (name, description, created_at, updated_at)
+            INSERT INTO tasker.dependent_systems (name, description, created_at, updated_at)
             VALUES ($1, $2, NOW(), NOW())
             RETURNING dependent_system_uuid, name, description, created_at, updated_at
             "#,
@@ -53,7 +53,7 @@ impl DependentSystem {
             DependentSystem,
             r#"
             SELECT dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_dependent_systems
+            FROM tasker.dependent_systems
             WHERE dependent_system_uuid = $1::uuid
             "#,
             uuid
@@ -73,7 +73,7 @@ impl DependentSystem {
             DependentSystem,
             r#"
             SELECT dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_dependent_systems
+            FROM tasker.dependent_systems
             WHERE name = $1
             "#,
             name
@@ -147,7 +147,7 @@ impl DependentSystem {
             DependentSystem,
             r#"
             SELECT dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_dependent_systems
+            FROM tasker.dependent_systems
             ORDER BY name
             "#
         )
@@ -166,7 +166,7 @@ impl DependentSystem {
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
-            UPDATE tasker_dependent_systems
+            UPDATE tasker.dependent_systems
             SET name = COALESCE($2, name),
                 description = COALESCE($3, description),
                 updated_at = NOW()
@@ -193,7 +193,7 @@ impl DependentSystem {
     pub async fn delete(pool: &PgPool, uuid: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            DELETE FROM tasker_dependent_systems
+            DELETE FROM tasker.dependent_systems
             WHERE dependent_system_uuid = $1::uuid
             "#,
             uuid
@@ -214,7 +214,7 @@ impl DependentSystem {
             sqlx::query!(
                 r#"
                 SELECT COUNT(*) as count
-                FROM tasker_dependent_systems
+                FROM tasker.dependent_systems
                 WHERE name = $1 AND dependent_system_uuid != $2::uuid
                 "#,
                 name,
@@ -227,7 +227,7 @@ impl DependentSystem {
             sqlx::query!(
                 r#"
                 SELECT COUNT(*) as count
-                FROM tasker_dependent_systems
+                FROM tasker.dependent_systems
                 WHERE name = $1
                 "#,
                 name
@@ -245,7 +245,7 @@ impl DependentSystem {
         let map_ids = sqlx::query!(
             r#"
             SELECT dependent_system_object_map_id
-            FROM tasker_dependent_system_object_maps
+            FROM tasker.dependent_system_object_maps
             WHERE dependent_system_one_uuid = $1::uuid OR dependent_system_two_uuid = $1::uuid
             "#,
             self.dependent_system_uuid
@@ -264,7 +264,7 @@ impl DependentSystem {
         let step_uuids = sqlx::query!(
             r#"
             SELECT named_step_uuid
-            FROM tasker_named_steps
+            FROM tasker.named_steps
             WHERE dependent_system_uuid = $1::uuid
             ORDER BY name
             "#,
@@ -284,7 +284,7 @@ impl DependentSystem {
         let count = sqlx::query!(
             r#"
             SELECT COUNT(*) as count
-            FROM tasker_named_steps
+            FROM tasker.named_steps
             WHERE dependent_system_uuid = $1::uuid
             "#,
             self.dependent_system_uuid
@@ -306,7 +306,7 @@ impl DependentSystem {
             DependentSystem,
             r#"
             SELECT dependent_system_uuid, name, description, created_at, updated_at
-            FROM tasker_dependent_systems
+            FROM tasker.dependent_systems
             WHERE name ILIKE $1
             ORDER BY name
             "#,
@@ -328,7 +328,7 @@ impl DependentSystem {
         let object_maps_count = sqlx::query!(
             r#"
             SELECT COUNT(*) as count
-            FROM tasker_dependent_system_object_maps
+            FROM tasker.dependent_system_object_maps
             WHERE dependent_system_one_uuid = $1::uuid OR dependent_system_two_uuid = $1::uuid
             "#,
             self.dependent_system_uuid

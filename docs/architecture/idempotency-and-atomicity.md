@@ -35,10 +35,10 @@ PostgreSQL provides fundamental atomic guarantees through several mechanisms:
 **Purpose**: Prevent duplicate creation of entities
 
 **Key Constraints**:
-- `tasker_tasks.identity_hash` (UNIQUE) - Prevents duplicate task creation from identical requests
-- `tasker_task_namespaces.name` (UNIQUE) - Namespace name uniqueness
-- `tasker_named_tasks (namespace_id, name, version)` (UNIQUE) - Task template uniqueness
-- `tasker_named_steps.system_name` (UNIQUE) - Step handler uniqueness
+- `tasker.tasks.identity_hash` (UNIQUE) - Prevents duplicate task creation from identical requests
+- `tasker.task_namespaces.name` (UNIQUE) - Namespace name uniqueness
+- `tasker.named_tasks (namespace_id, name, version)` (UNIQUE) - Task template uniqueness
+- `tasker.named_steps.system_name` (UNIQUE) - Step handler uniqueness
 
 **Example Protection**:
 ```rust
@@ -59,14 +59,14 @@ See [Task Initialization](#task-initialization-idempotency) for details on how t
 1. **`FOR UPDATE`** - Exclusive lock, blocks concurrent transactions
    ```sql
    -- Used in: transition_task_state_atomic()
-   SELECT * FROM tasker_tasks WHERE task_uuid = $1 FOR UPDATE;
+   SELECT * FROM tasker.tasks WHERE task_uuid = $1 FOR UPDATE;
    -- Blocks until transaction commits or rolls back
    ```
 
 2. **`FOR UPDATE SKIP LOCKED`** - Lock-free work distribution
    ```sql
    -- Used in: get_next_ready_tasks()
-   SELECT * FROM tasker_tasks
+   SELECT * FROM tasker.tasks
    WHERE state = ANY($1)
    FOR UPDATE SKIP LOCKED
    LIMIT $2;
@@ -89,7 +89,7 @@ See [Task Initialization](#task-initialization-idempotency) for details on how t
 **Pattern**: All state transitions validate current state in the same transaction as the update
 ```sql
 -- From transition_task_state_atomic()
-UPDATE tasker_tasks
+UPDATE tasker.tasks
 SET state = $new_state, updated_at = NOW()
 WHERE task_uuid = $uuid
   AND state = $expected_current_state  -- Critical: CAS validation
@@ -438,7 +438,7 @@ See `tasker-shared/src/models/core/workflow_step_edge.rs:236-270` for cycle dete
 1. **SQL-Level Row Locking**
    ```sql
    -- get_next_ready_tasks() uses SKIP LOCKED
-   SELECT task_uuid FROM tasker_tasks
+   SELECT task_uuid FROM tasker.tasks
    WHERE state = ANY($states)
    FOR UPDATE SKIP LOCKED  -- Prevents concurrent claiming
    LIMIT $batch_size;
@@ -638,7 +638,7 @@ T6: B receives StateMachineError (invalid transition)
 
 ```sql
 -- Proposed claim_task_for_finalization() function
-UPDATE tasker_tasks
+UPDATE tasker.tasks
 SET finalization_claimed_at = NOW(),
     finalization_claimed_by = $processor_uuid
 WHERE task_uuid = $uuid
@@ -672,7 +672,7 @@ See [TAS-37](https://linear.app/tasker-systems/issue/TAS-37) for specification (
 
 ```sql
 -- Atomic state transition with validation
-UPDATE tasker_tasks
+UPDATE tasker.tasks
 SET state = $new_state,
     updated_at = NOW()
 WHERE task_uuid = $uuid
@@ -692,7 +692,7 @@ FOR UPDATE;  -- Lock prevents concurrent modifications
 
 ```sql
 SELECT task_uuid, correlation_id, state
-FROM tasker_tasks
+FROM tasker.tasks
 WHERE state = ANY($processable_states)
   AND (
     state NOT IN ('WaitingForRetry') OR
@@ -724,8 +724,8 @@ LIMIT $batch_size;
 WITH step_dependencies AS (
   SELECT COUNT(*) as total_deps,
          SUM(CASE WHEN dep_step.state = 'Complete' THEN 1 ELSE 0 END) as completed_deps
-  FROM tasker_workflow_step_edges e
-  JOIN tasker_workflow_steps dep_step ON e.from_step_uuid = dep_step.uuid
+  FROM tasker.workflow_step_edges e
+  JOIN tasker.workflow_steps dep_step ON e.from_step_uuid = dep_step.uuid
   WHERE e.to_step_uuid = $step_uuid
 )
 SELECT
@@ -734,7 +734,7 @@ SELECT
     WHEN step.state = 'Error' AND step.attempts < step.max_attempts THEN 'WaitingForRetry'
     ELSE 'Blocked'
   END as readiness
-FROM step_dependencies, tasker_workflow_steps step
+FROM step_dependencies, tasker.workflow_steps step
 WHERE step.uuid = $step_uuid;
 ```
 
@@ -752,7 +752,7 @@ WHERE step.uuid = $step_uuid;
 WITH RECURSIVE step_path AS (
   -- Base: Start from proposed destination
   SELECT from_step_uuid, to_step_uuid, 1 as depth
-  FROM tasker_workflow_step_edges
+  FROM tasker.workflow_step_edges
   WHERE from_step_uuid = $proposed_to
 
   UNION ALL
@@ -760,7 +760,7 @@ WITH RECURSIVE step_path AS (
   -- Recursive: Follow edges
   SELECT sp.from_step_uuid, wse.to_step_uuid, sp.depth + 1
   FROM step_path sp
-  JOIN tasker_workflow_step_edges wse ON sp.to_step_uuid = wse.from_step_uuid
+  JOIN tasker.workflow_step_edges wse ON sp.to_step_uuid = wse.from_step_uuid
   WHERE sp.depth < 100  -- Prevent infinite recursion
 )
 SELECT COUNT(*) as has_path

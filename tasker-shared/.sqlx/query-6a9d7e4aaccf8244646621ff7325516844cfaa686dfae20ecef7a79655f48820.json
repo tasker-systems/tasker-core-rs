@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM tasker.task_namespaces\n            WHERE task_namespace_uuid = $1::uuid\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6a9d7e4aaccf8244646621ff7325516844cfaa686dfae20ecef7a79655f48820"
+}

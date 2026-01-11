@@ -174,7 +174,7 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
 
     // Cleanup - delete in reverse dependency order (transitions first)
     sqlx::query!(
-        "DELETE FROM tasker_workflow_step_transitions WHERE workflow_step_uuid = $1",
+        "DELETE FROM tasker.workflow_step_transitions WHERE workflow_step_uuid = $1",
         workflow_step.workflow_step_uuid
     )
     .execute(&pool)
