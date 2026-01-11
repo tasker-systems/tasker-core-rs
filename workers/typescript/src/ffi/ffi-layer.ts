@@ -78,7 +78,7 @@ export class FfiLayer {
 
     if (!path) {
       throw new Error(
-        'FFI library not found. Set TASKER_FFI_LIBRARY_PATH or build with: cargo build -p tasker-worker-ts --release'
+        'FFI library not found. Set TASKER_FFI_LIBRARY_PATH or build with: cargo build -p tasker-worker-ts'
       );
     }
 
@@ -165,26 +165,28 @@ export class FfiLayer {
     const searchPaths: string[] = [];
 
     // Check CARGO_TARGET_DIR if set (custom target directory)
+    // Prefer debug builds (matches sccache config for CI)
     const cargoTargetDir = process.env.CARGO_TARGET_DIR;
     if (cargoTargetDir) {
-      searchPaths.push(join(cargoTargetDir, 'release', libName));
       searchPaths.push(join(cargoTargetDir, 'debug', libName));
+      searchPaths.push(join(cargoTargetDir, 'release', libName));
     }
 
     // Build search paths relative to caller/cwd
+    // Prefer debug builds (matches sccache config for CI)
     const baseDir = callerDir ?? process.cwd();
     searchPaths.push(
-      join(baseDir, '..', '..', 'target', 'release', libName),
       join(baseDir, '..', '..', 'target', 'debug', libName),
-      join(baseDir, 'target', 'release', libName),
-      join(baseDir, 'target', 'debug', libName)
+      join(baseDir, '..', '..', 'target', 'release', libName),
+      join(baseDir, 'target', 'debug', libName),
+      join(baseDir, 'target', 'release', libName)
     );
 
     // Relative to cwd (if different from callerDir)
     if (callerDir) {
       searchPaths.push(
-        join(process.cwd(), '..', '..', 'target', 'release', libName),
-        join(process.cwd(), '..', '..', 'target', 'debug', libName)
+        join(process.cwd(), '..', '..', 'target', 'debug', libName),
+        join(process.cwd(), '..', '..', 'target', 'release', libName)
       );
     }
 

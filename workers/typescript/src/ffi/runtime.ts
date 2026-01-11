@@ -145,6 +145,6 @@ export function getLibraryPath(basePath?: string): string {
     }
   })();
 
-  // Default to release build path
-  return `${base}/target/release/${libName}`;
+  // Default to debug build path (matches sccache config for CI)
+  return `${base}/target/debug/${libName}`;
 }

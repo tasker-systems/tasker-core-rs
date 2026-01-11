@@ -258,13 +258,13 @@ jobs:
           # Build the TypeScript worker (compiles to dist/)
           bun run build
 
-          # The FFI library should be available from the release build
+          # The FFI library should be available from the debug build (matches sccache config)
           # For CI, we need to ensure the path is correct
-          if [ -f "../../target/release/libtasker_worker.so" ]; then
-            echo "✅ FFI library found at target/release/libtasker_worker.so"
+          if [ -f "../../target/debug/libtasker_worker.so" ]; then
+            echo "✅ FFI library found at target/debug/libtasker_worker.so"
           else
             echo "⚠️ FFI library not found, building..."
-            cargo build --release -p tasker-worker-ts
+            cargo build -p tasker-worker-ts
           fi
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test

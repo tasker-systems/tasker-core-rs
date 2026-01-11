@@ -20,26 +20,26 @@ ARTIFACTS_DIR="${ARTIFACTS_DIR:-artifacts/typescript}"
 echo "Restoring TypeScript artifacts from ${ARTIFACTS_DIR}..."
 
 if [ -d "${ARTIFACTS_DIR}" ]; then
-    # Restore FFI library to target/release
-    mkdir -p target/release
+    # Restore FFI library to target/debug (matches sccache config)
+    mkdir -p target/debug
 
     for lib in libtasker_worker.so libtasker_worker.dylib; do
         # Try flat structure first
         if [ -f "${ARTIFACTS_DIR}/${lib}" ]; then
-            cp -f "${ARTIFACTS_DIR}/${lib}" target/release/
+            cp -f "${ARTIFACTS_DIR}/${lib}" target/debug/
             echo "  Restored ${lib} (flat)"
         # Try nested structure
-        elif [ -f "${ARTIFACTS_DIR}/target/release/${lib}" ]; then
-            cp -f "${ARTIFACTS_DIR}/target/release/${lib}" target/release/
+        elif [ -f "${ARTIFACTS_DIR}/target/debug/${lib}" ]; then
+            cp -f "${ARTIFACTS_DIR}/target/debug/${lib}" target/debug/
             echo "  Restored ${lib} (nested)"
         fi
     done
 
     # Verify FFI library
-    if [ -f target/release/libtasker_worker.so ] || [ -f target/release/libtasker_worker.dylib ]; then
+    if [ -f target/debug/libtasker_worker.so ] || [ -f target/debug/libtasker_worker.dylib ]; then
         echo ""
-        echo "FFI library in target/release/:"
-        ls -lh target/release/libtasker_worker.* 2>/dev/null || true
+        echo "FFI library in target/debug/:"
+        ls -lh target/debug/libtasker_worker.* 2>/dev/null || true
     else
         echo "  Warning: FFI library not found in artifacts"
     fi

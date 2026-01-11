@@ -317,8 +317,8 @@ jobs:
           name: typescript-artifacts
           path: |
             workers/typescript/dist/
-            target/release/libtasker_worker.so
-            target/release/libtasker_worker.dylib
+            target/debug/libtasker_worker.so
+            target/debug/libtasker_worker.dylib
           retention-days: 1
           if-no-files-found: warn
 
