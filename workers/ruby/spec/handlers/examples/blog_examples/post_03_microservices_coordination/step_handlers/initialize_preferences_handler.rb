@@ -9,6 +9,11 @@ module Microservices
     # - Default preferences with fallback values
     # - Inline service simulation
     # - Optional preferences handling
+    #
+    # TAS-137 Best Practices Demonstrated:
+    # - get_dependency_result() for upstream step data
+    # - get_dependency_field() for nested field extraction from dependencies
+    # - get_input() for task context access
     class InitializePreferencesHandler < TaskerCore::StepHandler::Base
       # Default preference templates by plan
       DEFAULT_PREFERENCES = {
@@ -57,15 +62,17 @@ module Microservices
           )
         end
 
-        user_id = user_data['user_id'] || user_data[:user_id]
-        plan = user_data['plan'] || user_data[:plan] || 'free'
+        # TAS-137: Use get_dependency_field() for nested field extraction
+        user_id = context.get_dependency_field('create_user_account', 'user_id')
+        plan = context.get_dependency_field('create_user_account', 'plan') || 'free'
 
         logger.info "   User ID: #{user_id}"
         logger.info "   Plan: #{plan}"
 
-        # Get custom preferences from task context (if any)
-        task_context = context.task.context.deep_symbolize_keys
-        custom_prefs = task_context.dig(:user_info, :preferences) || {}
+        # TAS-137: Use get_input() for task context access with nested path
+        user_info = context.get_input_or('user_info', {})
+        user_info = user_info.deep_symbolize_keys if user_info.is_a?(Hash)
+        custom_prefs = user_info[:preferences] || {}
 
         # Simulate preferences service API call
         result = simulate_preferences_service_initialize(user_id, plan, custom_prefs)

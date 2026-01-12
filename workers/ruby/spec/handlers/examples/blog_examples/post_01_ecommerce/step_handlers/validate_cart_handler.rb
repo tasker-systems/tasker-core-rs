@@ -2,6 +2,8 @@
 
 module Ecommerce
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input() for task context field access (cross-language standard)
     class ValidateCartHandler < TaskerCore::StepHandler::Base
       # Mock product database for e-commerce demonstration
       PRODUCTS = {
@@ -49,7 +51,7 @@ module Ecommerce
               shipping_cost: shipping
             },
             input_refs: {
-              cart_items: 'context.task.context.cart_items'
+              cart_items: 'context.get_input("cart_items")'
             }
           }
         )
@@ -62,9 +64,8 @@ module Ecommerce
 
       # Extract and validate all required inputs for cart validation
       def extract_and_validate_inputs(context)
-        # Normalize all hash keys to symbols for consistent access
-        task_context = context.task.context.deep_symbolize_keys
-        cart_items = task_context[:cart_items]
+        # TAS-137: Use get_input() for task context access (cross-language standard)
+        cart_items = context.get_input('cart_items')
 
         unless cart_items&.any?
           raise TaskerCore::Errors::PermanentError.new(

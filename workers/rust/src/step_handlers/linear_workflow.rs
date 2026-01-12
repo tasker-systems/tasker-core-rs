@@ -13,6 +13,13 @@
 //! This creates a pattern where the final result is `input^(2^4) = input^8`.
 //! For input=6: 6^8 = 1,679,616
 //!
+//! ## TAS-137 Best Practices Demonstrated
+//!
+//! - `get_input::<T>()` for task context field access (cross-language standard)
+//! - `get_input_or()` for task context with default value
+//! - `get_dependency_result_column_value::<T>()` for upstream step results
+//! - Concise, readable code that matches Ruby/Python/TypeScript patterns
+//!
 //! ## Performance Benefits
 //!
 //! Native Rust implementation provides:
@@ -31,6 +38,9 @@ use tasker_shared::types::TaskSequenceStep;
 use tracing::{error, info};
 
 /// Linear Step 1: Square the initial even number (6 -> 36)
+///
+/// TAS-137 Best Practices:
+/// - Uses `get_input::<T>()` for task context access (cross-language standard)
 #[derive(Debug)]
 pub struct LinearStep1Handler {
     #[allow(dead_code)] // api compatibility
@@ -43,8 +53,9 @@ impl RustStepHandler for LinearStep1Handler {
         let start_time = std::time::Instant::now();
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
-        // Extract even_number from task context
-        let even_number = match step_data.get_context_field::<i64>("even_number") {
+        // TAS-137: Use get_input() for task context access (cross-language standard)
+        // This is equivalent to get_context_field() but matches Ruby/Python/TypeScript naming
+        let even_number = match step_data.get_input::<i64>("even_number") {
             Ok(value) => value,
             Err(e) => {
                 error!("Missing even_number in task context: {}", e);
@@ -85,7 +96,7 @@ impl RustStepHandler for LinearStep1Handler {
         metadata.insert(
             "input_refs".to_string(),
             json!({
-                "even_number": "task.context.even_number"
+                "even_number": "step_data.get_input(\"even_number\")"
             }),
         );
 
@@ -242,6 +253,10 @@ impl RustStepHandler for LinearStep3Handler {
 }
 
 /// Linear Step 4: Square the result from step 3 (final step with verification)
+///
+/// TAS-137 Best Practices:
+/// - Uses `get_dependency_result_column_value::<T>()` for upstream step results
+/// - Uses `get_input_or()` for task context with default value
 #[derive(Debug)]
 pub struct LinearStep4Handler {
     #[allow(dead_code)] // api compatibility
@@ -280,8 +295,9 @@ impl RustStepHandler for LinearStep4Handler {
 
         info!("Linear Step 4 (Final): {}² = {}", previous_result, result);
 
-        // Get original number for verification (matching Ruby pattern)
-        let original_number: i64 = step_data.get_context_field("even_number").unwrap_or(0);
+        // TAS-137: Use get_input_or() for task context with default value
+        // This is cleaner than .unwrap_or() and matches cross-language patterns
+        let original_number: i64 = step_data.get_input_or("even_number", 0);
 
         // Calculate expected result: original^8 (squaring 4 times: 2^4 = 8)
         let expected = original_number.pow(8);
@@ -302,7 +318,7 @@ impl RustStepHandler for LinearStep4Handler {
         metadata.insert(
             "input_refs".to_string(),
             json!({
-                "previous_result": "sequence.linear_step_3.result"
+                "previous_result": "step_data.get_dependency_result_column_value(\"linear_step_3\")"
             }),
         );
         metadata.insert(

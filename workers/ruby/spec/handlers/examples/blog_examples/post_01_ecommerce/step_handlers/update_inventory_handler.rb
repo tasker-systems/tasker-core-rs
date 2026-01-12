@@ -2,6 +2,10 @@
 
 module Ecommerce
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input() for task context field access (cross-language standard)
+    # - get_dependency_result() for upstream step results (auto-unwraps)
+    # - get_dependency_field() for nested field extraction from dependencies
     class UpdateInventoryHandler < TaskerCore::StepHandler::Base
       # Mock product inventory database (shared with ValidateCartHandler)
       PRODUCTS = {
@@ -52,8 +56,8 @@ module Ecommerce
               'X-Total-Quantity' => updated_products.sum { |p| p[:quantity_reserved] }.to_s
             },
             input_refs: {
-              validated_items: 'sequence.validate_cart.result.validated_items',
-              customer_info: 'context.task.context.customer_info'
+              validated_items: 'context.get_dependency_field("validate_cart", "validated_items")',
+              customer_info: 'context.get_input("customer_info")'
             }
           }
         )
@@ -66,10 +70,13 @@ module Ecommerce
 
       # Extract and validate all required inputs for inventory processing
       def extract_and_validate_inputs(context)
-        # Normalize all hash keys to symbols for consistent access
+        # TAS-137: Use get_dependency_result() for upstream step results (auto-unwraps)
         cart_validation = context.get_dependency_result('validate_cart')
         cart_validation = cart_validation.deep_symbolize_keys if cart_validation
-        customer_info = context.task.context.deep_symbolize_keys[:customer_info]
+
+        # TAS-137: Use get_input() for task context access (cross-language standard)
+        customer_info = context.get_input('customer_info')
+        customer_info = customer_info.deep_symbolize_keys if customer_info
 
         unless cart_validation&.dig(:validated_items)&.any?
           raise TaskerCore::Errors::PermanentError.new(

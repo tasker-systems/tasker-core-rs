@@ -2,6 +2,10 @@
 
 module CustomerSuccess
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input(): Access task context fields (refund_amount, refund_reason)
+    # - get_dependency_result(): Access upstream step results (execute_refund_workflow, validate_refund_request)
+    # - get_dependency_field(): Extract nested fields from dependency results (ticket_id, customer_id, delegated_task_id, correlation_id)
     class UpdateTicketStatusHandler < TaskerCore::StepHandler::Base
       def call(context)
         # Extract and validate inputs
@@ -43,8 +47,12 @@ module CustomerSuccess
               'X-Ticket-Status' => update_result[:new_status]
             },
             input_refs: {
-              ticket_id: 'context.task.context.ticket_id',
-              workflow_delegation: 'sequence.execute_refund_workflow.result'
+              refund_amount: 'context.get_input("refund_amount")',
+              refund_reason: 'context.get_input("refund_reason")',
+              ticket_id: 'context.get_dependency_field("validate_refund_request", "ticket_id")',
+              customer_id: 'context.get_dependency_field("validate_refund_request", "customer_id")',
+              delegated_task_id: 'context.get_dependency_field("execute_refund_workflow", "delegated_task_id")',
+              correlation_id: 'context.get_dependency_field("execute_refund_workflow", "correlation_id")'
             }
           }
         )
@@ -55,11 +63,9 @@ module CustomerSuccess
 
       private
 
-      # Extract and validate inputs from task and previous steps
+      # TAS-137: Extract and validate inputs using StepContext API
       def extract_and_validate_inputs(context)
-        task_context = context.task.context.deep_symbolize_keys
-
-        # Get workflow delegation results
+        # TAS-137: Validate dependency result exists
         delegation_result = context.get_dependency_result('execute_refund_workflow')
         delegation_result = delegation_result.deep_symbolize_keys if delegation_result
 
@@ -70,17 +76,16 @@ module CustomerSuccess
           )
         end
 
-        # Get validation results for ticket info
-        validation_result = context.get_dependency_result('validate_refund_request')
-        validation_result = validation_result.deep_symbolize_keys if validation_result
-
         {
-          ticket_id: validation_result[:ticket_id],
-          customer_id: validation_result[:customer_id],
-          refund_amount: task_context[:refund_amount],
-          refund_reason: task_context[:refund_reason],
-          delegated_task_id: delegation_result[:delegated_task_id],
-          correlation_id: delegation_result[:correlation_id]
+          # TAS-137: Use get_dependency_field for nested dependency access
+          ticket_id: context.get_dependency_field('validate_refund_request', 'ticket_id'),
+          customer_id: context.get_dependency_field('validate_refund_request', 'customer_id'),
+          # TAS-137: Use get_input for task context access
+          refund_amount: context.get_input('refund_amount'),
+          refund_reason: context.get_input('refund_reason'),
+          # TAS-137: Use get_dependency_field for nested dependency access
+          delegated_task_id: context.get_dependency_field('execute_refund_workflow', 'delegated_task_id'),
+          correlation_id: context.get_dependency_field('execute_refund_workflow', 'correlation_id')
         }
       end
 

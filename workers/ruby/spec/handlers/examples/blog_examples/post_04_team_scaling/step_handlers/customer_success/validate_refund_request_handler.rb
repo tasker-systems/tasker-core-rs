@@ -2,6 +2,9 @@
 
 module CustomerSuccess
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input(): Access task context fields (ticket_id, customer_id, refund_amount, refund_reason)
+    # Note: This is the first step in the workflow - no dependencies to access
     class ValidateRefundRequestHandler < TaskerCore::StepHandler::Base
       def call(context)
         # Extract and validate inputs
@@ -43,8 +46,10 @@ module CustomerSuccess
               'X-Customer-Tier' => service_response[:customer_tier]
             },
             input_refs: {
-              ticket_id: 'context.task.context.ticket_id',
-              customer_id: 'context.task.context.customer_id'
+              ticket_id: 'context.get_input("ticket_id")',
+              customer_id: 'context.get_input("customer_id")',
+              refund_amount: 'context.get_input("refund_amount")',
+              refund_reason: 'context.get_input("refund_reason")'
             }
           }
         )
@@ -55,13 +60,18 @@ module CustomerSuccess
 
       private
 
-      # Extract and validate inputs
+      # TAS-137: Extract and validate inputs using StepContext API
       def extract_and_validate_inputs(context)
-        task_context = context.task.context.deep_symbolize_keys
+        # TAS-137: Use get_input for task context access
+        ticket_id = context.get_input('ticket_id')
+        customer_id = context.get_input('customer_id')
+        refund_amount = context.get_input('refund_amount')
 
         # Validate required fields
-        required_fields = %i[ticket_id customer_id refund_amount]
-        missing_fields = required_fields.select { |field| task_context[field].blank? }
+        missing_fields = []
+        missing_fields << 'ticket_id' if ticket_id.blank?
+        missing_fields << 'customer_id' if customer_id.blank?
+        missing_fields << 'refund_amount' if refund_amount.blank?
 
         if missing_fields.any?
           raise TaskerCore::Errors::PermanentError.new(
@@ -71,10 +81,11 @@ module CustomerSuccess
         end
 
         {
-          ticket_id: task_context[:ticket_id],
-          customer_id: task_context[:customer_id],
-          refund_amount: task_context[:refund_amount],
-          refund_reason: task_context[:refund_reason]
+          ticket_id: ticket_id,
+          customer_id: customer_id,
+          refund_amount: refund_amount,
+          # TAS-137: Use get_input for optional field
+          refund_reason: context.get_input('refund_reason')
         }
       end
 

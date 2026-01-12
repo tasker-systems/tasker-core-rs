@@ -409,4 +409,227 @@ impl TaskSequenceStep {
     pub fn get_dependency_step_names(&self) -> Vec<String> {
         self.dependency_results.keys().cloned().collect()
     }
+
+    // =========================================================================
+    // CROSS-LANGUAGE STANDARD ACCESSORS (TAS-137)
+    // =========================================================================
+
+    /// Get a field from the task context - cross-language standard alias
+    ///
+    /// This is an alias for `get_context_field` that matches the naming convention
+    /// used in Python (`get_input`), Ruby (`get_input`), and TypeScript (`getInput`).
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use tasker_shared::types::base::TaskSequenceStep;
+    /// # let step_data: TaskSequenceStep = panic!("Example only");
+    /// let order_id: String = step_data.get_input("order_id")?;
+    /// let quantity: i32 = step_data.get_input("quantity")?;
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    pub fn get_input<T>(&self, field_name: &str) -> Result<T, anyhow::Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        self.get_context_field(field_name)
+    }
+
+    /// Get a field from the task context with a default value
+    ///
+    /// Returns the default value if the field doesn't exist or deserialization fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use tasker_shared::types::base::TaskSequenceStep;
+    /// # let step_data: TaskSequenceStep = panic!("Example only");
+    /// let batch_size: i32 = step_data.get_input_or("batch_size", 100);
+    /// ```
+    pub fn get_input_or<T>(&self, field_name: &str, default: T) -> T
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        self.get_context_field(field_name).unwrap_or(default)
+    }
+
+    /// Get a configuration value from the handler initialization
+    ///
+    /// Accesses values from `step_definition.handler.initialization`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use tasker_shared::types::base::TaskSequenceStep;
+    /// # let step_data: TaskSequenceStep = panic!("Example only");
+    /// let api_url: String = step_data.get_config("api_url")?;
+    /// let timeout: u64 = step_data.get_config("timeout_seconds")?;
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    pub fn get_config<T>(&self, key: &str) -> Result<T, anyhow::Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let init = &self.step_definition.handler.initialization;
+        let value = init
+            .get(key)
+            .ok_or_else(|| anyhow::anyhow!("Config key '{}' not found", key))?;
+        serde_json::from_value(value.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize config key '{}': {}", key, e))
+    }
+
+    /// Extract a nested field from a dependency result
+    ///
+    /// Useful when dependency results are complex objects and you need
+    /// to extract a specific nested value.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use tasker_shared::types::base::TaskSequenceStep;
+    /// # let step_data: TaskSequenceStep = panic!("Example only");
+    /// // Extract a nested field
+    /// let csv_path: String = step_data.get_dependency_field("analyze_csv", &["csv_file_path"])?;
+    ///
+    /// // Multiple levels deep
+    /// let value: i32 = step_data.get_dependency_field("step_1", &["data", "count"])?;
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    pub fn get_dependency_field<T>(
+        &self,
+        step_name: &str,
+        path: &[&str],
+    ) -> Result<T, anyhow::Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let step_result = self.dependency_results.get(step_name).ok_or_else(|| {
+            anyhow::anyhow!("Dependency result for step '{}' not found", step_name)
+        })?;
+
+        let mut value = &step_result.result;
+        for key in path {
+            value = value
+                .get(*key)
+                .ok_or_else(|| anyhow::anyhow!("Path element '{}' not found in result", key))?;
+        }
+
+        serde_json::from_value(value.clone()).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to deserialize field at path {:?} from step '{}': {}",
+                path,
+                step_name,
+                e
+            )
+        })
+    }
+
+    // =========================================================================
+    // RETRY HELPERS (TAS-137)
+    // =========================================================================
+
+    /// Check if this execution is a retry attempt
+    ///
+    /// Returns true if the step has been attempted at least once before.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use tasker_shared::types::base::TaskSequenceStep;
+    /// # let step_data: TaskSequenceStep = panic!("Example only");
+    /// if step_data.is_retry() {
+    ///     println!("Retrying step, attempt {}", step_data.retry_count());
+    /// }
+    /// ```
+    pub fn is_retry(&self) -> bool {
+        self.workflow_step.attempts.unwrap_or(0) > 0
+    }
+
+    /// Check if this is the last retry attempt
+    ///
+    /// Returns true if the current attempt count equals or exceeds max_attempts - 1.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use tasker_shared::types::base::TaskSequenceStep;
+    /// # let step_data: TaskSequenceStep = panic!("Example only");
+    /// if step_data.is_last_retry() {
+    ///     // Send alert or take special action on final attempt
+    /// }
+    /// ```
+    pub fn is_last_retry(&self) -> bool {
+        let attempts = self.workflow_step.attempts.unwrap_or(0);
+        let max = self.workflow_step.max_attempts.unwrap_or(3);
+        attempts >= max.saturating_sub(1)
+    }
+
+    /// Get the current retry attempt count
+    pub fn retry_count(&self) -> i32 {
+        self.workflow_step.attempts.unwrap_or(0)
+    }
+
+    /// Get the maximum retry attempts allowed
+    pub fn max_retries(&self) -> i32 {
+        self.workflow_step.max_attempts.unwrap_or(3)
+    }
+
+    // =========================================================================
+    // CHECKPOINT ACCESSORS (TAS-125/TAS-137 Batch Processing Support)
+    // =========================================================================
+
+    /// Get the raw checkpoint data from the workflow step
+    ///
+    /// Returns the checkpoint JSONB value if set.
+    pub fn checkpoint(&self) -> Option<&serde_json::Value> {
+        self.workflow_step.checkpoint.as_ref()
+    }
+
+    /// Get the checkpoint cursor position with type conversion
+    ///
+    /// The cursor represents the current position in batch processing,
+    /// allowing handlers to resume from where they left off.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use tasker_shared::types::base::TaskSequenceStep;
+    /// # let step_data: TaskSequenceStep = panic!("Example only");
+    /// let cursor: Option<i64> = step_data.checkpoint_cursor();
+    /// let start_from = cursor.unwrap_or(0);
+    /// ```
+    pub fn checkpoint_cursor<T>(&self) -> Option<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        self.checkpoint()
+            .and_then(|cp| cp.get("cursor"))
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+    }
+
+    /// Get the number of items processed in the current batch run
+    pub fn checkpoint_items_processed(&self) -> i64 {
+        self.checkpoint()
+            .and_then(|cp| cp.get("items_processed"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+    }
+
+    /// Get the accumulated results from batch processing
+    ///
+    /// Accumulated results allow handlers to maintain running totals
+    /// or aggregated state across checkpoint boundaries.
+    pub fn accumulated_results<T>(&self) -> Option<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        self.checkpoint()
+            .and_then(|cp| cp.get("accumulated_results"))
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+    }
+
+    /// Check if a checkpoint exists for this step
+    pub fn has_checkpoint(&self) -> bool {
+        self.checkpoint().and_then(|cp| cp.get("cursor")).is_some()
+    }
 }

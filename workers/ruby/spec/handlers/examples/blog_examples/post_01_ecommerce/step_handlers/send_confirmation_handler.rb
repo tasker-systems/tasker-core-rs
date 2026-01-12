@@ -2,6 +2,10 @@
 
 module Ecommerce
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input() for task context field access (cross-language standard)
+    # - get_dependency_result() for upstream step results (auto-unwraps)
+    # - get_dependency_field() for nested field extraction from dependencies
     class SendConfirmationHandler < TaskerCore::StepHandler::Base
       def call(context)
         # Extract and validate all required inputs
@@ -40,9 +44,9 @@ module Ecommerce
               'X-Recipient' => customer_email
             },
             input_refs: {
-              customer_info: 'context.task.context.customer_info',
-              order_result: 'sequence.create_order.result',
-              cart_validation: 'sequence.validate_cart.result'
+              customer_info: 'context.get_input("customer_info")',
+              order_result: 'context.get_dependency_result("create_order")',
+              cart_validation: 'context.get_dependency_result("validate_cart")'
             }
           }
         )
@@ -55,10 +59,11 @@ module Ecommerce
 
       # Extract and validate all required inputs for email sending
       def extract_and_validate_inputs(context)
-        # Normalize all hash keys to symbols for consistent access
-        task_context = context.task.context.deep_symbolize_keys
-        customer_info = task_context[:customer_info]
+        # TAS-137: Use get_input() for task context access (cross-language standard)
+        customer_info = context.get_input('customer_info')
+        customer_info = customer_info.deep_symbolize_keys if customer_info
 
+        # TAS-137: Use get_dependency_result() for upstream step results (auto-unwraps)
         order_result = context.get_dependency_result('create_order')
         order_result = order_result.deep_symbolize_keys if order_result
 

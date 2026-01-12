@@ -2,6 +2,11 @@
 
 module CustomerSuccess
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input(): Access task context fields (refund_amount, refund_reason, customer_email, ticket_id, correlation_id)
+    # - get_input_or(): Access task context with defaults (refund_reason, customer_email)
+    # - get_dependency_result(): Access upstream step results (get_manager_approval, validate_refund_request)
+    # - get_dependency_field(): Extract nested fields from dependency results (payment_id, approval_id)
     class ExecuteRefundWorkflowHandler < TaskerCore::StepHandler::Base
       def call(context)
         # Extract and validate inputs
@@ -42,9 +47,12 @@ module CustomerSuccess
               'X-Correlation-ID' => delegation_result[:correlation_id]
             },
             input_refs: {
-              approval_result: 'sequence.get_manager_approval.result',
-              validation_result: 'sequence.validate_refund_request.result',
-              policy_check: 'sequence.check_refund_policy.result'
+              refund_amount: 'context.get_input("refund_amount")',
+              refund_reason: 'context.get_input_or("refund_reason", "customer_request")',
+              customer_email: 'context.get_input_or("customer_email", "customer@example.com")',
+              ticket_id: 'context.get_input("ticket_id")',
+              payment_id: 'context.get_dependency_field("validate_refund_request", "payment_id")',
+              approval_id: 'context.get_dependency_field("get_manager_approval", "approval_id")'
             }
           }
         )
@@ -55,11 +63,9 @@ module CustomerSuccess
 
       private
 
-      # Extract and validate inputs from task and previous steps
+      # TAS-137: Extract and validate inputs using StepContext API
       def extract_and_validate_inputs(context)
-        task_context = context.task.context.deep_symbolize_keys
-
-        # Get approval results from previous step
+        # TAS-137: Validate dependency result exists
         approval_result = context.get_dependency_result('get_manager_approval')
         approval_result = approval_result.deep_symbolize_keys if approval_result
 
@@ -70,11 +76,8 @@ module CustomerSuccess
           )
         end
 
-        # Get validation results to extract payment_id
-        validation_result = context.get_dependency_result('validate_refund_request')
-        validation_result = validation_result.deep_symbolize_keys if validation_result
-
-        payment_id = validation_result&.dig(:payment_id)
+        # TAS-137: Use get_dependency_field for nested access
+        payment_id = context.get_dependency_field('validate_refund_request', 'payment_id')
         unless payment_id
           raise TaskerCore::Errors::PermanentError.new(
             'Payment ID not found in validation results',
@@ -91,14 +94,18 @@ module CustomerSuccess
           context: {
             # Map customer service ticket to payment ID
             payment_id: payment_id,
-            refund_amount: task_context[:refund_amount],
-            refund_reason: task_context[:refund_reason] || 'customer_request',
-            customer_email: task_context[:customer_email] || 'customer@example.com',
+            # TAS-137: Use get_input for task context access
+            refund_amount: context.get_input('refund_amount'),
+            # TAS-137: Use get_input_or for task context with default
+            refund_reason: context.get_input_or('refund_reason', 'customer_request'),
+            customer_email: context.get_input_or('customer_email', 'customer@example.com'),
             # Include cross-team coordination metadata
             initiated_by: 'customer_success',
-            approval_id: approval_result[:approval_id],
-            ticket_id: task_context[:ticket_id],
-            correlation_id: task_context[:correlation_id] || generate_correlation_id
+            # TAS-137: Use get_dependency_field for nested dependency access
+            approval_id: context.get_dependency_field('get_manager_approval', 'approval_id'),
+            # TAS-137: Use get_input for task context access
+            ticket_id: context.get_input('ticket_id'),
+            correlation_id: context.get_input('correlation_id') || generate_correlation_id
           }
         }
       end

@@ -2,6 +2,11 @@
 
 module Payments
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input(): Access task context fields (refund_reason, partial_refund)
+    # - get_input_or(): Access task context with defaults (refund_reason, partial_refund)
+    # - get_dependency_result(): Access upstream step results (validate_payment_eligibility)
+    # - get_dependency_field(): Extract nested fields from dependency results (payment_id, refund_amount, original_amount)
     class ProcessGatewayRefundHandler < TaskerCore::StepHandler::Base
       def call(context)
         # Extract and validate inputs
@@ -44,8 +49,11 @@ module Payments
               'X-Gateway-Transaction-ID' => refund_result[:gateway_transaction_id]
             },
             input_refs: {
-              payment_id: 'context.task.context.payment_id',
-              validation_result: 'sequence.validate_payment_eligibility.result'
+              refund_reason: 'context.get_input_or("refund_reason", "customer_request")',
+              partial_refund: 'context.get_input_or("partial_refund", false)',
+              payment_id: 'context.get_dependency_field("validate_payment_eligibility", "payment_id")',
+              refund_amount: 'context.get_dependency_field("validate_payment_eligibility", "refund_amount")',
+              original_amount: 'context.get_dependency_field("validate_payment_eligibility", "original_amount")'
             }
           }
         )
@@ -56,11 +64,9 @@ module Payments
 
       private
 
-      # Extract and validate inputs from task and previous step
+      # TAS-137: Extract and validate inputs using StepContext API
       def extract_and_validate_inputs(context)
-        task_context = context.task.context.deep_symbolize_keys
-
-        # Get validation results from previous step
+        # TAS-137: Validate dependency result exists
         validation_result = context.get_dependency_result('validate_payment_eligibility')
         validation_result = validation_result.deep_symbolize_keys if validation_result
 
@@ -72,11 +78,14 @@ module Payments
         end
 
         {
-          payment_id: validation_result[:payment_id],
-          refund_amount: validation_result[:refund_amount],
-          refund_reason: task_context[:refund_reason] || 'customer_request',
-          partial_refund: task_context[:partial_refund] || false,
-          original_amount: validation_result[:original_amount]
+          # TAS-137: Use get_dependency_field for nested dependency access
+          payment_id: context.get_dependency_field('validate_payment_eligibility', 'payment_id'),
+          refund_amount: context.get_dependency_field('validate_payment_eligibility', 'refund_amount'),
+          # TAS-137: Use get_input_or for task context with defaults
+          refund_reason: context.get_input_or('refund_reason', 'customer_request'),
+          partial_refund: context.get_input_or('partial_refund', false),
+          # TAS-137: Use get_dependency_field for nested dependency access
+          original_amount: context.get_dependency_field('validate_payment_eligibility', 'original_amount')
         }
       end
 

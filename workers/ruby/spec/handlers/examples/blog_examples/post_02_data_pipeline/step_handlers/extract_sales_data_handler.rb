@@ -8,6 +8,11 @@ module DataPipeline
     # - Parallel execution (runs concurrently with other extracts)
     # - Self-contained simulation of data source
     # - Inline sample data
+    #
+    # TAS-137 Best Practices Demonstrated:
+    # - Root DAG node: No task context or dependency access needed
+    # - Data sourced from inline sample data (simulated external system)
+    # - Results passed to downstream transform_sales step via DAG
     class ExtractSalesDataHandler < TaskerCore::StepHandler::Base
       # Sample sales data (inline simulation)
       SAMPLE_SALES_DATA = [

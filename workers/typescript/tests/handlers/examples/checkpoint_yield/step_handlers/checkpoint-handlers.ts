@@ -12,6 +12,12 @@
  * - Checkpoint data (cursor, items_processed, accumulated_results) is persisted
  * - Step is re-dispatched and resumes from the checkpoint
  * - When all items processed, returns success (completes the step)
+ *
+ * TAS-137 Best Practices Demonstrated:
+ * - getInputOr() for task context access with defaults
+ * - getConfig() for handler configuration
+ * - isRetry() and retryCount for retry detection
+ * - Checkpoint accessors: hasCheckpoint(), checkpointCursor, checkpointItemsProcessed, accumulatedResults
  */
 
 import { StepHandler } from '../../../../../src/handler/base.js';
@@ -30,6 +36,10 @@ import type {
  *   - total_items: Number of items to process (default: 100)
  *
  * Returns batch_processing_outcome with a single batch covering all items.
+ *
+ * TAS-137 Best Practices:
+ * - Uses getInputOr() for task context with fallback to getConfig()
+ * - Uses getConfig() for handler configuration
  */
 export class CheckpointYieldAnalyzerHandler extends BatchableStepHandler {
   static handlerName = 'checkpoint_yield.step_handlers.CheckpointYieldAnalyzerHandler';
@@ -38,15 +48,15 @@ export class CheckpointYieldAnalyzerHandler extends BatchableStepHandler {
   private static readonly DEFAULT_TOTAL_ITEMS = 100;
 
   async call(context: StepContext): Promise<BatchableResult> {
-    // Get configuration from task context
-    const totalItems =
-      (context.inputData?.total_items as number) ??
-      (context.stepConfig?.total_items as number) ??
-      CheckpointYieldAnalyzerHandler.DEFAULT_TOTAL_ITEMS;
+    // TAS-137: Use getInputOr() with fallback to getConfig() for configuration
+    const totalItems = context.getInputOr(
+      'total_items',
+      context.getConfig<number>('total_items') ?? CheckpointYieldAnalyzerHandler.DEFAULT_TOTAL_ITEMS
+    );
 
-    // Get worker template name from step definition initialization
+    // TAS-137: Use getConfig() for handler configuration
     const workerTemplateName =
-      (context.stepConfig?.worker_template_name as string) ?? 'checkpoint_yield_batch_ts';
+      context.getConfig<string>('worker_template_name') ?? 'checkpoint_yield_batch_ts';
 
     if (totalItems <= 0) {
       // No items to process - return no_batches outcome
@@ -83,6 +93,11 @@ export class CheckpointYieldAnalyzerHandler extends BatchableStepHandler {
  *   - After processing items_per_checkpoint items, calls checkpointYield()
  *   - Checkpoint persists cursor position and accumulated results
  *   - On resume, continues from checkpoint cursor with accumulated results
+ *
+ * TAS-137 Best Practices:
+ * - Uses getInputOr() for task context with fallback to getConfig()
+ * - Uses hasCheckpoint(), checkpointCursor, checkpointItemsProcessed, accumulatedResults
+ * - Uses retryCount for attempt tracking
  */
 /** Configuration for checkpoint yield worker */
 interface WorkerConfig {
@@ -129,30 +144,32 @@ export class CheckpointYieldWorkerHandler extends BatchableStepHandler {
   }
 
   private getWorkerConfig(context: StepContext): WorkerConfig {
+    // TAS-137: Use getInputOr() with fallback to getConfig() for configuration
     return {
-      itemsPerCheckpoint:
-        (context.inputData?.items_per_checkpoint as number) ??
-        (context.stepConfig?.items_per_checkpoint as number) ??
-        CheckpointYieldWorkerHandler.DEFAULT_ITEMS_PER_CHECKPOINT,
-      failAfterItems: context.inputData?.fail_after_items as number | undefined,
-      failOnAttempt: (context.inputData?.fail_on_attempt as number) ?? 1,
-      permanentFailure: (context.inputData?.permanent_failure as boolean) ?? false,
+      itemsPerCheckpoint: context.getInputOr(
+        'items_per_checkpoint',
+        context.getConfig<number>('items_per_checkpoint') ??
+          CheckpointYieldWorkerHandler.DEFAULT_ITEMS_PER_CHECKPOINT
+      ),
+      failAfterItems: context.getInput<number>('fail_after_items') ?? undefined,
+      failOnAttempt: context.getInputOr('fail_on_attempt', 1),
+      permanentFailure: context.getInputOr('permanent_failure', false),
     };
   }
 
   private getProcessingState(context: StepContext, defaultStartCursor: number): ProcessingState {
-    const workflowStep = context.event?.workflow_step as Record<string, unknown> | undefined;
-    const checkpoint = workflowStep?.checkpoint as Record<string, unknown> | undefined;
-    const currentAttempt = ((workflowStep?.attempts as number) ?? 0) + 1;
+    // TAS-137: Use retryCount for attempt tracking (0-indexed, add 1 for 1-indexed)
+    const currentAttempt = context.retryCount + 1;
 
-    if (checkpoint) {
+    // TAS-137: Use checkpoint accessors for clean resumption logic
+    if (context.hasCheckpoint()) {
       return {
-        startCursor: (checkpoint.cursor as number) ?? defaultStartCursor,
-        accumulated: (checkpoint.accumulated_results as ProcessingState['accumulated']) ?? {
+        startCursor: (context.checkpointCursor as number) ?? defaultStartCursor,
+        accumulated: (context.accumulatedResults as ProcessingState['accumulated']) ?? {
           running_total: 0,
           item_ids: [],
         },
-        totalProcessed: (checkpoint.items_processed as number) ?? 0,
+        totalProcessed: context.checkpointItemsProcessed,
         currentAttempt,
       };
     }

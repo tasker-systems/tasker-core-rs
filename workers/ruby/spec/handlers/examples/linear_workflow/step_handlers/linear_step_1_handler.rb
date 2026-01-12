@@ -3,11 +3,17 @@
 module LinearWorkflow
   module StepHandlers
     # First step in linear workflow: square the initial even number
+    #
+    # TAS-137 Best Practices Demonstrated:
+    #   - get_input() for task context field access (cross-language standard)
+    #   - Concise, readable code that matches Python/TypeScript patterns
     class LinearStep1Handler < TaskerCore::StepHandler::Base
       def call(context)
-        logger.info("Starting Linear Step 1, with task context: #{context.task.context.inspect}")
-        # Get the even number from task context
-        even_number = context.task.context['even_number']
+        logger.info("Starting Linear Step 1, with task context: #{context.context.inspect}")
+
+        # TAS-137: Use get_input() for task context access (cross-language standard)
+        # This is equivalent to context.task.context['even_number'] but more portable
+        even_number = context.get_input('even_number')
         raise 'Task context must contain an even number' unless even_number&.even?
 
         # Square the even number (first step operation)
@@ -22,7 +28,7 @@ module LinearWorkflow
             operation: 'square',
             step_type: 'initial',
             input_refs: {
-              even_number: 'context.task.context.even_number'
+              even_number: 'context.get_input("even_number")'
             }
           }
         )

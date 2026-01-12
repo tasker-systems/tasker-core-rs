@@ -18,6 +18,12 @@ module TaskerCore
       #   - After processing items_per_checkpoint items, calls checkpoint_yield()
       #   - Checkpoint persists cursor position and accumulated results
       #   - On resume, continues from checkpoint cursor with accumulated results
+      #
+      # TAS-137 Best Practices Demonstrated:
+      #   - get_input_or() for task context field with default
+      #   - get_config() for handler configuration
+      #   - is_retry? for retry detection
+      #   - Checkpoint accessors via BatchWorkerContext
       class WorkerHandler < StepHandler::Batchable
         def call(context)
           # Get batch worker context first
@@ -28,13 +34,12 @@ module TaskerCore
           no_op_result = handle_no_op_worker(batch_ctx)
           return no_op_result if no_op_result
 
-          # Get configuration from task context
-          items_per_checkpoint = context.task.context['items_per_checkpoint'] ||
-                                 context.step_definition.handler.initialization['items_per_checkpoint'] ||
-                                 25
-          fail_after_items = context.task.context['fail_after_items']
-          fail_on_attempt = context.task.context['fail_on_attempt'] || 1
-          permanent_failure = context.task.context['permanent_failure'] || false
+          # TAS-137: Use get_input_or() with fallback to get_config() for configuration
+          items_per_checkpoint = context.get_input_or('items_per_checkpoint',
+                                                      context.get_config('items_per_checkpoint') || 25)
+          fail_after_items = context.get_input('fail_after_items')
+          fail_on_attempt = context.get_input_or('fail_on_attempt', 1)
+          permanent_failure = context.get_input_or('permanent_failure', false)
 
           # Determine starting position
           if batch_ctx.has_checkpoint?

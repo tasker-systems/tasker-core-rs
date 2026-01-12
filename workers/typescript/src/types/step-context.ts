@@ -215,6 +215,130 @@ export class StepContext {
   }
 
   /**
+   * Get a value from the input data with a default.
+   *
+   * @param key - The key to look up in inputData
+   * @param defaultValue - Value to return if key not found or undefined
+   * @returns The value or default if not found/undefined
+   *
+   * @example
+   * ```typescript
+   * const batchSize = context.getInputOr('batch_size', 100);
+   * ```
+   */
+  getInputOr<T = unknown>(key: string, defaultValue: T): T {
+    const value = this.inputData[key];
+    return value === undefined ? defaultValue : (value as T);
+  }
+
+  /**
+   * Extract a nested field from a dependency result.
+   *
+   * Useful when dependency results are complex objects and you need
+   * to extract a specific nested value without manual object traversal.
+   *
+   * @param stepName - Name of the dependency step
+   * @param path - Path elements to traverse into the result
+   * @returns The nested value, or null if not found
+   *
+   * @example
+   * ```typescript
+   * // Extract nested field from dependency result
+   * const csvPath = context.getDependencyField('analyze_csv', 'csv_file_path');
+   * // Multiple levels deep
+   * const value = context.getDependencyField('step_1', 'data', 'items');
+   * ```
+   */
+  getDependencyField(stepName: string, ...path: string[]): unknown {
+    let result = this.getDependencyResult(stepName);
+    if (result === null || result === undefined) {
+      return null;
+    }
+    for (const key of path) {
+      if (typeof result !== 'object' || result === null) {
+        return null;
+      }
+      result = (result as Record<string, unknown>)[key];
+    }
+    return result;
+  }
+
+  // ===========================================================================
+  // CHECKPOINT ACCESSORS (TAS-125 Batch Processing Support)
+  // ===========================================================================
+
+  /**
+   * Get the raw checkpoint data from the workflow step.
+   *
+   * @returns The checkpoint data object or null if not set
+   */
+  get checkpoint(): Record<string, unknown> | null {
+    const workflowStep = this.event.workflow_step ?? {};
+    return (workflowStep.checkpoint as Record<string, unknown>) ?? null;
+  }
+
+  /**
+   * Get the checkpoint cursor position.
+   *
+   * The cursor represents the current position in batch processing,
+   * allowing handlers to resume from where they left off.
+   *
+   * @returns The cursor value (number, string, or object) or null if not set
+   *
+   * @example
+   * ```typescript
+   * const cursor = context.checkpointCursor;
+   * const startFrom = cursor ?? 0;
+   * ```
+   */
+  get checkpointCursor(): unknown {
+    return this.checkpoint?.cursor ?? null;
+  }
+
+  /**
+   * Get the number of items processed in the current batch run.
+   *
+   * @returns Number of items processed (0 if no checkpoint)
+   */
+  get checkpointItemsProcessed(): number {
+    return (this.checkpoint?.items_processed as number) ?? 0;
+  }
+
+  /**
+   * Get the accumulated results from batch processing.
+   *
+   * Accumulated results allow handlers to maintain running totals
+   * or aggregated state across checkpoint boundaries.
+   *
+   * @returns The accumulated results object or null if not set
+   *
+   * @example
+   * ```typescript
+   * const totals = context.accumulatedResults ?? {};
+   * const currentSum = totals.sum ?? 0;
+   * ```
+   */
+  get accumulatedResults(): Record<string, unknown> | null {
+    return (this.checkpoint?.accumulated_results as Record<string, unknown>) ?? null;
+  }
+
+  /**
+   * Check if a checkpoint exists for this step.
+   *
+   * @returns True if a checkpoint cursor exists
+   *
+   * @example
+   * ```typescript
+   * if (context.hasCheckpoint()) {
+   *   console.log(`Resuming from cursor: ${context.checkpointCursor}`);
+   * }
+   * ```
+   */
+  hasCheckpoint(): boolean {
+    return this.checkpointCursor !== null;
+  }
+
+  /**
    * Get all dependency result keys.
    *
    * @returns Array of step names that have dependency results

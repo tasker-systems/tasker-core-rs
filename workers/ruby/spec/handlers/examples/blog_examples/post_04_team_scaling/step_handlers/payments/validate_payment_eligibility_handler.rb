@@ -2,6 +2,10 @@
 
 module Payments
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input(): Access task context fields (payment_id, refund_amount, refund_reason, partial_refund)
+    # - get_input_or(): Access task context with defaults (partial_refund)
+    # Note: This is the first step in the payments workflow - no dependencies to access
     class ValidatePaymentEligibilityHandler < TaskerCore::StepHandler::Base
       def call(context)
         # Extract and validate inputs using Phase 1 pattern
@@ -43,8 +47,10 @@ module Payments
               'X-Eligibility-Status' => validation_result[:status]
             },
             input_refs: {
-              payment_id: 'context.task.context.payment_id',
-              refund_amount: 'context.task.context.refund_amount'
+              payment_id: 'context.get_input("payment_id")',
+              refund_amount: 'context.get_input("refund_amount")',
+              refund_reason: 'context.get_input("refund_reason")',
+              partial_refund: 'context.get_input_or("partial_refund", false)'
             }
           }
         )
@@ -55,14 +61,16 @@ module Payments
 
       private
 
-      # Extract and validate all required inputs
+      # TAS-137: Extract and validate all required inputs using StepContext API
       def extract_and_validate_inputs(context)
-        # Normalize context to symbols early
-        task_context = context.task.context.deep_symbolize_keys
+        # TAS-137: Use get_input for task context access
+        payment_id = context.get_input('payment_id')
+        refund_amount = context.get_input('refund_amount')
 
         # Validate required fields
-        required_fields = %i[payment_id refund_amount]
-        missing_fields = required_fields.select { |field| task_context[field].blank? }
+        missing_fields = []
+        missing_fields << 'payment_id' if payment_id.blank?
+        missing_fields << 'refund_amount' if refund_amount.blank?
 
         if missing_fields.any?
           raise TaskerCore::Errors::PermanentError.new(
@@ -72,7 +80,6 @@ module Payments
         end
 
         # Validate refund amount is positive
-        refund_amount = task_context[:refund_amount]
         if refund_amount <= 0
           raise TaskerCore::Errors::PermanentError.new(
             "Refund amount must be positive, got: #{refund_amount}",
@@ -81,7 +88,6 @@ module Payments
         end
 
         # Validate payment ID format (basic validation)
-        payment_id = task_context[:payment_id]
         unless payment_id.match?(/^pay_[a-zA-Z0-9_]+$/)
           raise TaskerCore::Errors::PermanentError.new(
             "Invalid payment ID format: #{payment_id}",
@@ -92,8 +98,10 @@ module Payments
         {
           payment_id: payment_id,
           refund_amount: refund_amount,
-          refund_reason: task_context[:refund_reason],
-          partial_refund: task_context[:partial_refund] || false
+          # TAS-137: Use get_input for optional field
+          refund_reason: context.get_input('refund_reason'),
+          # TAS-137: Use get_input_or for task context with default
+          partial_refund: context.get_input_or('partial_refund', false)
         }
       end
 

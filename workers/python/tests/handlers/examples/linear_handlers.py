@@ -5,6 +5,11 @@ depends on the previous one in a chain:
 
     FetchData -> TransformData -> StoreData
 
+This module showcases TAS-137 StepContext best practices:
+- get_input_or() for task context access with defaults
+- get_dependency_result() for upstream step results (auto-unwraps)
+- get_dependency_field() for nested field extraction from dependencies
+
 Example usage:
     from tests.handlers.examples.linear_handlers import (
         FetchDataHandler,
@@ -41,6 +46,9 @@ class FetchDataHandler(StepHandler):
     Output:
         source: str - The source that was used
         items: list - List of fetched items
+
+    TAS-137 Best Practices Demonstrated:
+        - get_input_or() for task context field with default value
     """
 
     handler_name = "fetch_data"
@@ -48,7 +56,8 @@ class FetchDataHandler(StepHandler):
 
     def call(self, context: StepContext) -> StepHandlerResult:
         """Fetch data from the configured source."""
-        source = context.input_data.get("source", "default")
+        # TAS-137: Use get_input_or() for task context access with default
+        source = context.get_input_or("source", "default")
 
         # Simulate fetching data
         items = [
@@ -78,6 +87,9 @@ class TransformDataHandler(StepHandler):
     Output:
         transformed_items: list - List of transformed items
         transform_count: int - Number of items transformed
+
+    TAS-137 Best Practices Demonstrated:
+        - get_dependency_field() for nested field extraction from dependency result
     """
 
     handler_name = "transform_data"
@@ -85,9 +97,9 @@ class TransformDataHandler(StepHandler):
 
     def call(self, context: StepContext) -> StepHandlerResult:
         """Transform the fetched data."""
-        # Get result from previous step
-        fetch_result = context.dependency_results.get("fetch_data", {})
-        items = fetch_result.get("items", [])
+        # TAS-137: Use get_dependency_field() for nested field extraction
+        # This replaces the two-step pattern: dependency_results.get(...).get(...)
+        items = context.get_dependency_field("fetch_data", "items") or []
 
         if not items:
             return StepHandlerResult.failure(
@@ -128,6 +140,9 @@ class StoreDataHandler(StepHandler):
         stored_count: int - Number of items stored
         stored_ids: list - IDs of stored items
         storage_location: str - Where data was stored
+
+    TAS-137 Best Practices Demonstrated:
+        - get_dependency_field() for nested field extraction from dependency result
     """
 
     handler_name = "store_data"
@@ -135,9 +150,8 @@ class StoreDataHandler(StepHandler):
 
     def call(self, context: StepContext) -> StepHandlerResult:
         """Store the transformed data."""
-        # Get transformed data from previous step
-        transform_result = context.dependency_results.get("transform_data", {})
-        items = transform_result.get("transformed_items", [])
+        # TAS-137: Use get_dependency_field() for nested field extraction
+        items = context.get_dependency_field("transform_data", "transformed_items") or []
 
         if not items:
             return StepHandlerResult.failure(

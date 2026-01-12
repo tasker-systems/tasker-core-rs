@@ -2,6 +2,9 @@
 
 module Ecommerce
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input() for task context field access (cross-language standard)
+    # - get_dependency_field() for nested field extraction from dependencies
     class ProcessPaymentHandler < TaskerCore::StepHandler::Base
       def call(context)
         # Extract and validate all required inputs
@@ -46,8 +49,8 @@ module Ecommerce
               'X-Transaction-ID' => payment_result[:transaction_id]
             },
             input_refs: {
-              amount: 'sequence.validate_cart.result.total',
-              payment_info: 'context.task.context.payment_info'
+              amount: 'context.get_dependency_field("validate_cart", "total")',
+              payment_info: 'context.get_input("payment_info")'
             }
           }
         )
@@ -113,18 +116,17 @@ module Ecommerce
 
       # Extract and validate all required inputs for payment processing
       def extract_and_validate_inputs(context)
-        # Normalize all hash keys to symbols for consistent access
-        task_context = context.task.context.deep_symbolize_keys
-        payment_info = task_context[:payment_info]
-        cart_validation = context.get_dependency_result('validate_cart')
+        # TAS-137: Use get_input() for task context access (cross-language standard)
+        payment_info = context.get_input('payment_info')
+        payment_info = payment_info.deep_symbolize_keys if payment_info
 
-        # Ensure cart_validation is symbolized
-        cart_validation = cart_validation.deep_symbolize_keys if cart_validation
+        # TAS-137: Use get_dependency_field() for nested field extraction
+        # This replaces the two-step pattern: get_dependency_result().dig(:field)
+        amount_to_charge = context.get_dependency_field('validate_cart', 'total')
 
         # Early validation - throw PermanentError for missing required data
         payment_method = payment_info&.dig(:method)
         payment_token = payment_info&.dig(:token)
-        amount_to_charge = cart_validation&.dig(:total)
 
         unless payment_method
           raise TaskerCore::Errors::PermanentError.new(
