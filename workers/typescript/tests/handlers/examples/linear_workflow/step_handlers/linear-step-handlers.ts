@@ -8,6 +8,11 @@
  * 4. Step 4: Divide for final result (((n² + 10) × 3) ÷ 2)
  *
  * Matches Ruby and Python linear workflow implementations for testing parity.
+ *
+ * TAS-137 Best Practices Demonstrated:
+ * - getInput<T>() for task context field access
+ * - getDependencyResult() for upstream step results (auto-unwraps {"result": value})
+ * - getDependencyField() for nested field extraction from dependencies
  */
 
 import { StepHandler } from '../../../../../src/handler/base.js';
@@ -19,12 +24,16 @@ import type { StepHandlerResult } from '../../../../../src/types/step-handler-re
  *
  * Input: even_number from task context
  * Output: { squared_value: n² }
+ *
+ * TAS-137 Best Practices:
+ * - Uses getInput<T>() for task context access (cross-language standard)
  */
 export class LinearStep1Handler extends StepHandler {
   static handlerName = 'LinearWorkflow.StepHandlers.LinearStep1Handler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
+    // TAS-137: Use getInput() for task context access (cross-language standard)
     const evenNumber = context.getInput<number>('even_number');
 
     if (evenNumber === undefined || evenNumber === null) {
@@ -54,27 +63,28 @@ export class LinearStep1Handler extends StepHandler {
  *
  * Input: squared_value from Step 1 dependency
  * Output: { added_value: n² + 10 }
+ *
+ * TAS-137 Best Practices:
+ * - Uses getDependencyField() for nested field extraction from dependencies
  */
 export class LinearStep2Handler extends StepHandler {
   static handlerName = 'LinearWorkflow.StepHandlers.LinearStep2Handler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
-    const step1Result = context.getDependencyResult('linear_step_1') as Record<
-      string,
-      unknown
-    > | null;
+    // TAS-137: Use getDependencyField() for nested field extraction
+    // This replaces the two-step pattern: getDependencyResult().field
+    const squaredValue = context.getDependencyField('linear_step_1', 'squared_value') as
+      | number
+      | null;
 
-    if (!step1Result) {
+    if (squaredValue === null || squaredValue === undefined) {
       return this.failure(
         'Missing dependency result from linear_step_1',
         'dependency_error',
         false
       );
     }
-
-    const squaredValue = step1Result.squared_value as number;
     const constant = 10;
     const addedValue = squaredValue + constant;
 
@@ -92,27 +102,25 @@ export class LinearStep2Handler extends StepHandler {
  *
  * Input: added_value from Step 2 dependency
  * Output: { multiplied_value: (n² + 10) × 3 }
+ *
+ * TAS-137 Best Practices:
+ * - Uses getDependencyField() for nested field extraction from dependencies
  */
 export class LinearStep3Handler extends StepHandler {
   static handlerName = 'LinearWorkflow.StepHandlers.LinearStep3Handler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
-    const step2Result = context.getDependencyResult('linear_step_2') as Record<
-      string,
-      unknown
-    > | null;
+    // TAS-137: Use getDependencyField() for nested field extraction
+    const addedValue = context.getDependencyField('linear_step_2', 'added_value') as number | null;
 
-    if (!step2Result) {
+    if (addedValue === null || addedValue === undefined) {
       return this.failure(
         'Missing dependency result from linear_step_2',
         'dependency_error',
         false
       );
     }
-
-    const addedValue = step2Result.added_value as number;
     const factor = 3;
     const multipliedValue = addedValue * factor;
 
@@ -130,27 +138,27 @@ export class LinearStep3Handler extends StepHandler {
  *
  * Input: multiplied_value from Step 3 dependency
  * Output: { final_value: ((n² + 10) × 3) ÷ 2 }
+ *
+ * TAS-137 Best Practices:
+ * - Uses getDependencyField() for nested field extraction from dependencies
  */
 export class LinearStep4Handler extends StepHandler {
   static handlerName = 'LinearWorkflow.StepHandlers.LinearStep4Handler';
   static handlerVersion = '1.0.0';
 
   async call(context: StepContext): Promise<StepHandlerResult> {
-    // getDependencyResult() already unwraps the 'result' field, so we get the inner value directly
-    const step3Result = context.getDependencyResult('linear_step_3') as Record<
-      string,
-      unknown
-    > | null;
+    // TAS-137: Use getDependencyField() for nested field extraction
+    const multipliedValue = context.getDependencyField('linear_step_3', 'multiplied_value') as
+      | number
+      | null;
 
-    if (!step3Result) {
+    if (multipliedValue === null || multipliedValue === undefined) {
       return this.failure(
         'Missing dependency result from linear_step_3',
         'dependency_error',
         false
       );
     }
-
-    const multipliedValue = step3Result.multiplied_value as number;
     const divisor = 2;
     const finalValue = multipliedValue / divisor;
 

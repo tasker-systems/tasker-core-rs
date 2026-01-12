@@ -8,6 +8,12 @@ Test Pattern:
 2. CheckpointYieldWorkerHandler processes items, yielding checkpoints every N items
 3. On transient failure, step resumes from last checkpoint
 4. CheckpointYieldAggregatorHandler collects final output
+
+TAS-137 Best Practices Demonstrated:
+- get_input_or() for task context access with defaults
+- get_config() for handler configuration
+- is_retry() and retry_count for retry detection
+- Checkpoint accessors: has_checkpoint(), checkpoint_cursor, checkpoint_items_processed, accumulated_results
 """
 
 from __future__ import annotations
@@ -45,12 +51,12 @@ class CheckpointYieldAnalyzerHandler(StepHandler, Batchable):
         Returns:
             Success result with batch configuration.
         """
-        # Get configuration from task context
-        total_items = context.input_data.get("total_items", 100)
+        # TAS-137: Use get_input_or() for task context with default
+        total_items = context.get_input_or("total_items", 100)
 
-        # Get worker template name from step definition initialization
-        worker_template_name = context.step_config.get(
-            "worker_template_name", "checkpoint_yield_batch"
+        # TAS-137: Use get_config() for handler initialization config
+        worker_template_name = (
+            context.get_config("worker_template_name") or "checkpoint_yield_batch"
         )
 
         if total_items <= 0:
@@ -124,26 +130,22 @@ class CheckpointYieldWorkerHandler(StepHandler, Batchable):
                 retryable=False,
             )
 
-        # Get configuration
-        items_per_checkpoint = context.input_data.get(
+        # TAS-137: Use get_input_or() with fallback to get_config() for configuration
+        items_per_checkpoint = context.get_input_or(
             "items_per_checkpoint",
-            context.step_config.get("items_per_checkpoint", 25),
+            context.get_config("items_per_checkpoint") or 25,
         )
-        fail_after_items = context.input_data.get("fail_after_items")
-        fail_on_attempt = context.input_data.get("fail_on_attempt", 1)
-        permanent_failure = context.input_data.get("permanent_failure", False)
+        fail_after_items = context.get_input("fail_after_items")
+        fail_on_attempt = context.get_input_or("fail_on_attempt", 1)
+        permanent_failure = context.get_input_or("permanent_failure", False)
 
-        # Get checkpoint data if resuming
-        # Checkpoint is in workflow_step.checkpoint from FFI event
-        workflow_step = context.event.task_sequence_step.get("workflow_step", {})
-        checkpoint = workflow_step.get("checkpoint")
-
-        # Determine starting position
-        if checkpoint:
-            # Resume from checkpoint
-            start_cursor = checkpoint.get("cursor", batch_inputs.cursor.start_cursor)
-            accumulated = checkpoint.get("accumulated_results", {})
-            total_processed = checkpoint.get("items_processed", 0)
+        # TAS-137: Use checkpoint accessors for clean resumption logic
+        # These accessors provide direct access to checkpoint data without nested dict traversal
+        if context.has_checkpoint():
+            # Resume from checkpoint - use TAS-137 checkpoint accessors
+            start_cursor = context.checkpoint_cursor or batch_inputs.cursor.start_cursor
+            accumulated = context.accumulated_results or {}
+            total_processed = context.checkpoint_items_processed
         else:
             # Fresh start
             start_cursor = batch_inputs.cursor.start_cursor
@@ -151,7 +153,8 @@ class CheckpointYieldWorkerHandler(StepHandler, Batchable):
             total_processed = 0
 
         end_cursor = batch_inputs.cursor.end_cursor
-        current_attempt = context.retry_count + 1  # 1-indexed
+        # TAS-137: retry_count is 0-indexed, add 1 for 1-indexed attempt number
+        current_attempt = context.retry_count + 1
 
         # Process items in chunks
         current_cursor = start_cursor

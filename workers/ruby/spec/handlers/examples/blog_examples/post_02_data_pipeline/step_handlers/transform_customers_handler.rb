@@ -8,6 +8,9 @@ module DataPipeline
     # - Sequential execution (depends on extract_customer_data)
     # - Accessing prior step results via context.get_dependency_result()
     # - Data transformation logic
+    #
+    # TAS-137 Best Practices Demonstrated:
+    # - get_dependency_result() for upstream step results (auto-unwraps)
     class TransformCustomersHandler < TaskerCore::StepHandler::Base
       def call(context)
         logger.info "🔄 TransformCustomersHandler: Transforming customer data - task_uuid=#{context.task_uuid}"

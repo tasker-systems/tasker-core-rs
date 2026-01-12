@@ -8,6 +8,9 @@ module DataPipeline
     # - Final step in DAG workflow
     # - Business intelligence generation
     # - Actionable insights from aggregated data
+    #
+    # TAS-137 Best Practices Demonstrated:
+    # - get_dependency_result() for upstream step results (auto-unwraps)
     class GenerateInsightsHandler < TaskerCore::StepHandler::Base
       def call(context)
         logger.info "💡 GenerateInsightsHandler: Generating business insights - task_uuid=#{context.task_uuid}"

@@ -6,6 +6,7 @@ This directory contains technical reference documentation with precise specifica
 
 | Document | Description |
 |----------|-------------|
+| [StepContext API](./step-context-api.md) | Cross-language API reference for step handlers |
 | [Table Management](./table-management.md) | Database table structure and management |
 | [Task and Step Readiness](./task-and-step-readiness-and-execution.md) | SQL functions and execution logic |
 | [sccache Configuration](./sccache-configuration.md) | Build caching setup |

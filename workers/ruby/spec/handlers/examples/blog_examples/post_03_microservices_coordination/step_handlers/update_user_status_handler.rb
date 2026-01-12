@@ -9,6 +9,10 @@ module Microservices
     # - Accessing results from all prior steps
     # - Workflow completion validation
     # - Summary generation
+    #
+    # TAS-137 Best Practices Demonstrated:
+    # - get_dependency_result() for upstream step data
+    # - get_dependency_field() for nested field extraction from dependencies
     class UpdateUserStatusHandler < TaskerCore::StepHandler::Base
       def call(context)
         logger.info "✔️  UpdateUserStatusHandler: Updating user status to active - task_uuid=#{context.task_uuid}"
@@ -22,8 +26,9 @@ module Microservices
         # Validate all prior steps completed
         validate_workflow_completion!(user_data, billing_data, preferences_data, welcome_data)
 
-        user_id = user_data['user_id'] || user_data[:user_id]
-        plan = user_data['plan'] || user_data[:plan] || 'free'
+        # TAS-137: Use get_dependency_field() for nested field extraction
+        user_id = context.get_dependency_field('create_user_account', 'user_id')
+        plan = context.get_dependency_field('create_user_account', 'plan') || 'free'
 
         logger.info "   User ID: #{user_id}"
         logger.info "   Plan: #{plan}"
@@ -90,6 +95,8 @@ module Microservices
         }
       end
 
+      # TAS-137: Helper receives already-extracted dependency data, so string/symbol access is acceptable
+      # In the main call method, use get_dependency_field() for direct field extraction
       def build_registration_summary(user_id, plan, user_data, billing_data, preferences_data, welcome_data)
         summary = {
           user_id: user_id,

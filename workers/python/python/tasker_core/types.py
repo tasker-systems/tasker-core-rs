@@ -749,6 +749,123 @@ class StepContext(BaseModel):
         """
         return self.retry_count >= self.max_retries - 1
 
+    def get_input_or(self, key: str, default: Any = None) -> Any:
+        """Get a value from the input data with a default.
+
+        Args:
+            key: The key to look up in input_data.
+            default: Value to return if key not found or value is None.
+
+        Returns:
+            The value or default if not found/None.
+
+        Example:
+            >>> batch_size = context.get_input_or("batch_size", 100)
+        """
+        value = self.input_data.get(key)
+        return default if value is None else value
+
+    def get_dependency_field(self, step_name: str, *path: str) -> Any:
+        """Extract a nested field from a dependency result.
+
+        Useful when dependency results are complex objects and you need
+        to extract a specific nested value without manual dict traversal.
+
+        Args:
+            step_name: Name of the dependency step.
+            path: Path elements to traverse into the result.
+
+        Returns:
+            The nested value, or None if not found.
+
+        Example:
+            >>> # Extract nested field from dependency result
+            >>> csv_path = context.get_dependency_field("analyze_csv", "csv_file_path")
+            >>> # Multiple levels deep
+            >>> value = context.get_dependency_field("step_1", "data", "items")
+        """
+        result = self.get_dependency_result(step_name)
+        if result is None:
+            return None
+        for key in path:
+            if not isinstance(result, dict):
+                return None
+            result = result.get(key)
+        return result
+
+    # =========================================================================
+    # CHECKPOINT ACCESSORS (TAS-125 Batch Processing Support)
+    # =========================================================================
+
+    @property
+    def checkpoint(self) -> dict[str, Any] | None:
+        """Get the raw checkpoint data from the workflow step.
+
+        Returns:
+            The checkpoint data dict or None if not set.
+        """
+        workflow_step = self.event.task_sequence_step.get("workflow_step", {})
+        checkpoint_data = (
+            workflow_step.get("checkpoint") if isinstance(workflow_step, dict) else None
+        )
+        return checkpoint_data if isinstance(checkpoint_data, dict) else None
+
+    @property
+    def checkpoint_cursor(self) -> Any | None:
+        """Get the checkpoint cursor position.
+
+        The cursor represents the current position in batch processing,
+        allowing handlers to resume from where they left off.
+
+        Returns:
+            The cursor value (int, string, or object) or None if not set.
+
+        Example:
+            >>> cursor = context.checkpoint_cursor
+            >>> start_from = cursor if cursor is not None else 0
+        """
+        cp = self.checkpoint
+        return cp.get("cursor") if cp else None
+
+    @property
+    def checkpoint_items_processed(self) -> int:
+        """Get the number of items processed in the current batch run.
+
+        Returns:
+            Number of items processed (0 if no checkpoint).
+        """
+        cp = self.checkpoint
+        return cp.get("items_processed", 0) if cp else 0
+
+    @property
+    def accumulated_results(self) -> dict[str, Any] | None:
+        """Get the accumulated results from batch processing.
+
+        Accumulated results allow handlers to maintain running totals
+        or aggregated state across checkpoint boundaries.
+
+        Returns:
+            The accumulated results dict or None if not set.
+
+        Example:
+            >>> totals = context.accumulated_results or {}
+            >>> current_sum = totals.get("sum", 0)
+        """
+        cp = self.checkpoint
+        return cp.get("accumulated_results") if cp else None
+
+    def has_checkpoint(self) -> bool:
+        """Check if a checkpoint exists for this step.
+
+        Returns:
+            True if a checkpoint cursor exists.
+
+        Example:
+            >>> if context.has_checkpoint():
+            ...     print(f"Resuming from cursor: {context.checkpoint_cursor}")
+        """
+        return self.checkpoint_cursor is not None
+
     def get_dependency_result_keys(self) -> list[str]:
         """Get all dependency result keys.
 

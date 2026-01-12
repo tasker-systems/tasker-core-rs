@@ -2,6 +2,10 @@
 
 module CustomerSuccess
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input(): Access task context fields (refund_amount, refund_reason)
+    # - get_dependency_result(): Access upstream step results (validate_refund_request)
+    # - get_dependency_field(): Extract nested fields from dependency results (customer_tier, original_purchase_date)
     class CheckRefundPolicyHandler < TaskerCore::StepHandler::Base
       # Refund policy rules (self-contained)
       REFUND_POLICIES = {
@@ -51,8 +55,10 @@ module CustomerSuccess
               'X-Requires-Approval' => policy_check_result[:requires_approval].to_s
             },
             input_refs: {
-              validation_result: 'sequence.validate_refund_request.result',
-              customer_tier: 'sequence.validate_refund_request.result.customer_tier'
+              refund_amount: 'context.get_input("refund_amount")',
+              refund_reason: 'context.get_input("refund_reason")',
+              customer_tier: 'context.get_dependency_field("validate_refund_request", "customer_tier")',
+              original_purchase_date: 'context.get_dependency_field("validate_refund_request", "original_purchase_date")'
             }
           }
         )
@@ -63,11 +69,9 @@ module CustomerSuccess
 
       private
 
-      # Extract and validate inputs from task and previous step
+      # TAS-137: Extract and validate inputs using StepContext API
       def extract_and_validate_inputs(context)
-        task_context = context.task.context.deep_symbolize_keys
-
-        # Get validation results from previous step
+        # TAS-137: Validate dependency result exists
         validation_result = context.get_dependency_result('validate_refund_request')
         validation_result = validation_result.deep_symbolize_keys if validation_result
 
@@ -79,10 +83,14 @@ module CustomerSuccess
         end
 
         {
-          customer_tier: validation_result[:customer_tier] || 'standard',
-          refund_amount: task_context[:refund_amount],
-          purchase_date: validation_result[:original_purchase_date],
-          refund_reason: task_context[:refund_reason]
+          # TAS-137: Use get_dependency_field for nested dependency access
+          customer_tier: context.get_dependency_field('validate_refund_request', 'customer_tier') || 'standard',
+          # TAS-137: Use get_input for task context access
+          refund_amount: context.get_input('refund_amount'),
+          # TAS-137: Use get_dependency_field for nested dependency access
+          purchase_date: context.get_dependency_field('validate_refund_request', 'original_purchase_date'),
+          # TAS-137: Use get_input for task context access
+          refund_reason: context.get_input('refund_reason')
         }
       end
 

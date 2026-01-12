@@ -2,6 +2,10 @@
 
 module CustomerSuccess
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input(): Access task context fields (refund_amount, refund_reason)
+    # - get_dependency_result(): Access upstream step results (check_refund_policy, validate_refund_request)
+    # - get_dependency_field(): Extract nested fields from dependency results (requires_approval, customer_tier, ticket_id, customer_id)
     class GetManagerApprovalHandler < TaskerCore::StepHandler::Base
       def call(context)
         # Extract and validate inputs
@@ -53,8 +57,12 @@ module CustomerSuccess
               'X-Auto-Approved' => (!inputs[:requires_approval]).to_s
             },
             input_refs: {
-              policy_check: 'sequence.check_refund_policy.result',
-              requires_approval: 'sequence.check_refund_policy.result.requires_approval'
+              refund_amount: 'context.get_input("refund_amount")',
+              refund_reason: 'context.get_input("refund_reason")',
+              requires_approval: 'context.get_dependency_field("check_refund_policy", "requires_approval")',
+              customer_tier: 'context.get_dependency_field("check_refund_policy", "customer_tier")',
+              ticket_id: 'context.get_dependency_field("validate_refund_request", "ticket_id")',
+              customer_id: 'context.get_dependency_field("validate_refund_request", "customer_id")'
             }
           }
         )
@@ -65,11 +73,9 @@ module CustomerSuccess
 
       private
 
-      # Extract and validate inputs from task and previous steps
+      # TAS-137: Extract and validate inputs using StepContext API
       def extract_and_validate_inputs(context)
-        task_context = context.task.context.deep_symbolize_keys
-
-        # Get policy check results
+        # TAS-137: Validate dependency result exists
         policy_result = context.get_dependency_result('check_refund_policy')
         policy_result = policy_result.deep_symbolize_keys if policy_result
 
@@ -80,17 +86,16 @@ module CustomerSuccess
           )
         end
 
-        # Get validation results for ticket info
-        validation_result = context.get_dependency_result('validate_refund_request')
-        validation_result = validation_result.deep_symbolize_keys if validation_result
-
         {
-          requires_approval: policy_result[:requires_approval],
-          customer_tier: policy_result[:customer_tier],
-          refund_amount: task_context[:refund_amount],
-          refund_reason: task_context[:refund_reason],
-          ticket_id: validation_result[:ticket_id],
-          customer_id: validation_result[:customer_id]
+          # TAS-137: Use get_dependency_field for nested dependency access
+          requires_approval: context.get_dependency_field('check_refund_policy', 'requires_approval'),
+          customer_tier: context.get_dependency_field('check_refund_policy', 'customer_tier'),
+          # TAS-137: Use get_input for task context access
+          refund_amount: context.get_input('refund_amount'),
+          refund_reason: context.get_input('refund_reason'),
+          # TAS-137: Use get_dependency_field for nested dependency access
+          ticket_id: context.get_dependency_field('validate_refund_request', 'ticket_id'),
+          customer_id: context.get_dependency_field('validate_refund_request', 'customer_id')
         }
       end
 

@@ -9,6 +9,10 @@ module Microservices
     # - Plan-based logic (enterprise vs free)
     # - Graceful degradation (free plan users skip billing setup)
     # - Inline service simulation
+    #
+    # TAS-137 Best Practices Demonstrated:
+    # - get_dependency_result() for upstream step data
+    # - get_dependency_field() for nested field extraction from dependencies
     class SetupBillingProfileHandler < TaskerCore::StepHandler::Base
       # Simulated billing tiers with pricing
       BILLING_TIERS = {
@@ -30,8 +34,9 @@ module Microservices
           )
         end
 
-        user_id = user_data['user_id'] || user_data[:user_id]
-        plan = user_data['plan'] || user_data[:plan] || 'free'
+        # TAS-137: Use get_dependency_field() for nested field extraction
+        user_id = context.get_dependency_field('create_user_account', 'user_id')
+        plan = context.get_dependency_field('create_user_account', 'plan') || 'free'
 
         logger.info "   User ID: #{user_id}"
         logger.info "   Plan: #{plan}"

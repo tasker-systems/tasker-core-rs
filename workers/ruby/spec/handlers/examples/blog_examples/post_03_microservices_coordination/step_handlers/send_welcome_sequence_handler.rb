@@ -9,6 +9,10 @@ module Microservices
     # - Personalized messaging based on plan and preferences
     # - Multi-channel notification simulation (email, SMS, in-app)
     # - Conditional logic based on prior step results
+    #
+    # TAS-137 Best Practices Demonstrated:
+    # - get_dependency_result() for upstream step data
+    # - get_dependency_field() for nested field extraction from dependencies
     class SendWelcomeSequenceHandler < TaskerCore::StepHandler::Base
       # Welcome message templates by plan
       WELCOME_TEMPLATES = {
@@ -44,9 +48,10 @@ module Microservices
         # Validate required data
         validate_prior_step_results!(user_data, billing_data, preferences_data)
 
-        user_id = user_data['user_id'] || user_data[:user_id]
-        email = user_data['email'] || user_data[:email]
-        plan = user_data['plan'] || user_data[:plan] || 'free'
+        # TAS-137: Use get_dependency_field() for nested field extraction
+        user_id = context.get_dependency_field('create_user_account', 'user_id')
+        email = context.get_dependency_field('create_user_account', 'email')
+        plan = context.get_dependency_field('create_user_account', 'plan') || 'free'
 
         logger.info "   User ID: #{user_id}"
         logger.info "   Email: #{email}"
@@ -103,6 +108,7 @@ module Microservices
         )
       end
 
+      # TAS-137: Helper extracts nested preferences from dependency result
       def extract_preferences(preferences_data)
         prefs_hash = preferences_data['preferences'] || preferences_data[:preferences] || {}
         prefs_hash.deep_symbolize_keys

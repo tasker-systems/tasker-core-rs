@@ -9,6 +9,9 @@ module Microservices
     # - Idempotent operations (handling 409 conflicts gracefully)
     # - Inline service simulation (no external dependencies)
     # - Proper error classification
+    #
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input_or() for task context with default values
     class CreateUserAccountHandler < TaskerCore::StepHandler::Base
       # Simulated user database (represents existing users in the "user service")
       EXISTING_USERS = {
@@ -53,8 +56,9 @@ module Microservices
       private
 
       def extract_and_validate_user_info(context)
-        task_context = context.task.context.deep_symbolize_keys
-        user_info = task_context[:user_info] || {}
+        # TAS-137: Use get_input_or() for task context with default value
+        user_info = context.get_input_or('user_info', {})
+        user_info = user_info.deep_symbolize_keys if user_info
 
         # Validate required fields - these are PERMANENT errors (don't retry)
         unless user_info[:email]

@@ -2,6 +2,10 @@
 
 module Payments
   module StepHandlers
+    # TAS-137 Best Practices Demonstrated:
+    # - get_input(): Access task context fields (customer_email, refund_reason)
+    # - get_dependency_result(): Access upstream step results (process_gateway_refund)
+    # - get_dependency_field(): Extract nested fields from dependency results (refund_id, refund_amount, payment_id, estimated_arrival)
     class NotifyCustomerHandler < TaskerCore::StepHandler::Base
       def call(context)
         # Extract and validate inputs
@@ -43,8 +47,12 @@ module Payments
               'X-Recipient' => inputs[:customer_email]
             },
             input_refs: {
-              refund_result: 'sequence.process_gateway_refund.result',
-              payment_records: 'sequence.update_payment_records.result'
+              customer_email: 'context.get_input("customer_email")',
+              refund_reason: 'context.get_input_or("refund_reason", "customer_request")',
+              refund_id: 'context.get_dependency_field("process_gateway_refund", "refund_id")',
+              refund_amount: 'context.get_dependency_field("process_gateway_refund", "refund_amount")',
+              payment_id: 'context.get_dependency_field("process_gateway_refund", "payment_id")',
+              estimated_arrival: 'context.get_dependency_field("process_gateway_refund", "estimated_arrival")'
             }
           }
         )
@@ -55,11 +63,9 @@ module Payments
 
       private
 
-      # Extract and validate inputs from task and previous steps
+      # TAS-137: Extract and validate inputs using StepContext API
       def extract_and_validate_inputs(context)
-        task_context = context.task.context.deep_symbolize_keys
-
-        # Get refund results
+        # TAS-137: Validate dependency result exists
         refund_result = context.get_dependency_result('process_gateway_refund')
         refund_result = refund_result.deep_symbolize_keys if refund_result
 
@@ -70,8 +76,8 @@ module Payments
           )
         end
 
-        # Get customer email from context
-        customer_email = task_context[:customer_email]
+        # TAS-137: Use get_input for task context access
+        customer_email = context.get_input('customer_email')
         unless customer_email
           raise TaskerCore::Errors::PermanentError.new(
             'Customer email is required for notification',
@@ -89,11 +95,13 @@ module Payments
 
         {
           customer_email: customer_email,
-          refund_id: refund_result[:refund_id],
-          refund_amount: refund_result[:refund_amount],
-          payment_id: refund_result[:payment_id],
-          estimated_arrival: refund_result[:estimated_arrival],
-          refund_reason: task_context[:refund_reason] || 'customer_request'
+          # TAS-137: Use get_dependency_field for nested dependency access
+          refund_id: context.get_dependency_field('process_gateway_refund', 'refund_id'),
+          refund_amount: context.get_dependency_field('process_gateway_refund', 'refund_amount'),
+          payment_id: context.get_dependency_field('process_gateway_refund', 'payment_id'),
+          estimated_arrival: context.get_dependency_field('process_gateway_refund', 'estimated_arrival'),
+          # TAS-137: Use get_input_or for task context with default
+          refund_reason: context.get_input_or('refund_reason', 'customer_request')
         }
       end
 
