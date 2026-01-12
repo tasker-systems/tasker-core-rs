@@ -121,7 +121,7 @@ url = "2.0"
 utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 uuid = { version = "1.11", features = ["serde", "v4", "v7"] }
-validator = { version = "0.19", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 workspace_tools = { version = "0.11.0", features = ["full"] }
 # pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
 # wasm-bindgen = { version = "0.2", optional = true }
