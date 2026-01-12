@@ -1,0 +1,187 @@
+# TaskTemplate Configuration - TypeScript Implementation
+#
+# Microservices Namespace: User Registration Workflow
+# Demonstrates microservices coordination with parallel execution
+#
+# Template: microservices/user_registration:1.0.0
+# Implementation: TypeScript FFI with tasker-worker-ts
+# Blog Post: Post 03 - Microservices Coordination (TAS-91)
+#
+# Business Workflow Pattern (5 steps):
+# Microservices Coordination - Sequential + Parallel Execution
+#
+# Sequential Phase (1 step):
+# 1. Create User Account: Create user in user service (with idempotency)
+#
+# Parallel Phase (2 steps):
+# 2. Setup Billing Profile: Create billing profile in billing service
+# 3. Initialize Preferences: Set user preferences in preferences service
+#
+# Coordination Phase (1 step):
+# 4. Send Welcome Sequence: Send welcome emails via notification service (depends on billing + preferences)
+#
+# Completion Phase (1 step):
+# 5. Update User Status: Mark user as active in user service (final step)
+#
+# This demonstrates parallel execution, dependency resolution, and multi-service coordination
+# using Tasker's built-in retry system as a circuit breaker pattern.
+#
+---
+name: user_registration_ts
+namespace_name: microservices_ts
+version: 1.0.0
+description: "User registration workflow with microservices coordination (TypeScript) - Post 03 Microservices"
+metadata:
+  author: TypeScript FFI Implementation
+  blog_post: post_03
+  tags:
+    - namespace:microservices_ts
+    - pattern:parallel_execution
+    - pattern:circuit_breaker
+    - dependencies:multi_service
+    - implementation:typescript_ffi
+    - language:typescript
+    - business_logic:user_registration
+    - ticket:TAS-91
+  documentation_url:
+  created_at: "2026-01-12T00:00:00Z"
+  updated_at: "2026-01-12T00:00:00Z"
+  notes: "TypeScript FFI implementation demonstrating microservices coordination from Blog Post 03"
+task_handler:
+  callable: Microservices.TaskHandlers.UserRegistrationHandler
+  initialization:
+    timeout_seconds: 120
+    max_retries: 2
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  properties:
+    user_info:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        plan:
+          type: string
+          enum: [free, pro, enterprise]
+        phone:
+          type: string
+        source:
+          type: string
+      required:
+        - email
+        - name
+steps:
+  # SEQUENTIAL PHASE - User creation must complete first
+  - name: create_user_account
+    description: "Create user account in user service with idempotency"
+    handler:
+      callable: Microservices.StepHandlers.CreateUserAccountHandler
+      initialization:
+        scenario: user_registration
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  # PARALLEL PHASE - Billing and preferences run concurrently after user creation
+  - name: setup_billing_profile
+    description: "Setup billing profile in billing service"
+    handler:
+      callable: Microservices.StepHandlers.SetupBillingProfileHandler
+      initialization:
+        scenario: user_registration
+    system_dependency:
+    dependencies:
+      - create_user_account
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  - name: initialize_preferences
+    description: "Initialize user preferences in preferences service"
+    handler:
+      callable: Microservices.StepHandlers.InitializePreferencesHandler
+      initialization:
+        scenario: user_registration
+    system_dependency:
+    dependencies:
+      - create_user_account
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+
+  # COORDINATION PHASE - Welcome sequence waits for both billing and preferences
+  - name: send_welcome_sequence
+    description: "Send welcome emails via notification service"
+    handler:
+      callable: Microservices.StepHandlers.SendWelcomeSequenceHandler
+      initialization:
+        scenario: user_registration
+    system_dependency:
+    dependencies:
+      - setup_billing_profile
+      - initialize_preferences
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 20000
+    timeout_seconds: 20
+    publishes_events: []
+
+  # COMPLETION PHASE - Final status update after welcome sequence
+  - name: update_user_status
+    description: "Update user status to active in user service"
+    handler:
+      callable: Microservices.StepHandlers.UpdateUserStatusHandler
+      initialization:
+        scenario: user_registration
+    system_dependency:
+    dependencies:
+      - send_welcome_sequence
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 20000
+    timeout_seconds: 20
+    publishes_events: []
+
+environments:
+  test:
+    steps:
+      - name: create_user_account
+        timeout_seconds: 30
+      - name: setup_billing_profile
+        timeout_seconds: 30
+      - name: initialize_preferences
+        timeout_seconds: 30
+      - name: send_welcome_sequence
+        timeout_seconds: 20
+      - name: update_user_status
+        timeout_seconds: 20

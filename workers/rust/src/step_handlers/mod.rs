@@ -386,6 +386,18 @@ pub mod payment_event_publisher;
 // TAS-65: Domain event publishing workflow handlers
 pub mod domain_event_publishing;
 
+// TAS-91: Blog Post 01 - E-commerce order processing handlers
+pub mod ecommerce;
+
+// TAS-91: Blog Post 02 - Data pipeline analytics handlers
+pub mod data_pipeline;
+
+// TAS-91: Blog Post 03 - Microservices coordination handlers
+pub mod microservices;
+
+// TAS-91: Blog Post 04 - Team Scaling handlers (Customer Success + Payments namespaces)
+pub mod team_scaling;
+
 // Handler registry
 pub mod registry;
 
