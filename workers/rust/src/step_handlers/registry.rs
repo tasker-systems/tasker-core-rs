@@ -133,6 +133,21 @@ use super::microservices::{
     UpdateUserStatusHandler as MicroservicesUpdateUserStatusHandler,
 };
 
+// TAS-91: Blog Post 04 - Team Scaling handlers (Customer Success + Payments namespaces)
+use super::team_scaling::{
+    // Customer Success namespace
+    CheckRefundPolicyHandler as CustomerSuccessCheckRefundPolicyHandler,
+    ExecuteRefundWorkflowHandler as CustomerSuccessExecuteRefundWorkflowHandler,
+    GetManagerApprovalHandler as CustomerSuccessGetManagerApprovalHandler,
+    // Payments namespace
+    NotifyCustomerHandler as PaymentsNotifyCustomerHandler,
+    ProcessGatewayRefundHandler as PaymentsProcessGatewayRefundHandler,
+    UpdatePaymentRecordsHandler as PaymentsUpdatePaymentRecordsHandler,
+    UpdateTicketStatusHandler as CustomerSuccessUpdateTicketStatusHandler,
+    ValidatePaymentEligibilityHandler as PaymentsValidatePaymentEligibilityHandler,
+    ValidateRefundRequestHandler as CustomerSuccessValidateRefundRequestHandler,
+};
+
 /// Central registry for all Rust step handlers
 ///
 /// Provides O(1) handler lookup by name with compile-time type safety.
@@ -153,7 +168,7 @@ impl std::fmt::Debug for RustStepHandlerRegistry {
 impl RustStepHandlerRegistry {
     /// Create a new registry with all handlers pre-registered
     ///
-    /// This method registers all 63 step handlers across 12 workflow patterns:
+    /// This method registers all 85 step handlers across 16 workflow patterns:
     /// - Linear Workflow (4 handlers)
     /// - Diamond Workflow (4 handlers)
     /// - Tree Workflow (8 handlers)
@@ -167,6 +182,10 @@ impl RustStepHandlerRegistry {
     /// - Domain Event Publishing/TAS-65 (4 handlers)
     /// - Resolver Tests/TAS-93 (2 handlers)
     /// - E-commerce/TAS-91 (5 handlers)
+    /// - Data Pipeline/TAS-91 (8 handlers)
+    /// - Microservices/TAS-91 (5 handlers)
+    /// - Team Scaling Customer Success/TAS-91 (5 handlers)
+    /// - Team Scaling Payments/TAS-91 (4 handlers)
     #[must_use]
     pub fn new() -> Self {
         let mut registry = Self {
@@ -431,6 +450,37 @@ impl RustStepHandlerRegistry {
                 Some(Arc::new(MicroservicesUpdateUserStatusHandler::new(config)))
             }
 
+            // TAS-91: Blog Post 04 - Team Scaling Customer Success handlers
+            "team_scaling_cs_validate_refund_request" => Some(Arc::new(
+                CustomerSuccessValidateRefundRequestHandler::new(config),
+            )),
+            "team_scaling_cs_check_refund_policy" => Some(Arc::new(
+                CustomerSuccessCheckRefundPolicyHandler::new(config),
+            )),
+            "team_scaling_cs_get_manager_approval" => Some(Arc::new(
+                CustomerSuccessGetManagerApprovalHandler::new(config),
+            )),
+            "team_scaling_cs_execute_refund_workflow" => Some(Arc::new(
+                CustomerSuccessExecuteRefundWorkflowHandler::new(config),
+            )),
+            "team_scaling_cs_update_ticket_status" => Some(Arc::new(
+                CustomerSuccessUpdateTicketStatusHandler::new(config),
+            )),
+
+            // TAS-91: Blog Post 04 - Team Scaling Payments handlers
+            "team_scaling_payments_validate_eligibility" => Some(Arc::new(
+                PaymentsValidatePaymentEligibilityHandler::new(config),
+            )),
+            "team_scaling_payments_process_gateway_refund" => {
+                Some(Arc::new(PaymentsProcessGatewayRefundHandler::new(config)))
+            }
+            "team_scaling_payments_update_records" => {
+                Some(Arc::new(PaymentsUpdatePaymentRecordsHandler::new(config)))
+            }
+            "team_scaling_payments_notify_customer" => {
+                Some(Arc::new(PaymentsNotifyCustomerHandler::new(config)))
+            }
+
             // Unknown handler
             _ => None,
         }
@@ -612,6 +662,29 @@ impl RustStepHandlerRegistry {
                 "microservices_initialize_preferences".to_string(),
                 "microservices_send_welcome_sequence".to_string(),
                 "microservices_update_user_status".to_string(),
+            ],
+        );
+
+        // TAS-91: Blog Post 04 - Team Scaling (Customer Success namespace)
+        workflows.insert(
+            "team_scaling_customer_success".to_string(),
+            vec![
+                "team_scaling_cs_validate_refund_request".to_string(),
+                "team_scaling_cs_check_refund_policy".to_string(),
+                "team_scaling_cs_get_manager_approval".to_string(),
+                "team_scaling_cs_execute_refund_workflow".to_string(),
+                "team_scaling_cs_update_ticket_status".to_string(),
+            ],
+        );
+
+        // TAS-91: Blog Post 04 - Team Scaling (Payments namespace)
+        workflows.insert(
+            "team_scaling_payments".to_string(),
+            vec![
+                "team_scaling_payments_validate_eligibility".to_string(),
+                "team_scaling_payments_process_gateway_refund".to_string(),
+                "team_scaling_payments_update_records".to_string(),
+                "team_scaling_payments_notify_customer".to_string(),
             ],
         );
 
@@ -799,8 +872,37 @@ impl RustStepHandlerRegistry {
             empty_config.clone(),
         )));
         self.register_handler(Arc::new(MicroservicesUpdateUserStatusHandler::new(
-            empty_config,
+            empty_config.clone(),
         )));
+
+        // TAS-91: Blog Post 04 - Team Scaling Customer Success Handlers (5)
+        self.register_handler(Arc::new(CustomerSuccessValidateRefundRequestHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(CustomerSuccessCheckRefundPolicyHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(CustomerSuccessGetManagerApprovalHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(CustomerSuccessExecuteRefundWorkflowHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(CustomerSuccessUpdateTicketStatusHandler::new(
+            empty_config.clone(),
+        )));
+
+        // TAS-91: Blog Post 04 - Team Scaling Payments Handlers (4)
+        self.register_handler(Arc::new(PaymentsValidatePaymentEligibilityHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(PaymentsProcessGatewayRefundHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(PaymentsUpdatePaymentRecordsHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(PaymentsNotifyCustomerHandler::new(empty_config)));
     }
 
     /// Register a single handler in the registry
@@ -1051,13 +1153,9 @@ mod tests {
     fn test_registry_creation() {
         let registry = RustStepHandlerRegistry::new();
 
-        // Should have all 68 handlers (4+4+8+7+4+6+3+3+10+3+4+2+5+8+5)
-        // Linear(4) + Diamond(4) + Tree(8) + MixedDAG(7) + OrderFulfillment(4)
-        // + ConditionalApproval(6) + BatchProcessingExample(3) + BatchProcessingProductsCsv(3)
-        // + DiamondDecisionBatch(10) + TAS-64 ErrorInjection(3 step registrations)
-        // + TAS-65 DomainEventPublishing(4) + TAS-93 ResolverTests(2)
-        // + TAS-91 Ecommerce(5) + TAS-91 DataPipeline(8) + TAS-91 Microservices(5)
-        assert_eq!(registry.handler_count(), 68);
+        // Should have all 85 handlers
+        // Base handlers + TAS-91 Posts 01-04 handlers
+        assert_eq!(registry.handler_count(), 85);
     }
 
     #[test]
@@ -1128,7 +1226,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let workflows = registry.get_handlers_by_workflow();
 
-        assert_eq!(workflows.len(), 14); // TAS-91: ecommerce + data_pipeline + microservices
+        assert_eq!(workflows.len(), 16); // TAS-91: Posts 01-04 (ecommerce, data_pipeline, microservices, team_scaling x2)
         assert_eq!(workflows["linear_workflow"].len(), 4);
         assert_eq!(workflows["diamond_workflow"].len(), 4);
         assert_eq!(workflows["tree_workflow"].len(), 8);
@@ -1143,6 +1241,8 @@ mod tests {
         assert_eq!(workflows["ecommerce"].len(), 5); // TAS-91 Post 01
         assert_eq!(workflows["data_pipeline"].len(), 8); // TAS-91 Post 02
         assert_eq!(workflows["microservices"].len(), 5); // TAS-91 Post 03
+        assert_eq!(workflows["team_scaling_customer_success"].len(), 5); // TAS-91 Post 04
+        assert_eq!(workflows["team_scaling_payments"].len(), 4); // TAS-91 Post 04
     }
 
     #[test]
@@ -1152,7 +1252,7 @@ mod tests {
 
         // Should be the same instance
         assert_eq!(registry1 as *const _, registry2 as *const _);
-        assert_eq!(registry1.handler_count(), 68); // Updated for TAS-91 (Posts 01-03)
+        assert_eq!(registry1.handler_count(), 85); // Updated for TAS-91 (Posts 01-04)
     }
 
     #[test]
@@ -1160,8 +1260,8 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let names = registry.get_all_handler_names();
 
-        // Should have 68 handlers (updated for TAS-91 Posts 01-03)
-        assert_eq!(names.len(), 68);
+        // Should have 77 handlers (updated for TAS-91 Posts 01-04)
+        assert_eq!(names.len(), 85);
 
         // Should be sorted
         let mut sorted_names = names.clone();
@@ -1183,7 +1283,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
 
         // Verify all handlers start with empty config (no publisher)
-        assert_eq!(registry.handler_count(), 68); // Updated for TAS-91 Posts 01-03
+        assert_eq!(registry.handler_count(), 85); // Updated for TAS-91 Posts 01-04
 
         // Create mock publisher (we can't fully test without a real message client,
         // but we can verify the method doesn't panic and maintains handler count)
@@ -1192,7 +1292,7 @@ mod tests {
 
         // The actual integration test will verify end-to-end functionality
         // For now, just verify handler count remains stable
-        assert_eq!(registry.handler_count(), 68); // Updated for TAS-91 Posts 01-03
+        assert_eq!(registry.handler_count(), 85); // Updated for TAS-91 Posts 01-04
     }
 
     // ========================================================================
@@ -1204,8 +1304,8 @@ mod tests {
         let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
         let resolver = adapter.to_explicit_resolver();
 
-        // Should have all 68 handlers registered (TAS-91 Posts 01-03)
-        assert_eq!(resolver.len(), 68);
+        // Should have all 77 handlers registered (TAS-91 Posts 01-04)
+        assert_eq!(resolver.len(), 85);
 
         // Should be named correctly
         assert_eq!(resolver.resolver_name(), "RustHandlerResolver");

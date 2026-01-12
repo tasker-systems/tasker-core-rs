@@ -1,0 +1,148 @@
+# TaskTemplate Configuration - Rust Implementation
+#
+# Payments Namespace: Process Refund Workflow
+# Demonstrates namespace isolation with same workflow name in different namespaces
+#
+# Template: payments/process_refund:1.0.0
+# Implementation: Native Rust with tasker-worker-rust
+# Blog Post: Post 04 - Team Scaling (Namespace Isolation)
+#
+# Business Workflow Pattern (4 steps):
+# 1. Validate Payment Eligibility: Check if payment can be refunded via gateway
+# 2. Process Gateway Refund: Execute refund through payment processor
+# 3. Update Payment Records: Update internal payment status and history
+# 4. Notify Customer: Send refund confirmation to customer
+#
+# This demonstrates the payments team's direct refund workflow
+#
+---
+name: payments_process_refund_rs
+namespace_name: payments_rs
+version: 1.0.0
+description: "Process payment gateway refunds with direct API integration (Rust) - Post 04 Team Scaling"
+metadata:
+  author: Rust Native Implementation
+  tags:
+    - namespace:payments_rs
+    - pattern:refund_processing
+    - dependencies:linear
+    - implementation:rust_native
+    - language:rust
+    - blog_post:post_04
+    - ticket:TAS-91
+  documentation_url:
+  created_at: "2026-01-12T00:00:00Z"
+  updated_at: "2026-01-12T00:00:00Z"
+  notes: "Native Rust implementation demonstrating namespace isolation from Blog Post 04"
+task_handler:
+  callable: Payments.TaskHandlers.ProcessRefundHandler
+  initialization:
+    timeout_seconds: 60
+    max_retries: 3
+input_schema:
+  type: object
+  required:
+    - payment_id
+    - refund_amount
+  properties:
+    payment_id:
+      type: string
+      description: "Payment gateway transaction ID"
+      pattern: "^pay_[a-zA-Z0-9_]+$"
+    refund_amount:
+      type: number
+      minimum: 0
+      description: "Amount to refund in cents"
+    refund_reason:
+      type: string
+      enum:
+        - customer_request
+        - fraud
+        - system_error
+        - chargeback
+      description: "Reason for the refund"
+    partial_refund:
+      type: boolean
+      default: false
+      description: "Whether this is a partial refund"
+    customer_email:
+      type: string
+      description: "Customer email address for notification"
+    correlation_id:
+      type: string
+      description: "Correlation ID for tracking across systems"
+steps:
+  - name: validate_payment_eligibility
+    description: "Check if payment can be refunded via gateway"
+    handler:
+      callable: team_scaling_payments_validate_eligibility
+      initialization:
+        scenario: payments_refund
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 30000
+    timeout_seconds: 10
+
+  - name: process_gateway_refund
+    description: "Execute refund through payment processor"
+    handler:
+      callable: team_scaling_payments_process_gateway_refund
+      initialization:
+        scenario: payments_refund
+    dependencies:
+      - validate_payment_eligibility
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 5000
+      max_backoff_ms: 60000
+    timeout_seconds: 10
+
+  - name: update_payment_records
+    description: "Update internal payment status and history"
+    handler:
+      callable: team_scaling_payments_update_records
+      initialization:
+        scenario: payments_refund
+    dependencies:
+      - process_gateway_refund
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 30000
+    timeout_seconds: 10
+
+  - name: notify_customer
+    description: "Send refund confirmation to customer"
+    handler:
+      callable: team_scaling_payments_notify_customer
+      initialization:
+        scenario: payments_refund
+    dependencies:
+      - update_payment_records
+    retry:
+      retryable: true
+      max_attempts: 5
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 60000
+    timeout_seconds: 10
+
+environments:
+  test:
+    steps:
+      - name: validate_payment_eligibility
+        timeout_seconds: 10
+      - name: process_gateway_refund
+        timeout_seconds: 10
+      - name: update_payment_records
+        timeout_seconds: 10
+      - name: notify_customer
+        timeout_seconds: 10

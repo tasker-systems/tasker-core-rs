@@ -1,0 +1,174 @@
+# TaskTemplate Configuration - Python Implementation
+#
+# Customer Success Namespace: Process Refund Workflow
+# Demonstrates namespace isolation with same workflow name in different namespaces
+#
+# Template: customer_success/process_refund:1.0.0
+# Implementation: Python FFI with tasker-worker-py
+# Blog Post: Post 04 - Team Scaling (Namespace Isolation)
+#
+# Business Workflow Pattern (5 steps):
+# 1. Validate Refund Request: Validate customer refund request details
+# 2. Check Refund Policy: Verify request complies with refund policies
+# 3. Get Manager Approval: Route to manager for approval if needed
+# 4. Execute Refund Workflow: Call payments team refund workflow (cross-namespace)
+# 5. Update Ticket Status: Update customer support ticket
+#
+# This demonstrates the customer success team's approval-based refund workflow
+# with cross-namespace coordination to the payments team
+#
+---
+name: customer_success_process_refund_py
+namespace_name: customer_success_py
+version: 1.0.0
+description: "Process customer service refunds with approval workflow (Python) - Post 04 Team Scaling"
+metadata:
+  author: Python FFI Implementation
+  tags:
+    - namespace:customer_success_py
+    - pattern:approval_workflow
+    - dependencies:linear_with_approval
+    - cross_namespace:payments_py
+    - implementation:python_ffi
+    - language:python
+    - blog_post:post_04
+    - ticket:TAS-91
+  documentation_url:
+  created_at: "2026-01-12T00:00:00Z"
+  updated_at: "2026-01-12T00:00:00Z"
+  notes: "Python FFI implementation demonstrating namespace isolation from Blog Post 04"
+task_handler:
+  callable: team_scaling.customer_success.task_handlers.ProcessRefundHandler
+  initialization:
+    timeout_seconds: 90
+    max_retries: 3
+input_schema:
+  type: object
+  required:
+    - ticket_id
+    - customer_id
+    - refund_amount
+    - customer_email
+  properties:
+    ticket_id:
+      type: string
+      description: "Customer support ticket ID"
+    customer_id:
+      type: string
+      description: "Customer identifier"
+    refund_amount:
+      type: number
+      minimum: 0
+      description: "Requested refund amount in cents"
+    refund_reason:
+      type: string
+      description: "Customer's reason for refund"
+    agent_notes:
+      type: string
+      description: "Internal agent notes"
+    requires_approval:
+      type: boolean
+      default: true
+      description: "Whether manager approval is required"
+    customer_email:
+      type: string
+      description: "Customer email address for notifications"
+    correlation_id:
+      type: string
+      description: "Correlation ID for tracking across systems"
+    payment_id:
+      type: string
+      description: "Payment ID for cross-team workflow coordination"
+steps:
+  - name: validate_refund_request
+    description: "Validate customer refund request details"
+    handler:
+      callable: team_scaling.customer_success.step_handlers.ValidateRefundRequestHandler
+      initialization:
+        scenario: customer_success_refund
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 30000
+    timeout_seconds: 10
+
+  - name: check_refund_policy
+    description: "Verify request complies with refund policies"
+    handler:
+      callable: team_scaling.customer_success.step_handlers.CheckRefundPolicyHandler
+      initialization:
+        scenario: customer_success_refund
+    dependencies:
+      - validate_refund_request
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 20000
+    timeout_seconds: 10
+
+  - name: get_manager_approval
+    description: "Route to manager for approval if needed"
+    handler:
+      callable: team_scaling.customer_success.step_handlers.GetManagerApprovalHandler
+      initialization:
+        scenario: customer_success_refund
+    dependencies:
+      - check_refund_policy
+    retry:
+      retryable: true
+      max_attempts: 1
+      backoff: linear
+      backoff_base_ms: 60000
+      max_backoff_ms: 60000
+    timeout_seconds: 10
+
+  - name: execute_refund_workflow
+    description: "Call payments team refund workflow"
+    handler:
+      callable: team_scaling.customer_success.step_handlers.ExecuteRefundWorkflowHandler
+      initialization:
+        scenario: customer_success_refund
+    dependencies:
+      - get_manager_approval
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 5000
+      max_backoff_ms: 60000
+    timeout_seconds: 10
+
+  - name: update_ticket_status
+    description: "Update customer support ticket"
+    handler:
+      callable: team_scaling.customer_success.step_handlers.UpdateTicketStatusHandler
+      initialization:
+        scenario: customer_success_refund
+    dependencies:
+      - execute_refund_workflow
+    retry:
+      retryable: true
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 30000
+    timeout_seconds: 10
+
+environments:
+  test:
+    steps:
+      - name: validate_refund_request
+        timeout_seconds: 10
+      - name: check_refund_policy
+        timeout_seconds: 10
+      - name: get_manager_approval
+        timeout_seconds: 10
+      - name: execute_refund_workflow
+        timeout_seconds: 10
+      - name: update_ticket_status
+        timeout_seconds: 10

@@ -92,6 +92,37 @@ from .blog_examples.post_03_microservices import (
     UpdateUserStatusHandler as MicroservicesUpdateUserStatusHandler,
 )
 
+# TAS-91 - Blog example handlers (Post 04: Team Scaling - Customer Success namespace)
+from .blog_examples.post_04_team_scaling.customer_success import (
+    CheckRefundPolicyHandler as CustomerSuccessCheckRefundPolicyHandler,
+)
+from .blog_examples.post_04_team_scaling.customer_success import (
+    ExecuteRefundWorkflowHandler as CustomerSuccessExecuteRefundWorkflowHandler,
+)
+from .blog_examples.post_04_team_scaling.customer_success import (
+    GetManagerApprovalHandler as CustomerSuccessGetManagerApprovalHandler,
+)
+from .blog_examples.post_04_team_scaling.customer_success import (
+    UpdateTicketStatusHandler as CustomerSuccessUpdateTicketStatusHandler,
+)
+from .blog_examples.post_04_team_scaling.customer_success import (
+    ValidateRefundRequestHandler as CustomerSuccessValidateRefundRequestHandler,
+)
+
+# TAS-91 - Blog example handlers (Post 04: Team Scaling - Payments namespace)
+from .blog_examples.post_04_team_scaling.payments import (
+    NotifyCustomerHandler as PaymentsNotifyCustomerHandler,
+)
+from .blog_examples.post_04_team_scaling.payments import (
+    ProcessGatewayRefundHandler as PaymentsProcessGatewayRefundHandler,
+)
+from .blog_examples.post_04_team_scaling.payments import (
+    UpdatePaymentRecordsHandler as PaymentsUpdatePaymentRecordsHandler,
+)
+from .blog_examples.post_04_team_scaling.payments import (
+    ValidatePaymentEligibilityHandler as PaymentsValidatePaymentEligibilityHandler,
+)
+
 # TAS-125 - Checkpoint yield handlers
 from .checkpoint_yield_handlers import (
     CheckpointYieldAggregatorHandler,
@@ -219,4 +250,15 @@ __all__ = [
     "MicroservicesInitializePreferencesHandler",
     "MicroservicesSendWelcomeSequenceHandler",
     "MicroservicesUpdateUserStatusHandler",
+    # TAS-91 - Blog examples (Post 04: Team Scaling - Customer Success)
+    "CustomerSuccessValidateRefundRequestHandler",
+    "CustomerSuccessCheckRefundPolicyHandler",
+    "CustomerSuccessGetManagerApprovalHandler",
+    "CustomerSuccessExecuteRefundWorkflowHandler",
+    "CustomerSuccessUpdateTicketStatusHandler",
+    # TAS-91 - Blog examples (Post 04: Team Scaling - Payments)
+    "PaymentsValidatePaymentEligibilityHandler",
+    "PaymentsProcessGatewayRefundHandler",
+    "PaymentsUpdatePaymentRecordsHandler",
+    "PaymentsNotifyCustomerHandler",
 ]

@@ -395,6 +395,9 @@ pub mod data_pipeline;
 // TAS-91: Blog Post 03 - Microservices coordination handlers
 pub mod microservices;
 
+// TAS-91: Blog Post 04 - Team Scaling handlers (Customer Success + Payments namespaces)
+pub mod team_scaling;
+
 // Handler registry
 pub mod registry;
 

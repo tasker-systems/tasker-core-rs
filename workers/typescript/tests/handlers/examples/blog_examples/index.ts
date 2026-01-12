@@ -21,6 +21,15 @@
  * - Microservices.StepHandlers.InitializePreferencesHandler
  * - Microservices.StepHandlers.SendWelcomeSequenceHandler
  * - Microservices.StepHandlers.UpdateUserStatusHandler
+ * - TeamScaling.CustomerSuccess.StepHandlers.ValidateRefundRequestHandler
+ * - TeamScaling.CustomerSuccess.StepHandlers.CheckRefundPolicyHandler
+ * - TeamScaling.CustomerSuccess.StepHandlers.GetManagerApprovalHandler
+ * - TeamScaling.CustomerSuccess.StepHandlers.ExecuteRefundWorkflowHandler
+ * - TeamScaling.CustomerSuccess.StepHandlers.UpdateTicketStatusHandler
+ * - TeamScaling.Payments.StepHandlers.ValidatePaymentEligibilityHandler
+ * - TeamScaling.Payments.StepHandlers.ProcessGatewayRefundHandler
+ * - TeamScaling.Payments.StepHandlers.UpdatePaymentRecordsHandler
+ * - TeamScaling.Payments.StepHandlers.NotifyCustomerHandler
  */
 
 // Post 01: E-commerce Order Processing
@@ -52,3 +61,18 @@ export {
   SetupBillingProfileHandler,
   UpdateUserStatusHandler,
 } from './post_03_microservices/index.js';
+
+// Post 04: Team Scaling (Customer Success + Payments namespaces)
+export {
+  CheckRefundPolicyHandler,
+  ExecuteRefundWorkflowHandler,
+  GetManagerApprovalHandler,
+  NotifyCustomerHandler,
+  ProcessGatewayRefundHandler,
+  UpdatePaymentRecordsHandler,
+  UpdateTicketStatusHandler,
+  // Payments namespace
+  ValidatePaymentEligibilityHandler,
+  // Customer Success namespace
+  ValidateRefundRequestHandler,
+} from './post_04_team_scaling/index.js';

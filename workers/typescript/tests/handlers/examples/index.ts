@@ -25,15 +25,21 @@ export {
 // Using prefixed names to avoid conflicts with domain_events handlers
 // TAS-91: Blog Example Handlers (Post 02: Data Pipeline)
 // TAS-91: Blog Example Handlers (Post 03: Microservices)
+// TAS-91: Blog Example Handlers (Post 04: Team Scaling)
 export {
   AggregateMetricsHandler as DataPipelineAggregateMetricsHandler,
+  CheckRefundPolicyHandler as CustomerSuccessCheckRefundPolicyHandler,
   CreateOrderHandler as EcommerceCreateOrderHandler,
   CreateUserAccountHandler as MicroservicesCreateUserAccountHandler,
+  ExecuteRefundWorkflowHandler as CustomerSuccessExecuteRefundWorkflowHandler,
   ExtractCustomerDataHandler as DataPipelineExtractCustomerDataHandler,
   ExtractInventoryDataHandler as DataPipelineExtractInventoryDataHandler,
   ExtractSalesDataHandler as DataPipelineExtractSalesDataHandler,
   GenerateInsightsHandler as DataPipelineGenerateInsightsHandler,
+  GetManagerApprovalHandler as CustomerSuccessGetManagerApprovalHandler,
   InitializePreferencesHandler as MicroservicesInitializePreferencesHandler,
+  NotifyCustomerHandler as PaymentsNotifyCustomerHandler,
+  ProcessGatewayRefundHandler as PaymentsProcessGatewayRefundHandler,
   ProcessPaymentHandler as EcommerceProcessPaymentHandler,
   SendConfirmationHandler as EcommerceSendConfirmationHandler,
   SendWelcomeSequenceHandler as MicroservicesSendWelcomeSequenceHandler,
@@ -42,8 +48,14 @@ export {
   TransformInventoryHandler as DataPipelineTransformInventoryHandler,
   TransformSalesHandler as DataPipelineTransformSalesHandler,
   UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
+  UpdatePaymentRecordsHandler as PaymentsUpdatePaymentRecordsHandler,
+  UpdateTicketStatusHandler as CustomerSuccessUpdateTicketStatusHandler,
   UpdateUserStatusHandler as MicroservicesUpdateUserStatusHandler,
   ValidateCartHandler as EcommerceValidateCartHandler,
+  // Post 04: Team Scaling - Payments namespace
+  ValidatePaymentEligibilityHandler as PaymentsValidatePaymentEligibilityHandler,
+  // Post 04: Team Scaling - Customer Success namespace
+  ValidateRefundRequestHandler as CustomerSuccessValidateRefundRequestHandler,
 } from './blog_examples/index.js';
 // TAS-125: Checkpoint Yield Handlers
 export {
@@ -100,7 +112,14 @@ import {
 // TAS-91: Blog Example Handlers (Post 01: E-commerce)
 // TAS-91: Blog Example Handlers (Post 02: Data Pipeline)
 // TAS-91: Blog Example Handlers (Post 03: Microservices)
+// TAS-91: Blog Example Handlers (Post 04: Team Scaling)
 import {
+  CheckRefundPolicyHandler as CustomerSuccessCheckRefundPolicyHandler,
+  ExecuteRefundWorkflowHandler as CustomerSuccessExecuteRefundWorkflowHandler,
+  GetManagerApprovalHandler as CustomerSuccessGetManagerApprovalHandler,
+  UpdateTicketStatusHandler as CustomerSuccessUpdateTicketStatusHandler,
+  // Post 04: Team Scaling
+  ValidateRefundRequestHandler as CustomerSuccessValidateRefundRequestHandler,
   AggregateMetricsHandler as DataPipelineAggregateMetricsHandler,
   ExtractCustomerDataHandler as DataPipelineExtractCustomerDataHandler,
   ExtractInventoryDataHandler as DataPipelineExtractInventoryDataHandler,
@@ -119,6 +138,10 @@ import {
   SendWelcomeSequenceHandler as MicroservicesSendWelcomeSequenceHandler,
   SetupBillingProfileHandler as MicroservicesSetupBillingProfileHandler,
   UpdateUserStatusHandler as MicroservicesUpdateUserStatusHandler,
+  NotifyCustomerHandler as PaymentsNotifyCustomerHandler,
+  ProcessGatewayRefundHandler as PaymentsProcessGatewayRefundHandler,
+  UpdatePaymentRecordsHandler as PaymentsUpdatePaymentRecordsHandler,
+  ValidatePaymentEligibilityHandler as PaymentsValidatePaymentEligibilityHandler,
 } from './blog_examples/index.js';
 import {
   CheckpointYieldAggregatorHandler,
@@ -224,4 +247,15 @@ export const ALL_EXAMPLE_HANDLERS = [
   MicroservicesInitializePreferencesHandler,
   MicroservicesSendWelcomeSequenceHandler,
   MicroservicesUpdateUserStatusHandler,
+  // TAS-91: Blog Examples (Post 04: Team Scaling - Customer Success)
+  CustomerSuccessValidateRefundRequestHandler,
+  CustomerSuccessCheckRefundPolicyHandler,
+  CustomerSuccessGetManagerApprovalHandler,
+  CustomerSuccessExecuteRefundWorkflowHandler,
+  CustomerSuccessUpdateTicketStatusHandler,
+  // TAS-91: Blog Examples (Post 04: Team Scaling - Payments)
+  PaymentsValidatePaymentEligibilityHandler,
+  PaymentsProcessGatewayRefundHandler,
+  PaymentsUpdatePaymentRecordsHandler,
+  PaymentsNotifyCustomerHandler,
 ];
