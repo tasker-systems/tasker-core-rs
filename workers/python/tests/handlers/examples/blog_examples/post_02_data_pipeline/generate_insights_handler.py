@@ -126,9 +126,7 @@ class GenerateInsightsHandler(StepHandler):
         avg_ltv = total_ltv / customers if customers > 0 else 0
 
         recommendation = (
-            "Focus on retention programs"
-            if avg_ltv > 3000
-            else "Increase customer engagement"
+            "Focus on retention programs" if avg_ltv > 3000 else "Increase customer engagement"
         )
         insights.append(
             {
@@ -140,9 +138,7 @@ class GenerateInsightsHandler(StepHandler):
         )
 
         # Business health score
-        health_score = self._calculate_health_score(
-            revenue_per_customer, inventory_alerts, avg_ltv
-        )
+        health_score = self._calculate_health_score(revenue_per_customer, inventory_alerts, avg_ltv)
 
         return {
             "insights": insights,

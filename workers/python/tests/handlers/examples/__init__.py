@@ -49,6 +49,49 @@ from .blog_examples.post_01_ecommerce import (
     ValidateCartHandler as EcommerceValidateCartHandler,
 )
 
+# TAS-91 - Blog example handlers (Post 02: Data Pipeline)
+from .blog_examples.post_02_data_pipeline import (
+    AggregateMetricsHandler as DataPipelineAggregateMetricsHandler,
+)
+from .blog_examples.post_02_data_pipeline import (
+    ExtractCustomerDataHandler as DataPipelineExtractCustomerDataHandler,
+)
+from .blog_examples.post_02_data_pipeline import (
+    ExtractInventoryDataHandler as DataPipelineExtractInventoryDataHandler,
+)
+from .blog_examples.post_02_data_pipeline import (
+    ExtractSalesDataHandler as DataPipelineExtractSalesDataHandler,
+)
+from .blog_examples.post_02_data_pipeline import (
+    GenerateInsightsHandler as DataPipelineGenerateInsightsHandler,
+)
+from .blog_examples.post_02_data_pipeline import (
+    TransformCustomersHandler as DataPipelineTransformCustomersHandler,
+)
+from .blog_examples.post_02_data_pipeline import (
+    TransformInventoryHandler as DataPipelineTransformInventoryHandler,
+)
+from .blog_examples.post_02_data_pipeline import (
+    TransformSalesHandler as DataPipelineTransformSalesHandler,
+)
+
+# TAS-91 - Blog example handlers (Post 03: Microservices)
+from .blog_examples.post_03_microservices import (
+    CreateUserAccountHandler as MicroservicesCreateUserAccountHandler,
+)
+from .blog_examples.post_03_microservices import (
+    InitializePreferencesHandler as MicroservicesInitializePreferencesHandler,
+)
+from .blog_examples.post_03_microservices import (
+    SendWelcomeSequenceHandler as MicroservicesSendWelcomeSequenceHandler,
+)
+from .blog_examples.post_03_microservices import (
+    SetupBillingProfileHandler as MicroservicesSetupBillingProfileHandler,
+)
+from .blog_examples.post_03_microservices import (
+    UpdateUserStatusHandler as MicroservicesUpdateUserStatusHandler,
+)
+
 # TAS-125 - Checkpoint yield handlers
 from .checkpoint_yield_handlers import (
     CheckpointYieldAggregatorHandler,
@@ -161,4 +204,19 @@ __all__ = [
     "EcommerceUpdateInventoryHandler",
     "EcommerceCreateOrderHandler",
     "EcommerceSendConfirmationHandler",
+    # TAS-91 - Blog examples (Post 02: Data Pipeline)
+    "DataPipelineExtractSalesDataHandler",
+    "DataPipelineExtractInventoryDataHandler",
+    "DataPipelineExtractCustomerDataHandler",
+    "DataPipelineTransformSalesHandler",
+    "DataPipelineTransformInventoryHandler",
+    "DataPipelineTransformCustomersHandler",
+    "DataPipelineAggregateMetricsHandler",
+    "DataPipelineGenerateInsightsHandler",
+    # TAS-91 - Blog examples (Post 03: Microservices)
+    "MicroservicesCreateUserAccountHandler",
+    "MicroservicesSetupBillingProfileHandler",
+    "MicroservicesInitializePreferencesHandler",
+    "MicroservicesSendWelcomeSequenceHandler",
+    "MicroservicesUpdateUserStatusHandler",
 ]

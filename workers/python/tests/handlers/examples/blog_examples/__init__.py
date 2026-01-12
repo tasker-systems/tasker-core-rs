@@ -4,7 +4,7 @@ This package contains handlers from the Tasker blog series:
 
 - post_01_ecommerce: E-commerce order processing (linear workflow)
 - post_02_data_pipeline: Analytics data pipeline (DAG workflow)
-- post_03_microservices_coordination: User registration (tree workflow) - TODO
+- post_03_microservices: User registration with multi-service coordination
 - post_04_team_scaling: Refund processing with namespaces - TODO
 
 Each post demonstrates progressively more complex workflow patterns
@@ -32,6 +32,15 @@ from .post_02_data_pipeline import (
     TransformSalesHandler,
 )
 
+# Post 03: Microservices Coordination (User Registration)
+from .post_03_microservices import (
+    CreateUserAccountHandler,
+    InitializePreferencesHandler,
+    SendWelcomeSequenceHandler,
+    SetupBillingProfileHandler,
+    UpdateUserStatusHandler,
+)
+
 __all__ = [
     # Post 01 - E-commerce
     "ValidateCartHandler",
@@ -48,4 +57,10 @@ __all__ = [
     "TransformCustomersHandler",
     "AggregateMetricsHandler",
     "GenerateInsightsHandler",
+    # Post 03 - Microservices
+    "CreateUserAccountHandler",
+    "SetupBillingProfileHandler",
+    "InitializePreferencesHandler",
+    "SendWelcomeSequenceHandler",
+    "UpdateUserStatusHandler",
 ]

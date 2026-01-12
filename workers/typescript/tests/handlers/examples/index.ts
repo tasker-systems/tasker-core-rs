@@ -23,23 +23,27 @@ export {
 } from './batch_processing/index.js';
 // TAS-91: Blog Example Handlers (Post 01: E-commerce)
 // Using prefixed names to avoid conflicts with domain_events handlers
-export {
-  CreateOrderHandler as EcommerceCreateOrderHandler,
-  ProcessPaymentHandler as EcommerceProcessPaymentHandler,
-  SendConfirmationHandler as EcommerceSendConfirmationHandler,
-  UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
-  ValidateCartHandler as EcommerceValidateCartHandler,
-} from './blog_examples/index.js';
 // TAS-91: Blog Example Handlers (Post 02: Data Pipeline)
+// TAS-91: Blog Example Handlers (Post 03: Microservices)
 export {
   AggregateMetricsHandler as DataPipelineAggregateMetricsHandler,
+  CreateOrderHandler as EcommerceCreateOrderHandler,
+  CreateUserAccountHandler as MicroservicesCreateUserAccountHandler,
   ExtractCustomerDataHandler as DataPipelineExtractCustomerDataHandler,
   ExtractInventoryDataHandler as DataPipelineExtractInventoryDataHandler,
   ExtractSalesDataHandler as DataPipelineExtractSalesDataHandler,
   GenerateInsightsHandler as DataPipelineGenerateInsightsHandler,
+  InitializePreferencesHandler as MicroservicesInitializePreferencesHandler,
+  ProcessPaymentHandler as EcommerceProcessPaymentHandler,
+  SendConfirmationHandler as EcommerceSendConfirmationHandler,
+  SendWelcomeSequenceHandler as MicroservicesSendWelcomeSequenceHandler,
+  SetupBillingProfileHandler as MicroservicesSetupBillingProfileHandler,
   TransformCustomersHandler as DataPipelineTransformCustomersHandler,
   TransformInventoryHandler as DataPipelineTransformInventoryHandler,
   TransformSalesHandler as DataPipelineTransformSalesHandler,
+  UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
+  UpdateUserStatusHandler as MicroservicesUpdateUserStatusHandler,
+  ValidateCartHandler as EcommerceValidateCartHandler,
 } from './blog_examples/index.js';
 // TAS-125: Checkpoint Yield Handlers
 export {
@@ -94,14 +98,8 @@ import {
   CsvResultsAggregatorHandler,
 } from './batch_processing/index.js';
 // TAS-91: Blog Example Handlers (Post 01: E-commerce)
-import {
-  CreateOrderHandler as EcommerceCreateOrderHandler,
-  ProcessPaymentHandler as EcommerceProcessPaymentHandler,
-  SendConfirmationHandler as EcommerceSendConfirmationHandler,
-  UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
-  ValidateCartHandler as EcommerceValidateCartHandler,
-} from './blog_examples/index.js';
 // TAS-91: Blog Example Handlers (Post 02: Data Pipeline)
+// TAS-91: Blog Example Handlers (Post 03: Microservices)
 import {
   AggregateMetricsHandler as DataPipelineAggregateMetricsHandler,
   ExtractCustomerDataHandler as DataPipelineExtractCustomerDataHandler,
@@ -111,6 +109,16 @@ import {
   TransformCustomersHandler as DataPipelineTransformCustomersHandler,
   TransformInventoryHandler as DataPipelineTransformInventoryHandler,
   TransformSalesHandler as DataPipelineTransformSalesHandler,
+  CreateOrderHandler as EcommerceCreateOrderHandler,
+  ProcessPaymentHandler as EcommerceProcessPaymentHandler,
+  SendConfirmationHandler as EcommerceSendConfirmationHandler,
+  UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
+  ValidateCartHandler as EcommerceValidateCartHandler,
+  CreateUserAccountHandler as MicroservicesCreateUserAccountHandler,
+  InitializePreferencesHandler as MicroservicesInitializePreferencesHandler,
+  SendWelcomeSequenceHandler as MicroservicesSendWelcomeSequenceHandler,
+  SetupBillingProfileHandler as MicroservicesSetupBillingProfileHandler,
+  UpdateUserStatusHandler as MicroservicesUpdateUserStatusHandler,
 } from './blog_examples/index.js';
 import {
   CheckpointYieldAggregatorHandler,
@@ -210,4 +218,10 @@ export const ALL_EXAMPLE_HANDLERS = [
   DataPipelineTransformCustomersHandler,
   DataPipelineAggregateMetricsHandler,
   DataPipelineGenerateInsightsHandler,
+  // TAS-91: Blog Examples (Post 03: Microservices)
+  MicroservicesCreateUserAccountHandler,
+  MicroservicesSetupBillingProfileHandler,
+  MicroservicesInitializePreferencesHandler,
+  MicroservicesSendWelcomeSequenceHandler,
+  MicroservicesUpdateUserStatusHandler,
 ];

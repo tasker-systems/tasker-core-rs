@@ -392,6 +392,9 @@ pub mod ecommerce;
 // TAS-91: Blog Post 02 - Data pipeline analytics handlers
 pub mod data_pipeline;
 
+// TAS-91: Blog Post 03 - Microservices coordination handlers
+pub mod microservices;
+
 // Handler registry
 pub mod registry;
 

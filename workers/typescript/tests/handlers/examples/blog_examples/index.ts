@@ -16,6 +16,11 @@
  * - DataPipeline.StepHandlers.TransformCustomersHandler
  * - DataPipeline.StepHandlers.AggregateMetricsHandler
  * - DataPipeline.StepHandlers.GenerateInsightsHandler
+ * - Microservices.StepHandlers.CreateUserAccountHandler
+ * - Microservices.StepHandlers.SetupBillingProfileHandler
+ * - Microservices.StepHandlers.InitializePreferencesHandler
+ * - Microservices.StepHandlers.SendWelcomeSequenceHandler
+ * - Microservices.StepHandlers.UpdateUserStatusHandler
  */
 
 // Post 01: E-commerce Order Processing
@@ -38,3 +43,12 @@ export {
   TransformInventoryHandler,
   TransformSalesHandler,
 } from './post_02_data_pipeline/index.js';
+
+// Post 03: Microservices Coordination
+export {
+  CreateUserAccountHandler,
+  InitializePreferencesHandler,
+  SendWelcomeSequenceHandler,
+  SetupBillingProfileHandler,
+  UpdateUserStatusHandler,
+} from './post_03_microservices/index.js';

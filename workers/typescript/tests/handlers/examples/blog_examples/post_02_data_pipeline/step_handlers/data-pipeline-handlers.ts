@@ -453,9 +453,7 @@ export class TransformInventoryHandler extends StepHandler {
 
     const warehouseSummary: Record<string, WarehouseSummary> = {};
     for (const [warehouse, whRecords] of warehouseGroups) {
-      const reorderCount = whRecords.filter(
-        (r) => r.quantity_on_hand <= r.reorder_point
-      ).length;
+      const reorderCount = whRecords.filter((r) => r.quantity_on_hand <= r.reorder_point).length;
       warehouseSummary[warehouse] = {
         total_quantity: whRecords.reduce((sum, r) => sum + r.quantity_on_hand, 0),
         product_count: new Set(whRecords.map((r) => r.product_id)).size,
@@ -483,8 +481,9 @@ export class TransformInventoryHandler extends StepHandler {
     }
 
     const totalOnHand = rawRecords.reduce((sum, r) => sum + r.quantity_on_hand, 0);
-    const reorderAlerts = Object.values(productInventory).filter((data) => data.needs_reorder)
-      .length;
+    const reorderAlerts = Object.values(productInventory).filter(
+      (data) => data.needs_reorder
+    ).length;
 
     return this.success(
       {
@@ -563,9 +562,8 @@ export class TransformCustomersHandler extends StepHandler {
     // Value segmentation
     const valueSegments: ValueSegments = {
       high_value: rawRecords.filter((r) => r.lifetime_value >= 10000).length,
-      medium_value: rawRecords.filter(
-        (r) => r.lifetime_value >= 1000 && r.lifetime_value < 10000
-      ).length,
+      medium_value: rawRecords.filter((r) => r.lifetime_value >= 1000 && r.lifetime_value < 10000)
+        .length,
       low_value: rawRecords.filter((r) => r.lifetime_value < 1000).length,
     };
 
@@ -760,7 +758,8 @@ export class GenerateInsightsHandler extends StepHandler {
       category: 'Customer Value',
       finding: `Average customer lifetime value: $${avgLtv.toFixed(2)}`,
       metric: avgLtv,
-      recommendation: avgLtv > 3000 ? 'Focus on retention programs' : 'Increase customer engagement',
+      recommendation:
+        avgLtv > 3000 ? 'Focus on retention programs' : 'Increase customer engagement',
     });
 
     // Business health score

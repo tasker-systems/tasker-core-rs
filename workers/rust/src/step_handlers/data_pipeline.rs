@@ -706,7 +706,10 @@ impl RustStepHandler for TransformCustomersHandler {
         }
 
         // Value segmentation
-        let high_value = records.iter().filter(|r| r.lifetime_value >= 10000.0).count();
+        let high_value = records
+            .iter()
+            .filter(|r| r.lifetime_value >= 10000.0)
+            .count();
         let medium_value = records
             .iter()
             .filter(|r| r.lifetime_value >= 1000.0 && r.lifetime_value < 10000.0)
@@ -838,11 +841,15 @@ impl RustStepHandler for AggregateMetricsHandler {
         let total_revenue = sales_data["total_revenue"].as_f64().unwrap_or(0.0);
         let sales_record_count = sales_data["record_count"].as_i64().unwrap_or(0);
 
-        let total_inventory = inventory_data["total_quantity_on_hand"].as_i64().unwrap_or(0);
+        let total_inventory = inventory_data["total_quantity_on_hand"]
+            .as_i64()
+            .unwrap_or(0);
         let reorder_alerts = inventory_data["reorder_alerts"].as_i64().unwrap_or(0);
 
         let total_customers = customer_data["record_count"].as_i64().unwrap_or(0);
-        let total_ltv = customer_data["total_lifetime_value"].as_f64().unwrap_or(0.0);
+        let total_ltv = customer_data["total_lifetime_value"]
+            .as_f64()
+            .unwrap_or(0.0);
 
         // Calculate cross-source metrics
         let revenue_per_customer = if total_customers > 0 {
@@ -880,7 +887,11 @@ impl RustStepHandler for AggregateMetricsHandler {
                 ("operation".to_string(), json!("aggregate_metrics")),
                 (
                     "sources".to_string(),
-                    json!(["transform_sales", "transform_inventory", "transform_customers"]),
+                    json!([
+                        "transform_sales",
+                        "transform_inventory",
+                        "transform_customers"
+                    ]),
                 ),
                 ("sources_aggregated".to_string(), json!(3)),
             ])),
@@ -979,7 +990,9 @@ impl RustStepHandler for GenerateInsightsHandler {
         }
 
         // Customer insights
-        let total_ltv = metrics["total_customer_lifetime_value"].as_f64().unwrap_or(0.0);
+        let total_ltv = metrics["total_customer_lifetime_value"]
+            .as_f64()
+            .unwrap_or(0.0);
         let avg_ltv = if customers > 0 {
             total_ltv / customers as f64
         } else {

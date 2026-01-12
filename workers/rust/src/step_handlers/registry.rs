@@ -124,6 +124,15 @@ use super::data_pipeline::{
     TransformSalesHandler as DataPipelineTransformSalesHandler,
 };
 
+// TAS-91: Blog Post 03 - Microservices coordination handlers
+use super::microservices::{
+    CreateUserAccountHandler as MicroservicesCreateUserAccountHandler,
+    InitializePreferencesHandler as MicroservicesInitializePreferencesHandler,
+    SendWelcomeSequenceHandler as MicroservicesSendWelcomeSequenceHandler,
+    SetupBillingProfileHandler as MicroservicesSetupBillingProfileHandler,
+    UpdateUserStatusHandler as MicroservicesUpdateUserStatusHandler,
+};
+
 /// Central registry for all Rust step handlers
 ///
 /// Provides O(1) handler lookup by name with compile-time type safety.
@@ -383,12 +392,12 @@ impl RustStepHandlerRegistry {
             "data_pipeline_extract_sales" => {
                 Some(Arc::new(DataPipelineExtractSalesDataHandler::new(config)))
             }
-            "data_pipeline_extract_inventory" => {
-                Some(Arc::new(DataPipelineExtractInventoryDataHandler::new(config)))
-            }
-            "data_pipeline_extract_customers" => {
-                Some(Arc::new(DataPipelineExtractCustomerDataHandler::new(config)))
-            }
+            "data_pipeline_extract_inventory" => Some(Arc::new(
+                DataPipelineExtractInventoryDataHandler::new(config),
+            )),
+            "data_pipeline_extract_customers" => Some(Arc::new(
+                DataPipelineExtractCustomerDataHandler::new(config),
+            )),
             "data_pipeline_transform_sales" => {
                 Some(Arc::new(DataPipelineTransformSalesHandler::new(config)))
             }
@@ -403,6 +412,23 @@ impl RustStepHandlerRegistry {
             }
             "data_pipeline_generate_insights" => {
                 Some(Arc::new(DataPipelineGenerateInsightsHandler::new(config)))
+            }
+
+            // TAS-91: Blog Post 03 - Microservices coordination handlers
+            "microservices_create_user_account" => {
+                Some(Arc::new(MicroservicesCreateUserAccountHandler::new(config)))
+            }
+            "microservices_setup_billing_profile" => Some(Arc::new(
+                MicroservicesSetupBillingProfileHandler::new(config),
+            )),
+            "microservices_initialize_preferences" => Some(Arc::new(
+                MicroservicesInitializePreferencesHandler::new(config),
+            )),
+            "microservices_send_welcome_sequence" => Some(Arc::new(
+                MicroservicesSendWelcomeSequenceHandler::new(config),
+            )),
+            "microservices_update_user_status" => {
+                Some(Arc::new(MicroservicesUpdateUserStatusHandler::new(config)))
             }
 
             // Unknown handler
@@ -577,6 +603,18 @@ impl RustStepHandlerRegistry {
             ],
         );
 
+        // TAS-91: Blog Post 03 - Microservices Coordination
+        workflows.insert(
+            "microservices".to_string(),
+            vec![
+                "microservices_create_user_account".to_string(),
+                "microservices_setup_billing_profile".to_string(),
+                "microservices_initialize_preferences".to_string(),
+                "microservices_send_welcome_sequence".to_string(),
+                "microservices_update_user_status".to_string(),
+            ],
+        );
+
         workflows
     }
 
@@ -744,6 +782,23 @@ impl RustStepHandlerRegistry {
             empty_config.clone(),
         )));
         self.register_handler(Arc::new(DataPipelineGenerateInsightsHandler::new(
+            empty_config.clone(),
+        )));
+
+        // TAS-91: Blog Post 03 - Microservices Coordination Handlers (5)
+        self.register_handler(Arc::new(MicroservicesCreateUserAccountHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(MicroservicesSetupBillingProfileHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(MicroservicesInitializePreferencesHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(MicroservicesSendWelcomeSequenceHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(MicroservicesUpdateUserStatusHandler::new(
             empty_config,
         )));
     }
@@ -996,12 +1051,13 @@ mod tests {
     fn test_registry_creation() {
         let registry = RustStepHandlerRegistry::new();
 
-        // Should have all 63 handlers (4+4+8+7+4+6+3+3+10+3+4+2+5)
+        // Should have all 68 handlers (4+4+8+7+4+6+3+3+10+3+4+2+5+8+5)
         // Linear(4) + Diamond(4) + Tree(8) + MixedDAG(7) + OrderFulfillment(4)
         // + ConditionalApproval(6) + BatchProcessingExample(3) + BatchProcessingProductsCsv(3)
         // + DiamondDecisionBatch(10) + TAS-64 ErrorInjection(3 step registrations)
-        // + TAS-65 DomainEventPublishing(4) + TAS-93 ResolverTests(2) + TAS-91 Ecommerce(5)
-        assert_eq!(registry.handler_count(), 63);
+        // + TAS-65 DomainEventPublishing(4) + TAS-93 ResolverTests(2)
+        // + TAS-91 Ecommerce(5) + TAS-91 DataPipeline(8) + TAS-91 Microservices(5)
+        assert_eq!(registry.handler_count(), 68);
     }
 
     #[test]
@@ -1072,7 +1128,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let workflows = registry.get_handlers_by_workflow();
 
-        assert_eq!(workflows.len(), 12); // Added ecommerce (TAS-91)
+        assert_eq!(workflows.len(), 14); // TAS-91: ecommerce + data_pipeline + microservices
         assert_eq!(workflows["linear_workflow"].len(), 4);
         assert_eq!(workflows["diamond_workflow"].len(), 4);
         assert_eq!(workflows["tree_workflow"].len(), 8);
@@ -1084,6 +1140,9 @@ mod tests {
         assert_eq!(workflows["diamond_decision_batch"].len(), 10);
         assert_eq!(workflows["domain_event_publishing"].len(), 4); // TAS-65
         assert_eq!(workflows["resolver_tests"].len(), 2); // TAS-93
+        assert_eq!(workflows["ecommerce"].len(), 5); // TAS-91 Post 01
+        assert_eq!(workflows["data_pipeline"].len(), 8); // TAS-91 Post 02
+        assert_eq!(workflows["microservices"].len(), 5); // TAS-91 Post 03
     }
 
     #[test]
@@ -1093,7 +1152,7 @@ mod tests {
 
         // Should be the same instance
         assert_eq!(registry1 as *const _, registry2 as *const _);
-        assert_eq!(registry1.handler_count(), 63); // Updated for TAS-91
+        assert_eq!(registry1.handler_count(), 68); // Updated for TAS-91 (Posts 01-03)
     }
 
     #[test]
@@ -1101,8 +1160,8 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let names = registry.get_all_handler_names();
 
-        // Should have 63 handlers (updated for TAS-91)
-        assert_eq!(names.len(), 63);
+        // Should have 68 handlers (updated for TAS-91 Posts 01-03)
+        assert_eq!(names.len(), 68);
 
         // Should be sorted
         let mut sorted_names = names.clone();
@@ -1124,7 +1183,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
 
         // Verify all handlers start with empty config (no publisher)
-        assert_eq!(registry.handler_count(), 63); // Updated for TAS-93
+        assert_eq!(registry.handler_count(), 68); // Updated for TAS-91 Posts 01-03
 
         // Create mock publisher (we can't fully test without a real message client,
         // but we can verify the method doesn't panic and maintains handler count)
@@ -1133,7 +1192,7 @@ mod tests {
 
         // The actual integration test will verify end-to-end functionality
         // For now, just verify handler count remains stable
-        assert_eq!(registry.handler_count(), 63); // Updated for TAS-93
+        assert_eq!(registry.handler_count(), 68); // Updated for TAS-91 Posts 01-03
     }
 
     // ========================================================================
@@ -1145,8 +1204,8 @@ mod tests {
         let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
         let resolver = adapter.to_explicit_resolver();
 
-        // Should have all 63 handlers registered (TAS-91)
-        assert_eq!(resolver.len(), 63);
+        // Should have all 68 handlers registered (TAS-91 Posts 01-03)
+        assert_eq!(resolver.len(), 68);
 
         // Should be named correctly
         assert_eq!(resolver.resolver_name(), "RustHandlerResolver");
