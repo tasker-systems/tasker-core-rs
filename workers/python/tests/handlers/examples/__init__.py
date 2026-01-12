@@ -6,6 +6,7 @@ This package contains example handlers for:
 - Test scenarios (success, retryable errors, permanent errors)
 - Conditional approval workflows (decision points with dynamic routing)
 - Batch processing workflows (cursor-based parallel batch workers)
+- Blog examples (real-world scenarios from the Tasker blog series)
 
 Unit test handlers (simple patterns):
 - FetchDataHandler, TransformDataHandler, StoreDataHandler
@@ -18,6 +19,9 @@ E2E test handlers (matching Ruby patterns for integration testing):
 - conditional_approval: ValidateRequestHandler, RoutingDecisionHandler, etc. (Phase 6b)
 - batch_processing: CsvAnalyzerHandler, CsvBatchProcessorHandler, etc. (Phase 6b)
 - domain_events: ValidateOrderHandler, ProcessPaymentHandler, etc. (TAS-65/TAS-69)
+
+Blog example handlers (TAS-91):
+- post_01_ecommerce: ValidateCartHandler, ProcessPaymentHandler, etc.
 """
 
 # Phase 6b handlers - Batch processing
@@ -25,6 +29,24 @@ from .batch_processing_handlers import (
     CsvAnalyzerHandler,
     CsvBatchProcessorHandler,
     CsvResultsAggregatorHandler,
+)
+
+# TAS-91 - Blog example handlers (Post 01: E-commerce)
+# Using prefixed names to avoid conflicts with domain_event_handlers
+from .blog_examples.post_01_ecommerce import (
+    CreateOrderHandler as EcommerceCreateOrderHandler,
+)
+from .blog_examples.post_01_ecommerce import (
+    ProcessPaymentHandler as EcommerceProcessPaymentHandler,
+)
+from .blog_examples.post_01_ecommerce import (
+    SendConfirmationHandler as EcommerceSendConfirmationHandler,
+)
+from .blog_examples.post_01_ecommerce import (
+    UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
+)
+from .blog_examples.post_01_ecommerce import (
+    ValidateCartHandler as EcommerceValidateCartHandler,
 )
 
 # TAS-125 - Checkpoint yield handlers
@@ -133,4 +155,10 @@ __all__ = [
     # TAS-93 Phase 5 - Resolver tests handlers
     "MultiMethodHandler",
     "AlternateMethodHandler",
+    # TAS-91 - Blog examples (Post 01: E-commerce)
+    "EcommerceValidateCartHandler",
+    "EcommerceProcessPaymentHandler",
+    "EcommerceUpdateInventoryHandler",
+    "EcommerceCreateOrderHandler",
+    "EcommerceSendConfirmationHandler",
 ]

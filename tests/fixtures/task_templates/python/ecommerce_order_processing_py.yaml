@@ -1,0 +1,220 @@
+# TaskTemplate Configuration - Python Implementation
+#
+# E-commerce Order Processing Workflow Pattern with Python Step Handlers via FFI
+# Demonstrates complete order checkout workflow with cart validation, payment, inventory, and confirmation
+#
+# Template: ecommerce/order_processing:1.0.0
+# Implementation: Python FFI with tasker-worker-py
+# Blog Post: Post 01 - E-commerce Integration (TAS-91)
+#
+# Business Workflow Pattern (5 steps):
+# 1. Validate Cart: Validate cart items, check availability, calculate totals
+# 2. Process Payment: Process customer payment using payment service
+# 3. Update Inventory: Reserve inventory for order items
+# 4. Create Order: Create order record with all details
+# 5. Send Confirmation: Send order confirmation email to customer
+#
+# This demonstrates real-world e-commerce checkout workflow with external service integration
+#
+---
+name: ecommerce_order_processing_py
+namespace_name: ecommerce_py
+version: 1.0.0
+description: "Complete e-commerce order processing (Python): validate -> payment -> inventory -> order -> confirmation"
+metadata:
+  author: Python FFI Implementation
+  tags:
+    - namespace:ecommerce_py
+    - pattern:order_processing
+    - dependencies:linear_with_validation
+    - implementation:python_ffi
+    - language:python
+    - type_safety:runtime
+    - business_logic:ecommerce_checkout
+    - external_services:simulated
+    - blog_post:post_01
+    - ticket:TAS-91
+  documentation_url:
+  created_at: "2026-01-11T00:00:00Z"
+  updated_at: "2026-01-11T00:00:00Z"
+  notes: "Python FFI implementation demonstrating e-commerce checkout workflow from Blog Post 01"
+task_handler:
+  callable: ecommerce.task_handlers.OrderProcessingHandler
+  initialization:
+    input_validation:
+      required_fields:
+        - cart_items
+        - customer_info
+        - payment_info
+      business_rules:
+        - cart_validation: required
+        - payment_processing: external_gateway
+        - inventory_management: check_and_reserve
+        - order_creation: transaction_safe
+        - email_notification: async_delivery
+    expected_results:
+      validate_cart: "validated cart with totals"
+      process_payment: "payment confirmation"
+      update_inventory: "inventory reservations"
+      create_order: "order created"
+      send_confirmation: "email sent"
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+    - cart_items
+    - customer_info
+    - payment_info
+  properties:
+    cart_items:
+      type: array
+      description: "Array of cart items with product_id and quantity"
+      items:
+        type: object
+        required:
+          - product_id
+          - quantity
+        properties:
+          product_id:
+            type: integer
+            description: "Product ID"
+          quantity:
+            type: integer
+            description: "Quantity to purchase"
+    customer_info:
+      type: object
+      required:
+        - email
+        - name
+      properties:
+        email:
+          type: string
+          description: "Customer email address"
+        name:
+          type: string
+          description: "Customer full name"
+        phone:
+          type: string
+          description: "Customer phone number"
+    payment_info:
+      type: object
+      required:
+        - method
+        - token
+        - amount
+      properties:
+        method:
+          type: string
+          description: "Payment method (credit_card, paypal, etc.)"
+        token:
+          type: string
+          description: "Payment token from payment gateway"
+        amount:
+          type: number
+          description: "Payment amount"
+steps:
+  - name: validate_cart
+    description: "Validate cart items, check availability, calculate totals (subtotal, tax, shipping)"
+    handler:
+      callable: ecommerce.step_handlers.ValidateCartHandler
+      initialization:
+        scenario: ecommerce_checkout
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 5000
+    timeout_seconds: 10
+    publishes_events: []
+
+  - name: process_payment
+    description: "Process customer payment using mock payment service"
+    handler:
+      callable: ecommerce.step_handlers.ProcessPaymentHandler
+      initialization:
+        scenario: ecommerce_checkout
+    system_dependency:
+    dependencies:
+      - validate_cart
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 5000
+    timeout_seconds: 10
+    publishes_events: []
+
+  - name: update_inventory
+    description: "Reserve inventory for order items using mock inventory service"
+    handler:
+      callable: ecommerce.step_handlers.UpdateInventoryHandler
+      initialization:
+        scenario: ecommerce_checkout
+    system_dependency:
+    dependencies:
+      - process_payment
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 5000
+    timeout_seconds: 10
+    publishes_events: []
+
+  - name: create_order
+    description: "Create order record with customer, payment, and inventory details"
+    handler:
+      callable: ecommerce.step_handlers.CreateOrderHandler
+      initialization:
+        scenario: ecommerce_checkout
+    system_dependency:
+    dependencies:
+      - update_inventory
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 5000
+    timeout_seconds: 10
+    publishes_events: []
+
+  - name: send_confirmation
+    description: "Send order confirmation email to customer using mock email service"
+    handler:
+      callable: ecommerce.step_handlers.SendConfirmationHandler
+      initialization:
+        scenario: ecommerce_checkout
+    system_dependency:
+    dependencies:
+      - create_order
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 5000
+    timeout_seconds: 10
+    publishes_events: []
+
+environments:
+  test:
+    steps:
+      - name: validate_cart
+        timeout_seconds: 10
+      - name: process_payment
+        timeout_seconds: 10
+      - name: update_inventory
+        timeout_seconds: 10
+      - name: create_order
+        timeout_seconds: 10
+      - name: send_confirmation
+        timeout_seconds: 10

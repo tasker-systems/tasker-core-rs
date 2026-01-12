@@ -3,6 +3,7 @@ mod checkpoint_yield_test;
 mod conditional_approval_test;
 mod diamond_workflow_test;
 mod domain_event_publishing_test;
+mod ecommerce_order_test; // TAS-91 Blog Post 01
 mod error_scenarios_test;
 mod linear_workflow_test;
 mod resolver_tests; // TAS-93 Phase 5
