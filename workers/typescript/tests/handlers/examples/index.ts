@@ -21,6 +21,15 @@ export {
   CsvBatchProcessorHandler,
   CsvResultsAggregatorHandler,
 } from './batch_processing/index.js';
+// TAS-91: Blog Example Handlers (Post 01: E-commerce)
+// Using prefixed names to avoid conflicts with domain_events handlers
+export {
+  CreateOrderHandler as EcommerceCreateOrderHandler,
+  ProcessPaymentHandler as EcommerceProcessPaymentHandler,
+  SendConfirmationHandler as EcommerceSendConfirmationHandler,
+  UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
+  ValidateCartHandler as EcommerceValidateCartHandler,
+} from './blog_examples/index.js';
 // TAS-125: Checkpoint Yield Handlers
 export {
   CheckpointYieldAggregatorHandler,
@@ -73,6 +82,14 @@ import {
   CsvBatchProcessorHandler,
   CsvResultsAggregatorHandler,
 } from './batch_processing/index.js';
+// TAS-91: Blog Example Handlers
+import {
+  CreateOrderHandler as EcommerceCreateOrderHandler,
+  ProcessPaymentHandler as EcommerceProcessPaymentHandler,
+  SendConfirmationHandler as EcommerceSendConfirmationHandler,
+  UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
+  ValidateCartHandler as EcommerceValidateCartHandler,
+} from './blog_examples/index.js';
 import {
   CheckpointYieldAggregatorHandler,
   CheckpointYieldAnalyzerHandler,
@@ -156,4 +173,10 @@ export const ALL_EXAMPLE_HANDLERS = [
   // TAS-93 Phase 5: Resolver Tests
   MultiMethodHandler,
   AlternateMethodHandler,
+  // TAS-91: Blog Examples (Post 01: E-commerce)
+  EcommerceValidateCartHandler,
+  EcommerceProcessPaymentHandler,
+  EcommerceUpdateInventoryHandler,
+  EcommerceCreateOrderHandler,
+  EcommerceSendConfirmationHandler,
 ];

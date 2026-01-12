@@ -103,6 +103,15 @@ use super::domain_event_publishing::{
 // TAS-93 Phase 5: Resolver chain test handlers
 use super::resolver_tests::{AlternateMethodHandler, MultiMethodHandler};
 
+// TAS-91: Blog Post 01 - E-commerce order processing handlers
+use super::ecommerce::{
+    CreateOrderHandler as EcommerceCreateOrderHandler,
+    ProcessPaymentHandler as EcommerceProcessPaymentHandler,
+    SendConfirmationHandler as EcommerceSendConfirmationHandler,
+    UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
+    ValidateCartHandler as EcommerceValidateCartHandler,
+};
+
 /// Central registry for all Rust step handlers
 ///
 /// Provides O(1) handler lookup by name with compile-time type safety.
@@ -123,7 +132,7 @@ impl std::fmt::Debug for RustStepHandlerRegistry {
 impl RustStepHandlerRegistry {
     /// Create a new registry with all handlers pre-registered
     ///
-    /// This method registers all 58 step handlers across 11 workflow patterns:
+    /// This method registers all 63 step handlers across 12 workflow patterns:
     /// - Linear Workflow (4 handlers)
     /// - Diamond Workflow (4 handlers)
     /// - Tree Workflow (8 handlers)
@@ -136,6 +145,7 @@ impl RustStepHandlerRegistry {
     /// - Error Injection/TAS-64 (3 handlers)
     /// - Domain Event Publishing/TAS-65 (4 handlers)
     /// - Resolver Tests/TAS-93 (2 handlers)
+    /// - E-commerce/TAS-91 (5 handlers)
     #[must_use]
     pub fn new() -> Self {
         let mut registry = Self {
@@ -344,6 +354,19 @@ impl RustStepHandlerRegistry {
                 Some(Arc::new(AlternateMethodHandler::new(config)))
             }
 
+            // TAS-91: Blog Post 01 - E-commerce order processing handlers
+            "ecommerce_validate_cart" => Some(Arc::new(EcommerceValidateCartHandler::new(config))),
+            "ecommerce_process_payment" => {
+                Some(Arc::new(EcommerceProcessPaymentHandler::new(config)))
+            }
+            "ecommerce_update_inventory" => {
+                Some(Arc::new(EcommerceUpdateInventoryHandler::new(config)))
+            }
+            "ecommerce_create_order" => Some(Arc::new(EcommerceCreateOrderHandler::new(config))),
+            "ecommerce_send_confirmation" => {
+                Some(Arc::new(EcommerceSendConfirmationHandler::new(config)))
+            }
+
             // Unknown handler
             _ => None,
         }
@@ -489,6 +512,18 @@ impl RustStepHandlerRegistry {
             ],
         );
 
+        // TAS-91: Blog Post 01 - E-commerce Order Processing
+        workflows.insert(
+            "ecommerce".to_string(),
+            vec![
+                "ecommerce_validate_cart".to_string(),
+                "ecommerce_process_payment".to_string(),
+                "ecommerce_update_inventory".to_string(),
+                "ecommerce_create_order".to_string(),
+                "ecommerce_send_confirmation".to_string(),
+            ],
+        );
+
         workflows
     }
 
@@ -614,7 +649,24 @@ impl RustStepHandlerRegistry {
 
         // TAS-93 Phase 5: Resolver Chain Test Handlers (2)
         self.register_handler(Arc::new(MultiMethodHandler::new(empty_config.clone())));
-        self.register_handler(Arc::new(AlternateMethodHandler::new(empty_config)));
+        self.register_handler(Arc::new(AlternateMethodHandler::new(empty_config.clone())));
+
+        // TAS-91: Blog Post 01 - E-commerce Order Processing Handlers (5)
+        self.register_handler(Arc::new(EcommerceValidateCartHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(EcommerceProcessPaymentHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(EcommerceUpdateInventoryHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(EcommerceCreateOrderHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(EcommerceSendConfirmationHandler::new(
+            empty_config,
+        )));
     }
 
     /// Register a single handler in the registry
@@ -865,12 +917,12 @@ mod tests {
     fn test_registry_creation() {
         let registry = RustStepHandlerRegistry::new();
 
-        // Should have all 58 handlers (4+4+8+7+4+6+3+3+10+3+4+2)
+        // Should have all 63 handlers (4+4+8+7+4+6+3+3+10+3+4+2+5)
         // Linear(4) + Diamond(4) + Tree(8) + MixedDAG(7) + OrderFulfillment(4)
         // + ConditionalApproval(6) + BatchProcessingExample(3) + BatchProcessingProductsCsv(3)
         // + DiamondDecisionBatch(10) + TAS-64 ErrorInjection(3 step registrations)
-        // + TAS-65 DomainEventPublishing(4) + TAS-93 ResolverTests(2)
-        assert_eq!(registry.handler_count(), 58);
+        // + TAS-65 DomainEventPublishing(4) + TAS-93 ResolverTests(2) + TAS-91 Ecommerce(5)
+        assert_eq!(registry.handler_count(), 63);
     }
 
     #[test]
@@ -941,7 +993,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let workflows = registry.get_handlers_by_workflow();
 
-        assert_eq!(workflows.len(), 11); // Added resolver_tests (TAS-93)
+        assert_eq!(workflows.len(), 12); // Added ecommerce (TAS-91)
         assert_eq!(workflows["linear_workflow"].len(), 4);
         assert_eq!(workflows["diamond_workflow"].len(), 4);
         assert_eq!(workflows["tree_workflow"].len(), 8);
@@ -962,7 +1014,7 @@ mod tests {
 
         // Should be the same instance
         assert_eq!(registry1 as *const _, registry2 as *const _);
-        assert_eq!(registry1.handler_count(), 58); // Updated for TAS-93
+        assert_eq!(registry1.handler_count(), 63); // Updated for TAS-91
     }
 
     #[test]
@@ -970,8 +1022,8 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
         let names = registry.get_all_handler_names();
 
-        // Should have 58 handlers (updated for TAS-93)
-        assert_eq!(names.len(), 58);
+        // Should have 63 handlers (updated for TAS-91)
+        assert_eq!(names.len(), 63);
 
         // Should be sorted
         let mut sorted_names = names.clone();
@@ -993,7 +1045,7 @@ mod tests {
         let registry = RustStepHandlerRegistry::new();
 
         // Verify all handlers start with empty config (no publisher)
-        assert_eq!(registry.handler_count(), 58); // Updated for TAS-93
+        assert_eq!(registry.handler_count(), 63); // Updated for TAS-93
 
         // Create mock publisher (we can't fully test without a real message client,
         // but we can verify the method doesn't panic and maintains handler count)
@@ -1002,7 +1054,7 @@ mod tests {
 
         // The actual integration test will verify end-to-end functionality
         // For now, just verify handler count remains stable
-        assert_eq!(registry.handler_count(), 58); // Updated for TAS-93
+        assert_eq!(registry.handler_count(), 63); // Updated for TAS-93
     }
 
     // ========================================================================
@@ -1014,8 +1066,8 @@ mod tests {
         let adapter = RustStepHandlerRegistryAdapter::with_default_handlers();
         let resolver = adapter.to_explicit_resolver();
 
-        // Should have all 58 handlers registered (TAS-93)
-        assert_eq!(resolver.len(), 58);
+        // Should have all 63 handlers registered (TAS-91)
+        assert_eq!(resolver.len(), 63);
 
         // Should be named correctly
         assert_eq!(resolver.resolver_name(), "RustHandlerResolver");

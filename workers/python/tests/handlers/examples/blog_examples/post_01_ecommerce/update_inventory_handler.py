@@ -73,8 +73,8 @@ class UpdateInventoryHandler(StepHandler):
         # Process inventory reservations
         reservation_response = self._process_inventory_reservations(
             validated_items=validated_items,
-            customer_info=customer_info,
-            task_uuid=str(context.task_uuid),
+            _customer_info=customer_info,
+            _task_uuid=str(context.task_uuid),
         )
 
         updated_products = reservation_response["updated_products"]

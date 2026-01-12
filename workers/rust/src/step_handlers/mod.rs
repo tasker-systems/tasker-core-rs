@@ -386,6 +386,9 @@ pub mod payment_event_publisher;
 // TAS-65: Domain event publishing workflow handlers
 pub mod domain_event_publishing;
 
+// TAS-91: Blog Post 01 - E-commerce order processing handlers
+pub mod ecommerce;
+
 // Handler registry
 pub mod registry;
 
