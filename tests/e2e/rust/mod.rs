@@ -3,6 +3,7 @@ mod batch_processing_csv_workflow;
 mod batch_processing_workflow;
 mod batch_resumption_test;
 mod conditional_approval_rust;
+mod data_pipeline_analytics_test; // TAS-91 Blog Post 02
 mod diamond_decision_batch_workflow;
 mod diamond_workflow;
 mod domain_event_publishing_test; // TAS-65: Domain event publishing

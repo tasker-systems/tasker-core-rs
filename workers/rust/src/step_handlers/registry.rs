@@ -112,6 +112,18 @@ use super::ecommerce::{
     ValidateCartHandler as EcommerceValidateCartHandler,
 };
 
+// TAS-91: Blog Post 02 - Data pipeline analytics handlers
+use super::data_pipeline::{
+    AggregateMetricsHandler as DataPipelineAggregateMetricsHandler,
+    ExtractCustomerDataHandler as DataPipelineExtractCustomerDataHandler,
+    ExtractInventoryDataHandler as DataPipelineExtractInventoryDataHandler,
+    ExtractSalesDataHandler as DataPipelineExtractSalesDataHandler,
+    GenerateInsightsHandler as DataPipelineGenerateInsightsHandler,
+    TransformCustomersHandler as DataPipelineTransformCustomersHandler,
+    TransformInventoryHandler as DataPipelineTransformInventoryHandler,
+    TransformSalesHandler as DataPipelineTransformSalesHandler,
+};
+
 /// Central registry for all Rust step handlers
 ///
 /// Provides O(1) handler lookup by name with compile-time type safety.
@@ -367,6 +379,32 @@ impl RustStepHandlerRegistry {
                 Some(Arc::new(EcommerceSendConfirmationHandler::new(config)))
             }
 
+            // TAS-91: Blog Post 02 - Data pipeline analytics handlers
+            "data_pipeline_extract_sales" => {
+                Some(Arc::new(DataPipelineExtractSalesDataHandler::new(config)))
+            }
+            "data_pipeline_extract_inventory" => {
+                Some(Arc::new(DataPipelineExtractInventoryDataHandler::new(config)))
+            }
+            "data_pipeline_extract_customers" => {
+                Some(Arc::new(DataPipelineExtractCustomerDataHandler::new(config)))
+            }
+            "data_pipeline_transform_sales" => {
+                Some(Arc::new(DataPipelineTransformSalesHandler::new(config)))
+            }
+            "data_pipeline_transform_inventory" => {
+                Some(Arc::new(DataPipelineTransformInventoryHandler::new(config)))
+            }
+            "data_pipeline_transform_customers" => {
+                Some(Arc::new(DataPipelineTransformCustomersHandler::new(config)))
+            }
+            "data_pipeline_aggregate_metrics" => {
+                Some(Arc::new(DataPipelineAggregateMetricsHandler::new(config)))
+            }
+            "data_pipeline_generate_insights" => {
+                Some(Arc::new(DataPipelineGenerateInsightsHandler::new(config)))
+            }
+
             // Unknown handler
             _ => None,
         }
@@ -524,6 +562,21 @@ impl RustStepHandlerRegistry {
             ],
         );
 
+        // TAS-91: Blog Post 02 - Data Pipeline Analytics
+        workflows.insert(
+            "data_pipeline".to_string(),
+            vec![
+                "data_pipeline_extract_sales".to_string(),
+                "data_pipeline_extract_inventory".to_string(),
+                "data_pipeline_extract_customers".to_string(),
+                "data_pipeline_transform_sales".to_string(),
+                "data_pipeline_transform_inventory".to_string(),
+                "data_pipeline_transform_customers".to_string(),
+                "data_pipeline_aggregate_metrics".to_string(),
+                "data_pipeline_generate_insights".to_string(),
+            ],
+        );
+
         workflows
     }
 
@@ -665,6 +718,32 @@ impl RustStepHandlerRegistry {
             empty_config.clone(),
         )));
         self.register_handler(Arc::new(EcommerceSendConfirmationHandler::new(
+            empty_config.clone(),
+        )));
+
+        // TAS-91: Blog Post 02 - Data Pipeline Analytics Handlers (8)
+        self.register_handler(Arc::new(DataPipelineExtractSalesDataHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DataPipelineExtractInventoryDataHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DataPipelineExtractCustomerDataHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DataPipelineTransformSalesHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DataPipelineTransformInventoryHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DataPipelineTransformCustomersHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DataPipelineAggregateMetricsHandler::new(
+            empty_config.clone(),
+        )));
+        self.register_handler(Arc::new(DataPipelineGenerateInsightsHandler::new(
             empty_config,
         )));
     }

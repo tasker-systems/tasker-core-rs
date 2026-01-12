@@ -389,6 +389,9 @@ pub mod domain_event_publishing;
 // TAS-91: Blog Post 01 - E-commerce order processing handlers
 pub mod ecommerce;
 
+// TAS-91: Blog Post 02 - Data pipeline analytics handlers
+pub mod data_pipeline;
+
 // Handler registry
 pub mod registry;
 

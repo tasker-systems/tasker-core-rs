@@ -30,6 +30,17 @@ export {
   UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
   ValidateCartHandler as EcommerceValidateCartHandler,
 } from './blog_examples/index.js';
+// TAS-91: Blog Example Handlers (Post 02: Data Pipeline)
+export {
+  AggregateMetricsHandler as DataPipelineAggregateMetricsHandler,
+  ExtractCustomerDataHandler as DataPipelineExtractCustomerDataHandler,
+  ExtractInventoryDataHandler as DataPipelineExtractInventoryDataHandler,
+  ExtractSalesDataHandler as DataPipelineExtractSalesDataHandler,
+  GenerateInsightsHandler as DataPipelineGenerateInsightsHandler,
+  TransformCustomersHandler as DataPipelineTransformCustomersHandler,
+  TransformInventoryHandler as DataPipelineTransformInventoryHandler,
+  TransformSalesHandler as DataPipelineTransformSalesHandler,
+} from './blog_examples/index.js';
 // TAS-125: Checkpoint Yield Handlers
 export {
   CheckpointYieldAggregatorHandler,
@@ -82,13 +93,24 @@ import {
   CsvBatchProcessorHandler,
   CsvResultsAggregatorHandler,
 } from './batch_processing/index.js';
-// TAS-91: Blog Example Handlers
+// TAS-91: Blog Example Handlers (Post 01: E-commerce)
 import {
   CreateOrderHandler as EcommerceCreateOrderHandler,
   ProcessPaymentHandler as EcommerceProcessPaymentHandler,
   SendConfirmationHandler as EcommerceSendConfirmationHandler,
   UpdateInventoryHandler as EcommerceUpdateInventoryHandler,
   ValidateCartHandler as EcommerceValidateCartHandler,
+} from './blog_examples/index.js';
+// TAS-91: Blog Example Handlers (Post 02: Data Pipeline)
+import {
+  AggregateMetricsHandler as DataPipelineAggregateMetricsHandler,
+  ExtractCustomerDataHandler as DataPipelineExtractCustomerDataHandler,
+  ExtractInventoryDataHandler as DataPipelineExtractInventoryDataHandler,
+  ExtractSalesDataHandler as DataPipelineExtractSalesDataHandler,
+  GenerateInsightsHandler as DataPipelineGenerateInsightsHandler,
+  TransformCustomersHandler as DataPipelineTransformCustomersHandler,
+  TransformInventoryHandler as DataPipelineTransformInventoryHandler,
+  TransformSalesHandler as DataPipelineTransformSalesHandler,
 } from './blog_examples/index.js';
 import {
   CheckpointYieldAggregatorHandler,
@@ -179,4 +201,13 @@ export const ALL_EXAMPLE_HANDLERS = [
   EcommerceUpdateInventoryHandler,
   EcommerceCreateOrderHandler,
   EcommerceSendConfirmationHandler,
+  // TAS-91: Blog Examples (Post 02: Data Pipeline)
+  DataPipelineExtractSalesDataHandler,
+  DataPipelineExtractInventoryDataHandler,
+  DataPipelineExtractCustomerDataHandler,
+  DataPipelineTransformSalesHandler,
+  DataPipelineTransformInventoryHandler,
+  DataPipelineTransformCustomersHandler,
+  DataPipelineAggregateMetricsHandler,
+  DataPipelineGenerateInsightsHandler,
 ];

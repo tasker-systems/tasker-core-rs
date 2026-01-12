@@ -8,6 +8,14 @@
  * - Ecommerce.StepHandlers.UpdateInventoryHandler
  * - Ecommerce.StepHandlers.CreateOrderHandler
  * - Ecommerce.StepHandlers.SendConfirmationHandler
+ * - DataPipeline.StepHandlers.ExtractSalesDataHandler
+ * - DataPipeline.StepHandlers.ExtractInventoryDataHandler
+ * - DataPipeline.StepHandlers.ExtractCustomerDataHandler
+ * - DataPipeline.StepHandlers.TransformSalesHandler
+ * - DataPipeline.StepHandlers.TransformInventoryHandler
+ * - DataPipeline.StepHandlers.TransformCustomersHandler
+ * - DataPipeline.StepHandlers.AggregateMetricsHandler
+ * - DataPipeline.StepHandlers.GenerateInsightsHandler
  */
 
 // Post 01: E-commerce Order Processing
@@ -18,3 +26,15 @@ export {
   UpdateInventoryHandler,
   ValidateCartHandler,
 } from './post_01_ecommerce/index.js';
+
+// Post 02: Data Pipeline Analytics
+export {
+  AggregateMetricsHandler,
+  ExtractCustomerDataHandler,
+  ExtractInventoryDataHandler,
+  ExtractSalesDataHandler,
+  GenerateInsightsHandler,
+  TransformCustomersHandler,
+  TransformInventoryHandler,
+  TransformSalesHandler,
+} from './post_02_data_pipeline/index.js';
