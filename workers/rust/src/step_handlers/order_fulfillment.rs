@@ -33,7 +33,10 @@ use tracing::{error, info};
 /// Validate Order: Validate customer info, order items, and calculate totals
 #[derive(Debug)]
 pub struct ValidateOrderHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -306,7 +309,10 @@ impl RustStepHandler for ValidateOrderHandler {
 /// Reserve Inventory: Reserve items in warehouse with expiration times
 #[derive(Debug)]
 pub struct ReserveInventoryHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -481,7 +487,10 @@ impl RustStepHandler for ReserveInventoryHandler {
 /// Process Payment: Charge payment method through gateway
 #[derive(Debug)]
 pub struct ProcessPaymentHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -685,7 +694,10 @@ impl RustStepHandler for ProcessPaymentHandler {
 /// Ship Order: Create shipping labels and generate tracking numbers
 #[derive(Debug)]
 pub struct ShipOrderHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 

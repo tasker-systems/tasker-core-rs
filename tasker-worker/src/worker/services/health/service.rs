@@ -307,17 +307,14 @@ impl HealthService {
         // Use WorkerCore's get_health method directly
         match worker_core.get_health().await {
             Ok(health_status) => {
-                let is_healthy = health_status.status == "healthy"
-                    && health_status.database_connected
-                    && health_status.orchestration_api_reachable;
+                let is_healthy =
+                    health_status.status == "healthy" && health_status.database_connected;
 
                 HealthCheck {
                     status: if is_healthy { "healthy" } else { "degraded" }.to_string(),
                     message: Some(format!(
-                        "Worker status: {}, DB connected: {}, API reachable: {}",
-                        health_status.status,
-                        health_status.database_connected,
-                        health_status.orchestration_api_reachable
+                        "Worker status: {}, DB connected: {}",
+                        health_status.status, health_status.database_connected,
                     )),
                     duration_ms: start.elapsed().as_millis() as u64,
                     last_checked: Utc::now(),

@@ -14,9 +14,6 @@ pub struct WorkerHealthStatus {
     /// Database connectivity status
     pub database_connected: bool,
 
-    /// Orchestration API reachability
-    pub orchestration_api_reachable: bool,
-
     /// Namespaces this worker supports
     pub supported_namespaces: Vec<String>,
 
@@ -38,7 +35,6 @@ impl Default for WorkerHealthStatus {
         Self {
             status: "unknown".to_string(),
             database_connected: false,
-            orchestration_api_reachable: false,
             supported_namespaces: Vec::new(),
             template_cache_stats: None,
             total_messages_processed: 0,
@@ -54,7 +50,6 @@ impl WorkerHealthStatus {
         Self {
             status: "healthy".to_string(),
             database_connected: true,
-            orchestration_api_reachable: true,
             ..Default::default()
         }
     }
@@ -72,14 +67,13 @@ impl WorkerHealthStatus {
         Self {
             status: format!("unhealthy: {}", reason),
             database_connected: false,
-            orchestration_api_reachable: false,
             ..Default::default()
         }
     }
 
     /// Check if the worker is considered healthy
     pub fn is_healthy(&self) -> bool {
-        self.status == "healthy" && self.database_connected && self.orchestration_api_reachable
+        self.status == "healthy" && self.database_connected
     }
 
     /// Get success rate as percentage

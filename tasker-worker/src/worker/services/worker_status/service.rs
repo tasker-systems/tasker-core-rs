@@ -106,7 +106,6 @@ impl WorkerStatusService {
         let health_status = WorkerHealthStatus {
             status: "healthy".to_string(),
             database_connected: true, // TODO: Add actual DB connectivity check
-            orchestration_api_reachable: true, // TODO: Add actual API check
             supported_namespaces: self.task_template_manager.supported_namespaces().await,
             template_cache_stats: Some(self.task_template_manager.cache_stats().await),
             total_messages_processed: stats.total_executed,

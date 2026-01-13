@@ -656,7 +656,6 @@ impl WorkerCore {
         Ok(WorkerHealthStatus {
             status: worker_status.status.clone(),
             database_connected: event_driven_connected, // Event-driven processor includes DB connectivity
-            orchestration_api_reachable: true,          // TODO: Could check actual API connectivity
             supported_namespaces: self.task_template_manager.supported_namespaces().await,
             template_cache_stats: Some(self.task_template_manager.cache_stats().await),
             total_messages_processed: worker_status.steps_executed,

@@ -43,7 +43,10 @@ use tracing::{error, info};
 /// - Uses `get_input::<T>()` for task context access (cross-language standard)
 #[derive(Debug)]
 pub struct LinearStep1Handler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -120,7 +123,10 @@ impl RustStepHandler for LinearStep1Handler {
 /// Linear Step 2: Square the result from step 1 (36 -> 1296)
 #[derive(Debug)]
 pub struct LinearStep2Handler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -189,7 +195,10 @@ impl RustStepHandler for LinearStep2Handler {
 /// Linear Step 3: Square the result from step 2 (1296 -> 1679616)
 #[derive(Debug)]
 pub struct LinearStep3Handler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -259,7 +268,10 @@ impl RustStepHandler for LinearStep3Handler {
 /// - Uses `get_input_or()` for task context with default value
 #[derive(Debug)]
 pub struct LinearStep4Handler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 

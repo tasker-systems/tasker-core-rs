@@ -224,10 +224,6 @@ impl TaskInitializer {
             .initialize_state_machines_post_transaction(task_uuid, &step_mapping)
             .await?;
 
-        // Publish initialization event if publisher available
-        self.publish_task_initialized(task_uuid, step_count, &task_name)
-            .await?;
-
         let result = TaskInitializationResult {
             task_uuid,
             step_count,
@@ -333,17 +329,6 @@ impl TaskInitializer {
             })?;
 
         Ok(task)
-    }
-
-    /// Publish task initialization event
-    async fn publish_task_initialized(
-        &self,
-        _task_uuid: Uuid,
-        _step_count: usize,
-        _task_name: &str,
-    ) -> Result<(), TaskInitializationError> {
-        // TODO: Implement event publishing once EventPublisher interface is finalized
-        Ok(())
     }
 }
 
