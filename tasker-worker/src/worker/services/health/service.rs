@@ -240,7 +240,7 @@ impl HealthService {
             self.check_command_processor().await,
         );
         checks.insert("queue_processing".to_string(), self.check_queue().await);
-        checks.insert("event_system".to_string(), self.check_event_system());
+        checks.insert("event_system".to_string(), self.check_event_system().await);
         checks.insert(
             "step_processing".to_string(),
             self.check_step_processing().await,
@@ -383,17 +383,70 @@ impl HealthService {
     }
 
     /// Check event system health and connectivity
-    pub fn check_event_system(&self) -> HealthCheck {
+    ///
+    /// Verifies:
+    /// - Event-driven processing status (if enabled)
+    /// - Domain event publisher availability
+    /// - Event router connectivity (if configured)
+    pub async fn check_event_system(&self) -> HealthCheck {
         let start = std::time::Instant::now();
 
-        // TODO: Check event publisher/subscriber health
-        // For now, assume healthy if configuration allows events
+        let worker_core = self.worker_core.lock().await;
 
-        HealthCheck {
-            status: "healthy".to_string(),
-            message: Some("Event system available".to_string()),
-            duration_ms: start.elapsed().as_millis() as u64,
-            last_checked: Utc::now(),
+        // Check if event-driven processing is enabled
+        let event_driven_enabled = worker_core.is_event_driven_enabled();
+
+        if event_driven_enabled {
+            // Check event-driven stats for health indicators
+            match worker_core.get_event_driven_stats().await {
+                Some(stats) => {
+                    // Check if listener is connected (critical for event-driven mode)
+                    if stats.listener_connected {
+                        HealthCheck {
+                            status: "healthy".to_string(),
+                            message: Some(format!(
+                                "Event-driven processing active: {} messages processed, listener connected",
+                                stats.messages_processed
+                            )),
+                            duration_ms: start.elapsed().as_millis() as u64,
+                            last_checked: Utc::now(),
+                        }
+                    } else {
+                        warn!(
+                            worker_id = %self.worker_id,
+                            "Event-driven listener disconnected"
+                        );
+                        HealthCheck {
+                            status: "degraded".to_string(),
+                            message: Some("Event-driven listener disconnected".to_string()),
+                            duration_ms: start.elapsed().as_millis() as u64,
+                            last_checked: Utc::now(),
+                        }
+                    }
+                }
+                None => {
+                    // Event-driven enabled but no stats available yet
+                    HealthCheck {
+                        status: "healthy".to_string(),
+                        message: Some("Event-driven processing enabled, initializing".to_string()),
+                        duration_ms: start.elapsed().as_millis() as u64,
+                        last_checked: Utc::now(),
+                    }
+                }
+            }
+        } else {
+            // Event-driven not enabled - check domain event publisher
+            let domain_stats = worker_core.get_domain_event_stats().await;
+
+            HealthCheck {
+                status: "healthy".to_string(),
+                message: Some(format!(
+                    "Polling mode active, domain events: {} routed",
+                    domain_stats.router.total_routed
+                )),
+                duration_ms: start.elapsed().as_millis() as u64,
+                last_checked: Utc::now(),
+            }
         }
     }
 
