@@ -172,9 +172,11 @@ pub fn get_health_check(py: Python<'_>) -> PyResult<Py<PyAny>> {
     rust_info.set_item("web_api_enabled", status.web_api_enabled)?;
     dict.set_item("rust", rust_info)?;
 
-    // Python layer info (placeholder - can be extended)
+    // Python layer info
+    // Note: Python handler count is tracked by the Python runtime, not Rust.
+    // Python applications should extend this dict with their own handler registry count.
     let python_info = PyDict::new(py);
-    python_info.set_item("handler_count", 0)?; // TODO: Get from registry
+    python_info.set_item("handler_count", "unknown (tracked by Python)")?;
     dict.set_item("python", python_info)?;
 
     Ok(dict.into())
