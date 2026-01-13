@@ -11,6 +11,20 @@ categories = ["asynchronous", "concurrency"]
 [lints]
 workspace = true
 
+# TAS-145: Ignore false positives from cargo-machete
+[package.metadata.cargo-machete]
+ignored = [
+  # Dev-dependencies
+  "dotenvy",
+  "tasker-orchestration",
+  "tokio-test",
+  "tracing-subscriber",
+  # Used at runtime but not detected
+  "futures",
+  "once_cell",
+  "tasker-core",
+]
+
 [lib]
 name = "tasker_worker_rust"
 path = "src/lib.rs"

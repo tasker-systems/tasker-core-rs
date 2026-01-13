@@ -12,6 +12,22 @@ categories = ["api-bindings", "asynchronous"]
 [lints]
 workspace = true
 
+# TAS-145: Ignore false positives from cargo-machete
+[package.metadata.cargo-machete]
+ignored = [
+  # Dev-dependencies
+  "tasker-core",
+  # Used in FFI layer but not detected by analysis
+  "anyhow",
+  "async-trait",
+  "dotenvy",
+  "once_cell",
+  "serde_yaml",
+  "sqlx",
+  "thiserror",
+  "workspace_tools",
+]
+
 [lib]
 crate-type = ["cdylib"]
 name = "tasker_worker_rb"

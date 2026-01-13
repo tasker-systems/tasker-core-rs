@@ -12,6 +12,20 @@ categories = ["api-bindings", "asynchronous", "web-programming"]
 [lints]
 workspace = true
 
+# TAS-145: Ignore false positives from cargo-machete
+[package.metadata.cargo-machete]
+ignored = [
+  # Dev-dependencies used in tests
+  "dotenvy",
+  "tokio-test",
+  "workspace_tools",
+  # Used at runtime
+  "async-trait",
+  "futures",
+  "once_cell",
+  "rand",
+]
+
 [lib]
 name = "tasker_client"
 path = "src/lib.rs"

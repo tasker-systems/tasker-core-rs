@@ -12,6 +12,17 @@ categories = ["asynchronous", "database"]
 [lints]
 workspace = true
 
+# TAS-145: Ignore false positives from cargo-machete
+[package.metadata.cargo-machete]
+ignored = [
+  # Dev-dependencies used in tests
+  "cargo-llvm-cov",  # CI coverage tool
+  "serial_test",
+  "tempfile",
+  "tokio-test",
+  "url",
+]
+
 [lib]
 crate-type = ["rlib"]
 name = "pgmq_notify"

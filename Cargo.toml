@@ -247,6 +247,18 @@ test-utils = [
 [lints]
 workspace = true
 
+# TAS-145: Ignore false positives from cargo-machete
+[package.metadata.cargo-machete]
+ignored = [
+  # Dev-dependencies used in E2E tests
+  "futures",
+  "serde_yaml",
+  "serial_test",
+  "tasker-worker",
+  # CLI tool binary dependencies
+  "clap",
+]
+
 [profile.dev]
 opt-level = 0
 debug = true

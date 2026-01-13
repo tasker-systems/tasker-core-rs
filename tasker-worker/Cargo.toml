@@ -12,6 +12,39 @@ categories = ["asynchronous", "concurrency", "web-programming"]
 [lints]
 workspace = true
 
+# TAS-145: Ignore false positives from cargo-machete
+[package.metadata.cargo-machete]
+ignored = [
+  # Dev-dependencies used in tests
+  "cargo-llvm-cov",  # CI coverage tool
+  "serial_test",
+  "tasker-core",     # Used for test-utils re-export
+  "tempfile",
+  "tokio-test",
+  "url",
+  # Feature-gated dependencies (web-api feature)
+  "axum-extra",
+  "tower",
+  "utoipa-swagger-ui",
+  # Used in runtime or via macros
+  "bigdecimal",
+  "criterion",
+  "crossbeam",
+  "dotenvy",
+  "fastrand",
+  "jsonwebtoken",
+  "opentelemetry-otlp",
+  "rand",
+  "regex",
+  "reqwest",
+  "rsa",
+  "rust_decimal",
+  "serde_yaml",
+  "sysinfo",
+  "toml",
+  "tracing-subscriber",
+]
+
 [lib]
 crate-type = ["rlib"]
 name = "tasker_worker"
