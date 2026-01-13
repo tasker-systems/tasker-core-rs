@@ -1,3 +1,33 @@
+//! # Step Result Processor Configuration
+//!
+//! Configuration for processing step execution results in the orchestration system.
+//!
+//! ## Overview
+//!
+//! Controls how step completion results are processed from PGMQ:
+//! - **Queue Settings**: Result queue name, batch sizes, visibility timeouts
+//! - **Polling**: Interval between queue reads when no messages available
+//! - **Retry Policy**: Maximum processing attempts before failure
+//!
+//! ## Default Values
+//!
+//! | Setting | Default | Description |
+//! |---------|---------|-------------|
+//! | `step_results_queue_name` | `orchestration_step_results` | Queue name |
+//! | `batch_size` | 10 | Results per batch |
+//! | `visibility_timeout_seconds` | 300 | 5-minute lock |
+//! | `polling_interval_seconds` | 1 | Poll interval |
+//! | `max_processing_attempts` | 3 | Retry limit |
+//!
+//! ## Configuration Mapping
+//!
+//! Values are derived from `TaskerConfig.common.queues`:
+//! - `step_results_queue_name` ← `{orchestration_namespace}_{step_results}_queue`
+//! - `batch_size` ← `default_batch_size`
+//! - `visibility_timeout_seconds` ← `default_visibility_timeout_seconds`
+//! - `polling_interval_seconds` ← `pgmq.poll_interval_ms / 1000`
+//! - `max_processing_attempts` ← `pgmq.max_retries`
+
 // TAS-61 Phase 6C/6D: TaskerConfig is the canonical config
 use crate::config::tasker::TaskerConfig;
 use serde::{Deserialize, Serialize};

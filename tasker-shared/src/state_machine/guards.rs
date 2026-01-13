@@ -1,3 +1,43 @@
+//! # State Machine Guards
+//!
+//! Preconditions that must be satisfied before state transitions are allowed.
+//!
+//! ## Overview
+//!
+//! Guards are the gatekeepers of state transitions. Before any transition occurs,
+//! applicable guards are checked to ensure business rules and data integrity constraints
+//! are met. If a guard fails, the transition is rejected.
+//!
+//! ## Guard Types
+//!
+//! | Guard | Entity | Purpose |
+//! |-------|--------|---------|
+//! | `TransitionGuard` | Task | Validates state/event combinations per TAS-41 spec |
+//! | `AllStepsCompleteGuard` | Task | Ensures all steps finished before task completion |
+//! | `StepDependenciesMetGuard` | Step | Checks parent step completion |
+//! | `TaskNotInProgressGuard` | Task | Prevents concurrent processing |
+//! | `StepNotInProgressGuard` | Step | Prevents concurrent step execution |
+//! | `TaskCanBeResetGuard` | Task | Validates reset from Error state only |
+//! | `StepCanBeRetriedGuard` | Step | Validates retry from Error state only |
+//!
+//! ## Guard Trait
+//!
+//! Guards implement the `StateGuard<T>` trait:
+//!
+//! ```rust,ignore
+//! #[async_trait]
+//! pub trait StateGuard<T> {
+//!     async fn check(&self, entity: &T, pool: &PgPool) -> GuardResult<bool>;
+//!     fn description(&self) -> &'static str;
+//! }
+//! ```
+//!
+//! ## Processor Ownership
+//!
+//! The `TransitionGuard::check_ownership()` method enforces that only the processor
+//! that claimed a task can transition it through certain states, preventing race
+//! conditions in distributed orchestration (TAS-41 spec lines 290-301).
+
 use super::errors::{business_rule_violation, dependencies_not_met, GuardResult};
 use super::events::TaskEvent;
 use super::states::{TaskState, WorkflowStepState};

@@ -1,3 +1,46 @@
+//! # State Machine Events
+//!
+//! Events that trigger state transitions in tasks and workflow steps.
+//!
+//! ## Overview
+//!
+//! Events are the triggers that cause state transitions in the state machine.
+//! Each event represents something that happened which may change the entity's state.
+//!
+//! ## Task Events
+//!
+//! Task events drive the task lifecycle through orchestration phases:
+//!
+//! | Event Category | Events | Description |
+//! |----------------|--------|-------------|
+//! | **Lifecycle** | `Start`, `Cancel`, `GiveUp`, `ManualResolution` | Control task execution flow |
+//! | **Discovery** | `ReadyStepsFound`, `NoStepsFound`, `NoDependenciesReady` | Step readiness detection |
+//! | **Processing** | `StepsEnqueued`, `StepCompleted`, `StepFailed`, `AllStepsSuccessful` | Step execution tracking |
+//! | **Failure** | `PermanentFailure`, `RetryReady` | Error handling and retry |
+//! | **System** | `Timeout`, `ProcessorCrashed` | Infrastructure events |
+//!
+//! ## Step Events
+//!
+//! Step events drive individual step execution:
+//!
+//! | Event | Description |
+//! |-------|-------------|
+//! | `Enqueue` | Queue step for worker processing |
+//! | `Start` | Worker begins execution |
+//! | `EnqueueForOrchestration` | Worker completed, queue for orchestration |
+//! | `Complete` | Orchestration finalized step success |
+//! | `Fail` | Step execution failed |
+//! | `WaitForRetry` | Enter retry backoff |
+//! | `ResetForRetry` | Operator reset for fresh retry |
+//!
+//! ## Event Properties
+//!
+//! Events provide metadata via helper methods:
+//! - `event_type()` - String name for logging
+//! - `is_terminal()` - Whether this completes the entity lifecycle
+//! - `requires_ownership()` - Whether processor ownership is needed
+//! - `error_message()` - Extract error details from failure events
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;

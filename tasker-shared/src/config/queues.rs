@@ -1,3 +1,44 @@
+//! # Queue Configuration
+//!
+//! Configuration for PGMQ (PostgreSQL Message Queue) and queue naming conventions.
+//!
+//! ## Overview
+//!
+//! This module provides configuration for message queues used by orchestration and workers:
+//! - **Queue Naming**: Namespace-based naming patterns for consistent queue identification
+//! - **PGMQ Backend**: PostgreSQL message queue settings (poll intervals, retries, DLQ)
+//! - **RabbitMQ Backend**: Optional RabbitMQ configuration for future use
+//! - **Orchestration Queues**: Dedicated queues for step results, task requests, finalizations
+//!
+//! ## Queue Naming Convention
+//!
+//! Queues follow the pattern: `{namespace}_{name}_queue`
+//!
+//! Examples:
+//! - Orchestration: `orchestration_step_results`, `orchestration_task_requests`
+//! - Workers: `worker_fulfillment_queue`, `worker_payments_queue`
+//!
+//! ## Configuration Structure
+//!
+//! ```toml
+//! [common.queues]
+//! orchestration_namespace = "orchestration"
+//! worker_namespace = "worker"
+//! naming_pattern = "{namespace}_{name}_queue"
+//! default_batch_size = 10
+//! default_visibility_timeout_seconds = 300
+//!
+//! [common.queues.orchestration_queues]
+//! step_results = "orchestration_step_results"
+//! task_requests = "orchestration_task_requests"
+//! task_finalizations = "orchestration_task_finalizations"
+//!
+//! [common.queues.pgmq]
+//! poll_interval_ms = 1000
+//! max_retries = 3
+//! dlq_enabled = true
+//! ```
+
 use serde::{Deserialize, Serialize};
 
 // Import queue config structs from V2

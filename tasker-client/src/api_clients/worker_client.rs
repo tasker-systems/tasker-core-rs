@@ -23,6 +23,24 @@ use tasker_shared::{
 };
 
 /// Configuration for the worker API client
+///
+/// # Examples
+///
+/// ```rust
+/// use tasker_client::WorkerApiConfig;
+///
+/// // Default configuration
+/// let config = WorkerApiConfig::default();
+/// assert_eq!(config.base_url, "http://localhost:8081");
+///
+/// // Custom configuration
+/// let config = WorkerApiConfig {
+///     base_url: "http://worker.internal:8081".to_string(),
+///     timeout_ms: 60000,
+///     max_retries: 5,
+///     auth: None,
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct WorkerApiConfig {
     /// Base URL for the worker API (e.g., "<http://worker:8081>")
@@ -47,6 +65,39 @@ impl Default for WorkerApiConfig {
 }
 
 /// HTTP client for worker API operations
+///
+/// Provides methods to interact with worker health checks, metrics, templates,
+/// and configuration endpoints. Handles authentication and proper error reporting.
+///
+/// # Examples
+///
+/// ```rust
+/// use tasker_client::{WorkerApiClient, WorkerApiConfig};
+///
+/// let config = WorkerApiConfig::default();
+/// let client = WorkerApiClient::new(config).unwrap();
+///
+/// // Check worker base URL
+/// assert_eq!(client.base_url(), "http://localhost:8081/");
+/// ```
+///
+/// ```rust,ignore
+/// use tasker_client::{WorkerApiClient, WorkerApiConfig};
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let config = WorkerApiConfig::default();
+/// let client = WorkerApiClient::new(config)?;
+///
+/// // Health check
+/// let health = client.health_check().await?;
+/// println!("Worker status: {}", health.status);
+///
+/// // Get metrics
+/// let metrics = client.get_worker_metrics().await?;
+/// println!("Steps processed: {}", metrics.steps_processed);
+/// # Ok(())
+/// # }
+/// ```
 pub struct WorkerApiClient {
     client: Client,
     base_url: Url,

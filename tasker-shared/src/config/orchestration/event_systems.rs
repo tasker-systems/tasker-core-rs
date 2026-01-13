@@ -1,3 +1,34 @@
+//! # Orchestration Event Systems Configuration
+//!
+//! Event-driven processing configuration for the orchestration system.
+//!
+//! ## Overview
+//!
+//! This module provides configuration for orchestration event systems, which handle:
+//! - **PGMQ Event Processing**: Queue polling intervals, batch sizes, visibility timeouts
+//! - **Health Monitoring**: Event system health check intervals and thresholds
+//! - **Deployment Modes**: PollingOnly, EventDrivenOnly, or Hybrid mode selection
+//!
+//! ## Configuration Hierarchy
+//!
+//! The configuration merges settings from:
+//! 1. `TaskerConfig.orchestration.event_systems.orchestration` (V2 canonical)
+//! 2. Environment overrides via `TASKER_ENV`
+//! 3. Default values for unspecified settings
+//!
+//! ## Example
+//!
+//! ```toml
+//! [orchestration.event_systems.orchestration]
+//! system_id = "orchestration"
+//! deployment_mode = "hybrid"
+//!
+//! [orchestration.event_systems.orchestration.timing]
+//! fallback_polling_interval_ms = 1000
+//! visibility_timeout_seconds = 300
+//! health_check_interval_seconds = 30
+//! ```
+
 // TAS-61 Phase 6C/6D: TaskerConfig is the canonical config
 use crate::config::{tasker::TaskerConfig, ConfigManager};
 use std::time::Duration;
