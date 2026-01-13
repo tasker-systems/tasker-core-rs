@@ -17,7 +17,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
@@ -129,6 +129,8 @@ pub struct WorkerEventSystem {
     is_running: Arc<AtomicBool>,
     /// Supported namespaces
     supported_namespaces: Vec<String>,
+    /// System start time for rate calculation
+    start_time: Instant,
 }
 
 /// Thread-safe statistics container
@@ -139,6 +141,14 @@ struct AtomicStatistics {
     step_messages_processed: AtomicU64,
     health_checks_processed: AtomicU64,
     config_updates_processed: AtomicU64,
+    /// Total latency in microseconds (for average calculation)
+    total_latency_us: AtomicU64,
+    /// Count of latency measurements (for average calculation)
+    latency_count: AtomicU64,
+    /// Events processed via event-driven (pg_notify)
+    event_driven_processed: AtomicU64,
+    /// Events processed via polling
+    polling_processed: AtomicU64,
 }
 
 impl Default for AtomicStatistics {
@@ -149,7 +159,54 @@ impl Default for AtomicStatistics {
             step_messages_processed: AtomicU64::new(0),
             health_checks_processed: AtomicU64::new(0),
             config_updates_processed: AtomicU64::new(0),
+            total_latency_us: AtomicU64::new(0),
+            latency_count: AtomicU64::new(0),
+            event_driven_processed: AtomicU64::new(0),
+            polling_processed: AtomicU64::new(0),
         }
+    }
+}
+
+impl AtomicStatistics {
+    /// Record an event processing latency
+    fn record_latency(&self, latency: std::time::Duration) {
+        self.total_latency_us
+            .fetch_add(latency.as_micros() as u64, Ordering::Relaxed);
+        self.latency_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Get average latency in milliseconds
+    fn average_latency_ms(&self) -> f64 {
+        let total_us = self.total_latency_us.load(Ordering::Relaxed);
+        let count = self.latency_count.load(Ordering::Relaxed);
+        if count == 0 {
+            0.0
+        } else {
+            (total_us as f64 / count as f64) / 1000.0
+        }
+    }
+
+    /// Calculate deployment mode effectiveness score (0.0-1.0)
+    /// Higher score means more event-driven processing (better/lower latency)
+    fn deployment_mode_score(&self) -> f64 {
+        let event_driven = self.event_driven_processed.load(Ordering::Relaxed);
+        let polling = self.polling_processed.load(Ordering::Relaxed);
+        let total = event_driven + polling;
+        if total == 0 {
+            1.0 // Default when no processing yet
+        } else {
+            event_driven as f64 / total as f64
+        }
+    }
+
+    /// Record an event-driven processed event
+    fn record_event_driven(&self) {
+        self.event_driven_processed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a polling processed event
+    fn record_polling(&self) {
+        self.polling_processed.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -181,7 +238,35 @@ impl WorkerEventSystem {
             context,
             is_running: Arc::new(AtomicBool::new(false)),
             supported_namespaces,
+            start_time: Instant::now(),
         }
+    }
+
+    /// Record a polling-based event processing (TAS-141)
+    ///
+    /// Call this when an event is processed via polling rather than pg_notify.
+    pub fn record_polling_event(&self) {
+        self.statistics.record_polling();
+        self.statistics
+            .events_processed
+            .fetch_add(1, Ordering::Relaxed);
+        self.statistics
+            .step_messages_processed
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record event processing latency (TAS-141)
+    ///
+    /// Call this when a step execution completes to track average latency.
+    pub fn record_latency(&self, latency: std::time::Duration) {
+        self.statistics.record_latency(latency);
+    }
+
+    /// Record a failed event processing (TAS-141)
+    pub fn record_failure(&self) {
+        self.statistics
+            .events_failed
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Initialize components based on deployment mode
@@ -242,6 +327,7 @@ impl WorkerEventSystem {
                 // Spawn a task to convert notifications to commands
                 let command_sender = self.command_sender.clone();
                 let monitor = channel_monitor;
+                let statistics = self.statistics.clone();
                 tokio::spawn(async move {
                     while let Some(notification) = notification_receiver.recv().await {
                         // TAS-51: Record message receive for channel monitoring
@@ -251,6 +337,13 @@ impl WorkerEventSystem {
                         // This is where the FFI event forwarding will happen
                         match notification {
                             WorkerNotification::Event(WorkerQueueEvent::StepMessage(msg_event)) => {
+                                // TAS-141: Record event-driven processing
+                                statistics.record_event_driven();
+                                statistics.events_processed.fetch_add(1, Ordering::Relaxed);
+                                statistics
+                                    .step_messages_processed
+                                    .fetch_add(1, Ordering::Relaxed);
+
                                 // Convert to command that will process the step
                                 let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
                                 if let Err(e) = command_sender
@@ -260,6 +353,7 @@ impl WorkerEventSystem {
                                     })
                                     .await
                                 {
+                                    statistics.events_failed.fetch_add(1, Ordering::Relaxed);
                                     error!("Failed to forward step notification to command processor: {}", e);
                                 }
                             }
@@ -360,12 +454,22 @@ impl EventDrivenSystem for WorkerEventSystem {
     }
 
     fn statistics(&self) -> Self::Statistics {
+        let events_processed = self.statistics.events_processed.load(Ordering::Relaxed);
+
+        // Calculate processing rate (events per second)
+        let elapsed_secs = self.start_time.elapsed().as_secs_f64();
+        let processing_rate = if elapsed_secs > 0.0 {
+            events_processed as f64 / elapsed_secs
+        } else {
+            0.0
+        };
+
         WorkerEventSystemStatistics {
-            events_processed: self.statistics.events_processed.load(Ordering::Relaxed),
+            events_processed,
             events_failed: self.statistics.events_failed.load(Ordering::Relaxed),
-            processing_rate: 0.0,       // TODO: Calculate actual processing rate
-            average_latency_ms: 0.0,    // TODO: Calculate actual latency
-            deployment_mode_score: 1.0, // TODO: Calculate effectiveness score
+            processing_rate,
+            average_latency_ms: self.statistics.average_latency_ms(),
+            deployment_mode_score: self.statistics.deployment_mode_score(),
             step_messages_processed: self
                 .statistics
                 .step_messages_processed

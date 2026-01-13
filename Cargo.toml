@@ -9,6 +9,18 @@ license = "MIT"
 keywords = ["async", "orchestration", "performance", "task", "workflow"]
 categories = ["concurrency", "database", "web-programming"]
 
+# TAS-145: Ignore false positives from cargo-machete
+[package.metadata.cargo-machete]
+ignored = [
+  # Dev-dependencies used in E2E tests
+  "futures",
+  "serde_yaml",
+  "serial_test",
+  "tasker-worker",
+  # CLI tool binary dependencies
+  "clap",
+]
+
 [workspace]
 members = [
   ".",  # Current crate temporarily remains during migration
@@ -17,9 +29,9 @@ members = [
   "tasker-orchestration",
   "tasker-shared",
   "tasker-worker",
+  "workers/python",  # TAS-72: PyO3 Python worker
   "workers/ruby/ext/tasker_core",
   "workers/rust",
-  "workers/python",      # TAS-72: PyO3 Python worker
   "workers/typescript",  # TAS-100: TypeScript FFI worker
   # "workers/wasm",      # Future
 ]
@@ -45,7 +57,11 @@ criterion = { version = "0.8.1" }
 # dashmap = "6.1"
 crossbeam = "0.8"
 # Derive macros for common traits (Display, Default, From, etc.)
-derive_more = { version = "2.0.1", default-features = false, features = ["display", "from", "as_ref"] }
+derive_more = { version = "2.0.1", default-features = false, features = [
+  "as_ref",
+  "display",
+  "from"
+] }
 dotenvy = "0.15"  # For loading .env files
 # Random number generation
 fastrand = "2.0"
@@ -75,7 +91,10 @@ pgmq = "0.31.2"
 pgmq-notify = { path = "pgmq-notify" }
 rand = "0.9.1"
 regex = "1.0"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls"
+] }
 rsa = { version = "0.9" }
 rust_decimal = { version = "1.37", features = ["serde-with-str"] }
 # Serialization
@@ -102,8 +121,6 @@ sysinfo = "0.37"
 tempfile = "3.24"
 # Error handling
 thiserror = "2.0"
-# TypeScript binding generation from Rust types
-ts-rs = { version = "11.1", features = ["serde-json-impl", "chrono-impl"] }
 # Async runtime and utilities
 tokio = { version = "1.49", features = ["full"] }
 # Testing tools
@@ -116,6 +133,8 @@ tower-http = { version = "0.6", features = ["cors", "timeout", "trace"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.32"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
+# TypeScript binding generation from Rust types
+ts-rs = { version = "11.1", features = ["chrono-impl", "serde-json-impl"] }
 url = "2.0"
 # OpenAPI documentation
 utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"] }

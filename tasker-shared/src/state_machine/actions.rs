@@ -1,3 +1,46 @@
+//! # State Machine Actions
+//!
+//! Side effects executed during state transitions for tasks and workflow steps.
+//!
+//! ## Overview
+//!
+//! Actions are the "do" part of state transitions - they perform side effects like:
+//! - **Database Updates**: Setting completion timestamps, updating legacy flags
+//! - **Event Publishing**: Emitting lifecycle events for observability (TAS-65)
+//! - **Ownership Management**: Clearing processor ownership when entering waiting states
+//! - **Result Handling**: Persisting step execution results and error information
+//!
+//! ## Action Types
+//!
+//! | Action | Purpose | Triggered By |
+//! |--------|---------|--------------|
+//! | `TransitionActions` | Coordinates pre/post transition logic | State machine |
+//! | `PublishTransitionEventAction` | Emits lifecycle events | State transitions |
+//! | `UpdateTaskCompletionAction` | Sets task completion flags | Task → Complete |
+//! | `UpdateStepResultsAction` | Persists step execution results | Step state changes |
+//! | `ErrorStateCleanupAction` | Logs error transitions | Step/Task → Error |
+//! | `ResetAttemptsAction` | Resets retry counter | Operator retry reset |
+//!
+//! ## State Action Trait
+//!
+//! All actions implement the `StateAction<T>` trait:
+//!
+//! ```rust,ignore
+//! #[async_trait]
+//! pub trait StateAction<T> {
+//!     async fn execute(
+//!         &self,
+//!         entity: &T,
+//!         from_state: Option<String>,
+//!         to_state: String,
+//!         event: &str,
+//!         pool: &PgPool,
+//!     ) -> ActionResult<()>;
+//!
+//!     fn description(&self) -> &'static str;
+//! }
+//! ```
+
 use super::errors::{ActionError, ActionResult};
 use super::events::TaskEvent;
 use super::states::{TaskState, WorkflowStepState};

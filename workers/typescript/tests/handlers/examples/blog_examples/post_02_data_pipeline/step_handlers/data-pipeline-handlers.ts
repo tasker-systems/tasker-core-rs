@@ -646,14 +646,14 @@ export class AggregateMetricsHandler extends StepHandler {
     }
 
     // Extract metrics from each source
-    const totalRevenue = (salesData!.total_revenue as number) || 0;
-    const salesRecordCount = (salesData!.record_count as number) || 0;
+    const totalRevenue = (salesData?.total_revenue as number) || 0;
+    const salesRecordCount = (salesData?.record_count as number) || 0;
 
-    const totalInventory = (inventoryData!.total_quantity_on_hand as number) || 0;
-    const reorderAlerts = (inventoryData!.reorder_alerts as number) || 0;
+    const totalInventory = (inventoryData?.total_quantity_on_hand as number) || 0;
+    const reorderAlerts = (inventoryData?.reorder_alerts as number) || 0;
 
-    const totalCustomers = (customerData!.record_count as number) || 0;
-    const totalLtv = (customerData!.total_lifetime_value as number) || 0;
+    const totalCustomers = (customerData?.record_count as number) || 0;
+    const totalLtv = (customerData?.total_lifetime_value as number) || 0;
 
     // Calculate cross-source metrics
     const revenuePerCustomer = totalCustomers > 0 ? totalRevenue / totalCustomers : 0;

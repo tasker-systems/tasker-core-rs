@@ -30,7 +30,10 @@
 //! assert!(events.iter().any(|e| e.event_name == "order.created"));
 //! ```
 
-#![allow(dead_code)]
+#![expect(
+    dead_code,
+    reason = "Test module for capturing fast/in-process domain events"
+)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

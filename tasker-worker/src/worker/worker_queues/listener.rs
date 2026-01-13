@@ -275,19 +275,22 @@ impl WorkerQueueListener {
     }
 
     /// Get listener statistics
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Public API for monitoring listener statistics")]
     pub fn stats(&self) -> Arc<WorkerListenerStats> {
         self.stats.clone()
     }
 
     /// Check if listener is connected
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "Public API for checking listener connection state"
+    )]
     pub fn is_connected(&self) -> bool {
         self.is_connected
     }
 
     /// Get listener ID
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Public API for getting listener identifier")]
     pub fn listener_id(&self) -> Uuid {
         self.listener_id
     }
@@ -295,9 +298,15 @@ impl WorkerQueueListener {
 
 /// Event handler for worker pgmq-notify events
 struct WorkerEventHandler {
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "Configuration preserved for future event handler enhancements"
+    )]
     config: WorkerListenerConfig,
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "SystemContext available for future event handler operations"
+    )]
     context: Arc<SystemContext>,
     event_sender: mpsc::Sender<WorkerNotification>,
     channel_monitor: ChannelMonitor,

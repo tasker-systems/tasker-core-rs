@@ -50,8 +50,7 @@ pub struct RubyBridgeHandle {
     /// TAS-65 Phase 4.1: In-process event receiver for fast domain events
     /// Ruby can poll this channel to receive domain events with delivery_mode: fast
     pub in_process_event_receiver: Option<Arc<Mutex<broadcast::Receiver<DomainEvent>>>>,
-    /// Keep runtime alive
-    #[allow(dead_code)]
+    /// Tokio runtime for async FFI operations
     pub runtime: tokio::runtime::Runtime,
 }
 

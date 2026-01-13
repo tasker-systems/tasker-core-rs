@@ -41,7 +41,10 @@ use tracing::{error, info};
 /// Tree Root: Initial step that squares the even number (6 -> 36)
 #[derive(Debug)]
 pub struct TreeRootHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -121,7 +124,10 @@ impl RustStepHandler for TreeRootHandler {
 /// Tree Branch Left: Left main branch that squares the root result (36 -> 1,296)
 #[derive(Debug)]
 pub struct TreeBranchLeftHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -191,7 +197,10 @@ impl RustStepHandler for TreeBranchLeftHandler {
 /// Tree Branch Right: Right main branch that squares the root result (36 -> 1,296)
 #[derive(Debug)]
 pub struct TreeBranchRightHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -261,7 +270,10 @@ impl RustStepHandler for TreeBranchRightHandler {
 /// Tree Leaf D: Left-left leaf that squares the input from left branch (1,296 -> 1,679,616)
 #[derive(Debug)]
 pub struct TreeLeafDHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -329,7 +341,10 @@ impl RustStepHandler for TreeLeafDHandler {
 /// Tree Leaf E: Left-right leaf that squares the input from left branch (1,296 -> 1,679,616)
 #[derive(Debug)]
 pub struct TreeLeafEHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -397,7 +412,10 @@ impl RustStepHandler for TreeLeafEHandler {
 /// Tree Leaf F: Right-left leaf that squares the input from right branch (1,296 -> 1,679,616)
 #[derive(Debug)]
 pub struct TreeLeafFHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -465,7 +483,10 @@ impl RustStepHandler for TreeLeafFHandler {
 /// Tree Leaf G: Right-right leaf that squares the input from right branch (1,296 -> 1,679,616)
 #[derive(Debug)]
 pub struct TreeLeafGHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -533,7 +554,10 @@ impl RustStepHandler for TreeLeafGHandler {
 /// Tree Final Convergence: Ultimate convergence step that processes all leaf results
 #[derive(Debug)]
 pub struct TreeFinalConvergenceHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 

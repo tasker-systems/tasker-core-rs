@@ -62,20 +62,15 @@ use super::{success_result, RustStepHandler, StepHandlerConfig};
 struct Product {
     id: u32,
     title: String,
-    #[allow(dead_code)]
     description: String,
     category: String,
     price: f64,
-    #[allow(dead_code)]
     #[serde(rename = "discountPercentage")]
     discount_percentage: f64,
     rating: f64,
     stock: u32,
-    #[allow(dead_code)]
     brand: String,
-    #[allow(dead_code)]
     sku: String,
-    #[allow(dead_code)]
     weight: u32,
 }
 

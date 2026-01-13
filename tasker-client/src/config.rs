@@ -10,6 +10,28 @@ use tracing::debug;
 use crate::error::{ClientError, ClientResult};
 
 /// Client configuration for API connections and CLI behavior
+///
+/// # Examples
+///
+/// ```rust
+/// use tasker_client::config::ClientConfig;
+///
+/// // Default configuration
+/// let config = ClientConfig::default();
+/// assert_eq!(config.orchestration.base_url, "http://localhost:8080");
+/// assert_eq!(config.worker.base_url, "http://localhost:8081");
+/// ```
+///
+/// ```rust,no_run
+/// use tasker_client::config::ClientConfig;
+///
+/// // Load configuration from environment and config files
+/// let config = ClientConfig::load().expect("Failed to load config");
+///
+/// // Access orchestration API settings
+/// println!("Orchestration URL: {}", config.orchestration.base_url);
+/// println!("Timeout: {}ms", config.orchestration.timeout_ms);
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
     /// Orchestration API configuration
@@ -21,6 +43,21 @@ pub struct ClientConfig {
 }
 
 /// API endpoint configuration
+///
+/// Configuration for connecting to a single API endpoint (orchestration or worker).
+///
+/// # Examples
+///
+/// ```rust
+/// use tasker_client::config::ApiEndpointConfig;
+///
+/// let config = ApiEndpointConfig {
+///     base_url: "https://orchestration.example.com".to_string(),
+///     timeout_ms: 60000,
+///     max_retries: 5,
+///     auth_token: Some("secret-token".to_string()),
+/// };
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiEndpointConfig {
     /// Base URL for the API (e.g., "<http://localhost:8080>")

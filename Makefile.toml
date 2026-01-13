@@ -96,7 +96,7 @@ dependencies = ["build-rust", "build-python", "build-ruby", "build-typescript"]
 
 [tasks.check-rust]
 description = "Run all Rust quality checks"
-dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-doctests"]
+dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-doctests", "rust-machete"]
 
 [tasks.test-rust]
 description = "Run all Rust tests with nextest (loads .env for E2E tests)"
@@ -194,6 +194,11 @@ args = ["check", "--benches", "--features", "benchmarks"]
 description = "Run documentation tests"
 command = "cargo"
 args = ["test", "--doc", "--workspace", "--all-features"]
+
+[tasks.rust-machete]
+description = "Check for unused Cargo dependencies"
+command = "cargo"
+args = ["machete", "--with-metadata"]
 
 # =============================================================================
 # Python Worker Tasks

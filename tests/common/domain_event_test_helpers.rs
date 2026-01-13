@@ -42,7 +42,10 @@
 //! }
 //! ```
 
-#![allow(dead_code)]
+#![expect(
+    dead_code,
+    reason = "Test module for domain event observability in integration tests"
+)]
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};

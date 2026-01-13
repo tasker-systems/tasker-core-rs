@@ -779,7 +779,10 @@ mod tests {
     use uuid::Uuid;
 
     // Test handler for integration tests
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "Test handler used for dispatch service integration tests"
+    )]
     struct TestHandler {
         name: String,
         delay_ms: u64,
@@ -818,13 +821,19 @@ mod tests {
     }
 
     // Test registry for integration tests
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "Test registry used for dispatch service integration tests"
+    )]
     struct TestRegistry {
         handlers: RwLock<HashMap<String, Arc<dyn StepHandler>>>,
     }
 
     impl TestRegistry {
-        #[allow(dead_code)]
+        #[expect(
+            dead_code,
+            reason = "Test constructor used for dispatch service integration tests"
+        )]
         fn new() -> Self {
             Self {
                 handlers: RwLock::new(HashMap::new()),

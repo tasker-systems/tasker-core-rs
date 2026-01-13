@@ -57,7 +57,10 @@ pub struct OrchestrationEventSystem {
     context: Arc<SystemContext>,
 
     /// Orchestration core - future proofing
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "Reserved for future reaper/sweeper processes for missed messages"
+    )]
     orchestration_core: Arc<OrchestrationCore>,
 
     /// Command sender for orchestration operations

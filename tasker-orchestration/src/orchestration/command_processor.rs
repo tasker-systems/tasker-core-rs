@@ -342,7 +342,10 @@ impl OrchestrationProcessor {
 
 #[derive(Debug)]
 pub struct OrchestrationProcessorCommandHandler {
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "SystemContext available for future command handler operations"
+    )]
     context: Arc<SystemContext>,
     actors: Arc<ActorRegistry>, // TAS-46: Actor registry for message-based coordination
     stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
@@ -1132,7 +1135,8 @@ impl OrchestrationProcessorCommandHandler {
             status,
             database_connected,
             message_queues_healthy,
-            active_processors: 1, // TODO: Track actual active processors
+            // TAS-142: Return actual actor count as active processors
+            active_processors: self.actors.actor_count() as u32,
 
             // TAS-75: Enhanced health fields from cached status
             circuit_breaker_open: db_status.circuit_breaker_open,

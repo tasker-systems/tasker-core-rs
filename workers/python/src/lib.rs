@@ -17,7 +17,10 @@
 //! - **Phase 5 (TAS-72-P5)**: Domain events and observability
 
 // Allow dead code for functions that will be used in Phase 4+
-#![allow(dead_code)]
+#![expect(
+    dead_code,
+    reason = "FFI module with functions exposed to Python - some reserved for Phase 4+"
+)]
 // PyO3 0.22 macros generate code that triggers this lint in Rust 2024
 #![allow(unsafe_op_in_unsafe_fn)]
 // PyO3 macro expansion triggers false positives for useless_conversion

@@ -99,7 +99,10 @@ impl Default for MetricsConfig {
 ///
 /// Note: Currently unused as we use Prometheus text exporter instead.
 /// Kept for potential future OTLP metrics export functionality.
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "Reserved for future OTLP metrics export - currently using Prometheus"
+)]
 fn init_opentelemetry_meter(
     config: &MetricsConfig,
 ) -> Result<SdkMeterProvider, Box<dyn std::error::Error>> {

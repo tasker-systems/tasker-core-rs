@@ -309,19 +309,19 @@ impl WorkerFallbackPoller {
     }
 
     /// Get poller statistics
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Public API for monitoring poller statistics")]
     pub fn stats(&self) -> &WorkerPollerStats {
         &self.stats
     }
 
     /// Check if poller is running
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Public API for checking poller running state")]
     pub fn is_running(&self) -> bool {
         self.is_running.load(Ordering::SeqCst)
     }
 
     /// Get poller ID
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Public API for getting poller identifier")]
     pub fn poller_id(&self) -> Uuid {
         self.poller_id
     }

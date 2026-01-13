@@ -10,6 +10,10 @@ This guide helps Claude sessions efficiently navigate Tasker Core documentation.
 
 | If the conversation involves... | First consult... | Then if deeper context needed... |
 |--------------------------------|------------------|----------------------------------|
+| Writing Rust code | `docs/development/best-practices-rust.md` | `docs/development/mpsc-channel-guidelines.md` |
+| Writing Ruby code | `docs/development/best-practices-ruby.md` | `docs/workers/ruby.md` |
+| Writing Python code | `docs/development/best-practices-python.md` | `docs/workers/python.md` |
+| Writing TypeScript code | `docs/development/best-practices-typescript.md` | `docs/workers/typescript.md` |
 | Handler implementation patterns | `docs/workers/patterns-and-practices.md` | Language-specific: `docs/workers/{lang}.md` |
 | Why something was designed this way | `docs/principles/tasker-core-tenets.md` | Specific ticket-spec if referenced |
 | State transitions, task/step lifecycle | `docs/architecture/states-and-lifecycles.md` | |
@@ -106,17 +110,22 @@ Key documents:
 - `{ruby,python,typescript,rust}.md` - Language-specific details
 
 ### 5. Development (`docs/development/`)
-**Developer tooling and patterns**
+**Developer tooling, patterns, and coding standards**
 
 Read when:
 - Setting up development environment
 - Understanding build system
 - Following coding standards
+- Writing code in any language
 
 Key documents:
 - `tooling.md` - cargo-make and build system
 - `mpsc-channel-guidelines.md` - Channel usage rules
 - `ffi-callback-safety.md` - FFI safety patterns
+- `best-practices-rust.md` - Rust coding standards
+- `best-practices-ruby.md` - Ruby coding standards
+- `best-practices-python.md` - Python coding standards
+- `best-practices-typescript.md` - TypeScript coding standards
 
 ### 6. Operations (`docs/operations/`)
 **Production operation guidance**

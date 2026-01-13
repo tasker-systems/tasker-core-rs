@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::TaskerResult;
@@ -33,11 +33,7 @@ pub struct WorkerStatusService {
     /// Worker identification
     worker_id: String,
 
-    /// System context for dependencies
-    #[expect(
-        dead_code,
-        reason = "TAS-69: Reserved for future health check enhancements"
-    )]
+    /// System context for dependencies (used for database connectivity checks)
     context: Arc<SystemContext>,
 
     /// Task template manager for cache stats
@@ -103,10 +99,19 @@ impl WorkerStatusService {
         &self,
         stats: &StepExecutionStats,
     ) -> TaskerResult<WorkerHealthStatus> {
+        // Perform actual database connectivity check
+        let database_connected = self.check_database_connectivity().await;
+
+        // Determine overall status based on database connectivity
+        let status = if database_connected {
+            "healthy".to_string()
+        } else {
+            "unhealthy: database unreachable".to_string()
+        };
+
         let health_status = WorkerHealthStatus {
-            status: "healthy".to_string(),
-            database_connected: true, // TODO: Add actual DB connectivity check
-            orchestration_api_reachable: true, // TODO: Add actual API check
+            status,
+            database_connected,
             supported_namespaces: self.task_template_manager.supported_namespaces().await,
             template_cache_stats: Some(self.task_template_manager.cache_stats().await),
             total_messages_processed: stats.total_executed,
@@ -121,6 +126,27 @@ impl WorkerStatusService {
         );
 
         Ok(health_status)
+    }
+
+    /// Check actual database connectivity
+    ///
+    /// Performs a simple `SELECT 1` query to verify the database connection is alive.
+    /// Returns `false` if the query fails for any reason.
+    async fn check_database_connectivity(&self) -> bool {
+        match sqlx::query("SELECT 1")
+            .fetch_one(self.context.database_pool())
+            .await
+        {
+            Ok(_) => true,
+            Err(e) => {
+                warn!(
+                    worker_id = %self.worker_id,
+                    error = %e,
+                    "Database connectivity check failed"
+                );
+                false
+            }
+        }
     }
 
     /// Get event integration status

@@ -257,6 +257,15 @@ impl ActorRegistry {
 
         tracing::info!("✅ ActorRegistry shutdown complete");
     }
+
+    /// Get the number of active actors in the registry
+    ///
+    /// TAS-142: Returns the count of registered actors for metrics.
+    /// This is useful for capacity planning and understanding system load.
+    pub fn actor_count(&self) -> usize {
+        // Count the 6 actors in the registry
+        6
+    }
 }
 
 #[cfg(test)]

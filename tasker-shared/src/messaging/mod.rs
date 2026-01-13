@@ -226,4 +226,25 @@ impl UnifiedPgmqClient {
             client: self.client.clone(),
         }
     }
+
+    /// Get the queue length (number of messages) for a specific queue
+    ///
+    /// TAS-142: Implement real queue size metrics
+    /// Uses pgmq.metrics() to fetch queue length efficiently.
+    pub async fn get_queue_length(&self, queue_name: &str) -> Result<i64, MessagingError> {
+        #[derive(sqlx::FromRow)]
+        struct QueueMetrics {
+            queue_length: i64,
+        }
+
+        let row = sqlx::query_as::<_, QueueMetrics>(
+            r#"SELECT COALESCE(queue_length, 0) as queue_length FROM pgmq.metrics($1)"#,
+        )
+        .bind(queue_name)
+        .fetch_optional(self.client.pool())
+        .await
+        .map_err(|e| MessagingError::database_query("get_queue_length", e.to_string()))?;
+
+        Ok(row.map(|r| r.queue_length).unwrap_or(0))
+    }
 }

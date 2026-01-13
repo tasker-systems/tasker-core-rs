@@ -84,19 +84,22 @@ impl Handler<RefreshTemplateCacheMessage> for TemplateCacheActor {
             "Handling RefreshTemplateCacheMessage"
         );
 
+        // Note: Template cache refresh is handled via HTTP API (DELETE /templates/cache).
+        // This actor handler is intentionally log-only as K8s deployments use read-only
+        // ConfigMap mounts, making programmatic cache refresh unrealistic for production.
         match msg.namespace {
             Some(ref ns) => {
                 info!(
                     actor = self.name(),
                     namespace = ns,
-                    "Refreshing template cache for namespace"
+                    "Template cache refresh requested for namespace (use HTTP API for cache management)"
                 );
-                // TODO: Implement namespace-specific cache refresh
-                // For now, just log the request
             }
             None => {
-                info!(actor = self.name(), "Refreshing entire template cache");
-                // TODO: Implement full cache refresh
+                info!(
+                    actor = self.name(),
+                    "Full template cache refresh requested (use HTTP API for cache management)"
+                );
             }
         }
 

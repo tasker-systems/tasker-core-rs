@@ -52,7 +52,10 @@ const LARGE_AMOUNT_THRESHOLD: i64 = 5000;
 /// Validate Request: Initial step that validates the approval request
 #[derive(Debug)]
 pub struct ValidateRequestHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -191,7 +194,10 @@ impl RustStepHandler for ValidateRequestHandler {
 /// which approval workflow steps to create dynamically.
 #[derive(Debug)]
 pub struct RoutingDecisionHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -298,7 +304,10 @@ impl RustStepHandler for RoutingDecisionHandler {
 /// when the amount is below the small threshold ($1,000).
 #[derive(Debug)]
 pub struct AutoApproveHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -349,7 +358,10 @@ impl RustStepHandler for AutoApproveHandler {
 /// Dynamically created by `routing_decision` for amounts >= $1,000.
 #[derive(Debug)]
 pub struct ManagerApprovalHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -400,7 +412,10 @@ impl RustStepHandler for ManagerApprovalHandler {
 /// Dynamically created by `routing_decision` for amounts >= $5,000.
 #[derive(Debug)]
 pub struct FinanceReviewHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 
@@ -454,7 +469,10 @@ impl RustStepHandler for FinanceReviewHandler {
 /// - `manager_approval` + `finance_review` (for large amounts)
 #[derive(Debug)]
 pub struct FinalizeApprovalHandler {
-    #[allow(dead_code)] // api compatibility
+    #[expect(
+        dead_code,
+        reason = "API compatibility - config available for future handler enhancements"
+    )]
     config: StepHandlerConfig,
 }
 

@@ -1,3 +1,43 @@
+//! # State Machine Guards
+//!
+//! Preconditions that must be satisfied before state transitions are allowed.
+//!
+//! ## Overview
+//!
+//! Guards are the gatekeepers of state transitions. Before any transition occurs,
+//! applicable guards are checked to ensure business rules and data integrity constraints
+//! are met. If a guard fails, the transition is rejected.
+//!
+//! ## Guard Types
+//!
+//! | Guard | Entity | Purpose |
+//! |-------|--------|---------|
+//! | `TransitionGuard` | Task | Validates state/event combinations per TAS-41 spec |
+//! | `AllStepsCompleteGuard` | Task | Ensures all steps finished before task completion |
+//! | `StepDependenciesMetGuard` | Step | Checks parent step completion |
+//! | `TaskNotInProgressGuard` | Task | Prevents concurrent processing |
+//! | `StepNotInProgressGuard` | Step | Prevents concurrent step execution |
+//! | `TaskCanBeResetGuard` | Task | Validates reset from Error state only |
+//! | `StepCanBeRetriedGuard` | Step | Validates retry from Error state only |
+//!
+//! ## Guard Trait
+//!
+//! Guards implement the `StateGuard<T>` trait:
+//!
+//! ```rust,ignore
+//! #[async_trait]
+//! pub trait StateGuard<T> {
+//!     async fn check(&self, entity: &T, pool: &PgPool) -> GuardResult<bool>;
+//!     fn description(&self) -> &'static str;
+//! }
+//! ```
+//!
+//! ## Processor Ownership
+//!
+//! The `TransitionGuard::check_ownership()` method enforces that only the processor
+//! that claimed a task can transition it through certain states, preventing race
+//! conditions in distributed orchestration (TAS-41 spec lines 290-301).
+
 use super::errors::{business_rule_violation, dependencies_not_met, GuardResult};
 use super::events::TaskEvent;
 use super::states::{TaskState, WorkflowStepState};
@@ -277,112 +317,3 @@ impl StateGuard<WorkflowStep> for StepCanBeRetriedGuard {
         "Step must be in error state to be retried"
     }
 }
-
-/// Guard to check if step can be enqueued for orchestration (must be in InProgress state)
-#[allow(dead_code)]
-pub(crate) struct StepCanBeEnqueuedForOrchestrationGuard;
-
-#[async_trait]
-impl StateGuard<WorkflowStep> for StepCanBeEnqueuedForOrchestrationGuard {
-    async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
-        // Delegate to the model's implementation
-        if step.can_be_enqueued_for_orchestration(pool).await? {
-            Ok(true)
-        } else {
-            let current_state = step.get_current_state(pool).await?;
-            match current_state {
-                Some(state_str) => {
-                    let state = WorkflowStepState::from_str(&state_str).map_err(|e| {
-                        business_rule_violation(format!("Invalid workflow step state: {}", e))
-                    })?;
-                    Err(business_rule_violation(format!(
-                        "Step {} cannot be enqueued for orchestration from state '{}', must be InProgress",
-                        step.workflow_step_uuid, state
-                    )))
-                }
-                None => Err(business_rule_violation(format!(
-                    "Step {} has no current state",
-                    step.workflow_step_uuid
-                ))),
-            }
-        }
-    }
-
-    fn description(&self) -> &'static str {
-        "Step must be in InProgress state to be enqueued for orchestration"
-    }
-}
-
-/// Guard to check if step can be completed from orchestration (must be in EnqueuedForOrchestration state)
-#[allow(dead_code)]
-pub(crate) struct StepCanBeCompletedFromOrchestrationGuard;
-
-#[async_trait]
-impl StateGuard<WorkflowStep> for StepCanBeCompletedFromOrchestrationGuard {
-    async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
-        // Delegate to the model's implementation
-        if step.can_be_completed_from_orchestration(pool).await? {
-            Ok(true)
-        } else {
-            let current_state = step.get_current_state(pool).await?;
-            match current_state {
-                Some(state_str) => {
-                    let state = WorkflowStepState::from_str(&state_str).map_err(|e| {
-                        business_rule_violation(format!("Invalid workflow step state: {}", e))
-                    })?;
-                    Err(business_rule_violation(format!(
-                        "Step {} cannot be completed from orchestration from state '{}', must be EnqueuedForOrchestration",
-                        step.workflow_step_uuid, state
-                    )))
-                }
-                None => Err(business_rule_violation(format!(
-                    "Step {} has no current state",
-                    step.workflow_step_uuid
-                ))),
-            }
-        }
-    }
-
-    fn description(&self) -> &'static str {
-        "Step must be in EnqueuedForOrchestration state to be completed by orchestration"
-    }
-}
-
-/// Guard to check if step can be failed from orchestration (must be in EnqueuedForOrchestration state)
-#[allow(dead_code)]
-pub(crate) struct StepCanBeFailedFromOrchestrationGuard;
-
-#[async_trait]
-impl StateGuard<WorkflowStep> for StepCanBeFailedFromOrchestrationGuard {
-    async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
-        // Delegate to the model's implementation
-        if step.can_be_failed_from_orchestration(pool).await? {
-            Ok(true)
-        } else {
-            let current_state = step.get_current_state(pool).await?;
-            match current_state {
-                Some(state_str) => {
-                    let state = WorkflowStepState::from_str(&state_str).map_err(|e| {
-                        business_rule_violation(format!("Invalid workflow step state: {}", e))
-                    })?;
-                    Err(business_rule_violation(format!(
-                        "Step {} cannot be failed from orchestration from state '{}', must be EnqueuedForOrchestration",
-                        step.workflow_step_uuid, state
-                    )))
-                }
-                None => Err(business_rule_violation(format!(
-                    "Step {} has no current state",
-                    step.workflow_step_uuid
-                ))),
-            }
-        }
-    }
-
-    fn description(&self) -> &'static str {
-        "Step must be in EnqueuedForOrchestration state to be failed by orchestration"
-    }
-}
-
-// Helper functions have been removed - guards now delegate to model implementations
-// The model implementations (Task::get_current_state, WorkflowStep::get_current_state)
-// handle state resolution directly using the same SQL logic but with proper error handling

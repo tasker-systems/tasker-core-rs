@@ -1,3 +1,45 @@
+//! # Orchestration Configuration
+//!
+//! Configuration types for the orchestration system that coordinates task and step execution.
+//!
+//! ## Overview
+//!
+//! This module provides configuration for orchestration behavior including:
+//! - **Step Enqueueing**: Batch sizes, delays, and timeouts for step queue operations
+//! - **Result Processing**: Queue names, batch sizes, and retry policies
+//! - **Batch Processing**: Configuration for batch workflow processing
+//! - **Event Systems**: Orchestration-specific event system settings
+//!
+//! ## Structure
+//!
+//! ```text
+//! orchestration/
+//! ├── mod.rs                      # OrchestrationConfig, OrchestrationSystemConfig
+//! ├── step_enqueuer.rs            # StepEnqueuerConfig
+//! ├── step_result_processor.rs    # StepResultProcessorConfig
+//! ├── batch_processing.rs         # BatchProcessingConfig
+//! ├── event_systems.rs            # OrchestrationEventSystemConfig
+//! └── task_claim_step_enqueuer.rs # TaskClaimStepEnqueuerConfig
+//! ```
+//!
+//! ## Configuration Loading
+//!
+//! Orchestration configuration is loaded from `config/tasker/base/orchestration.toml`
+//! and environment-specific overrides in `config/tasker/environments/{env}/orchestration.toml`.
+//!
+//! ## Example
+//!
+//! ```toml
+//! [orchestration]
+//! mode = "standalone"
+//! enable_performance_logging = false
+//!
+//! [orchestration.web]
+//! enabled = true
+//! host = "0.0.0.0"
+//! port = 3000
+//! ```
+
 use serde::{Deserialize, Serialize};
 
 // TAS-61 Phase 6C: decision_points moved to tasker::DecisionPointsConfig

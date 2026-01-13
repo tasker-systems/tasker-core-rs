@@ -193,10 +193,17 @@ pub async fn get_bottlenecks(
             })
             .collect();
 
-        // Calculate resource utilization
-        // Note: Connection pool metrics not available from SQL function
-        // TODO: Consider fetching from separate connection pool monitoring if needed
-        let pool_utilization = 0.0;
+        // Calculate resource utilization from database pool statistics
+        // TAS-142: Implement real pool utilization calculation
+        let pool_utilization = {
+            let size = db_pool.size() as f64;
+            let idle = db_pool.num_idle() as f64;
+            if size > 0.0 {
+                (size - idle) / size
+            } else {
+                0.0
+            }
+        };
 
         let resource_utilization = ResourceUtilization {
             database_pool_utilization: pool_utilization,

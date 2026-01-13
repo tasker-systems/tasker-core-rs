@@ -44,8 +44,7 @@ pub struct TypeScriptBridgeHandle {
     /// Receiver for in-process domain events (fast path)
     pub in_process_event_receiver: Option<Arc<Mutex<broadcast::Receiver<DomainEvent>>>>,
 
-    /// Tokio runtime - kept alive to ensure async tasks continue
-    #[allow(dead_code)]
+    /// Tokio runtime for async FFI operations
     pub runtime: tokio::runtime::Runtime,
 
     /// Worker ID for identification

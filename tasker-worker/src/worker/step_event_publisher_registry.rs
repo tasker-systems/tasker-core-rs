@@ -480,12 +480,18 @@ mod tests {
     struct TestPublisher {
         name: String,
         // In tests, we don't actually use the domain publisher
-        #[allow(dead_code)]
+        #[expect(
+            dead_code,
+            reason = "Domain publisher required by StepEventPublisher trait but unused in tests"
+        )]
         domain_publisher: Arc<DomainEventPublisher>,
     }
 
     impl TestPublisher {
-        #[allow(dead_code)]
+        #[expect(
+            dead_code,
+            reason = "Test constructor for creating TestPublisher in unit tests"
+        )]
         fn new(name: &str, domain_publisher: Arc<DomainEventPublisher>) -> Self {
             Self {
                 name: name.to_string(),
