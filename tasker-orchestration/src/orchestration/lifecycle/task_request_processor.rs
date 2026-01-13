@@ -292,11 +292,25 @@ impl TaskRequestProcessor {
     }
 
     /// Get processing statistics
+    ///
+    /// TAS-142: Implement real queue size metrics
     pub async fn get_statistics(&self) -> TaskerResult<TaskRequestProcessorStats> {
-        // For now, return basic stats without queue sizes since the method doesn't exist yet
-        // TODO: Implement queue_size method in PgmqClient
+        // Query actual queue depth using pgmq.metrics()
+        let request_queue_size = self
+            .pgmq_client
+            .get_queue_length(&self.config.request_queue_name)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(
+                    error = %e,
+                    queue_name = %self.config.request_queue_name,
+                    "Failed to get queue length, returning -1"
+                );
+                -1
+            });
+
         Ok(TaskRequestProcessorStats {
-            request_queue_size: -1, // Not available yet
+            request_queue_size,
             request_queue_name: self.config.request_queue_name.clone(),
         })
     }
