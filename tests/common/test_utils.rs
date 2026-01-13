@@ -14,7 +14,7 @@
 //! static initializer. This ensures DATABASE_URL and other environment variables
 //! are available for all tests without needing to call setup functions manually.
 
-#![allow(dead_code)]
+#![expect(dead_code, reason = "Test utility module providing database setup and environment helpers")]
 
 use dotenvy::dotenv;
 use sqlx::PgPool;

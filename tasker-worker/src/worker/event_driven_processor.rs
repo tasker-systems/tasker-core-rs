@@ -69,18 +69,18 @@ pub(crate) struct EventDrivenMessageProcessor {
     config: EventDrivenConfig,
 
     /// System context (maintained for API compatibility)
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "API compatibility - context available for future processor operations")]
     context: Arc<SystemContext>,
 
     /// Task template manager (maintained for API compatibility)
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "API compatibility - template manager available for future use")]
     task_template_manager: Arc<TaskTemplateManager>,
 
     /// The new WorkerEventSystem that handles all functionality
     worker_event_system: Option<WorkerEventSystem>,
 
     /// Command sender bridge (maintained for API compatibility)
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "API compatibility - command sender bridge for legacy callers")]
     worker_command_sender: mpsc::Sender<WorkerCommand>,
 
     /// Processor ID for logging and compatibility

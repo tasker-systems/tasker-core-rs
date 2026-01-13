@@ -98,7 +98,6 @@ pub struct WorkerCore {
 
     /// TAS-69: Actor-based command processor
     /// Uses actor pattern for pure routing and typed message handling
-    #[allow(dead_code)]
     processor: Option<ActorCommandProcessor>,
 
     /// Event-driven message processor for real-time message handling

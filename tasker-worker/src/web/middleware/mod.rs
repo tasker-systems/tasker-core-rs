@@ -15,6 +15,8 @@ use tower_http::{cors::CorsLayer, timeout::TimeoutLayer, trace::TraceLayer};
 use crate::web::state::WorkerWebState;
 
 /// Request ID middleware struct for integration with axum middleware system
+// Note: Using #[allow] instead of #[expect] due to inconsistent dead_code detection
+// between lib and test targets. The struct is reserved for future middleware use.
 #[derive(Clone)]
 #[allow(dead_code)]
 pub(crate) struct RequestIdMiddleware;
@@ -27,6 +29,8 @@ impl Default for RequestIdMiddleware {
 
 impl RequestIdMiddleware {
     /// Create a new request ID middleware instance
+    // Note: Using #[allow] instead of #[expect] - called by Default impl
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self
     }

@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![expect(dead_code, reason = "Test module with helpers used across multiple integration tests")]
 //! # Lifecycle Test Manager
 //!
 //! Access test helpers via `use crate::common::*` instead of `tasker_core::test_helpers`
@@ -77,7 +77,7 @@ pub struct LifecycleTestManager {
     /// System context for framework operations
     pub system_context: Arc<SystemContext>,
     /// Task handler registry with loaded templates
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Registry kept for test infrastructure - may be used by future tests")]
     pub registry: TaskHandlerRegistry,
 
     // ========== Legacy Fields (Backward Compatibility) ==========
@@ -95,7 +95,7 @@ pub struct LifecycleTestManager {
     pub actor_harness: ActorTestHarness,
 
     /// Path to task template fixtures
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Template path kept for test infrastructure - may be used by future tests")]
     pub template_path: String,
 }
 
@@ -181,7 +181,7 @@ impl LifecycleTestManager {
     }
 
     /// Create a TaskRequest with custom options
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Test helper available for integration tests that need custom options")]
     pub fn create_task_request_with_options(
         &self,
         template_name: &str,
@@ -234,7 +234,7 @@ impl LifecycleTestManager {
     /// ```ignore
     /// let result = manager.initialize_task_via_actor(task_request).await?;
     /// ```
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "TAS-46 Phase 2: Reserved for actor-based task initialization")]
     pub async fn initialize_task_via_actor(
         &self,
         _task_request: TaskRequest,
@@ -301,7 +301,7 @@ impl LifecycleTestManager {
 
     /// Get step readiness status for a task
     /// Get the current state of a task from the most recent transition
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Test helper for lifecycle tests requiring task state inspection")]
     pub async fn get_current_task_state(&self, task_uuid: Uuid) -> Result<Option<String>> {
         let state = sqlx::query_scalar!(
             "SELECT to_state FROM tasker.task_transitions
@@ -805,7 +805,7 @@ impl LifecycleTestManager {
 /// Step readiness information from SQL function
 #[derive(Debug, Clone)]
 pub struct StepReadiness {
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Struct field available for test assertions requiring step UUID")]
     pub workflow_step_uuid: Uuid,
     pub name: String,
     pub current_state: Option<String>,

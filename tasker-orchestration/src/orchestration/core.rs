@@ -43,7 +43,6 @@ pub struct OrchestrationCore {
     /// Orchestration processor (handles commands in background)
     /// Kept alive for the lifetime of OrchestrationCore to ensure background task runs
     /// Future: Will be used for reaper/sweeper processes for missed messages
-    #[allow(dead_code)]
     processor: Option<OrchestrationProcessor>,
 
     /// System status - shared via Arc\<RwLock\> so web layer can read without locking the core

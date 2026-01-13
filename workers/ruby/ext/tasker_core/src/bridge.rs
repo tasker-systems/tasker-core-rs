@@ -51,7 +51,7 @@ pub struct RubyBridgeHandle {
     /// Ruby can poll this channel to receive domain events with delivery_mode: fast
     pub in_process_event_receiver: Option<Arc<Mutex<broadcast::Receiver<DomainEvent>>>>,
     /// Keep runtime alive
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Runtime kept alive for async FFI task lifetime management")]
     pub runtime: tokio::runtime::Runtime,
 }
 

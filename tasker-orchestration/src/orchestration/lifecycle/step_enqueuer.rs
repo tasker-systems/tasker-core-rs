@@ -646,7 +646,7 @@ impl StepEnqueuer {
     // This eliminates redundant database queries in orchestration layer
 
     /// Get task execution context for step processing
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Reserved for future step processing requiring full task context")]
     async fn get_task_execution_context(&self, task_uuid: Uuid) -> TaskerResult<Value> {
         // Join with tasker.named_tasks to get task name and version for step handler registry
         let query = "
