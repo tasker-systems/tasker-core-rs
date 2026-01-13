@@ -291,7 +291,7 @@ export class SetupBillingProfileHandler extends StepHandler {
 
     const userId = userData.user_id;
     const plan = userData.plan || 'free';
-    const tierConfig = BILLING_TIERS[plan] || BILLING_TIERS['free'];
+    const tierConfig = BILLING_TIERS[plan] || BILLING_TIERS.free;
 
     if (tierConfig.billing_required) {
       // Paid plan - create billing profile
@@ -358,7 +358,7 @@ export class InitializePreferencesHandler extends StepHandler {
     const customPrefs = userInfo.preferences || {};
 
     // Merge with defaults
-    const defaultPrefs = DEFAULT_PREFERENCES[plan] || DEFAULT_PREFERENCES['free'];
+    const defaultPrefs = DEFAULT_PREFERENCES[plan] || DEFAULT_PREFERENCES.free;
     const finalPrefs = { ...defaultPrefs, ...customPrefs };
 
     const now = new Date().toISOString();
@@ -416,12 +416,17 @@ export class SendWelcomeSequenceHandler extends StepHandler {
       );
     }
 
-    const userId = userData!.user_id;
-    const email = userData!.email;
-    const plan = userData!.plan || 'free';
-    const prefs = preferencesData!.preferences || {};
+    // After null checks, we know these are defined
+    const validUserData = userData as UserData;
+    const validBillingData = billingData as BillingData;
+    const validPreferencesData = preferencesData as PreferencesData;
 
-    const template = WELCOME_TEMPLATES[plan] || WELCOME_TEMPLATES['free'];
+    const userId = validUserData.user_id;
+    const email = validUserData.email;
+    const plan = validUserData.plan || 'free';
+    const prefs = validPreferencesData.preferences || {};
+
+    const template = WELCOME_TEMPLATES[plan] || WELCOME_TEMPLATES.free;
     const channelsUsed: string[] = [];
     const messagesSent: Array<Record<string, unknown>> = [];
     const now = new Date().toISOString();
@@ -433,7 +438,7 @@ export class SendWelcomeSequenceHandler extends StepHandler {
         channel: 'email',
         to: email,
         subject: template.subject,
-        body: this.buildEmailBody(template, userId, plan, billingData!),
+        body: this.buildEmailBody(template, userId, plan, validBillingData),
         sent_at: now,
       });
     }
@@ -538,19 +543,25 @@ export class UpdateUserStatusHandler extends StepHandler {
       );
     }
 
-    const userId = userData!.user_id;
-    const email = userData!.email;
-    const plan = userData!.plan || 'free';
+    // After null checks, we know these are defined
+    const validUserData = userData as UserData;
+    const validBillingData = billingData as BillingData;
+    const validPreferencesData = preferencesData as PreferencesData;
+    const validWelcomeData = welcomeData as WelcomeData;
+
+    const userId = validUserData.user_id;
+    const email = validUserData.email;
+    const plan = validUserData.plan || 'free';
 
     // Build registration summary
     const summary = this.buildRegistrationSummary(
       userId,
       email,
       plan,
-      userData!,
-      billingData!,
-      preferencesData!,
-      welcomeData!
+      validUserData,
+      validBillingData,
+      validPreferencesData,
+      validWelcomeData
     );
 
     const now = new Date().toISOString();

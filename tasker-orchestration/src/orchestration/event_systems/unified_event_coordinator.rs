@@ -41,7 +41,10 @@ pub struct UnifiedEventCoordinator {
     context: Arc<SystemContext>,
 
     /// Configuration
-    #[expect(dead_code, reason = "Configuration preserved for future coordinator enhancements")]
+    #[expect(
+        dead_code,
+        reason = "Configuration preserved for future coordinator enhancements"
+    )]
     config: UnifiedCoordinatorConfig,
 }
 

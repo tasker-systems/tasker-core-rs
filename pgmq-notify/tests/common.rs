@@ -99,7 +99,10 @@ impl TestDb {
     }
 
     /// Test namespace extraction for various queue patterns
-    #[expect(dead_code, reason = "Test helper for pgmq queue namespace extraction tests")]
+    #[expect(
+        dead_code,
+        reason = "Test helper for pgmq queue namespace extraction tests"
+    )]
     pub async fn test_namespace_extraction(
         &self,
         queue_names: Vec<&str>,
@@ -120,7 +123,10 @@ impl TestDb {
     }
 
     /// Read messages from a queue (for verification)
-    #[expect(dead_code, reason = "Test helper for reading messages during integration tests")]
+    #[expect(
+        dead_code,
+        reason = "Test helper for reading messages during integration tests"
+    )]
     pub async fn read_messages(
         &self,
         queue_name: &str,
@@ -218,7 +224,10 @@ pub fn create_test_message(msg_type: &str, data: Value) -> Value {
 }
 
 /// Helper to create workflow step messages
-#[expect(dead_code, reason = "Test helper for creating workflow step test messages")]
+#[expect(
+    dead_code,
+    reason = "Test helper for creating workflow step test messages"
+)]
 pub fn create_workflow_message(workflow: &str, step: &str, payload: Value) -> Value {
     json!({
         "workflow": workflow,
@@ -230,7 +239,10 @@ pub fn create_workflow_message(workflow: &str, step: &str, payload: Value) -> Va
 }
 
 /// Helper to create orchestration command messages
-#[expect(dead_code, reason = "Test helper for creating orchestration command test messages")]
+#[expect(
+    dead_code,
+    reason = "Test helper for creating orchestration command test messages"
+)]
 pub fn create_orchestration_message(command: &str, task_id: &str, additional: Value) -> Value {
     let mut message = json!({
         "command": command,

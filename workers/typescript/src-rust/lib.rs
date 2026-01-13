@@ -31,7 +31,10 @@
 //! - **Phase 6 (TAS-106)**: Runtime optimizations
 //! - **Phase 7 (TAS-107)**: Documentation
 
-#![expect(dead_code, reason = "FFI module with functions exposed to TypeScript runtimes")]
+#![expect(
+    dead_code,
+    reason = "FFI module with functions exposed to TypeScript runtimes"
+)]
 #![allow(clippy::missing_safety_doc)]
 
 use std::ffi::{c_char, c_int, CStr, CString};

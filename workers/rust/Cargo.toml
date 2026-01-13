@@ -3,13 +3,10 @@ name = "tasker-worker-rust"
 version = "0.1.0"
 edition = "2021"
 description = "Native Rust worker demonstration for tasker-worker foundation"
-license = "MIT"
 repository = "https://github.com/tasker-systems/tasker-core"
-keywords = ["worker", "rust", "task", "execution", "async"]
+license = "MIT"
+keywords = ["async", "execution", "rust", "task", "worker"]
 categories = ["asynchronous", "concurrency"]
-
-[lints]
-workspace = true
 
 # TAS-145: Ignore false positives from cargo-machete
 [package.metadata.cargo-machete]
@@ -38,15 +35,15 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
+# Serialization
+csv = "1.3"
 futures = { workspace = true }
 num-bigint = { version = "0.4.6", features = ["rand", "serde"] }
 once_cell = { workspace = true }
 rand = { workspace = true }
-# Serialization
-csv = "1.3"
 serde = { workspace = true }
 serde_json = { workspace = true }
-tasker-core = { path = "../../", package = "tasker-core" }
+tasker-core = { package = "tasker-core", path = "../../" }
 tasker-shared = { path = "../../tasker-shared" }
 # Core tasker dependencies
 tasker-worker = { path = "../../tasker-worker" }
@@ -61,9 +58,12 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 dotenvy = { workspace = true }
+# Integration testing with database
+sqlx = { workspace = true }
 tasker-orchestration = { path = "../../tasker-orchestration" }
 # Testing utilities
 tokio-test = { workspace = true }
 tracing-subscriber = { workspace = true }
-# Integration testing with database
-sqlx = { workspace = true }
+
+[lints]
+workspace = true

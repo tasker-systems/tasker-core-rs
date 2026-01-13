@@ -46,7 +46,10 @@ impl Default for FallbackPollerConfig {
 /// Simple fallback poller that periodically processes ready tasks
 pub struct FallbackPoller {
     config: FallbackPollerConfig,
-    #[expect(dead_code, reason = "Reserved for future polling enhancements requiring system context")]
+    #[expect(
+        dead_code,
+        reason = "Reserved for future polling enhancements requiring system context"
+    )]
     context: Arc<SystemContext>,
     task_claim_step_enqueuer: Arc<StepEnqueuerService>,
     /// TAS-75: Circuit breaker for polling operations

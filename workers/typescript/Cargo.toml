@@ -7,9 +7,17 @@ description = "TypeScript FFI bindings for tasker-core worker"
 readme = "AGENTS.md"
 repository = "https://github.com/tasker-systems/tasker-core"
 license = "MIT"
-keywords = ["ffi", "typescript", "nodejs", "bun", "tasker", "workflow"]
+keywords = ["bun", "ffi", "nodejs", "tasker", "typescript", "workflow"]
 categories = ["api-bindings", "development-tools::ffi"]
 publish = false  # Internal crate, not published to crates.io
+
+# TAS-145: Ignore false positives from cargo-machete
+[package.metadata.cargo-machete]
+ignored = [
+  # Used in FFI layer but not detected by analysis
+  "chrono",
+  "dotenvy",
+]
 
 [lib]
 crate-type = ["cdylib"]
@@ -47,11 +55,3 @@ default = []
 
 [lints]
 workspace = true
-
-# TAS-145: Ignore false positives from cargo-machete
-[package.metadata.cargo-machete]
-ignored = [
-  # Used in FFI layer but not detected by analysis
-  "chrono",
-  "dotenvy",
-]

@@ -53,8 +53,7 @@ pub struct PythonBridgeHandle {
     /// Python can poll this channel to receive domain events with delivery_mode: fast
     pub in_process_event_receiver: Option<Arc<Mutex<broadcast::Receiver<DomainEvent>>>>,
 
-    /// Tokio runtime - kept alive for async operations
-    #[expect(dead_code, reason = "Runtime kept alive for async FFI task lifetime management")]
+    /// Tokio runtime for async FFI operations
     pub runtime: tokio::runtime::Runtime,
 }
 

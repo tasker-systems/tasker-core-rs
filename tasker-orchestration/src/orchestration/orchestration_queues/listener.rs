@@ -331,7 +331,10 @@ struct OrchestrationEventHandler {
     /// Configuration
     config: OrchestrationListenerConfig,
     /// System context for database and messaging operations
-    #[expect(dead_code, reason = "Reserved for future event handler operations requiring database access")]
+    #[expect(
+        dead_code,
+        reason = "Reserved for future event handler operations requiring database access"
+    )]
     context: Arc<SystemContext>,
     /// Event sender for orchestration notifications
     event_sender: mpsc::Sender<OrchestrationNotification>,

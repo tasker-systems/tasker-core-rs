@@ -113,7 +113,10 @@ impl OrchestrationResultSender {
     }
 
     /// Get the configured orchestration step results queue name (explicit, no naming pattern)
-    #[expect(dead_code, reason = "Public API for retrieving configured step results queue name")]
+    #[expect(
+        dead_code,
+        reason = "Public API for retrieving configured step results queue name"
+    )]
     pub fn step_results_queue(&self) -> String {
         self.queue_classifier.step_results_queue_name().to_string()
     }

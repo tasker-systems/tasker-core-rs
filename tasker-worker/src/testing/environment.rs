@@ -11,7 +11,10 @@
 //! - Resource cleanup with proper ordering
 //! - Test isolation guarantees
 
-#![expect(dead_code, reason = "Test environment module with safety validation utilities")]
+#![expect(
+    dead_code,
+    reason = "Test environment module with safety validation utilities"
+)]
 
 use std::collections::HashMap;
 use std::env;

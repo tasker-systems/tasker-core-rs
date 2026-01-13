@@ -18,7 +18,10 @@ use uuid::Uuid;
 use tracing::{debug, error};
 
 #[derive(Clone)]
-#[expect(dead_code, reason = "StepClaim struct used internally by worker step processing")]
+#[expect(
+    dead_code,
+    reason = "StepClaim struct used internally by worker step processing"
+)]
 pub(crate) struct StepClaim {
     pub task_uuid: Uuid,
     pub step_uuid: Uuid,

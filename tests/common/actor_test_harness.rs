@@ -1,4 +1,7 @@
-#![expect(dead_code, reason = "Test module with helpers for actor-based testing patterns")]
+#![expect(
+    dead_code,
+    reason = "Test module with helpers for actor-based testing patterns"
+)]
 //! # Actor Test Harness
 //!
 //! Test infrastructure for actor-based testing patterns (TAS-46).

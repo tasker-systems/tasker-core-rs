@@ -9,6 +9,17 @@ license = "MIT"
 keywords = ["ffi", "pyo3", "python", "tasker", "workflow"]
 categories = ["api-bindings", "development-tools::ffi"]
 
+# TAS-145: Ignore false positives from cargo-machete
+[package.metadata.cargo-machete]
+ignored = [
+  # Used in FFI layer but not detected by analysis
+  "anyhow",
+  "chrono",
+  "dotenvy",
+  "serde",
+  "serde_json",
+]
+
 [lib]
 crate-type = ["cdylib"]
 name = "_tasker_core"
@@ -46,14 +57,3 @@ default = []
 
 [lints]
 workspace = true
-
-# TAS-145: Ignore false positives from cargo-machete
-[package.metadata.cargo-machete]
-ignored = [
-  # Used in FFI layer but not detected by analysis
-  "anyhow",
-  "chrono",
-  "dotenvy",
-  "serde",
-  "serde_json",
-]

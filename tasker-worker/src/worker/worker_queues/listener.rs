@@ -281,7 +281,10 @@ impl WorkerQueueListener {
     }
 
     /// Check if listener is connected
-    #[expect(dead_code, reason = "Public API for checking listener connection state")]
+    #[expect(
+        dead_code,
+        reason = "Public API for checking listener connection state"
+    )]
     pub fn is_connected(&self) -> bool {
         self.is_connected
     }
@@ -295,9 +298,15 @@ impl WorkerQueueListener {
 
 /// Event handler for worker pgmq-notify events
 struct WorkerEventHandler {
-    #[expect(dead_code, reason = "Configuration preserved for future event handler enhancements")]
+    #[expect(
+        dead_code,
+        reason = "Configuration preserved for future event handler enhancements"
+    )]
     config: WorkerListenerConfig,
-    #[expect(dead_code, reason = "SystemContext available for future event handler operations")]
+    #[expect(
+        dead_code,
+        reason = "SystemContext available for future event handler operations"
+    )]
     context: Arc<SystemContext>,
     event_sender: mpsc::Sender<WorkerNotification>,
     channel_monitor: ChannelMonitor,

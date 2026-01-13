@@ -3,14 +3,11 @@ name = "tasker-client"
 version = "0.1.0"
 edition = "2021"
 description = "Tasker API Clients"
-license = "MIT"
-repository = "https://github.com/tasker-systems/tasker-core"
 readme = "README.md"
-keywords = ["api", "client", "workflow", "orchestration", "rest"]
+repository = "https://github.com/tasker-systems/tasker-core"
+license = "MIT"
+keywords = ["api", "client", "orchestration", "rest", "workflow"]
 categories = ["api-bindings", "asynchronous", "web-programming"]
-
-[lints]
-workspace = true
 
 # TAS-145: Ignore false positives from cargo-machete
 [package.metadata.cargo-machete]
@@ -40,8 +37,6 @@ name = "task_initialization"
 required-features = ["benchmarks"]
 
 [dependencies]
-# Benchmarking
-criterion = { workspace = true, optional = true }
 # Error handling and utilities
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -50,10 +45,14 @@ chrono = { workspace = true }
 clap = { version = "4.5", features = ["color", "derive", "env"] }
 # Configuration
 config = { workspace = true }
+# Benchmarking
+criterion = { workspace = true, optional = true }
 dirs = "6.0"
 futures = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
+# Other utilities
+regex = { workspace = true }
 # Web API testing and API Integration
 reqwest = { workspace = true }
 # Serialization
@@ -69,16 +68,14 @@ toml = { workspace = true }
 # Logging and tracing
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-# Other utilities
-regex = { workspace = true }
 uuid = { workspace = true }
 validator = { workspace = true }
 workspace_tools = { workspace = true }
 
 [dev-dependencies]
 dotenvy = { workspace = true }
-tempfile = { workspace = true }
 serial_test = { workspace = true }
+tempfile = { workspace = true }
 # Testing utilities
 tokio-test = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -86,3 +83,6 @@ tracing-subscriber = { workspace = true }
 [features]
 default = []
 benchmarks = ["criterion"]
+
+[lints]
+workspace = true

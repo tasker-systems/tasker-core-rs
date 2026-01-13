@@ -40,7 +40,10 @@
 //! # Docker Compose maps this to external ports via port mappings
 //! ```
 
-#![expect(dead_code, reason = "Test module for Docker integration test management")]
+#![expect(
+    dead_code,
+    reason = "Test module for Docker integration test management"
+)]
 
 use anyhow::Result;
 use serde_json::Value;

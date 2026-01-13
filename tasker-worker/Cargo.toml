@@ -3,14 +3,11 @@ name = "tasker-worker"
 version = "0.1.0"
 edition = "2021"
 description = "Worker foundation system for multi-language step execution"
-license = "MIT"
-repository = "https://github.com/tasker-systems/tasker-core"
 readme = "README.md"
-keywords = ["worker", "async", "task", "execution", "ffi"]
+repository = "https://github.com/tasker-systems/tasker-core"
+license = "MIT"
+keywords = ["async", "execution", "ffi", "task", "worker"]
 categories = ["asynchronous", "concurrency", "web-programming"]
-
-[lints]
-workspace = true
 
 # TAS-145: Ignore false positives from cargo-machete
 [package.metadata.cargo-machete]
@@ -18,7 +15,7 @@ ignored = [
   # Dev-dependencies used in tests
   "cargo-llvm-cov",  # CI coverage tool
   "serial_test",
-  "tasker-core",     # Used for test-utils re-export
+  "tasker-core",  # Used for test-utils re-export
   "tempfile",
   "tokio-test",
   "url",
@@ -141,3 +138,6 @@ web-api = [
   "utoipa",
   "utoipa-swagger-ui",
 ]
+
+[lints]
+workspace = true

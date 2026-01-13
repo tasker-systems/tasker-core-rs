@@ -118,7 +118,10 @@ mod tests {
     use sqlx::PgPool;
 
     // Test struct with PgPool
-    #[expect(dead_code, reason = "Test struct for validating debug_with_pgpool macro")]
+    #[expect(
+        dead_code,
+        reason = "Test struct for validating debug_with_pgpool macro"
+    )]
     pub struct TestServiceWithPool {
         pool: PgPool,
         name: String,
@@ -148,7 +151,10 @@ mod tests {
     }
 
     // Test struct with multiple fields including PgPool
-    #[expect(dead_code, reason = "Test struct for validating debug_with_pgpool macro with different field names")]
+    #[expect(
+        dead_code,
+        reason = "Test struct for validating debug_with_pgpool macro with different field names"
+    )]
     pub struct AnotherService {
         database: PgPool,
         enabled: bool,

@@ -3,14 +3,11 @@ name = "tasker-orchestration"
 version = "0.1.0"
 edition = "2021"
 description = "Orchestration system for tasker workflow coordination"
-license = "MIT"
-repository = "https://github.com/tasker-systems/tasker-core"
 readme = "README.md"
-keywords = ["workflow", "orchestration", "async", "task", "coordination"]
+repository = "https://github.com/tasker-systems/tasker-core"
+license = "MIT"
+keywords = ["async", "coordination", "orchestration", "task", "workflow"]
 categories = ["asynchronous", "concurrency", "database"]
-
-[lints]
-workspace = true
 
 # TAS-145: Ignore false positives from cargo-machete
 [package.metadata.cargo-machete]
@@ -18,7 +15,7 @@ ignored = [
   # Dev-dependencies used in tests
   "cargo-llvm-cov",  # CI coverage tool
   "serial_test",
-  "tasker-core",     # Used for test-utils re-export
+  "tasker-core",  # Used for test-utils re-export
   "tempfile",
   "tokio-test",
   "url",
@@ -133,3 +130,6 @@ web-api = [
   "utoipa",
   "utoipa-swagger-ui",
 ]
+
+[lints]
+workspace = true

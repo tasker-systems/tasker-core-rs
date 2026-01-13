@@ -247,7 +247,9 @@ impl WorkerEventSystem {
     /// Call this when an event is processed via polling rather than pg_notify.
     pub fn record_polling_event(&self) {
         self.statistics.record_polling();
-        self.statistics.events_processed.fetch_add(1, Ordering::Relaxed);
+        self.statistics
+            .events_processed
+            .fetch_add(1, Ordering::Relaxed);
         self.statistics
             .step_messages_processed
             .fetch_add(1, Ordering::Relaxed);
@@ -262,7 +264,9 @@ impl WorkerEventSystem {
 
     /// Record a failed event processing (TAS-141)
     pub fn record_failure(&self) {
-        self.statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+        self.statistics
+            .events_failed
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Initialize components based on deployment mode
