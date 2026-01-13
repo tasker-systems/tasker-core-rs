@@ -17,6 +17,8 @@
 # Access:
 # - Grafana UI: http://localhost:3000 (admin/admin)
 # - PostgreSQL: localhost:5432
+# - RabbitMQ AMQP: localhost:5672 (tasker/tasker)
+# - RabbitMQ Management: http://localhost:15672 (tasker/tasker)
 # - Orchestration: http://localhost:8080
 # - Rust Worker: http://localhost:8081
 # - Ruby Worker: http://localhost:8082
@@ -68,6 +70,32 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+    networks:
+      - tasker-test
+
+  # ==========================================================================
+  # RabbitMQ Message Broker (TAS-133: Alternative Messaging Provider)
+  # ==========================================================================
+  # Provides AMQP 0.9.1 message broker for testing RabbitMQ messaging provider.
+  # Used alongside PGMQ to validate messaging abstraction works with both backends.
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: tasker-test-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: tasker
+      RABBITMQ_DEFAULT_PASS: tasker
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - tasker-test
 
@@ -425,6 +453,7 @@ volumes:
   grafana_data:
   tempo_data:
   loki_data:
+  rabbitmq_data:
 
 networks:
   tasker-test:
