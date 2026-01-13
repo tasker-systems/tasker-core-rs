@@ -101,7 +101,6 @@ impl Default for WorkflowStepTransitionFactory {
 // - tests/workflow_step_transition_factory_test.rs (with_metadata, to_complete)
 // - tests/integration_tests.rs (create_retry_lifecycle, create_manual_resolution_lifecycle)
 // - tests/sql_functions/production_workflow_validation.rs (lifecycle methods)
-#[allow(dead_code)]
 impl WorkflowStepTransitionFactory {
     pub fn new() -> Self {
         Self::default()
@@ -263,7 +262,6 @@ impl SqlxFactory<WorkflowStepTransition> for WorkflowStepTransitionFactory {
 /// production validation tests. Clippy shows them as unused due to cross-file test
 /// usage detection limitations. Verified usage in integration_tests.rs and
 /// sql_functions/production_workflow_validation.rs
-#[allow(dead_code)]
 impl WorkflowStepTransitionFactory {
     /// Create a complete workflow step lifecycle (pending -> in_progress -> complete)
     pub async fn create_complete_lifecycle(

@@ -16,7 +16,6 @@ use sqlx::{types::Uuid, PgPool};
 
 /// Factory for creating Task instances
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Factory methods are used across multiple test modules
 pub struct TaskFactory {
     named_task_name: Option<String>,
     named_task_namespace: String,
@@ -49,7 +48,6 @@ impl Default for TaskFactory {
     }
 }
 
-#[allow(dead_code)]
 impl TaskFactory {
     pub fn new() -> Self {
         Self::default()
@@ -215,7 +213,6 @@ impl StateFactory<Task> for TaskFactory {
 }
 
 // Convenience methods for TaskFactory states
-#[allow(dead_code)]
 impl TaskFactory {
     pub fn pending(self) -> Self {
         self.with_initial_state("pending")
@@ -228,7 +225,6 @@ impl TaskFactory {
 
 /// Factory for creating WorkflowStep instances
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Factory methods are used across multiple test modules
 pub struct WorkflowStepFactory {
     task_uuid: Option<Uuid>,
     named_step_name: Option<String>,
@@ -261,7 +257,6 @@ impl Default for WorkflowStepFactory {
     }
 }
 
-#[allow(dead_code)]
 impl WorkflowStepFactory {
     pub fn new() -> Self {
         Self::default()
@@ -424,7 +419,6 @@ impl StateFactory<WorkflowStep> for WorkflowStepFactory {
 }
 
 // Convenience methods for WorkflowStepFactory states
-#[allow(dead_code)]
 impl WorkflowStepFactory {
     pub fn pending(self) -> Self {
         self.with_initial_state("pending")

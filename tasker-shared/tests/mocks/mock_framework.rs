@@ -96,7 +96,7 @@ impl MockFramework {
     }
 
     /// Configure a specific step result
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Test helper for configuring mock step results in tests")]
     pub fn configure_step_result(&self, step_uuid: Uuid, result: StepResult) {
         let mut state = self.state.lock().unwrap();
         state.step_results.insert(step_uuid, result);
@@ -108,7 +108,7 @@ impl MockFramework {
     }
 
     /// Reset the framework state
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Test helper for resetting mock framework state between tests")]
     pub fn reset(&self) {
         let mut state = self.state.lock().unwrap();
         state.executed_steps.clear();

@@ -1,6 +1,8 @@
 //! Helper functions for integration tests
 //!
-
+// Note: Using #[allow(dead_code)] instead of #[expect] because test utility
+// functions may be used by some test targets but not others, causing inconsistent
+// lint behavior between different test compilation units.
 #![allow(dead_code)]
 
 use anyhow::Result;
