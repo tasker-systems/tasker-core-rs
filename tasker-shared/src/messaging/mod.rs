@@ -2,12 +2,22 @@
 //!
 //! PostgreSQL message queue (pgmq) based messaging for workflow orchestration.
 //! Provides queue-based task and step processing, replacing the TCP command architecture.
+//!
+//! ## Module Structure
+//!
+//! - `service` - Provider-agnostic messaging abstraction (TAS-133)
+//! - `clients` - Legacy PGMQ client implementations (deprecated after TAS-133)
+//! - `errors` - Messaging error types
+//! - `execution_types` - Step execution request/response types
+//! - `message` - Step and task message types
+//! - `orchestration_messages` - Orchestration-specific message types
 
 pub mod clients;
 pub mod errors;
 pub mod execution_types;
 pub mod message;
 pub mod orchestration_messages;
+pub mod service;
 // Removed unused step_handler_result module - legacy code that was never used in production
 
 pub use clients::{
