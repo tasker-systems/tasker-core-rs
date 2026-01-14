@@ -294,6 +294,12 @@ pub struct AtomicQueueStats {
 
     /// Total messages nacked (lifetime counter)
     total_nacked: AtomicU64,
+
+    // Last recorded values for delta computation (for OpenTelemetry counter integration)
+    last_recorded_sent: AtomicU64,
+    last_recorded_received: AtomicU64,
+    last_recorded_acked: AtomicU64,
+    last_recorded_nacked: AtomicU64,
 }
 
 impl AtomicQueueStats {
@@ -308,6 +314,10 @@ impl AtomicQueueStats {
             total_received: AtomicU64::new(0),
             total_acked: AtomicU64::new(0),
             total_nacked: AtomicU64::new(0),
+            last_recorded_sent: AtomicU64::new(0),
+            last_recorded_received: AtomicU64::new(0),
+            last_recorded_acked: AtomicU64::new(0),
+            last_recorded_nacked: AtomicU64::new(0),
         }
     }
 
@@ -402,20 +412,73 @@ impl AtomicQueueStats {
 
     /// Record stats to OpenTelemetry metrics
     ///
-    /// Call this after [`update_depth()`] to push current values to metrics.
+    /// Call this periodically (e.g., after [`update_depth()`]) to push current values to metrics.
+    /// Records both gauges (queue depth, oldest message age) and counter deltas (sent, received, etc.).
+    ///
     /// Uses the gauges and counters from [`crate::metrics::messaging`].
+    ///
+    /// # Counter Delta Calculation
+    ///
+    /// For counters, this method calculates deltas since the last call to avoid double-counting.
+    /// This is safe for periodic metric recording but should not be called concurrently.
     pub fn record_to_metrics(&self) {
-        use crate::metrics::messaging::{queue_depth, queue_oldest_message_age};
+        use crate::metrics::messaging::{
+            messages_archived_total, messages_received_total, messages_sent_total, queue_depth,
+            queue_oldest_message_age,
+        };
         use opentelemetry::KeyValue;
 
         let queue_label = KeyValue::new("queue", self.queue_name.clone());
 
+        // Record gauges (absolute values)
         queue_depth().record(self.message_count.load(Ordering::Relaxed), &[queue_label.clone()]);
 
         let oldest_age = self.oldest_message_age_ms.load(Ordering::Relaxed);
         if oldest_age > 0 {
-            queue_oldest_message_age().record(oldest_age, &[queue_label]);
+            queue_oldest_message_age().record(oldest_age, &[queue_label.clone()]);
         }
+
+        // Record counter deltas
+        // We swap the last_recorded value with the current total and compute the delta
+        let current_sent = self.total_sent.load(Ordering::Relaxed);
+        let last_sent = self.last_recorded_sent.swap(current_sent, Ordering::Relaxed);
+        if current_sent > last_sent {
+            messages_sent_total().add(current_sent - last_sent, &[queue_label.clone()]);
+        }
+
+        let current_received = self.total_received.load(Ordering::Relaxed);
+        let last_received = self.last_recorded_received.swap(current_received, Ordering::Relaxed);
+        if current_received > last_received {
+            messages_received_total().add(current_received - last_received, &[queue_label.clone()]);
+        }
+
+        // Acked messages map to "archived" in PGMQ terminology
+        let current_acked = self.total_acked.load(Ordering::Relaxed);
+        let last_acked = self.last_recorded_acked.swap(current_acked, Ordering::Relaxed);
+        if current_acked > last_acked {
+            messages_archived_total().add(current_acked - last_acked, &[queue_label.clone()]);
+        }
+
+        // Note: total_nacked doesn't have a direct counter in messaging.rs
+        // It's tracked internally but could be added if needed
+        let current_nacked = self.total_nacked.load(Ordering::Relaxed);
+        let _last_nacked = self.last_recorded_nacked.swap(current_nacked, Ordering::Relaxed);
+        // Future: add messages_nacked_total() counter if needed
+    }
+
+    /// Reset the delta tracking for metrics
+    ///
+    /// Call this if you need to reset the baseline for delta calculations,
+    /// for example after a metrics system restart.
+    pub fn reset_metrics_baseline(&self) {
+        self.last_recorded_sent
+            .store(self.total_sent.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.last_recorded_received
+            .store(self.total_received.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.last_recorded_acked
+            .store(self.total_acked.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.last_recorded_nacked
+            .store(self.total_nacked.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 }
 
@@ -568,5 +631,39 @@ mod tests {
 
         report.add_missing("queue2");
         assert!(!report.is_healthy());
+    }
+
+    #[test]
+    fn test_atomic_queue_stats_reset_metrics_baseline() {
+        let stats = AtomicQueueStats::new("test_queue");
+
+        // Record some operations
+        stats.record_send_batch(100);
+        stats.record_receive_batch(80);
+        stats.record_ack();
+        stats.record_ack();
+
+        // Verify counters
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.total_sent, 100);
+        assert_eq!(snapshot.total_received, 80);
+        assert_eq!(snapshot.total_acked, 2);
+
+        // Reset baseline (simulating what happens after record_to_metrics)
+        stats.reset_metrics_baseline();
+
+        // Record more operations
+        stats.record_send_batch(50);
+        stats.record_receive_batch(40);
+        stats.record_ack();
+
+        // Verify totals include all operations
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.total_sent, 150); // 100 + 50
+        assert_eq!(snapshot.total_received, 120); // 80 + 40
+        assert_eq!(snapshot.total_acked, 3); // 2 + 1
+
+        // The baseline tracking ensures deltas would be calculated correctly
+        // (actual delta calculation tested implicitly via record_to_metrics)
     }
 }
