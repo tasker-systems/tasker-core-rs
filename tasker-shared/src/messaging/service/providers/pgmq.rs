@@ -255,7 +255,9 @@ impl MessagingService for PgmqMessagingService {
         self.client
             .set_visibility_timeout(queue_name, message_id, vt_seconds)
             .await
-            .map_err(|e| MessagingError::extend_visibility(queue_name, message_id, e.to_string()))?;
+            .map_err(|e| {
+                MessagingError::extend_visibility(queue_name, message_id, e.to_string())
+            })?;
 
         Ok(())
     }
@@ -293,12 +295,205 @@ impl MessagingService for PgmqMessagingService {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn test_provider_name() {
-        // We can't easily test the async methods without a database,
-        // but we can test the sync methods
-        // Note: This test would need a mock or real database to fully work
+    use super::*;
+    use uuid::Uuid;
+
+    /// Get database URL for tests, preferring PGMQ_DATABASE_URL for split-db mode
+    fn get_test_database_url() -> String {
+        std::env::var("PGMQ_DATABASE_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| std::env::var("DATABASE_URL").ok())
+            .unwrap_or_else(|| {
+                "postgresql://tasker:tasker@localhost:5432/tasker_rust_test".to_string()
+            })
     }
 
-    // Integration tests would go in a separate test file with database access
+    /// Generate unique queue name to avoid test conflicts
+    fn unique_queue_name(prefix: &str) -> String {
+        let test_id = &Uuid::new_v4().to_string()[..8];
+        format!("{}_{}", prefix, test_id)
+    }
+
+    #[tokio::test]
+    async fn test_pgmq_service_creation() {
+        let database_url = get_test_database_url();
+        let service = PgmqMessagingService::new(&database_url).await;
+        assert!(service.is_ok(), "Should connect to database");
+
+        let service = service.unwrap();
+        assert_eq!(service.provider_name(), "pgmq");
+        // Note: has_notify_capabilities() depends on connection mode configuration
+        // It's informational, not a requirement for basic operations
+        let _ = service.has_notify_capabilities();
+    }
+
+    #[tokio::test]
+    async fn test_pgmq_health_check() {
+        let database_url = get_test_database_url();
+        let service = PgmqMessagingService::new(&database_url).await.unwrap();
+
+        let health = service.health_check().await;
+        assert!(health.is_ok(), "Health check should succeed");
+        assert!(health.unwrap(), "Health check should return true");
+    }
+
+    #[tokio::test]
+    async fn test_pgmq_ensure_queue() {
+        let database_url = get_test_database_url();
+        let service = PgmqMessagingService::new(&database_url).await.unwrap();
+        let queue_name = unique_queue_name("test_ensure");
+
+        // Create queue
+        let result = service.ensure_queue(&queue_name).await;
+        assert!(result.is_ok(), "Should create queue: {:?}", result.err());
+
+        // Idempotent - creating again should succeed
+        let result = service.ensure_queue(&queue_name).await;
+        assert!(result.is_ok(), "Should be idempotent");
+    }
+
+    #[tokio::test]
+    async fn test_pgmq_send_receive_roundtrip() {
+        let database_url = get_test_database_url();
+        let service = PgmqMessagingService::new(&database_url).await.unwrap();
+        let queue_name = unique_queue_name("test_roundtrip");
+
+        service.ensure_queue(&queue_name).await.unwrap();
+
+        // Send message
+        let msg = serde_json::json!({"test": "hello", "value": 42});
+        let msg_id = service.send_message(&queue_name, &msg).await.unwrap();
+        assert!(!msg_id.as_str().is_empty(), "Should return message ID");
+
+        // Receive message
+        let messages: Vec<QueuedMessage<serde_json::Value>> = service
+            .receive_messages(&queue_name, 10, Duration::from_secs(30))
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), 1, "Should receive one message");
+        assert_eq!(messages[0].message["test"], "hello");
+        assert_eq!(messages[0].message["value"], 42);
+        assert_eq!(messages[0].receive_count, 1);
+
+        // Ack message
+        let ack_result = service
+            .ack_message(&queue_name, &messages[0].receipt_handle)
+            .await;
+        assert!(ack_result.is_ok(), "Should ack message");
+
+        // Should be empty now
+        let messages2: Vec<QueuedMessage<serde_json::Value>> = service
+            .receive_messages(&queue_name, 10, Duration::from_secs(30))
+            .await
+            .unwrap();
+        assert_eq!(messages2.len(), 0, "Queue should be empty after ack");
+    }
+
+    #[tokio::test]
+    async fn test_pgmq_nack_requeue() {
+        let database_url = get_test_database_url();
+        let service = PgmqMessagingService::new(&database_url).await.unwrap();
+        let queue_name = unique_queue_name("test_nack");
+
+        service.ensure_queue(&queue_name).await.unwrap();
+
+        // Send message
+        let msg = serde_json::json!({"action": "retry_me"});
+        service.send_message(&queue_name, &msg).await.unwrap();
+
+        // Receive with visibility timeout
+        let messages: Vec<QueuedMessage<serde_json::Value>> = service
+            .receive_messages(&queue_name, 1, Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+
+        // Nack with requeue (sets visibility to 0)
+        service
+            .nack_message(&queue_name, &messages[0].receipt_handle, true)
+            .await
+            .unwrap();
+
+        // Message should be immediately visible again
+        let messages2: Vec<QueuedMessage<serde_json::Value>> = service
+            .receive_messages(&queue_name, 1, Duration::from_secs(30))
+            .await
+            .unwrap();
+        assert_eq!(messages2.len(), 1, "Message should be requeued");
+        assert_eq!(
+            messages2[0].receive_count, 2,
+            "Receive count should increment"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pgmq_queue_stats() {
+        let database_url = get_test_database_url();
+        let service = PgmqMessagingService::new(&database_url).await.unwrap();
+        let queue_name = unique_queue_name("test_stats");
+
+        service.ensure_queue(&queue_name).await.unwrap();
+
+        // Send a few messages
+        for i in 0..3 {
+            let msg = serde_json::json!({"index": i});
+            service.send_message(&queue_name, &msg).await.unwrap();
+        }
+
+        // Check stats
+        let stats = service.queue_stats(&queue_name).await.unwrap();
+        assert_eq!(stats.queue_name, queue_name);
+        assert_eq!(stats.message_count, 3);
+    }
+
+    #[tokio::test]
+    async fn test_pgmq_verify_queues() {
+        let database_url = get_test_database_url();
+        let service = PgmqMessagingService::new(&database_url).await.unwrap();
+
+        let existing_queue = unique_queue_name("test_verify_exists");
+        let missing_queue = unique_queue_name("test_verify_missing");
+
+        // Create only the first queue
+        service.ensure_queue(&existing_queue).await.unwrap();
+
+        // Verify both
+        let report = service
+            .verify_queues(&[existing_queue.clone(), missing_queue.clone()])
+            .await
+            .unwrap();
+
+        assert!(
+            report.healthy.contains(&existing_queue),
+            "Should find existing queue"
+        );
+        assert!(
+            report.missing.contains(&missing_queue),
+            "Should identify missing queue"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pgmq_send_batch() {
+        let database_url = get_test_database_url();
+        let service = PgmqMessagingService::new(&database_url).await.unwrap();
+        let queue_name = unique_queue_name("test_batch");
+
+        service.ensure_queue(&queue_name).await.unwrap();
+
+        // Send batch
+        let messages = vec![
+            serde_json::json!({"batch": 1}),
+            serde_json::json!({"batch": 2}),
+            serde_json::json!({"batch": 3}),
+        ];
+        let ids = service.send_batch(&queue_name, &messages).await.unwrap();
+        assert_eq!(ids.len(), 3, "Should return 3 message IDs");
+
+        // Verify all messages are in queue
+        let stats = service.queue_stats(&queue_name).await.unwrap();
+        assert_eq!(stats.message_count, 3);
+    }
 }
