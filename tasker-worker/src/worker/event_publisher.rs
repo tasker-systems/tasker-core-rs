@@ -99,7 +99,7 @@ impl WorkerEventPublisher {
     /// Fire a step execution event to FFI handlers after database hydration
     ///
     /// This is the main integration point called by WorkerProcessor after it has
-    /// hydrated all step context from the database using SimpleStepMessage UUIDs.
+    /// hydrated all step context from the database using StepMessage UUIDs.
     pub async fn fire_step_execution_event(
         &self,
         task_sequence_step: &TaskSequenceStep,

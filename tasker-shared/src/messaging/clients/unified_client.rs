@@ -43,14 +43,13 @@ use std::sync::Arc;
 use crate::messaging::{
     clients::types::{ClientStatus, QueueMetrics},
     execution_types::StepExecutionResult,
-    message::{SimpleStepMessage, StepMessage},
+    message::StepMessage,
     orchestration_messages::{StepResultMessage, TaskRequestMessage},
 };
 use crate::TaskerResult;
 
 use super::in_memory_client::InMemoryClient;
 use super::traits::MessageClient;
-use super::TaskerPgmqClientExt;
 use pgmq_notify::PgmqClient;
 
 /// Unified message client supporting multiple backends
@@ -76,18 +75,6 @@ impl MessageClient for UnifiedMessageClient {
             }
             Self::RabbitMq(client) => client.send_step_message(namespace, message).await,
             Self::InMemory(client) => client.send_step_message(namespace, message).await,
-        }
-    }
-
-    async fn send_simple_step_message(
-        &self,
-        namespace: &str,
-        message: SimpleStepMessage,
-    ) -> TaskerResult<()> {
-        match self {
-            Self::Pgmq(client) => client.send_simple_step_message(namespace, message).await,
-            Self::RabbitMq(client) => client.send_simple_step_message(namespace, message).await,
-            Self::InMemory(client) => client.send_simple_step_message(namespace, message).await,
         }
     }
 
@@ -295,16 +282,6 @@ impl MessageClient for RabbitMqClient {
         ))
     }
 
-    async fn send_simple_step_message(
-        &self,
-        _namespace: &str,
-        _message: SimpleStepMessage,
-    ) -> TaskerResult<()> {
-        Err(crate::TaskerError::MessagingError(
-            "RabbitMQ client not yet implemented".to_string(),
-        ))
-    }
-
     async fn receive_step_messages(
         &self,
         _namespace: &str,
@@ -388,40 +365,12 @@ impl MessageClient for RabbitMqClient {
 }
 
 // MessageClient implementation for PgmqClient (pgmq-notify unified client)
+//
+// TAS-133: Updated to use UUID-based StepMessage
 #[async_trait]
 impl MessageClient for PgmqClient {
     async fn send_step_message(&self, namespace: &str, message: StepMessage) -> TaskerResult<()> {
-        // Convert StepMessage to PgmqStepMessage
-        let pgmq_message = super::types::PgmqStepMessage {
-            step_uuid: message.step_uuid,
-            task_uuid: message.task_uuid,
-            namespace: namespace.to_string(),
-            step_name: message.step_name.clone(),
-            step_payload: message.step_payload.clone(),
-            metadata: super::types::PgmqStepMessageMetadata {
-                enqueued_at: chrono::Utc::now(),
-                retry_count: 0,
-                max_retries: 3,
-                timeout_seconds: Some((message.metadata.timeout_ms / 1000) as i64),
-                correlation_id: message.correlation_id, // TAS-29: Preserve correlation_id
-            },
-        };
-
-        let queue_name = format!("worker_{}_queue", namespace);
-        TaskerPgmqClientExt::send_step_message(self, &queue_name, &pgmq_message)
-            .await
-            .map_err(|e| {
-                crate::TaskerError::MessagingError(format!("Failed to send step message: {}", e))
-            })?;
-        Ok(())
-    }
-
-    async fn send_simple_step_message(
-        &self,
-        namespace: &str,
-        message: SimpleStepMessage,
-    ) -> TaskerResult<()> {
-        // Convert SimpleStepMessage to a basic JSON message and use wrapper function
+        // TAS-133: Send the UUID-based StepMessage directly as JSON
         let queue_name = format!("worker_{}_queue", namespace);
         let serialized = serde_json::to_value(&message).map_err(|e| {
             crate::TaskerError::MessagingError(format!("Serialization error: {}", e))
@@ -436,7 +385,7 @@ impl MessageClient for PgmqClient {
         .fetch_one(self.pool())
         .await
         .map_err(|e| {
-            crate::TaskerError::MessagingError(format!("Failed to send simple message: {}", e))
+            crate::TaskerError::MessagingError(format!("Failed to send step message: {}", e))
         })?
         .ok_or_else(|| {
             crate::TaskerError::MessagingError(

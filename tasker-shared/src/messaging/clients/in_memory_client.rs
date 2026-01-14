@@ -16,15 +16,15 @@
 //!
 //! ```rust,no_run
 //! use tasker_shared::messaging::clients::{UnifiedMessageClient, MessageClient};
-//! use tasker_shared::messaging::message::SimpleStepMessage;
+//! use tasker_shared::messaging::message::StepMessage;
 //! use tasker_shared::TaskerResult;
 //!
 //! # async fn example() -> TaskerResult<()> {
 //! let client = UnifiedMessageClient::new_in_memory();
 //! client.initialize_namespace_queues(&["test_namespace"]).await?;
 //!
-//! // Example of sending a message (would need actual step_message)
-//! // let step_message = SimpleStepMessage::new(...);
+//! // Example of sending a message
+//! // let step_message = StepMessage::new(task_uuid, step_uuid, correlation_id);
 //! // client.send_step_message("test_namespace", step_message).await?;
 //! // let messages = client.receive_step_messages("test_namespace", 10, 30).await?;
 //! # Ok(())
@@ -34,11 +34,10 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
-use uuid::Uuid;
 
 use crate::messaging::{
     execution_types::StepExecutionResult,
-    message::{SimpleStepMessage, StepExecutionContext, StepMessage, StepMessageMetadata},
+    message::StepMessage,
     orchestration_messages::{StepResultMessage, TaskRequestMessage},
 };
 use crate::TaskerResult;
@@ -176,20 +175,6 @@ impl MessageClient for InMemoryClient {
         Ok(())
     }
 
-    async fn send_simple_step_message(
-        &self,
-        namespace: &str,
-        message: SimpleStepMessage,
-    ) -> TaskerResult<()> {
-        let queue_name = self.get_queue_name(namespace);
-        let message_json = serde_json::to_value(&message).map_err(|e| {
-            crate::TaskerError::ValidationError(format!("JSON serialization error: {}", e))
-        })?;
-        self.send_message_to_queue(&queue_name, message_json)
-            .await?;
-        Ok(())
-    }
-
     async fn receive_step_messages(
         &self,
         namespace: &str,
@@ -203,43 +188,11 @@ impl MessageClient for InMemoryClient {
 
         let mut step_messages = Vec::new();
         for (_, content) in raw_messages {
-            match serde_json::from_value::<StepMessage>(content.clone()) {
+            match serde_json::from_value::<StepMessage>(content) {
                 Ok(step_message) => step_messages.push(step_message),
                 Err(e) => {
-                    // Try to parse as SimpleStepMessage and convert
-                    if let Ok(simple_message) = serde_json::from_value::<SimpleStepMessage>(content)
-                    {
-                        // Convert SimpleStepMessage to StepMessage (simplified conversion for testing)
-                        let step_message = StepMessage {
-                            step_uuid: simple_message.step_uuid,
-                            task_uuid: simple_message.task_uuid,
-                            correlation_id: simple_message.correlation_id, // TAS-29: Preserve correlation_id
-                            namespace: namespace.to_string(),
-                            task_name: "test_task".to_string(), // Default for testing
-                            task_version: "1.0.0".to_string(),  // Default for testing
-                            step_name: "test_step".to_string(), // Default for testing
-                            step_payload: serde_json::json!({}), // Empty payload for testing
-                            execution_context: StepExecutionContext {
-                                task: serde_json::json!({}),
-                                sequence: vec![],
-                                step: serde_json::json!({}),
-                                additional_context: HashMap::new(),
-                            }, // Empty context for testing
-                            metadata: StepMessageMetadata {
-                                created_at: chrono::Utc::now(),
-                                retry_count: 0,
-                                max_retries: 3,
-                                timeout_ms: 30000,
-                                correlation_id: Some(Uuid::new_v4().to_string()),
-                                priority: 5,
-                                context: HashMap::new(),
-                            },
-                        };
-                        step_messages.push(step_message);
-                    } else {
-                        // Log error but don't fail the whole operation
-                        eprintln!("Failed to deserialize step message: {}", e);
-                    }
+                    // Log error but don't fail the whole operation
+                    eprintln!("Failed to deserialize step message: {}", e);
                 }
             }
         }
@@ -403,6 +356,7 @@ impl MessageClient for InMemoryClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn test_in_memory_client_basic_operations() {
@@ -433,32 +387,12 @@ mod tests {
             .await
             .unwrap();
 
-        // Create test step message
-        let step_message = StepMessage {
-            step_uuid: Uuid::new_v4(),
-            task_uuid: Uuid::new_v4(),
-            correlation_id: Uuid::now_v7(), // TAS-29: Test correlation_id
-            namespace: namespace.to_string(),
-            task_name: "test_task".to_string(),
-            task_version: "1.0.0".to_string(),
-            step_name: "test_step".to_string(),
-            step_payload: serde_json::json!({"test": "data"}),
-            execution_context: StepExecutionContext {
-                task: serde_json::json!({}),
-                sequence: vec![],
-                step: serde_json::json!({}),
-                additional_context: HashMap::new(),
-            },
-            metadata: StepMessageMetadata {
-                created_at: chrono::Utc::now(),
-                retry_count: 0,
-                max_retries: 3,
-                timeout_ms: 30000,
-                correlation_id: Some(Uuid::new_v4().to_string()),
-                priority: 5,
-                context: HashMap::new(),
-            },
-        };
+        // Create test step message (TAS-133: now UUID-based)
+        let task_uuid = Uuid::new_v4();
+        let step_uuid = Uuid::new_v4();
+        let correlation_id = Uuid::now_v7();
+
+        let step_message = StepMessage::new(task_uuid, step_uuid, correlation_id);
 
         // Send step message
         client
@@ -479,46 +413,52 @@ mod tests {
         assert_eq!(received_messages.len(), 1);
         assert_eq!(received_messages[0].step_uuid, step_message.step_uuid);
         assert_eq!(received_messages[0].task_uuid, step_message.task_uuid);
+        assert_eq!(
+            received_messages[0].correlation_id,
+            step_message.correlation_id
+        );
     }
 
     #[tokio::test]
-    async fn test_in_memory_simple_step_message_flow() {
+    async fn test_in_memory_step_message_serialization() {
         let client = InMemoryClient::new();
-        let namespace = "simple_test";
+        let namespace = "serialization_test";
 
-        // Initialize namespace queues
         client
             .initialize_namespace_queues(&[namespace])
             .await
             .unwrap();
 
-        // Create test simple step message
-        let simple_message = SimpleStepMessage {
-            step_uuid: Uuid::new_v4(),
-            task_uuid: Uuid::new_v4(),
-            correlation_id: Uuid::now_v7(), // TAS-29: Test correlation_id
-        };
+        // Create and send multiple messages
+        let messages: Vec<StepMessage> = (0..3)
+            .map(|_| StepMessage::new(Uuid::new_v4(), Uuid::new_v4(), Uuid::now_v7()))
+            .collect();
 
-        // Send simple step message
-        client
-            .send_simple_step_message(namespace, simple_message.clone())
-            .await
-            .unwrap();
+        for msg in &messages {
+            client
+                .send_step_message(namespace, msg.clone())
+                .await
+                .unwrap();
+        }
 
-        // Verify queue metrics
+        // Verify all messages are queued
         let queue_name = format!("worker_{}_queue", namespace);
         let metrics = client.get_queue_metrics(&queue_name).await.unwrap();
-        assert_eq!(metrics.message_count, 1);
+        assert_eq!(metrics.message_count, 3);
 
-        // Receive step messages (should be converted to full StepMessage)
-        let received_messages = client
+        // Receive and verify messages
+        let received = client
             .receive_step_messages(namespace, 10, 30)
             .await
             .unwrap();
-        assert_eq!(received_messages.len(), 1);
-        assert_eq!(received_messages[0].step_uuid, simple_message.step_uuid);
-        assert_eq!(received_messages[0].task_uuid, simple_message.task_uuid);
-        assert_eq!(received_messages[0].namespace, namespace);
+        assert_eq!(received.len(), 3);
+
+        // Verify each message has the correct UUIDs
+        for (i, msg) in received.iter().enumerate() {
+            assert_eq!(msg.task_uuid, messages[i].task_uuid);
+            assert_eq!(msg.step_uuid, messages[i].step_uuid);
+            assert_eq!(msg.correlation_id, messages[i].correlation_id);
+        }
     }
 
     #[tokio::test]
@@ -531,32 +471,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Send test message
-        let step_message = StepMessage {
-            step_uuid: Uuid::new_v4(),
-            task_uuid: Uuid::new_v4(),
-            correlation_id: Uuid::now_v7(), // TAS-29: Test correlation_id
-            namespace: namespace.to_string(),
-            task_name: "test_task".to_string(),
-            task_version: "1.0.0".to_string(),
-            step_name: "test_step".to_string(),
-            step_payload: serde_json::json!({}),
-            execution_context: StepExecutionContext {
-                task: serde_json::json!({}),
-                sequence: vec![],
-                step: serde_json::json!({}),
-                additional_context: HashMap::new(),
-            },
-            metadata: StepMessageMetadata {
-                created_at: chrono::Utc::now(),
-                retry_count: 0,
-                max_retries: 3,
-                timeout_ms: 30000,
-                correlation_id: Some(Uuid::new_v4().to_string()),
-                priority: 5,
-                context: HashMap::new(),
-            },
-        };
+        // Send test message (TAS-133: now UUID-based)
+        let step_message = StepMessage::new(Uuid::new_v4(), Uuid::new_v4(), Uuid::now_v7());
 
         client
             .send_step_message(namespace, step_message.clone())

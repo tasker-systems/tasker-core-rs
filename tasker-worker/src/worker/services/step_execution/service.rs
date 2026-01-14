@@ -24,7 +24,7 @@ use tracing::{debug, error, event, info, span, warn, Instrument, Level};
 use uuid::Uuid;
 
 use tasker_shared::events::domain_events::EventMetadata;
-use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::message::StepMessage;
 use tasker_shared::messaging::PgmqClientTrait;
 use tasker_shared::metrics::worker::*;
 use tasker_shared::models::{
@@ -134,7 +134,7 @@ impl StepExecutorService {
     /// Domain event dispatch is handled separately via `dispatch_domain_events()`.
     pub async fn execute_step(
         &self,
-        message: PgmqMessage<SimpleStepMessage>,
+        message: PgmqMessage<StepMessage>,
         queue_name: &str,
     ) -> TaskerResult<bool> {
         let start_time = std::time::Instant::now();
@@ -250,7 +250,7 @@ impl StepExecutorService {
     async fn verify_state_visibility(
         &self,
         task_sequence_step: &TaskSequenceStep,
-        step_message: &SimpleStepMessage,
+        step_message: &StepMessage,
     ) -> TaskerResult<()> {
         let state_machine = StepStateMachine::new(
             task_sequence_step.workflow_step.clone().into(),
@@ -314,7 +314,7 @@ impl StepExecutorService {
     async fn execute_ffi_handler(
         &self,
         task_sequence_step: &TaskSequenceStep,
-        step_message: &SimpleStepMessage,
+        step_message: &StepMessage,
     ) -> TaskerResult<()> {
         let step_span = span!(
             Level::INFO,
@@ -549,7 +549,7 @@ impl StepExecutorService {
 
     fn record_step_failure(
         &self,
-        step_message: &SimpleStepMessage,
+        step_message: &StepMessage,
         namespace: &str,
         error_type: &str,
     ) {
@@ -567,7 +567,7 @@ impl StepExecutorService {
 
     fn record_step_success(
         &self,
-        step_message: &SimpleStepMessage,
+        step_message: &StepMessage,
         namespace: &str,
         execution_time: u64,
     ) {
@@ -586,7 +586,7 @@ impl StepExecutorService {
 
     fn record_execution_duration(
         &self,
-        step_message: &SimpleStepMessage,
+        step_message: &StepMessage,
         namespace: &str,
         execution_time: u64,
         result: &str,

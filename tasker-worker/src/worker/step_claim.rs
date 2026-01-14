@@ -2,7 +2,7 @@ use super::task_template_manager::TaskTemplateManager;
 use opentelemetry::KeyValue;
 use std::sync::Arc;
 use std::time::Instant;
-use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::message::StepMessage;
 use tasker_shared::metrics::worker::*;
 use tasker_shared::models::{
     orchestration::StepTransitiveDependenciesQuery, task::Task, workflow_step::WorkflowStepWithName,
@@ -46,7 +46,7 @@ impl StepClaim {
     /// TAS-67: Get TaskSequenceStep by step UUID for dispatch mode
     ///
     /// This method hydrates the step context directly from the database
-    /// without needing a full SimpleStepMessage.
+    /// without needing a full StepMessage.
     pub async fn get_task_sequence_step_by_uuid(
         &self,
         step_uuid: Uuid,
@@ -145,7 +145,7 @@ impl StepClaim {
 
     pub async fn get_task_sequence_step_from_step_message(
         &self,
-        message: &SimpleStepMessage,
+        message: &StepMessage,
     ) -> TaskerResult<Option<TaskSequenceStep>> {
         debug!(
             task_uuid = %message.task_uuid,

@@ -13,7 +13,7 @@
 
 use pgmq::Message as PgmqMessage;
 use pgmq_notify::MessageReadyEvent;
-use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::message::StepMessage;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -28,9 +28,9 @@ pub type CommandResponder<T> = oneshot::Sender<tasker_shared::TaskerResult<T>>;
 /// appropriate actor for handling.
 #[derive(Debug)]
 pub enum WorkerCommand {
-    /// Execute a step from raw SimpleStepMessage - handles database queries, claiming, and deletion
+    /// Execute a step from raw StepMessage - handles database queries, claiming, and deletion
     ExecuteStep {
-        message: PgmqMessage<SimpleStepMessage>,
+        message: PgmqMessage<StepMessage>,
         queue_name: String,
         resp: CommandResponder<()>,
     },
@@ -45,7 +45,7 @@ pub enum WorkerCommand {
     },
     /// Execute step with event correlation for FFI handler tracking
     ExecuteStepWithCorrelation {
-        message: PgmqMessage<SimpleStepMessage>,
+        message: PgmqMessage<StepMessage>,
         queue_name: String,
         correlation_id: Uuid,
         resp: CommandResponder<()>,

@@ -58,7 +58,7 @@ pub struct RetryPolicy {
 ///
 /// This payload contains all the information needed for an FFI handler (Ruby, Python, WASM)
 /// to execute a step, following the database-as-API-layer pattern where the worker
-/// hydrates all necessary context from the database using SimpleStepMessage UUIDs.
+/// hydrates all necessary context from the database using StepMessage UUIDs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepEventPayload {
     pub task_uuid: Uuid,

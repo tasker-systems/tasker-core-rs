@@ -9,7 +9,7 @@ use pgmq::Message as PgmqMessage;
 use pgmq_notify::MessageReadyEvent;
 use uuid::Uuid;
 
-use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::message::StepMessage;
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::types::base::TaskSequenceStep;
 
@@ -25,7 +25,7 @@ use crate::worker::domain_event_commands::DomainEventToPublish;
 /// Execute a step from a PGMQ message
 #[derive(Debug)]
 pub struct ExecuteStepMessage {
-    pub message: PgmqMessage<SimpleStepMessage>,
+    pub message: PgmqMessage<StepMessage>,
     pub queue_name: String,
 }
 
@@ -36,7 +36,7 @@ impl Message for ExecuteStepMessage {
 /// Execute a step with correlation ID for event tracking
 #[derive(Debug)]
 pub struct ExecuteStepWithCorrelationMessage {
-    pub message: PgmqMessage<SimpleStepMessage>,
+    pub message: PgmqMessage<StepMessage>,
     pub queue_name: String,
     pub correlation_id: Uuid,
 }

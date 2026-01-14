@@ -7,7 +7,7 @@
 //!
 //! - **Declarative Integration**: No imperative FFI calls, purely event-driven
 //! - **Bidirectional Communication**: Rust → FFI (execution requests) and FFI → Rust (completions)
-//! - **Database-as-API**: Workers hydrate full context from SimpleStepMessage UUIDs
+//! - **Database-as-API**: Workers hydrate full context from StepMessage UUIDs
 //! - **Event Correlation**: Each event pair has correlation IDs for traceability
 //! - **Command Pattern Integration**: Works alongside WorkerProcessor command channels
 //!

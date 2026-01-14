@@ -680,12 +680,12 @@ impl WorkerCore {
     /// Process step message via command pattern
     pub async fn process_step_message(
         &self,
-        _message: tasker_shared::messaging::message::SimpleStepMessage,
+        _message: tasker_shared::messaging::message::StepMessage,
     ) -> TaskerResult<tasker_shared::messaging::StepExecutionResult> {
         let (_resp_tx, _resp_rx) =
             oneshot::channel::<TaskerResult<tasker_shared::messaging::StepExecutionResult>>();
 
-        // TODO: This method needs to be updated to use TaskSequenceStep instead of SimpleStepMessage
+        // TODO: This method needs to be updated to use TaskSequenceStep instead of StepMessage
         // For now, we'll return an error to indicate this needs to be implemented properly
         Err(TaskerError::WorkerError(
             "process_step_message needs to be updated to use TaskSequenceStep pattern".to_string(),

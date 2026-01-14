@@ -5,6 +5,7 @@
 //!
 //! ## Module Structure
 //!
+//! - `client` - Domain-level MessageClient facade (TAS-133c)
 //! - `service` - Provider-agnostic messaging abstraction (TAS-133)
 //! - `clients` - Legacy PGMQ client implementations (deprecated after TAS-133)
 //! - `errors` - Messaging error types
@@ -12,6 +13,7 @@
 //! - `message` - Step and task message types
 //! - `orchestration_messages` - Orchestration-specific message types
 
+pub mod client;
 pub mod clients;
 pub mod errors;
 pub mod execution_types;
@@ -31,7 +33,10 @@ pub use execution_types::{
     StepBatchResponse, StepExecutionError, StepExecutionMetadata, StepExecutionRequest,
     StepExecutionResult, StepRequestMetadata,
 };
-pub use message::{StepMessage, StepMessageMetadata};
+pub use message::StepMessage;
+// NOTE: SimpleStepMessage is deprecated, use StepMessage instead
+#[allow(deprecated)]
+pub use message::SimpleStepMessage;
 pub use orchestration_messages::*;
 // Removed unused step_handler_result exports - use StepExecutionResult instead
 

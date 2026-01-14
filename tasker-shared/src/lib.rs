@@ -130,7 +130,7 @@ pub use errors::{
 pub use messaging::{
     BatchMessage, BatchResultMessage, PgmqClient, PgmqStepMessage, PgmqStepMessageMetadata,
     StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult, StepMessage,
-    StepMessageMetadata, TaskRequestMessage,
+    TaskRequestMessage,
 };
 
 pub use registry::TaskHandlerRegistry;

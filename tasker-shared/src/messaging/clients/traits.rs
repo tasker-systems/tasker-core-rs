@@ -1,7 +1,7 @@
 use crate::messaging::{
     clients::types::{ClientStatus, PgmqStepMessage, QueueMetrics},
     execution_types::StepExecutionResult,
-    message::{SimpleStepMessage, StepMessage},
+    message::StepMessage,
     orchestration_messages::{StepResultMessage, TaskRequestMessage},
 };
 use crate::TaskerResult;
@@ -83,19 +83,22 @@ pub trait PgmqClientTrait: Send + Sync {
 ///
 /// This trait defines the core messaging operations needed for workflow orchestration.
 /// All message queue backends (PGMQ, RabbitMQ, etc.) must implement this interface.
+///
+/// # TAS-133 Note
+///
+/// As of TAS-133, `StepMessage` is now the UUID-based type (renamed from `SimpleStepMessage`).
+/// The old `StepMessage` with embedded execution context has been removed.
+/// The `send_simple_step_message` method has been removed - use `send_step_message` instead.
 #[async_trait]
 pub trait MessageClient: Send + Sync {
     /// Send a step execution message to the appropriate namespace queue
+    ///
+    /// The message contains only UUIDs - workers query the database for full context.
     async fn send_step_message(&self, namespace: &str, message: StepMessage) -> TaskerResult<()>;
 
-    /// Send a simple step message (UUID-based) to namespace queue
-    async fn send_simple_step_message(
-        &self,
-        namespace: &str,
-        message: SimpleStepMessage,
-    ) -> TaskerResult<()>;
-
     /// Claim/receive step messages from a namespace queue (worker operation)
+    ///
+    /// Returns UUID-based messages - workers must hydrate full context from database.
     async fn receive_step_messages(
         &self,
         namespace: &str,

@@ -1,6 +1,6 @@
 //! OrchestrationResultSender - Config-driven helper for sending step completion messages
 //!
-//! Implements the SimpleStepMessage approach for worker→orchestration communication
+//! Implements the StepMessage approach for worker→orchestration communication
 //! using configuration-driven queue names from orchestration.toml instead of hardcoded strings.
 
 use opentelemetry::KeyValue;
@@ -10,7 +10,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use tasker_shared::config::QueueClassifier;
-use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::message::StepMessage;
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::metrics::worker::*;
 use tasker_shared::{TaskerError, TaskerResult};
@@ -39,10 +39,10 @@ impl OrchestrationResultSender {
         }
     }
 
-    /// Send step completion notification to orchestration using SimpleStepMessage approach
+    /// Send step completion notification to orchestration using StepMessage approach
     ///
     /// This implements the database-as-API pattern where the worker persists full StepExecutionResult
-    /// to the database via StepStateMachine, then sends only a lightweight SimpleStepMessage to
+    /// to the database via StepStateMachine, then sends only a lightweight StepMessage to
     /// notify orchestration that results are ready for processing.
     ///
     /// # Arguments
@@ -62,7 +62,7 @@ impl OrchestrationResultSender {
         // TAS-29 Phase 3.3: Start timing result submission
         let start_time = Instant::now();
 
-        let message = SimpleStepMessage {
+        let message = StepMessage {
             task_uuid,
             step_uuid,
             correlation_id,

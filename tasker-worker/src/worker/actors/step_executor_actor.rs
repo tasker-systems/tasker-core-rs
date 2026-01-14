@@ -416,7 +416,7 @@ impl Handler<ExecuteStepFromPgmqMessage> for StepExecutorActor {
         msg: ExecuteStepFromPgmqMessage,
     ) -> TaskerResult<<ExecuteStepFromPgmqMessage as Message>::Response> {
         // Deserialize the message payload to get step/task UUIDs
-        let step_message: tasker_shared::messaging::message::SimpleStepMessage =
+        let step_message: tasker_shared::messaging::message::StepMessage =
             serde_json::from_value(msg.message.message.clone()).map_err(|e| {
                 tasker_shared::TaskerError::MessagingError(format!(
                     "Failed to deserialize step message: {}",
@@ -485,7 +485,7 @@ impl Handler<ExecuteStepFromEventMessage> for StepExecutorActor {
         let message = self
             .context
             .message_client
-            .read_specific_message::<tasker_shared::messaging::message::SimpleStepMessage>(
+            .read_specific_message::<tasker_shared::messaging::message::StepMessage>(
                 &msg.message_event.queue_name,
                 msg.message_event.msg_id,
                 msg.message_event.visibility_timeout_seconds.unwrap_or(30),

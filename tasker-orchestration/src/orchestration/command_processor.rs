@@ -692,7 +692,7 @@ impl OrchestrationProcessorCommandHandler {
         })
     }
 
-    /// Handle step result processing from message event - SimpleStepMessage approach with database hydration
+    /// Handle step result processing from message event - StepMessage approach with database hydration
     async fn handle_step_result_from_message_event(
         &self,
         message_event: MessageReadyEvent,
@@ -723,7 +723,7 @@ impl OrchestrationProcessorCommandHandler {
             .await
     }
 
-    /// Handle step result processing from message event - SimpleStepMessage approach with database hydration
+    /// Handle step result processing from message event - StepMessage approach with database hydration
     async fn handle_step_result_from_message(
         &self,
         queue_name: &str,

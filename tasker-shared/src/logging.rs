@@ -37,7 +37,7 @@
 //!
 //! 4. Message Queue
 //!    - All PGMQ messages include correlation_id field
-//!    - SimpleStepMessage, StepExecutionResult include correlation_id
+//!    - StepMessage, StepExecutionResult include correlation_id
 //!    - Enables tracing across async message boundaries
 //! ```
 //!
