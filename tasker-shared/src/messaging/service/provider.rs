@@ -4,6 +4,8 @@
 
 use std::time::Duration;
 
+use pgmq_notify::PgmqNotifyConfig;
+
 use super::providers::{InMemoryMessagingService, PgmqMessagingService};
 use super::traits::{MessagingService, QueueMessage};
 use super::types::{MessageId, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle};
@@ -60,9 +62,31 @@ impl MessagingProvider {
         Ok(Self::Pgmq(service))
     }
 
+    /// Create a new PGMQ provider with database URL and custom configuration
+    pub async fn new_pgmq_with_config(
+        database_url: &str,
+        config: PgmqNotifyConfig,
+    ) -> Result<Self, MessagingError> {
+        let service = PgmqMessagingService::new_with_config(database_url, config).await?;
+        Ok(Self::Pgmq(service))
+    }
+
     /// Create a new PGMQ provider with an existing connection pool
+    ///
+    /// Preferred when pool configuration is managed externally (e.g., from TOML).
     pub async fn new_pgmq_with_pool(pool: sqlx::PgPool) -> Self {
         let service = PgmqMessagingService::new_with_pool(pool).await;
+        Self::Pgmq(service)
+    }
+
+    /// Create a new PGMQ provider with existing pool and custom configuration
+    ///
+    /// Use when you need both external pool config (from TOML) and notify configuration.
+    pub async fn new_pgmq_with_pool_and_config(
+        pool: sqlx::PgPool,
+        config: PgmqNotifyConfig,
+    ) -> Self {
+        let service = PgmqMessagingService::new_with_pool_and_config(pool, config).await;
         Self::Pgmq(service)
     }
 

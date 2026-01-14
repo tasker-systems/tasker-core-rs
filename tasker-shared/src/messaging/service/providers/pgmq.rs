@@ -12,7 +12,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use pgmq_notify::PgmqClient;
+use pgmq_notify::{PgmqClient, PgmqNotifyConfig};
 use sqlx::PgPool;
 
 use crate::messaging::service::traits::{MessagingService, QueueMessage};
@@ -59,6 +59,8 @@ pub struct PgmqMessagingService {
 
 impl PgmqMessagingService {
     /// Create a new PGMQ messaging service from database URL
+    ///
+    /// Uses default `PgmqNotifyConfig`. For custom configuration, use `new_with_config`.
     pub async fn new(database_url: &str) -> Result<Self, MessagingError> {
         let client = PgmqClient::new(database_url)
             .await
@@ -66,13 +68,41 @@ impl PgmqMessagingService {
         Ok(Self { client })
     }
 
+    /// Create a new PGMQ messaging service with database URL and custom configuration
+    ///
+    /// Allows configuring notify behavior, queue naming patterns, and other options.
+    pub async fn new_with_config(
+        database_url: &str,
+        config: PgmqNotifyConfig,
+    ) -> Result<Self, MessagingError> {
+        let client = PgmqClient::new_with_config(database_url, config)
+            .await
+            .map_err(|e| MessagingError::connection(e.to_string()))?;
+        Ok(Self { client })
+    }
+
     /// Create a new PGMQ messaging service with an existing connection pool
+    ///
+    /// Uses default `PgmqNotifyConfig`. For custom configuration, use `new_with_pool_and_config`.
+    /// This is the preferred constructor when pool configuration is managed externally
+    /// (e.g., from TOML config via SystemContext).
     pub async fn new_with_pool(pool: PgPool) -> Self {
         let client = PgmqClient::new_with_pool(pool).await;
         Self { client }
     }
 
+    /// Create a new PGMQ messaging service with existing pool and custom configuration
+    ///
+    /// Combines externally-managed pool configuration with custom notify behavior.
+    /// Use this when you need both pool tuning (from TOML) and notify configuration.
+    pub async fn new_with_pool_and_config(pool: PgPool, config: PgmqNotifyConfig) -> Self {
+        let client = PgmqClient::new_with_pool_and_config(pool, config).await;
+        Self { client }
+    }
+
     /// Create from an existing PgmqClient
+    ///
+    /// Escape hatch for when you need full control over client construction.
     pub fn from_client(client: PgmqClient) -> Self {
         Self { client }
     }

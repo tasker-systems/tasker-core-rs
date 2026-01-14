@@ -56,3 +56,6 @@ pub use types::{
 // Re-export MessagingError from parent module - no duplication
 pub use super::errors::MessagingError;
 pub use super::MessagingResult;
+
+// Re-export PgmqNotifyConfig for convenient access when constructing providers
+pub use pgmq_notify::PgmqNotifyConfig;
