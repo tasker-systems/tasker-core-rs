@@ -47,7 +47,9 @@ mod types;
 pub use provider::MessagingProvider;
 pub use router::{DefaultMessageRouter, MessageRouter, MessageRouterKind};
 pub use traits::{MessagingService, QueueMessage};
-pub use types::{MessageId, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle};
+pub use types::{
+    AtomicQueueStats, MessageId, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle,
+};
 
 // Re-export MessagingError from parent module - no duplication
 pub use super::errors::MessagingError;
