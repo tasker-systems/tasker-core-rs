@@ -429,13 +429,14 @@ impl AtomicQueueStats {
         use opentelemetry::KeyValue;
 
         let queue_label = KeyValue::new("queue", self.queue_name.clone());
+        let labels = std::slice::from_ref(&queue_label);
 
         // Record gauges (absolute values)
-        queue_depth().record(self.message_count.load(Ordering::Relaxed), &[queue_label.clone()]);
+        queue_depth().record(self.message_count.load(Ordering::Relaxed), labels);
 
         let oldest_age = self.oldest_message_age_ms.load(Ordering::Relaxed);
         if oldest_age > 0 {
-            queue_oldest_message_age().record(oldest_age, &[queue_label.clone()]);
+            queue_oldest_message_age().record(oldest_age, labels);
         }
 
         // Record counter deltas
@@ -443,20 +444,20 @@ impl AtomicQueueStats {
         let current_sent = self.total_sent.load(Ordering::Relaxed);
         let last_sent = self.last_recorded_sent.swap(current_sent, Ordering::Relaxed);
         if current_sent > last_sent {
-            messages_sent_total().add(current_sent - last_sent, &[queue_label.clone()]);
+            messages_sent_total().add(current_sent - last_sent, labels);
         }
 
         let current_received = self.total_received.load(Ordering::Relaxed);
         let last_received = self.last_recorded_received.swap(current_received, Ordering::Relaxed);
         if current_received > last_received {
-            messages_received_total().add(current_received - last_received, &[queue_label.clone()]);
+            messages_received_total().add(current_received - last_received, labels);
         }
 
         // Acked messages map to "archived" in PGMQ terminology
         let current_acked = self.total_acked.load(Ordering::Relaxed);
         let last_acked = self.last_recorded_acked.swap(current_acked, Ordering::Relaxed);
         if current_acked > last_acked {
-            messages_archived_total().add(current_acked - last_acked, &[queue_label.clone()]);
+            messages_archived_total().add(current_acked - last_acked, labels);
         }
 
         // Note: total_nacked doesn't have a direct counter in messaging.rs

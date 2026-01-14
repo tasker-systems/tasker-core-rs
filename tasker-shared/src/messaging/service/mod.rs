@@ -40,11 +40,13 @@
 //! - **MessageRouter** separates queue naming from messaging operations
 
 mod provider;
+pub mod providers;
 mod router;
 mod traits;
 mod types;
 
 pub use provider::MessagingProvider;
+pub use providers::{InMemoryMessagingService, PgmqMessagingService};
 pub use router::{DefaultMessageRouter, MessageRouter, MessageRouterKind};
 pub use traits::{MessagingService, QueueMessage};
 pub use types::{
