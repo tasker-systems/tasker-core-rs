@@ -282,6 +282,51 @@ impl PgmqClient {
         Ok(())
     }
 
+    /// Set visibility timeout for a message
+    ///
+    /// Extends or resets the visibility timeout for a message. This is useful for:
+    /// - Heartbeat during long-running step processing
+    /// - Returning a message to the queue immediately (vt_seconds = 0)
+    ///
+    /// # Arguments
+    ///
+    /// * `queue_name` - The queue containing the message
+    /// * `message_id` - The message ID to update
+    /// * `vt_seconds` - New visibility timeout in seconds from now
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if the message doesn't exist.
+    #[instrument(skip(self), fields(queue = %queue_name, message_id = %message_id, vt_seconds = %vt_seconds))]
+    pub async fn set_visibility_timeout(
+        &self,
+        queue_name: &str,
+        message_id: i64,
+        vt_seconds: i32,
+    ) -> Result<()> {
+        debug!(
+            "Setting visibility timeout for message {} in queue {} to {} seconds",
+            message_id, queue_name, vt_seconds
+        );
+
+        // Use pgmq.set_vt SQL function directly for precise control
+        // The function signature is: pgmq.set_vt(queue_name text, msg_id bigint, vt_offset integer)
+        sqlx::query_scalar!(
+            "SELECT msg_id FROM pgmq.set_vt($1::text, $2::bigint, $3::integer)",
+            queue_name,
+            message_id,
+            vt_seconds
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        debug!(
+            "Visibility timeout set for message {} to {} seconds",
+            message_id, vt_seconds
+        );
+        Ok(())
+    }
+
     /// Purge queue (delete all messages)
     #[instrument(skip(self), fields(queue = %queue_name))]
     pub async fn purge_queue(&self, queue_name: &str) -> Result<u64> {

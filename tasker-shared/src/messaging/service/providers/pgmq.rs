@@ -224,16 +224,11 @@ impl MessagingService for PgmqMessagingService {
 
         if requeue {
             // Make the message visible again by setting visibility timeout to 0
-            // PGMQ doesn't have a direct "nack" operation, so we use set_vt
-            // Cast parameters explicitly to avoid ambiguous function overload
-            sqlx::query_scalar!(
-                "SELECT msg_id FROM pgmq.set_vt($1::text, $2::bigint, 0::integer)",
-                queue_name,
-                message_id
-            )
-            .fetch_optional(self.client.pool())
-            .await
-            .map_err(|e| MessagingError::nack(queue_name, message_id, e.to_string()))?;
+            // PGMQ doesn't have a direct "nack" operation, so we use set_visibility_timeout
+            self.client
+                .set_visibility_timeout(queue_name, message_id, 0)
+                .await
+                .map_err(|e| MessagingError::nack(queue_name, message_id, e.to_string()))?;
         } else {
             // Delete the message (dead-letter behavior)
             self.client
@@ -257,19 +252,10 @@ impl MessagingService for PgmqMessagingService {
 
         let vt_seconds = extension.as_secs() as i32;
 
-        // Use set_vt to extend the visibility timeout
-        // Cast parameters explicitly to avoid ambiguous function overload
-        sqlx::query_scalar!(
-            "SELECT msg_id FROM pgmq.set_vt($1::text, $2::bigint, $3::integer)",
-            queue_name,
-            message_id,
-            vt_seconds
-        )
-        .fetch_optional(self.client.pool())
-        .await
-        .map_err(|e| {
-            MessagingError::extend_visibility(queue_name, message_id, e.to_string())
-        })?;
+        self.client
+            .set_visibility_timeout(queue_name, message_id, vt_seconds)
+            .await
+            .map_err(|e| MessagingError::extend_visibility(queue_name, message_id, e.to_string()))?;
 
         Ok(())
     }
