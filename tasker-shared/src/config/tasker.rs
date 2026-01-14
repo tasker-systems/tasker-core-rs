@@ -562,19 +562,55 @@ pub struct QueueDepthThresholds {
 
 impl_builder_default!(QueueDepthThresholds);
 
-/// RabbitMQ-specific configuration
+/// RabbitMQ-specific configuration (TAS-133d)
 ///
-/// **TODO (TAS-35)**: RabbitMQ multi-backend support is planned but not yet implemented.
-/// Currently all production configs use `backend = "pgmq"` and RabbitMQ client returns
-/// "RabbitMQ client not yet implemented" error.
+/// Configuration for RabbitMQ messaging backend using the lapin crate.
+/// Supports AMQP 0.9.1 protocol with durable queues, Dead Letter Exchanges,
+/// and prefetch-based consumer flow control.
 ///
-/// When implemented, this will enable queue backend selection between PGMQ and RabbitMQ
-/// for multi-backend queue support. Keep this configuration for future roadmap.
+/// ## TOML Example
 ///
-/// See: `tasker-shared/src/messaging/clients/unified_client.rs` for placeholder stub
+/// ```toml
+/// [common.queues]
+/// backend = "rabbitmq"
+///
+/// [common.queues.rabbitmq]
+/// url = "${RABBITMQ_URL:-amqp://tasker:tasker@localhost:5672/%2F}"
+/// prefetch_count = 100
+/// heartbeat_seconds = 30
+/// connection_timeout_seconds = 10
+/// ```
+///
+/// ## Environment Variables
+///
+/// - `RABBITMQ_URL`: Connection URL (default: `amqp://guest:guest@localhost:5672/%2F`)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
 #[serde(rename_all = "snake_case")]
 pub struct RabbitmqConfig {
+    /// RabbitMQ connection URL (amqp://user:pass@host:port/vhost)
+    ///
+    /// Supports `${RABBITMQ_URL}` environment variable substitution.
+    /// The vhost should be URL-encoded (e.g., `%2F` for `/`).
+    #[validate(length(min = 1))]
+    #[builder(default = "amqp://guest:guest@localhost:5672/%2F".to_string())]
+    pub url: String,
+
+    /// Prefetch count (QoS) - maximum unacknowledged messages per consumer
+    ///
+    /// Higher values improve throughput but increase memory usage.
+    /// Lower values provide better load distribution.
+    #[validate(range(min = 1, max = 65535))]
+    #[builder(default = 100)]
+    pub prefetch_count: u16,
+
+    /// Heartbeat interval in seconds for connection keepalive
+    ///
+    /// RabbitMQ uses heartbeats to detect dead connections.
+    /// 0 disables heartbeats (not recommended).
+    #[validate(range(max = 3600))]
+    #[builder(default = 30)]
+    pub heartbeat_seconds: u16,
+
     /// Connection timeout in seconds
     #[validate(range(min = 1, max = 300))]
     #[builder(default = 10)]

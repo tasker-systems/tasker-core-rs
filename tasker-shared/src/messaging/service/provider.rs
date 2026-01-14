@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use pgmq_notify::PgmqNotifyConfig;
 
-use super::providers::{InMemoryMessagingService, PgmqMessagingService};
+use crate::config::tasker::RabbitmqConfig;
+use super::providers::{InMemoryMessagingService, PgmqMessagingService, RabbitMqMessagingService};
 use super::traits::{MessagingService, QueueMessage};
 use super::types::{MessageId, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle};
 use super::MessagingError;
@@ -41,8 +42,10 @@ pub enum MessagingProvider {
 
     /// RabbitMQ provider (AMQP 0.9.1)
     ///
-    /// Implemented in TAS-133d. Uses lapin crate.
-    RabbitMq(RabbitMqMessagingServiceStub),
+    /// Uses lapin crate for AMQP protocol support.
+    /// Includes Dead Letter Exchange setup for failed message handling.
+    /// Boxed to reduce enum size (RabbitMQ service has larger internal state).
+    RabbitMq(Box<RabbitMqMessagingService>),
 
     /// In-memory provider for testing
     ///
@@ -88,6 +91,30 @@ impl MessagingProvider {
     ) -> Self {
         let service = PgmqMessagingService::new_with_pool_and_config(pool, config).await;
         Self::Pgmq(service)
+    }
+
+    /// Create a new RabbitMQ provider with configuration reference
+    ///
+    /// Clones the configuration internally.
+    pub async fn new_rabbitmq(config: &RabbitmqConfig) -> Result<Self, MessagingError> {
+        let service = RabbitMqMessagingService::new(config).await?;
+        Ok(Self::RabbitMq(Box::new(service)))
+    }
+
+    /// Create a new RabbitMQ provider with owned configuration
+    ///
+    /// Takes ownership of the configuration without cloning.
+    pub async fn new_rabbitmq_owned(config: RabbitmqConfig) -> Result<Self, MessagingError> {
+        let service = RabbitMqMessagingService::from_config(config).await?;
+        Ok(Self::RabbitMq(Box::new(service)))
+    }
+
+    /// Create a new RabbitMQ provider from environment variables
+    ///
+    /// Reads from: RABBITMQ_URL, RABBITMQ_PREFETCH_COUNT, RABBITMQ_HEARTBEAT_SECONDS
+    pub async fn new_rabbitmq_from_env() -> Result<Self, MessagingError> {
+        let service = RabbitMqMessagingService::from_env().await?;
+        Ok(Self::RabbitMq(Box::new(service)))
     }
 
     /// Get the provider name for logging/metrics
@@ -244,85 +271,6 @@ impl MessagingProvider {
             Self::RabbitMq(s) => s.health_check().await,
             Self::InMemory(s) => s.health_check().await,
         }
-    }
-}
-
-// =============================================================================
-// Stub for RabbitMQ (implemented in TAS-133d)
-// =============================================================================
-
-/// Stub for RabbitMQ messaging service
-///
-/// Replaced with real implementation in TAS-133d.
-#[derive(Debug)]
-pub struct RabbitMqMessagingServiceStub;
-
-#[async_trait::async_trait]
-impl MessagingService for RabbitMqMessagingServiceStub {
-    async fn ensure_queue(&self, _queue_name: &str) -> Result<(), MessagingError> {
-        unimplemented!("RabbitMqMessagingService implemented in TAS-133d")
-    }
-
-    async fn verify_queues(
-        &self,
-        _queue_names: &[String],
-    ) -> Result<QueueHealthReport, MessagingError> {
-        unimplemented!("RabbitMqMessagingService implemented in TAS-133d")
-    }
-
-    async fn send_message<T: QueueMessage>(
-        &self,
-        _queue_name: &str,
-        _message: &T,
-    ) -> Result<MessageId, MessagingError> {
-        unimplemented!("RabbitMqMessagingService implemented in TAS-133d")
-    }
-
-    async fn receive_messages<T: QueueMessage>(
-        &self,
-        _queue_name: &str,
-        _max_messages: usize,
-        _visibility_timeout: Duration,
-    ) -> Result<Vec<QueuedMessage<T>>, MessagingError> {
-        unimplemented!("RabbitMqMessagingService implemented in TAS-133d")
-    }
-
-    async fn ack_message(
-        &self,
-        _queue_name: &str,
-        _receipt_handle: &ReceiptHandle,
-    ) -> Result<(), MessagingError> {
-        unimplemented!("RabbitMqMessagingService implemented in TAS-133d")
-    }
-
-    async fn nack_message(
-        &self,
-        _queue_name: &str,
-        _receipt_handle: &ReceiptHandle,
-        _requeue: bool,
-    ) -> Result<(), MessagingError> {
-        unimplemented!("RabbitMqMessagingService implemented in TAS-133d")
-    }
-
-    async fn extend_visibility(
-        &self,
-        _queue_name: &str,
-        _receipt_handle: &ReceiptHandle,
-        _extension: Duration,
-    ) -> Result<(), MessagingError> {
-        unimplemented!("RabbitMqMessagingService implemented in TAS-133d")
-    }
-
-    async fn queue_stats(&self, _queue_name: &str) -> Result<QueueStats, MessagingError> {
-        unimplemented!("RabbitMqMessagingService implemented in TAS-133d")
-    }
-
-    async fn health_check(&self) -> Result<bool, MessagingError> {
-        unimplemented!("RabbitMqMessagingService implemented in TAS-133d")
-    }
-
-    fn provider_name(&self) -> &'static str {
-        "rabbitmq"
     }
 }
 

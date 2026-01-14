@@ -56,6 +56,14 @@ warning_threshold = 100    # Test: lower warning threshold
 critical_threshold = 500   # Test: lower critical threshold
 overflow_threshold = 1000  # Test: lower overflow threshold
 
+# RabbitMQ test configuration (TAS-133d)
+# Matches docker/docker-compose.test.yml rabbitmq service
+[common.queues.rabbitmq]
+url = "${RABBITMQ_URL:-amqp://tasker:tasker@localhost:5672/%2F}"
+prefetch_count = 10
+heartbeat_seconds = 30
+connection_timeout_seconds = 5
+
 [common.circuit_breakers.global_settings]
 max_circuit_breakers = 20
 metrics_collection_interval_seconds = 10
