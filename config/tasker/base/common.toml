@@ -36,7 +36,11 @@ idle_timeout_seconds = 300
 max_lifetime_seconds = 1800
 
 [common.queues]
-backend = "pgmq"
+# Messaging backend selection (TAS-133)
+# Valid values: pgmq (default), rabbitmq
+# - pgmq: PostgreSQL Message Queue (single-dependency deployment, LISTEN/NOTIFY)
+# - rabbitmq: AMQP broker (native push via basic_consume, higher throughput)
+backend = "${TASKER_MESSAGING_BACKEND:-pgmq}"
 orchestration_namespace = "orchestration"
 worker_namespace = "worker"
 default_visibility_timeout_seconds = 30

@@ -381,11 +381,13 @@ impl ActorCommandProcessor {
 
             WorkerCommand::ExecuteStepFromMessage { message, resp } => {
                 let queue_name = message.handle.queue_name().to_string();
+                let provider = message.handle.provider_name();
                 debug!(
                     worker_id = %self.worker_id,
                     handle = ?message.handle,
                     queue = %queue_name,
-                    "Received ExecuteStepFromMessage command from fallback poller"
+                    provider = %provider,
+                    "Received ExecuteStepFromMessage command (full payload available)"
                 );
                 // TAS-133: Use provider-agnostic ExecuteStepFromQueuedMessage
                 let msg = ExecuteStepFromQueuedMessage { message };

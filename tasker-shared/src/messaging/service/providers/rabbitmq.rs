@@ -65,7 +65,8 @@ use tokio::sync::RwLock;
 use crate::config::tasker::{RabbitmqConfig, TaskerConfig};
 use crate::messaging::service::traits::{MessagingService, QueueMessage, SupportsPushNotifications};
 use crate::messaging::service::types::{
-    MessageId, MessageNotification, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle,
+    MessageHandle, MessageId, MessageMetadata, MessageNotification, QueueHealthReport, QueueStats,
+    QueuedMessage, ReceiptHandle,
 };
 use crate::messaging::MessagingError;
 
@@ -286,38 +287,92 @@ impl MessagingService for RabbitMqMessagingService {
         {
             let created = self.created_queues.read().await;
             if created.contains(queue_name) {
+                tracing::debug!(
+                    queue_name = %queue_name,
+                    "RabbitMQ: Queue already in cache, skipping creation"
+                );
                 return Ok(());
             }
         }
 
-        // Setup DLX first
-        self.setup_dlx(queue_name).await?;
+        // Determine if this queue is itself a DLQ (ends with _dlq)
+        // DLQs should NOT have nested DLX/DLQ infrastructure to avoid:
+        // 1. Infinite DLQ nesting (dlq -> dlq_dlq -> dlq_dlq_dlq -> ...)
+        // 2. PRECONDITION_FAILED when the main queue's setup_dlx() already created this DLQ
+        let is_dlq = queue_name.ends_with("_dlq");
 
-        // Declare main queue with DLX configuration
-        let dlx_name = format!("{}_dlx", queue_name);
-        let mut args = FieldTable::default();
-        args.insert(
-            "x-dead-letter-exchange".into(),
-            AMQPValue::LongString(dlx_name.into()),
-        );
-        args.insert(
-            "x-dead-letter-routing-key".into(),
-            AMQPValue::LongString(queue_name.into()),
+        tracing::info!(
+            queue_name = %queue_name,
+            is_dlq = %is_dlq,
+            "RabbitMQ: Creating queue"
         );
 
-        self.channel
-            .queue_declare(
-                queue_name,
-                QueueDeclareOptions {
-                    durable: true,
-                    ..Default::default()
-                },
-                args,
-            )
-            .await
-            .map_err(|e| {
-                MessagingError::queue_creation(queue_name, format!("Queue creation failed: {}", e))
-            })?;
+        if is_dlq {
+            // DLQ queues are declared without DLX args (simple durable queue)
+            self.channel
+                .queue_declare(
+                    queue_name,
+                    QueueDeclareOptions {
+                        durable: true,
+                        ..Default::default()
+                    },
+                    FieldTable::default(),
+                )
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        queue_name = %queue_name,
+                        error = %e,
+                        "RabbitMQ: DLQ queue creation failed"
+                    );
+                    MessagingError::queue_creation(
+                        queue_name,
+                        format!("DLQ queue creation failed: {}", e),
+                    )
+                })?;
+        } else {
+            // Regular queues get DLX infrastructure
+            self.setup_dlx(queue_name).await?;
+
+            // Declare main queue with DLX configuration
+            let dlx_name = format!("{}_dlx", queue_name);
+            let mut args = FieldTable::default();
+            args.insert(
+                "x-dead-letter-exchange".into(),
+                AMQPValue::LongString(dlx_name.into()),
+            );
+            args.insert(
+                "x-dead-letter-routing-key".into(),
+                AMQPValue::LongString(queue_name.into()),
+            );
+
+            self.channel
+                .queue_declare(
+                    queue_name,
+                    QueueDeclareOptions {
+                        durable: true,
+                        ..Default::default()
+                    },
+                    args,
+                )
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        queue_name = %queue_name,
+                        error = %e,
+                        "RabbitMQ: Queue creation failed"
+                    );
+                    MessagingError::queue_creation(
+                        queue_name,
+                        format!("Queue creation failed: {}", e),
+                    )
+                })?;
+        }
+
+        tracing::info!(
+            queue_name = %queue_name,
+            "RabbitMQ: Queue created successfully"
+        );
 
         // Mark as created
         {
@@ -370,6 +425,12 @@ impl MessagingService for RabbitMqMessagingService {
     ) -> Result<MessageId, MessagingError> {
         let bytes = message.to_bytes()?;
 
+        tracing::debug!(
+            queue_name = %queue_name,
+            message_size = bytes.len(),
+            "RabbitMQ: Publishing message"
+        );
+
         // Publish with persistent delivery mode
         let confirm = self
             .channel
@@ -383,12 +444,26 @@ impl MessagingService for RabbitMqMessagingService {
                     .with_content_type("application/json".into()),
             )
             .await
-            .map_err(|e| MessagingError::send(queue_name, format!("Publish failed: {}", e)))?;
+            .map_err(|e| {
+                tracing::error!(
+                    queue_name = %queue_name,
+                    error = %e,
+                    "RabbitMQ: Publish failed"
+                );
+                MessagingError::send(queue_name, format!("Publish failed: {}", e))
+            })?;
 
         // Wait for confirmation
         confirm
             .await
-            .map_err(|e| MessagingError::send(queue_name, format!("Publish confirmation failed: {}", e)))?;
+            .map_err(|e| {
+                tracing::error!(
+                    queue_name = %queue_name,
+                    error = %e,
+                    "RabbitMQ: Publish confirmation failed"
+                );
+                MessagingError::send(queue_name, format!("Publish confirmation failed: {}", e))
+            })?;
 
         // Track stats
         let stats = self.get_or_create_stats(queue_name).await;
@@ -398,6 +473,12 @@ impl MessagingService for RabbitMqMessagingService {
         // based on monotonic counter for this session
         static COUNTER: AtomicU64 = AtomicU64::new(1);
         let msg_id = COUNTER.fetch_add(1, Ordering::Relaxed);
+
+        tracing::info!(
+            queue_name = %queue_name,
+            msg_id = msg_id,
+            "RabbitMQ: Message published successfully"
+        );
 
         Ok(MessageId::from(msg_id))
     }
@@ -473,6 +554,17 @@ impl MessagingService for RabbitMqMessagingService {
             .parse()
             .map_err(|_| MessagingError::invalid_receipt_handle(receipt_handle.as_str()))?;
 
+        // Check for sentinel value indicating message was already ACKed in consumer
+        // Push-based consumers (basic_consume) ACK immediately after handoff, so
+        // calling ack_message() again should be a no-op
+        if delivery_tag == u64::MAX {
+            tracing::debug!(
+                queue_name = %queue_name,
+                "RabbitMQ: Skipping ack_message (already ACKed in push consumer)"
+            );
+            return Ok(());
+        }
+
         self.channel
             .basic_ack(delivery_tag, BasicAckOptions::default())
             .await
@@ -497,6 +589,16 @@ impl MessagingService for RabbitMqMessagingService {
             .as_str()
             .parse()
             .map_err(|_| MessagingError::invalid_receipt_handle(receipt_handle.as_str()))?;
+
+        // Check for sentinel value indicating message was already ACKed in consumer
+        // Can't NACK an already-ACKed message
+        if delivery_tag == u64::MAX {
+            tracing::warn!(
+                queue_name = %queue_name,
+                "RabbitMQ: Cannot NACK message that was already ACKed in push consumer"
+            );
+            return Ok(());
+        }
 
         self.channel
             .basic_nack(
@@ -683,19 +785,29 @@ impl SupportsPushNotifications for RabbitMqMessagingService {
             while let Some(delivery_result) = consumer.next().await {
                 match delivery_result {
                     Ok(delivery) => {
-                        // Use delivery tag as receipt handle
-                        let receipt_handle = ReceiptHandle::from(delivery.delivery_tag);
+                        tracing::info!(
+                            queue_name = %queue_name,
+                            delivery_tag = delivery.delivery_tag,
+                            redelivered = delivery.redelivered,
+                            data_len = delivery.data.len(),
+                            "RabbitMQ: Consumer received message"
+                        );
+
+                        // Create RabbitMQ message handle with sentinel delivery tag
+                        // We use u64::MAX to indicate "already ACKed in consumer"
+                        // This prevents double-ACK when ack_message() is called later
+                        let handle = MessageHandle::RabbitMq {
+                            delivery_tag: u64::MAX, // Sentinel: ACKed in consumer
+                            queue_name: queue_name.clone(),
+                        };
 
                         // RabbitMQ doesn't track receive count natively
                         let receive_count = if delivery.redelivered { 2 } else { 1 };
 
-                        // Create QueuedMessage with raw bytes
-                        let queued_message = QueuedMessage::new(
-                            receipt_handle,
-                            delivery.data.clone(),
-                            receive_count,
-                            chrono::Utc::now(),
-                        );
+                        // Create QueuedMessage with proper RabbitMQ handle
+                        let metadata = MessageMetadata::new(receive_count, chrono::Utc::now());
+                        let queued_message =
+                            QueuedMessage::with_handle(delivery.data.clone(), handle, metadata);
 
                         let notification = MessageNotification::message(queued_message);
 
@@ -704,7 +816,34 @@ impl SupportsPushNotifications for RabbitMqMessagingService {
                                 queue_name = %queue_name,
                                 "RabbitMQ: Notification channel closed, stopping consumer"
                             );
+                            // NACK the message so it gets redelivered
+                            if let Err(e) = delivery.nack(BasicNackOptions { requeue: true, ..Default::default() }).await {
+                                tracing::warn!(
+                                    queue_name = %queue_name,
+                                    delivery_tag = delivery.delivery_tag,
+                                    error = %e,
+                                    "RabbitMQ: Failed to NACK message on channel close"
+                                );
+                            }
                             break;
+                        }
+
+                        // ACK the message now that it's been successfully handed off for processing
+                        // We use delivery.ack() which uses the correct consumer channel internally
+                        // This is the proper RabbitMQ pattern: ACK after successful handoff
+                        if let Err(e) = delivery.ack(BasicAckOptions::default()).await {
+                            tracing::warn!(
+                                queue_name = %queue_name,
+                                delivery_tag = delivery.delivery_tag,
+                                error = %e,
+                                "RabbitMQ: Failed to ACK message after handoff (message may be redelivered)"
+                            );
+                        } else {
+                            tracing::debug!(
+                                queue_name = %queue_name,
+                                delivery_tag = delivery.delivery_tag,
+                                "RabbitMQ: Message ACKed after successful handoff"
+                            );
                         }
                     }
                     Err(e) => {

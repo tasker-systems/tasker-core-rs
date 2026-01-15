@@ -10,7 +10,7 @@ use pgmq_notify::PgmqNotifyConfig;
 
 use crate::config::tasker::RabbitmqConfig;
 use super::providers::{InMemoryMessagingService, PgmqMessagingService, RabbitMqMessagingService};
-use super::traits::{MessagingService, QueueMessage, SupportsPushNotifications};
+use super::traits::{MessagingService, NotificationStream, QueueMessage, SupportsPushNotifications};
 use super::types::{MessageId, MessageNotification, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle};
 use super::MessagingError;
 
@@ -355,6 +355,32 @@ impl MessagingProvider {
             Self::Pgmq(s) => s.supports_fetch_by_message_id(),
             Self::RabbitMq(s) => s.supports_fetch_by_message_id(),
             Self::InMemory(s) => s.supports_fetch_by_message_id(),
+        }
+    }
+
+    /// Subscribe to multiple queues efficiently
+    ///
+    /// TAS-133: This method allows subscribing to multiple queues with optimal
+    /// resource usage. For PGMQ, this uses a SINGLE PostgreSQL connection for all
+    /// LISTEN channels instead of one connection per queue.
+    ///
+    /// # Resource Efficiency
+    ///
+    /// - **PGMQ**: N queues = 1 connection (critical for workers with many namespaces)
+    /// - **RabbitMQ**: N queues = N consumers (but connections are pooled)
+    /// - **InMemory**: N queues = N streams (minimal overhead)
+    ///
+    /// # Returns
+    ///
+    /// A vector of `(queue_name, stream)` tuples, one per requested queue.
+    pub fn subscribe_many(
+        &self,
+        queue_names: &[&str],
+    ) -> Result<Vec<(String, NotificationStream)>, MessagingError> {
+        match self {
+            Self::Pgmq(s) => s.subscribe_many(queue_names),
+            Self::RabbitMq(s) => s.subscribe_many(queue_names),
+            Self::InMemory(s) => s.subscribe_many(queue_names),
         }
     }
 }

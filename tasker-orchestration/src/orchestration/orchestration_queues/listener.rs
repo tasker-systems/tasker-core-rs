@@ -111,8 +111,13 @@ impl Default for OrchestrationListenerConfig {
 /// This provides a single channel interface for all event types and errors.
 #[derive(Debug, Clone)]
 pub enum OrchestrationNotification {
-    /// Classified queue event using structured classification
+    /// Classified queue event using structured classification (signal-only, requires fetch)
+    /// Used by PGMQ which sends LISTEN/NOTIFY signals without payload
     Event(OrchestrationQueueEvent),
+    /// Full step result message with payload (no fetch required)
+    /// Used by RabbitMQ which delivers complete messages via basic_consume
+    /// TAS-133: Enables proper RabbitMQ push-based message processing
+    StepResultWithPayload(tasker_shared::messaging::service::QueuedMessage<Vec<u8>>),
     /// Connection error from pgmq-notify listener
     ConnectionError(String),
     /// Listener reconnected successfully
@@ -181,36 +186,49 @@ impl OrchestrationQueueListener {
 
     /// Start the orchestration queue listener
     ///
-    /// TAS-133: Uses `messaging_provider().subscribe()` instead of `PgmqNotifyListener`.
-    /// Subscribes to each monitored queue and spawns a task to process notifications.
+    /// TAS-133: Uses `messaging_provider().subscribe_many()` for efficient resource usage.
+    /// For PGMQ, this uses a SINGLE PostgreSQL connection for all LISTEN channels,
+    /// preventing connection pool exhaustion when monitoring multiple queues.
     pub async fn start(&mut self) -> TaskerResult<()> {
         info!(
             listener_id = %self.listener_id,
             namespace = %self.config.namespace,
             provider = %self.context.messaging_provider().provider_name(),
-            "Starting OrchestrationQueueListener with provider abstraction"
+            "Starting OrchestrationQueueListener with provider abstraction (subscribe_many)"
         );
 
-        // TAS-133: Subscribe to each monitored queue via provider abstraction
+        // TAS-133: Subscribe to all monitored queues at once for connection efficiency
         let provider = self.context.messaging_provider();
 
-        for queue_name in &self.config.monitored_queues {
-            let stream = provider.subscribe(queue_name).map_err(|e| {
-                TaskerError::OrchestrationError(format!(
-                    "Failed to subscribe to queue '{}': {}",
-                    queue_name, e
-                ))
-            })?;
+        // Use subscribe_many for efficient connection sharing (especially PGMQ)
+        let queue_name_refs: Vec<&str> = self
+            .config
+            .monitored_queues
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
 
-            // Clone values for the spawned task
+        let subscriptions = provider.subscribe_many(&queue_name_refs).map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to subscribe to queues: {}", e))
+        })?;
+
+        info!(
+            listener_id = %self.listener_id,
+            subscription_count = subscriptions.len(),
+            "subscribe_many returned {} subscriptions",
+            subscriptions.len()
+        );
+
+        // Spawn a task for each subscription stream
+        for (queue_name, stream) in subscriptions {
             let sender = self.event_sender.clone();
             let classifier = self.queue_classifier.clone();
             let stats = self.stats.clone();
             let namespace = self.config.namespace.clone();
             let monitor = self.channel_monitor.clone();
             let listener_id = self.listener_id;
-            let queue_name_owned = queue_name.clone();
             let is_running = self.is_running.clone();
+            let queue_name_owned = queue_name.clone();
 
             let handle = tokio::spawn(async move {
                 Self::process_subscription_stream(
@@ -236,7 +254,7 @@ impl OrchestrationQueueListener {
         info!(
             listener_id = %self.listener_id,
             subscription_count = %self.subscription_handles.len(),
-            "OrchestrationQueueListener started successfully"
+            "OrchestrationQueueListener started successfully with shared connection"
         );
 
         Ok(())
@@ -274,99 +292,106 @@ impl OrchestrationQueueListener {
                 break;
             }
 
-            // TAS-133: Convert MessageNotification → MessageEvent
-            let message_event = match &notification {
+            stats.events_received.fetch_add(1, Ordering::Relaxed);
+
+            // TAS-133: Route based on notification type
+            // - Available (PGMQ): Signal-only, needs fetch by message ID
+            // - Message (RabbitMQ): Full payload, can process directly
+            let orchestration_notification = match notification {
                 MessageNotification::Available {
                     queue_name: notif_queue,
                     msg_id,
                 } => {
                     // PGMQ style: signal only, need to fetch message
-                    MessageEvent::from_available(notif_queue, *msg_id, &namespace)
+                    let message_event = MessageEvent::from_available(&notif_queue, msg_id, &namespace);
+
+                    info!(
+                        listener_id = %listener_id,
+                        queue = %message_event.queue_name,
+                        msg_id = %message_event.message_id,
+                        namespace = %message_event.namespace,
+                        "PGMQ signal-only notification, will fetch by msg_id"
+                    );
+
+                    // Classify and create domain event
+                    let classified = ConfigDrivenMessageEvent::classify(
+                        message_event.clone(),
+                        &message_event.queue_name,
+                        &classifier,
+                    );
+
+                    match classified {
+                        ConfigDrivenMessageEvent::StepResults(event) => {
+                            stats.step_results_processed.fetch_add(1, Ordering::Relaxed);
+                            OrchestrationNotification::Event(OrchestrationQueueEvent::StepResult(event))
+                        }
+                        ConfigDrivenMessageEvent::TaskRequests(event) => {
+                            stats.task_requests_processed.fetch_add(1, Ordering::Relaxed);
+                            OrchestrationNotification::Event(OrchestrationQueueEvent::TaskRequest(event))
+                        }
+                        ConfigDrivenMessageEvent::TaskFinalizations(event) => {
+                            stats.queue_management_processed.fetch_add(1, Ordering::Relaxed);
+                            OrchestrationNotification::Event(OrchestrationQueueEvent::TaskFinalization(event))
+                        }
+                        ConfigDrivenMessageEvent::WorkerNamespace { namespace: worker_ns, event } => {
+                            debug!(
+                                listener_id = %listener_id,
+                                queue = %event.queue_name,
+                                namespace = %worker_ns,
+                                "Received worker namespace message in orchestration listener"
+                            );
+                            continue;
+                        }
+                        ConfigDrivenMessageEvent::Unknown(event) => {
+                            stats.unknown_events.fetch_add(1, Ordering::Relaxed);
+                            warn!(
+                                listener_id = %listener_id,
+                                queue = %event.queue_name,
+                                "Unknown event type, skipping"
+                            );
+                            continue;
+                        }
+                    }
                 }
                 MessageNotification::Message(queued_msg) => {
-                    // RabbitMQ style or PGMQ small message: full message available
-                    MessageEvent::from_queued_message(queued_msg, &namespace)
+                    // RabbitMQ style: full message available, process directly
+                    // TAS-133: Use StepResultWithPayload to preserve the full message
+                    let queue_name_str = queued_msg.queue_name().to_string();
+
+                    info!(
+                        listener_id = %listener_id,
+                        queue = %queue_name_str,
+                        namespace = %namespace,
+                        provider = queued_msg.provider_name(),
+                        "Full message received, routing to StepResultWithPayload"
+                    );
+
+                    // For now, assume step_results queue messages are step results
+                    // The event system will deserialize and process the full payload
+                    stats.step_results_processed.fetch_add(1, Ordering::Relaxed);
+                    OrchestrationNotification::StepResultWithPayload(queued_msg)
                 }
             };
 
-            stats.events_received.fetch_add(1, Ordering::Relaxed);
-
-            debug!(
-                listener_id = %listener_id,
-                queue = %message_event.queue_name,
-                msg_id = %message_event.message_id,
-                "Received notification, classifying event"
-            );
-
-            // TAS-133: Classify and create domain event
-            let classified = ConfigDrivenMessageEvent::classify(
-                message_event.clone(),
-                &message_event.queue_name,
-                &classifier,
-            );
-
-            let notification = match classified {
-                ConfigDrivenMessageEvent::StepResults(event) => {
-                    stats
-                        .step_results_processed
-                        .fetch_add(1, Ordering::Relaxed);
-                    OrchestrationNotification::Event(OrchestrationQueueEvent::StepResult(event))
-                }
-                ConfigDrivenMessageEvent::TaskRequests(event) => {
-                    stats
-                        .task_requests_processed
-                        .fetch_add(1, Ordering::Relaxed);
-                    OrchestrationNotification::Event(OrchestrationQueueEvent::TaskRequest(event))
-                }
-                ConfigDrivenMessageEvent::TaskFinalizations(event) => {
-                    stats
-                        .queue_management_processed
-                        .fetch_add(1, Ordering::Relaxed);
-                    OrchestrationNotification::Event(OrchestrationQueueEvent::TaskFinalization(
-                        event,
-                    ))
-                }
-                ConfigDrivenMessageEvent::WorkerNamespace {
-                    namespace: worker_ns,
-                    event,
-                } => {
-                    // Worker namespace messages shouldn't normally be processed by orchestration
-                    debug!(
-                        listener_id = %listener_id,
-                        queue = %event.queue_name,
-                        namespace = %worker_ns,
-                        "Received worker namespace message in orchestration listener"
-                    );
-                    continue;
-                }
-                ConfigDrivenMessageEvent::Unknown(event) => {
-                    stats.unknown_events.fetch_add(1, Ordering::Relaxed);
-                    warn!(
-                        listener_id = %listener_id,
-                        queue = %event.queue_name,
-                        msg_id = %event.message_id,
-                        "Received message event for unknown queue type"
-                    );
-                    OrchestrationNotification::Event(OrchestrationQueueEvent::Unknown {
-                        queue_name: event.queue_name.clone(),
-                        payload: format!("msg_id: {}", event.message_id),
-                    })
-                }
-            };
-
-            // TAS-51: Send notification with channel monitoring
-            match sender.send(notification).await {
-                Ok(_) => {
+            // Send the notification with channel monitoring
+            match sender.send(orchestration_notification).await {
+                Ok(()) => {
+                    // TAS-51: Record send success and check saturation
                     if monitor.record_send_success() {
                         monitor.check_and_warn_saturation(sender.capacity());
                     }
+                    debug!(
+                        listener_id = %listener_id,
+                        "Notification sent to event system"
+                    );
                 }
                 Err(e) => {
                     warn!(
                         listener_id = %listener_id,
                         error = %e,
-                        "Failed to send orchestration notification to event system"
+                        "Failed to send notification to event system"
                     );
+                    stats.connection_errors.fetch_add(1, Ordering::Relaxed);
                 }
             }
 

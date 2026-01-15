@@ -18,7 +18,9 @@ use futures::Stream;
 use pgmq_notify::{PgmqClient, PgmqNotifyConfig};
 use sqlx::PgPool;
 
-use crate::messaging::service::traits::{MessagingService, QueueMessage, SupportsPushNotifications};
+use crate::messaging::service::traits::{
+    MessagingService, NotificationStream, QueueMessage, SupportsPushNotifications,
+};
 use crate::messaging::service::types::{
     MessageHandle, MessageId, MessageMetadata, MessageNotification, QueueHealthReport, QueueStats,
     QueuedMessage, ReceiptHandle,
@@ -564,6 +566,215 @@ impl SupportsPushNotifications for PgmqMessagingService {
     /// This is the flow handled by `ExecuteStepFromEventMessage` in the worker.
     fn supports_fetch_by_message_id(&self) -> bool {
         true
+    }
+
+    /// Subscribe to multiple queues using a SINGLE shared PostgreSQL connection
+    ///
+    /// This is a critical optimization for PGMQ. PostgreSQL LISTEN can listen to
+    /// multiple channels on one connection. Without this, each `subscribe()` call
+    /// creates a separate connection, quickly exhausting the pool.
+    ///
+    /// # Resource Efficiency
+    ///
+    /// - **Without `subscribe_many`**: N queues = N connections held permanently
+    /// - **With `subscribe_many`**: N queues = 1 connection held permanently
+    ///
+    /// For workers with 20+ namespaces, this is the difference between pool
+    /// exhaustion and healthy operation.
+    fn subscribe_many(
+        &self,
+        queue_names: &[&str],
+    ) -> Result<Vec<(String, NotificationStream)>, MessagingError> {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use tokio::sync::RwLock;
+
+        if queue_names.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let pool = self.pool().clone();
+        let config = self.client.config().clone();
+
+        // Create per-queue channels for demultiplexing
+        // Map: queue_name -> sender
+        let mut queue_senders: HashMap<String, tokio::sync::mpsc::Sender<MessageNotification>> =
+            HashMap::new();
+        let mut result_streams: Vec<(String, NotificationStream)> = Vec::new();
+
+        for queue_name in queue_names {
+            let (tx, rx) = tokio::sync::mpsc::channel::<MessageNotification>(100);
+            queue_senders.insert(queue_name.to_string(), tx);
+
+            // Convert receiver to stream
+            let stream = futures::stream::unfold(rx, |mut rx| async move {
+                rx.recv().await.map(|item| (item, rx))
+            });
+            result_streams.push((queue_name.to_string(), Box::pin(stream) as NotificationStream));
+        }
+
+        // Collect unique channels to listen to
+        let channels_to_listen: Vec<String> = queue_names
+            .iter()
+            .map(|q| {
+                // Extract namespace from queue name (convention: {namespace}_queue)
+                let namespace = q
+                    .rsplit('_')
+                    .next_back()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| q.to_string());
+                config.message_ready_channel(&namespace)
+            })
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Wrap senders in Arc<RwLock> for shared access in the spawned task
+        let senders = Arc::new(RwLock::new(queue_senders));
+        let queue_names_owned: Vec<String> = queue_names.iter().map(|s| s.to_string()).collect();
+
+        // Spawn a SINGLE task with ONE listener for all queues
+        tokio::spawn(async move {
+            use pgmq_notify::listener::PgmqEventHandler;
+            use pgmq_notify::{PgmqNotifyEvent, PgmqNotifyListener};
+            use tracing::{debug, error, info};
+
+            // Create and connect ONE listener
+            let buffer_size = 100;
+            let mut listener = match PgmqNotifyListener::new(pool, config.clone(), buffer_size).await
+            {
+                Ok(l) => l,
+                Err(e) => {
+                    error!(
+                        "Failed to create shared PGMQ listener for {} queues: {}",
+                        queue_names_owned.len(),
+                        e
+                    );
+                    return;
+                }
+            };
+
+            if let Err(e) = listener.connect().await {
+                error!(
+                    "Failed to connect shared PGMQ listener for {} queues: {}",
+                    queue_names_owned.len(),
+                    e
+                );
+                return;
+            }
+
+            // Listen to ALL channels on this ONE connection
+            for channel in &channels_to_listen {
+                if let Err(e) = listener.listen_channel(channel).await {
+                    error!("Failed to listen to channel {}: {}", channel, e);
+                    // Continue - try to listen to other channels
+                }
+            }
+
+            info!(
+                queue_count = queue_names_owned.len(),
+                channel_count = channels_to_listen.len(),
+                "PGMQ subscribe_many started with SINGLE shared connection"
+            );
+
+            // Event handler that demultiplexes to per-queue senders
+            struct DemultiplexingForwarder {
+                senders: Arc<RwLock<HashMap<String, tokio::sync::mpsc::Sender<MessageNotification>>>>,
+                queue_names: Vec<String>,
+            }
+
+            #[async_trait::async_trait]
+            impl PgmqEventHandler for DemultiplexingForwarder {
+                async fn handle_event(
+                    &self,
+                    event: PgmqNotifyEvent,
+                ) -> pgmq_notify::error::Result<()> {
+                    let event_queue_name = event.queue_name();
+
+                    // Find matching queue(s) for this event
+                    let senders = self.senders.read().await;
+
+                    for queue_name in &self.queue_names {
+                        // Match event's queue_name to our subscribed queues
+                        if event_queue_name != queue_name.as_str() {
+                            continue;
+                        }
+
+                        if let Some(tx) = senders.get(queue_name) {
+                            // Convert event to MessageNotification
+                            let notification = match &event {
+                                PgmqNotifyEvent::MessageWithPayload(e) => {
+                                    let handle = MessageHandle::Pgmq {
+                                        msg_id: e.msg_id,
+                                        queue_name: e.queue_name.clone(),
+                                    };
+                                    let metadata = MessageMetadata {
+                                        receive_count: 0,
+                                        enqueued_at: e.ready_at,
+                                    };
+                                    let payload_bytes = serde_json::to_vec(&e.message)
+                                        .unwrap_or_else(|_| Vec::new());
+                                    let queued_msg =
+                                        QueuedMessage::with_handle(payload_bytes, handle, metadata);
+                                    MessageNotification::message(queued_msg)
+                                }
+                                PgmqNotifyEvent::MessageReady(e) => {
+                                    MessageNotification::available_with_msg_id(
+                                        e.queue_name.clone(),
+                                        e.msg_id,
+                                    )
+                                }
+                                PgmqNotifyEvent::QueueCreated(_) => {
+                                    continue; // Skip queue creation events
+                                }
+                                PgmqNotifyEvent::BatchReady(e) => {
+                                    let msg_id = e.msg_ids.first().copied();
+                                    match msg_id {
+                                        Some(id) => MessageNotification::available_with_msg_id(
+                                            e.queue_name.clone(),
+                                            id,
+                                        ),
+                                        None => {
+                                            MessageNotification::available(e.queue_name.clone())
+                                        }
+                                    }
+                                }
+                            };
+
+                            if tx.send(notification).await.is_err() {
+                                tracing::warn!(
+                                    queue = %queue_name,
+                                    "Notification receiver dropped for queue"
+                                );
+                            }
+                        }
+                    }
+
+                    Ok(())
+                }
+            }
+
+            let handler = DemultiplexingForwarder {
+                senders,
+                queue_names: queue_names_owned.clone(),
+            };
+
+            // Run the single listener loop
+            if let Err(e) = listener.listen_with_handler(handler).await {
+                error!(
+                    "Shared PGMQ listener error for {} queues: {}",
+                    queue_names_owned.len(),
+                    e
+                );
+            }
+
+            debug!(
+                "PGMQ subscribe_many ended for {} queues",
+                queue_names_owned.len()
+            );
+        });
+
+        Ok(result_streams)
     }
 }
 

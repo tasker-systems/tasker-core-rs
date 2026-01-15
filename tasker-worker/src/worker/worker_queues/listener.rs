@@ -167,38 +167,64 @@ impl WorkerQueueListener {
 
     /// Start the worker queue listener
     ///
-    /// TAS-133: Uses `messaging_provider().subscribe()` instead of `PgmqNotifyListener`.
-    /// Subscribes to each namespace queue and spawns a task to process notifications.
+    /// TAS-133: Uses `messaging_provider().subscribe_many()` for efficient resource usage.
+    /// For PGMQ, this uses a SINGLE PostgreSQL connection for all LISTEN channels,
+    /// preventing connection pool exhaustion with many namespaces.
     pub async fn start(&mut self) -> TaskerResult<()> {
         info!(
             listener_id = %self.listener_id,
             supported_namespaces = ?self.config.supported_namespaces,
             provider = %self.context.messaging_provider().provider_name(),
-            "Starting WorkerQueueListener with provider abstraction"
+            "Starting WorkerQueueListener with provider abstraction (subscribe_many)"
         );
 
-        // TAS-133: Subscribe to each namespace queue via provider abstraction
+        // TAS-133: Build queue names and subscribe to all at once for connection efficiency
         let provider = self.context.messaging_provider();
+        let router = self.context.message_client.router();
 
-        for namespace in &self.config.supported_namespaces {
-            // Worker queues follow the pattern: {namespace}_queue
-            let queue_name = format!("{}_queue", namespace);
+        // Build queue names using router for consistency: worker_{namespace}_queue
+        let queue_names: Vec<String> = self
+            .config
+            .supported_namespaces
+            .iter()
+            .map(|ns| router.step_queue(ns))
+            .collect();
 
-            let stream = provider.subscribe(&queue_name).map_err(|e| {
-                TaskerError::WorkerError(format!(
-                    "Failed to subscribe to queue '{}': {}",
-                    queue_name, e
-                ))
-            })?;
+        // Build a map of queue_name -> namespace for later lookup
+        let queue_to_namespace: std::collections::HashMap<String, String> = self
+            .config
+            .supported_namespaces
+            .iter()
+            .map(|ns| (router.step_queue(ns), ns.clone()))
+            .collect();
 
-            // Clone values for the spawned task
+        // Use subscribe_many for efficient connection sharing (especially PGMQ)
+        let queue_name_refs: Vec<&str> = queue_names.iter().map(|s| s.as_str()).collect();
+        let subscriptions = provider.subscribe_many(&queue_name_refs).map_err(|e| {
+            TaskerError::WorkerError(format!("Failed to subscribe to queues: {}", e))
+        })?;
+
+        info!(
+            listener_id = %self.listener_id,
+            subscription_count = subscriptions.len(),
+            "subscribe_many returned {} subscriptions",
+            subscriptions.len()
+        );
+
+        // Spawn a task for each subscription stream
+        for (queue_name, stream) in subscriptions {
+            let namespace = queue_to_namespace
+                .get(&queue_name)
+                .cloned()
+                .unwrap_or_else(|| queue_name.clone());
+
             let sender = self.event_sender.clone();
             let stats = self.stats.clone();
-            let namespace_owned = namespace.clone();
             let monitor = self.channel_monitor.clone();
             let listener_id = self.listener_id;
-            let queue_name_owned = queue_name.clone();
             let is_running = self.is_running.clone();
+            let queue_name_owned = queue_name.clone();
+            let namespace_owned = namespace.clone();
 
             let handle = tokio::spawn(async move {
                 Self::process_subscription_stream(
@@ -223,7 +249,7 @@ impl WorkerQueueListener {
         info!(
             listener_id = %self.listener_id,
             subscription_count = %self.subscription_handles.len(),
-            "WorkerQueueListener started successfully"
+            "WorkerQueueListener started successfully with shared connection"
         );
 
         Ok(())
@@ -243,7 +269,7 @@ impl WorkerQueueListener {
         queue_name: String,
         is_running: Arc<AtomicBool>,
     ) {
-        debug!(
+        info!(
             listener_id = %listener_id,
             queue = %queue_name,
             namespace = %namespace,
@@ -251,6 +277,12 @@ impl WorkerQueueListener {
         );
 
         while let Some(notification) = stream.next().await {
+            info!(
+                listener_id = %listener_id,
+                queue = %queue_name,
+                namespace = %namespace,
+                "Received notification from stream"
+            );
             // Check if we should stop
             if !is_running.load(Ordering::Relaxed) {
                 debug!(
@@ -261,53 +293,70 @@ impl WorkerQueueListener {
                 break;
             }
 
-            // TAS-133: Convert MessageNotification → MessageEvent
-            let message_event = match &notification {
+            stats.events_received.fetch_add(1, Ordering::Relaxed);
+
+            // TAS-133: Route based on notification type
+            // - Available (PGMQ): Signal-only, needs fetch by message ID
+            // - Message (RabbitMQ): Full payload, can process directly
+            let worker_notification = match notification {
                 MessageNotification::Available {
                     queue_name: notif_queue,
                     msg_id,
                 } => {
                     // PGMQ style: signal only, need to fetch message
-                    MessageEvent::from_available(notif_queue, *msg_id, &namespace)
+                    let message_event =
+                        MessageEvent::from_available(&notif_queue, msg_id, &namespace);
+
+                    info!(
+                        listener_id = %listener_id,
+                        queue = %message_event.queue_name,
+                        msg_id = %message_event.message_id,
+                        namespace = %message_event.namespace,
+                        "PGMQ signal-only notification, will fetch by msg_id"
+                    );
+
+                    let queue_event = Self::classify_event(&message_event);
+
+                    // Update statistics
+                    match &queue_event {
+                        WorkerQueueEvent::StepMessage(_) => {
+                            stats.step_messages_processed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        WorkerQueueEvent::HealthCheck(_) => {
+                            stats.health_checks_processed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        WorkerQueueEvent::ConfigurationUpdate(_) => {
+                            stats.config_updates_processed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        WorkerQueueEvent::Unknown { .. } => {
+                            stats.unknown_events.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+
+                    WorkerNotification::Event(queue_event)
                 }
                 MessageNotification::Message(queued_msg) => {
-                    // RabbitMQ style or PGMQ small message: full message available
-                    MessageEvent::from_queued_message(queued_msg, &namespace)
+                    // RabbitMQ style: full message available, process directly
+                    // TAS-133: Use StepMessageWithPayload to preserve the full message
+                    // This avoids the lossy conversion to MessageEvent
+                    let queue_name = queued_msg.queue_name().to_string();
+
+                    info!(
+                        listener_id = %listener_id,
+                        queue = %queue_name,
+                        namespace = %namespace,
+                        provider = queued_msg.provider_name(),
+                        "Full message received, routing to StepMessageWithPayload"
+                    );
+
+                    stats.step_messages_processed.fetch_add(1, Ordering::Relaxed);
+
+                    WorkerNotification::StepMessageWithPayload(queued_msg)
                 }
             };
 
-            stats.events_received.fetch_add(1, Ordering::Relaxed);
-
-            debug!(
-                listener_id = %listener_id,
-                queue = %message_event.queue_name,
-                msg_id = %message_event.message_id,
-                namespace = %message_event.namespace,
-                "Received notification, classifying worker event"
-            );
-
-            // TAS-133: Classify into worker queue event
-            let queue_event = Self::classify_event(&message_event);
-
-            // Update specific event type statistics
-            match &queue_event {
-                WorkerQueueEvent::StepMessage(_) => {
-                    stats.step_messages_processed.fetch_add(1, Ordering::Relaxed);
-                }
-                WorkerQueueEvent::HealthCheck(_) => {
-                    stats.health_checks_processed.fetch_add(1, Ordering::Relaxed);
-                }
-                WorkerQueueEvent::ConfigurationUpdate(_) => {
-                    stats.config_updates_processed.fetch_add(1, Ordering::Relaxed);
-                }
-                WorkerQueueEvent::Unknown { .. } => {
-                    stats.unknown_events.fetch_add(1, Ordering::Relaxed);
-                }
-            }
-
-            // Send the classified event with channel monitoring (TAS-51)
-            let notification = WorkerNotification::Event(queue_event);
-            match sender.send(notification).await {
+            // Send the notification with channel monitoring (TAS-51)
+            match sender.send(worker_notification).await {
                 Ok(_) => {
                     // TAS-51: Record send and periodically check saturation (optimized)
                     if monitor.record_send_success() {

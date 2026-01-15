@@ -387,6 +387,7 @@ impl WorkerEventSystem {
                         match notification {
                             WorkerNotification::Event(WorkerQueueEvent::StepMessage(msg_event)) => {
                                 // TAS-141: Record event-driven processing
+                                // PGMQ signal-only: requires fetch by message ID
                                 statistics.record_event_driven();
                                 statistics.events_processed.fetch_add(1, Ordering::Relaxed);
                                 statistics
@@ -404,6 +405,53 @@ impl WorkerEventSystem {
                                 {
                                     statistics.events_failed.fetch_add(1, Ordering::Relaxed);
                                     error!("Failed to forward step notification to command processor: {}", e);
+                                }
+                            }
+                            WorkerNotification::StepMessageWithPayload(queued_msg) => {
+                                // TAS-133: RabbitMQ delivers full messages via push-based basic_consume()
+                                // No fetch needed - the message payload is already available
+                                statistics.record_event_driven();
+                                statistics.events_processed.fetch_add(1, Ordering::Relaxed);
+                                statistics
+                                    .step_messages_processed
+                                    .fetch_add(1, Ordering::Relaxed);
+
+                                // Parse Vec<u8> payload to serde_json::Value
+                                let json_result: Result<serde_json::Value, _> =
+                                    serde_json::from_slice(&queued_msg.message);
+
+                                match json_result {
+                                    Ok(json_value) => {
+                                        // Use map to convert QueuedMessage<Vec<u8>> to QueuedMessage<serde_json::Value>
+                                        let json_message = queued_msg.map(|_| json_value);
+
+                                        info!(
+                                            queue = %json_message.queue_name(),
+                                            provider = %json_message.provider_name(),
+                                            "Processing RabbitMQ push message via ExecuteStepFromMessage"
+                                        );
+
+                                        // Send to actor system via ExecuteStepFromMessage (has full payload)
+                                        let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+                                        if let Err(e) = command_sender
+                                            .send(WorkerCommand::ExecuteStepFromMessage {
+                                                message: json_message,
+                                                resp: resp_tx,
+                                            })
+                                            .await
+                                        {
+                                            statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                                            error!("Failed to forward step message to command processor: {}", e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                                        error!(
+                                            queue = %queued_msg.queue_name(),
+                                            error = %e,
+                                            "Failed to parse RabbitMQ message payload as JSON"
+                                        );
+                                    }
                                 }
                             }
                             WorkerNotification::Health(_) => {

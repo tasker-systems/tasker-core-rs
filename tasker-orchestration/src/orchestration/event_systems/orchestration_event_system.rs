@@ -1140,15 +1140,75 @@ impl OrchestrationEventSystem {
         statistics: &Arc<OrchestrationStatistics>,
     ) {
         match notification {
+            OrchestrationNotification::StepResultWithPayload(queued_msg) => {
+                // TAS-133: RabbitMQ delivers full messages via push-based basic_consume()
+                // No fetch needed - the message payload is already available
+                let queue_name = queued_msg.queue_name().to_string();
+
+                // Parse Vec<u8> payload to serde_json::Value
+                let json_result: Result<serde_json::Value, _> =
+                    serde_json::from_slice(&queued_msg.message);
+
+                match json_result {
+                    Ok(json_value) => {
+                        // Use map to convert QueuedMessage<Vec<u8>> to QueuedMessage<serde_json::Value>
+                        let json_message = queued_msg.map(|_| json_value);
+
+                        info!(
+                            queue = %queue_name,
+                            provider = %json_message.provider_name(),
+                            "Processing RabbitMQ push message via ProcessStepResultFromMessage"
+                        );
+
+                        // Send to actor system via ProcessStepResultFromMessage (has full payload)
+                        let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+                        match command_sender
+                            .send(OrchestrationCommand::ProcessStepResultFromMessage {
+                                message: json_message,
+                                resp: resp_tx,
+                            })
+                            .await
+                        {
+                            Ok(_) => {
+                                if command_channel_monitor.record_send_success() {
+                                    command_channel_monitor
+                                        .check_and_warn_saturation(command_sender.capacity());
+                                }
+                                statistics
+                                    .operations_coordinated
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(e) => {
+                                warn!(
+                                    queue = %queue_name,
+                                    error = %e,
+                                    "Failed to send ProcessStepResultFromMessage command"
+                                );
+                                statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            queue = %queue_name,
+                            error = %e,
+                            "Failed to parse RabbitMQ step result message payload as JSON"
+                        );
+                        statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+
             OrchestrationNotification::Event(event) => match event {
                 OrchestrationQueueEvent::StepResult(message_event) => {
+                    // PGMQ signal-only: requires fetch by message ID
                     let msg_id = message_event.message_id.clone();
                     let namespace = message_event.namespace.clone();
 
                     debug!(
                         msg_id = %msg_id,
                         namespace = %namespace,
-                        "Processing step result event from orchestration queue"
+                        "Processing step result event from orchestration queue (signal-only)"
                     );
 
                     let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();

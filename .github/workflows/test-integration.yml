@@ -106,12 +106,18 @@ jobs:
   # Stage 2: Integration Tests (E2E)
   # Run E2E tests with all services running
   # Uses artifacts from build-workers workflow
+  # TAS-133: Matrix strategy tests both PGMQ and RabbitMQ messaging backends
   # ============================================================================
   integration-tests:
-    name: Integration Tests (E2E)
+    name: Integration Tests (${{ matrix.messaging_backend }})
     runs-on: ubuntu-22.04
     timeout-minutes: 25
     needs: unit-tests
+
+    strategy:
+      fail-fast: false
+      matrix:
+        messaging_backend: [pgmq, rabbitmq]
 
     services:
       postgres:
@@ -124,6 +130,22 @@ jobs:
           POSTGRES_DB: tasker_rust_test
         options: >-
           --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # TAS-133: RabbitMQ service for messaging backend matrix testing
+      rabbitmq:
+        image: rabbitmq:4-management-alpine
+        ports:
+          - "5672:5672"
+          - "15672:15672"
+        env:
+          RABBITMQ_DEFAULT_USER: tasker
+          RABBITMQ_DEFAULT_PASS: tasker
+          RABBITMQ_DEFAULT_VHOST: /
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -176,6 +198,9 @@ jobs:
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+        env:
+          # TAS-133: Pass matrix messaging backend to setup-env action
+          TASKER_MESSAGING_BACKEND: ${{ matrix.messaging_backend }}
 
       - name: Install tools
         uses: ./.github/actions/install-tools
@@ -296,10 +321,14 @@ jobs:
         run: |
           mkdir -p .pids
           chmod +x .github/scripts/start-native-services.sh
+          echo "🔧 Starting services with messaging backend: $TASKER_MESSAGING_BACKEND"
           .github/scripts/start-native-services.sh
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
           SKIP_MIGRATIONS: "true"
+          # TAS-133: Messaging backend from matrix
+          TASKER_MESSAGING_BACKEND: ${{ matrix.messaging_backend }}
+          RABBITMQ_URL: amqp://tasker:tasker@localhost:5672/%2F
 
       - name: Run integration tests
         run: |
@@ -323,7 +352,8 @@ jobs:
         uses: actions/upload-artifact@v6
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
-          name: integration-test-results
+          # TAS-133: Unique artifact name per matrix job
+          name: integration-test-results-${{ matrix.messaging_backend }}
           path: target/nextest/ci/junit.xml
 
       - name: Collect service logs on failure
@@ -340,7 +370,8 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: service-logs
+          # TAS-133: Unique artifact name per matrix job
+          name: service-logs-${{ matrix.messaging_backend }}
           path: service-logs/
 
       - name: Stop native services

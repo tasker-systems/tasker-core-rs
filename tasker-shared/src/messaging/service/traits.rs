@@ -400,6 +400,52 @@ pub trait SupportsPushNotifications: MessagingService {
     /// }
     /// ```
     fn supports_fetch_by_message_id(&self) -> bool;
+
+    /// Subscribe to push notifications for multiple queues efficiently
+    ///
+    /// This method allows subscribing to multiple queues with resource efficiency.
+    /// The default implementation calls `subscribe()` for each queue, but providers
+    /// can override this to share connections across subscriptions.
+    ///
+    /// # Resource Efficiency
+    ///
+    /// - **PGMQ**: Overrides to use a single PostgreSQL connection for all LISTEN channels,
+    ///   dramatically reducing connection pool usage (1 connection vs N connections).
+    /// - **RabbitMQ**: Uses default implementation (separate consumers per queue).
+    /// - **InMemory**: Uses default implementation.
+    ///
+    /// # Returns
+    ///
+    /// A vector of `(queue_name, stream)` tuples, one per requested queue.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let queues = vec!["queue_a", "queue_b", "queue_c"];
+    /// let subscriptions = provider.subscribe_many(&queues)?;
+    ///
+    /// for (queue_name, stream) in subscriptions {
+    ///     tokio::spawn(async move {
+    ///         while let Some(notification) = stream.next().await {
+    ///             handle_notification(notification).await;
+    ///         }
+    ///     });
+    /// }
+    /// ```
+    fn subscribe_many(
+        &self,
+        queue_names: &[&str],
+    ) -> Result<Vec<(String, NotificationStream)>, MessagingError> {
+        // Default implementation: call subscribe() for each queue
+        // Providers can override for efficiency (e.g., PGMQ shares one connection)
+        queue_names
+            .iter()
+            .map(|queue_name| {
+                let stream = self.subscribe(queue_name)?;
+                Ok((queue_name.to_string(), stream))
+            })
+            .collect()
+    }
 }
 
 /// Type alias for the notification stream returned by `SupportsPushNotifications::subscribe()`

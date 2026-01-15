@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2026-01-14T02:47:25.819899+00:00
+# Generated: 2026-01-15T13:18:18.014327+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -109,7 +109,7 @@ max_lifetime_seconds = 3600
 min_connections = 1
 
 [common.queues]
-backend = "pgmq"
+backend = "${TASKER_MESSAGING_BACKEND:-pgmq}"
 default_batch_size = 5
 default_visibility_timeout_seconds = 30
 health_check_interval = 60

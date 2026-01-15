@@ -734,12 +734,48 @@ impl OrchestrationProcessorCommandHandler {
 
     /// Handle step result processing from message event - StepMessage approach with database hydration
     ///
+    /// ## PGMQ-Specific Code Path
+    ///
+    /// This handler is **exclusively for PGMQ's signal-only notification flow** for large
+    /// messages (>7KB). When PGMQ receives a message larger than the pg_notify payload
+    /// limit, it sends a `MessageReady` signal containing only the message ID. The
+    /// consumer must then fetch the full message using `read_specific_message(msg_id)`.
+    ///
+    /// ## Why This Handler Cannot Be Provider-Agnostic
+    ///
+    /// - **RabbitMQ**: Always delivers full messages via `basic_consume()`. There is no
+    ///   "fetch by message ID" concept - the message is already delivered in full.
+    ///   RabbitMQ should use `ProcessStepResultFromMessage` instead.
+    ///
+    /// - **InMemory**: For testing, uses `receive_messages()` polling. No signal-only
+    ///   notification flow exists.
+    ///
     /// TAS-133e: Uses PGMQ client for event-driven operations. Accepts provider-agnostic
     /// `MessageEvent` but internally uses PGMQ-specific `read_specific_message`.
     async fn handle_step_result_from_message_event(
         &self,
         message_event: MessageEvent,
     ) -> TaskerResult<StepProcessResult> {
+        // TAS-133: Guard clause - this code path is only valid for providers that support
+        // fetching messages by ID after signal-only notifications (PGMQ large messages).
+        let provider = self.message_client.provider();
+        if !provider.supports_fetch_by_message_id() {
+            error!(
+                provider = provider.provider_name(),
+                msg_id = %message_event.message_id,
+                queue = %message_event.queue_name,
+                "CRITICAL: Signal-only notification received but provider '{}' does not support \
+                 fetch-by-message-ID. This is a CONFIGURATION ERROR. The provider should route \
+                 messages to ProcessStepResultFromMessage instead. This step result processing will fail.",
+                provider.provider_name()
+            );
+            return Err(TaskerError::MessagingError(format!(
+                "Provider '{}' does not support fetch-by-message-ID flow. \
+                 Use ProcessStepResultFromMessage for full message delivery providers.",
+                provider.provider_name()
+            )));
+        }
+
         // TAS-133: Parse message_id back to i64 for PGMQ-specific operations
         let msg_id: i64 = message_event
             .message_id
@@ -861,12 +897,48 @@ impl OrchestrationProcessorCommandHandler {
 
     /// Handle task initialization from message event - delegates full message lifecycle to worker
     ///
+    /// ## PGMQ-Specific Code Path
+    ///
+    /// This handler is **exclusively for PGMQ's signal-only notification flow** for large
+    /// messages (>7KB). When PGMQ receives a message larger than the pg_notify payload
+    /// limit, it sends a `MessageReady` signal containing only the message ID. The
+    /// consumer must then fetch the full message using `read_specific_message(msg_id)`.
+    ///
+    /// ## Why This Handler Cannot Be Provider-Agnostic
+    ///
+    /// - **RabbitMQ**: Always delivers full messages via `basic_consume()`. There is no
+    ///   "fetch by message ID" concept - the message is already delivered in full.
+    ///   RabbitMQ should use `InitializeTaskFromMessage` instead.
+    ///
+    /// - **InMemory**: For testing, uses `receive_messages()` polling. No signal-only
+    ///   notification flow exists.
+    ///
     /// TAS-133e: Uses PGMQ client for event-driven operations. Accepts provider-agnostic
     /// `MessageEvent` but internally uses PGMQ-specific `read_specific_message`.
     async fn handle_task_initialize_from_message_event(
         &self,
         message_event: MessageEvent,
     ) -> TaskerResult<TaskInitializeResult> {
+        // TAS-133: Guard clause - this code path is only valid for providers that support
+        // fetching messages by ID after signal-only notifications (PGMQ large messages).
+        let provider = self.message_client.provider();
+        if !provider.supports_fetch_by_message_id() {
+            error!(
+                provider = provider.provider_name(),
+                msg_id = %message_event.message_id,
+                queue = %message_event.queue_name,
+                "CRITICAL: Signal-only notification received but provider '{}' does not support \
+                 fetch-by-message-ID. This is a CONFIGURATION ERROR. The provider should route \
+                 messages to InitializeTaskFromMessage instead. This task initialization will fail.",
+                provider.provider_name()
+            );
+            return Err(TaskerError::MessagingError(format!(
+                "Provider '{}' does not support fetch-by-message-ID flow. \
+                 Use InitializeTaskFromMessage for full message delivery providers.",
+                provider.provider_name()
+            )));
+        }
+
         // TAS-133: Parse message_id back to i64 for PGMQ-specific operations
         let msg_id: i64 = message_event
             .message_id
@@ -1002,12 +1074,48 @@ impl OrchestrationProcessorCommandHandler {
 
     /// Handle task finalization from message event - delegates full message lifecycle to worker
     ///
+    /// ## PGMQ-Specific Code Path
+    ///
+    /// This handler is **exclusively for PGMQ's signal-only notification flow** for large
+    /// messages (>7KB). When PGMQ receives a message larger than the pg_notify payload
+    /// limit, it sends a `MessageReady` signal containing only the message ID. The
+    /// consumer must then fetch the full message using `read_specific_message(msg_id)`.
+    ///
+    /// ## Why This Handler Cannot Be Provider-Agnostic
+    ///
+    /// - **RabbitMQ**: Always delivers full messages via `basic_consume()`. There is no
+    ///   "fetch by message ID" concept - the message is already delivered in full.
+    ///   RabbitMQ should use `FinalizeTaskFromMessage` instead.
+    ///
+    /// - **InMemory**: For testing, uses `receive_messages()` polling. No signal-only
+    ///   notification flow exists.
+    ///
     /// TAS-133e: Uses PGMQ client for event-driven operations. Accepts provider-agnostic
     /// `MessageEvent` but internally uses PGMQ-specific `read_specific_message`.
     async fn handle_task_finalize_from_message_event(
         &self,
         message_event: MessageEvent,
     ) -> TaskerResult<TaskFinalizationResult> {
+        // TAS-133: Guard clause - this code path is only valid for providers that support
+        // fetching messages by ID after signal-only notifications (PGMQ large messages).
+        let provider = self.message_client.provider();
+        if !provider.supports_fetch_by_message_id() {
+            error!(
+                provider = provider.provider_name(),
+                msg_id = %message_event.message_id,
+                queue = %message_event.queue_name,
+                "CRITICAL: Signal-only notification received but provider '{}' does not support \
+                 fetch-by-message-ID. This is a CONFIGURATION ERROR. The provider should route \
+                 messages to FinalizeTaskFromMessage instead. This task finalization will fail.",
+                provider.provider_name()
+            );
+            return Err(TaskerError::MessagingError(format!(
+                "Provider '{}' does not support fetch-by-message-ID flow. \
+                 Use FinalizeTaskFromMessage for full message delivery providers.",
+                provider.provider_name()
+            )));
+        }
+
         // TAS-133: Parse message_id back to i64 for PGMQ-specific operations
         let msg_id: i64 = message_event
             .message_id

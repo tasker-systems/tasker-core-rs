@@ -99,7 +99,7 @@ enabled = true
 saturation_check_interval_seconds = 10
 
 [common.queues]
-backend = "pgmq"
+backend = "${TASKER_MESSAGING_BACKEND:-pgmq}"
 default_batch_size = 5
 default_visibility_timeout_seconds = 30
 health_check_interval = 60

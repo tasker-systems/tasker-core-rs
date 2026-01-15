@@ -28,6 +28,12 @@ runs:
         echo "LOG_LEVEL=warn" >> $GITHUB_ENV
         echo "RUST_LOG=warn" >> $GITHUB_ENV
 
+        # Messaging backend configuration (TAS-133)
+        # TASKER_MESSAGING_BACKEND: pgmq (default) or rabbitmq
+        # Can be overridden by workflow matrix for multi-backend testing
+        echo "TASKER_MESSAGING_BACKEND=${TASKER_MESSAGING_BACKEND:-pgmq}" >> $GITHUB_ENV
+        echo "RABBITMQ_URL=amqp://tasker:tasker@localhost:5672/%2F" >> $GITHUB_ENV
+
         # Authentication keys (test keys for CI)
         echo 'JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----MIIEowIBAAKCAQEAxAh25l4WV5ibwXaIAETRchkQhVP/OymplWglG+GHM1j2fFdwsBR/jGGfdebsmDSC26/CB4CIQOCOf7YCjZsAbxLioK5R2lAE3AoE9VQRKouwzqpUcylXUswbXdPd1AJMrjaVDOzo27KI8v4/+SiyfgJsBJCLu4owiClKqD7iLHL2sxWKlTcqUy+puCH8u0wfdNM1O0YqQAbD6RhnDPcHY58/f/UD+AHIrCConFDuo1HFrEU0TieJ9BMpx4QM+r7/niLzvx8OfuV3g4OZfWA86fCQ38ACdj/BXJhnCIy3w6GqJiaU+BO6ZBWrYqy1FM4O7O+xvVizQDmwRVDQrxk8PQIDAQABAoIBADuK3qKGPX8JyXVvzUtXm85uMohsxP9xXiMVaQAY9nnwMZ3+6SlycHNxS4ACTibE/GJB9ktVDQ23p1C/NfNQ+0bBk7h+ejo3R+KV4H+rszMbDu8W6WO5UN7DRCSxr5UvxZ680XUFmIzyo4o7E69YXy7LCYgxZ1/lT2xsLlMAFq6tC9/nRx10ZfP5cYBN0gbBNav7fzcEwGvvcfwsxpoVeLR7fjicNjSQ1m6Lovn48rCiTC2xA3OkJBvKbp4rmO9zczxHBYWZBjDI8/Wus/MF3WmzFdNMo07a2xytszjLDvwr/P/ZVhq82Nhcr8xKRlCaGOIPGBcyBKNnGTmr1mL2KTkCgYEA96gRUPBLV9clR3acm0ViNDpGX7L6CIg6tnTI99fmdt+e6+zlfnO46uRVXREpHR+DCV1CC2vjai10zZzjSRCHBdP0GWcf97G9/wsW32hCuN4xE9PMBf1Ttm/oAU80gN7tDsutcsdYRCdIrSWuHlppByTlRWWwg9lCoHq4KYXtIGcCgYEAyqMqnQUzYqUzpZiypS0iKjrEP0pCUEOQ69eOsqLq7LnBYN7ugtuEN6GmL52fxam1G2y0Yzxy406Sf1hONnZXUhfUwVXHBS9eF5jtackPnvSeVyEQX9AdHlmOHNmypuRbzaPMkp2LjJlgUf+mNDtG1zfmsennkEZG9+maHkoqR7sCgYBOqjr926YC+9rijUGHbI2aC1ypLz+OkD8eD5B6cUDKR5PCWtg2x2lYazjWPAo0Lvs/cTj2ScnNwyyT1x626aIJ7t5dZ01XL0Uriwkz43k2IZWzN5ZZ3LLHg1pNeCw0NxtTlMy+ZaWa2GOUZCCfkZZE56pP1dIwv0UTloeC4QCGRwKBgQCGaEAFssNotQdS2bv1D8DPnfc5u7nMn2Rq6qm+F44XwwZfiL9PkOdcNx6SCs1FQNHeBPaJtDjISP+m9B28xjYZP7FhI9JEwCx7Hnarai+wUbUNOeMwikwmK2S2AjgbtvClr/YrcdB0S++1tAq8Lm1Ip82fSPTNn6/HFO2jFbKBrQKBgFDfovReI7rcF1iw90u6inVE+hCXlAfCbD96r3kM/xMJ0t4Udztxj5q0VMAGThAmTYrnD4r7Lst+5YRvTY8DXcKbSYKgJ7R8JyR8ujr+x6r1kxZs+fgcrI0EfygqICvOwkUlBuCwmDdDHcDxp4RgXkob2u3fj6kfpcd/nsV6EjVk-----END RSA PRIVATE KEY-----"' >> $GITHUB_ENV
 
@@ -49,5 +55,7 @@ runs:
         echo "- TASKER_CONFIG_PATH: $TASKER_CONFIG_PATH"
         echo "- LOG_LEVEL: $LOG_LEVEL"
         echo "- RUST_LOG: $RUST_LOG"
+        echo "- TASKER_MESSAGING_BACKEND: $TASKER_MESSAGING_BACKEND"
+        echo "- RABBITMQ_URL: $RABBITMQ_URL"
         echo "- API_KEY: ${API_KEY:0:8}..." # Show only first 8 chars for security
         echo "- JWT keys configured: ✅"

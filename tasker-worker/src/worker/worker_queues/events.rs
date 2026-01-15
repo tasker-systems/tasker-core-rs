@@ -14,6 +14,7 @@
 //! Event types use provider-agnostic `MessageEvent` for multi-backend support.
 
 use serde::{Deserialize, Serialize};
+use tasker_shared::messaging::service::QueuedMessage;
 use tasker_shared::messaging::service::MessageEvent;
 
 /// Worker queue event classification
@@ -40,8 +41,13 @@ pub enum WorkerQueueEvent {
 /// including health updates and system notifications.
 #[derive(Debug, Clone)]
 pub enum WorkerNotification {
-    /// Event-driven notification
+    /// Event-driven notification (signal-only, requires message fetch)
+    /// Used by PGMQ which sends LISTEN/NOTIFY signals without payload
     Event(WorkerQueueEvent),
+    /// Full step message with payload (no fetch required)
+    /// Used by RabbitMQ which delivers complete messages via basic_consume
+    /// TAS-133: Enables proper RabbitMQ push-based message processing
+    StepMessageWithPayload(QueuedMessage<Vec<u8>>),
     /// System health notification
     Health(WorkerHealthUpdate),
     /// Configuration change notification
