@@ -128,9 +128,8 @@ pub use errors::{
     StepExecutionError, TaskerError, TaskerResult,
 };
 pub use messaging::{
-    BatchMessage, BatchResultMessage, PgmqClient, PgmqStepMessage, PgmqStepMessageMetadata,
-    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult, StepMessage,
-    TaskRequestMessage,
+    BatchMessage, BatchResultMessage, PgmqClient, StepBatchRequest, StepBatchResponse,
+    StepExecutionRequest, StepExecutionResult, StepMessage, TaskRequestMessage,
 };
 
 pub use registry::TaskHandlerRegistry;

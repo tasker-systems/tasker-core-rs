@@ -110,8 +110,6 @@ impl std::fmt::Debug for MetricsService {
 
 impl MetricsService {
     /// Create a new MetricsService
-    ///
-    /// TAS-133e: Now takes the new MessageClient struct instead of UnifiedMessageClient.
     pub fn new(
         worker_id: String,
         database_pool: Arc<PgPool>,

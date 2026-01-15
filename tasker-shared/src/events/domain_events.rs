@@ -147,7 +147,7 @@ impl DomainEventPublisher {
     /// Publish a domain event with full execution context
     ///
     /// Creates a `DomainEvent` with UUID v7 for time-ordering, publishes to the
-    /// namespace-specific queue using `UnifiedPgmqClient`, and emits OpenTelemetry metrics.
+    /// namespace-specific queue via `MessagingProvider`, and emits OpenTelemetry metrics.
     ///
     /// The payload includes the complete task sequence step, execution result, and
     /// business event data, allowing subscribers to access full execution context.

@@ -33,8 +33,8 @@ use super::orchestration_messages::StepExecutionStatus;
 ///
 /// ## TAS-133 Note
 ///
-/// This struct was renamed from `SimpleStepMessage`. The old `StepMessage`
-/// with embedded execution context has been removed.
+/// This is the UUID-based step message (previously `SimpleStepMessage`).
+/// The old embedded-context format has been removed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StepMessage {
     /// Task UUID from tasker.tasks.task_uuid column
@@ -55,12 +55,6 @@ impl StepMessage {
         }
     }
 }
-
-/// Type alias for backward compatibility during migration
-///
-/// **DEPRECATED**: Use `StepMessage` directly. This alias will be removed in a future version.
-#[deprecated(since = "0.2.0", note = "Use StepMessage directly")]
-pub type SimpleStepMessage = StepMessage;
 
 /// Result of step execution for completion tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]

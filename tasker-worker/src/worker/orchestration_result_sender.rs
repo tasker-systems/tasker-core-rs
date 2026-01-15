@@ -29,7 +29,6 @@ pub(crate) struct OrchestrationResultSender {
 
 impl OrchestrationResultSender {
     /// Create new sender with MessageClient and queue configuration
-    /// TAS-133e: Now uses MessageClient instead of UnifiedPgmqClient
     pub fn new(
         message_client: Arc<MessageClient>,
         queues_config: &tasker_shared::config::tasker::QueuesConfig,

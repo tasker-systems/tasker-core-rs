@@ -177,7 +177,6 @@ pub struct EventConsumer {
 impl EventConsumer {
     /// Create a new event consumer
     ///
-    /// TAS-133e: Now takes SystemContext instead of UnifiedMessageClient.
     /// Requires PGMQ messaging provider for domain event queue operations.
     pub fn new(
         context: Arc<SystemContext>,
