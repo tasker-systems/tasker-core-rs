@@ -554,6 +554,17 @@ impl SupportsPushNotifications for PgmqMessagingService {
     fn fallback_polling_interval(&self) -> Option<Duration> {
         Some(Duration::from_secs(5))
     }
+
+    /// PGMQ supports fetching messages by ID after signal-only notifications
+    ///
+    /// Returns `true` because PGMQ's large message flow (>7KB) sends signal-only
+    /// notifications containing only the message ID. Consumers must use
+    /// `read_specific_message(msg_id)` to fetch the full message content.
+    ///
+    /// This is the flow handled by `ExecuteStepFromEventMessage` in the worker.
+    fn supports_fetch_by_message_id(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

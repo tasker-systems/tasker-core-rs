@@ -339,6 +339,24 @@ impl MessagingProvider {
             Self::InMemory(s) => s.requires_fallback_polling(),
         }
     }
+
+    /// Check if this provider supports fetching messages by ID after signal-only notifications
+    ///
+    /// TAS-133: PGMQ may send signal-only notifications for large messages (>7KB) where
+    /// the notification contains only a message ID. Consumers must use
+    /// `read_specific_message(msg_id)` to fetch the full message content.
+    ///
+    /// Code paths that depend on fetch-by-ID (like `ExecuteStepFromEventMessage`)
+    /// should check this capability and fail loudly if the provider doesn't support it.
+    ///
+    /// Returns `true` for PGMQ, `false` for RabbitMQ and InMemory.
+    pub fn supports_fetch_by_message_id(&self) -> bool {
+        match self {
+            Self::Pgmq(s) => s.supports_fetch_by_message_id(),
+            Self::RabbitMq(s) => s.supports_fetch_by_message_id(),
+            Self::InMemory(s) => s.supports_fetch_by_message_id(),
+        }
+    }
 }
 
 #[cfg(test)]

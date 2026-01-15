@@ -540,6 +540,34 @@ impl Handler<ExecuteStepFromQueuedMessage> for StepExecutorActor {
 
 #[async_trait]
 impl Handler<ExecuteStepFromEventMessage> for StepExecutorActor {
+    /// Handle signal-only notifications (PGMQ large message flow)
+    ///
+    /// ## PGMQ-Specific Code Path
+    ///
+    /// This handler is **exclusively for PGMQ's signal-only notification flow** for large
+    /// messages (>7KB). When PGMQ receives a message larger than the pg_notify payload
+    /// limit, it sends a `MessageReady` signal containing only the message ID. The
+    /// consumer must then fetch the full message using `read_specific_message(msg_id)`.
+    ///
+    /// ## Why This Handler Cannot Be Provider-Agnostic
+    ///
+    /// - **RabbitMQ**: Always delivers full messages via `basic_consume()`. There is no
+    ///   "fetch by message ID" concept - the message is already delivered in full.
+    ///   RabbitMQ should use `ExecuteStepFromQueuedMessage` instead.
+    ///
+    /// - **InMemory**: For testing, uses `receive_messages()` polling. No signal-only
+    ///   notification flow exists.
+    ///
+    /// ## Flow
+    ///
+    /// 1. Receive `MessageEvent` with queue name and message ID (from pg_notify)
+    /// 2. Parse message ID to i64 for PGMQ's `read_specific_message`
+    /// 3. Fetch the full `StepMessage` from PGMQ using the message ID
+    /// 4. Process the step via `claim_and_dispatch`
+    /// 5. Acknowledge the message using provider-agnostic `ack_message`
+    ///
+    /// For providers that don't support this flow, use `ExecuteStepFromQueuedMessage`
+    /// which receives the full message payload directly.
     async fn handle(
         &self,
         msg: ExecuteStepFromEventMessage,
@@ -552,10 +580,35 @@ impl Handler<ExecuteStepFromEventMessage> for StepExecutorActor {
             "Handling ExecuteStepFromEventMessage"
         );
 
+        // TAS-133: Guard clause - this code path is only valid for providers that support
+        // fetching messages by ID after signal-only notifications (PGMQ large messages).
+        // If a different provider hits this code path, it's a configuration error that will
+        // cause the workflow step lifecycle to fail.
+        let provider = self.context.messaging_provider();
+        if !provider.supports_fetch_by_message_id() {
+            tracing::error!(
+                actor = self.name(),
+                provider = provider.provider_name(),
+                msg_id = %message_id_str,
+                queue = %msg.message_event.queue_name,
+                "CRITICAL: Signal-only notification received but provider '{}' does not support \
+                 fetch-by-message-ID. This is a CONFIGURATION ERROR. The provider should route \
+                 messages to ExecuteStepFromQueuedMessage instead. This step execution will fail.",
+                provider.provider_name()
+            );
+            return Err(TaskerError::MessagingError(format!(
+                "Provider '{}' does not support fetch-by-message-ID flow. \
+                 Use ExecuteStepFromQueuedMessage for full message delivery providers.",
+                provider.provider_name()
+            )));
+        }
+
         // TAS-133e: Read the specific message using PGMQ provider (event-driven specific)
         // This is a PGMQ-specific operation for event-driven message processing.
         // The message_id must be parsed to i64 for PGMQ's read_specific_message operation.
-        let pgmq_service = self.context.messaging_provider().as_pgmq().ok_or_else(|| {
+        let pgmq_service = provider.as_pgmq().ok_or_else(|| {
+            // This should never happen after the supports_fetch_by_message_id() check,
+            // but kept as defensive programming.
             TaskerError::MessagingError(
                 "Event-driven step execution requires PGMQ provider".to_string(),
             )

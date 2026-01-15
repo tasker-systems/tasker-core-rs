@@ -750,6 +750,17 @@ impl SupportsPushNotifications for RabbitMqMessagingService {
     fn fallback_polling_interval(&self) -> Option<Duration> {
         None
     }
+
+    /// RabbitMQ does not use signal-only notifications
+    ///
+    /// Returns `false` because RabbitMQ always delivers complete messages via
+    /// `basic_consume()`. There is no fetch-by-message-ID flow.
+    ///
+    /// Code paths expecting to fetch by message ID (like `ExecuteStepFromEventMessage`
+    /// in the worker) will fail if they receive notifications from RabbitMQ.
+    fn supports_fetch_by_message_id(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

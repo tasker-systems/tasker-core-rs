@@ -363,6 +363,43 @@ pub trait SupportsPushNotifications: MessagingService {
             None
         }
     }
+
+    /// Check if this provider supports fetching messages by ID after signal-only notifications
+    ///
+    /// Some messaging providers (like PGMQ) may send signal-only notifications for large
+    /// messages where the notification contains only a message ID. The consumer must then
+    /// fetch the full message content using a provider-specific `read_by_message_id()` method.
+    ///
+    /// ## Provider Behavior
+    ///
+    /// - **PGMQ**: Returns `true`. Large messages (>7KB) trigger signal-only notifications
+    ///   via pg_notify. The notification contains the queue name and message ID.
+    ///   Consumers must call `read_specific_message(msg_id)` to fetch the content.
+    ///   This is the flow handled by `ExecuteStepFromEventMessage` in the worker.
+    ///
+    /// - **RabbitMQ**: Returns `false`. AMQP always delivers complete messages via
+    ///   `basic_consume()`. There is no signal-only notification flow, so code paths
+    ///   expecting to fetch by message ID will fail.
+    ///
+    /// - **InMemory**: Returns `false`. Uses broadcast channel for testing but does
+    ///   not support the fetch-by-ID pattern.
+    ///
+    /// ## Usage
+    ///
+    /// Guard code paths that depend on fetch-by-ID capability:
+    ///
+    /// ```rust,ignore
+    /// // In step executor actor, ExecuteStepFromEventMessage handler
+    /// if !provider.supports_fetch_by_message_id() {
+    ///     tracing::error!(
+    ///         provider = provider.provider_name(),
+    ///         "Signal-only notification received but provider does not support fetch-by-ID. \
+    ///          This is a configuration error - use ExecuteStepFromQueuedMessage for this provider."
+    ///     );
+    ///     return Err(/* ... */);
+    /// }
+    /// ```
+    fn supports_fetch_by_message_id(&self) -> bool;
 }
 
 /// Type alias for the notification stream returned by `SupportsPushNotifications::subscribe()`

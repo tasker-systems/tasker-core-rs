@@ -466,6 +466,15 @@ impl SupportsPushNotifications for InMemoryMessagingService {
     fn requires_fallback_polling(&self) -> bool {
         true
     }
+
+    /// In-memory provider does not support fetch-by-message-ID
+    ///
+    /// Returns `false` because the in-memory provider is for testing and
+    /// does not implement the `read_specific_message()` pattern that PGMQ uses.
+    /// Tests should use `receive_messages()` instead.
+    fn supports_fetch_by_message_id(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

@@ -10,6 +10,11 @@
 //! - **Error Handling**: Success → delete, failure → DLQ
 //! - **Observability**: Atomic counters + OpenTelemetry metrics
 //!
+//! ## Provider-Agnostic Design (TAS-133)
+//!
+//! This consumer uses `MessageClient` for all messaging operations, making it
+//! compatible with any messaging provider (PGMQ, RabbitMQ, InMemory).
+//!
 //! ## Usage
 //!
 //! ```rust,no_run
@@ -54,6 +59,7 @@ use tracing::{debug, error, info, instrument, warn};
 use tasker_shared::{
     events::domain_events::{DomainEvent, DomainEventError},
     events::registry::EventRegistry,
+    messaging::service::ReceiptHandle,
     system_context::SystemContext,
     TaskerError, TaskerResult,
 };
@@ -177,7 +183,7 @@ pub struct EventConsumer {
 impl EventConsumer {
     /// Create a new event consumer
     ///
-    /// Requires PGMQ messaging provider for domain event queue operations.
+    /// TAS-133: Provider-agnostic - works with any messaging provider via MessageClient.
     pub fn new(
         context: Arc<SystemContext>,
         event_registry: Arc<RwLock<EventRegistry>>,
@@ -186,12 +192,8 @@ impl EventConsumer {
         // Validate configuration
         config.validate()?;
 
-        // TAS-133e: Validate PGMQ provider is available for domain event operations
-        if !context.messaging_provider().is_pgmq() {
-            return Err(TaskerError::ConfigurationError(
-                "EventConsumer requires PGMQ messaging provider".to_string(),
-            ));
-        }
+        // TAS-133: Provider-agnostic - no provider-specific validation needed.
+        // All messaging operations go through MessageClient.
 
         Ok(Self {
             context,
@@ -316,19 +318,20 @@ impl EventConsumer {
 
     /// Fetch a batch of messages from the queue
     ///
-    /// TAS-133e: Updated to use PGMQ provider from SystemContext.
-    async fn fetch_batch(&self, queue_name: &str) -> TaskerResult<Vec<(i64, DomainEvent)>> {
-        // TAS-133e: Get PGMQ client from messaging provider (validated in constructor)
-        let pgmq_service = self.context.messaging_provider().as_pgmq().ok_or_else(|| {
-            TaskerError::MessagingError("PGMQ provider not available".to_string())
-        })?;
-
-        let raw_messages = pgmq_service
-            .client()
-            .read_messages(
+    /// TAS-133: Provider-agnostic - uses MessageClient.receive_messages().
+    async fn fetch_batch(
+        &self,
+        queue_name: &str,
+    ) -> TaskerResult<Vec<(ReceiptHandle, DomainEvent)>> {
+        // TAS-133: Use provider-agnostic MessageClient
+        // We receive as serde_json::Value to handle deserialization errors gracefully
+        let raw_messages = self
+            .context
+            .message_client()
+            .receive_messages::<serde_json::Value>(
                 queue_name,
-                Some(self.config.visibility_timeout.as_secs() as i32),
-                Some(self.config.batch_size),
+                self.config.batch_size as usize,
+                self.config.visibility_timeout,
             )
             .await
             .map_err(|e| TaskerError::MessagingError(format!("Failed to read messages: {}", e)))?;
@@ -336,13 +339,16 @@ impl EventConsumer {
         // Parse messages into DomainEvent structs
         let mut events = Vec::new();
         for msg in raw_messages {
+            let receipt_handle = msg.receipt_handle.clone();
+            let receipt_handle_display = receipt_handle.to_string();
+
             match serde_json::from_value::<DomainEvent>(msg.message) {
                 Ok(event) => {
-                    events.push((msg.msg_id, event));
+                    events.push((receipt_handle, event));
                 }
                 Err(e) => {
                     warn!(
-                        message_id = msg.msg_id,
+                        receipt_handle = %receipt_handle_display,
                         error = %e,
                         "Failed to deserialize domain event, sending to DLQ"
                     );
@@ -352,22 +358,26 @@ impl EventConsumer {
                         event_name: "unknown".to_string(),
                         reason: e.to_string(),
                     };
-                    if let Err(dlq_err) = self.send_to_dlq(msg.msg_id, &dlq_error).await {
+                    if let Err(dlq_err) = self
+                        .send_to_dlq(&receipt_handle_display, &dlq_error)
+                        .await
+                    {
                         error!(
-                            message_id = msg.msg_id,
+                            receipt_handle = %receipt_handle_display,
                             error = %dlq_err,
                             "Failed to send malformed message to DLQ"
                         );
                     }
 
-                    // Delete the malformed message from the queue
-                    if let Err(del_err) = pgmq_service
-                        .client()
-                        .delete_message(queue_name, msg.msg_id)
+                    // Acknowledge (delete) the malformed message from the queue
+                    if let Err(del_err) = self
+                        .context
+                        .message_client()
+                        .ack_message(queue_name, &receipt_handle)
                         .await
                     {
                         error!(
-                            message_id = msg.msg_id,
+                            receipt_handle = %receipt_handle_display,
                             error = %del_err,
                             "Failed to delete malformed message"
                         );
@@ -381,19 +391,22 @@ impl EventConsumer {
 
     /// Process a batch of messages with concurrent handlers
     #[instrument(skip(self, messages), fields(count = messages.len()))]
-    async fn process_batch(&self, messages: Vec<(i64, DomainEvent)>) -> TaskerResult<()> {
+    async fn process_batch(
+        &self,
+        messages: Vec<(ReceiptHandle, DomainEvent)>,
+    ) -> TaskerResult<()> {
         // Create semaphore for backpressure control
         let semaphore = Arc::new(Semaphore::new(self.config.max_concurrent_handlers));
         let mut handles = Vec::new();
 
-        for (msg_id, event) in messages {
+        for (receipt_handle, event) in messages {
             let permit = semaphore.clone().acquire_owned().await.map_err(|e| {
                 TaskerError::Internal(format!("Failed to acquire semaphore permit: {}", e))
             })?;
 
             let consumer = Arc::new(self.clone());
             let handle = tokio::spawn(async move {
-                let result = consumer.process_message(msg_id, event).await;
+                let result = consumer.process_message(receipt_handle, event).await;
                 drop(permit); // Release semaphore permit
                 result
             });
@@ -419,16 +432,22 @@ impl EventConsumer {
     }
 
     /// Process a single message
-    #[instrument(skip(self, event), fields(
-        message_id = msg_id,
+    ///
+    /// TAS-133: Uses ReceiptHandle for provider-agnostic message acknowledgment.
+    #[instrument(skip(self, receipt_handle, event), fields(
         event_id = %event.event_id,
         event_name = %event.event_name
     ))]
-    async fn process_message(self: Arc<Self>, msg_id: i64, event: DomainEvent) -> TaskerResult<()> {
+    async fn process_message(
+        self: Arc<Self>,
+        receipt_handle: ReceiptHandle,
+        event: DomainEvent,
+    ) -> TaskerResult<()> {
         let queue_name = self.config.domain_events_queue();
+        let receipt_handle_display = receipt_handle.to_string();
 
         debug!(
-            message_id = msg_id,
+            receipt_handle = %receipt_handle_display,
             event_name = %event.event_name,
             "Processing domain event"
         );
@@ -442,18 +461,18 @@ impl EventConsumer {
 
         match handler_result {
             Ok(Ok(())) => {
-                // Success: delete message from queue
+                // Success: acknowledge (delete) message from queue
                 debug!(
-                    message_id = msg_id,
+                    receipt_handle = %receipt_handle_display,
                     event_name = %event.event_name,
-                    "Event processed successfully, deleting from queue"
+                    "Event processed successfully, acknowledging message"
                 );
 
-                if let Err(e) = self.delete_message(&queue_name, msg_id).await {
+                if let Err(e) = self.ack_message(&queue_name, &receipt_handle).await {
                     error!(
-                        message_id = msg_id,
+                        receipt_handle = %receipt_handle_display,
                         error = %e,
-                        "Failed to delete processed message"
+                        "Failed to acknowledge processed message"
                     );
                     return Err(e);
                 }
@@ -474,18 +493,19 @@ impl EventConsumer {
             Ok(Err(handler_error)) => {
                 // Handler execution failed: send to DLQ
                 error!(
-                    message_id = msg_id,
+                    receipt_handle = %receipt_handle_display,
                     event_name = %event.event_name,
                     error = %handler_error,
                     "Handler execution failed, sending to DLQ"
                 );
 
-                self.handle_failure(msg_id, &event, handler_error).await
+                self.handle_failure(&receipt_handle, &receipt_handle_display, &event, handler_error)
+                    .await
             }
             Err(_timeout) => {
                 // Handler timed out: treat as failure
                 error!(
-                    message_id = msg_id,
+                    receipt_handle = %receipt_handle_display,
                     event_name = %event.event_name,
                     timeout = ?self.config.handler_timeout,
                     "Handler execution timed out, sending to DLQ"
@@ -496,7 +516,8 @@ impl EventConsumer {
                     self.config.handler_timeout
                 ));
 
-                self.handle_failure(msg_id, &event, timeout_error).await
+                self.handle_failure(&receipt_handle, &receipt_handle_display, &event, timeout_error)
+                    .await
             }
         }
     }
@@ -522,9 +543,12 @@ impl EventConsumer {
     }
 
     /// Handle message processing failure
+    ///
+    /// TAS-133: Uses ReceiptHandle for provider-agnostic message operations.
     async fn handle_failure(
         &self,
-        msg_id: i64,
+        receipt_handle: &ReceiptHandle,
+        receipt_handle_display: &str,
         event: &DomainEvent,
         error: TaskerError,
     ) -> TaskerResult<()> {
@@ -536,20 +560,20 @@ impl EventConsumer {
             queue_name: self.config.domain_events_queue(),
             reason: error.to_string(),
         };
-        if let Err(dlq_error) = self.send_to_dlq(msg_id, &dlq_error).await {
+        if let Err(dlq_error) = self.send_to_dlq(receipt_handle_display, &dlq_error).await {
             error!(
-                message_id = msg_id,
+                receipt_handle = %receipt_handle_display,
                 error = %dlq_error,
                 "Failed to send failed message to DLQ"
             );
         }
 
-        // Delete from main queue
-        if let Err(del_error) = self.delete_message(&queue_name, msg_id).await {
+        // Acknowledge (delete) from main queue
+        if let Err(del_error) = self.ack_message(&queue_name, receipt_handle).await {
             error!(
-                message_id = msg_id,
+                receipt_handle = %receipt_handle_display,
                 error = %del_error,
-                "Failed to delete failed message from main queue"
+                "Failed to acknowledge failed message from main queue"
             );
         }
 
@@ -570,31 +594,31 @@ impl EventConsumer {
 
     /// Send a message to the DLQ
     ///
-    /// TAS-133e: Updated to use PGMQ provider from SystemContext.
-    async fn send_to_dlq(&self, msg_id: i64, error: &DomainEventError) -> TaskerResult<()> {
+    /// TAS-133: Provider-agnostic - uses MessageClient.send_message().
+    async fn send_to_dlq(
+        &self,
+        original_handle: &str,
+        error: &DomainEventError,
+    ) -> TaskerResult<()> {
         let dlq_name = self.config.dlq_name();
 
         // Create DLQ message with error context
         let dlq_message = serde_json::json!({
-            "original_message_id": msg_id,
+            "original_receipt_handle": original_handle,
             "error": error.to_string(),
             "timestamp": chrono::Utc::now(),
             "namespace": self.config.namespace,
         });
 
-        // TAS-133e: Get PGMQ client from messaging provider
-        let pgmq_service = self.context.messaging_provider().as_pgmq().ok_or_else(|| {
-            TaskerError::MessagingError("PGMQ provider not available for DLQ operations".to_string())
-        })?;
-
-        pgmq_service
-            .client()
-            .send_json_message(&dlq_name, &dlq_message)
+        // TAS-133: Use provider-agnostic MessageClient
+        self.context
+            .message_client()
+            .send_message(&dlq_name, &dlq_message)
             .await
             .map_err(|e| TaskerError::MessagingError(format!("Failed to send to DLQ: {}", e)))?;
 
         debug!(
-            message_id = msg_id,
+            original_handle = %original_handle,
             dlq = %dlq_name,
             "Message sent to DLQ"
         );
@@ -602,20 +626,20 @@ impl EventConsumer {
         Ok(())
     }
 
-    /// Delete a message from a queue
+    /// Acknowledge (delete) a message from a queue
     ///
-    /// TAS-133e: Updated to use PGMQ provider from SystemContext.
-    async fn delete_message(&self, queue_name: &str, msg_id: i64) -> TaskerResult<()> {
-        // TAS-133e: Get PGMQ client from messaging provider
-        let pgmq_service = self.context.messaging_provider().as_pgmq().ok_or_else(|| {
-            TaskerError::MessagingError("PGMQ provider not available for delete operations".to_string())
-        })?;
-
-        pgmq_service
-            .client()
-            .delete_message(queue_name, msg_id)
+    /// TAS-133: Provider-agnostic - uses MessageClient.ack_message().
+    async fn ack_message(
+        &self,
+        queue_name: &str,
+        receipt_handle: &ReceiptHandle,
+    ) -> TaskerResult<()> {
+        // TAS-133: Use provider-agnostic MessageClient
+        self.context
+            .message_client()
+            .ack_message(queue_name, receipt_handle)
             .await
-            .map_err(|e| TaskerError::MessagingError(format!("Failed to delete message: {}", e)))?;
+            .map_err(|e| TaskerError::MessagingError(format!("Failed to acknowledge message: {}", e)))?;
 
         Ok(())
     }
@@ -686,8 +710,9 @@ mod tests {
         assert_eq!(config.dlq_name(), "payments_domain_events_dlq");
     }
 
-    // TAS-133e: test_consumer_lifecycle now requires a SystemContext with PGMQ provider.
-    // This test is skipped as it requires database setup. Integration tests cover this.
+    // TAS-133: test_consumer_lifecycle requires a SystemContext with a messaging provider.
+    // This test is skipped as it requires database/messaging infrastructure.
+    // Integration tests cover the full EventConsumer lifecycle.
 
     #[test]
     fn test_stats_counters() {
