@@ -64,6 +64,30 @@ impl DeploymentMode {
     pub fn is_disabled(&self) -> bool {
         matches!(self, DeploymentMode::Disabled)
     }
+
+    /// Get the effective deployment mode for the given messaging provider.
+    ///
+    /// Different messaging backends have fundamentally different delivery models:
+    ///
+    /// - **PGMQ**: Uses PostgreSQL `pg_notify` for signaling, which is fire-and-forget.
+    ///   If no listener is connected when a notification fires, it's lost. Messages
+    ///   persist in the queue but no one knows to look for them without polling.
+    ///   Fallback polling is essential for reliability.
+    ///
+    /// - **RabbitMQ**: Uses `basic_consume()` push-based delivery with broker-managed
+    ///   acknowledgment tracking. The broker redelivers unacked messages when consumers
+    ///   reconnect. Fallback polling is unnecessary and wasteful.
+    ///
+    /// For RabbitMQ, this always returns `EventDrivenOnly` regardless of configuration.
+    /// Callers should compare the result with the original mode and log appropriately:
+    /// - `Hybrid` → `EventDrivenOnly`: warn (reasonable intent, but unnecessary)
+    /// - `PollingOnly` → `EventDrivenOnly`: error (indicates misunderstanding)
+    pub fn effective_for_provider(&self, provider_name: &str) -> Self {
+        match provider_name {
+            "rabbitmq" => DeploymentMode::EventDrivenOnly,
+            _ => *self, // PGMQ and others respect configured mode
+        }
+    }
 }
 
 /// Health status for deployment mode assessment
@@ -124,5 +148,39 @@ mod tests {
         assert!(DeploymentMode::EventDrivenOnly.has_event_driven());
         assert!(!DeploymentMode::EventDrivenOnly.has_polling());
         assert!(DeploymentMode::EventDrivenOnly.is_event_driven_only());
+    }
+
+    #[test]
+    fn test_effective_for_provider_pgmq() {
+        // PGMQ respects all configured modes (pg_notify can miss messages)
+        assert_eq!(
+            DeploymentMode::PollingOnly.effective_for_provider("pgmq"),
+            DeploymentMode::PollingOnly
+        );
+        assert_eq!(
+            DeploymentMode::Hybrid.effective_for_provider("pgmq"),
+            DeploymentMode::Hybrid
+        );
+        assert_eq!(
+            DeploymentMode::EventDrivenOnly.effective_for_provider("pgmq"),
+            DeploymentMode::EventDrivenOnly
+        );
+    }
+
+    #[test]
+    fn test_effective_for_provider_rabbitmq() {
+        // RabbitMQ always uses EventDrivenOnly (broker handles redelivery)
+        assert_eq!(
+            DeploymentMode::PollingOnly.effective_for_provider("rabbitmq"),
+            DeploymentMode::EventDrivenOnly
+        );
+        assert_eq!(
+            DeploymentMode::Hybrid.effective_for_provider("rabbitmq"),
+            DeploymentMode::EventDrivenOnly
+        );
+        assert_eq!(
+            DeploymentMode::EventDrivenOnly.effective_for_provider("rabbitmq"),
+            DeploymentMode::EventDrivenOnly
+        );
     }
 }

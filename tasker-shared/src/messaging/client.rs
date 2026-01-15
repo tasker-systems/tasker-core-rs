@@ -40,8 +40,8 @@ use std::time::Duration;
 use super::message::StepMessage;
 use super::orchestration_messages::{StepResultMessage, TaskRequestMessage};
 use super::service::{
-    MessageRouterKind, MessagingError, MessagingProvider, QueueMessage, QueueStats, QueuedMessage,
-    ReceiptHandle,
+    MessageId, MessageRouterKind, MessagingError, MessagingProvider, QueueMessage, QueueStats,
+    QueuedMessage, ReceiptHandle,
 };
 use crate::TaskerResult;
 
@@ -383,16 +383,18 @@ impl MessageClient {
     /// Send a generic message to any queue
     ///
     /// Use this for message types not covered by the domain methods.
+    /// Returns the MessageId assigned by the provider.
     pub async fn send_message<T: QueueMessage>(
         &self,
         queue_name: &str,
         message: &T,
-    ) -> TaskerResult<()> {
-        self.provider
+    ) -> TaskerResult<MessageId> {
+        let msg_id = self
+            .provider
             .send_message(queue_name, message)
             .await
             .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))?;
-        Ok(())
+        Ok(msg_id)
     }
 
     /// Receive generic messages from any queue

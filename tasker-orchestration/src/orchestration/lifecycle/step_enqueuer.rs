@@ -53,7 +53,6 @@ use std::time::Instant;
 use tasker_shared::config::orchestration::StepEnqueuerConfig;
 use tasker_shared::database::sql_functions::ReadyTaskInfo;
 use tasker_shared::messaging::message::StepMessage;
-use tasker_shared::messaging::PgmqClientTrait;
 use tasker_shared::metrics::orchestration::*;
 use tasker_shared::models::WorkflowStep;
 use tasker_shared::state_machine::events::StepEvent;
@@ -545,10 +544,11 @@ impl StepEnqueuer {
         );
 
         // Now send to PGMQ - notification fires AFTER state is committed
+        // TAS-133e: Use MessageClient.send_message (provider-agnostic)
         let msg_id = self
             .context
             .message_client()
-            .send_json_message(&queue_name, &step_message)
+            .send_message(&queue_name, &step_message)
             .await
             .map_err(|e| {
                 error!(
@@ -568,7 +568,7 @@ impl StepEnqueuer {
             correlation_id = %correlation_id,
             step_uuid = %viable_step.step_uuid,
             queue_name = %queue_name,
-            msg_id = msg_id,
+            msg_id = %msg_id,
             "Successfully sent step to pgmq queue (state transition completed first)"
         );
 
@@ -578,7 +578,7 @@ impl StepEnqueuer {
             task_uuid = %task_info.task_uuid,
             namespace = %task_info.namespace_name,
             queue_name = %queue_name,
-            msg_id = msg_id,
+            msg_id = %msg_id,
             "Step enqueueing complete"
         );
 

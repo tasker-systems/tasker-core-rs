@@ -16,6 +16,7 @@
 //! 4. Return task_uuid for finalization
 
 use pgmq::Message as PgmqMessage;
+use tasker_shared::messaging::service::QueuedMessage;
 use tasker_shared::{TaskerError, TaskerResult};
 use tracing::{debug, error, info};
 use uuid::Uuid;
@@ -91,6 +92,46 @@ impl FinalizationHydrator {
             msg_id = message.msg_id,
             task_uuid = %task_uuid,
             "HYDRATOR: Successfully extracted task_uuid from finalization message"
+        );
+
+        Ok(task_uuid)
+    }
+
+    /// TAS-133: Hydrate task_uuid from provider-agnostic QueuedMessage
+    ///
+    /// This is the provider-agnostic version of hydrate_from_message, working with
+    /// `QueuedMessage<serde_json::Value>` instead of PGMQ-specific `PgmqMessage`.
+    pub async fn hydrate_from_queued_message(
+        &self,
+        message: &QueuedMessage<serde_json::Value>,
+    ) -> TaskerResult<Uuid> {
+        debug!(
+            handle = ?message.handle,
+            message_size = message.message.to_string().len(),
+            "HYDRATOR: Starting finalization hydration from QueuedMessage"
+        );
+
+        // Extract task_uuid from message
+        let task_uuid = message
+            .message
+            .get("task_uuid")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .ok_or_else(|| {
+                error!(
+                    handle = ?message.handle,
+                    message_content = %message.message,
+                    "HYDRATOR: Invalid or missing task_uuid in finalization message"
+                );
+                TaskerError::ValidationError(
+                    "Invalid or missing task_uuid in finalization message".to_string(),
+                )
+            })?;
+
+        info!(
+            handle = ?message.handle,
+            task_uuid = %task_uuid,
+            "HYDRATOR: Successfully extracted task_uuid from QueuedMessage"
         );
 
         Ok(task_uuid)

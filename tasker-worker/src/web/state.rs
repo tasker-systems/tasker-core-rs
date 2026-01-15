@@ -16,7 +16,8 @@ use std::{sync::Arc, time::Instant};
 use tasker_shared::{
     config::tasker::TaskerConfig,
     errors::TaskerResult,
-    messaging::clients::UnifiedMessageClient,
+    messaging::client::MessageClient,
+    messaging::service::MessagingProvider,
     types::api::worker::CircuitBreakersHealth,
     types::base::CacheStats,
     types::web::{
@@ -93,8 +94,8 @@ pub struct WorkerWebState {
     /// where PGMQ runs on a dedicated database.
     pub pgmq_pool: Arc<PgPool>,
 
-    /// Unified message client for queue metrics and monitoring
-    pub message_client: Arc<UnifiedMessageClient>,
+    /// TAS-133e: Message client for queue metrics and monitoring (provider-agnostic)
+    pub message_client: Arc<MessageClient>,
 
     /// Task template manager for template caching and validation
     pub task_template_manager: Arc<TaskTemplateManager>,
@@ -177,9 +178,14 @@ impl WorkerWebState {
 
         info!(worker_id = %worker_id, "Worker ID cached for web state");
 
-        // Create unified message client using the shared database pool
-        let message_client =
-            Arc::new(UnifiedMessageClient::new_pgmq_with_pool((*database_pool).clone()).await);
+        // TAS-133e: Create message client using the new provider-agnostic API
+        let messaging_provider = Arc::new(
+            MessagingProvider::new_pgmq_with_pool((*pgmq_pool).clone()).await,
+        );
+        let message_client = Arc::new(MessageClient::new(
+            messaging_provider,
+            tasker_shared::messaging::service::MessageRouterKind::default(),
+        ));
 
         // Extract task template manager and event components from WorkerCore
         // (shares same instances that were created during worker initialization)

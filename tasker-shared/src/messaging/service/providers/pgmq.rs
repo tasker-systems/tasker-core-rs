@@ -8,16 +8,20 @@
 //! - **Visibility Timeout**: Built-in PGMQ visibility semantics
 //! - **Atomic Operations**: Database transaction guarantees
 //! - **Full MessagingService Implementation**: Complete API compatibility
+//! - **Push Notifications (TAS-133)**: Signal-only push via pg_notify
 
+use std::pin::Pin;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::Stream;
 use pgmq_notify::{PgmqClient, PgmqNotifyConfig};
 use sqlx::PgPool;
 
-use crate::messaging::service::traits::{MessagingService, QueueMessage};
+use crate::messaging::service::traits::{MessagingService, QueueMessage, SupportsPushNotifications};
 use crate::messaging::service::types::{
-    MessageId, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle,
+    MessageHandle, MessageId, MessageMetadata, MessageNotification, QueueHealthReport, QueueStats,
+    QueuedMessage, ReceiptHandle,
 };
 use crate::messaging::MessagingError;
 
@@ -215,11 +219,14 @@ impl MessagingService for PgmqMessagingService {
 
             let deserialized = T::from_bytes(&bytes)?;
 
-            result.push(QueuedMessage::new(
-                ReceiptHandle::from(msg.msg_id),
+            // TAS-133: Use explicit MessageHandle::Pgmq for provider-agnostic message wrapper
+            result.push(QueuedMessage::with_handle(
                 deserialized,
-                msg.read_ct as u32,
-                msg.enqueued_at,
+                MessageHandle::Pgmq {
+                    msg_id: msg.msg_id,
+                    queue_name: queue_name.to_string(),
+                },
+                MessageMetadata::new(msg.read_ct as u32, msg.enqueued_at),
             ));
         }
 
@@ -323,6 +330,232 @@ impl MessagingService for PgmqMessagingService {
     }
 }
 
+// =============================================================================
+// SupportsPushNotifications Implementation (TAS-133)
+// =============================================================================
+
+impl SupportsPushNotifications for PgmqMessagingService {
+    /// Subscribe to push notifications for a PGMQ queue
+    ///
+    /// PGMQ uses PostgreSQL LISTEN/NOTIFY for push notifications with two modes (TAS-133):
+    ///
+    /// - **Small messages (< 7KB)**: Full payload included in notification via `MessageWithPayload`
+    ///   event, returned as `MessageNotification::Message` - process directly without fetch
+    /// - **Large messages (>= 7KB)**: Signal-only via `MessageReady` event, returned as
+    ///   `MessageNotification::Available` with `msg_id` - fetch via `read_specific_message()`
+    ///
+    /// # Implementation Notes
+    ///
+    /// This creates a new `PgmqNotifyListener` for each subscription, which:
+    /// 1. Opens a dedicated connection for LISTEN
+    /// 2. Listens to the queue's notification channel
+    /// 3. Returns `MessageNotification::Message` for small messages (< 7KB)
+    /// 4. Returns `MessageNotification::Available` with `msg_id` for large messages
+    ///
+    /// # Fallback Polling
+    ///
+    /// **Important**: pg_notify is not guaranteed delivery. Notifications can be
+    /// lost under load or if the listener disconnects. Consumers should always
+    /// implement fallback polling (see `requires_fallback_polling()`).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use futures::StreamExt;
+    ///
+    /// let mut stream = service.subscribe("my_queue")?;
+    /// while let Some(notification) = stream.next().await {
+    ///     match notification {
+    ///         MessageNotification::Message(queued_msg) => {
+    ///             // TAS-133: Small message - full payload available, process directly
+    ///             process(queued_msg);
+    ///         }
+    ///         MessageNotification::Available { queue_name, msg_id } => {
+    ///             // Large message - fetch using msg_id
+    ///             if let Some(id) = msg_id {
+    ///                 let msg = service.read_specific_message(&queue_name, id).await?;
+    ///                 process(msg);
+    ///             }
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    fn subscribe(
+        &self,
+        queue_name: &str,
+    ) -> Result<Pin<Box<dyn Stream<Item = MessageNotification> + Send>>, MessagingError> {
+        // TAS-133: Create a notification stream for this queue
+        //
+        // Note: This is a simplified implementation that creates a stream from
+        // a spawned task with an mpsc channel. A production implementation would
+        // likely use a shared listener pool or more sophisticated resource management.
+        let pool = self.pool().clone();
+        let queue_name = queue_name.to_string();
+        let config = self.client.config().clone();
+
+        // Create a channel to bridge the async listener to the stream
+        let (tx, rx) = tokio::sync::mpsc::channel::<MessageNotification>(100);
+
+        // Spawn a task to manage the listener lifecycle
+        tokio::spawn(async move {
+            use pgmq_notify::listener::PgmqEventHandler;
+            use pgmq_notify::{PgmqNotifyEvent, PgmqNotifyListener};
+            use tracing::{debug, error, warn};
+
+            // Create and connect listener
+            // TAS-51: Use default buffer size from config or fallback
+            let buffer_size = 100; // Default buffer size
+            let mut listener =
+                match PgmqNotifyListener::new(pool, config.clone(), buffer_size).await {
+                    Ok(l) => l,
+                    Err(e) => {
+                        error!("Failed to create PGMQ listener for {}: {}", queue_name, e);
+                        return;
+                    }
+                };
+
+            if let Err(e) = listener.connect().await {
+                error!("Failed to connect PGMQ listener for {}: {}", queue_name, e);
+                return;
+            }
+
+            // Extract namespace from queue name (convention: namespace_queue)
+            let namespace = queue_name
+                .rsplit('_')
+                .next_back()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| queue_name.clone());
+
+            // Listen to the message ready channel for this namespace
+            let channel = config.message_ready_channel(&namespace);
+            if let Err(e) = listener.listen_channel(&channel).await {
+                error!(
+                    "Failed to listen to channel {} for {}: {}",
+                    channel, queue_name, e
+                );
+                return;
+            }
+
+            debug!(
+                "PGMQ subscription started for queue: {} (channel: {})",
+                queue_name, channel
+            );
+
+            // Create an event handler that sends notifications to the channel
+            // TAS-133: Handles both small messages (full payload) and large messages (signal only)
+            struct NotificationForwarder {
+                tx: tokio::sync::mpsc::Sender<MessageNotification>,
+                target_queue: String,
+            }
+
+            #[async_trait::async_trait]
+            impl PgmqEventHandler for NotificationForwarder {
+                async fn handle_event(
+                    &self,
+                    event: PgmqNotifyEvent,
+                ) -> pgmq_notify::error::Result<()> {
+                    // Only forward events for our target queue
+                    if event.queue_name() != self.target_queue {
+                        return Ok(());
+                    }
+
+                    // TAS-133: Convert event to appropriate MessageNotification variant
+                    let notification = match &event {
+                        PgmqNotifyEvent::MessageWithPayload(e) => {
+                            // Small message (< 7KB): Full payload included
+                            // Convert to MessageNotification::Message for direct processing
+                            let handle = MessageHandle::Pgmq {
+                                msg_id: e.msg_id,
+                                queue_name: e.queue_name.clone(),
+                            };
+                            let metadata = MessageMetadata {
+                                receive_count: 0, // First receive
+                                enqueued_at: e.ready_at,
+                            };
+                            // Serialize the JSON payload to bytes
+                            let payload_bytes = serde_json::to_vec(&e.message)
+                                .unwrap_or_else(|_| Vec::new());
+                            let queued_msg =
+                                QueuedMessage::with_handle(payload_bytes, handle, metadata);
+                            MessageNotification::message(queued_msg)
+                        }
+                        PgmqNotifyEvent::MessageReady(e) => {
+                            // Large message (>= 7KB): Signal only with msg_id
+                            // Consumer must fetch via read_specific_message()
+                            MessageNotification::available_with_msg_id(
+                                e.queue_name.clone(),
+                                e.msg_id,
+                            )
+                        }
+                        PgmqNotifyEvent::QueueCreated(_) => {
+                            // Queue creation events don't generate message notifications
+                            debug!("Ignoring queue created event for notification stream");
+                            return Ok(());
+                        }
+                        PgmqNotifyEvent::BatchReady(e) => {
+                            // Batch events could be handled, but for now use Available
+                            // The first msg_id in the batch if available
+                            let msg_id = e.msg_ids.first().copied();
+                            match msg_id {
+                                Some(id) => MessageNotification::available_with_msg_id(
+                                    e.queue_name.clone(),
+                                    id,
+                                ),
+                                None => MessageNotification::available(e.queue_name.clone()),
+                            }
+                        }
+                    };
+
+                    if self.tx.send(notification).await.is_err() {
+                        warn!("Notification receiver dropped");
+                    }
+                    Ok(())
+                }
+            }
+
+            let handler = NotificationForwarder {
+                tx,
+                target_queue: queue_name.clone(),
+            };
+
+            // Run the listener loop - this blocks until disconnection
+            if let Err(e) = listener.listen_with_handler(handler).await {
+                error!("PGMQ listener error for {}: {}", queue_name, e);
+            }
+
+            debug!("PGMQ subscription ended for queue: {}", queue_name);
+        });
+
+        // Convert the mpsc receiver to a Stream using futures::stream::unfold
+        let stream = futures::stream::unfold(rx, |mut rx| async move {
+            rx.recv().await.map(|item| (item, rx))
+        });
+
+        Ok(Box::pin(stream))
+    }
+
+    /// PGMQ requires fallback polling
+    ///
+    /// PostgreSQL LISTEN/NOTIFY is **not guaranteed delivery**:
+    /// - Notifications can be lost under heavy load
+    /// - Notifications are missed if the listener disconnects
+    /// - Messages enqueued before subscription started won't trigger notifications
+    ///
+    /// Always combine PGMQ push notifications with periodic polling.
+    fn requires_fallback_polling(&self) -> bool {
+        true
+    }
+
+    /// Recommended fallback polling interval for PGMQ
+    ///
+    /// Returns a 5-second interval by default. This provides a good balance between:
+    /// - Catching missed notifications quickly
+    /// - Not overloading the database with frequent polls
+    fn fallback_polling_interval(&self) -> Option<Duration> {
+        Some(Duration::from_secs(5))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,7 +638,7 @@ mod tests {
         assert_eq!(messages.len(), 1, "Should receive one message");
         assert_eq!(messages[0].message["test"], "hello");
         assert_eq!(messages[0].message["value"], 42);
-        assert_eq!(messages[0].receive_count, 1);
+        assert_eq!(messages[0].receive_count(), 1);
 
         // Ack message
         let ack_result = service
@@ -453,7 +686,8 @@ mod tests {
             .unwrap();
         assert_eq!(messages2.len(), 1, "Message should be requeued");
         assert_eq!(
-            messages2[0].receive_count, 2,
+            messages2[0].receive_count(),
+            2,
             "Receive count should increment"
         );
     }

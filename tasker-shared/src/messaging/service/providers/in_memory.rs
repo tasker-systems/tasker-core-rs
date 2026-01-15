@@ -18,7 +18,8 @@ use tokio::sync::RwLock;
 
 use crate::messaging::service::traits::{MessagingService, QueueMessage};
 use crate::messaging::service::types::{
-    MessageId, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle,
+    MessageHandle, MessageId, MessageMetadata, QueueHealthReport, QueueStats, QueuedMessage,
+    ReceiptHandle,
 };
 use crate::messaging::MessagingError;
 
@@ -278,11 +279,14 @@ impl MessagingService for InMemoryMessagingService {
                 msg.receive_count += 1;
                 queue.total_received.fetch_add(1, Ordering::Relaxed);
 
-                received.push(QueuedMessage::new(
-                    ReceiptHandle::from(msg.id),
+                // TAS-133: Use explicit MessageHandle::InMemory for provider-agnostic message wrapper
+                received.push(QueuedMessage::with_handle(
                     deserialized,
-                    msg.receive_count,
-                    msg.enqueued_at,
+                    MessageHandle::InMemory {
+                        id: msg.id,
+                        queue_name: queue_name.to_string(),
+                    },
+                    MessageMetadata::new(msg.receive_count, msg.enqueued_at),
                 ));
             }
         }
@@ -427,6 +431,43 @@ impl MessagingService for InMemoryMessagingService {
     }
 }
 
+// =============================================================================
+// SupportsPushNotifications implementation (TAS-133)
+// =============================================================================
+
+use std::pin::Pin;
+use futures::Stream;
+use crate::messaging::service::traits::SupportsPushNotifications;
+use crate::messaging::service::types::MessageNotification;
+
+impl SupportsPushNotifications for InMemoryMessagingService {
+    /// Subscribe to push notifications for a queue
+    ///
+    /// TAS-133: Returns an empty stream for in-memory testing. In real usage,
+    /// tests should use polling rather than relying on push notifications.
+    /// This implementation returns `MessageNotification::Available` style
+    /// notifications (signal only, requires fetch) similar to PGMQ.
+    fn subscribe(
+        &self,
+        queue_name: &str,
+    ) -> Result<Pin<Box<dyn Stream<Item = MessageNotification> + Send>>, MessagingError> {
+        // For in-memory testing, return an empty stream.
+        // Real tests should use polling-based receive_messages().
+        // This satisfies the trait requirement without needing broadcast channels.
+        let _queue_name = queue_name.to_string();
+        let empty_stream = futures::stream::empty();
+        Ok(Box::pin(empty_stream))
+    }
+
+    /// In-memory provider uses signal-only notifications (like PGMQ)
+    ///
+    /// Returns `true` because tests should use fallback polling rather than
+    /// relying on push notifications from the in-memory provider.
+    fn requires_fallback_polling(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -472,7 +513,7 @@ mod tests {
 
         assert_eq!(received.len(), 1);
         assert_eq!(received[0].message, msg);
-        assert_eq!(received[0].receive_count, 1);
+        assert_eq!(received[0].receive_count(), 1);
     }
 
     #[tokio::test]
@@ -556,7 +597,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(received2.len(), 1);
-        assert_eq!(received2[0].receive_count, 2); // Second receive
+        assert_eq!(received2[0].receive_count(), 2); // Second receive
     }
 
     #[tokio::test]

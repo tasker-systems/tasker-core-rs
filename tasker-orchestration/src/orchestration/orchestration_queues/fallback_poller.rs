@@ -14,11 +14,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use tasker_shared::{
-    messaging::{PgmqClientTrait, UnifiedPgmqClient},
-    system_context::SystemContext,
-    TaskerResult,
-};
+use tasker_shared::messaging::service::{MessageHandle, MessageMetadata, QueuedMessage};
+use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
 use crate::orchestration::command_processor::OrchestrationCommand;
 
@@ -69,17 +66,18 @@ impl Default for OrchestrationPollerConfig {
 /// Provides queue polling safety net to catch messages missed by pgmq-notify events.
 /// Uses direct queue queries to find older messages that may have been missed
 /// by the event-driven coordination system.
+///
+/// TAS-133e: Updated to use MessagingProvider through SystemContext.
+/// Requires PGMQ provider for event-driven fallback polling.
 pub struct OrchestrationFallbackPoller {
     /// Poller identifier
     poller_id: Uuid,
     /// Configuration
     config: OrchestrationPollerConfig,
-    /// System context
+    /// System context (provides access to PGMQ through messaging_provider)
     context: Arc<SystemContext>,
     /// Command sender for orchestration operations
     command_sender: mpsc::Sender<OrchestrationCommand>,
-    /// PGMQ client for direct queue access
-    pgmq_client: Option<Arc<UnifiedPgmqClient>>,
     /// Running state
     is_running: AtomicBool,
     /// Statistics
@@ -91,7 +89,7 @@ impl std::fmt::Debug for OrchestrationFallbackPoller {
         f.debug_struct("OrchestrationFallbackPoller")
             .field("poller_id", &self.poller_id)
             .field("config", &self.config)
-            .field("has_pgmq_client", &self.pgmq_client.is_some())
+            .field("has_pgmq_provider", &self.context.messaging_provider().is_pgmq())
             .field(
                 "is_running",
                 &self.is_running.load(std::sync::atomic::Ordering::Relaxed),
@@ -123,13 +121,22 @@ pub struct OrchestrationPollerStats {
 
 impl OrchestrationFallbackPoller {
     /// Create new orchestration fallback poller
+    ///
+    /// TAS-133e: Updated to use MessagingProvider through SystemContext.
+    /// Validates that the provider is PGMQ-based (required for fallback polling).
     pub async fn new(
         config: OrchestrationPollerConfig,
         context: Arc<SystemContext>,
         command_sender: mpsc::Sender<OrchestrationCommand>,
-        pgmq_client: Arc<UnifiedPgmqClient>,
     ) -> TaskerResult<Self> {
         let poller_id = Uuid::new_v4();
+
+        // TAS-133e: Validate PGMQ provider is available (required for fallback polling)
+        if !context.messaging_provider().is_pgmq() {
+            return Err(TaskerError::ConfigurationError(
+                "OrchestrationFallbackPoller requires PGMQ messaging provider".to_string(),
+            ));
+        }
 
         info!(
             poller_id = %poller_id,
@@ -144,7 +151,6 @@ impl OrchestrationFallbackPoller {
             config,
             context,
             command_sender,
-            pgmq_client: Some(pgmq_client),
             is_running: AtomicBool::new(false),
             stats: OrchestrationPollerStats::default(),
         })
@@ -198,7 +204,7 @@ impl OrchestrationFallbackPoller {
 
     /// Check if poller is running and healthy
     pub fn is_healthy(&self) -> bool {
-        self.is_running.load(Ordering::Relaxed) && self.pgmq_client.is_some()
+        self.is_running.load(Ordering::Relaxed) && self.context.messaging_provider().is_pgmq()
     }
 
     /// Get poller statistics
@@ -282,6 +288,9 @@ impl OrchestrationFallbackPoller {
     }
 
     /// Poll a single queue for messages (based on EventDrivenOrchestrationCoordinator)
+    ///
+    /// TAS-133e: Updated to use PGMQ client through MessagingProvider for raw message access.
+    /// This is PGMQ-specific fallback polling that requires raw message format for event classification.
     async fn poll_queue_for_messages(
         context: &SystemContext,
         command_sender: &mpsc::Sender<OrchestrationCommand>,
@@ -297,8 +306,22 @@ impl OrchestrationFallbackPoller {
             "Performing fallback polling check"
         );
 
-        match context
-            .message_client
+        // TAS-133e: Access PGMQ client through provider for raw message reading
+        let pgmq_service = match context.messaging_provider().as_pgmq() {
+            Some(service) => service,
+            None => {
+                error!(
+                    poller_id = %poller_id,
+                    queue = %queue_name,
+                    "PGMQ provider not available for fallback polling"
+                );
+                stats.polling_errors.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+        };
+
+        match pgmq_service
+            .client()
             .read_messages(
                 queue_name,
                 Some(config.visibility_timeout.as_secs() as i32),
@@ -333,14 +356,23 @@ impl OrchestrationFallbackPoller {
                             classifier,
                         );
 
+                    // TAS-133: Wrap PGMQ message in provider-agnostic QueuedMessage
+                    let queued_message = QueuedMessage::with_handle(
+                        message.message.clone(),
+                        MessageHandle::Pgmq {
+                            msg_id: message.msg_id,
+                            queue_name: queue_name.to_string(),
+                        },
+                        MessageMetadata::new(message.read_ct as u32, message.enqueued_at),
+                    );
+
                     let command_result = match classified_message {
                         tasker_shared::config::ConfigDrivenMessageEvent::StepResults(_event) => {
                             stats.step_results_processed.fetch_add(1, Ordering::Relaxed);
                             let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
                             command_sender
                                 .send(OrchestrationCommand::ProcessStepResultFromMessage {
-                                    queue_name: queue_name.to_string(),
-                                    message: message.clone(),
+                                    message: queued_message.clone(),
                                     resp: resp_tx,
                                 })
                                 .await
@@ -352,8 +384,7 @@ impl OrchestrationFallbackPoller {
                             let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
                             command_sender
                                 .send(OrchestrationCommand::InitializeTaskFromMessage {
-                                    queue_name: queue_name.to_string(),
-                                    message: message.clone(),
+                                    message: queued_message.clone(),
                                     resp: resp_tx,
                                 })
                                 .await
@@ -364,8 +395,7 @@ impl OrchestrationFallbackPoller {
                             let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
                             command_sender
                                 .send(OrchestrationCommand::FinalizeTaskFromMessage {
-                                    queue_name: queue_name.to_string(),
-                                    message: message.clone(),
+                                    message: queued_message.clone(),
                                     resp: resp_tx,
                                 })
                                 .await

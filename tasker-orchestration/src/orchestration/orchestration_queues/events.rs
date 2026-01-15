@@ -1,29 +1,35 @@
 //! Orchestration queue event types and classifications for TAS-43
 //!
 //! This module implements structured event handling for orchestration queue events,
-//! providing type-safe handling of pgmq-notify events for orchestration coordination.
+//! providing type-safe handling of message events for orchestration coordination.
 //!
 //! ## Event Types
 //!
 //! - **StepResultEvent**: Step completion results from workers
 //! - **TaskRequestEvent**: New task initialization requests
 //! - **QueueManagementEvent**: Queue creation and administrative events
+//!
+//! ## Provider Abstraction (TAS-133)
+//!
+//! Event types use provider-agnostic `MessageEvent` for multi-backend support.
 
-use pgmq_notify::MessageReadyEvent;
 use serde::{Deserialize, Serialize};
+use tasker_shared::messaging::service::MessageEvent;
 
 /// Orchestration queue event classification
 ///
-/// Provides structured classification of pgmq-notify events for orchestration
+/// Provides structured classification of messaging events for orchestration
 /// queue processing, similar to TaskReadinessEvent but for queue-level coordination.
+///
+/// Uses provider-agnostic `MessageEvent` to support multiple messaging backends.
 #[derive(Debug, Clone)]
 pub enum OrchestrationQueueEvent {
     /// Step result event from workers
-    StepResult(MessageReadyEvent),
+    StepResult(MessageEvent),
     /// Task request event for initialization
-    TaskRequest(MessageReadyEvent),
+    TaskRequest(MessageEvent),
     /// Queue management event (creation, etc.)
-    TaskFinalization(MessageReadyEvent),
+    TaskFinalization(MessageEvent),
     /// Unknown queue event (for monitoring and debugging)
     Unknown { queue_name: String, payload: String },
 }

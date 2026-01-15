@@ -349,14 +349,14 @@ mod tests {
     };
     use crate::worker::in_process_event_bus::{InProcessEventBus, InProcessEventBusConfig};
     use tasker_shared::events::domain_events::DomainEventPublisher;
-    use tasker_shared::messaging::UnifiedPgmqClient;
+    use tasker_shared::messaging::client::MessageClient;
     use tokio::sync::RwLock;
     use uuid::Uuid;
 
     /// Helper to create test dependencies
     fn create_test_deps(
         worker_id: &str,
-        message_client: Arc<UnifiedPgmqClient>,
+        message_client: Arc<MessageClient>,
     ) -> (WorkerEventPublisher, DomainEventSystemHandle) {
         let event_publisher = WorkerEventPublisher::new(worker_id.to_string());
 

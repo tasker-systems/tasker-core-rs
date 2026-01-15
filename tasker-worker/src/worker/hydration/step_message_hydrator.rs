@@ -5,12 +5,12 @@
 //! This hydrator handles:
 //! - `PgmqMessage<StepMessage>` → ExecuteStepMessage
 //! - Raw PgmqMessage → ExecuteStepFromPgmqMessage
-//! - MessageReadyEvent → ExecuteStepFromEventMessage
+//! - MessageEvent → ExecuteStepFromEventMessage (TAS-133)
 
 use pgmq::Message as PgmqMessage;
-use pgmq_notify::MessageReadyEvent;
 
 use tasker_shared::messaging::message::StepMessage;
+use tasker_shared::messaging::service::MessageEvent;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use crate::worker::actors::{
@@ -87,14 +87,16 @@ impl StepMessageHydrator {
         }
     }
 
-    /// Hydrate a MessageReadyEvent into an ExecuteStepFromEventMessage
+    /// Hydrate a MessageEvent into an ExecuteStepFromEventMessage
+    ///
+    /// TAS-133: Updated to use provider-agnostic `MessageEvent`
     ///
     /// # Arguments
-    /// * `event` - The PGMQ notification event
+    /// * `event` - The provider-agnostic message event
     ///
     /// # Returns
     /// A hydrated ExecuteStepFromEventMessage
-    pub fn hydrate_from_event(event: MessageReadyEvent) -> ExecuteStepFromEventMessage {
+    pub fn hydrate_from_event(event: MessageEvent) -> ExecuteStepFromEventMessage {
         ExecuteStepFromEventMessage {
             message_event: event,
         }
@@ -158,7 +160,6 @@ impl StepMessageHydrator {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use std::collections::HashMap;
     use uuid::Uuid;
 
     fn create_test_step_message() -> StepMessage {
@@ -210,19 +211,13 @@ mod tests {
 
     #[test]
     fn test_hydrate_from_event() {
-        let event = MessageReadyEvent {
-            queue_name: "test_queue".to_string(),
-            namespace: "test_namespace".to_string(),
-            msg_id: 1,
-            ready_at: Utc::now(),
-            metadata: HashMap::new(),
-            visibility_timeout_seconds: Some(30),
-        };
+        let event = MessageEvent::new("test_queue", "test_namespace", "123");
 
         let hydrated = StepMessageHydrator::hydrate_from_event(event.clone());
 
-        assert_eq!(hydrated.message_event.queue_name, event.queue_name);
-        assert_eq!(hydrated.message_event.msg_id, event.msg_id);
+        assert_eq!(hydrated.message_event.queue_name, "test_queue");
+        assert_eq!(hydrated.message_event.namespace, "test_namespace");
+        assert_eq!(hydrated.message_event.message_id.as_str(), "123");
     }
 
     #[test]

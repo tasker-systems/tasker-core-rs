@@ -1,14 +1,15 @@
 // TAS-61 Phase 6C/6D: V2 config is now canonical
 // TAS-78: Added DatabasePools for separate PGMQ database support
+// TAS-133e: Updated to use MessagingProvider and MessageClient
 use crate::config::tasker::TaskerConfig;
 use crate::config::ConfigManager;
 use crate::database::DatabasePools;
 use crate::events::EventPublisher;
-use crate::messaging::{PgmqClientTrait, UnifiedPgmqClient};
+use crate::messaging::client::MessageClient;
+use crate::messaging::service::{MessageRouterKind, MessagingProvider};
 use crate::registry::TaskHandlerRegistry;
 use crate::resilience::CircuitBreakerManager;
 use crate::{TaskerError, TaskerResult};
-use pgmq_notify::PgmqClient;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::info;
@@ -19,7 +20,7 @@ use uuid::Uuid;
 /// This serves as a dependency injection container providing access to:
 /// - Database connection pool
 /// - Configuration manager
-/// - Message queue clients (unified PGMQ/future RabbitMQ)
+/// - Messaging provider and client (TAS-133e: strategy pattern)
 /// - Task handler registry
 /// - Circuit breaker management
 /// - Operational state management
@@ -31,6 +32,12 @@ use uuid::Uuid;
 /// - Orchestration-only: common + orchestration contexts
 /// - Worker-only: common + worker contexts
 /// - Full: common + orchestration + worker contexts
+///
+/// ## TAS-133e: Messaging Strategy Pattern
+///
+/// Uses `MessagingProvider` enum for low-level queue operations and `MessageClient`
+/// struct for domain-level messaging. Provider selection is configuration-driven
+/// via `common.queues.backend` ("pgmq" or "rabbitmq").
 pub struct SystemContext {
     /// System instance ID
     pub processor_uuid: Uuid,
@@ -43,8 +50,17 @@ pub struct SystemContext {
     /// - `worker`: Optional worker-specific configuration
     pub tasker_config: Arc<TaskerConfig>,
 
-    /// Unified message queue client (PGMQ/RabbitMQ abstraction)
-    pub message_client: Arc<UnifiedPgmqClient>,
+    /// Low-level messaging provider (TAS-133e)
+    ///
+    /// Provides direct access to queue operations. Use `message_client` for
+    /// domain-level operations; use this only for advanced/low-level needs.
+    pub messaging_provider: Arc<MessagingProvider>,
+
+    /// Domain-level message client (TAS-133e)
+    ///
+    /// Provides Tasker-specific messaging methods (send_step_message, etc.).
+    /// Wraps `messaging_provider` with queue routing and domain types.
+    pub message_client: Arc<MessageClient>,
 
     /// Database connection pools (TAS-78: supports separate PGMQ database)
     ///
@@ -67,7 +83,11 @@ impl std::fmt::Debug for SystemContext {
         f.debug_struct("SystemContext")
             .field("processor_uuid", &self.processor_uuid)
             .field("tasker_config", &"Arc<TaskerConfig>")
-            .field("message_client", &"Arc<UnifiedMessageClient>")
+            .field(
+                "messaging_provider",
+                &format!("Arc<MessagingProvider::{}>", self.messaging_provider.provider_name()),
+            )
+            .field("message_client", &"Arc<MessageClient>")
             .field("database_pools", &self.database_pools)
             .field("task_handler_registry", &"Arc<TaskHandlerRegistry>")
             .field(
@@ -195,32 +215,85 @@ impl SystemContext {
         Self::from_pools_and_config(database_pools, config_manager).await
     }
 
-    async fn get_circuit_breaker_and_queue_client(
+    /// Create messaging provider and client based on configuration (TAS-133e)
+    ///
+    /// Reads `common.queues.backend` to select the provider:
+    /// - "pgmq" (default): Uses PostgreSQL Message Queue
+    /// - "rabbitmq": Uses RabbitMQ (requires `common.queues.rabbitmq` config)
+    ///
+    /// Returns tuple of (MessagingProvider, MessageClient) wrapped in Arc.
+    async fn create_messaging(
         config: &TaskerConfig,
         pgmq_pool: PgPool,
-    ) -> (Option<Arc<CircuitBreakerManager>>, Arc<UnifiedPgmqClient>) {
-        // TAS-61 Phase 6C/6D: Use V2 config structure (common.circuit_breakers)
-        let circuit_breaker_config = if config.common.circuit_breakers.enabled {
-            info!("Circuit breakers enabled in configuration");
-            Some(config.common.circuit_breakers.clone())
-        } else {
-            info!("Circuit breakers disabled in configuration");
-            None
+    ) -> TaskerResult<(Arc<MessagingProvider>, Arc<MessageClient>)> {
+        let backend = config.common.queues.backend.as_str();
+
+        info!(backend = %backend, "Creating messaging provider (TAS-133e)");
+
+        let provider = match backend {
+            "pgmq" => {
+                info!("Using PGMQ messaging provider with PostgreSQL database");
+                MessagingProvider::new_pgmq_with_pool(pgmq_pool).await
+            }
+            "rabbitmq" => {
+                let rabbitmq_config = config.common.queues.rabbitmq.as_ref().ok_or_else(|| {
+                    TaskerError::ConfigurationError(
+                        "RabbitMQ backend selected but [common.queues.rabbitmq] config not found".to_string(),
+                    )
+                })?;
+
+                info!(
+                    "Using RabbitMQ messaging provider: {}",
+                    // Redact credentials from URL for logging
+                    rabbitmq_config.url.split('@').next_back().unwrap_or("***")
+                );
+
+                MessagingProvider::new_rabbitmq(rabbitmq_config)
+                    .await
+                    .map_err(|e| {
+                        TaskerError::ConfigurationError(format!(
+                            "Failed to create RabbitMQ provider: {}",
+                            e
+                        ))
+                    })?
+            }
+            other => {
+                return Err(TaskerError::ConfigurationError(format!(
+                    "Unknown messaging backend '{}'. Supported: 'pgmq', 'rabbitmq'",
+                    other
+                )));
+            }
         };
 
-        // Create circuit breaker manager if enabled (deprecated - circuit breakers are now redundant with sqlx)
-        let circuit_breaker_manager = if let Some(cb_config) = circuit_breaker_config {
-            info!("Circuit breaker configuration found but ignored - sqlx provides this functionality");
-            Some(Arc::new(CircuitBreakerManager::from_config(&cb_config)))
-        } else {
-            info!("Using standard PgmqClient with sqlx connection pooling");
-            None
-        };
+        let provider = Arc::new(provider);
 
-        // TAS-78: Create unified client with PGMQ pool (may be separate from Tasker pool)
-        let standard_client = PgmqClient::new_with_pool(pgmq_pool).await;
-        let message_client = Arc::new(UnifiedPgmqClient::new_standard(standard_client));
-        (circuit_breaker_manager, message_client)
+        // Create router from queue configuration
+        let router = MessageRouterKind::from_config(&config.common.queues);
+
+        // Create domain-level client wrapping the provider
+        let client = Arc::new(MessageClient::new(provider.clone(), router));
+
+        info!(
+            provider_name = %provider.provider_name(),
+            "Messaging provider and client created successfully"
+        );
+
+        Ok((provider, client))
+    }
+
+    /// Get circuit breaker manager if enabled (TAS-133e: separated from messaging)
+    fn create_circuit_breaker_manager(
+        config: &TaskerConfig,
+    ) -> Option<Arc<CircuitBreakerManager>> {
+        if config.common.circuit_breakers.enabled {
+            info!("Circuit breaker manager enabled");
+            Some(Arc::new(CircuitBreakerManager::from_config(
+                &config.common.circuit_breakers,
+            )))
+        } else {
+            info!("Circuit breaker manager disabled");
+            None
+        }
     }
 
     /// Internal constructor with full configuration support
@@ -230,25 +303,26 @@ impl SystemContext {
     ///
     /// ## TAS-61 Phase 6C/6D: V2 Configuration (Canonical)
     /// ## TAS-78: DatabasePools for separate PGMQ database support
+    /// ## TAS-133e: MessagingProvider and MessageClient
     ///
     /// Uses V2 config directly as the single source of truth.
-    /// No bridge conversion - all components use V2 config structure.
+    /// Messaging provider is selected based on `common.queues.backend`.
     async fn from_pools_and_config(
         database_pools: DatabasePools,
         config_manager: Arc<ConfigManager>,
     ) -> TaskerResult<Self> {
-        info!("Creating system components with V2 configuration (TAS-61 Phase 6C/6D: canonical config)");
+        info!("Creating system components with V2 configuration (TAS-61 Phase 6C/6D + TAS-133e)");
 
         // TAS-61 Phase 6C/6D: V2 config is the single source of truth
         let config = config_manager.config();
         let tasker_config = Arc::new(config.clone());
 
-        // TAS-78: Use PGMQ pool for message client
-        let (circuit_breaker_manager, message_client) = Self::get_circuit_breaker_and_queue_client(
-            &tasker_config,
-            database_pools.pgmq().clone(),
-        )
-        .await;
+        // TAS-133e: Create messaging provider and client based on config
+        let (messaging_provider, message_client) =
+            Self::create_messaging(&tasker_config, database_pools.pgmq().clone()).await?;
+
+        // Circuit breaker manager (optional, separated from messaging in TAS-133e)
+        let circuit_breaker_manager = Self::create_circuit_breaker_manager(&tasker_config);
 
         // Create task handler registry with Tasker pool
         let task_handler_registry =
@@ -265,11 +339,15 @@ impl SystemContext {
             .event_queue_buffer_size as usize;
         let event_publisher = Arc::new(EventPublisher::with_capacity(event_publisher_buffer_size));
 
-        info!("SystemContext components created successfully with V2 config");
+        info!(
+            provider = %messaging_provider.provider_name(),
+            "SystemContext components created successfully"
+        );
 
         Ok(Self {
             processor_uuid: system_id,
             tasker_config,
+            messaging_provider,
             message_client,
             database_pools,
             task_handler_registry,
@@ -280,14 +358,11 @@ impl SystemContext {
 
     /// Initialize standard namespace queues
     pub async fn initialize_queues(&self, namespaces: &[&str]) -> TaskerResult<()> {
-        info!("Initializing namespace queues via unified client");
+        info!("Initializing namespace queues via MessageClient (TAS-133e)");
 
         self.message_client
             .initialize_namespace_queues(namespaces)
-            .await
-            .map_err(|e| {
-                TaskerError::MessagingError(format!("Failed to initialize queues: {e}"))
-            })?;
+            .await?;
 
         info!("All namespace queues initialized");
         Ok(())
@@ -310,12 +385,7 @@ impl SystemContext {
         ];
 
         for queue_name in orchestration_owned_queues {
-            self.message_client
-                .create_queue(queue_name)
-                .await
-                .map_err(|e| {
-                    TaskerError::MessagingError(format!("Failed to initialize owned queues: {e}"))
-                })?;
+            self.message_client.ensure_queue(queue_name).await?;
         }
 
         info!("All owned queues initialized");
@@ -343,27 +413,11 @@ impl SystemContext {
         for namespace in namespaces {
             // Create main domain events queue
             let main_queue = format!("{}_domain_events", namespace);
-            self.message_client
-                .create_queue(&main_queue)
-                .await
-                .map_err(|e| {
-                    TaskerError::MessagingError(format!(
-                        "Failed to create domain events queue {}: {}",
-                        main_queue, e
-                    ))
-                })?;
+            self.message_client.ensure_queue(&main_queue).await?;
 
             // Create DLQ for failed events
             let dlq_queue = format!("{}_domain_events_dlq", namespace);
-            self.message_client
-                .create_queue(&dlq_queue)
-                .await
-                .map_err(|e| {
-                    TaskerError::MessagingError(format!(
-                        "Failed to create domain events DLQ {}: {}",
-                        dlq_queue, e
-                    ))
-                })?;
+            self.message_client.ensure_queue(&dlq_queue).await?;
         }
 
         info!("Domain event queues initialized successfully");
@@ -393,8 +447,19 @@ impl SystemContext {
         &self.database_pools
     }
 
-    /// Get message client reference
-    pub fn message_client(&self) -> Arc<UnifiedPgmqClient> {
+    /// Get messaging provider reference (TAS-133e)
+    ///
+    /// Provides access to the low-level messaging provider for advanced operations.
+    /// Prefer `message_client()` for domain-level messaging operations.
+    pub fn messaging_provider(&self) -> &Arc<MessagingProvider> {
+        &self.messaging_provider
+    }
+
+    /// Get message client reference (TAS-133e)
+    ///
+    /// Provides access to the domain-level messaging client with Tasker-specific
+    /// methods like `send_step_message`, `send_task_request`, etc.
+    pub fn message_client(&self) -> Arc<MessageClient> {
         self.message_client.clone()
     }
 
@@ -419,6 +484,7 @@ impl SystemContext {
     ///
     /// ## TAS-61 Phase 6C/6D: V2 Configuration (Canonical)
     /// ## TAS-78: Uses provided pool for both Tasker and PGMQ (single-DB test mode)
+    /// ## TAS-133e: Uses MessagingProvider and MessageClient
     ///
     /// Uses V2 config directly as the single source of truth.
     #[cfg(any(test, feature = "test-utils"))]
@@ -442,11 +508,9 @@ impl SystemContext {
         // TAS-78: Create DatabasePools with the provided pool (uses config for PGMQ if separate)
         let database_pools = DatabasePools::with_tasker_pool(config, database_pool.clone()).await?;
 
-        // Create standard PGMQ client (no circuit breaker for simplicity)
-        // TAS-78: Use PGMQ pool from DatabasePools
-        let message_client = Arc::new(UnifiedPgmqClient::new_standard(
-            PgmqClient::new_with_pool(database_pools.pgmq().clone()).await,
-        ));
+        // TAS-133e: Create messaging provider and client (uses PGMQ for tests)
+        let (messaging_provider, message_client) =
+            Self::create_messaging(&tasker_config, database_pools.pgmq().clone()).await?;
 
         // Create task handler registry with Tasker pool
         let task_handler_registry =
@@ -463,6 +527,7 @@ impl SystemContext {
         Ok(Self {
             processor_uuid: system_id,
             tasker_config,
+            messaging_provider,
             message_client,
             database_pools,
             task_handler_registry,

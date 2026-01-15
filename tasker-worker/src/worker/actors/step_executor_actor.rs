@@ -30,13 +30,14 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use tasker_shared::messaging::PgmqClientTrait;
+use tasker_shared::messaging::service::ReceiptHandle;
 use tasker_shared::system_context::SystemContext;
-use tasker_shared::TaskerResult;
+use tasker_shared::{TaskerError, TaskerResult};
 
 use super::messages::{
     DispatchHandlerMessage, ExecuteStepFromEventMessage, ExecuteStepFromPgmqMessage,
-    ExecuteStepMessage, ExecuteStepWithCorrelationMessage, TraceContext,
+    ExecuteStepFromQueuedMessage, ExecuteStepMessage, ExecuteStepWithCorrelationMessage,
+    TraceContext,
 };
 use super::traits::{Handler, Message, WorkerActor};
 use crate::worker::event_publisher::WorkerEventPublisher;
@@ -339,18 +340,19 @@ impl Handler<ExecuteStepMessage> for StepExecutorActor {
             .await?;
 
         if claimed {
-            // Delete the PGMQ message after successful dispatch
+            // TAS-133e: Ack the PGMQ message after successful dispatch (provider-agnostic)
+            let receipt_handle = ReceiptHandle::from(msg.message.msg_id);
             if let Err(e) = self
                 .context
-                .message_client
-                .delete_message(&msg.queue_name, msg.message.msg_id)
+                .message_client()
+                .ack_message(&msg.queue_name, &receipt_handle)
                 .await
             {
                 warn!(
                     actor = self.name(),
                     step_uuid = %step_uuid,
                     error = %e,
-                    "Failed to delete PGMQ message after dispatch"
+                    "Failed to ack PGMQ message after dispatch"
                 );
             }
         }
@@ -389,18 +391,19 @@ impl Handler<ExecuteStepWithCorrelationMessage> for StepExecutorActor {
             .await?;
 
         if claimed {
-            // Delete the PGMQ message after successful dispatch
+            // TAS-133e: Ack the PGMQ message after successful dispatch (provider-agnostic)
+            let receipt_handle = ReceiptHandle::from(msg.message.msg_id);
             if let Err(e) = self
                 .context
-                .message_client
-                .delete_message(&msg.queue_name, msg.message.msg_id)
+                .message_client()
+                .ack_message(&msg.queue_name, &receipt_handle)
                 .await
             {
                 warn!(
                     actor = self.name(),
                     step_uuid = %step_uuid,
                     error = %e,
-                    "Failed to delete PGMQ message after dispatch"
+                    "Failed to ack PGMQ message after dispatch"
                 );
             }
         }
@@ -448,18 +451,85 @@ impl Handler<ExecuteStepFromPgmqMessage> for StepExecutorActor {
             .await?;
 
         if claimed {
-            // Delete the PGMQ message after successful dispatch
+            // TAS-133e: Ack the PGMQ message after successful dispatch (provider-agnostic)
+            let receipt_handle = ReceiptHandle::from(msg.message.msg_id);
             if let Err(e) = self
                 .context
-                .message_client
-                .delete_message(&msg.queue_name, msg.message.msg_id)
+                .message_client()
+                .ack_message(&msg.queue_name, &receipt_handle)
                 .await
             {
                 warn!(
                     actor = self.name(),
                     step_uuid = %step_uuid,
                     error = %e,
-                    "Failed to delete PGMQ message after dispatch"
+                    "Failed to ack PGMQ message after dispatch"
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// TAS-133: Handler for provider-agnostic QueuedMessage
+///
+/// This handler works with any messaging provider by using the `MessageHandle`
+/// to extract queue name and construct receipt handles for acknowledgment.
+#[async_trait]
+impl Handler<ExecuteStepFromQueuedMessage> for StepExecutorActor {
+    async fn handle(
+        &self,
+        msg: ExecuteStepFromQueuedMessage,
+    ) -> TaskerResult<<ExecuteStepFromQueuedMessage as Message>::Response> {
+        let queue_name = msg.message.handle.queue_name();
+
+        // Deserialize the message payload to get step/task UUIDs
+        let step_message: tasker_shared::messaging::message::StepMessage =
+            serde_json::from_value(msg.message.message.clone()).map_err(|e| {
+                tasker_shared::TaskerError::MessagingError(format!(
+                    "Failed to deserialize step message: {}",
+                    e
+                ))
+            })?;
+
+        let step_uuid = step_message.step_uuid;
+        let task_uuid = step_message.task_uuid;
+
+        debug!(
+            actor = self.name(),
+            handle = ?msg.message.handle,
+            step_uuid = %step_uuid,
+            queue = %queue_name,
+            "Handling ExecuteStepFromQueuedMessage via dispatch"
+        );
+
+        // TAS-67: All execution flows through dispatch (no fallback)
+        let correlation_id = Uuid::new_v4();
+        let trace_context = Some(TraceContext {
+            trace_id: correlation_id.to_string(),
+            span_id: format!("span-{}", step_uuid),
+        });
+
+        // Claim and dispatch (fire-and-forget)
+        let claimed = self
+            .claim_and_dispatch(step_uuid, task_uuid, correlation_id, trace_context)
+            .await?;
+
+        if claimed {
+            // TAS-133: Ack the message using provider-agnostic handle
+            let receipt_handle = msg.message.handle.as_receipt_handle();
+            if let Err(e) = self
+                .context
+                .message_client()
+                .ack_message(queue_name, &receipt_handle)
+                .await
+            {
+                warn!(
+                    actor = self.name(),
+                    step_uuid = %step_uuid,
+                    error = %e,
+                    "Failed to ack message after dispatch"
                 );
             }
         }
@@ -474,28 +544,44 @@ impl Handler<ExecuteStepFromEventMessage> for StepExecutorActor {
         &self,
         msg: ExecuteStepFromEventMessage,
     ) -> TaskerResult<<ExecuteStepFromEventMessage as Message>::Response> {
+        let message_id_str = msg.message_event.message_id.as_str();
         debug!(
             actor = self.name(),
-            msg_id = msg.message_event.msg_id,
+            msg_id = %message_id_str,
             queue = %msg.message_event.queue_name,
             "Handling ExecuteStepFromEventMessage"
         );
 
-        // Read the specific message from the queue to get step/task UUIDs
-        let message = self
-            .context
-            .message_client
+        // TAS-133e: Read the specific message using PGMQ provider (event-driven specific)
+        // This is a PGMQ-specific operation for event-driven message processing.
+        // The message_id must be parsed to i64 for PGMQ's read_specific_message operation.
+        let pgmq_service = self.context.messaging_provider().as_pgmq().ok_or_else(|| {
+            TaskerError::MessagingError(
+                "Event-driven step execution requires PGMQ provider".to_string(),
+            )
+        })?;
+
+        // Parse message_id from string to i64 for PGMQ operations
+        let msg_id: i64 = message_id_str.parse().map_err(|e| {
+            TaskerError::ValidationError(format!(
+                "Invalid message ID '{}' for PGMQ: {e}",
+                message_id_str
+            ))
+        })?;
+
+        // Use default visibility timeout of 30 seconds (MessageEvent doesn't carry this)
+        let visibility_timeout_seconds = 30;
+
+        let message = pgmq_service
+            .client()
             .read_specific_message::<tasker_shared::messaging::message::StepMessage>(
                 &msg.message_event.queue_name,
-                msg.message_event.msg_id,
-                msg.message_event.visibility_timeout_seconds.unwrap_or(30),
+                msg_id,
+                visibility_timeout_seconds,
             )
             .await
             .map_err(|e| {
-                tasker_shared::TaskerError::MessagingError(format!(
-                    "Failed to read specific message: {}",
-                    e
-                ))
+                TaskerError::MessagingError(format!("Failed to read specific message: {}", e))
             })?;
 
         match message {
@@ -522,18 +608,19 @@ impl Handler<ExecuteStepFromEventMessage> for StepExecutorActor {
                     .await?;
 
                 if claimed {
-                    // Delete the PGMQ message after successful dispatch
+                    // TAS-133e: Ack the PGMQ message after successful dispatch (provider-agnostic)
+                    let receipt_handle = ReceiptHandle::from(m.msg_id);
                     if let Err(e) = self
                         .context
-                        .message_client
-                        .delete_message(&msg.message_event.queue_name, m.msg_id)
+                        .message_client()
+                        .ack_message(&msg.message_event.queue_name, &receipt_handle)
                         .await
                     {
                         warn!(
                             actor = self.name(),
                             step_uuid = %step_uuid,
                             error = %e,
-                            "Failed to delete PGMQ message after dispatch"
+                            "Failed to ack PGMQ message after dispatch"
                         );
                     }
                 }
@@ -543,7 +630,7 @@ impl Handler<ExecuteStepFromEventMessage> for StepExecutorActor {
             None => {
                 tracing::warn!(
                     actor = self.name(),
-                    msg_id = msg.message_event.msg_id,
+                    msg_id = %message_id_str,
                     "Message not found when processing event"
                 );
                 Ok(())

@@ -4,18 +4,11 @@
 //! and method implementations without requiring external dependencies.
 
 use super::*;
-use std::collections::HashMap;
 
 #[test]
 fn test_worker_queue_event_creation() {
-    let message_event = MessageReadyEvent {
-        msg_id: 123,
-        queue_name: "test_queue".to_string(),
-        namespace: "test_namespace".to_string(),
-        ready_at: chrono::Utc::now(),
-        metadata: HashMap::new(),
-        visibility_timeout_seconds: Some(30),
-    };
+    // TAS-133: Use provider-agnostic MessageEvent
+    let message_event = MessageEvent::new("test_queue", "test_namespace", "123");
 
     let step_event = WorkerQueueEvent::StepMessage(message_event.clone());
     let health_event = WorkerQueueEvent::HealthCheck(message_event.clone());
@@ -26,7 +19,7 @@ fn test_worker_queue_event_creation() {
         WorkerQueueEvent::StepMessage(event) => {
             assert_eq!(event.queue_name, "test_queue");
             assert_eq!(event.namespace, "test_namespace");
-            assert_eq!(event.msg_id, 123);
+            assert_eq!(event.message_id.as_str(), "123");
         }
         _ => panic!("Expected StepMessage"),
     }
@@ -69,14 +62,8 @@ fn test_worker_queue_event_unknown() {
 
 #[test]
 fn test_worker_queue_event_methods() {
-    let message_event = MessageReadyEvent {
-        msg_id: 123,
-        queue_name: "linear_workflow_queue".to_string(),
-        namespace: "linear_workflow".to_string(),
-        ready_at: chrono::Utc::now(),
-        metadata: HashMap::new(),
-        visibility_timeout_seconds: Some(30),
-    };
+    // TAS-133: Use provider-agnostic MessageEvent
+    let message_event = MessageEvent::new("linear_workflow_queue", "linear_workflow", "123");
 
     let step_event = WorkerQueueEvent::StepMessage(message_event.clone());
     let health_event = WorkerQueueEvent::HealthCheck(message_event.clone());
@@ -107,14 +94,8 @@ fn test_worker_queue_event_methods() {
 
 #[test]
 fn test_worker_notification_creation() {
-    let message_event = MessageReadyEvent {
-        msg_id: 456,
-        queue_name: "order_fulfillment_queue".to_string(),
-        namespace: "order_fulfillment".to_string(),
-        ready_at: chrono::Utc::now(),
-        metadata: HashMap::new(),
-        visibility_timeout_seconds: Some(60),
-    };
+    // TAS-133: Use provider-agnostic MessageEvent
+    let message_event = MessageEvent::new("order_fulfillment_queue", "order_fulfillment", "456");
 
     let event_notification =
         WorkerNotification::Event(WorkerQueueEvent::StepMessage(message_event));
@@ -143,7 +124,7 @@ fn test_worker_notification_creation() {
         WorkerNotification::Event(WorkerQueueEvent::StepMessage(event)) => {
             assert_eq!(event.queue_name, "order_fulfillment_queue");
             assert_eq!(event.namespace, "order_fulfillment");
-            assert_eq!(event.msg_id, 456);
+            assert_eq!(event.message_id.as_str(), "456");
         }
         _ => panic!("Expected Event notification with StepMessage"),
     }
@@ -173,14 +154,8 @@ fn test_worker_notification_creation() {
 
 #[test]
 fn test_worker_notification_methods() {
-    let message_event = MessageReadyEvent {
-        msg_id: 789,
-        queue_name: "inventory_queue".to_string(),
-        namespace: "inventory".to_string(),
-        ready_at: chrono::Utc::now(),
-        metadata: HashMap::new(),
-        visibility_timeout_seconds: Some(45),
-    };
+    // TAS-133: Use provider-agnostic MessageEvent
+    let message_event = MessageEvent::new("inventory_queue", "inventory", "789");
 
     let event_notification =
         WorkerNotification::Event(WorkerQueueEvent::StepMessage(message_event));
@@ -301,14 +276,8 @@ fn test_queue_event_classification_patterns() {
     ];
 
     for (queue_name, namespace, should_be_step) in test_cases {
-        let message_event = MessageReadyEvent {
-            msg_id: 100,
-            queue_name: queue_name.to_string(),
-            namespace: namespace.to_string(),
-            ready_at: chrono::Utc::now(),
-            metadata: HashMap::new(),
-            visibility_timeout_seconds: Some(30),
-        };
+        // TAS-133: Use provider-agnostic MessageEvent
+        let message_event = MessageEvent::new(queue_name, namespace, "100");
 
         // Simulate event classification logic
         let event = if queue_name.ends_with("_queue") {

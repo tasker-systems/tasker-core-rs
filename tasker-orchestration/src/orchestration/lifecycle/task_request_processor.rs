@@ -6,7 +6,10 @@
 
 use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
 use std::sync::Arc;
-use tasker_shared::messaging::{PgmqClientTrait, TaskRequestMessage, UnifiedPgmqClient};
+use std::time::Duration;
+use tasker_shared::messaging::client::MessageClient;
+use tasker_shared::messaging::orchestration_messages::TaskRequestMessage;
+use tasker_shared::messaging::service::QueuedMessage;
 use tasker_shared::registry::TaskHandlerRegistry;
 use tasker_shared::{TaskerError, TaskerResult};
 use tracing::{debug, error, info, instrument, warn};
@@ -39,11 +42,11 @@ impl Default for TaskRequestProcessorConfig {
     }
 }
 
-/// Processes task requests and validates them for orchestration
+/// Processes task requests and validates them for orchestration (TAS-133e)
 #[derive(Debug)]
 pub struct TaskRequestProcessor {
-    /// PostgreSQL message queue client (unified for circuit breaker flexibility)
-    pgmq_client: Arc<UnifiedPgmqClient>,
+    /// Message client for queue operations (TAS-133e: provider-agnostic)
+    message_client: Arc<MessageClient>,
     /// Task handler registry for validation
     task_handler_registry: Arc<TaskHandlerRegistry>,
     /// Task initializer for creating tasks
@@ -53,31 +56,32 @@ pub struct TaskRequestProcessor {
 }
 
 impl TaskRequestProcessor {
-    /// Create a new task request processor with unified client
+    /// Create a new task request processor with message client
     pub fn new(
-        pgmq_client: Arc<UnifiedPgmqClient>,
+        message_client: Arc<MessageClient>,
         task_handler_registry: Arc<TaskHandlerRegistry>,
         task_initializer: Arc<TaskInitializer>,
         config: TaskRequestProcessorConfig,
     ) -> Self {
         Self {
-            pgmq_client,
+            message_client,
             task_handler_registry,
             task_initializer,
             config,
         }
     }
 
-    /// Process a batch of task request messages
+    /// Process a batch of task request messages (TAS-133e)
     #[instrument(skip(self))]
     pub async fn process_batch(&self) -> TaskerResult<usize> {
         // Read messages from the request queue
-        let messages = self
-            .pgmq_client
-            .read_messages(
+        let visibility_timeout = Duration::from_secs(self.config.visibility_timeout_seconds as u64);
+        let messages: Vec<QueuedMessage<TaskRequestMessage>> = self
+            .message_client
+            .receive_messages(
                 &self.config.request_queue_name,
-                Some(self.config.visibility_timeout_seconds),
-                Some(self.config.batch_size),
+                self.config.batch_size as usize,
+                visibility_timeout,
             )
             .await
             .map_err(|e| {
@@ -99,21 +103,19 @@ impl TaskRequestProcessor {
         let mut processed_count = 0;
 
         for message in messages {
-            match self
-                .process_single_request(&message.message, message.msg_id)
-                .await
-            {
+            let msg_id = message.receipt_handle.as_str();
+            match self.process_single_request(&message.message).await {
                 Ok(()) => {
-                    // Delete the successfully processed message
+                    // Ack the successfully processed message (TAS-133e)
                     if let Err(e) = self
-                        .pgmq_client
-                        .delete_message(&self.config.request_queue_name, message.msg_id)
+                        .message_client
+                        .ack_message(&self.config.request_queue_name, &message.receipt_handle)
                         .await
                     {
                         warn!(
-                            msg_id = message.msg_id,
+                            msg_id = %msg_id,
                             error = %e,
-                            "Failed to delete processed message"
+                            "Failed to ack processed message"
                         );
                     } else {
                         processed_count += 1;
@@ -121,21 +123,21 @@ impl TaskRequestProcessor {
                 }
                 Err(e) => {
                     error!(
-                        msg_id = message.msg_id,
+                        msg_id = %msg_id,
                         error = %e,
                         "Failed to process task request message"
                     );
 
-                    // Archive malformed or repeatedly failing messages
-                    if let Err(archive_err) = self
-                        .pgmq_client
-                        .archive_message(&self.config.request_queue_name, message.msg_id)
+                    // Nack malformed or repeatedly failing messages without requeue (TAS-133e)
+                    if let Err(nack_err) = self
+                        .message_client
+                        .nack_message(&self.config.request_queue_name, &message.receipt_handle, false)
                         .await
                     {
                         warn!(
-                            msg_id = message.msg_id,
-                            error = %archive_err,
-                            "Failed to archive failed message"
+                            msg_id = %msg_id,
+                            error = %nack_err,
+                            "Failed to nack failed message"
                         );
                     }
                 }
@@ -153,30 +155,20 @@ impl TaskRequestProcessor {
         Ok(processed_count)
     }
 
-    /// Process a single task request message
-    #[instrument(skip(self, payload))]
-    async fn process_single_request(
-        &self,
-        payload: &serde_json::Value,
-        msg_id: i64,
-    ) -> TaskerResult<()> {
-        // Parse the task request message
-        let request: TaskRequestMessage = serde_json::from_value(payload.clone()).map_err(|e| {
-            TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
-        })?;
-
+    /// Process a single task request message (TAS-133e: now receives typed message)
+    #[instrument(skip(self, request))]
+    async fn process_single_request(&self, request: &TaskRequestMessage) -> TaskerResult<()> {
         info!(
             request_id = %request.request_id,
             namespace = %request.task_request.namespace,
             task_name = %request.task_request.name,
             task_version = %request.task_request.version,
-            msg_id = msg_id,
             "Processing task request"
         );
 
         // Validate the task using the task handler registry
-        match self.validate_task_request(&request).await {
-            Ok(()) => self.handle_valid_task_request(&request).await,
+        match self.validate_task_request(request).await {
+            Ok(()) => self.handle_valid_task_request(request).await,
             Err(validation_error) => {
                 warn!(
                     request_id = %request.request_id,
@@ -294,17 +286,19 @@ impl TaskRequestProcessor {
     /// Get processing statistics
     ///
     /// TAS-142: Implement real queue size metrics
+    /// TAS-133e: Updated to use MessageClient.get_queue_stats
     pub async fn get_statistics(&self) -> TaskerResult<TaskRequestProcessorStats> {
-        // Query actual queue depth using pgmq.metrics()
+        // Query actual queue depth using MessageClient.get_queue_stats
         let request_queue_size = self
-            .pgmq_client
-            .get_queue_length(&self.config.request_queue_name)
+            .message_client
+            .get_queue_stats(&self.config.request_queue_name)
             .await
+            .map(|stats| stats.message_count as i64)
             .unwrap_or_else(|e| {
                 warn!(
                     error = %e,
                     queue_name = %self.config.request_queue_name,
-                    "Failed to get queue length, returning -1"
+                    "Failed to get queue stats, returning -1"
                 );
                 -1
             });

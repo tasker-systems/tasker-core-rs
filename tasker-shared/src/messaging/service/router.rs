@@ -137,6 +137,13 @@ pub enum MessageRouterKind {
 }
 
 impl MessageRouterKind {
+    /// Create a router from queue configuration
+    ///
+    /// Creates a `Default` variant using the configuration values.
+    pub fn from_config(config: &QueuesConfig) -> Self {
+        Self::Default(DefaultMessageRouter::from_config(config))
+    }
+
     /// Get the step execution queue for a namespace
     pub fn step_queue(&self, namespace: &str) -> String {
         match self {

@@ -6,8 +6,8 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use pgmq_notify::MessageReadyEvent;
 use tasker_shared::{
+    messaging::service::MessageEvent,
     config::event_systems::{
         // TAS-61: BackoffConfig import removed - no longer used in tests
         EventSystemHealthConfig,
@@ -316,21 +316,13 @@ async fn test_event_processing_error_handling() {
 
 // Helper functions
 
+/// TAS-133: Create a provider-agnostic MessageEvent for testing
 fn create_test_message_ready_event(
     msg_id: i64,
     queue_name: &str,
     namespace: &str,
-) -> MessageReadyEvent {
-    use std::collections::HashMap;
-
-    MessageReadyEvent {
-        msg_id,
-        queue_name: queue_name.to_string(),
-        namespace: namespace.to_string(),
-        ready_at: chrono::Utc::now(),
-        metadata: HashMap::new(),
-        visibility_timeout_seconds: Some(30),
-    }
+) -> MessageEvent {
+    MessageEvent::new(queue_name, namespace, msg_id.to_string())
 }
 
 /// Integration test that validates the complete event flow

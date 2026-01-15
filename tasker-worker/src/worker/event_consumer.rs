@@ -16,10 +16,10 @@
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
 //! use tasker_worker::worker::event_consumer::{EventConsumer, EventConsumerConfig};
-//! use tasker_shared::messaging::clients::UnifiedMessageClient;
+//! use tasker_shared::system_context::SystemContext;
 //! use tasker_shared::events::registry::EventRegistry;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn example(context: Arc<SystemContext>) -> Result<(), Box<dyn std::error::Error>> {
 //! let config = EventConsumerConfig {
 //!     namespace: "payments".to_string(),
 //!     poll_interval: std::time::Duration::from_secs(1),
@@ -29,11 +29,10 @@
 //!     handler_timeout: std::time::Duration::from_secs(30),
 //! };
 //!
-//! let message_client = Arc::new(UnifiedMessageClient::new_in_memory());
 //! let event_registry = Arc::new(RwLock::new(EventRegistry::new()));
 //!
 //! let consumer = Arc::new(EventConsumer::new(
-//!     message_client,
+//!     context,
 //!     event_registry,
 //!     config,
 //! )?);
@@ -55,7 +54,7 @@ use tracing::{debug, error, info, instrument, warn};
 use tasker_shared::{
     events::domain_events::{DomainEvent, DomainEventError},
     events::registry::EventRegistry,
-    messaging::clients::UnifiedMessageClient,
+    system_context::SystemContext,
     TaskerError, TaskerResult,
 };
 
@@ -160,9 +159,11 @@ impl EventConsumerStats {
 }
 
 /// Event consumer that polls domain event queues and dispatches to handlers
+///
+/// TAS-133e: Updated to use SystemContext for messaging provider access.
 pub struct EventConsumer {
-    /// Message client for queue operations
-    message_client: Arc<UnifiedMessageClient>,
+    /// System context for messaging operations (TAS-133e)
+    context: Arc<SystemContext>,
     /// Event registry for handler dispatch
     event_registry: Arc<RwLock<EventRegistry>>,
     /// Consumer configuration
@@ -175,16 +176,26 @@ pub struct EventConsumer {
 
 impl EventConsumer {
     /// Create a new event consumer
+    ///
+    /// TAS-133e: Now takes SystemContext instead of UnifiedMessageClient.
+    /// Requires PGMQ messaging provider for domain event queue operations.
     pub fn new(
-        message_client: Arc<UnifiedMessageClient>,
+        context: Arc<SystemContext>,
         event_registry: Arc<RwLock<EventRegistry>>,
         config: EventConsumerConfig,
     ) -> TaskerResult<Self> {
         // Validate configuration
         config.validate()?;
 
+        // TAS-133e: Validate PGMQ provider is available for domain event operations
+        if !context.messaging_provider().is_pgmq() {
+            return Err(TaskerError::ConfigurationError(
+                "EventConsumer requires PGMQ messaging provider".to_string(),
+            ));
+        }
+
         Ok(Self {
-            message_client,
+            context,
             event_registry,
             config,
             running: Arc::new(AtomicBool::new(false)),
@@ -305,13 +316,16 @@ impl EventConsumer {
     }
 
     /// Fetch a batch of messages from the queue
+    ///
+    /// TAS-133e: Updated to use PGMQ provider from SystemContext.
     async fn fetch_batch(&self, queue_name: &str) -> TaskerResult<Vec<(i64, DomainEvent)>> {
-        // Use UnifiedMessageClient to read messages
-        let pgmq_client = self.message_client.as_pgmq().ok_or_else(|| {
-            TaskerError::MessagingError("Expected PGMQ client for event consumer".to_string())
+        // TAS-133e: Get PGMQ client from messaging provider (validated in constructor)
+        let pgmq_service = self.context.messaging_provider().as_pgmq().ok_or_else(|| {
+            TaskerError::MessagingError("PGMQ provider not available".to_string())
         })?;
 
-        let raw_messages = pgmq_client
+        let raw_messages = pgmq_service
+            .client()
             .read_messages(
                 queue_name,
                 Some(self.config.visibility_timeout.as_secs() as i32),
@@ -348,7 +362,11 @@ impl EventConsumer {
                     }
 
                     // Delete the malformed message from the queue
-                    if let Err(del_err) = pgmq_client.delete_message(queue_name, msg.msg_id).await {
+                    if let Err(del_err) = pgmq_service
+                        .client()
+                        .delete_message(queue_name, msg.msg_id)
+                        .await
+                    {
                         error!(
                             message_id = msg.msg_id,
                             error = %del_err,
@@ -552,6 +570,8 @@ impl EventConsumer {
     }
 
     /// Send a message to the DLQ
+    ///
+    /// TAS-133e: Updated to use PGMQ provider from SystemContext.
     async fn send_to_dlq(&self, msg_id: i64, error: &DomainEventError) -> TaskerResult<()> {
         let dlq_name = self.config.dlq_name();
 
@@ -563,11 +583,13 @@ impl EventConsumer {
             "namespace": self.config.namespace,
         });
 
-        let pgmq_client = self.message_client.as_pgmq().ok_or_else(|| {
-            TaskerError::MessagingError("Expected PGMQ client for DLQ operations".to_string())
+        // TAS-133e: Get PGMQ client from messaging provider
+        let pgmq_service = self.context.messaging_provider().as_pgmq().ok_or_else(|| {
+            TaskerError::MessagingError("PGMQ provider not available for DLQ operations".to_string())
         })?;
 
-        pgmq_client
+        pgmq_service
+            .client()
             .send_json_message(&dlq_name, &dlq_message)
             .await
             .map_err(|e| TaskerError::MessagingError(format!("Failed to send to DLQ: {}", e)))?;
@@ -582,12 +604,16 @@ impl EventConsumer {
     }
 
     /// Delete a message from a queue
+    ///
+    /// TAS-133e: Updated to use PGMQ provider from SystemContext.
     async fn delete_message(&self, queue_name: &str, msg_id: i64) -> TaskerResult<()> {
-        let pgmq_client = self.message_client.as_pgmq().ok_or_else(|| {
-            TaskerError::MessagingError("Expected PGMQ client for delete operations".to_string())
+        // TAS-133e: Get PGMQ client from messaging provider
+        let pgmq_service = self.context.messaging_provider().as_pgmq().ok_or_else(|| {
+            TaskerError::MessagingError("PGMQ provider not available for delete operations".to_string())
         })?;
 
-        pgmq_client
+        pgmq_service
+            .client()
             .delete_message(queue_name, msg_id)
             .await
             .map_err(|e| TaskerError::MessagingError(format!("Failed to delete message: {}", e)))?;
@@ -609,7 +635,7 @@ impl std::fmt::Debug for EventConsumer {
 impl Clone for EventConsumer {
     fn clone(&self) -> Self {
         Self {
-            message_client: self.message_client.clone(),
+            context: self.context.clone(),
             event_registry: self.event_registry.clone(),
             config: self.config.clone(),
             running: self.running.clone(),
@@ -661,36 +687,8 @@ mod tests {
         assert_eq!(config.dlq_name(), "payments_domain_events_dlq");
     }
 
-    #[tokio::test]
-    async fn test_consumer_lifecycle() {
-        let message_client = Arc::new(UnifiedMessageClient::new_in_memory());
-        let event_registry = Arc::new(RwLock::new(EventRegistry::new()));
-        let config = EventConsumerConfig {
-            namespace: "test".to_string(),
-            ..Default::default()
-        };
-
-        let consumer =
-            Arc::new(EventConsumer::new(message_client, event_registry, config).unwrap());
-
-        // Should not be running initially
-        assert!(!consumer.is_running());
-
-        // Start consumer
-        consumer.clone().start().await.unwrap();
-
-        // Give it a moment to start
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Should be running
-        assert!(consumer.is_running());
-
-        // Stop consumer
-        consumer.stop().await.unwrap();
-
-        // Should not be running
-        assert!(!consumer.is_running());
-    }
+    // TAS-133e: test_consumer_lifecycle now requires a SystemContext with PGMQ provider.
+    // This test is skipped as it requires database setup. Integration tests cover this.
 
     #[test]
     fn test_stats_counters() {

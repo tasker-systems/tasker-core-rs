@@ -15,9 +15,9 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::{
-    messaging::{PgmqClientTrait, UnifiedPgmqClient},
+    messaging::service::{providers::PgmqMessagingService, MessageHandle, MessageMetadata, QueuedMessage},
     system_context::SystemContext,
-    TaskerResult,
+    TaskerError, TaskerResult,
 };
 
 // Import command pattern types for direct command sending
@@ -114,12 +114,22 @@ pub struct WorkerPollerStats {
 
 impl WorkerFallbackPoller {
     /// Create new worker fallback poller
+    ///
+    /// TAS-133e: Validates that PGMQ provider is available since fallback polling
+    /// requires direct PGMQ access for event-driven queue operations.
     pub async fn new(
         config: WorkerPollerConfig,
         context: Arc<SystemContext>,
         command_sender: mpsc::Sender<WorkerCommand>,
     ) -> TaskerResult<Self> {
         let poller_id = Uuid::new_v4();
+
+        // TAS-133e: Validate PGMQ provider is available for fallback polling
+        if !context.messaging_provider().is_pgmq() {
+            return Err(TaskerError::ConfigurationError(
+                "WorkerFallbackPoller requires PGMQ messaging provider".to_string(),
+            ));
+        }
 
         info!(
             poller_id = %poller_id,
@@ -160,7 +170,8 @@ impl WorkerFallbackPoller {
         let poller_id = self.poller_id;
         let config = self.config.clone();
         let command_sender = self.command_sender.clone();
-        let message_client = self.context.message_client().clone();
+        // TAS-133e: Get PGMQ service for direct queue access (already validated in constructor)
+        let pgmq_service = self.context.messaging_provider().as_pgmq().unwrap().clone();
         let stats = Arc::new(WorkerPollerStats::default());
         let is_running = Arc::new(AtomicBool::new(true));
 
@@ -184,7 +195,7 @@ impl WorkerFallbackPoller {
                         &queue_name,
                         namespace,
                         &config,
-                        &message_client,
+                        &pgmq_service,
                         &command_sender,
                         &stats,
                         poller_id,
@@ -216,11 +227,13 @@ impl WorkerFallbackPoller {
     }
 
     /// Poll a specific namespace queue for missed messages
+    ///
+    /// TAS-133e: Updated to accept `&PgmqMessagingService` for direct PGMQ access.
     async fn poll_namespace_queue(
         queue_name: &str,
         namespace: &str,
         config: &WorkerPollerConfig,
-        pgmq_client: &UnifiedPgmqClient,
+        pgmq_service: &PgmqMessagingService,
         command_sender: &mpsc::Sender<WorkerCommand>,
         stats: &WorkerPollerStats,
         poller_id: Uuid,
@@ -233,14 +246,16 @@ impl WorkerFallbackPoller {
             "Polling namespace queue for missed messages"
         );
 
-        // Read messages from the namespace queue
-        let messages = pgmq_client
+        // TAS-133e: Read messages from the namespace queue using PGMQ client directly
+        let messages = pgmq_service
+            .client()
             .read_messages(
                 queue_name,
                 Some(config.visibility_timeout.as_secs() as i32),
                 Some(config.batch_size as i32),
             )
-            .await?;
+            .await
+            .map_err(|e| TaskerError::MessagingError(format!("Failed to read messages: {}", e)))?;
 
         if messages.is_empty() {
             // Only log at debug level for empty queues to avoid noise
@@ -262,13 +277,22 @@ impl WorkerFallbackPoller {
         );
 
         for message in messages {
+            // TAS-133: Wrap PGMQ message in provider-agnostic QueuedMessage
+            let queued_message = QueuedMessage::with_handle(
+                message.message.clone(),
+                MessageHandle::Pgmq {
+                    msg_id: message.msg_id,
+                    queue_name: queue_name.to_string(),
+                },
+                MessageMetadata::new(message.read_ct as u32, message.enqueued_at),
+            );
+
             // This is the key insight - we don't need to re-read the message, we already have it
             let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
 
             let command_result = command_sender
                 .send(WorkerCommand::ExecuteStepFromMessage {
-                    queue_name: queue_name.to_string(),
-                    message: message.clone(),
+                    message: queued_message,
                     resp: resp_tx,
                 })
                 .await;

@@ -1,31 +1,45 @@
-//! pgmq-notify listener for TAS-43 orchestration queue events
+//! Provider-agnostic listener for TAS-43 orchestration queue events
 //!
-//! This module provides a robust pgmq-notify listener that handles orchestration
-//! queue events, connection management, automatic reconnection, and event classification
-//! using the structured approach from events.rs.
+//! This module provides a robust queue listener that handles orchestration
+//! queue events, connection management, and event classification using the
+//! provider abstraction from TAS-133.
+//!
+//! ## Architecture (TAS-133)
+//!
+//! The listener uses `messaging_provider().subscribe()` instead of PGMQ-specific
+//! `PgmqNotifyListener`. This enables both PGMQ and RabbitMQ backends:
+//!
+//! - **PGMQ**: Returns `MessageNotification::Available` (signal only, fetch required)
+//! - **RabbitMQ**: Returns `MessageNotification::Message` (full message delivered)
+//!
+//! The listener handles both notification types and converts them to provider-agnostic
+//! `MessageEvent` for classification into domain events.
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use std::time::{Duration, Instant};
+
+use futures::StreamExt;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use pgmq_notify::{
-    listener::PgmqEventHandler, PgmqNotifyConfig, PgmqNotifyEvent, PgmqNotifyListener,
-};
+use tasker_shared::config::{ConfigDrivenMessageEvent, QueueClassifier};
+use tasker_shared::messaging::service::{MessageEvent, MessageNotification};
 use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
 use super::events::OrchestrationQueueEvent;
 
-/// pgmq-notify listener for orchestration queue notifications
+/// Provider-agnostic listener for orchestration queue notifications
 ///
-/// Manages pgmq-notify connections with automatic reconnection, error handling,
+/// TAS-133: Uses `messaging_provider().subscribe()` instead of PGMQ-specific
+/// `PgmqNotifyListener`. Manages subscription streams with automatic error handling
 /// and config-driven event classification. Provides a unified interface for
-/// receiving all types of orchestration queue events.
+/// receiving all types of orchestration queue events from any messaging backend.
 pub struct OrchestrationQueueListener {
     /// Listener identifier
     listener_id: Uuid,
@@ -37,10 +51,12 @@ pub struct OrchestrationQueueListener {
     event_sender: mpsc::Sender<OrchestrationNotification>,
     /// Channel monitor for observability (TAS-51)
     channel_monitor: ChannelMonitor,
-    /// pgmq-notify listener (when connected)
-    pgmq_listener: Option<PgmqNotifyListener>,
-    /// Connection state
-    is_connected: bool,
+    /// Config-driven queue classifier for event classification
+    queue_classifier: QueueClassifier,
+    /// Subscription task handles (TAS-133: replaces pgmq_listener)
+    subscription_handles: Vec<JoinHandle<()>>,
+    /// Running state (TAS-133: replaces is_connected)
+    is_running: Arc<AtomicBool>,
     /// Statistics
     stats: Arc<OrchestrationListenerStats>,
 }
@@ -50,8 +66,8 @@ impl std::fmt::Debug for OrchestrationQueueListener {
         f.debug_struct("OrchestrationQueueListener")
             .field("listener_id", &self.listener_id)
             .field("config", &self.config)
-            .field("is_connected", &self.is_connected)
-            .field("has_channel", &true)
+            .field("is_running", &self.is_running.load(Ordering::Relaxed))
+            .field("subscription_count", &self.subscription_handles.len())
             .finish()
     }
 }
@@ -126,6 +142,9 @@ pub struct OrchestrationListenerStats {
 
 impl OrchestrationQueueListener {
     /// Create new orchestration queue listener
+    ///
+    /// TAS-133: Initializes queue classifier from config for provider-agnostic
+    /// event classification.
     pub async fn new(
         config: OrchestrationListenerConfig,
         context: Arc<SystemContext>,
@@ -134,12 +153,17 @@ impl OrchestrationQueueListener {
     ) -> TaskerResult<Self> {
         let listener_id = Uuid::new_v4();
 
+        // TAS-133: Create queue classifier from config for provider-agnostic classification
+        let queue_config = context.tasker_config.common.queues.clone();
+        let queue_classifier = QueueClassifier::from_queues_config(&queue_config);
+
         info!(
             listener_id = %listener_id,
             namespace = %config.namespace,
             monitored_queues = ?config.monitored_queues,
             channel_monitor = %channel_monitor.channel_name(),
-            "Creating OrchestrationQueueListener with channel monitoring"
+            provider = %context.messaging_provider().provider_name(),
+            "Creating OrchestrationQueueListener with provider abstraction"
         );
 
         Ok(Self {
@@ -148,142 +172,251 @@ impl OrchestrationQueueListener {
             context,
             event_sender,
             channel_monitor,
-            pgmq_listener: None,
-            is_connected: false,
+            queue_classifier,
+            subscription_handles: Vec::new(),
+            is_running: Arc::new(AtomicBool::new(false)),
             stats: Arc::new(OrchestrationListenerStats::default()),
         })
     }
 
     /// Start the orchestration queue listener
+    ///
+    /// TAS-133: Uses `messaging_provider().subscribe()` instead of `PgmqNotifyListener`.
+    /// Subscribes to each monitored queue and spawns a task to process notifications.
     pub async fn start(&mut self) -> TaskerResult<()> {
         info!(
             listener_id = %self.listener_id,
             namespace = %self.config.namespace,
-            "Starting OrchestrationQueueListener"
+            provider = %self.context.messaging_provider().provider_name(),
+            "Starting OrchestrationQueueListener with provider abstraction"
         );
 
-        // Create pgmq-notify configuration from system context database URL
-        // Updated for TAS-41 wrapper function integration: use extraction patterns that match
-        // our wrapper functions' namespace extraction logic
-        let pgmq_config = PgmqNotifyConfig::new()
-            .with_queue_naming_pattern(r"(?P<namespace>\w+)_queue|orchestration.*")
-            .with_default_namespace(&self.config.namespace);
+        // TAS-133: Subscribe to each monitored queue via provider abstraction
+        let provider = self.context.messaging_provider();
 
-        // Create pgmq-notify listener with bounded channel (TAS-51)
-        // TAS-61 V2: Access mpsc_channels from orchestration context
-        let buffer_size = self
-            .context
-            .tasker_config
-            .orchestration
-            .as_ref()
-            .map(|o| o.mpsc_channels.event_listeners.pgmq_event_buffer_size)
-            .unwrap_or(10000);
-        // TAS-78: Use PGMQ pool for notification listener - PostgreSQL LISTEN/NOTIFY
-        // only works within the same database, so the listener must connect to
-        // the same database where pgmq_send_with_notify sends notifications
-        let mut listener = PgmqNotifyListener::new(
-            self.context.pgmq_pool().clone(),
-            pgmq_config,
-            buffer_size as usize,
-        )
-        .await
-        .map_err(|e| {
-            TaskerError::OrchestrationError(format!("Failed to create pgmq-notify listener: {}", e))
-        })?;
-
-        listener.connect().await.map_err(|e| {
-            TaskerError::OrchestrationError(format!(
-                "Failed to connect to pgmq-notify listener: {}",
-                e
-            ))
-        })?;
-
-        // Listen to message ready events for orchestration queues using TAS-41 wrapper function channels
-        // Our wrapper functions send notifications to channels based on queue name patterns:
-        // - "orchestration*" -> namespace "orchestration" -> channel "pgmq_message_ready.orchestration"
-        // - "*_queue" -> namespace extracted from queue name -> channel "pgmq_message_ready.{namespace}"
-
-        // Listen to orchestration namespace (covers orchestration, orchestration_priority, etc.)
-        listener
-            .listen_message_ready_for_namespace(&self.config.namespace)
-            .await
-            .map_err(|e| {
+        for queue_name in &self.config.monitored_queues {
+            let stream = provider.subscribe(queue_name).map_err(|e| {
                 TaskerError::OrchestrationError(format!(
-                    "Failed to listen to orchestration namespace: {}",
-                    e
+                    "Failed to subscribe to queue '{}': {}",
+                    queue_name, e
                 ))
             })?;
 
-        // Also listen to the global channel for any messages we might miss
-        listener.listen_message_ready_global().await.map_err(|e| {
-            TaskerError::OrchestrationError(format!("Failed to listen to global channel: {}", e))
-        })?;
+            // Clone values for the spawned task
+            let sender = self.event_sender.clone();
+            let classifier = self.queue_classifier.clone();
+            let stats = self.stats.clone();
+            let namespace = self.config.namespace.clone();
+            let monitor = self.channel_monitor.clone();
+            let listener_id = self.listener_id;
+            let queue_name_owned = queue_name.clone();
+            let is_running = self.is_running.clone();
 
-        // Create event handler with channel monitor
-        let handler = OrchestrationEventHandler::new(
-            self.config.clone(),
-            self.context.clone(),
-            self.event_sender.clone(),
-            self.channel_monitor.clone(),
-            self.listener_id,
-            self.stats.clone(),
-        );
+            let handle = tokio::spawn(async move {
+                Self::process_subscription_stream(
+                    stream,
+                    sender,
+                    classifier,
+                    stats,
+                    namespace,
+                    monitor,
+                    listener_id,
+                    queue_name_owned,
+                    is_running,
+                )
+                .await;
+            });
 
-        // Store the listener and start the listening task
-        self.pgmq_listener = Some(listener);
-
-        // Start listening with the event handler in background task
-        let listener_id = self.listener_id;
-        if let Some(mut listener) = self.pgmq_listener.take() {
-            // Use the new background-task method that returns a JoinHandle
-            match listener.start_listening_with_handler(handler).await {
-                Ok(handle) => {
-                    // Spawn a monitoring task for the background listener
-                    tokio::spawn(async move {
-                        match handle.await {
-                            Ok(Ok(_)) => {
-                                info!(listener_id = %listener_id, "pgmq-notify listener completed successfully");
-                            }
-                            Ok(Err(e)) => {
-                                error!(listener_id = %listener_id, error = %e, "pgmq-notify listener failed");
-                            }
-                            Err(e) => {
-                                error!(listener_id = %listener_id, error = %e, "pgmq-notify listener task panicked");
-                            }
-                        }
-                    });
-                }
-                Err(e) => {
-                    error!(listener_id = %listener_id, error = %e, "Failed to start pgmq-notify listener");
-                    return Err(TaskerError::OrchestrationError(format!(
-                        "Failed to start pgmq-notify listener: {}",
-                        e
-                    )));
-                }
-            }
+            self.subscription_handles.push(handle);
         }
 
-        self.is_connected = true;
+        self.is_running.store(true, Ordering::SeqCst);
         *self.stats.started_at.lock().await = Some(Instant::now());
 
         info!(
             listener_id = %self.listener_id,
+            subscription_count = %self.subscription_handles.len(),
             "OrchestrationQueueListener started successfully"
         );
 
         Ok(())
     }
 
+    /// Process a subscription stream, converting notifications to domain events
+    ///
+    /// TAS-133: This is the core processing loop that handles `MessageNotification`
+    /// from any provider and converts them to `OrchestrationQueueEvent`.
+    async fn process_subscription_stream(
+        mut stream: std::pin::Pin<Box<dyn futures::Stream<Item = MessageNotification> + Send>>,
+        sender: mpsc::Sender<OrchestrationNotification>,
+        classifier: QueueClassifier,
+        stats: Arc<OrchestrationListenerStats>,
+        namespace: String,
+        monitor: ChannelMonitor,
+        listener_id: Uuid,
+        queue_name: String,
+        is_running: Arc<AtomicBool>,
+    ) {
+        debug!(
+            listener_id = %listener_id,
+            queue = %queue_name,
+            "Starting subscription stream processing"
+        );
+
+        while let Some(notification) = stream.next().await {
+            // Check if we should stop
+            if !is_running.load(Ordering::Relaxed) {
+                debug!(
+                    listener_id = %listener_id,
+                    queue = %queue_name,
+                    "Subscription stream stopping (listener stopped)"
+                );
+                break;
+            }
+
+            // TAS-133: Convert MessageNotification → MessageEvent
+            let message_event = match &notification {
+                MessageNotification::Available {
+                    queue_name: notif_queue,
+                    msg_id,
+                } => {
+                    // PGMQ style: signal only, need to fetch message
+                    MessageEvent::from_available(notif_queue, *msg_id, &namespace)
+                }
+                MessageNotification::Message(queued_msg) => {
+                    // RabbitMQ style or PGMQ small message: full message available
+                    MessageEvent::from_queued_message(queued_msg, &namespace)
+                }
+            };
+
+            stats.events_received.fetch_add(1, Ordering::Relaxed);
+
+            debug!(
+                listener_id = %listener_id,
+                queue = %message_event.queue_name,
+                msg_id = %message_event.message_id,
+                "Received notification, classifying event"
+            );
+
+            // TAS-133: Classify and create domain event
+            let classified = ConfigDrivenMessageEvent::classify(
+                message_event.clone(),
+                &message_event.queue_name,
+                &classifier,
+            );
+
+            let notification = match classified {
+                ConfigDrivenMessageEvent::StepResults(event) => {
+                    stats
+                        .step_results_processed
+                        .fetch_add(1, Ordering::Relaxed);
+                    OrchestrationNotification::Event(OrchestrationQueueEvent::StepResult(event))
+                }
+                ConfigDrivenMessageEvent::TaskRequests(event) => {
+                    stats
+                        .task_requests_processed
+                        .fetch_add(1, Ordering::Relaxed);
+                    OrchestrationNotification::Event(OrchestrationQueueEvent::TaskRequest(event))
+                }
+                ConfigDrivenMessageEvent::TaskFinalizations(event) => {
+                    stats
+                        .queue_management_processed
+                        .fetch_add(1, Ordering::Relaxed);
+                    OrchestrationNotification::Event(OrchestrationQueueEvent::TaskFinalization(
+                        event,
+                    ))
+                }
+                ConfigDrivenMessageEvent::WorkerNamespace {
+                    namespace: worker_ns,
+                    event,
+                } => {
+                    // Worker namespace messages shouldn't normally be processed by orchestration
+                    debug!(
+                        listener_id = %listener_id,
+                        queue = %event.queue_name,
+                        namespace = %worker_ns,
+                        "Received worker namespace message in orchestration listener"
+                    );
+                    continue;
+                }
+                ConfigDrivenMessageEvent::Unknown(event) => {
+                    stats.unknown_events.fetch_add(1, Ordering::Relaxed);
+                    warn!(
+                        listener_id = %listener_id,
+                        queue = %event.queue_name,
+                        msg_id = %event.message_id,
+                        "Received message event for unknown queue type"
+                    );
+                    OrchestrationNotification::Event(OrchestrationQueueEvent::Unknown {
+                        queue_name: event.queue_name.clone(),
+                        payload: format!("msg_id: {}", event.message_id),
+                    })
+                }
+            };
+
+            // TAS-51: Send notification with channel monitoring
+            match sender.send(notification).await {
+                Ok(_) => {
+                    if monitor.record_send_success() {
+                        monitor.check_and_warn_saturation(sender.capacity());
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        listener_id = %listener_id,
+                        error = %e,
+                        "Failed to send orchestration notification to event system"
+                    );
+                }
+            }
+
+            // Update last event timestamp
+            *stats.last_event_at.lock().await = Some(Instant::now());
+        }
+
+        // Stream ended - could be intentional stop or connection loss
+        if is_running.load(Ordering::Relaxed) {
+            // Unexpected stream end
+            warn!(
+                listener_id = %listener_id,
+                queue = %queue_name,
+                "Subscription stream ended unexpectedly"
+            );
+
+            stats.connection_errors.fetch_add(1, Ordering::Relaxed);
+
+            let _ = sender
+                .send(OrchestrationNotification::ConnectionError(format!(
+                    "Subscription stream for '{}' ended unexpectedly",
+                    queue_name
+                )))
+                .await;
+        } else {
+            debug!(
+                listener_id = %listener_id,
+                queue = %queue_name,
+                "Subscription stream ended (listener stopped)"
+            );
+        }
+    }
+
     /// Stop the orchestration queue listener
+    ///
+    /// TAS-133: Signals subscription tasks to stop and aborts them.
     pub async fn stop(&mut self) -> TaskerResult<()> {
         info!(
             listener_id = %self.listener_id,
+            subscription_count = %self.subscription_handles.len(),
             "Stopping OrchestrationQueueListener"
         );
 
-        // Mark as disconnected
-        self.is_connected = false;
-        self.pgmq_listener = None;
+        // Signal all subscription tasks to stop
+        self.is_running.store(false, Ordering::SeqCst);
+
+        // Abort all subscription handles
+        for handle in self.subscription_handles.drain(..) {
+            handle.abort();
+        }
 
         info!(
             listener_id = %self.listener_id,
@@ -293,9 +426,11 @@ impl OrchestrationQueueListener {
         Ok(())
     }
 
-    /// Check if listener is connected and healthy
+    /// Check if listener is running and healthy
+    ///
+    /// TAS-133: Checks running state instead of PGMQ-specific connection state.
     pub fn is_healthy(&self) -> bool {
-        self.is_connected && self.pgmq_listener.is_some()
+        self.is_running.load(Ordering::Relaxed) && !self.subscription_handles.is_empty()
     }
 
     /// Get listener statistics
@@ -323,262 +458,169 @@ impl OrchestrationQueueListener {
     }
 }
 
-/// Event handler for pgmq-notify events in orchestration queue listener
-///
-/// Handles pgmq-notify events and delegates them to orchestration operations via command pattern.
-/// Uses config-driven classification to replace hardcoded string matching patterns.
-struct OrchestrationEventHandler {
-    /// Configuration
-    config: OrchestrationListenerConfig,
-    /// System context for database and messaging operations
-    #[expect(
-        dead_code,
-        reason = "Reserved for future event handler operations requiring database access"
-    )]
-    context: Arc<SystemContext>,
-    /// Event sender for orchestration notifications
-    event_sender: mpsc::Sender<OrchestrationNotification>,
-    /// Channel monitor for observability (TAS-51)
-    channel_monitor: ChannelMonitor,
-    /// Listener identifier
-    listener_id: Uuid,
-    /// Statistics counters (shared with listener)
-    stats: Arc<OrchestrationListenerStats>,
-    /// Config-driven queue classifier for replacing hardcoded string matching
-    queue_classifier: tasker_shared::config::QueueClassifier,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tasker_shared::config::queues::OrchestrationOwnedQueues;
+    use tasker_shared::messaging::service::MessageId;
 
-impl OrchestrationEventHandler {
-    fn new(
-        config: OrchestrationListenerConfig,
-        context: Arc<SystemContext>,
-        event_sender: mpsc::Sender<OrchestrationNotification>,
-        channel_monitor: ChannelMonitor,
-        listener_id: Uuid,
-        stats: Arc<OrchestrationListenerStats>,
-    ) -> Self {
-        // TAS-61 V2: Access queues from common config
-        let queue_config = context.tasker_config.common.queues.clone();
-        let queue_classifier =
-            tasker_shared::config::QueueClassifier::from_queues_config(&queue_config);
-
-        Self {
-            config,
-            context,
-            event_sender,
-            channel_monitor,
-            listener_id,
-            stats,
-            queue_classifier,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl PgmqEventHandler for OrchestrationEventHandler {
-    async fn handle_event(&self, event: PgmqNotifyEvent) -> pgmq_notify::Result<()> {
-        match event {
-            PgmqNotifyEvent::BatchReady(batch_event) => {
-                // Handle batch ready events by logging them
-                // In the future, we could optimize by processing batches directly
-                debug!(
-                    listener_id = %self.listener_id,
-                    queue = %batch_event.queue_name,
-                    msg_count = %batch_event.message_count,
-                    namespace = %batch_event.namespace,
-                    "Received batch ready event with {} messages",
-                    batch_event.message_count
-                );
-
-                // For now, batch ready events are informational only
-                // The individual messages will also trigger MessageReady events
-                // which will be processed normally via the individual message handling path
-            }
-            PgmqNotifyEvent::MessageReady(msg_event) => {
-                // Only process messages for our orchestration namespace
-                if msg_event.namespace != self.config.namespace {
-                    return Ok(());
-                }
-
-                debug!(
-                    listener_id = %self.listener_id,
-                    queue = %msg_event.queue_name,
-                    msg_id = %msg_event.msg_id,
-                    namespace = %msg_event.namespace,
-                    "Received orchestration message ready event"
-                );
-
-                // Increment events received counter
-                self.stats.events_received.fetch_add(1, Ordering::Relaxed);
-
-                // Classify the message event using config-driven classification
-                let queue_name = msg_event.queue_name.clone();
-                let classified_event = tasker_shared::config::ConfigDrivenMessageEvent::classify(
-                    msg_event.clone(),
-                    &queue_name,
-                    &self.queue_classifier,
-                );
-
-                debug!(
-                    listener_id = %self.listener_id,
-                    queue = %classified_event.inner().queue_name,
-                    event_type = ?classified_event,
-                    "Classified message event using config-driven enum-based dispatching"
-                );
-
-                // Convert to unified orchestration notification and send to event system
-                let notification = match classified_event {
-                    tasker_shared::config::ConfigDrivenMessageEvent::StepResults(event) => {
-                        self.stats
-                            .step_results_processed
-                            .fetch_add(1, Ordering::Relaxed);
-
-                        OrchestrationNotification::Event(OrchestrationQueueEvent::StepResult(event))
-                    }
-                    tasker_shared::config::ConfigDrivenMessageEvent::TaskRequests(event) => {
-                        self.stats
-                            .task_requests_processed
-                            .fetch_add(1, Ordering::Relaxed);
-
-                        OrchestrationNotification::Event(OrchestrationQueueEvent::TaskRequest(
-                            event,
-                        ))
-                    }
-                    tasker_shared::config::ConfigDrivenMessageEvent::TaskFinalizations(event) => {
-                        self.stats
-                            .queue_management_processed
-                            .fetch_add(1, Ordering::Relaxed);
-
-                        OrchestrationNotification::Event(OrchestrationQueueEvent::TaskFinalization(
-                            event,
-                        ))
-                    }
-                    tasker_shared::config::ConfigDrivenMessageEvent::WorkerNamespace {
-                        namespace,
-                        event,
-                    } => {
-                        // Log worker namespace messages for monitoring (these shouldn't normally be processed by orchestration)
-                        debug!(
-                            listener_id = %self.listener_id,
-                            queue = %event.queue_name,
-                            namespace = %namespace,
-                            "Received worker namespace message in orchestration listener"
-                        );
-                        return Ok(());
-                    }
-                    tasker_shared::config::ConfigDrivenMessageEvent::Unknown(event) => {
-                        self.stats.unknown_events.fetch_add(1, Ordering::Relaxed);
-                        warn!(
-                            listener_id = %self.listener_id,
-                            queue = %event.queue_name,
-                            msg_id = %event.msg_id,
-                            "Received message event for unknown queue type"
-                        );
-                        OrchestrationNotification::Event(OrchestrationQueueEvent::Unknown {
-                            queue_name: event.queue_name,
-                            payload: format!("msg_id: {}", event.msg_id),
-                        })
-                    }
-                };
-
-                // Send notification to event system with channel monitoring (TAS-51)
-                match self.event_sender.send(notification).await {
-                    Ok(_) => {
-                        // TAS-51: Record send and periodically check saturation (optimized)
-                        if self.channel_monitor.record_send_success() {
-                            self.channel_monitor
-                                .check_and_warn_saturation(self.event_sender.capacity());
-                        }
-                    }
-                    Err(e) => {
-                        warn!(
-                            listener_id = %self.listener_id,
-                            error = %e,
-                            "Failed to send orchestration notification to event system"
-                        );
-                    }
-                }
-            }
-            PgmqNotifyEvent::QueueCreated(queue_event) => {
-                info!(
-                    listener_id = %self.listener_id,
-                    queue = %queue_event.queue_name,
-                    namespace = %queue_event.namespace,
-                    "Queue created event received in orchestration listener"
-                );
-
-                // we are not currently doing anything with this event but we can later use it to trigger a workflow
-            }
-        }
-
-        Ok(())
+    fn create_test_classifier() -> QueueClassifier {
+        let orchestration_owned = OrchestrationOwnedQueues {
+            step_results: "orchestration_step_results".to_string(),
+            task_requests: "orchestration_task_requests".to_string(),
+            task_finalizations: "orchestration_task_finalizations".to_string(),
+        };
+        QueueClassifier::new(
+            orchestration_owned,
+            "orchestration".to_string(),
+            "worker".to_string(),
+        )
     }
 
-    async fn handle_parse_error(
-        &self,
-        channel: &str,
-        _payload: &str,
-        error: pgmq_notify::PgmqNotifyError,
-    ) {
-        warn!(
-            listener_id = %self.listener_id,
-            channel = %channel,
-            error = %error,
-            "Failed to parse PGMQ notification in orchestration listener"
+    /// TAS-133 Phase 2 Validation: Test MessageEvent classification for step results
+    #[test]
+    fn classify_event_step_results() {
+        let classifier = create_test_classifier();
+        let event = MessageEvent::new(
+            "orchestration_step_results",
+            "orchestration",
+            MessageId::from(42i64),
         );
 
-        self.stats.connection_errors.fetch_add(1, Ordering::Relaxed);
+        let classified =
+            ConfigDrivenMessageEvent::classify(event.clone(), &event.queue_name, &classifier);
 
-        let notification = OrchestrationNotification::ConnectionError(format!(
-            "Parse error on channel {}: {}",
-            channel, error
+        match classified {
+            ConfigDrivenMessageEvent::StepResults(inner) => {
+                assert_eq!(inner.queue_name, "orchestration_step_results");
+                assert_eq!(inner.namespace, "orchestration");
+            }
+            other => panic!("Expected StepResults, got {:?}", other),
+        }
+    }
+
+    /// TAS-133 Phase 2 Validation: Test MessageEvent classification for task requests
+    #[test]
+    fn classify_event_task_requests() {
+        let classifier = create_test_classifier();
+        let event = MessageEvent::new(
+            "orchestration_task_requests",
+            "orchestration",
+            MessageId::from(1i64),
+        );
+
+        let classified =
+            ConfigDrivenMessageEvent::classify(event.clone(), &event.queue_name, &classifier);
+
+        match classified {
+            ConfigDrivenMessageEvent::TaskRequests(inner) => {
+                assert_eq!(inner.queue_name, "orchestration_task_requests");
+            }
+            other => panic!("Expected TaskRequests, got {:?}", other),
+        }
+    }
+
+    /// TAS-133 Phase 2 Validation: Test MessageEvent classification for task finalizations
+    #[test]
+    fn classify_event_task_finalizations() {
+        let classifier = create_test_classifier();
+        let event = MessageEvent::new(
+            "orchestration_task_finalizations",
+            "orchestration",
+            MessageId::from(1i64),
+        );
+
+        let classified =
+            ConfigDrivenMessageEvent::classify(event.clone(), &event.queue_name, &classifier);
+
+        match classified {
+            ConfigDrivenMessageEvent::TaskFinalizations(inner) => {
+                assert_eq!(inner.queue_name, "orchestration_task_finalizations");
+            }
+            other => panic!("Expected TaskFinalizations, got {:?}", other),
+        }
+    }
+
+    /// TAS-133 Phase 2 Validation: Test MessageEvent classification for worker namespace
+    #[test]
+    fn classify_event_worker_namespace() {
+        let classifier = create_test_classifier();
+        let event = MessageEvent::new("worker_fulfillment_queue", "worker", MessageId::from(1i64));
+
+        let classified =
+            ConfigDrivenMessageEvent::classify(event.clone(), &event.queue_name, &classifier);
+
+        match classified {
+            ConfigDrivenMessageEvent::WorkerNamespace { namespace, event } => {
+                assert_eq!(namespace, "fulfillment");
+                assert_eq!(event.queue_name, "worker_fulfillment_queue");
+            }
+            other => panic!("Expected WorkerNamespace, got {:?}", other),
+        }
+    }
+
+    /// TAS-133 Phase 2 Validation: Test MessageEvent from Available notification
+    #[test]
+    fn message_event_from_available_with_msg_id() {
+        let event = MessageEvent::from_available("test_queue", Some(123), "orchestration");
+        assert_eq!(event.queue_name, "test_queue");
+        assert_eq!(event.namespace, "orchestration");
+        assert_eq!(event.message_id.as_str(), "123");
+    }
+
+    /// TAS-133 Phase 2 Validation: Test MessageEvent from Available with None msg_id
+    #[test]
+    fn message_event_from_available_without_msg_id() {
+        let event = MessageEvent::from_available("test_queue", None, "orchestration");
+        assert_eq!(event.queue_name, "test_queue");
+        assert_eq!(event.namespace, "orchestration");
+        assert_eq!(event.message_id.as_str(), "unknown");
+    }
+
+    /// TAS-133 Phase 2 Validation: Test listener stats initialization
+    #[test]
+    fn listener_stats_default_values() {
+        let stats = OrchestrationListenerStats::default();
+        assert_eq!(stats.events_received.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.step_results_processed.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.task_requests_processed.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.queue_management_processed.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.unknown_events.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.connection_errors.load(Ordering::Relaxed), 0);
+    }
+
+    /// TAS-133 Phase 2 Validation: Test listener config defaults
+    #[test]
+    fn listener_config_defaults() {
+        let config = OrchestrationListenerConfig::default();
+        assert_eq!(config.namespace, "orchestration");
+        assert!(config
+            .monitored_queues
+            .contains(&"orchestration_step_results".to_string()));
+        assert!(config
+            .monitored_queues
+            .contains(&"orchestration_task_requests".to_string()));
+        assert_eq!(config.max_retry_attempts, 10);
+    }
+
+    /// TAS-133 Phase 2 Validation: Test notification enum variants
+    #[test]
+    fn notification_variants() {
+        let event = OrchestrationQueueEvent::Unknown {
+            queue_name: "test".to_string(),
+            payload: "test".to_string(),
+        };
+        let notification = OrchestrationNotification::Event(event);
+        assert!(matches!(notification, OrchestrationNotification::Event(_)));
+
+        let error_notification =
+            OrchestrationNotification::ConnectionError("test error".to_string());
+        assert!(matches!(
+            error_notification,
+            OrchestrationNotification::ConnectionError(_)
         ));
 
-        // TAS-51: Channel monitoring for error notifications
-        match self.event_sender.send(notification).await {
-            Ok(_) => {
-                if self.channel_monitor.record_send_success() {
-                    self.channel_monitor
-                        .check_and_warn_saturation(self.event_sender.capacity());
-                }
-            }
-            Err(e) => {
-                error!(
-                    listener_id = %self.listener_id,
-                    error = %e,
-                    "Failed to send parse error notification to event system"
-                );
-            }
-        }
-    }
-
-    async fn handle_connection_error(&self, error: pgmq_notify::PgmqNotifyError) {
-        error!(
-            listener_id = %self.listener_id,
-            error = %error,
-            "PGMQ notification connection error in orchestration listener"
-        );
-
-        self.stats.connection_errors.fetch_add(1, Ordering::Relaxed);
-
-        let notification =
-            OrchestrationNotification::ConnectionError(format!("Connection error: {}", error));
-
-        // TAS-51: Channel monitoring for error notifications
-        match self.event_sender.send(notification).await {
-            Ok(_) => {
-                if self.channel_monitor.record_send_success() {
-                    self.channel_monitor
-                        .check_and_warn_saturation(self.event_sender.capacity());
-                }
-            }
-            Err(e) => {
-                error!(
-                    listener_id = %self.listener_id,
-                    error = %e,
-                    "Failed to send connection error notification to event system"
-                );
-            }
-        }
+        let reconnected = OrchestrationNotification::Reconnected;
+        assert!(matches!(reconnected, OrchestrationNotification::Reconnected));
     }
 }

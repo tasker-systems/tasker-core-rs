@@ -1,12 +1,32 @@
 //! # Messaging Service Traits
 //!
 //! Core trait definitions for provider-agnostic messaging.
+//!
+//! ## Core Traits
+//!
+//! - [`MessagingService`]: Core operations (send, receive, ack, nack)
+//! - [`QueueMessage`]: Message serialization contract
+//! - [`SupportsPushNotifications`]: Push-based notification subscriptions (TAS-133)
+//!
+//! ## Push Notification Architecture (TAS-133)
+//!
+//! The [`SupportsPushNotifications`] trait enables providers to offer push-based
+//! message delivery. Different providers have different native delivery models:
+//!
+//! - **PGMQ**: Uses PostgreSQL LISTEN/NOTIFY for signal-only notifications
+//! - **RabbitMQ**: Uses `basic_consume()` for full message push delivery
+//!
+//! See [`MessageNotification`] for the delivery model distinction.
 
+use std::pin::Pin;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::Stream;
 
-use super::types::{MessageId, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle};
+use super::types::{
+    MessageId, MessageNotification, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle,
+};
 use super::MessagingError;
 
 /// Core messaging service trait - provider-agnostic operations
@@ -218,6 +238,135 @@ where
             .map_err(|e| MessagingError::message_deserialization(e.to_string()))
     }
 }
+
+// =============================================================================
+// SupportsPushNotifications - Push-based notification subscriptions (TAS-133)
+// =============================================================================
+
+/// Push notification subscription capability (TAS-133)
+///
+/// This trait enables messaging providers to offer push-based message delivery
+/// instead of requiring polling. Different providers implement push differently:
+///
+/// ## PGMQ (Signal-Only Push)
+///
+/// PGMQ uses PostgreSQL's LISTEN/NOTIFY for notifications. When a message is
+/// enqueued, `pg_notify()` sends a signal to subscribed listeners. However,
+/// LISTEN/NOTIFY is not guaranteed (signals can be lost under load), so PGMQ
+/// consumers need a fallback polling mechanism.
+///
+/// The `subscribe()` implementation for PGMQ returns `MessageNotification::Available`
+/// variants, indicating that a message exists but must be fetched separately.
+///
+/// ## RabbitMQ (Full Message Push)
+///
+/// RabbitMQ uses `basic_consume()` for native push delivery. The AMQP protocol
+/// guarantees message delivery, so no fallback polling is needed. Messages are
+/// delivered in full via the consumer channel.
+///
+/// The `subscribe()` implementation for RabbitMQ returns `MessageNotification::Message`
+/// variants containing the complete message ready for processing.
+///
+/// ## InMemory (Signal-Only for Testing)
+///
+/// The in-memory provider uses a broadcast channel to simulate notifications,
+/// returning `MessageNotification::Available` similar to PGMQ.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use futures::StreamExt;
+/// use tasker_shared::messaging::service::{
+///     SupportsPushNotifications, MessageNotification, MessagingService,
+/// };
+///
+/// async fn consume_with_push<P: SupportsPushNotifications>(
+///     provider: &P,
+///     queue_name: &str,
+/// ) -> Result<(), MessagingError> {
+///     let mut stream = provider.subscribe(queue_name)?;
+///
+///     while let Some(notification) = stream.next().await {
+///         match notification {
+///             MessageNotification::Available { queue_name } => {
+///                 // PGMQ style: need to fetch the message
+///                 let messages = provider.receive_messages::<serde_json::Value>(
+///                     &queue_name, 1, Duration::from_secs(30)
+///                 ).await?;
+///                 for msg in messages {
+///                     process(msg);
+///                 }
+///             }
+///             MessageNotification::Message(queued_msg) => {
+///                 // RabbitMQ style: message already available
+///                 process_bytes(queued_msg);
+///             }
+///         }
+///     }
+///     Ok(())
+/// }
+/// ```
+///
+/// # Fallback Polling
+///
+/// For providers that return `MessageNotification::Available` (like PGMQ),
+/// consumers should implement a fallback polling mechanism to handle:
+///
+/// 1. Missed signals (pg_notify is not guaranteed delivery)
+/// 2. Messages enqueued before subscription started
+/// 3. Recovery after connection interruptions
+///
+/// The `HybridConsumer` pattern (see TAS-133 architecture docs) combines
+/// push notifications with periodic polling for reliability.
+pub trait SupportsPushNotifications: MessagingService {
+    /// Subscribe to push notifications for a queue
+    ///
+    /// Returns a stream of [`MessageNotification`] items. The notification type
+    /// depends on the provider's native delivery model:
+    ///
+    /// - **PGMQ**: Returns `MessageNotification::Available` (signal only)
+    /// - **RabbitMQ**: Returns `MessageNotification::Message` (full message)
+    /// - **InMemory**: Returns `MessageNotification::Available` (signal only)
+    ///
+    /// # Errors
+    ///
+    /// Returns `MessagingError` if:
+    /// - The queue doesn't exist
+    /// - The provider doesn't support push notifications
+    /// - Connection/subscription setup fails
+    fn subscribe(
+        &self,
+        queue_name: &str,
+    ) -> Result<Pin<Box<dyn Stream<Item = MessageNotification> + Send>>, MessagingError>;
+
+    /// Check if this provider requires fallback polling
+    ///
+    /// Returns `true` for providers that use signal-only notifications (like PGMQ),
+    /// where messages must be fetched after receiving a signal. These providers
+    /// need fallback polling to catch missed signals.
+    ///
+    /// Returns `false` for providers that deliver full messages (like RabbitMQ),
+    /// where the protocol guarantees delivery and no polling is needed.
+    fn requires_fallback_polling(&self) -> bool;
+
+    /// Get the recommended fallback polling interval
+    ///
+    /// For providers that require fallback polling, returns the recommended
+    /// interval between polls. Returns `None` if fallback polling is not needed.
+    ///
+    /// Default implementation returns `Some(Duration::from_secs(5))` if
+    /// `requires_fallback_polling()` returns true, `None` otherwise.
+    fn fallback_polling_interval(&self) -> Option<Duration> {
+        if self.requires_fallback_polling() {
+            Some(Duration::from_secs(5))
+        } else {
+            None
+        }
+    }
+}
+
+/// Type alias for the notification stream returned by `SupportsPushNotifications::subscribe()`
+pub type NotificationStream = Pin<Box<dyn Stream<Item = MessageNotification> + Send>>;
 
 #[cfg(test)]
 mod tests {

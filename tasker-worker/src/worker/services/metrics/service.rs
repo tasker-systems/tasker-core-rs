@@ -16,7 +16,7 @@ use tracing::debug;
 use crate::worker::event_router::EventRouter;
 use crate::worker::in_process_event_bus::InProcessEventBus;
 use crate::worker::task_template_manager::TaskTemplateManager;
-use tasker_shared::messaging::clients::{MessageClient, UnifiedMessageClient};
+use tasker_shared::messaging::client::MessageClient;
 use tasker_shared::metrics::channels::global_registry;
 use tasker_shared::types::web::{
     DomainEventStats, EventRouterStats as WebEventRouterStats,
@@ -39,7 +39,7 @@ use tasker_shared::types::web::{
 /// use tasker_worker::worker::task_template_manager::TaskTemplateManager;
 /// use tasker_worker::worker::event_router::EventRouter;
 /// use tasker_worker::worker::in_process_event_bus::InProcessEventBus;
-/// use tasker_shared::messaging::clients::UnifiedMessageClient;
+/// use tasker_shared::messaging::client::MessageClient;
 /// use sqlx::PgPool;
 /// use std::sync::Arc;
 /// use std::time::Instant;
@@ -48,7 +48,7 @@ use tasker_shared::types::web::{
 /// async fn example(
 ///     worker_id: String,
 ///     database_pool: Arc<PgPool>,
-///     message_client: Arc<UnifiedMessageClient>,
+///     message_client: Arc<MessageClient>,
 ///     task_template_manager: Arc<TaskTemplateManager>,
 ///     event_router: Option<Arc<EventRouter>>,
 ///     in_process_bus: Arc<RwLock<InProcessEventBus>>,
@@ -82,8 +82,8 @@ pub struct MetricsService {
     /// Database connection pool for pool size metrics
     database_pool: Arc<PgPool>,
 
-    /// Message client for queue metrics
-    message_client: Arc<UnifiedMessageClient>,
+    /// TAS-133e: Message client for queue metrics (provider-agnostic)
+    message_client: Arc<MessageClient>,
 
     /// Task template manager for supported namespaces
     task_template_manager: Arc<TaskTemplateManager>,
@@ -110,10 +110,12 @@ impl std::fmt::Debug for MetricsService {
 
 impl MetricsService {
     /// Create a new MetricsService
+    ///
+    /// TAS-133e: Now takes the new MessageClient struct instead of UnifiedMessageClient.
     pub fn new(
         worker_id: String,
         database_pool: Arc<PgPool>,
-        message_client: Arc<UnifiedMessageClient>,
+        message_client: Arc<MessageClient>,
         task_template_manager: Arc<TaskTemplateManager>,
         event_router: Option<Arc<EventRouter>>,
         in_process_bus: Arc<TokioRwLock<InProcessEventBus>>,
@@ -185,22 +187,24 @@ impl MetricsService {
         // Queue depth metrics for each supported namespace
         for namespace in self.task_template_manager.supported_namespaces().await {
             let queue_name = self.queue_name_for_namespace(&namespace);
-            match self.message_client.get_queue_metrics(&queue_name).await {
+            match self.message_client.get_queue_stats(&queue_name).await {
                 Ok(queue_metrics) => {
                     metrics.push(format!(
                         "# HELP tasker_worker_queue_depth Queue depth for {} namespace\n# TYPE tasker_worker_queue_depth gauge\ntasker_worker_queue_depth{{namespace=\"{}\"}} {}",
                         namespace, namespace, queue_metrics.message_count
                     ));
 
-                    if let Some(oldest_age) = queue_metrics.oldest_message_age_seconds {
+                    if let Some(oldest_age_ms) = queue_metrics.oldest_message_age_ms {
+                        // Convert ms to seconds for Prometheus metric
+                        let oldest_age_seconds = oldest_age_ms / 1000;
                         metrics.push(format!(
                             "# HELP tasker_worker_queue_oldest_message_age_seconds Age of oldest message in queue\n# TYPE tasker_worker_queue_oldest_message_age_seconds gauge\ntasker_worker_queue_oldest_message_age_seconds{{namespace=\"{}\"}} {}",
-                            namespace, oldest_age
+                            namespace, oldest_age_seconds
                         ));
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(namespace = %namespace, error = %e, "Failed to get queue metrics");
+                    tracing::warn!(namespace = %namespace, error = %e, "Failed to get queue stats");
                 }
             }
         }
@@ -263,7 +267,7 @@ impl MetricsService {
         // Queue metrics for each supported namespace
         for namespace in self.task_template_manager.supported_namespaces().await {
             let queue_name = self.queue_name_for_namespace(&namespace);
-            match self.message_client.get_queue_metrics(&queue_name).await {
+            match self.message_client.get_queue_stats(&queue_name).await {
                 Ok(queue_metrics) => {
                     let mut labels = HashMap::new();
                     labels.insert("namespace".to_string(), namespace.clone());
@@ -278,20 +282,22 @@ impl MetricsService {
                         },
                     );
 
-                    if let Some(oldest_age) = queue_metrics.oldest_message_age_seconds {
+                    if let Some(oldest_age_ms) = queue_metrics.oldest_message_age_ms {
+                        // Convert ms to seconds for consistency
+                        let oldest_age_seconds = oldest_age_ms / 1000;
                         metrics.insert(
                             format!("queue_oldest_message_age_{}", namespace),
                             MetricValue {
-                                value: oldest_age as f64,
+                                value: oldest_age_seconds as f64,
                                 metric_type: "gauge".to_string(),
                                 labels,
-                                help: format!("Age of oldest message in {} queue", namespace),
+                                help: format!("Age of oldest message in {} queue (seconds)", namespace),
                             },
                         );
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(namespace = %namespace, error = %e, "Failed to get queue metrics for JSON response");
+                    tracing::warn!(namespace = %namespace, error = %e, "Failed to get queue stats for JSON response");
                 }
             }
         }

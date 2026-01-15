@@ -2,6 +2,8 @@
 //!
 //! Implements the StepMessage approach for worker→orchestration communication
 //! using configuration-driven queue names from orchestration.toml instead of hardcoded strings.
+//!
+//! TAS-133e: Updated to use MessageClient (provider-agnostic messaging)
 
 use opentelemetry::KeyValue;
 use std::sync::Arc;
@@ -10,31 +12,33 @@ use tracing::debug;
 use uuid::Uuid;
 
 use tasker_shared::config::QueueClassifier;
+use tasker_shared::messaging::client::MessageClient;
 use tasker_shared::messaging::message::StepMessage;
-use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::metrics::worker::*;
 use tasker_shared::{TaskerError, TaskerResult};
 
 /// Helper for sending step completion messages to orchestration with config-driven queue names
+///
+/// TAS-133e: Updated to use MessageClient for provider-agnostic messaging
 pub(crate) struct OrchestrationResultSender {
-    /// Unified PGMQ client for queue operations
-    pgmq_client: Arc<UnifiedPgmqClient>,
+    /// Message client for queue operations (TAS-133e: provider-agnostic)
+    message_client: Arc<MessageClient>,
     /// Queue classifier for config-driven queue naming
     queue_classifier: QueueClassifier,
 }
 
 impl OrchestrationResultSender {
-    /// Create new sender with PGMQ client and queue configuration
-    /// TAS-61 Phase 6C/6D: Accept V2 QueuesConfig
+    /// Create new sender with MessageClient and queue configuration
+    /// TAS-133e: Now uses MessageClient instead of UnifiedPgmqClient
     pub fn new(
-        pgmq_client: Arc<UnifiedPgmqClient>,
+        message_client: Arc<MessageClient>,
         queues_config: &tasker_shared::config::tasker::QueuesConfig,
     ) -> Self {
         // Create queue classifier for config-driven queue naming using V2 config
         let queue_classifier = QueueClassifier::from_queues_config(queues_config);
 
         Self {
-            pgmq_client,
+            message_client,
             queue_classifier,
         }
     }
@@ -71,8 +75,9 @@ impl OrchestrationResultSender {
         // Use config-driven orchestration queue name (explicit, no naming pattern)
         let queue_name = self.queue_classifier.step_results_queue_name().to_string();
 
-        self.pgmq_client
-            .send_json_message(&queue_name, &message)
+        // TAS-133e: Use MessageClient.send_message (provider-agnostic)
+        self.message_client
+            .send_message(&queue_name, &message)
             .await
             .map_err(|e| {
                 TaskerError::WorkerError(format!("Failed to send completion message: {e}"))

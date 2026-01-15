@@ -375,22 +375,65 @@ impl EventDrivenSystem for OrchestrationEventSystem {
             });
         }
 
+        // TAS-133: Determine effective deployment mode based on messaging provider
+        // RabbitMQ uses push-based delivery with broker-managed redelivery, so fallback
+        // polling is unnecessary. PGMQ uses fire-and-forget pg_notify where polling is
+        // essential for reliability.
+        let provider_name = self.context.messaging_provider().provider_name();
+        let effective_mode = self.deployment_mode.effective_for_provider(provider_name);
+
+        if effective_mode != self.deployment_mode {
+            match self.deployment_mode {
+                DeploymentMode::PollingOnly => {
+                    // PollingOnly with RabbitMQ indicates a misunderstanding - RabbitMQ
+                    // has no polling consumer, only push-based basic_consume()
+                    error!(
+                        system_id = %self.system_id,
+                        configured_mode = ?self.deployment_mode,
+                        effective_mode = ?effective_mode,
+                        provider = %provider_name,
+                        "PollingOnly deployment mode is not supported for {} - this provider \
+                         uses push-based delivery only. Using EventDrivenOnly instead. \
+                         Please update your configuration.",
+                        provider_name
+                    );
+                }
+                DeploymentMode::Hybrid => {
+                    // Hybrid with RabbitMQ is a reasonable intent but unnecessary -
+                    // broker handles message redelivery, no fallback polling needed
+                    warn!(
+                        system_id = %self.system_id,
+                        configured_mode = ?self.deployment_mode,
+                        effective_mode = ?effective_mode,
+                        provider = %provider_name,
+                        "Hybrid deployment mode adjusted to EventDrivenOnly for {} - this \
+                         provider uses push-based delivery with broker-managed redelivery, \
+                         fallback polling is unnecessary",
+                        provider_name
+                    );
+                }
+                _ => {}
+            }
+        }
+
         info!(
             system_id = %self.system_id,
-            deployment_mode = ?self.deployment_mode,
+            configured_mode = ?self.deployment_mode,
+            effective_mode = ?effective_mode,
+            provider = %provider_name,
             "Starting OrchestrationEventSystem"
         );
 
-        // Create components based on deployment mode using command pattern
-        match self.deployment_mode {
+        // Create components based on effective deployment mode using command pattern
+        match effective_mode {
             DeploymentMode::PollingOnly => {
                 // Only create fallback poller - sends commands instead of events
                 let poller_config = self.poller_config();
+                // TAS-133e: Removed pgmq_client param - now accessed via MessagingProvider
                 let fallback_poller = OrchestrationFallbackPoller::new(
                     poller_config,
                     self.context.clone(),
                     self.command_sender.clone(),
-                    self.context.message_client(),
                 )
                 .await?;
 
@@ -428,11 +471,11 @@ impl EventDrivenSystem for OrchestrationEventSystem {
 
                 // Create fallback poller for backup reliability
                 let poller_config = self.poller_config();
+                // TAS-133e: Removed pgmq_client param - now accessed via MessagingProvider
                 let fallback_poller = OrchestrationFallbackPoller::new(
                     poller_config,
                     self.context.clone(),
                     self.command_sender.clone(),
-                    self.context.message_client(),
                 )
                 .await?;
 
@@ -597,12 +640,12 @@ impl EventDrivenSystem for OrchestrationEventSystem {
         );
 
         match event {
-            OrchestrationQueueEvent::StepResult(message_ready_event) => {
-                let msg_id = message_ready_event.msg_id;
+            OrchestrationQueueEvent::StepResult(message_event) => {
+                let msg_id = message_event.message_id.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::ProcessStepResultFromMessageEvent {
-                    message_event: message_ready_event,
+                    message_event,
                     resp: command_tx,
                 };
 
@@ -707,12 +750,12 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 }
             }
 
-            OrchestrationQueueEvent::TaskRequest(message_ready_event) => {
-                let msg_id = message_ready_event.msg_id;
+            OrchestrationQueueEvent::TaskRequest(message_event) => {
+                let msg_id = message_event.message_id.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::InitializeTaskFromMessageEvent {
-                    message_event: message_ready_event,
+                    message_event,
                     resp: command_tx,
                 };
 
@@ -818,13 +861,13 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 }
             }
 
-            OrchestrationQueueEvent::TaskFinalization(message_ready_event) => {
-                let msg_id = message_ready_event.msg_id;
-                let namespace = message_ready_event.namespace.clone();
+            OrchestrationQueueEvent::TaskFinalization(message_event) => {
+                let msg_id = message_event.message_id.clone();
+                let namespace = message_event.namespace.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::FinalizeTaskFromMessageEvent {
-                    message_event: message_ready_event,
+                    message_event,
                     resp: command_tx,
                 };
 
@@ -1098,9 +1141,9 @@ impl OrchestrationEventSystem {
     ) {
         match notification {
             OrchestrationNotification::Event(event) => match event {
-                OrchestrationQueueEvent::StepResult(message_ready_event) => {
-                    let msg_id = message_ready_event.msg_id;
-                    let namespace = message_ready_event.namespace.clone();
+                OrchestrationQueueEvent::StepResult(message_event) => {
+                    let msg_id = message_event.message_id.clone();
+                    let namespace = message_event.namespace.clone();
 
                     debug!(
                         msg_id = %msg_id,
@@ -1112,7 +1155,7 @@ impl OrchestrationEventSystem {
 
                     match command_sender
                         .send(OrchestrationCommand::ProcessStepResultFromMessageEvent {
-                            message_event: message_ready_event,
+                            message_event,
                             resp: resp_tx,
                         })
                         .await
@@ -1138,9 +1181,9 @@ impl OrchestrationEventSystem {
                     }
                 }
 
-                OrchestrationQueueEvent::TaskRequest(message_ready_event) => {
-                    let msg_id = message_ready_event.msg_id;
-                    let namespace = message_ready_event.namespace.clone();
+                OrchestrationQueueEvent::TaskRequest(message_event) => {
+                    let msg_id = message_event.message_id.clone();
+                    let namespace = message_event.namespace.clone();
                     debug!(
                         msg_id = %msg_id,
                         namespace = %namespace,
@@ -1151,7 +1194,7 @@ impl OrchestrationEventSystem {
 
                     match command_sender
                         .send(OrchestrationCommand::InitializeTaskFromMessageEvent {
-                            message_event: message_ready_event,
+                            message_event,
                             resp: resp_tx,
                         })
                         .await
@@ -1178,20 +1221,20 @@ impl OrchestrationEventSystem {
                     }
                 }
 
-                OrchestrationQueueEvent::TaskFinalization(message_ready_event) => {
-                    let msg_id = message_ready_event.msg_id;
-                    let namespace = message_ready_event.namespace.clone();
+                OrchestrationQueueEvent::TaskFinalization(message_event) => {
+                    let msg_id = message_event.message_id.clone();
+                    let namespace = message_event.namespace.clone();
                     debug!(
                         msg_id = %msg_id,
                         namespace = %namespace,
-                        "Processing task request event from orchestration queue"
+                        "Processing task finalization event from orchestration queue"
                     );
 
                     let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
 
                     match command_sender
                         .send(OrchestrationCommand::FinalizeTaskFromMessageEvent {
-                            message_event: message_ready_event,
+                            message_event,
                             resp: resp_tx,
                         })
                         .await

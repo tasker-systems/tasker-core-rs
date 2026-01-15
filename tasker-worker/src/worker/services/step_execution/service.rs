@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use tasker_shared::events::domain_events::EventMetadata;
 use tasker_shared::messaging::message::StepMessage;
-use tasker_shared::messaging::PgmqClientTrait;
+use tasker_shared::messaging::service::ReceiptHandle;
 use tasker_shared::metrics::worker::*;
 use tasker_shared::models::{
     orchestration::StepTransitiveDependenciesQuery, task::Task, workflow_step::WorkflowStepWithName,
@@ -212,16 +212,17 @@ impl StepExecutorService {
         self.verify_state_visibility(&task_sequence_step, step_message)
             .await?;
 
-        // 4. Delete PGMQ message after claiming
+        // 4. Ack PGMQ message after claiming (TAS-133e: use provider-agnostic ack_message)
+        let receipt_handle = ReceiptHandle::from(message.msg_id);
         if let Err(err) = self
             .context
-            .message_client
-            .delete_message(queue_name, message.msg_id)
+            .message_client()
+            .ack_message(queue_name, &receipt_handle)
             .await
         {
             self.record_step_failure(step_message, &namespace, "message_deletion_failed");
             return Err(TaskerError::MessagingError(format!(
-                "Failed to delete message: {err}"
+                "Failed to ack message: {err}"
             )));
         }
 

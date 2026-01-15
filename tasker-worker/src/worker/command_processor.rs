@@ -12,8 +12,8 @@
 //! - `EventIntegrationStatus`: Event integration status for FFI communication
 
 use pgmq::Message as PgmqMessage;
-use pgmq_notify::MessageReadyEvent;
 use tasker_shared::messaging::message::StepMessage;
+use tasker_shared::messaging::service::{MessageEvent, QueuedMessage};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -76,15 +76,19 @@ pub enum WorkerCommand {
     },
     /// Shutdown the worker processor
     Shutdown { resp: CommandResponder<()> },
-    /// Execute step from PgmqMessage - TAS-43 event system integration
+    /// Execute step from QueuedMessage - TAS-43 event system integration
+    ///
+    /// TAS-133: Updated to use provider-agnostic `QueuedMessage<serde_json::Value>` instead
+    /// of PGMQ-specific `PgmqMessage`. The queue_name is now embedded in the `MessageHandle`.
     ExecuteStepFromMessage {
-        queue_name: String,
-        message: PgmqMessage,
+        message: QueuedMessage<serde_json::Value>,
         resp: CommandResponder<()>,
     },
-    /// Execute step from MessageReadyEvent - TAS-43 event system integration
+    /// Execute step from MessageEvent - TAS-43 event system integration
+    ///
+    /// TAS-133: Updated to use provider-agnostic `MessageEvent` for multi-backend support
     ExecuteStepFromEvent {
-        message_event: MessageReadyEvent,
+        message_event: MessageEvent,
         resp: CommandResponder<()>,
     },
 }

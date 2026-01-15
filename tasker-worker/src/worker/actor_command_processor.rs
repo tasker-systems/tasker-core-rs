@@ -37,11 +37,11 @@ use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use super::actors::{
-    DispatchChannels, DispatchModeConfig, ExecuteStepFromEventMessage, ExecuteStepFromPgmqMessage,
-    ExecuteStepMessage, ExecuteStepWithCorrelationMessage, GetEventStatusMessage,
-    GetWorkerStatusMessage, Handler, HealthCheckMessage, ProcessStepCompletionMessage,
-    RefreshTemplateCacheMessage, SendStepResultMessage, SetEventIntegrationMessage,
-    WorkerActorRegistry,
+    DispatchChannels, DispatchModeConfig, ExecuteStepFromEventMessage,
+    ExecuteStepFromQueuedMessage, ExecuteStepMessage, ExecuteStepWithCorrelationMessage,
+    GetEventStatusMessage, GetWorkerStatusMessage, Handler, HealthCheckMessage,
+    ProcessStepCompletionMessage, RefreshTemplateCacheMessage, SendStepResultMessage,
+    SetEventIntegrationMessage, WorkerActorRegistry,
 };
 use super::command_processor::WorkerCommand;
 use super::event_publisher::WorkerEventPublisher;
@@ -379,21 +379,16 @@ impl ActorCommandProcessor {
                 true
             }
 
-            WorkerCommand::ExecuteStepFromMessage {
-                queue_name,
-                message,
-                resp,
-            } => {
+            WorkerCommand::ExecuteStepFromMessage { message, resp } => {
+                let queue_name = message.handle.queue_name().to_string();
                 debug!(
                     worker_id = %self.worker_id,
-                    msg_id = message.msg_id,
+                    handle = ?message.handle,
                     queue = %queue_name,
                     "Received ExecuteStepFromMessage command from fallback poller"
                 );
-                let msg = ExecuteStepFromPgmqMessage {
-                    queue_name: queue_name.clone(),
-                    message,
-                };
+                // TAS-133: Use provider-agnostic ExecuteStepFromQueuedMessage
+                let msg = ExecuteStepFromQueuedMessage { message };
                 let result = self.actors.step_executor_actor.handle(msg).await;
                 if let Err(ref e) = result {
                     warn!(
@@ -510,13 +505,13 @@ mod tests {
     };
     use crate::worker::in_process_event_bus::{InProcessEventBus, InProcessEventBusConfig};
     use tasker_shared::events::domain_events::DomainEventPublisher;
-    use tasker_shared::messaging::UnifiedPgmqClient;
+    use tasker_shared::messaging::client::MessageClient;
     use tokio::sync::RwLock;
 
     /// Helper to create test dependencies
     fn create_test_deps(
         worker_id: &str,
-        message_client: Arc<UnifiedPgmqClient>,
+        message_client: Arc<MessageClient>,
     ) -> (WorkerEventPublisher, DomainEventSystemHandle) {
         let event_publisher = WorkerEventPublisher::new(worker_id.to_string());
 

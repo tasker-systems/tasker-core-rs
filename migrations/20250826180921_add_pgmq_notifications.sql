@@ -1,9 +1,13 @@
 -- Migration: Add PGMQ Notification Wrapper Functions
 -- Generated at: 2025-08-26 18:09:21 UTC
--- Updated at: 2025-09-05 19:30:00 UTC
+-- Updated at: 2026-01-14 (TAS-133: Full payload notifications)
 --
 -- TAS-41 Update: Replaced trigger-based approach with atomic wrapper functions
 -- that combine pgmq.send with pg_notify in a single transaction.
+--
+-- TAS-133 Update: Added full message payload inclusion in notifications when
+-- message size < 7KB (pg_notify limit is ~8KB). This enables RabbitMQ-style
+-- direct message processing without a separate fetch operation.
 --
 -- Benefits:
 -- - No dependency on PGMQ internal tables
@@ -11,6 +15,7 @@
 -- - Atomic operations (message + notification)
 -- - Simple, testable, maintainable
 -- - Reliable namespace extraction
+-- - Full payload delivery for small messages (TAS-133)
 
 -- UP Migration
 
@@ -75,7 +80,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- TAS-133: Payload size threshold for full message inclusion
+-- pg_notify has ~8KB limit; we use 7000 bytes to leave room for metadata JSON wrapper
+-- Messages larger than this threshold fall back to signal-only notifications
+CREATE OR REPLACE FUNCTION pgmq_payload_size_threshold()
+RETURNS INTEGER AS $$
+BEGIN
+    RETURN 7000;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 -- Wrapper function that sends message AND notification atomically
+-- TAS-133: Now includes full message payload when size < 7KB threshold
 CREATE OR REPLACE FUNCTION pgmq_send_with_notify(
     queue_name TEXT,
     message JSONB,
@@ -87,6 +103,9 @@ DECLARE
     event_payload TEXT;
     namespace_channel TEXT;
     global_channel TEXT := 'pgmq_message_ready';
+    message_str TEXT;
+    include_full_payload BOOLEAN;
+    size_threshold INTEGER;
 BEGIN
     -- Send message using PGMQ's native function
     SELECT pgmq.send(queue_name, message, delay_seconds) INTO msg_id;
@@ -97,19 +116,50 @@ BEGIN
     -- Build namespace-specific channel name
     namespace_channel := 'pgmq_message_ready.' || namespace_name;
 
-    -- Build event payload
-    event_payload := json_build_object(
-        'event_type', 'message_ready',
-        'msg_id', msg_id,
-        'queue_name', queue_name,
-        'namespace', namespace_name,
-        'ready_at', NOW()::timestamptz,
-        'delay_seconds', delay_seconds
-    )::text;
+    -- TAS-133: Check if we can include full message payload
+    -- This enables RabbitMQ-style direct processing without separate fetch
+    message_str := message::text;
+    size_threshold := pgmq_payload_size_threshold();
+    include_full_payload := length(message_str) < size_threshold;
 
-    -- Truncate if payload exceeds limit
+    IF include_full_payload THEN
+        -- TAS-133: Full payload notification (RabbitMQ-style)
+        -- Consumer can process directly and ack without fetching
+        event_payload := json_build_object(
+            'event_type', 'message_with_payload',
+            'msg_id', msg_id,
+            'queue_name', queue_name,
+            'namespace', namespace_name,
+            'message', message,
+            'ready_at', NOW()::timestamptz,
+            'delay_seconds', delay_seconds
+        )::text;
+    ELSE
+        -- Signal-only notification (fallback for large messages)
+        -- Consumer must fetch message separately via pgmq_read_specific_message
+        event_payload := json_build_object(
+            'event_type', 'message_ready',
+            'msg_id', msg_id,
+            'queue_name', queue_name,
+            'namespace', namespace_name,
+            'ready_at', NOW()::timestamptz,
+            'delay_seconds', delay_seconds,
+            'payload_omitted', true
+        )::text;
+    END IF;
+
+    -- Safety truncation (should never trigger with proper threshold)
     IF length(event_payload) > 7800 THEN
-        event_payload := substring(event_payload, 1, 7790) || '...}';
+        -- If we somehow exceed limit, fall back to signal-only
+        event_payload := json_build_object(
+            'event_type', 'message_ready',
+            'msg_id', msg_id,
+            'queue_name', queue_name,
+            'namespace', namespace_name,
+            'ready_at', NOW()::timestamptz,
+            'payload_omitted', true,
+            'truncated', true
+        )::text;
     END IF;
 
     -- Send notifications in same transaction

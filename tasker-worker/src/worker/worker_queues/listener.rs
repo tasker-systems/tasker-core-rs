@@ -1,32 +1,44 @@
-//! pgmq-notify listener for TAS-43 worker namespace queue events
+//! Provider-agnostic listener for TAS-43 worker namespace queue events
 //!
-//! This module provides a robust pgmq-notify listener that handles worker
-//! namespace queue events, connection management, automatic reconnection, and event classification
-//! using the structured approach from events.rs.
+//! This module provides a robust queue listener that handles worker
+//! namespace queue events, connection management, and event classification using the
+//! provider abstraction from TAS-133.
+//!
+//! ## Architecture (TAS-133)
+//!
+//! The listener uses `messaging_provider().subscribe()` instead of PGMQ-specific
+//! `PgmqNotifyListener`. This enables both PGMQ and RabbitMQ backends:
+//!
+//! - **PGMQ**: Returns `MessageNotification::Available` (signal only, fetch required)
+//! - **RabbitMQ**: Returns `MessageNotification::Message` (full message delivered)
+//!
+//! The listener handles both notification types and converts them to provider-agnostic
+//! `MessageEvent` for classification into domain events.
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use std::time::{Duration, Instant};
+
+use futures::StreamExt;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use pgmq_notify::{
-    error::PgmqNotifyError, listener::PgmqEventHandler, MessageReadyEvent, PgmqNotifyConfig,
-    PgmqNotifyEvent, PgmqNotifyListener,
-};
+use tasker_shared::messaging::service::{MessageEvent, MessageNotification};
 use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
 use super::events::{WorkerNotification, WorkerQueueEvent};
 
-/// pgmq-notify listener for worker namespace queue notifications
+/// Provider-agnostic listener for worker namespace queue notifications
 ///
-/// Manages pgmq-notify connections with automatic reconnection, error handling,
+/// TAS-133: Uses `messaging_provider().subscribe()` instead of PGMQ-specific
+/// `PgmqNotifyListener`. Manages subscription streams with automatic error handling
 /// and config-driven event classification. Provides a unified interface for
-/// receiving all types of worker namespace queue events.
+/// receiving all types of worker namespace queue events from any messaging backend.
 pub(crate) struct WorkerQueueListener {
     /// Listener identifier
     listener_id: Uuid,
@@ -38,10 +50,10 @@ pub(crate) struct WorkerQueueListener {
     event_sender: mpsc::Sender<WorkerNotification>,
     /// Channel monitor for observability (TAS-51)
     channel_monitor: ChannelMonitor,
-    /// pgmq-notify listener (when connected)
-    pgmq_listener: Option<PgmqNotifyListener>,
-    /// Connection state
-    is_connected: bool,
+    /// Subscription task handles (TAS-133: replaces pgmq_listener)
+    subscription_handles: Vec<JoinHandle<()>>,
+    /// Running state (TAS-133: replaces is_connected)
+    is_running: Arc<AtomicBool>,
     /// Statistics
     stats: Arc<WorkerListenerStats>,
 }
@@ -51,9 +63,8 @@ impl std::fmt::Debug for WorkerQueueListener {
         f.debug_struct("WorkerQueueListener")
             .field("listener_id", &self.listener_id)
             .field("config", &self.config)
-            .field("has_event_sender", &true)
-            .field("has_pgmq_listener", &self.pgmq_listener.is_some())
-            .field("is_connected", &self.is_connected)
+            .field("is_running", &self.is_running.load(Ordering::Relaxed))
+            .field("subscription_count", &self.subscription_handles.len())
             .finish()
     }
 }
@@ -123,6 +134,9 @@ pub struct WorkerListenerStats {
 
 impl WorkerQueueListener {
     /// Create new worker queue listener
+    ///
+    /// TAS-133: Initializes queue classifier from config for provider-agnostic
+    /// event classification.
     pub async fn new(
         config: WorkerListenerConfig,
         context: Arc<SystemContext>,
@@ -135,7 +149,8 @@ impl WorkerQueueListener {
             listener_id = %listener_id,
             supported_namespaces = ?config.supported_namespaces,
             channel_monitor = %channel_monitor.channel_name(),
-            "Creating WorkerQueueListener with channel monitoring"
+            provider = %context.messaging_provider().provider_name(),
+            "Creating WorkerQueueListener with provider abstraction"
         );
 
         Ok(Self {
@@ -144,149 +159,252 @@ impl WorkerQueueListener {
             context,
             event_sender,
             channel_monitor,
-            pgmq_listener: None,
-            is_connected: false,
+            subscription_handles: Vec::new(),
+            is_running: Arc::new(AtomicBool::new(false)),
             stats: Arc::new(WorkerListenerStats::default()),
         })
     }
 
     /// Start the worker queue listener
+    ///
+    /// TAS-133: Uses `messaging_provider().subscribe()` instead of `PgmqNotifyListener`.
+    /// Subscribes to each namespace queue and spawns a task to process notifications.
     pub async fn start(&mut self) -> TaskerResult<()> {
         info!(
             listener_id = %self.listener_id,
             supported_namespaces = ?self.config.supported_namespaces,
-            "Starting WorkerQueueListener"
+            provider = %self.context.messaging_provider().provider_name(),
+            "Starting WorkerQueueListener with provider abstraction"
         );
 
-        // Create pgmq-notify configuration for worker namespace queues
-        // Updated for TAS-41 wrapper function integration: use extraction patterns that match
-        // our wrapper functions' namespace extraction logic from queue names
-        // Pattern matches both "worker_{namespace}_queue" and "{namespace}_queue" formats
-        let pgmq_config = PgmqNotifyConfig::new()
-            .with_queue_naming_pattern(r"^(?:worker_)?(?P<namespace>\w+)_queue$")
-            .with_default_namespace("default");
-
-        // Create pgmq-notify listener with bounded channel (TAS-51)
-        // TAS-61 Phase 6D: Worker-specific mpsc channels are in worker.mpsc_channels
-        let buffer_size = self
-            .context
-            .tasker_config
-            .worker
-            .as_ref()
-            .map(|w| w.mpsc_channels.event_listeners.pgmq_event_buffer_size as usize)
-            .expect("Worker configuration required for pgmq event buffer size");
-        // TAS-78: Use PGMQ pool for notification listener - PostgreSQL LISTEN/NOTIFY
-        // only works within the same database, so the listener must connect to
-        // the same database where pgmq_send_with_notify sends notifications
-        let mut listener =
-            PgmqNotifyListener::new(self.context.pgmq_pool().clone(), pgmq_config, buffer_size)
-                .await
-                .map_err(|e| {
-                    TaskerError::WorkerError(format!(
-                        "Failed to create pgmq-notify listener: {}",
-                        e
-                    ))
-                })?;
-
-        listener.connect().await.map_err(|e| {
-            TaskerError::WorkerError(format!("Failed to connect to pgmq-notify listener: {}", e))
-        })?;
-
-        // Listen to message ready events for all supported namespaces using TAS-41 wrapper function channels
-        // Our wrapper functions send notifications to channels based on queue name patterns:
-        // - "worker_{namespace}_queue" -> namespace "{namespace}" -> channel "pgmq_message_ready.{namespace}"
-        // - "{namespace}_queue" -> namespace "{namespace}" -> channel "pgmq_message_ready.{namespace}"
-        // So for supported_namespaces=["rust", "python"], we'll listen to:
-        // - "pgmq_message_ready.rust" (gets notifications from worker_rust_queue)
-        // - "pgmq_message_ready.python" (gets notifications from worker_python_queue)
+        // TAS-133: Subscribe to each namespace queue via provider abstraction
+        let provider = self.context.messaging_provider();
 
         for namespace in &self.config.supported_namespaces {
-            info!(
-                listener_id = %self.listener_id,
-                namespace = %namespace,
-                "Subscribing to TAS-41 wrapper function notifications for worker namespace"
-            );
+            // Worker queues follow the pattern: {namespace}_queue
+            let queue_name = format!("{}_queue", namespace);
 
-            listener
-                .listen_message_ready_for_namespace(namespace)
-                .await
-                .map_err(|e| {
-                    TaskerError::WorkerError(format!(
-                        "Failed to listen to namespace {}: {}",
-                        namespace, e
-                    ))
-                })?;
+            let stream = provider.subscribe(&queue_name).map_err(|e| {
+                TaskerError::WorkerError(format!(
+                    "Failed to subscribe to queue '{}': {}",
+                    queue_name, e
+                ))
+            })?;
+
+            // Clone values for the spawned task
+            let sender = self.event_sender.clone();
+            let stats = self.stats.clone();
+            let namespace_owned = namespace.clone();
+            let monitor = self.channel_monitor.clone();
+            let listener_id = self.listener_id;
+            let queue_name_owned = queue_name.clone();
+            let is_running = self.is_running.clone();
+
+            let handle = tokio::spawn(async move {
+                Self::process_subscription_stream(
+                    stream,
+                    sender,
+                    stats,
+                    namespace_owned,
+                    monitor,
+                    listener_id,
+                    queue_name_owned,
+                    is_running,
+                )
+                .await;
+            });
+
+            self.subscription_handles.push(handle);
         }
 
-        // Create event handler with channel monitor
-        let handler = WorkerEventHandler::new(
-            self.config.clone(),
-            self.context.clone(),
-            self.event_sender.clone(),
-            self.channel_monitor.clone(),
-            self.listener_id,
-            self.stats.clone(),
-        );
-
-        // Start listening with the event handler in background task
-        self.pgmq_listener = Some(listener);
-
-        // Start listening with the event handler in background task
-        let listener_id = self.listener_id;
-        if let Some(mut listener) = self.pgmq_listener.take() {
-            // Use the new background-task method that returns a JoinHandle
-            match listener.start_listening_with_handler(handler).await {
-                Ok(handle) => {
-                    // Spawn a monitoring task for the background listener
-                    tokio::spawn(async move {
-                        match handle.await {
-                            Ok(Ok(_)) => {
-                                info!(listener_id = %listener_id, "pgmq-notify listener completed successfully");
-                            }
-                            Ok(Err(e)) => {
-                                error!(listener_id = %listener_id, error = %e, "pgmq-notify listener failed");
-                            }
-                            Err(e) => {
-                                error!(listener_id = %listener_id, error = %e, "pgmq-notify listener task panicked");
-                            }
-                        }
-                    });
-                }
-                Err(e) => {
-                    error!(listener_id = %listener_id, error = %e, "Failed to start pgmq-notify listener");
-                    return Err(TaskerError::OrchestrationError(format!(
-                        "Failed to start pgmq-notify listener: {}",
-                        e
-                    )));
-                }
-            }
-        }
-
-        self.is_connected = true;
+        self.is_running.store(true, Ordering::SeqCst);
         *self.stats.started_at.lock().await = Some(Instant::now());
 
         info!(
             listener_id = %self.listener_id,
-            supported_namespaces = ?self.config.supported_namespaces,
+            subscription_count = %self.subscription_handles.len(),
             "WorkerQueueListener started successfully"
         );
 
         Ok(())
     }
 
+    /// Process a subscription stream, converting notifications to domain events
+    ///
+    /// TAS-133: This is the core processing loop that handles `MessageNotification`
+    /// from any provider and converts them to `WorkerQueueEvent`.
+    async fn process_subscription_stream(
+        mut stream: std::pin::Pin<Box<dyn futures::Stream<Item = MessageNotification> + Send>>,
+        sender: mpsc::Sender<WorkerNotification>,
+        stats: Arc<WorkerListenerStats>,
+        namespace: String,
+        monitor: ChannelMonitor,
+        listener_id: Uuid,
+        queue_name: String,
+        is_running: Arc<AtomicBool>,
+    ) {
+        debug!(
+            listener_id = %listener_id,
+            queue = %queue_name,
+            namespace = %namespace,
+            "Starting subscription stream processing for worker namespace"
+        );
+
+        while let Some(notification) = stream.next().await {
+            // Check if we should stop
+            if !is_running.load(Ordering::Relaxed) {
+                debug!(
+                    listener_id = %listener_id,
+                    queue = %queue_name,
+                    "Subscription stream stopping (listener stopped)"
+                );
+                break;
+            }
+
+            // TAS-133: Convert MessageNotification → MessageEvent
+            let message_event = match &notification {
+                MessageNotification::Available {
+                    queue_name: notif_queue,
+                    msg_id,
+                } => {
+                    // PGMQ style: signal only, need to fetch message
+                    MessageEvent::from_available(notif_queue, *msg_id, &namespace)
+                }
+                MessageNotification::Message(queued_msg) => {
+                    // RabbitMQ style or PGMQ small message: full message available
+                    MessageEvent::from_queued_message(queued_msg, &namespace)
+                }
+            };
+
+            stats.events_received.fetch_add(1, Ordering::Relaxed);
+
+            debug!(
+                listener_id = %listener_id,
+                queue = %message_event.queue_name,
+                msg_id = %message_event.message_id,
+                namespace = %message_event.namespace,
+                "Received notification, classifying worker event"
+            );
+
+            // TAS-133: Classify into worker queue event
+            let queue_event = Self::classify_event(&message_event);
+
+            // Update specific event type statistics
+            match &queue_event {
+                WorkerQueueEvent::StepMessage(_) => {
+                    stats.step_messages_processed.fetch_add(1, Ordering::Relaxed);
+                }
+                WorkerQueueEvent::HealthCheck(_) => {
+                    stats.health_checks_processed.fetch_add(1, Ordering::Relaxed);
+                }
+                WorkerQueueEvent::ConfigurationUpdate(_) => {
+                    stats.config_updates_processed.fetch_add(1, Ordering::Relaxed);
+                }
+                WorkerQueueEvent::Unknown { .. } => {
+                    stats.unknown_events.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+
+            // Send the classified event with channel monitoring (TAS-51)
+            let notification = WorkerNotification::Event(queue_event);
+            match sender.send(notification).await {
+                Ok(_) => {
+                    // TAS-51: Record send and periodically check saturation (optimized)
+                    if monitor.record_send_success() {
+                        monitor.check_and_warn_saturation(sender.capacity());
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        listener_id = %listener_id,
+                        error = %e,
+                        "Failed to send worker notification to event system"
+                    );
+                }
+            }
+
+            // Update last event timestamp
+            *stats.last_event_at.lock().await = Some(Instant::now());
+        }
+
+        // Stream ended - could be intentional stop or connection loss
+        if is_running.load(Ordering::Relaxed) {
+            // Unexpected stream end
+            warn!(
+                listener_id = %listener_id,
+                queue = %queue_name,
+                "Subscription stream ended unexpectedly"
+            );
+
+            stats.connection_errors.fetch_add(1, Ordering::Relaxed);
+        } else {
+            debug!(
+                listener_id = %listener_id,
+                queue = %queue_name,
+                "Subscription stream ended (listener stopped)"
+            );
+        }
+    }
+
+    /// Classify a message event into worker queue event types
+    ///
+    /// TAS-133: Uses provider-agnostic `MessageEvent` for classification
+    fn classify_event(event: &MessageEvent) -> WorkerQueueEvent {
+        let queue_name = &event.queue_name;
+
+        // Most events in worker namespace queues will be step messages
+        if queue_name.ends_with("_queue") {
+            WorkerQueueEvent::StepMessage(event.clone())
+        } else if queue_name.contains("_health") {
+            WorkerQueueEvent::HealthCheck(event.clone())
+        } else if queue_name.contains("_config") {
+            WorkerQueueEvent::ConfigurationUpdate(event.clone())
+        } else {
+            WorkerQueueEvent::Unknown {
+                queue_name: queue_name.clone(),
+                payload: "Unclassified worker queue event".to_string(),
+            }
+        }
+    }
+
+    /// Stop the worker queue listener
+    ///
+    /// TAS-133: Signals subscription tasks to stop and aborts them.
+    pub async fn stop(&mut self) -> TaskerResult<()> {
+        info!(
+            listener_id = %self.listener_id,
+            subscription_count = %self.subscription_handles.len(),
+            "Stopping WorkerQueueListener"
+        );
+
+        // Signal all subscription tasks to stop
+        self.is_running.store(false, Ordering::SeqCst);
+
+        // Abort all subscription handles
+        for handle in self.subscription_handles.drain(..) {
+            handle.abort();
+        }
+
+        info!(
+            listener_id = %self.listener_id,
+            "WorkerQueueListener stopped successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Check if listener is running and healthy
+    ///
+    /// TAS-133: Checks running state instead of PGMQ-specific connection state.
+    #[expect(dead_code, reason = "Public API for health checks by event systems")]
+    pub fn is_healthy(&self) -> bool {
+        self.is_running.load(Ordering::Relaxed) && !self.subscription_handles.is_empty()
+    }
+
     /// Get listener statistics
     #[expect(dead_code, reason = "Public API for monitoring listener statistics")]
     pub fn stats(&self) -> Arc<WorkerListenerStats> {
         self.stats.clone()
-    }
-
-    /// Check if listener is connected
-    #[expect(
-        dead_code,
-        reason = "Public API for checking listener connection state"
-    )]
-    pub fn is_connected(&self) -> bool {
-        self.is_connected
     }
 
     /// Get listener ID
@@ -296,156 +414,107 @@ impl WorkerQueueListener {
     }
 }
 
-/// Event handler for worker pgmq-notify events
-struct WorkerEventHandler {
-    #[expect(
-        dead_code,
-        reason = "Configuration preserved for future event handler enhancements"
-    )]
-    config: WorkerListenerConfig,
-    #[expect(
-        dead_code,
-        reason = "SystemContext available for future event handler operations"
-    )]
-    context: Arc<SystemContext>,
-    event_sender: mpsc::Sender<WorkerNotification>,
-    channel_monitor: ChannelMonitor,
-    listener_id: Uuid,
-    stats: Arc<WorkerListenerStats>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tasker_shared::messaging::service::MessageId;
 
-impl WorkerEventHandler {
-    fn new(
-        config: WorkerListenerConfig,
-        context: Arc<SystemContext>,
-        event_sender: mpsc::Sender<WorkerNotification>,
-        channel_monitor: ChannelMonitor,
-        listener_id: Uuid,
-        stats: Arc<WorkerListenerStats>,
-    ) -> Self {
-        Self {
-            config,
-            context,
-            event_sender,
-            channel_monitor,
-            listener_id,
-            stats,
+    /// TAS-133 Phase 2 Validation: Test MessageEvent classification for step messages
+    #[test]
+    fn classify_event_step_message() {
+        let event = MessageEvent::new("linear_workflow_queue", "linear_workflow", MessageId::from(42i64));
+        let classified = WorkerQueueListener::classify_event(&event);
+
+        match classified {
+            WorkerQueueEvent::StepMessage(inner) => {
+                assert_eq!(inner.queue_name, "linear_workflow_queue");
+                assert_eq!(inner.namespace, "linear_workflow");
+            }
+            other => panic!("Expected StepMessage, got {:?}", other),
         }
     }
 
-    /// Classify message ready event into worker queue event types
-    fn classify_event(&self, event: MessageReadyEvent) -> WorkerQueueEvent {
-        let queue_name = &event.queue_name;
+    /// TAS-133 Phase 2 Validation: Test MessageEvent classification for health check events
+    #[test]
+    fn classify_event_health_check() {
+        let event = MessageEvent::new("worker_health", "worker", MessageId::from(1i64));
+        let classified = WorkerQueueListener::classify_event(&event);
 
-        // Most events in worker namespace queues will be step messages
-        if queue_name.ends_with("_queue") {
-            WorkerQueueEvent::StepMessage(event)
-        } else if queue_name.contains("_health") {
-            WorkerQueueEvent::HealthCheck(event)
-        } else if queue_name.contains("_config") {
-            WorkerQueueEvent::ConfigurationUpdate(event)
-        } else {
-            WorkerQueueEvent::Unknown {
-                queue_name: queue_name.clone(),
-                payload: "Unclassified worker queue event".to_string(),
+        match classified {
+            WorkerQueueEvent::HealthCheck(inner) => {
+                assert_eq!(inner.queue_name, "worker_health");
             }
+            other => panic!("Expected HealthCheck, got {:?}", other),
         }
     }
-}
 
-#[async_trait::async_trait]
-impl PgmqEventHandler for WorkerEventHandler {
-    async fn handle_event(&self, event: PgmqNotifyEvent) -> Result<(), PgmqNotifyError> {
-        match event {
-            PgmqNotifyEvent::MessageReady(msg_event) => {
-                debug!(
-                    listener_id = %self.listener_id,
-                    queue_name = %msg_event.queue_name,
-                    namespace = %msg_event.namespace,
-                    "Received worker message ready event"
-                );
+    /// TAS-133 Phase 2 Validation: Test MessageEvent classification for config update events
+    #[test]
+    fn classify_event_config_update() {
+        let event = MessageEvent::new("worker_config", "worker", MessageId::from(1i64));
+        let classified = WorkerQueueListener::classify_event(&event);
 
-                // Update statistics
-                self.stats.events_received.fetch_add(1, Ordering::Relaxed);
-                *self.stats.last_event_at.lock().await = Some(Instant::now());
-
-                // Classify the event
-                let queue_event = self.classify_event(msg_event);
-
-                // Update specific event type statistics
-                match &queue_event {
-                    WorkerQueueEvent::StepMessage(_) => {
-                        self.stats
-                            .step_messages_processed
-                            .fetch_add(1, Ordering::Relaxed);
-                    }
-                    WorkerQueueEvent::HealthCheck(_) => {
-                        self.stats
-                            .health_checks_processed
-                            .fetch_add(1, Ordering::Relaxed);
-                    }
-                    WorkerQueueEvent::ConfigurationUpdate(_) => {
-                        self.stats
-                            .config_updates_processed
-                            .fetch_add(1, Ordering::Relaxed);
-                    }
-                    WorkerQueueEvent::Unknown { .. } => {
-                        self.stats.unknown_events.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-
-                // Send the classified event with channel monitoring (TAS-51)
-                let notification = WorkerNotification::Event(queue_event);
-                match self.event_sender.send(notification).await {
-                    Ok(_) => {
-                        // TAS-51: Record send and periodically check saturation (optimized)
-                        if self.channel_monitor.record_send_success() {
-                            self.channel_monitor
-                                .check_and_warn_saturation(self.event_sender.capacity());
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            listener_id = %self.listener_id,
-                            error = %e,
-                            "Failed to send worker queue event"
-                        );
-                        return Err(PgmqNotifyError::Generic(anyhow::anyhow!(
-                            "Failed to send event: {}",
-                            e
-                        )));
-                    }
-                }
-
-                Ok(())
+        match classified {
+            WorkerQueueEvent::ConfigurationUpdate(inner) => {
+                assert_eq!(inner.queue_name, "worker_config");
             }
-            PgmqNotifyEvent::QueueCreated(queue_event) => {
-                debug!(
-                    listener_id = %self.listener_id,
-                    queue_name = %queue_event.queue_name,
-                    namespace = %queue_event.namespace,
-                    "Worker queue listener received queue created event"
-                );
-
-                // We don't need to handle queue creation events for workers,
-                // but we can log them for debugging
-                Ok(())
-            }
-            PgmqNotifyEvent::BatchReady(batch_event) => {
-                debug!(
-                    listener_id = %self.listener_id,
-                    queue_name = %batch_event.queue_name,
-                    namespace = %batch_event.namespace,
-                    msg_count = %batch_event.message_count,
-                    "Worker queue listener received batch ready event with {} messages",
-                    batch_event.message_count
-                );
-
-                // Batch ready events are informational only
-                // Individual messages will also trigger MessageReady events
-                // which will be processed normally via the individual message handling path
-                Ok(())
-            }
+            other => panic!("Expected ConfigurationUpdate, got {:?}", other),
         }
+    }
+
+    /// TAS-133 Phase 2 Validation: Test MessageEvent classification for unknown events
+    #[test]
+    fn classify_event_unknown() {
+        let event = MessageEvent::new("some_random_pattern", "unknown", MessageId::from(1i64));
+        let classified = WorkerQueueListener::classify_event(&event);
+
+        match classified {
+            WorkerQueueEvent::Unknown { queue_name, payload } => {
+                assert_eq!(queue_name, "some_random_pattern");
+                assert!(payload.contains("Unclassified"));
+            }
+            other => panic!("Expected Unknown, got {:?}", other),
+        }
+    }
+
+    /// TAS-133 Phase 2 Validation: Test MessageEvent from Available notification
+    #[test]
+    fn message_event_from_available_with_msg_id() {
+        let event = MessageEvent::from_available("test_queue", Some(42), "test_namespace");
+        assert_eq!(event.queue_name, "test_queue");
+        assert_eq!(event.namespace, "test_namespace");
+        assert_eq!(event.message_id.as_str(), "42");
+    }
+
+    /// TAS-133 Phase 2 Validation: Test MessageEvent from Available with None msg_id
+    #[test]
+    fn message_event_from_available_without_msg_id() {
+        let event = MessageEvent::from_available("test_queue", None, "test_namespace");
+        assert_eq!(event.queue_name, "test_queue");
+        assert_eq!(event.namespace, "test_namespace");
+        assert_eq!(event.message_id.as_str(), "unknown");
+    }
+
+    /// TAS-133 Phase 2 Validation: Test listener stats initialization
+    #[test]
+    fn listener_stats_default_values() {
+        let stats = WorkerListenerStats::default();
+        assert_eq!(stats.events_received.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.step_messages_processed.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.health_checks_processed.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.config_updates_processed.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.unknown_events.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.connection_errors.load(Ordering::Relaxed), 0);
+    }
+
+    /// TAS-133 Phase 2 Validation: Test listener config defaults
+    #[test]
+    fn listener_config_defaults() {
+        let config = WorkerListenerConfig::default();
+        assert!(config.supported_namespaces.contains(&"linear_workflow".to_string()));
+        assert!(config.supported_namespaces.contains(&"diamond_workflow".to_string()));
+        assert!(config.supported_namespaces.contains(&"order_fulfillment".to_string()));
+        assert_eq!(config.max_retry_attempts, 10);
+        assert!(config.batch_processing);
     }
 }

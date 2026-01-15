@@ -2,14 +2,16 @@
 //!
 //! Enum dispatch for messaging providers, avoiding trait object overhead.
 
+use std::pin::Pin;
 use std::time::Duration;
 
+use futures::Stream;
 use pgmq_notify::PgmqNotifyConfig;
 
 use crate::config::tasker::RabbitmqConfig;
 use super::providers::{InMemoryMessagingService, PgmqMessagingService, RabbitMqMessagingService};
-use super::traits::{MessagingService, QueueMessage};
-use super::types::{MessageId, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle};
+use super::traits::{MessagingService, QueueMessage, SupportsPushNotifications};
+use super::types::{MessageId, MessageNotification, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle};
 use super::MessagingError;
 
 /// Provider enum for zero-cost dispatch
@@ -124,6 +126,31 @@ impl MessagingProvider {
             Self::RabbitMq(_) => "rabbitmq",
             Self::InMemory(_) => "in_memory",
         }
+    }
+
+    /// Get the PGMQ service if this is a PGMQ provider
+    ///
+    /// Returns `Some(&PgmqMessagingService)` if this provider is PGMQ-based,
+    /// otherwise returns `None`. Used for PGMQ-specific operations like
+    /// event-driven processing with LISTEN/NOTIFY.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// if let Some(pgmq) = provider.as_pgmq() {
+    ///     // Use PGMQ-specific features like read_specific_message
+    /// }
+    /// ```
+    pub fn as_pgmq(&self) -> Option<&PgmqMessagingService> {
+        match self {
+            Self::Pgmq(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Check if this is a PGMQ provider
+    pub fn is_pgmq(&self) -> bool {
+        matches!(self, Self::Pgmq(_))
     }
 
     /// Create a queue if it doesn't exist
@@ -270,6 +297,46 @@ impl MessagingProvider {
             Self::Pgmq(s) => s.health_check().await,
             Self::RabbitMq(s) => s.health_check().await,
             Self::InMemory(s) => s.health_check().await,
+        }
+    }
+
+    // =========================================================================
+    // SupportsPushNotifications delegations (TAS-133)
+    // =========================================================================
+
+    /// Subscribe to push notifications for a queue
+    ///
+    /// TAS-133: Delegates to the underlying provider's `SupportsPushNotifications::subscribe()`.
+    /// Returns a stream of `MessageNotification` items.
+    ///
+    /// # Notification Types
+    ///
+    /// - **PGMQ**: Returns `MessageNotification::Available` (signal only, fetch required)
+    /// - **RabbitMQ**: Returns `MessageNotification::Message` (full message delivered)
+    /// - **InMemory**: Returns `MessageNotification::Available` (signal only)
+    pub fn subscribe(
+        &self,
+        queue_name: &str,
+    ) -> Result<Pin<Box<dyn Stream<Item = MessageNotification> + Send>>, MessagingError> {
+        match self {
+            Self::Pgmq(s) => s.subscribe(queue_name),
+            Self::RabbitMq(s) => s.subscribe(queue_name),
+            Self::InMemory(s) => s.subscribe(queue_name),
+        }
+    }
+
+    /// Check if this provider requires fallback polling
+    ///
+    /// TAS-133: Some providers (like PGMQ) use signal-only notifications where
+    /// messages must be fetched after receiving a signal. These providers need
+    /// fallback polling to catch missed signals.
+    ///
+    /// Returns `true` for PGMQ and InMemory, `false` for RabbitMQ.
+    pub fn requires_fallback_polling(&self) -> bool {
+        match self {
+            Self::Pgmq(s) => s.requires_fallback_polling(),
+            Self::RabbitMq(s) => s.requires_fallback_polling(),
+            Self::InMemory(s) => s.requires_fallback_polling(),
         }
     }
 }

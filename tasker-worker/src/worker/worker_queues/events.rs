@@ -1,29 +1,35 @@
 //! Worker queue event types and classifications for TAS-43
 //!
 //! This module implements structured event handling for worker namespace queue events,
-//! providing type-safe handling of pgmq-notify events for worker coordination.
+//! providing type-safe handling of message events for worker coordination.
 //!
 //! ## Event Types
 //!
 //! - **StepMessage**: Step execution requests from orchestration to workers
 //! - **HealthCheck**: Worker health monitoring events
 //! - **ConfigurationUpdate**: Worker configuration change events
+//!
+//! ## Provider Abstraction (TAS-133)
+//!
+//! Event types use provider-agnostic `MessageEvent` for multi-backend support.
 
-use pgmq_notify::MessageReadyEvent;
 use serde::{Deserialize, Serialize};
+use tasker_shared::messaging::service::MessageEvent;
 
 /// Worker queue event classification
 ///
-/// Provides structured classification of pgmq-notify events for worker
+/// Provides structured classification of messaging events for worker
 /// namespace queue processing, focusing on step execution coordination.
+///
+/// Uses provider-agnostic `MessageEvent` to support multiple messaging backends.
 #[derive(Debug, Clone)]
 pub enum WorkerQueueEvent {
     /// Step message ready for processing in namespace queue
-    StepMessage(MessageReadyEvent),
+    StepMessage(MessageEvent),
     /// Worker health monitoring event
-    HealthCheck(MessageReadyEvent),
+    HealthCheck(MessageEvent),
     /// Worker configuration update event
-    ConfigurationUpdate(MessageReadyEvent),
+    ConfigurationUpdate(MessageEvent),
     /// Unknown queue event (for monitoring and debugging)
     Unknown { queue_name: String, payload: String },
 }

@@ -6,10 +6,10 @@
 //! response type for type-safe message handling.
 
 use pgmq::Message as PgmqMessage;
-use pgmq_notify::MessageReadyEvent;
 use uuid::Uuid;
 
 use tasker_shared::messaging::message::StepMessage;
+use tasker_shared::messaging::service::{MessageEvent, QueuedMessage};
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::types::base::TaskSequenceStep;
 
@@ -56,10 +56,26 @@ impl Message for ExecuteStepFromPgmqMessage {
     type Response = ();
 }
 
-/// Execute step from MessageReadyEvent (TAS-43 pgmq-notify)
+/// Execute step from provider-agnostic QueuedMessage (TAS-133)
+///
+/// This message type supports multiple messaging providers by using the
+/// provider-agnostic `QueuedMessage<serde_json::Value>` wrapper. The queue name
+/// and message ID are embedded in the `MessageHandle`.
+#[derive(Debug)]
+pub struct ExecuteStepFromQueuedMessage {
+    pub message: QueuedMessage<serde_json::Value>,
+}
+
+impl Message for ExecuteStepFromQueuedMessage {
+    type Response = ();
+}
+
+/// Execute step from MessageEvent (TAS-43 event system)
+///
+/// TAS-133: Updated to use provider-agnostic `MessageEvent` for multi-backend support
 #[derive(Debug)]
 pub struct ExecuteStepFromEventMessage {
-    pub message_event: MessageReadyEvent,
+    pub message_event: MessageEvent,
 }
 
 impl Message for ExecuteStepFromEventMessage {
