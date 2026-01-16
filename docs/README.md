@@ -1,6 +1,6 @@
 # Tasker Core Documentation
 
-**Last Updated**: 2025-12-29
+**Last Updated**: 2026-01-15
 **Project Status**: Production Ready
 **Version**: 0.1.0
 
@@ -53,15 +53,17 @@ The documentation is organized by cognitive function:
 
 **Architecture**:
 - **[Crate Architecture](architecture/crate-architecture.md)** - Workspace structure and crate responsibilities
+- **[Messaging Abstraction](architecture/messaging-abstraction.md)** - Provider-agnostic messaging (PGMQ, RabbitMQ) - TAS-133
 - **[Actor-Based Architecture](architecture/actors.md)** - Lightweight actor pattern for orchestration (TAS-46)
 - **[Worker Actor Architecture](architecture/worker-actors.md)** - Actor pattern for worker step execution (TAS-69)
+- **[Worker Event Systems](architecture/worker-event-systems.md)** - Dual-channel event architecture for workers
 - **[Events and Commands](architecture/events-and-commands.md)** - Event-driven coordination patterns
 - **[Domain Events](architecture/domain-events.md)** - Business event publishing (durable, fast, broadcast)
 - **[States and Lifecycles](architecture/states-and-lifecycles.md)** - Dual state machine architecture
 - **[Idempotency and Atomicity](architecture/idempotency-and-atomicity.md)** - Defense-in-depth guarantees
 - **[Circuit Breakers](architecture/circuit-breakers.md)** - Fault isolation and cascade prevention (TAS-75)
 - **[Backpressure Architecture](architecture/backpressure-architecture.md)** - Unified resilience strategy
-- **[Deployment Patterns](architecture/deployment-patterns.md)** - Hybrid, EventDriven, and PollingOnly modes
+- **[Deployment Patterns](architecture/deployment-patterns.md)** - Hybrid, EventDriven, PollingOnly modes; PGMQ/RabbitMQ backends
 
 **Historical Context**:
 - **[CHRONOLOGY](CHRONOLOGY.md)** - Development timeline and lessons learned
@@ -127,6 +129,7 @@ docs/
 ├── architecture/                       # System structure and patterns
 │   ├── README.md                       # Architecture index
 │   ├── crate-architecture.md           # Workspace structure
+│   ├── messaging-abstraction.md        # Provider-agnostic messaging (TAS-133)
 │   ├── actors.md                       # Orchestration actor pattern
 │   ├── worker-actors.md                # Worker actor pattern
 │   ├── worker-event-systems.md         # Worker event architecture
@@ -136,7 +139,7 @@ docs/
 │   ├── idempotency-and-atomicity.md    # Defense-in-depth guarantees
 │   ├── backpressure-architecture.md    # Resilience strategy
 │   ├── circuit-breakers.md             # Fault isolation
-│   └── deployment-patterns.md          # Deployment modes
+│   └── deployment-patterns.md          # Deployment modes + messaging backends
 │
 ├── guides/                             # Practical how-to guides
 │   ├── README.md                       # Guides index
@@ -208,12 +211,14 @@ docs/
 - **"I want to publish business events"** -> [Domain Events](architecture/domain-events.md)
 - **"I'm debugging concurrency issues"** -> [Idempotency and Atomicity](architecture/idempotency-and-atomicity.md)
 - **"I'm configuring a deployment"** -> [Configuration Management](guides/configuration-management.md)
+- **"I need to choose a messaging backend"** -> [Messaging Abstraction](architecture/messaging-abstraction.md), [Deployment Patterns](architecture/deployment-patterns.md)
 - **"I'm writing a custom handler"** -> [Worker Patterns](workers/patterns-and-practices.md)
 - **"Why was this designed this way?"** -> [Tasker Core Tenets](principles/tasker-core-tenets.md), [CHRONOLOGY](CHRONOLOGY.md)
 
 ### By Technology
 
 - **PostgreSQL/SQL** -> [Task Readiness & Execution](reference/task-and-step-readiness-and-execution.md)
+- **Message Queues (PGMQ/RabbitMQ)** -> [Messaging Abstraction](architecture/messaging-abstraction.md)
 - **Event Systems** -> [Events and Commands](architecture/events-and-commands.md)
 - **State Machines** -> [States and Lifecycles](architecture/states-and-lifecycles.md)
 - **Configuration (TOML)** -> [Configuration Management](guides/configuration-management.md)
@@ -228,7 +233,7 @@ docs/
 
 Tasker Core is a high-performance workflow orchestration system built in Rust, designed for:
 - **DAG-based workflow execution** with complex dependencies
-- **PostgreSQL-native architecture** using PGMQ message queues
+- **Provider-agnostic messaging** supporting PGMQ and RabbitMQ backends (TAS-133)
 - **Event-driven coordination** with polling fallback for reliability
 - **Multi-language worker support** (Rust native, Ruby, Python, TypeScript via FFI)
 
@@ -239,8 +244,8 @@ Tasker Core is a high-performance workflow orchestration system built in Rust, d
 | **Tasks** | Overall workflow instances with lifecycle management |
 | **Workflow Steps** | Individual units of work with dependencies |
 | **State Machines** | Dual state machines (Task + Step) for atomic transitions |
-| **Event Systems** | Real-time coordination via PostgreSQL LISTEN/NOTIFY |
-| **Message Queues** | PGMQ-based reliable message delivery |
+| **Event Systems** | Real-time coordination via push notifications or polling |
+| **Message Queues** | Provider-agnostic messaging (PGMQ or RabbitMQ) - TAS-133 |
 | **Workers** | Autonomous step processors (Rust, Ruby, Python, TypeScript) |
 
 ---
