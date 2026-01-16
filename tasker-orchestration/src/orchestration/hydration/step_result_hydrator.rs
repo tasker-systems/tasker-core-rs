@@ -1,17 +1,17 @@
 //! # Step Result Hydrator
 //!
-//! Hydrates step execution results from PGMQ messages containing minimal SimpleStepMessage payloads.
+//! Hydrates step execution results from PGMQ messages containing minimal StepMessage payloads.
 //!
 //! ## Purpose
 //!
-//! Workers submit lightweight SimpleStepMessage (task_uuid + step_uuid) to the orchestration queue.
+//! Workers submit lightweight StepMessage (task_uuid + step_uuid + correlation_id) to the orchestration queue.
 //! This hydrator performs database lookup to retrieve the full StepExecutionResult from the
 //! WorkflowStep.results JSONB column, enabling efficient message queue operations while maintaining
 //! rich execution data.
 //!
 //! ## Process
 //!
-//! 1. Parse SimpleStepMessage from PGMQ message
+//! 1. Parse StepMessage from PGMQ message
 //! 2. Database lookup for WorkflowStep by step_uuid
 //! 3. Validate results exist in JSONB column
 //! 4. Deserialize StepExecutionResult from JSONB
@@ -19,14 +19,15 @@
 
 use pgmq::Message as PgmqMessage;
 use std::sync::Arc;
-use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::message::StepMessage;
+use tasker_shared::messaging::service::QueuedMessage;
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::models::WorkflowStep;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 use tracing::{debug, error, info};
 
-/// Hydrates full StepExecutionResult from lightweight SimpleStepMessage
+/// Hydrates full StepExecutionResult from lightweight StepMessage
 ///
 /// This service performs database-driven hydration, converting minimal queue messages
 /// into rich execution results for orchestration processing.
@@ -62,14 +63,14 @@ impl StepResultHydrator {
     /// Hydrate full StepExecutionResult from PGMQ message
     ///
     /// Performs the complete hydration process:
-    /// 1. Parse SimpleStepMessage from message payload
+    /// 1. Parse StepMessage from message payload
     /// 2. Look up WorkflowStep in database
     /// 3. Extract and validate results JSONB
     /// 4. Deserialize into StepExecutionResult
     ///
     /// # Arguments
     ///
-    /// * `message` - PGMQ message containing SimpleStepMessage payload
+    /// * `message` - PGMQ message containing StepMessage payload
     ///
     /// # Returns
     ///
@@ -89,36 +90,36 @@ impl StepResultHydrator {
             "HYDRATOR: Starting step result hydration"
         );
 
-        // Step 1: Parse SimpleStepMessage (only task_uuid and step_uuid)
-        let simple_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
-            .map_err(|e| {
+        // Step 1: Parse StepMessage (task_uuid, step_uuid, correlation_id)
+        let step_message: StepMessage =
+            serde_json::from_value(message.message.clone()).map_err(|e| {
                 error!(
                     msg_id = message.msg_id,
                     error = %e,
-                    "HYDRATOR: Failed to parse SimpleStepMessage"
+                    "HYDRATOR: Failed to parse StepMessage"
                 );
-                TaskerError::ValidationError(format!("Invalid SimpleStepMessage format: {e}"))
+                TaskerError::ValidationError(format!("Invalid StepMessage format: {e}"))
             })?;
 
         debug!(
             msg_id = message.msg_id,
-            step_uuid = %simple_message.step_uuid,
-            task_uuid = %simple_message.task_uuid,
-            "HYDRATOR: Successfully parsed SimpleStepMessage"
+            step_uuid = %step_message.step_uuid,
+            task_uuid = %step_message.task_uuid,
+            "HYDRATOR: Successfully parsed StepMessage"
         );
 
         // Step 2: Database lookup for WorkflowStep
         debug!(
-            step_uuid = %simple_message.step_uuid,
+            step_uuid = %step_message.step_uuid,
             "HYDRATOR: Looking up WorkflowStep in database"
         );
 
         let workflow_step =
-            WorkflowStep::find_by_id(self.context.database_pool(), simple_message.step_uuid)
+            WorkflowStep::find_by_id(self.context.database_pool(), step_message.step_uuid)
                 .await
                 .map_err(|e| {
                     error!(
-                        step_uuid = %simple_message.step_uuid,
+                        step_uuid = %step_message.step_uuid,
                         error = %e,
                         "HYDRATOR: Database lookup failed for WorkflowStep"
                     );
@@ -126,17 +127,17 @@ impl StepResultHydrator {
                 })?
                 .ok_or_else(|| {
                     error!(
-                        step_uuid = %simple_message.step_uuid,
+                        step_uuid = %step_message.step_uuid,
                         "HYDRATOR: WorkflowStep not found in database"
                     );
                     TaskerError::ValidationError(format!(
                         "WorkflowStep not found for step_uuid: {}",
-                        simple_message.step_uuid
+                        step_message.step_uuid
                     ))
                 })?;
 
         debug!(
-            step_uuid = %simple_message.step_uuid,
+            step_uuid = %step_message.step_uuid,
             task_uuid = %workflow_step.task_uuid,
             has_results = workflow_step.results.is_some(),
             "HYDRATOR: Successfully retrieved WorkflowStep from database"
@@ -145,18 +146,18 @@ impl StepResultHydrator {
         // Step 3: Validate results exist
         let results_json = workflow_step.results.ok_or_else(|| {
             error!(
-                step_uuid = %simple_message.step_uuid,
+                step_uuid = %step_message.step_uuid,
                 task_uuid = %workflow_step.task_uuid,
                 "HYDRATOR: No results found in WorkflowStep.results JSONB column"
             );
             TaskerError::ValidationError(format!(
                 "No results found for step_uuid: {}",
-                simple_message.step_uuid
+                step_message.step_uuid
             ))
         })?;
 
         debug!(
-            step_uuid = %simple_message.step_uuid,
+            step_uuid = %step_message.step_uuid,
             results_size = results_json.to_string().len(),
             "HYDRATOR: Deserializing StepExecutionResult from JSONB"
         );
@@ -165,7 +166,7 @@ impl StepResultHydrator {
         let step_execution_result: StepExecutionResult =
             serde_json::from_value(results_json.clone()).map_err(|e| {
                 error!(
-                    step_uuid = %simple_message.step_uuid,
+                    step_uuid = %step_message.step_uuid,
                     task_uuid = %workflow_step.task_uuid,
                     error = %e,
                     "HYDRATOR: Failed to deserialize StepExecutionResult from results JSONB"
@@ -176,7 +177,129 @@ impl StepResultHydrator {
             })?;
 
         info!(
-            step_uuid = %simple_message.step_uuid,
+            step_uuid = %step_message.step_uuid,
+            task_uuid = %workflow_step.task_uuid,
+            status = %step_execution_result.status,
+            execution_time_ms = step_execution_result.metadata.execution_time_ms,
+            "HYDRATOR: Successfully hydrated StepExecutionResult"
+        );
+
+        Ok(step_execution_result)
+    }
+
+    /// TAS-133: Hydrate full StepExecutionResult from provider-agnostic QueuedMessage
+    ///
+    /// This is the provider-agnostic version of hydrate_from_message, working with
+    /// `QueuedMessage<serde_json::Value>` instead of PGMQ-specific `PgmqMessage`.
+    pub async fn hydrate_from_queued_message(
+        &self,
+        message: &QueuedMessage<serde_json::Value>,
+    ) -> TaskerResult<StepExecutionResult> {
+        debug!(
+            handle = ?message.handle,
+            "HYDRATOR: Starting step result hydration from QueuedMessage"
+        );
+
+        // Step 1: Parse StepMessage (task_uuid, step_uuid, correlation_id)
+        let step_message: StepMessage =
+            serde_json::from_value(message.message.clone()).map_err(|e| {
+                error!(
+                    handle = ?message.handle,
+                    error = %e,
+                    "HYDRATOR: Failed to parse StepMessage"
+                );
+                TaskerError::ValidationError(format!("Invalid StepMessage format: {e}"))
+            })?;
+
+        debug!(
+            handle = ?message.handle,
+            step_uuid = %step_message.step_uuid,
+            task_uuid = %step_message.task_uuid,
+            "HYDRATOR: Successfully parsed StepMessage"
+        );
+
+        // Steps 2-4: Shared hydration logic
+        self.hydrate_from_step_message(&step_message).await
+    }
+
+    /// Internal: Hydrate StepExecutionResult from parsed StepMessage
+    ///
+    /// This internal method contains the shared logic used by both
+    /// `hydrate_from_message` and `hydrate_from_queued_message`.
+    async fn hydrate_from_step_message(
+        &self,
+        step_message: &StepMessage,
+    ) -> TaskerResult<StepExecutionResult> {
+        // Step 2: Database lookup for WorkflowStep
+        debug!(
+            step_uuid = %step_message.step_uuid,
+            "HYDRATOR: Looking up WorkflowStep in database"
+        );
+
+        let workflow_step =
+            WorkflowStep::find_by_id(self.context.database_pool(), step_message.step_uuid)
+                .await
+                .map_err(|e| {
+                    error!(
+                        step_uuid = %step_message.step_uuid,
+                        error = %e,
+                        "HYDRATOR: Database lookup failed for WorkflowStep"
+                    );
+                    TaskerError::DatabaseError(format!("Failed to lookup step: {e}"))
+                })?
+                .ok_or_else(|| {
+                    error!(
+                        step_uuid = %step_message.step_uuid,
+                        "HYDRATOR: WorkflowStep not found in database"
+                    );
+                    TaskerError::ValidationError(format!(
+                        "WorkflowStep not found for step_uuid: {}",
+                        step_message.step_uuid
+                    ))
+                })?;
+
+        debug!(
+            step_uuid = %step_message.step_uuid,
+            task_uuid = %workflow_step.task_uuid,
+            has_results = workflow_step.results.is_some(),
+            "HYDRATOR: Successfully retrieved WorkflowStep from database"
+        );
+
+        // Step 3: Validate results exist
+        let results_json = workflow_step.results.ok_or_else(|| {
+            error!(
+                step_uuid = %step_message.step_uuid,
+                task_uuid = %workflow_step.task_uuid,
+                "HYDRATOR: No results found in WorkflowStep.results JSONB column"
+            );
+            TaskerError::ValidationError(format!(
+                "No results found for step_uuid: {}",
+                step_message.step_uuid
+            ))
+        })?;
+
+        debug!(
+            step_uuid = %step_message.step_uuid,
+            results_size = results_json.to_string().len(),
+            "HYDRATOR: Deserializing StepExecutionResult from JSONB"
+        );
+
+        // Step 4: Deserialize StepExecutionResult from results JSONB column
+        let step_execution_result: StepExecutionResult =
+            serde_json::from_value(results_json.clone()).map_err(|e| {
+                error!(
+                    step_uuid = %step_message.step_uuid,
+                    task_uuid = %workflow_step.task_uuid,
+                    error = %e,
+                    "HYDRATOR: Failed to deserialize StepExecutionResult from results JSONB"
+                );
+                TaskerError::ValidationError(format!(
+                    "Failed to deserialize StepExecutionResult from results JSONB: {e}"
+                ))
+            })?;
+
+        info!(
+            step_uuid = %step_message.step_uuid,
             task_uuid = %workflow_step.task_uuid,
             status = %step_execution_result.status,
             execution_time_ms = step_execution_result.metadata.execution_time_ms,

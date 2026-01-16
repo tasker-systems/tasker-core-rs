@@ -7,16 +7,25 @@
 //! ## Event Types
 //!
 //! - [`QueueCreatedEvent`] - Emitted when a new queue is created
-//! - [`MessageReadyEvent`] - Emitted when a message is enqueued and ready for processing
+//! - [`MessageReadyEvent`] - Emitted when a message is enqueued (signal only, large messages)
+//! - [`MessageWithPayloadEvent`] - Emitted when a message is enqueued with full payload (TAS-133)
+//! - [`BatchReadyEvent`] - Emitted when a batch of messages is enqueued
+//!
+//! ## TAS-133: Full Payload Notifications
+//!
+//! When a message is small enough (< 7KB), the full payload is included in the notification
+//! via `MessageWithPayloadEvent`. This enables RabbitMQ-style direct processing without
+//! a separate fetch operation. For large messages, `MessageReadyEvent` is used as a signal
+//! that requires fetching the message via `pgmq_read_specific_message`.
 //!
 //! ## Usage
 //!
 //! ```rust
-//! use pgmq_notify::events::{PgmqNotifyEvent, MessageReadyEvent};
+//! use pgmq_notify::events::{PgmqNotifyEvent, MessageReadyEvent, MessageWithPayloadEvent};
 //! use chrono::Utc;
 //!
-//! // Create a message ready event
-//! let event = PgmqNotifyEvent::MessageReady(MessageReadyEvent {
+//! // Signal-only event (large messages)
+//! let signal_event = PgmqNotifyEvent::MessageReady(MessageReadyEvent {
 //!     queue_name: "tasks_queue".to_string(),
 //!     namespace: "tasks".to_string(),
 //!     msg_id: 12345,
@@ -25,8 +34,18 @@
 //!     visibility_timeout_seconds: Some(30),
 //! });
 //!
+//! // Full payload event (small messages, TAS-133)
+//! let payload_event = PgmqNotifyEvent::MessageWithPayload(MessageWithPayloadEvent {
+//!     queue_name: "tasks_queue".to_string(),
+//!     namespace: "tasks".to_string(),
+//!     msg_id: 12346,
+//!     message: serde_json::json!({"task": "process", "data": "small"}),
+//!     ready_at: Utc::now(),
+//!     delay_seconds: 0,
+//! });
+//!
 //! // Serialize to JSON for notification
-//! let json = serde_json::to_string(&event).unwrap();
+//! let json = serde_json::to_string(&signal_event).unwrap();
 //! assert!(json.contains("message_ready"));
 //! ```
 
@@ -59,6 +78,9 @@ use std::collections::HashMap;
 ///     PgmqNotifyEvent::MessageReady(e) => {
 ///         println!("Message ready: {}", e.msg_id);
 ///     }
+///     PgmqNotifyEvent::MessageWithPayload(e) => {
+///         println!("Message with payload: {}", e.msg_id);
+///     }
 ///     PgmqNotifyEvent::BatchReady(e) => {
 ///         println!("Batch ready: {} messages", e.message_count);
 ///     }
@@ -69,8 +91,12 @@ use std::collections::HashMap;
 pub enum PgmqNotifyEvent {
     /// Queue was created
     QueueCreated(QueueCreatedEvent),
-    /// Message is ready for processing in a queue
+    /// Message is ready for processing in a queue (signal only, requires fetch)
+    /// Used for large messages (>= 7KB) that don't fit in pg_notify payload
     MessageReady(MessageReadyEvent),
+    /// Message with full payload included (TAS-133)
+    /// Used for small messages (< 7KB) - enables direct processing without fetch
+    MessageWithPayload(MessageWithPayloadEvent),
     /// Batch of messages are ready for processing in a queue
     BatchReady(BatchReadyEvent),
 }
@@ -160,6 +186,7 @@ impl PgmqNotifyEvent {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => &event.namespace,
             PgmqNotifyEvent::MessageReady(event) => &event.namespace,
+            PgmqNotifyEvent::MessageWithPayload(event) => &event.namespace,
             PgmqNotifyEvent::BatchReady(event) => &event.namespace,
         }
     }
@@ -170,6 +197,7 @@ impl PgmqNotifyEvent {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => &event.queue_name,
             PgmqNotifyEvent::MessageReady(event) => &event.queue_name,
+            PgmqNotifyEvent::MessageWithPayload(event) => &event.queue_name,
             PgmqNotifyEvent::BatchReady(event) => &event.queue_name,
         }
     }
@@ -180,16 +208,22 @@ impl PgmqNotifyEvent {
         match self {
             PgmqNotifyEvent::QueueCreated(event) => event.created_at,
             PgmqNotifyEvent::MessageReady(event) => event.ready_at,
+            PgmqNotifyEvent::MessageWithPayload(event) => event.ready_at,
             PgmqNotifyEvent::BatchReady(event) => event.ready_at,
         }
     }
 
     /// Get metadata for any event type
+    ///
+    /// Note: `MessageWithPayload` events don't have metadata, returns empty HashMap
     #[must_use]
     pub fn metadata(&self) -> &HashMap<String, String> {
+        // Static empty map for variants without metadata
+        static EMPTY: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
         match self {
             PgmqNotifyEvent::QueueCreated(event) => &event.metadata,
             PgmqNotifyEvent::MessageReady(event) => &event.metadata,
+            PgmqNotifyEvent::MessageWithPayload(_) => EMPTY.get_or_init(HashMap::new),
             PgmqNotifyEvent::BatchReady(event) => &event.metadata,
         }
     }
@@ -206,7 +240,42 @@ impl PgmqNotifyEvent {
         match self {
             PgmqNotifyEvent::QueueCreated(_) => "queue_created",
             PgmqNotifyEvent::MessageReady(_) => "message_ready",
+            PgmqNotifyEvent::MessageWithPayload(_) => "message_with_payload",
             PgmqNotifyEvent::BatchReady(_) => "batch_ready",
+        }
+    }
+
+    /// Get the message ID if this event is message-related
+    ///
+    /// Returns `Some(msg_id)` for `MessageReady` and `MessageWithPayload` events,
+    /// `None` for queue creation and batch events.
+    #[must_use]
+    pub fn msg_id(&self) -> Option<i64> {
+        match self {
+            PgmqNotifyEvent::MessageReady(event) => Some(event.msg_id),
+            PgmqNotifyEvent::MessageWithPayload(event) => Some(event.msg_id),
+            PgmqNotifyEvent::QueueCreated(_) | PgmqNotifyEvent::BatchReady(_) => None,
+        }
+    }
+
+    /// Check if this event includes the full message payload (TAS-133)
+    ///
+    /// Returns `true` for `MessageWithPayload` events where the message
+    /// can be processed directly without a separate fetch.
+    #[must_use]
+    pub fn has_payload(&self) -> bool {
+        matches!(self, PgmqNotifyEvent::MessageWithPayload(_))
+    }
+
+    /// Get the message payload if available (TAS-133)
+    ///
+    /// Returns `Some(&Value)` for `MessageWithPayload` events,
+    /// `None` for all other event types.
+    #[must_use]
+    pub fn payload(&self) -> Option<&serde_json::Value> {
+        match self {
+            PgmqNotifyEvent::MessageWithPayload(event) => Some(&event.message),
+            _ => None,
         }
     }
 }
@@ -297,6 +366,100 @@ impl MessageReadyEvent {
     #[must_use]
     pub fn with_visibility_timeout(mut self, timeout_seconds: i32) -> Self {
         self.visibility_timeout_seconds = Some(timeout_seconds);
+        self
+    }
+}
+
+/// Event emitted when a message is ready with full payload included (TAS-133)
+///
+/// This event is triggered for messages smaller than 7KB, where the full payload
+/// can fit within pg_notify's ~8KB limit. This enables RabbitMQ-style direct
+/// processing without a separate database fetch operation.
+///
+/// For larger messages, [`MessageReadyEvent`] is used instead (signal-only).
+///
+/// # Benefits
+///
+/// - **Reduced latency**: No separate fetch required
+/// - **Unified consumer code**: Same processing pattern as RabbitMQ
+/// - **Direct ack**: Can delete message by msg_id after processing
+///
+/// # Examples
+///
+/// ```rust
+/// use pgmq_notify::events::MessageWithPayloadEvent;
+/// use chrono::Utc;
+///
+/// let event = MessageWithPayloadEvent {
+///     msg_id: 42,
+///     queue_name: "tasks_queue".to_string(),
+///     namespace: "tasks".to_string(),
+///     message: serde_json::json!({"task": "process", "data": [1, 2, 3]}),
+///     ready_at: Utc::now(),
+///     delay_seconds: 0,
+/// };
+///
+/// // Process message directly without fetching
+/// let task_data = &event.message["task"];
+/// assert_eq!(task_data, "process");
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MessageWithPayloadEvent {
+    /// ID of the message (for ack/delete after processing)
+    pub msg_id: i64,
+    /// Queue where the message is stored
+    pub queue_name: String,
+    /// Extracted namespace from the queue name
+    pub namespace: String,
+    /// The full message payload (included because size < 7KB)
+    pub message: serde_json::Value,
+    /// When the message became ready
+    pub ready_at: DateTime<Utc>,
+    /// Delay in seconds before message became visible (if any)
+    #[serde(default)]
+    pub delay_seconds: i32,
+}
+
+impl MessageWithPayloadEvent {
+    /// Create a new message with payload event
+    pub fn new<S: Into<String>>(
+        msg_id: i64,
+        queue_name: S,
+        namespace: S,
+        message: serde_json::Value,
+    ) -> Self {
+        Self {
+            msg_id,
+            queue_name: queue_name.into(),
+            namespace: namespace.into(),
+            message,
+            ready_at: Utc::now(),
+            delay_seconds: 0,
+        }
+    }
+
+    /// Create with custom timestamp
+    pub fn with_timestamp<S: Into<String>>(
+        msg_id: i64,
+        queue_name: S,
+        namespace: S,
+        message: serde_json::Value,
+        ready_at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            msg_id,
+            queue_name: queue_name.into(),
+            namespace: namespace.into(),
+            message,
+            ready_at,
+            delay_seconds: 0,
+        }
+    }
+
+    /// Set delay seconds
+    #[must_use]
+    pub fn with_delay_seconds(mut self, delay_seconds: i32) -> Self {
+        self.delay_seconds = delay_seconds;
         self
     }
 }

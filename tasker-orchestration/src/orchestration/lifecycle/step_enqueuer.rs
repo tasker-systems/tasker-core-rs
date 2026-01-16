@@ -52,8 +52,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tasker_shared::config::orchestration::StepEnqueuerConfig;
 use tasker_shared::database::sql_functions::ReadyTaskInfo;
-use tasker_shared::messaging::message::SimpleStepMessage;
-use tasker_shared::messaging::PgmqClientTrait;
+use tasker_shared::messaging::message::StepMessage;
 use tasker_shared::metrics::orchestration::*;
 use tasker_shared::models::WorkflowStep;
 use tasker_shared::state_machine::events::StepEvent;
@@ -502,19 +501,17 @@ impl StepEnqueuer {
             "Preparing to enqueue step"
         );
 
-        // Create simple UUID-based message (simplified architecture)
-        let simple_message = self
-            .create_simple_step_message(task_info, viable_step)
-            .await?;
+        // Create UUID-based step message (simplified architecture)
+        let step_message = self.create_step_message(task_info, viable_step).await?;
 
         // Enqueue to namespace-specific queue
         let queue_name = format!("worker_{}_queue", task_info.namespace_name);
 
         info!(
             correlation_id = %correlation_id,
-            step_uuid = %simple_message.step_uuid,
+            step_uuid = %step_message.step_uuid,
             queue_name = %queue_name,
-            "Created simple step message"
+            "Created step message"
         );
 
         // TAS-29 Phase 5.4 Fix: Mark step as enqueued BEFORE sending PGMQ notification
@@ -545,10 +542,11 @@ impl StepEnqueuer {
         );
 
         // Now send to PGMQ - notification fires AFTER state is committed
+        // TAS-133e: Use MessageClient.send_message (provider-agnostic)
         let msg_id = self
             .context
             .message_client()
-            .send_json_message(&queue_name, &simple_message)
+            .send_message(&queue_name, &step_message)
             .await
             .map_err(|e| {
                 error!(
@@ -568,7 +566,7 @@ impl StepEnqueuer {
             correlation_id = %correlation_id,
             step_uuid = %viable_step.step_uuid,
             queue_name = %queue_name,
-            msg_id = msg_id,
+            msg_id = %msg_id,
             "Successfully sent step to pgmq queue (state transition completed first)"
         );
 
@@ -578,7 +576,7 @@ impl StepEnqueuer {
             task_uuid = %task_info.task_uuid,
             namespace = %task_info.namespace_name,
             queue_name = %queue_name,
-            msg_id = msg_id,
+            msg_id = %msg_id,
             "Step enqueueing complete"
         );
 
@@ -587,32 +585,34 @@ impl StepEnqueuer {
 
     /// Create a simple UUID-based step message (simplified architecture)
     ///
-    /// This creates the new 3-field message format that leverages the shared database
+    /// This creates the 3-field message format that leverages the shared database
     /// as the API layer, dramatically reducing message size and complexity.
-    async fn create_simple_step_message(
+    ///
+    /// TAS-133: Renamed from create_simple_step_message to create_step_message
+    async fn create_step_message(
         &self,
         task_info: &ReadyTaskInfo,
         viable_step: &ViableStep,
-    ) -> TaskerResult<SimpleStepMessage> {
+    ) -> TaskerResult<StepMessage> {
         // Get task UUID and correlation_id from database
         let (task_uuid, correlation_id) = self.get_task_info(task_info.task_uuid).await?;
         let step_uuid = self.get_step_uuid(viable_step.step_uuid).await?;
 
-        // Create minimal SimpleStepMessage - workers will query dependencies as needed
-        let simple_message = SimpleStepMessage {
+        // Create StepMessage - workers will query dependencies as needed
+        let step_message = StepMessage {
             task_uuid,
             step_uuid,
             correlation_id,
         };
 
         debug!(
-            correlation_id = %simple_message.correlation_id,
-            task_uuid = %simple_message.task_uuid,
-            step_uuid = %simple_message.step_uuid,
-            "Created minimal message (dependencies queried by workers)"
+            correlation_id = %step_message.correlation_id,
+            task_uuid = %step_message.task_uuid,
+            step_uuid = %step_message.step_uuid,
+            "Created step message (dependencies queried by workers)"
         );
 
-        Ok(simple_message)
+        Ok(step_message)
     }
 
     /// Get task UUID and correlation_id from database by task_uuid

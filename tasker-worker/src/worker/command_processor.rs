@@ -12,8 +12,8 @@
 //! - `EventIntegrationStatus`: Event integration status for FFI communication
 
 use pgmq::Message as PgmqMessage;
-use pgmq_notify::MessageReadyEvent;
-use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::message::StepMessage;
+use tasker_shared::messaging::service::{MessageEvent, QueuedMessage};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -28,9 +28,9 @@ pub type CommandResponder<T> = oneshot::Sender<tasker_shared::TaskerResult<T>>;
 /// appropriate actor for handling.
 #[derive(Debug)]
 pub enum WorkerCommand {
-    /// Execute a step from raw SimpleStepMessage - handles database queries, claiming, and deletion
+    /// Execute a step from raw StepMessage - handles database queries, claiming, and deletion
     ExecuteStep {
-        message: PgmqMessage<SimpleStepMessage>,
+        message: PgmqMessage<StepMessage>,
         queue_name: String,
         resp: CommandResponder<()>,
     },
@@ -45,7 +45,7 @@ pub enum WorkerCommand {
     },
     /// Execute step with event correlation for FFI handler tracking
     ExecuteStepWithCorrelation {
-        message: PgmqMessage<SimpleStepMessage>,
+        message: PgmqMessage<StepMessage>,
         queue_name: String,
         correlation_id: Uuid,
         resp: CommandResponder<()>,
@@ -76,15 +76,19 @@ pub enum WorkerCommand {
     },
     /// Shutdown the worker processor
     Shutdown { resp: CommandResponder<()> },
-    /// Execute step from PgmqMessage - TAS-43 event system integration
+    /// Execute step from QueuedMessage - TAS-43 event system integration
+    ///
+    /// TAS-133: Updated to use provider-agnostic `QueuedMessage<serde_json::Value>` instead
+    /// of PGMQ-specific `PgmqMessage`. The queue_name is now embedded in the `MessageHandle`.
     ExecuteStepFromMessage {
-        queue_name: String,
-        message: PgmqMessage,
+        message: QueuedMessage<serde_json::Value>,
         resp: CommandResponder<()>,
     },
-    /// Execute step from MessageReadyEvent - TAS-43 event system integration
+    /// Execute step from MessageEvent - TAS-43 event system integration
+    ///
+    /// TAS-133: Updated to use provider-agnostic `MessageEvent` for multi-backend support
     ExecuteStepFromEvent {
-        message_event: MessageReadyEvent,
+        message_event: MessageEvent,
         resp: CommandResponder<()>,
     },
 }

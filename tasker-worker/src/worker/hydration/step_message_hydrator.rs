@@ -3,14 +3,14 @@
 //! TAS-69: Transforms PGMQ step messages into typed actor messages.
 //!
 //! This hydrator handles:
-//! - `PgmqMessage<SimpleStepMessage>` → ExecuteStepMessage
+//! - `PgmqMessage<StepMessage>` → ExecuteStepMessage
 //! - Raw PgmqMessage → ExecuteStepFromPgmqMessage
-//! - MessageReadyEvent → ExecuteStepFromEventMessage
+//! - MessageEvent → ExecuteStepFromEventMessage (TAS-133)
 
 use pgmq::Message as PgmqMessage;
-use pgmq_notify::MessageReadyEvent;
 
-use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::message::StepMessage;
+use tasker_shared::messaging::service::MessageEvent;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use crate::worker::actors::{
@@ -31,13 +31,13 @@ impl StepMessageHydrator {
     /// Hydrate a typed PGMQ message into an ExecuteStepMessage
     ///
     /// # Arguments
-    /// * `message` - The typed PGMQ message containing SimpleStepMessage
+    /// * `message` - The typed PGMQ message containing StepMessage
     /// * `queue_name` - The source queue name
     ///
     /// # Returns
     /// A hydrated ExecuteStepMessage ready for actor handling
     pub fn hydrate_execute_step(
-        message: PgmqMessage<SimpleStepMessage>,
+        message: PgmqMessage<StepMessage>,
         queue_name: String,
     ) -> ExecuteStepMessage {
         ExecuteStepMessage {
@@ -56,7 +56,7 @@ impl StepMessageHydrator {
     /// # Returns
     /// A hydrated ExecuteStepWithCorrelationMessage
     pub fn hydrate_execute_step_with_correlation(
-        message: PgmqMessage<SimpleStepMessage>,
+        message: PgmqMessage<StepMessage>,
         queue_name: String,
         correlation_id: uuid::Uuid,
     ) -> ExecuteStepWithCorrelationMessage {
@@ -87,20 +87,22 @@ impl StepMessageHydrator {
         }
     }
 
-    /// Hydrate a MessageReadyEvent into an ExecuteStepFromEventMessage
+    /// Hydrate a MessageEvent into an ExecuteStepFromEventMessage
+    ///
+    /// TAS-133: Updated to use provider-agnostic `MessageEvent`
     ///
     /// # Arguments
-    /// * `event` - The PGMQ notification event
+    /// * `event` - The provider-agnostic message event
     ///
     /// # Returns
     /// A hydrated ExecuteStepFromEventMessage
-    pub fn hydrate_from_event(event: MessageReadyEvent) -> ExecuteStepFromEventMessage {
+    pub fn hydrate_from_event(event: MessageEvent) -> ExecuteStepFromEventMessage {
         ExecuteStepFromEventMessage {
             message_event: event,
         }
     }
 
-    /// Parse a raw PGMQ message into a typed SimpleStepMessage
+    /// Parse a raw PGMQ message into a typed StepMessage
     ///
     /// This is useful when you need to inspect the message before creating
     /// the actor message.
@@ -109,12 +111,10 @@ impl StepMessageHydrator {
     /// * `message` - The raw PGMQ message
     ///
     /// # Returns
-    /// The typed `PgmqMessage<SimpleStepMessage>` or an error
-    pub fn parse_step_message(
-        message: PgmqMessage,
-    ) -> TaskerResult<PgmqMessage<SimpleStepMessage>> {
-        let step_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
-            .map_err(|e| {
+    /// The typed `PgmqMessage<StepMessage>` or an error
+    pub fn parse_step_message(message: PgmqMessage) -> TaskerResult<PgmqMessage<StepMessage>> {
+        let step_message: StepMessage =
+            serde_json::from_value(message.message.clone()).map_err(|e| {
                 TaskerError::MessagingError(format!("Failed to deserialize step message: {}", e))
             })?;
 
@@ -127,14 +127,14 @@ impl StepMessageHydrator {
         })
     }
 
-    /// Validate a SimpleStepMessage has required fields
+    /// Validate a StepMessage has required fields
     ///
     /// # Arguments
     /// * `message` - The step message to validate
     ///
     /// # Returns
     /// Ok(()) if valid, Err with details if invalid
-    pub fn validate_step_message(message: &SimpleStepMessage) -> TaskerResult<()> {
+    pub fn validate_step_message(message: &StepMessage) -> TaskerResult<()> {
         // UUID validation is handled by the type system
         // Add any additional business logic validation here
 
@@ -158,18 +158,17 @@ impl StepMessageHydrator {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use std::collections::HashMap;
     use uuid::Uuid;
 
-    fn create_test_step_message() -> SimpleStepMessage {
-        SimpleStepMessage {
+    fn create_test_step_message() -> StepMessage {
+        StepMessage {
             task_uuid: Uuid::new_v4(),
             step_uuid: Uuid::new_v4(),
             correlation_id: Uuid::new_v4(),
         }
     }
 
-    fn create_test_pgmq_message(step_message: SimpleStepMessage) -> PgmqMessage<SimpleStepMessage> {
+    fn create_test_pgmq_message(step_message: StepMessage) -> PgmqMessage<StepMessage> {
         PgmqMessage {
             msg_id: 1,
             message: step_message,
@@ -210,19 +209,13 @@ mod tests {
 
     #[test]
     fn test_hydrate_from_event() {
-        let event = MessageReadyEvent {
-            queue_name: "test_queue".to_string(),
-            namespace: "test_namespace".to_string(),
-            msg_id: 1,
-            ready_at: Utc::now(),
-            metadata: HashMap::new(),
-            visibility_timeout_seconds: Some(30),
-        };
+        let event = MessageEvent::new("test_queue", "test_namespace", "123");
 
         let hydrated = StepMessageHydrator::hydrate_from_event(event.clone());
 
-        assert_eq!(hydrated.message_event.queue_name, event.queue_name);
-        assert_eq!(hydrated.message_event.msg_id, event.msg_id);
+        assert_eq!(hydrated.message_event.queue_name, "test_queue");
+        assert_eq!(hydrated.message_event.namespace, "test_namespace");
+        assert_eq!(hydrated.message_event.message_id.as_str(), "123");
     }
 
     #[test]
@@ -252,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_validate_step_message_nil_task_uuid() {
-        let step_message = SimpleStepMessage {
+        let step_message = StepMessage {
             task_uuid: Uuid::nil(),
             step_uuid: Uuid::new_v4(),
             correlation_id: Uuid::new_v4(),
@@ -265,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_validate_step_message_nil_step_uuid() {
-        let step_message = SimpleStepMessage {
+        let step_message = StepMessage {
             task_uuid: Uuid::new_v4(),
             step_uuid: Uuid::nil(),
             correlation_id: Uuid::new_v4(),

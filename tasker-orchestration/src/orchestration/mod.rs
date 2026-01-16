@@ -45,6 +45,7 @@
 
 // Core Components
 pub mod bootstrap;
+pub mod channels; // TAS-133: Semantic NewType channel wrappers
 pub mod command_processor;
 pub mod core;
 pub mod state_manager;
@@ -78,6 +79,12 @@ pub mod errors;
 
 pub use bootstrap::{
     BootstrapConfig, OrchestrationBootstrap, OrchestrationSystemHandle, SystemStatus,
+};
+
+// TAS-133: Semantic channel wrappers for type-safe channel usage
+pub use channels::{
+    ChannelFactory, OrchestrationCommandReceiver, OrchestrationCommandSender,
+    OrchestrationNotificationReceiver, OrchestrationNotificationSender,
 };
 
 pub use command_processor::{

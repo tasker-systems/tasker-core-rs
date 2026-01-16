@@ -13,7 +13,6 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
 use tracing::info;
 use uuid::Uuid;
 
@@ -34,7 +33,7 @@ use tasker_shared::{
     TaskerError, TaskerResult,
 };
 
-use super::command_processor::WorkerCommand;
+use super::channels::WorkerCommandSender;
 use super::event_systems::worker_event_system::{WorkerEventSystem, WorkerEventSystemConfig};
 use super::task_template_manager::TaskTemplateManager;
 
@@ -86,11 +85,12 @@ pub(crate) struct EventDrivenMessageProcessor {
     worker_event_system: Option<WorkerEventSystem>,
 
     /// Command sender bridge (maintained for API compatibility)
+    /// TAS-133: Updated to use NewType wrapper for type safety
     #[expect(
         dead_code,
         reason = "API compatibility - command sender bridge for legacy callers"
     )]
-    worker_command_sender: mpsc::Sender<WorkerCommand>,
+    worker_command_sender: WorkerCommandSender,
 
     /// Processor ID for logging and compatibility
     processor_id: Uuid,
@@ -108,7 +108,7 @@ impl EventDrivenMessageProcessor {
         config: EventDrivenConfig,
         context: Arc<SystemContext>,
         task_template_manager: Arc<TaskTemplateManager>,
-        worker_command_sender: mpsc::Sender<WorkerCommand>,
+        worker_command_sender: WorkerCommandSender,
     ) -> TaskerResult<Self> {
         // Build supported namespaces list from task template manager + "default"
         let supported_namespaces = task_template_manager.supported_namespaces().await.to_vec();

@@ -12,14 +12,14 @@
 //! 4. **Context Awareness**: Respects differences between pgmq-notify vs PostgreSQL LISTEN/NOTIFY
 
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
 use super::{OrchestrationEventSystem, OrchestrationEventSystemConfig, TaskReadinessEventSystem};
-use crate::orchestration::{command_processor::OrchestrationCommand, OrchestrationCore};
+use crate::orchestration::channels::OrchestrationCommandSender;
+use crate::orchestration::OrchestrationCore;
 use tasker_shared::config::event_systems::TaskReadinessEventSystemConfig;
 use tasker_shared::{EventDrivenSystem, SystemStatistics};
 
@@ -135,7 +135,7 @@ impl UnifiedEventCoordinator {
         config: UnifiedCoordinatorConfig,
         context: Arc<SystemContext>,
         orchestration_core: Arc<OrchestrationCore>,
-        orchestration_command_sender: mpsc::Sender<OrchestrationCommand>,
+        orchestration_command_sender: OrchestrationCommandSender,
     ) -> TaskerResult<Self> {
         let coordinator_id = Uuid::new_v4();
 

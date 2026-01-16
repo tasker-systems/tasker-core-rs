@@ -56,8 +56,10 @@ use crate::orchestration::lifecycle::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 use tasker_shared::config::orchestration::StepResultProcessorConfig;
-use tasker_shared::messaging::{PgmqClientTrait, StepResultMessage};
+use tasker_shared::messaging::service::QueuedMessage;
+use tasker_shared::messaging::StepResultMessage;
 use tasker_shared::{SystemContext, TaskerError, TaskerResult};
 use tracing::{debug, error, info, instrument, warn};
 
@@ -138,16 +140,19 @@ impl StepResultProcessor {
     }
 
     /// Process a batch of step result messages
+    ///
+    /// TAS-133e: Updated to use MessageClient with provider-agnostic API
     #[instrument(skip(self))]
     pub async fn process_batch(&self) -> TaskerResult<usize> {
-        // Read messages from the step results queue
-        let messages = self
+        // TAS-133e: Use receive_messages with Duration-based visibility timeout
+        let visibility_timeout = Duration::from_secs(self.config.visibility_timeout_seconds as u64);
+        let messages: Vec<QueuedMessage<StepResultMessage>> = self
             .context
-            .message_client
-            .read_messages(
+            .message_client()
+            .receive_messages(
                 &self.config.step_results_queue_name,
-                Some(self.config.visibility_timeout_seconds),
-                Some(self.config.batch_size),
+                self.config.batch_size as usize,
+                visibility_timeout,
             )
             .await
             .map_err(|e| {
@@ -168,22 +173,26 @@ impl StepResultProcessor {
         let mut processed_count = 0;
 
         for message in messages {
+            let msg_id = message.receipt_handle.as_str();
             match self
-                .process_single_step_result(&message.message, message.msg_id)
+                .process_single_step_result(&message.message, msg_id)
                 .await
             {
                 Ok(()) => {
-                    // Delete the successfully processed message
+                    // TAS-133e: Ack the successfully processed message
                     if let Err(e) = self
                         .context
-                        .message_client
-                        .delete_message(&self.config.step_results_queue_name, message.msg_id)
+                        .message_client()
+                        .ack_message(
+                            &self.config.step_results_queue_name,
+                            &message.receipt_handle,
+                        )
                         .await
                     {
                         warn!(
-                            msg_id = message.msg_id,
+                            msg_id = %msg_id,
                             error = %e,
-                            "Failed to delete processed step result message"
+                            "Failed to ack processed step result message"
                         );
                     } else {
                         processed_count += 1;
@@ -191,22 +200,26 @@ impl StepResultProcessor {
                 }
                 Err(e) => {
                     error!(
-                        msg_id = message.msg_id,
+                        msg_id = %msg_id,
                         error = %e,
                         "Failed to process step result message"
                     );
 
-                    // Archive failed messages
-                    if let Err(archive_err) = self
+                    // TAS-133e: Nack failed messages without requeue (goes to DLQ)
+                    if let Err(nack_err) = self
                         .context
-                        .message_client
-                        .archive_message(&self.config.step_results_queue_name, message.msg_id)
+                        .message_client()
+                        .nack_message(
+                            &self.config.step_results_queue_name,
+                            &message.receipt_handle,
+                            false,
+                        )
                         .await
                     {
                         warn!(
-                            msg_id = message.msg_id,
-                            error = %archive_err,
-                            "Failed to archive failed step result message"
+                            msg_id = %msg_id,
+                            error = %nack_err,
+                            "Failed to nack failed step result message"
                         );
                     }
                 }
@@ -225,32 +238,28 @@ impl StepResultProcessor {
     }
 
     /// Process a single step result message
-    #[instrument(skip(self, payload))]
+    ///
+    /// TAS-133e: Now receives typed StepResultMessage directly (no JSON parsing needed)
+    #[instrument(skip(self, step_result))]
     async fn process_single_step_result(
         &self,
-        payload: &serde_json::Value,
-        msg_id: i64,
+        step_result: &StepResultMessage,
+        msg_id: &str,
     ) -> TaskerResult<()> {
-        debug!(msg_id = msg_id, "Processing step result message");
-
-        // Parse the step result message
-        let step_result: StepResultMessage =
-            serde_json::from_value(payload.clone()).map_err(|e| {
-                TaskerError::MessagingError(format!("Failed to parse step result message: {e}"))
-            })?;
+        debug!(msg_id = %msg_id, "Processing step result message");
 
         info!(
             step_uuid = %step_result.step_uuid,
             task_uuid = %step_result.task_uuid,
             status = ?step_result.status,
             execution_time_ms = step_result.execution_time_ms,
-            msg_id = msg_id,
+            msg_id = %msg_id,
             "Processing step result"
         );
 
         // Process the step result using the orchestration result processor
         self.orchestration_result_processor
-            .handle_step_result_with_metadata(step_result)
+            .handle_step_result_with_metadata(step_result.clone())
             .await
             .map_err(|e| {
                 TaskerError::OrchestrationError(format!("Failed to handle step result: {e}"))

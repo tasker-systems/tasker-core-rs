@@ -1,18 +1,11 @@
 //! Unit tests for worker queue events
 
 use super::*;
-use std::collections::HashMap;
 
 #[test]
 fn test_worker_queue_event_creation() {
-    let message_event = MessageReadyEvent {
-        msg_id: 123,
-        queue_name: "test_queue".to_string(),
-        namespace: "test_namespace".to_string(),
-        ready_at: chrono::Utc::now(),
-        metadata: HashMap::new(),
-        visibility_timeout_seconds: Some(30),
-    };
+    // TAS-133: Use provider-agnostic MessageEvent
+    let message_event = MessageEvent::new("test_queue", "test_namespace", "123");
 
     let step_event = WorkerQueueEvent::StepMessage(message_event.clone());
     let health_event = WorkerQueueEvent::HealthCheck(message_event.clone());
@@ -23,7 +16,7 @@ fn test_worker_queue_event_creation() {
         WorkerQueueEvent::StepMessage(event) => {
             assert_eq!(event.queue_name, "test_queue");
             assert_eq!(event.namespace, "test_namespace");
-            assert_eq!(event.msg_id, 123);
+            assert_eq!(event.message_id.as_str(), "123");
         }
         _ => panic!("Expected StepMessage"),
     }
@@ -60,14 +53,8 @@ fn test_worker_queue_event_unknown() {
 
 #[test]
 fn test_worker_notification_creation() {
-    let message_event = MessageReadyEvent {
-        msg_id: 123,
-        queue_name: "test_queue".to_string(),
-        namespace: "test_namespace".to_string(),
-        ready_at: chrono::Utc::now(),
-        metadata: HashMap::new(),
-        visibility_timeout_seconds: Some(30),
-    };
+    // TAS-133: Use provider-agnostic MessageEvent
+    let message_event = MessageEvent::new("test_queue", "test_namespace", "123");
 
     let event_notification =
         WorkerNotification::Event(WorkerQueueEvent::StepMessage(message_event));
@@ -118,14 +105,8 @@ fn test_worker_notification_creation() {
 
 #[test]
 fn test_worker_queue_event_methods() {
-    let message_event = MessageReadyEvent {
-        msg_id: 123,
-        queue_name: "test_queue".to_string(),
-        namespace: "test_namespace".to_string(),
-        ready_at: chrono::Utc::now(),
-        metadata: HashMap::new(),
-        visibility_timeout_seconds: Some(30),
-    };
+    // TAS-133: Use provider-agnostic MessageEvent
+    let message_event = MessageEvent::new("test_queue", "test_namespace", "123");
 
     let step_event = WorkerQueueEvent::StepMessage(message_event.clone());
 
@@ -144,14 +125,8 @@ fn test_worker_queue_event_methods() {
 
 #[test]
 fn test_worker_notification_methods() {
-    let message_event = MessageReadyEvent {
-        msg_id: 123,
-        queue_name: "test_queue".to_string(),
-        namespace: "test_namespace".to_string(),
-        ready_at: chrono::Utc::now(),
-        metadata: HashMap::new(),
-        visibility_timeout_seconds: Some(30),
-    };
+    // TAS-133: Use provider-agnostic MessageEvent
+    let message_event = MessageEvent::new("test_queue", "test_namespace", "123");
 
     let event_notification =
         WorkerNotification::Event(WorkerQueueEvent::StepMessage(message_event));

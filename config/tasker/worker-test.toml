@@ -1,6 +1,6 @@
 # Tasker Configuration - worker Context
 # Environment: test
-# Generated: 2025-12-11T11:48:05.300413+00:00
+# Generated: 2026-01-15T13:18:19.041820+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -70,21 +70,6 @@ min_connections = 1
 [common.database.variables]
 statement_timeout = 5000
 
-# TAS-78: PGMQ Separate Database Configuration
-# When PGMQ_DATABASE_URL is set and different from DATABASE_URL,
-# PGMQ operations use a separate database pool.
-[common.pgmq_database]
-url = "${PGMQ_DATABASE_URL:-}"
-enabled = true
-skip_migration_check = false
-
-[common.pgmq_database.pool]
-max_connections = 10
-min_connections = 1
-acquire_timeout_seconds = 5
-idle_timeout_seconds = 60
-max_lifetime_seconds = 3600
-
 [common.execution]
 connection_timeout_seconds = 30
 default_timeout_seconds = 3600
@@ -111,8 +96,20 @@ log_warning_threshold = 0.8
 enabled = true
 saturation_check_interval_seconds = 10
 
+[common.pgmq_database]
+enabled = true
+skip_migration_check = false
+url = "${PGMQ_DATABASE_URL:-}"
+
+[common.pgmq_database.pool]
+acquire_timeout_seconds = 5
+idle_timeout_seconds = 60
+max_connections = 10
+max_lifetime_seconds = 3600
+min_connections = 1
+
 [common.queues]
-backend = "pgmq"
+backend = "${TASKER_MESSAGING_BACKEND:-pgmq}"
 default_batch_size = 5
 default_visibility_timeout_seconds = 30
 health_check_interval = 60
@@ -137,7 +134,10 @@ overflow_threshold = 1000
 warning_threshold = 100
 
 [common.queues.rabbitmq]
-connection_timeout_seconds = 30
+connection_timeout_seconds = 5
+heartbeat_seconds = 30
+prefetch_count = 10
+url = "${RABBITMQ_URL:-amqp://tasker:tasker@localhost:5672/%2F}"
 
 [common.system]
 default_dependent_system = "default"

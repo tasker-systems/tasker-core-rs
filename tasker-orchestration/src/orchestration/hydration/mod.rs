@@ -17,7 +17,7 @@
 //!
 //! ## Available Hydrators
 //!
-//! - [`StepResultHydrator`]: SimpleStepMessage → StepExecutionResult (with database lookup)
+//! - [`StepResultHydrator`]: StepMessage → StepExecutionResult (with database lookup)
 //! - [`TaskRequestHydrator`]: PGMQ message → TaskRequestMessage
 //! - [`FinalizationHydrator`]: PGMQ message → task_uuid
 //!

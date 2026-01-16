@@ -1,5 +1,6 @@
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::time::Duration;
 use tasker_shared::events::{DomainEvent, DomainEventPayload, DomainEventPublisher, EventMetadata};
 use tasker_shared::messaging::execution_types::{StepExecutionMetadata, StepExecutionResult};
 use tasker_shared::models::core::task::Task;
@@ -187,23 +188,31 @@ async fn test_publish_event(pool: PgPool) -> sqlx::Result<()> {
 
     assert!(!event_id.is_nil(), "Event ID should not be nil");
 
-    // Verify event was published to queue (TAS-78: use PGMQ pool)
+    // TAS-133: Verify event was published using provider-agnostic receive_messages
     let queue_name = format!("{}_domain_events", namespace);
-    let message_count: i64 =
-        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM pgmq.q_{}", queue_name))
-            .fetch_one(pgmq_pool)
-            .await?;
+    let message_client = context.message_client();
+    let provider = message_client.provider();
+    let messages: Vec<_> = provider
+        .receive_messages::<DomainEvent>(&queue_name, 10, Duration::from_secs(30))
+        .await
+        .map_err(|e| sqlx::Error::Protocol(format!("Failed to receive messages: {}", e)))?;
 
-    assert_eq!(message_count, 1, "Should have exactly one message in queue");
+    assert_eq!(
+        messages.len(),
+        1,
+        "Should have exactly one message in queue"
+    );
 
-    // Cleanup (TAS-78: use PGMQ pool for cleanup)
-    let dlq_queue = format!("{}_domain_events_dlq", namespace);
-    let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-        .execute(pgmq_pool)
-        .await;
-    let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
-        .execute(pgmq_pool)
-        .await;
+    // TAS-133: Cleanup only for PGMQ (RabbitMQ queues are managed externally)
+    if provider.provider_name() == "pgmq" {
+        let dlq_queue = format!("{}_domain_events_dlq", namespace);
+        let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
+            .execute(pgmq_pool)
+            .await;
+        let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
+            .execute(pgmq_pool)
+            .await;
+    }
 
     Ok(())
 }
@@ -249,34 +258,33 @@ async fn test_publish_event_with_correlation(pool: PgPool) -> sqlx::Result<()> {
         .await
         .map_err(|e| sqlx::Error::Protocol(format!("Failed to publish event: {}", e)))?;
 
-    // Read message from queue and verify correlation_id (TAS-78: use PGMQ pool)
+    // TAS-133: Read message using provider-agnostic receive_messages
     let queue_name = format!("{}_domain_events", namespace);
-    let message: Option<(serde_json::Value,)> = sqlx::query_as(&format!(
-        "SELECT message FROM pgmq.q_{} LIMIT 1",
-        queue_name
-    ))
-    .fetch_optional(pgmq_pool)
-    .await?;
+    let message_client = context.message_client();
+    let provider = message_client.provider();
+    let messages: Vec<_> = provider
+        .receive_messages::<DomainEvent>(&queue_name, 1, Duration::from_secs(30))
+        .await
+        .map_err(|e| sqlx::Error::Protocol(format!("Failed to receive messages: {}", e)))?;
 
-    assert!(message.is_some(), "Message should exist in queue");
+    assert!(!messages.is_empty(), "Message should exist in queue");
 
-    let (message_json,) = message.unwrap();
-    let event: DomainEvent =
-        serde_json::from_value(message_json).expect("Failed to deserialize event");
-
+    let event = &messages[0].message;
     assert_eq!(
         event.metadata.correlation_id, correlation_id,
         "Correlation ID should match"
     );
 
-    // Cleanup (TAS-78: use PGMQ pool for cleanup)
-    let dlq_queue = format!("{}_domain_events_dlq", namespace);
-    let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-        .execute(pgmq_pool)
-        .await;
-    let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
-        .execute(pgmq_pool)
-        .await;
+    // TAS-133: Cleanup only for PGMQ (RabbitMQ queues are managed externally)
+    if provider.provider_name() == "pgmq" {
+        let dlq_queue = format!("{}_domain_events_dlq", namespace);
+        let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
+            .execute(pgmq_pool)
+            .await;
+        let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", dlq_queue))
+            .execute(pgmq_pool)
+            .await;
+    }
 
     Ok(())
 }
@@ -300,7 +308,8 @@ async fn test_multiple_namespaces(pool: PgPool) -> sqlx::Result<()> {
         .await
         .expect("Failed to initialize domain event queues");
 
-    // Verify all queues exist (TAS-78: use PGMQ pool)
+    // TAS-133: Verify all queues exist using provider-agnostic queue_stats
+    // queue_stats returns Ok if queue exists, Err if not
     let queues = vec![
         format!("{}_domain_events", namespace1),
         format!("{}_domain_events_dlq", namespace1),
@@ -308,21 +317,25 @@ async fn test_multiple_namespaces(pool: PgPool) -> sqlx::Result<()> {
         format!("{}_domain_events_dlq", namespace2),
     ];
 
+    let message_client = context.message_client();
+    let provider = message_client.provider();
     for queue_name in &queues {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pgmq.meta WHERE queue_name = $1)")
-                .bind(queue_name)
-                .fetch_one(pgmq_pool)
-                .await?;
-
-        assert!(exists, "Queue {} should exist", queue_name);
+        let stats_result = provider.queue_stats(queue_name).await;
+        assert!(
+            stats_result.is_ok(),
+            "Queue {} should exist (queue_stats failed: {:?})",
+            queue_name,
+            stats_result.err()
+        );
     }
 
-    // Cleanup (TAS-78: use PGMQ pool for cleanup)
-    for queue_name in &queues {
-        let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
-            .execute(pgmq_pool)
-            .await;
+    // TAS-133: Cleanup only for PGMQ (RabbitMQ queues are managed externally)
+    if provider.provider_name() == "pgmq" {
+        for queue_name in &queues {
+            let _ = sqlx::query(&format!("SELECT pgmq.drop_queue('{}')", queue_name))
+                .execute(pgmq_pool)
+                .await;
+        }
     }
 
     Ok(())

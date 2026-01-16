@@ -73,7 +73,7 @@ pub mod types;
 pub use client::{PgmqClient, PgmqNotifyClient, PgmqNotifyClientFactory};
 pub use config::PgmqNotifyConfig;
 pub use error::{PgmqNotifyError, Result};
-pub use events::{MessageReadyEvent, PgmqNotifyEvent, QueueCreatedEvent};
+pub use events::{MessageReadyEvent, MessageWithPayloadEvent, PgmqNotifyEvent, QueueCreatedEvent};
 pub use listener::PgmqNotifyListener;
 pub use types::{ClientStatus, MessagingError, QueueMetrics};
 

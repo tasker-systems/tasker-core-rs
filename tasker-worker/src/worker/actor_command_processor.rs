@@ -31,17 +31,18 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
+use super::channels::{ChannelFactory, WorkerCommandReceiver, WorkerCommandSender};
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use super::actors::{
-    DispatchChannels, DispatchModeConfig, ExecuteStepFromEventMessage, ExecuteStepFromPgmqMessage,
-    ExecuteStepMessage, ExecuteStepWithCorrelationMessage, GetEventStatusMessage,
-    GetWorkerStatusMessage, Handler, HealthCheckMessage, ProcessStepCompletionMessage,
-    RefreshTemplateCacheMessage, SendStepResultMessage, SetEventIntegrationMessage,
-    WorkerActorRegistry,
+    DispatchChannels, DispatchModeConfig, ExecuteStepFromEventMessage,
+    ExecuteStepFromQueuedMessage, ExecuteStepMessage, ExecuteStepWithCorrelationMessage,
+    GetEventStatusMessage, GetWorkerStatusMessage, Handler, HealthCheckMessage,
+    ProcessStepCompletionMessage, RefreshTemplateCacheMessage, SendStepResultMessage,
+    SetEventIntegrationMessage, WorkerActorRegistry,
 };
 use super::command_processor::WorkerCommand;
 use super::event_publisher::WorkerEventPublisher;
@@ -74,8 +75,8 @@ pub struct ActorCommandProcessor {
     /// Actor registry with all worker actors
     actors: WorkerActorRegistry,
 
-    /// Command receiver
-    command_receiver: Option<mpsc::Receiver<WorkerCommand>>,
+    /// Command receiver (TAS-133: NewType wrapper for type safety)
+    command_receiver: Option<WorkerCommandReceiver>,
 
     /// Channel monitor for command channel observability (TAS-51)
     command_channel_monitor: ChannelMonitor,
@@ -129,8 +130,10 @@ impl ActorCommandProcessor {
         command_buffer_size: usize,
         command_channel_monitor: ChannelMonitor,
         dispatch_config: DispatchModeConfig,
-    ) -> TaskerResult<(Self, mpsc::Sender<WorkerCommand>, DispatchChannels)> {
-        let (command_sender, command_receiver) = mpsc::channel(command_buffer_size);
+    ) -> TaskerResult<(Self, WorkerCommandSender, DispatchChannels)> {
+        // TAS-133: Use ChannelFactory for type-safe channel creation
+        let (command_sender, command_receiver) =
+            ChannelFactory::worker_command_channel(command_buffer_size);
 
         // Build actor registry with dispatch - this creates the channels
         let (actors, dispatch_channels) = WorkerActorRegistry::build(
@@ -379,21 +382,18 @@ impl ActorCommandProcessor {
                 true
             }
 
-            WorkerCommand::ExecuteStepFromMessage {
-                queue_name,
-                message,
-                resp,
-            } => {
+            WorkerCommand::ExecuteStepFromMessage { message, resp } => {
+                let queue_name = message.handle.queue_name().to_string();
+                let provider = message.handle.provider_name();
                 debug!(
                     worker_id = %self.worker_id,
-                    msg_id = message.msg_id,
+                    handle = ?message.handle,
                     queue = %queue_name,
-                    "Received ExecuteStepFromMessage command from fallback poller"
+                    provider = %provider,
+                    "Received ExecuteStepFromMessage command (full payload available)"
                 );
-                let msg = ExecuteStepFromPgmqMessage {
-                    queue_name: queue_name.clone(),
-                    message,
-                };
+                // TAS-133: Use provider-agnostic ExecuteStepFromQueuedMessage
+                let msg = ExecuteStepFromQueuedMessage { message };
                 let result = self.actors.step_executor_actor.handle(msg).await;
                 if let Err(ref e) = result {
                     warn!(
@@ -510,13 +510,13 @@ mod tests {
     };
     use crate::worker::in_process_event_bus::{InProcessEventBus, InProcessEventBusConfig};
     use tasker_shared::events::domain_events::DomainEventPublisher;
-    use tasker_shared::messaging::UnifiedPgmqClient;
+    use tasker_shared::messaging::client::MessageClient;
     use tokio::sync::RwLock;
 
     /// Helper to create test dependencies
     fn create_test_deps(
         worker_id: &str,
-        message_client: Arc<UnifiedPgmqClient>,
+        message_client: Arc<MessageClient>,
     ) -> (WorkerEventPublisher, DomainEventSystemHandle) {
         let event_publisher = WorkerEventPublisher::new(worker_id.to_string());
 

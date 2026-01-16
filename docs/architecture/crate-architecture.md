@@ -1,8 +1,8 @@
 # Crate Architecture
 
-**Last Updated**: 2025-10-11
+**Last Updated**: 2026-01-15
 **Audience**: Developers, Architects
-**Status**: Active (TAS-46 Actor Architecture Complete)
+**Status**: Active (TAS-46 Actor Architecture, TAS-133 Messaging Abstraction Complete)
 **Related Docs**: [Documentation Hub](README.md) | [Actor-Based Architecture](actors.md) | [Events and Commands](events-and-commands.md) | [Quick Start](quick-start.md)
 
 ← Back to [Documentation Hub](README.md)
@@ -141,7 +141,7 @@ pub struct PgmqClient {
 - SQL function executor and registry
 - Database utilities and migrations
 - Event system traits and types
-- Messaging abstractions
+- **Messaging abstraction layer (TAS-133)**: Provider-agnostic messaging with PGMQ, RabbitMQ, and InMemory backends
 - Factory system for testing
 - Metrics and observability primitives
 
@@ -176,11 +176,21 @@ pub mod event_system {
     pub enum DeploymentMode { Hybrid, EventDrivenOnly, PollingOnly }
 }
 
-// Messaging
+// Messaging (TAS-133)
 pub mod messaging {
-    pub trait PgmqClientTrait { /* ... */ }
+    // Provider abstraction
+    pub enum MessagingProvider { Pgmq, RabbitMq, InMemory }
+    pub trait MessagingService { /* send_message, receive_messages, ack_message, ... */ }
+    pub trait SupportsPushNotifications { /* subscribe, subscribe_many, requires_fallback_polling */ }
+    pub enum MessageNotification { Available { ... }, Message(...) }
+
+    // Domain client
+    pub struct MessageClient { /* High-level queue operations */ }
+
+    // Message types
     pub struct SimpleStepMessage { /* ... */ }
     pub struct TaskRequestMessage { /* ... */ }
+    pub struct StepExecutionResult { /* ... */ }
 }
 ```
 
@@ -688,6 +698,7 @@ Don't create a new crate when:
 ## Related Documentation
 
 - **[Actor-Based Architecture](actors.md)** - Actor pattern implementation in tasker-orchestration
+- **[Messaging Abstraction](messaging-abstraction.md)** - Provider-agnostic messaging (TAS-133)
 - **[Quick Start](quick-start.md)** - Get running with the crates
 - **[Events and Commands](events-and-commands.md)** - How crates coordinate
 - **[States and Lifecycles](states-and-lifecycles.md)** - State machines in tasker-shared

@@ -1,25 +1,34 @@
 //! Fallback poller for orchestration queue reliability in TAS-43
 //!
 //! This module provides a safety net polling mechanism that directly queries
-//! orchestration queues to catch any messages missed by the pgmq-notify event system.
+//! orchestration queues to catch any messages missed by event-driven systems.
 //! It operates much slower than event-driven notifications but ensures zero
 //! missed messages in production environments.
+//!
+//! ## Provider Agnostic Design
+//!
+//! The fallback poller uses the generic `MessagingProvider` abstraction rather than
+//! provider-specific APIs. This means:
+//! - Any provider that implements `receive_messages()` can use fallback polling
+//! - The decision of WHETHER to poll lives in the event system (based on provider capabilities)
+//! - The HOW to poll is provider-agnostic (this module)
+//!
+//! Currently, PGMQ needs fallback polling (pg_notify can miss signals), while RabbitMQ
+//! does not (basic_consume with ack/nack is reliable). Future providers may or may not
+//! need polling based on their delivery guarantees.
 
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use tasker_shared::{
-    messaging::{PgmqClientTrait, UnifiedPgmqClient},
-    system_context::SystemContext,
-    TaskerResult,
-};
+use tasker_shared::messaging::service::MessagingProvider;
+use tasker_shared::{system_context::SystemContext, TaskerResult};
 
+use crate::orchestration::channels::OrchestrationCommandSender;
 use crate::orchestration::command_processor::OrchestrationCommand;
 
 /// Configuration for orchestration queue fallback polling
@@ -66,20 +75,21 @@ impl Default for OrchestrationPollerConfig {
 
 /// Fallback poller for orchestration queue messages
 ///
-/// Provides queue polling safety net to catch messages missed by pgmq-notify events.
-/// Uses direct queue queries to find older messages that may have been missed
-/// by the event-driven coordination system.
+/// Provides queue polling safety net to catch messages missed by event-driven systems.
+/// Uses the provider-agnostic `MessagingProvider` abstraction to poll queues.
+///
+/// The decision of WHETHER to use fallback polling (based on provider capabilities)
+/// should be made by the event system before creating this poller.
 pub struct OrchestrationFallbackPoller {
     /// Poller identifier
     poller_id: Uuid,
     /// Configuration
     config: OrchestrationPollerConfig,
-    /// System context
+    /// System context (provides access to MessagingProvider)
     context: Arc<SystemContext>,
     /// Command sender for orchestration operations
-    command_sender: mpsc::Sender<OrchestrationCommand>,
-    /// PGMQ client for direct queue access
-    pgmq_client: Option<Arc<UnifiedPgmqClient>>,
+    /// TAS-133: Uses NewType wrapper for type-safe channel communication
+    command_sender: OrchestrationCommandSender,
     /// Running state
     is_running: AtomicBool,
     /// Statistics
@@ -91,7 +101,10 @@ impl std::fmt::Debug for OrchestrationFallbackPoller {
         f.debug_struct("OrchestrationFallbackPoller")
             .field("poller_id", &self.poller_id)
             .field("config", &self.config)
-            .field("has_pgmq_client", &self.pgmq_client.is_some())
+            .field(
+                "provider",
+                &self.context.messaging_provider().provider_name(),
+            )
             .field(
                 "is_running",
                 &self.is_running.load(std::sync::atomic::Ordering::Relaxed),
@@ -123,11 +136,15 @@ pub struct OrchestrationPollerStats {
 
 impl OrchestrationFallbackPoller {
     /// Create new orchestration fallback poller
+    ///
+    /// The fallback poller is provider-agnostic - it uses the `MessagingProvider`
+    /// abstraction for polling. The decision of WHETHER to use fallback polling
+    /// (based on provider capabilities) should be made by the event system before
+    /// creating this poller.
     pub async fn new(
         config: OrchestrationPollerConfig,
         context: Arc<SystemContext>,
-        command_sender: mpsc::Sender<OrchestrationCommand>,
-        pgmq_client: Arc<UnifiedPgmqClient>,
+        command_sender: OrchestrationCommandSender,
     ) -> TaskerResult<Self> {
         let poller_id = Uuid::new_v4();
 
@@ -136,6 +153,7 @@ impl OrchestrationFallbackPoller {
             namespace = %config.namespace,
             monitored_queues = ?config.monitored_queues,
             polling_interval = ?config.polling_interval,
+            provider = %context.messaging_provider().provider_name(),
             "Creating OrchestrationFallbackPoller"
         );
 
@@ -144,7 +162,6 @@ impl OrchestrationFallbackPoller {
             config,
             context,
             command_sender,
-            pgmq_client: Some(pgmq_client),
             is_running: AtomicBool::new(false),
             stats: OrchestrationPollerStats::default(),
         })
@@ -198,7 +215,7 @@ impl OrchestrationFallbackPoller {
 
     /// Check if poller is running and healthy
     pub fn is_healthy(&self) -> bool {
-        self.is_running.load(Ordering::Relaxed) && self.pgmq_client.is_some()
+        self.is_running.load(Ordering::Relaxed)
     }
 
     /// Get poller statistics
@@ -223,12 +240,13 @@ impl OrchestrationFallbackPoller {
         }
     }
 
-    /// Start fallback polling loop (based on EventDrivenOrchestrationCoordinator implementation)
+    /// Start fallback polling loop
     async fn start_polling_loop(&self) -> TaskerResult<()> {
         let config = self.config.clone();
-        let context = self.context.clone();
         let command_sender = self.command_sender.clone();
         let poller_id = self.poller_id;
+        // Use provider-agnostic MessagingProvider for polling
+        let messaging_provider = self.context.messaging_provider().clone();
         let stats = OrchestrationPollerStatsRef {
             polling_cycles: Arc::new(AtomicU64::new(0)), // Shared counter for async task
             messages_processed: Arc::new(AtomicU64::new(0)), // Shared counter for async task
@@ -265,7 +283,7 @@ impl OrchestrationFallbackPoller {
                 // Poll all monitored queues
                 for queue_name in &monitored_queues {
                     Self::poll_queue_for_messages(
-                        &context,
+                        &messaging_provider,
                         &command_sender,
                         queue_name,
                         &config,
@@ -281,10 +299,13 @@ impl OrchestrationFallbackPoller {
         Ok(())
     }
 
-    /// Poll a single queue for messages (based on EventDrivenOrchestrationCoordinator)
+    /// Poll a single queue for messages
+    ///
+    /// Uses the provider-agnostic `MessagingProvider.receive_messages()` abstraction.
+    /// Classifies messages based on queue name and dispatches to appropriate command handlers.
     async fn poll_queue_for_messages(
-        context: &SystemContext,
-        command_sender: &mpsc::Sender<OrchestrationCommand>,
+        messaging_provider: &MessagingProvider,
+        command_sender: &OrchestrationCommandSender,
         queue_name: &str,
         config: &OrchestrationPollerConfig,
         poller_id: Uuid,
@@ -297,117 +318,16 @@ impl OrchestrationFallbackPoller {
             "Performing fallback polling check"
         );
 
-        match context
-            .message_client
-            .read_messages(
+        // Use provider-agnostic receive_messages() - returns QueuedMessage with proper handles
+        let messages = match messaging_provider
+            .receive_messages::<serde_json::Value>(
                 queue_name,
-                Some(config.visibility_timeout.as_secs() as i32),
-                Some(config.batch_size as i32),
+                config.batch_size as usize,
+                config.visibility_timeout,
             )
             .await
         {
-            Ok(messages) => {
-                debug!(
-                    poller_id = %poller_id,
-                    queue = %queue_name,
-                    count = messages.len(),
-                    "Read messages from fallback polling"
-                );
-
-                for message in messages {
-                    // Create message event for config-driven classification
-                    let message_event = pgmq_notify::MessageReadyEvent {
-                        msg_id: message.msg_id,
-                        queue_name: queue_name.to_string(),
-                        namespace: config.namespace.clone(),
-                        ready_at: chrono::Utc::now(),
-                        metadata: std::collections::HashMap::new(),
-                        visibility_timeout_seconds: Some(config.visibility_timeout.as_secs() as i32),
-                    };
-
-                    // Use config-driven classification like EventDrivenOrchestrationCoordinator
-                    let classified_message =
-                        tasker_shared::config::ConfigDrivenMessageEvent::classify(
-                            message_event.clone(),
-                            queue_name,
-                            classifier,
-                        );
-
-                    let command_result = match classified_message {
-                        tasker_shared::config::ConfigDrivenMessageEvent::StepResults(_event) => {
-                            stats.step_results_processed.fetch_add(1, Ordering::Relaxed);
-                            let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-                            command_sender
-                                .send(OrchestrationCommand::ProcessStepResultFromMessage {
-                                    queue_name: queue_name.to_string(),
-                                    message: message.clone(),
-                                    resp: resp_tx,
-                                })
-                                .await
-                        }
-                        tasker_shared::config::ConfigDrivenMessageEvent::TaskRequests(_event) => {
-                            stats
-                                .task_requests_processed
-                                .fetch_add(1, Ordering::Relaxed);
-                            let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-                            command_sender
-                                .send(OrchestrationCommand::InitializeTaskFromMessage {
-                                    queue_name: queue_name.to_string(),
-                                    message: message.clone(),
-                                    resp: resp_tx,
-                                })
-                                .await
-                        }
-                        tasker_shared::config::ConfigDrivenMessageEvent::TaskFinalizations(
-                            _event,
-                        ) => {
-                            let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-                            command_sender
-                                .send(OrchestrationCommand::FinalizeTaskFromMessage {
-                                    queue_name: queue_name.to_string(),
-                                    message: message.clone(),
-                                    resp: resp_tx,
-                                })
-                                .await
-                        }
-                        tasker_shared::config::ConfigDrivenMessageEvent::WorkerNamespace {
-                            namespace,
-                            event: _,
-                        } => {
-                            debug!(
-                                poller_id = %poller_id,
-                                queue = %queue_name,
-                                namespace = %namespace,
-                                "Worker namespace message received in orchestration fallback polling"
-                            );
-                            continue;
-                        }
-                        tasker_shared::config::ConfigDrivenMessageEvent::Unknown(event) => {
-                            warn!(
-                                poller_id = %poller_id,
-                                queue = %queue_name,
-                                event_message_id = %event.msg_id,
-                                event_namespace = %event.namespace,
-                                "Unknown queue type in fallback polling using config-driven classification",
-                            );
-                            continue;
-                        }
-                    };
-
-                    if let Err(e) = command_result {
-                        warn!(
-                            poller_id = %poller_id,
-                            msg_id = message.msg_id,
-                            queue = %queue_name,
-                            error = %e,
-                            "Failed to send command from fallback polling"
-                        );
-                        stats.polling_errors.fetch_add(1, Ordering::Relaxed);
-                    } else {
-                        stats.messages_processed.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-            }
+            Ok(msgs) => msgs,
             Err(e) => {
                 error!(
                     poller_id = %poller_id,
@@ -416,6 +336,92 @@ impl OrchestrationFallbackPoller {
                     "Failed to read messages from fallback polling"
                 );
                 stats.polling_errors.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+        };
+
+        if messages.is_empty() {
+            debug!(
+                poller_id = %poller_id,
+                queue = %queue_name,
+                "No messages found in fallback polling"
+            );
+            return;
+        }
+
+        debug!(
+            poller_id = %poller_id,
+            queue = %queue_name,
+            count = messages.len(),
+            "Read messages from fallback polling"
+        );
+
+        // Classify queue once (all messages from same queue have same type)
+        let queue_type = classifier.classify(queue_name);
+
+        for queued_message in messages {
+            // Messages from receive_messages() already have proper handles
+            let command_result = match &queue_type {
+                tasker_shared::config::QueueType::StepResults => {
+                    stats.step_results_processed.fetch_add(1, Ordering::Relaxed);
+                    let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+                    command_sender
+                        .send(OrchestrationCommand::ProcessStepResultFromMessage {
+                            message: queued_message,
+                            resp: resp_tx,
+                        })
+                        .await
+                }
+                tasker_shared::config::QueueType::TaskRequests => {
+                    stats
+                        .task_requests_processed
+                        .fetch_add(1, Ordering::Relaxed);
+                    let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+                    command_sender
+                        .send(OrchestrationCommand::InitializeTaskFromMessage {
+                            message: queued_message,
+                            resp: resp_tx,
+                        })
+                        .await
+                }
+                tasker_shared::config::QueueType::TaskFinalizations => {
+                    let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+                    command_sender
+                        .send(OrchestrationCommand::FinalizeTaskFromMessage {
+                            message: queued_message,
+                            resp: resp_tx,
+                        })
+                        .await
+                }
+                tasker_shared::config::QueueType::WorkerNamespace(namespace) => {
+                    debug!(
+                        poller_id = %poller_id,
+                        queue = %queue_name,
+                        namespace = %namespace,
+                        "Worker namespace message received in orchestration fallback polling"
+                    );
+                    continue;
+                }
+                tasker_shared::config::QueueType::Unknown => {
+                    warn!(
+                        poller_id = %poller_id,
+                        queue = %queue_name,
+                        "Unknown queue type in fallback polling",
+                    );
+                    continue;
+                }
+            };
+
+            if let Err(e) = command_result {
+                warn!(
+                    poller_id = %poller_id,
+                    queue = %queue_name,
+                    error = %e,
+                    "Failed to send command from fallback polling"
+                );
+                stats.polling_errors.fetch_add(1, Ordering::Relaxed);
+            } else {
+                stats.messages_processed.fetch_add(1, Ordering::Relaxed);
             }
         }
     }

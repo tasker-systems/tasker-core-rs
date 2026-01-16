@@ -15,14 +15,14 @@
 //!
 //! ```rust,no_run
 //! use tasker_shared::events::domain_events::{DomainEventPublisher, DomainEventPayload, EventMetadata};
-//! use tasker_shared::messaging::UnifiedPgmqClient;
+//! use tasker_shared::messaging::client::MessageClient;
 //! use tasker_shared::types::base::TaskSequenceStep;
 //! use tasker_shared::messaging::execution_types::StepExecutionResult;
 //! use std::sync::Arc;
 //! use serde_json::json;
 //!
 //! # async fn example(
-//! #     message_client: Arc<UnifiedPgmqClient>,
+//! #     message_client: Arc<MessageClient>,
 //! #     tss: TaskSequenceStep,
 //! #     result: StepExecutionResult,
 //! # ) -> Result<(), Box<dyn std::error::Error>> {
@@ -59,10 +59,9 @@ use std::sync::Arc;
 use tracing::{debug, info, instrument};
 use uuid::Uuid;
 
-use crate::messaging::{
-    errors::MessagingError, execution_types::StepExecutionResult, PgmqClientTrait,
-    UnifiedPgmqClient,
-};
+use crate::messaging::client::MessageClient;
+use crate::messaging::errors::MessagingError;
+use crate::messaging::execution_types::StepExecutionResult;
 use crate::types::base::TaskSequenceStep;
 
 /// Domain event with metadata for business-level events
@@ -133,22 +132,22 @@ pub struct DomainEventPayload {
     pub payload: serde_json::Value,
 }
 
-/// Publishes domain events to namespace queues
+/// Publishes domain events to namespace queues (TAS-133e: uses MessageClient)
 #[derive(Clone)]
 pub struct DomainEventPublisher {
-    message_client: Arc<UnifiedPgmqClient>,
+    message_client: Arc<MessageClient>,
 }
 
 impl DomainEventPublisher {
     /// Create a new domain event publisher with message client
-    pub fn new(message_client: Arc<UnifiedPgmqClient>) -> Self {
+    pub fn new(message_client: Arc<MessageClient>) -> Self {
         Self { message_client }
     }
 
     /// Publish a domain event with full execution context
     ///
     /// Creates a `DomainEvent` with UUID v7 for time-ordering, publishes to the
-    /// namespace-specific queue using `UnifiedPgmqClient`, and emits OpenTelemetry metrics.
+    /// namespace-specific queue via `MessagingProvider`, and emits OpenTelemetry metrics.
     ///
     /// The payload includes the complete task sequence step, execution result, and
     /// business event data, allowing subscribers to access full execution context.
@@ -193,10 +192,9 @@ impl DomainEventPublisher {
                 reason: e.to_string(),
             })?;
 
-        // Publish to PGMQ using UnifiedPgmqClient (uses pgmq_send_with_notify internally)
-        let message_id = self
-            .message_client
-            .send_json_message(&queue_name, &event_json)
+        // TAS-133e: Publish to queue using MessageClient
+        self.message_client
+            .send_message(&queue_name, &event_json)
             .await
             .map_err(|e| DomainEventError::PublishFailed {
                 event_name: event_name.to_string(),
@@ -220,7 +218,6 @@ impl DomainEventPublisher {
 
         info!(
             event_id = %event_id,
-            message_id = message_id,
             event_name = %event_name,
             queue_name = %queue_name,
             correlation_id = %metadata.correlation_id,
@@ -235,7 +232,7 @@ impl DomainEventPublisher {
 impl std::fmt::Debug for DomainEventPublisher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DomainEventPublisher")
-            .field("message_client", &"<UnifiedPgmqClient>")
+            .field("message_client", &"<MessageClient>")
             .finish()
     }
 }

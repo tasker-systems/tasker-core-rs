@@ -18,8 +18,9 @@ use std::sync::{
     Arc,
 };
 use std::time::{Instant, SystemTime};
-use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
+
+use crate::worker::channels::ChannelFactory;
 
 use async_trait::async_trait;
 use tasker_shared::{
@@ -118,7 +119,8 @@ pub struct WorkerEventSystem {
     /// Fallback poller for reliability
     fallback_poller: Option<WorkerFallbackPoller>,
     /// Worker command sender (for FFI event forwarding)
-    command_sender: mpsc::Sender<WorkerCommand>,
+    /// TAS-133: Updated to use NewType wrapper for type safety
+    command_sender: crate::worker::channels::WorkerCommandSender,
     /// Unified system configuration
     config: WorkerEventSystemConfig,
     /// Runtime statistics
@@ -214,7 +216,7 @@ impl WorkerEventSystem {
     /// Create new WorkerEventSystem with unified configuration
     pub fn new(
         config: WorkerEventSystemConfig,
-        command_sender: mpsc::Sender<WorkerCommand>,
+        command_sender: crate::worker::channels::WorkerCommandSender,
         context: Arc<SystemContext>,
         supported_namespaces: Vec<String>,
     ) -> Self {
@@ -271,7 +273,56 @@ impl WorkerEventSystem {
 
     /// Initialize components based on deployment mode
     async fn initialize_components(&mut self) -> Result<(), DeploymentModeError> {
-        match self.deployment_mode {
+        // TAS-133: Determine effective deployment mode based on messaging provider
+        // RabbitMQ uses push-based delivery with broker-managed redelivery, so fallback
+        // polling is unnecessary. PGMQ uses fire-and-forget pg_notify where polling is
+        // essential for reliability.
+        let provider_name = self.context.messaging_provider().provider_name();
+        let effective_mode = self.deployment_mode.effective_for_provider(provider_name);
+
+        if effective_mode != self.deployment_mode {
+            match self.deployment_mode {
+                DeploymentMode::PollingOnly => {
+                    // PollingOnly with RabbitMQ indicates a misunderstanding - RabbitMQ
+                    // has no polling consumer, only push-based basic_consume()
+                    error!(
+                        system_id = %self.system_id,
+                        configured_mode = ?self.deployment_mode,
+                        effective_mode = ?effective_mode,
+                        provider = %provider_name,
+                        "PollingOnly deployment mode is not supported for {} - this provider \
+                         uses push-based delivery only. Using EventDrivenOnly instead. \
+                         Please update your configuration.",
+                        provider_name
+                    );
+                }
+                DeploymentMode::Hybrid => {
+                    // Hybrid with RabbitMQ is a reasonable intent but unnecessary -
+                    // broker handles message redelivery, no fallback polling needed
+                    warn!(
+                        system_id = %self.system_id,
+                        configured_mode = ?self.deployment_mode,
+                        effective_mode = ?effective_mode,
+                        provider = %provider_name,
+                        "Hybrid deployment mode adjusted to EventDrivenOnly for {} - this \
+                         provider uses push-based delivery with broker-managed redelivery, \
+                         fallback polling is unnecessary",
+                        provider_name
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        debug!(
+            system_id = %self.system_id,
+            configured_mode = ?self.deployment_mode,
+            effective_mode = ?effective_mode,
+            provider = %provider_name,
+            "Initializing worker components"
+        );
+
+        match effective_mode {
             DeploymentMode::EventDrivenOnly | DeploymentMode::Hybrid => {
                 // Convert unified config to listener config format
                 let listener_config = WorkerListenerConfig {
@@ -297,6 +348,7 @@ impl WorkerEventSystem {
                 // Create a notification sender - we'll convert notifications to commands
                 // TAS-51: Use configured buffer size for notification channel
                 // TAS-61 Phase 6D: Worker-specific mpsc channels are in worker.mpsc_channels
+                // TAS-133: Use ChannelFactory for type-safe channel creation
                 let buffer_size = self
                     .context
                     .tasker_config
@@ -305,7 +357,7 @@ impl WorkerEventSystem {
                     .map(|w| w.mpsc_channels.event_systems.event_channel_buffer_size as usize)
                     .expect("Worker configuration required for event channel buffer size");
                 let (notification_sender, mut notification_receiver) =
-                    mpsc::channel::<WorkerNotification>(buffer_size);
+                    ChannelFactory::worker_notification_channel(buffer_size);
 
                 // TAS-51: Initialize channel monitor for observability
                 let channel_monitor = ChannelMonitor::new("worker_event_channel", buffer_size);
@@ -338,6 +390,7 @@ impl WorkerEventSystem {
                         match notification {
                             WorkerNotification::Event(WorkerQueueEvent::StepMessage(msg_event)) => {
                                 // TAS-141: Record event-driven processing
+                                // PGMQ signal-only: requires fetch by message ID
                                 statistics.record_event_driven();
                                 statistics.events_processed.fetch_add(1, Ordering::Relaxed);
                                 statistics
@@ -355,6 +408,55 @@ impl WorkerEventSystem {
                                 {
                                     statistics.events_failed.fetch_add(1, Ordering::Relaxed);
                                     error!("Failed to forward step notification to command processor: {}", e);
+                                }
+                            }
+                            WorkerNotification::StepMessageWithPayload(queued_msg) => {
+                                // TAS-133: RabbitMQ delivers full messages via push-based basic_consume()
+                                // No fetch needed - the message payload is already available
+                                statistics.record_event_driven();
+                                statistics.events_processed.fetch_add(1, Ordering::Relaxed);
+                                statistics
+                                    .step_messages_processed
+                                    .fetch_add(1, Ordering::Relaxed);
+
+                                // Parse Vec<u8> payload to serde_json::Value
+                                let json_result: Result<serde_json::Value, _> =
+                                    serde_json::from_slice(&queued_msg.message);
+
+                                match json_result {
+                                    Ok(json_value) => {
+                                        // Use map to convert QueuedMessage<Vec<u8>> to QueuedMessage<serde_json::Value>
+                                        let json_message = queued_msg.map(|_| json_value);
+
+                                        info!(
+                                            queue = %json_message.queue_name(),
+                                            provider = %json_message.provider_name(),
+                                            "Processing RabbitMQ push message via ExecuteStepFromMessage"
+                                        );
+
+                                        // Send to actor system via ExecuteStepFromMessage (has full payload)
+                                        let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+                                        if let Err(e) = command_sender
+                                            .send(WorkerCommand::ExecuteStepFromMessage {
+                                                message: json_message,
+                                                resp: resp_tx,
+                                            })
+                                            .await
+                                        {
+                                            statistics
+                                                .events_failed
+                                                .fetch_add(1, Ordering::Relaxed);
+                                            error!("Failed to forward step message to command processor: {}", e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                                        error!(
+                                            queue = %queued_msg.queue_name(),
+                                            error = %e,
+                                            "Failed to parse RabbitMQ message payload as JSON"
+                                        );
+                                    }
                                 }
                             }
                             WorkerNotification::Health(_) => {
@@ -379,7 +481,7 @@ impl WorkerEventSystem {
             _ => {}
         }
 
-        match self.deployment_mode {
+        match effective_mode {
             DeploymentMode::PollingOnly | DeploymentMode::Hybrid => {
                 // Convert unified config to poller config format
                 let poller_config = WorkerPollerConfig {
@@ -560,9 +662,13 @@ impl EventDrivenSystem for WorkerEventSystem {
             info!("Fallback poller stopped");
         }
 
-        // Queue listener stops automatically when dropped - no explicit stop method needed
-        if self.queue_listener.is_some() {
-            info!("🎧 Queue listener will stop when dropped");
+        // TAS-133: Queue listener needs explicit stop to abort subscription task handles
+        if let Some(ref mut listener) = self.queue_listener {
+            if let Err(e) = listener.stop().await {
+                warn!(error = %e, "Error stopping queue listener");
+            } else {
+                info!("Queue listener stopped");
+            }
         }
 
         self.is_running.store(false, Ordering::Release);

@@ -32,7 +32,7 @@ That's it! Docker Compose handles all the complexity.
 git clone https://github.com/tasker-systems/tasker-core
 cd tasker-core
 
-# Start PostgreSQL with PGMQ extension
+# Start PostgreSQL (includes PGMQ extension for default messaging)
 docker-compose up -d postgres
 
 # Wait for PostgreSQL to be ready (about 10 seconds)

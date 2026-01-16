@@ -72,6 +72,8 @@ futures = { workspace = true }
 is-terminal = { workspace = true }
 jsonschema = "0.20"
 jsonwebtoken = { workspace = true, optional = true }
+# AMQP 0.9.1 client for RabbitMQ (TAS-133d)
+lapin = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-appender-tracing = { workspace = true }
 opentelemetry-otlp = { workspace = true }

@@ -49,7 +49,7 @@ fn meter() -> &'static Meter {
 ///
 /// Labels:
 /// - queue: orchestration_task_requests, orchestration_step_results, {namespace}_queue
-/// - message_type: TaskRequestMessage, StepExecutionResult, SimpleStepMessage
+/// - message_type: TaskRequestMessage, StepExecutionResult, StepMessage
 /// - correlation_id: Request correlation ID
 pub fn messages_sent_total() -> Counter<u64> {
     meter()
@@ -62,7 +62,7 @@ pub fn messages_sent_total() -> Counter<u64> {
 ///
 /// Labels:
 /// - queue: orchestration_task_requests, orchestration_step_results, {namespace}_queue
-/// - message_type: TaskRequestMessage, StepExecutionResult, SimpleStepMessage
+/// - message_type: TaskRequestMessage, StepExecutionResult, StepMessage
 /// - correlation_id: Request correlation ID
 pub fn messages_received_total() -> Counter<u64> {
     meter()
@@ -115,7 +115,7 @@ pub fn message_receive_failures_total() -> Counter<u64> {
 ///
 /// Labels:
 /// - queue: orchestration_task_requests, orchestration_step_results, {namespace}_queue
-/// - message_type: TaskRequestMessage, StepExecutionResult, SimpleStepMessage
+/// - message_type: TaskRequestMessage, StepExecutionResult, StepMessage
 /// - correlation_id: Request correlation ID
 pub fn message_latency() -> Histogram<f64> {
     meter()

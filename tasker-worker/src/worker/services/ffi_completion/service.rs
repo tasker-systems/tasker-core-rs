@@ -74,7 +74,7 @@ impl FFICompletionService {
     /// 1. Load WorkflowStep from database
     /// 2. Fetch task for correlation_id (TAS-62 attribution)
     /// 3. Transition step state via StepStateMachine
-    /// 4. Send SimpleStepMessage to orchestration queue
+    /// 4. Send StepMessage to orchestration queue
     pub async fn send_step_result(&self, step_result: StepExecutionResult) -> TaskerResult<()> {
         debug!(
             worker_id = %self.worker_id,
@@ -122,7 +122,7 @@ impl FFICompletionService {
                 TaskerError::StateTransitionError(format!("Step transition failed: {e}"))
             })?;
 
-        // 4. Send SimpleStepMessage to orchestration queue
+        // 4. Send StepMessage to orchestration queue
         self.orchestration_result_sender
             .send_completion(task_uuid, step_result.step_uuid, correlation_id)
             .await?;

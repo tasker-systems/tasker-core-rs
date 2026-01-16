@@ -6,7 +6,9 @@ use tracing::{debug, error, instrument, warn};
 
 use crate::config::PgmqNotifyConfig;
 use crate::error::{PgmqNotifyError, Result};
-use crate::events::{BatchReadyEvent, MessageReadyEvent, PgmqNotifyEvent, QueueCreatedEvent};
+use crate::events::{
+    BatchReadyEvent, MessageReadyEvent, MessageWithPayloadEvent, PgmqNotifyEvent, QueueCreatedEvent,
+};
 
 /// Trait for emitting PGMQ notifications
 #[async_trait]
@@ -14,8 +16,11 @@ pub trait PgmqNotifyEmitter: Send + Sync {
     /// Emit a queue created event
     async fn emit_queue_created(&self, event: QueueCreatedEvent) -> Result<()>;
 
-    /// Emit a message ready event
+    /// Emit a message ready event (signal only, for large messages)
     async fn emit_message_ready(&self, event: MessageReadyEvent) -> Result<()>;
+
+    /// Emit a message with payload event (TAS-133, for small messages)
+    async fn emit_message_with_payload(&self, event: MessageWithPayloadEvent) -> Result<()>;
 
     /// Emit a batch ready event
     async fn emit_batch_ready(&self, event: BatchReadyEvent) -> Result<()>;
@@ -89,6 +94,10 @@ impl DbEmitter {
                     metadata: std::collections::HashMap::new(),
                     delay_seconds: e.delay_seconds,
                 }),
+                // MessageWithPayload doesn't have metadata to strip, pass through as-is
+                PgmqNotifyEvent::MessageWithPayload(e) => {
+                    PgmqNotifyEvent::MessageWithPayload(e.clone())
+                }
             };
             serde_json::to_string(&minimal_event)?
         };
@@ -178,10 +187,32 @@ impl PgmqNotifyEmitter for DbEmitter {
         Ok(())
     }
 
+    #[instrument(skip(self, event), fields(msg_id = %event.msg_id, queue = %event.queue_name, namespace = %event.namespace))]
+    async fn emit_message_with_payload(&self, event: MessageWithPayloadEvent) -> Result<()> {
+        let namespace = event.namespace.clone();
+        let pgmq_event = PgmqNotifyEvent::MessageWithPayload(event);
+        let payload = self.build_payload(&pgmq_event)?;
+
+        // Send to both namespace-specific and global channels (same pattern as MessageReady)
+        let namespace_channel = self.config.message_ready_channel(&namespace);
+        let global_channel = self.config.global_message_ready_channel();
+
+        // Send to namespace-specific channel first
+        self.notify_channel(&namespace_channel, &payload).await?;
+
+        // Also send to global channel for listeners monitoring all namespaces
+        if namespace_channel != global_channel {
+            self.notify_channel(&global_channel, &payload).await?;
+        }
+
+        Ok(())
+    }
+
     async fn emit_event(&self, event: PgmqNotifyEvent) -> Result<()> {
         match event {
             PgmqNotifyEvent::QueueCreated(e) => self.emit_queue_created(e).await,
             PgmqNotifyEvent::MessageReady(e) => self.emit_message_ready(e).await,
+            PgmqNotifyEvent::MessageWithPayload(e) => self.emit_message_with_payload(e).await,
             PgmqNotifyEvent::BatchReady(e) => self.emit_batch_ready(e).await,
         }
     }
@@ -240,6 +271,14 @@ impl PgmqNotifyEmitter for NoopEmitter {
         debug!(
             "NoopEmitter: Would emit batch ready event for {} messages in queue {}",
             event.message_count, event.queue_name
+        );
+        Ok(())
+    }
+
+    async fn emit_message_with_payload(&self, event: MessageWithPayloadEvent) -> Result<()> {
+        debug!(
+            "NoopEmitter: Would emit message with payload event for msg {} in queue {}",
+            event.msg_id, event.queue_name
         );
         Ok(())
     }

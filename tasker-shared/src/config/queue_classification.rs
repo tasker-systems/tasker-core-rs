@@ -22,7 +22,7 @@ pub enum QueueType {
 
 /// Queue classification service that uses configuration to determine queue types
 /// instead of hardcoded string matching patterns
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct QueueClassifier {
     orchestration_owned: OrchestrationOwnedQueues,
     orchestration_namespace: String,

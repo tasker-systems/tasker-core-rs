@@ -13,10 +13,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tasker_shared::config::orchestration::event_systems::OrchestrationEventSystemConfig;
 use tasker_shared::{system_context::SystemContext, TaskerResult};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::orchestration::{
+    channels::{ChannelFactory, OrchestrationCommandSender},
     command_processor::OrchestrationCommand,
     orchestration_queues::{
         OrchestrationFallbackPoller, OrchestrationListenerConfig, OrchestrationListenerStats,
@@ -63,8 +63,8 @@ pub struct OrchestrationEventSystem {
     )]
     orchestration_core: Arc<OrchestrationCore>,
 
-    /// Command sender for orchestration operations
-    command_sender: mpsc::Sender<OrchestrationCommand>,
+    /// Command sender for orchestration operations (TAS-133: NewType wrapper)
+    command_sender: OrchestrationCommandSender,
 
     /// System configuration
     config: OrchestrationEventSystemConfig,
@@ -246,7 +246,7 @@ impl OrchestrationEventSystem {
         config: OrchestrationEventSystemConfig,
         context: Arc<SystemContext>,
         orchestration_core: Arc<OrchestrationCore>,
-        command_sender: mpsc::Sender<OrchestrationCommand>,
+        command_sender: OrchestrationCommandSender,
         command_channel_monitor: ChannelMonitor,
     ) -> TaskerResult<Self> {
         info!(
@@ -375,22 +375,65 @@ impl EventDrivenSystem for OrchestrationEventSystem {
             });
         }
 
+        // TAS-133: Determine effective deployment mode based on messaging provider
+        // RabbitMQ uses push-based delivery with broker-managed redelivery, so fallback
+        // polling is unnecessary. PGMQ uses fire-and-forget pg_notify where polling is
+        // essential for reliability.
+        let provider_name = self.context.messaging_provider().provider_name();
+        let effective_mode = self.deployment_mode.effective_for_provider(provider_name);
+
+        if effective_mode != self.deployment_mode {
+            match self.deployment_mode {
+                DeploymentMode::PollingOnly => {
+                    // PollingOnly with RabbitMQ indicates a misunderstanding - RabbitMQ
+                    // has no polling consumer, only push-based basic_consume()
+                    error!(
+                        system_id = %self.system_id,
+                        configured_mode = ?self.deployment_mode,
+                        effective_mode = ?effective_mode,
+                        provider = %provider_name,
+                        "PollingOnly deployment mode is not supported for {} - this provider \
+                         uses push-based delivery only. Using EventDrivenOnly instead. \
+                         Please update your configuration.",
+                        provider_name
+                    );
+                }
+                DeploymentMode::Hybrid => {
+                    // Hybrid with RabbitMQ is a reasonable intent but unnecessary -
+                    // broker handles message redelivery, no fallback polling needed
+                    warn!(
+                        system_id = %self.system_id,
+                        configured_mode = ?self.deployment_mode,
+                        effective_mode = ?effective_mode,
+                        provider = %provider_name,
+                        "Hybrid deployment mode adjusted to EventDrivenOnly for {} - this \
+                         provider uses push-based delivery with broker-managed redelivery, \
+                         fallback polling is unnecessary",
+                        provider_name
+                    );
+                }
+                _ => {}
+            }
+        }
+
         info!(
             system_id = %self.system_id,
-            deployment_mode = ?self.deployment_mode,
+            configured_mode = ?self.deployment_mode,
+            effective_mode = ?effective_mode,
+            provider = %provider_name,
             "Starting OrchestrationEventSystem"
         );
 
-        // Create components based on deployment mode using command pattern
-        match self.deployment_mode {
+        // Create components based on effective deployment mode using command pattern
+        match effective_mode {
             DeploymentMode::PollingOnly => {
                 // Only create fallback poller - sends commands instead of events
                 let poller_config = self.poller_config();
+                // TAS-133e: Removed pgmq_client param - now accessed via MessagingProvider
                 let fallback_poller = OrchestrationFallbackPoller::new(
                     poller_config,
                     self.context.clone(),
                     self.command_sender.clone(),
-                    self.context.message_client(),
                 )
                 .await?;
 
@@ -409,7 +452,9 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     .as_ref()
                     .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
                     .unwrap_or(10000);
-                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
+                // TAS-133: Use ChannelFactory for type-safe channel creation
+                let (event_sender, mut event_receiver) =
+                    ChannelFactory::orchestration_notification_channel(buffer_size as usize);
 
                 // TAS-51: Initialize channel monitor for observability
                 let channel_monitor =
@@ -428,11 +473,11 @@ impl EventDrivenSystem for OrchestrationEventSystem {
 
                 // Create fallback poller for backup reliability
                 let poller_config = self.poller_config();
+                // TAS-133e: Removed pgmq_client param - now accessed via MessagingProvider
                 let fallback_poller = OrchestrationFallbackPoller::new(
                     poller_config,
                     self.context.clone(),
                     self.command_sender.clone(),
-                    self.context.message_client(),
                 )
                 .await?;
 
@@ -474,7 +519,9 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     .as_ref()
                     .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
                     .unwrap_or(10000);
-                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
+                // TAS-133: Use ChannelFactory for type-safe channel creation
+                let (event_sender, mut event_receiver) =
+                    ChannelFactory::orchestration_notification_channel(buffer_size as usize);
 
                 // TAS-51: Initialize channel monitor for observability
                 let channel_monitor = ChannelMonitor::new(
@@ -597,12 +644,12 @@ impl EventDrivenSystem for OrchestrationEventSystem {
         );
 
         match event {
-            OrchestrationQueueEvent::StepResult(message_ready_event) => {
-                let msg_id = message_ready_event.msg_id;
+            OrchestrationQueueEvent::StepResult(message_event) => {
+                let msg_id = message_event.message_id.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::ProcessStepResultFromMessageEvent {
-                    message_event: message_ready_event,
+                    message_event,
                     resp: command_tx,
                 };
 
@@ -707,12 +754,12 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 }
             }
 
-            OrchestrationQueueEvent::TaskRequest(message_ready_event) => {
-                let msg_id = message_ready_event.msg_id;
+            OrchestrationQueueEvent::TaskRequest(message_event) => {
+                let msg_id = message_event.message_id.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::InitializeTaskFromMessageEvent {
-                    message_event: message_ready_event,
+                    message_event,
                     resp: command_tx,
                 };
 
@@ -818,13 +865,13 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 }
             }
 
-            OrchestrationQueueEvent::TaskFinalization(message_ready_event) => {
-                let msg_id = message_ready_event.msg_id;
-                let namespace = message_ready_event.namespace.clone();
+            OrchestrationQueueEvent::TaskFinalization(message_event) => {
+                let msg_id = message_event.message_id.clone();
+                let namespace = message_event.namespace.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::FinalizeTaskFromMessageEvent {
-                    message_event: message_ready_event,
+                    message_event,
                     resp: command_tx,
                 };
 
@@ -1092,27 +1139,87 @@ impl OrchestrationEventSystem {
     async fn process_orchestration_notification(
         notification: OrchestrationNotification,
         _context: &Arc<SystemContext>,
-        command_sender: &mpsc::Sender<OrchestrationCommand>,
+        command_sender: &OrchestrationCommandSender,
         command_channel_monitor: &ChannelMonitor,
         statistics: &Arc<OrchestrationStatistics>,
     ) {
         match notification {
+            OrchestrationNotification::StepResultWithPayload(queued_msg) => {
+                // TAS-133: RabbitMQ delivers full messages via push-based basic_consume()
+                // No fetch needed - the message payload is already available
+                let queue_name = queued_msg.queue_name().to_string();
+
+                // Parse Vec<u8> payload to serde_json::Value
+                let json_result: Result<serde_json::Value, _> =
+                    serde_json::from_slice(&queued_msg.message);
+
+                match json_result {
+                    Ok(json_value) => {
+                        // Use map to convert QueuedMessage<Vec<u8>> to QueuedMessage<serde_json::Value>
+                        let json_message = queued_msg.map(|_| json_value);
+
+                        info!(
+                            queue = %queue_name,
+                            provider = %json_message.provider_name(),
+                            "Processing RabbitMQ push message via ProcessStepResultFromMessage"
+                        );
+
+                        // Send to actor system via ProcessStepResultFromMessage (has full payload)
+                        let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+                        match command_sender
+                            .send(OrchestrationCommand::ProcessStepResultFromMessage {
+                                message: json_message,
+                                resp: resp_tx,
+                            })
+                            .await
+                        {
+                            Ok(_) => {
+                                if command_channel_monitor.record_send_success() {
+                                    command_channel_monitor
+                                        .check_and_warn_saturation(command_sender.capacity());
+                                }
+                                statistics
+                                    .operations_coordinated
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(e) => {
+                                warn!(
+                                    queue = %queue_name,
+                                    error = %e,
+                                    "Failed to send ProcessStepResultFromMessage command"
+                                );
+                                statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            queue = %queue_name,
+                            error = %e,
+                            "Failed to parse RabbitMQ step result message payload as JSON"
+                        );
+                        statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+
             OrchestrationNotification::Event(event) => match event {
-                OrchestrationQueueEvent::StepResult(message_ready_event) => {
-                    let msg_id = message_ready_event.msg_id;
-                    let namespace = message_ready_event.namespace.clone();
+                OrchestrationQueueEvent::StepResult(message_event) => {
+                    // PGMQ signal-only: requires fetch by message ID
+                    let msg_id = message_event.message_id.clone();
+                    let namespace = message_event.namespace.clone();
 
                     debug!(
                         msg_id = %msg_id,
                         namespace = %namespace,
-                        "Processing step result event from orchestration queue"
+                        "Processing step result event from orchestration queue (signal-only)"
                     );
 
                     let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
 
                     match command_sender
                         .send(OrchestrationCommand::ProcessStepResultFromMessageEvent {
-                            message_event: message_ready_event,
+                            message_event,
                             resp: resp_tx,
                         })
                         .await
@@ -1138,9 +1245,9 @@ impl OrchestrationEventSystem {
                     }
                 }
 
-                OrchestrationQueueEvent::TaskRequest(message_ready_event) => {
-                    let msg_id = message_ready_event.msg_id;
-                    let namespace = message_ready_event.namespace.clone();
+                OrchestrationQueueEvent::TaskRequest(message_event) => {
+                    let msg_id = message_event.message_id.clone();
+                    let namespace = message_event.namespace.clone();
                     debug!(
                         msg_id = %msg_id,
                         namespace = %namespace,
@@ -1151,7 +1258,7 @@ impl OrchestrationEventSystem {
 
                     match command_sender
                         .send(OrchestrationCommand::InitializeTaskFromMessageEvent {
-                            message_event: message_ready_event,
+                            message_event,
                             resp: resp_tx,
                         })
                         .await
@@ -1178,20 +1285,20 @@ impl OrchestrationEventSystem {
                     }
                 }
 
-                OrchestrationQueueEvent::TaskFinalization(message_ready_event) => {
-                    let msg_id = message_ready_event.msg_id;
-                    let namespace = message_ready_event.namespace.clone();
+                OrchestrationQueueEvent::TaskFinalization(message_event) => {
+                    let msg_id = message_event.message_id.clone();
+                    let namespace = message_event.namespace.clone();
                     debug!(
                         msg_id = %msg_id,
                         namespace = %namespace,
-                        "Processing task request event from orchestration queue"
+                        "Processing task finalization event from orchestration queue"
                     );
 
                     let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
 
                     match command_sender
                         .send(OrchestrationCommand::FinalizeTaskFromMessageEvent {
-                            message_event: message_ready_event,
+                            message_event,
                             resp: resp_tx,
                         })
                         .await

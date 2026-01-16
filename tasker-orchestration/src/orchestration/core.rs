@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -23,6 +23,7 @@ use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use crate::health::{BackpressureChecker, HealthStatusCaches, StatusEvaluator};
+use crate::orchestration::channels::OrchestrationCommandSender;
 use crate::orchestration::command_processor::{
     OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, SystemHealth,
 };
@@ -38,7 +39,8 @@ pub struct OrchestrationCore {
     pub context: Arc<SystemContext>,
 
     /// Command sender for orchestration operations
-    command_sender: mpsc::Sender<OrchestrationCommand>,
+    /// TAS-133: Uses NewType wrapper for type-safe channel communication
+    command_sender: OrchestrationCommandSender,
 
     /// Orchestration processor (handles commands in background)
     /// Kept alive for the lifetime of OrchestrationCore to ensure background task runs
@@ -174,7 +176,8 @@ impl OrchestrationCore {
     }
 
     /// Get command sender for external components
-    pub fn command_sender(&self) -> mpsc::Sender<OrchestrationCommand> {
+    /// TAS-133: Returns NewType wrapper for type-safe channel communication
+    pub fn command_sender(&self) -> OrchestrationCommandSender {
         self.command_sender.clone()
     }
 

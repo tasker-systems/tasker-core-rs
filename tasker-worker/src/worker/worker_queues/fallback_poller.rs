@@ -1,26 +1,36 @@
 //! Fallback poller for worker namespace queue reliability in TAS-43
 //!
 //! This module provides a safety net polling mechanism that directly queries
-//! worker namespace queues to catch any messages missed by the pgmq-notify event system.
+//! worker namespace queues to catch any messages missed by event-driven systems.
 //! It operates much slower than event-driven notifications but ensures zero
 //! missed messages in production environments.
+//!
+//! ## Provider Agnostic Design
+//!
+//! The fallback poller uses the generic `MessagingProvider` abstraction rather than
+//! provider-specific APIs. This means:
+//! - Any provider that implements `receive_messages()` can use fallback polling
+//! - The decision of WHETHER to poll lives in the event system (based on provider capabilities)
+//! - The HOW to poll is provider-agnostic (this module)
+//!
+//! Currently, PGMQ needs fallback polling (pg_notify can miss signals), while RabbitMQ
+//! does not (basic_consume with ack/nack is reliable). Future providers may or may not
+//! need polling based on their delivery guarantees.
 
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::{
-    messaging::{PgmqClientTrait, UnifiedPgmqClient},
-    system_context::SystemContext,
-    TaskerResult,
+    messaging::service::MessagingProvider, system_context::SystemContext, TaskerResult,
 };
 
 // Import command pattern types for direct command sending
+use crate::worker::channels::WorkerCommandSender;
 use crate::worker::command_processor::WorkerCommand;
 
 /// Configuration for worker namespace queue fallback polling
@@ -71,8 +81,8 @@ pub(crate) struct WorkerFallbackPoller {
     config: WorkerPollerConfig,
     /// System context
     context: Arc<SystemContext>,
-    /// Command sender for worker operations
-    command_sender: mpsc::Sender<WorkerCommand>,
+    /// Command sender for worker operations (TAS-133: NewType wrapper)
+    command_sender: WorkerCommandSender,
     /// Running state
     is_running: AtomicBool,
     /// Statistics
@@ -114,16 +124,22 @@ pub struct WorkerPollerStats {
 
 impl WorkerFallbackPoller {
     /// Create new worker fallback poller
+    ///
+    /// The fallback poller is provider-agnostic - it uses the `MessagingProvider`
+    /// abstraction for polling. The decision of WHETHER to use fallback polling
+    /// (based on provider capabilities) should be made by the event system before
+    /// creating this poller.
     pub async fn new(
         config: WorkerPollerConfig,
         context: Arc<SystemContext>,
-        command_sender: mpsc::Sender<WorkerCommand>,
+        command_sender: WorkerCommandSender,
     ) -> TaskerResult<Self> {
         let poller_id = Uuid::new_v4();
 
         info!(
             poller_id = %poller_id,
             polling_interval = ?config.polling_interval,
+            provider = %context.messaging_provider().provider_name(),
             "Creating WorkerFallbackPoller"
         );
 
@@ -160,7 +176,10 @@ impl WorkerFallbackPoller {
         let poller_id = self.poller_id;
         let config = self.config.clone();
         let command_sender = self.command_sender.clone();
-        let message_client = self.context.message_client().clone();
+        // Use provider-agnostic MessagingProvider for polling
+        let messaging_provider = self.context.messaging_provider().clone();
+        // Use message router for queue name abstraction
+        let message_client = self.context.message_client.clone();
         let stats = Arc::new(WorkerPollerStats::default());
         let is_running = Arc::new(AtomicBool::new(true));
 
@@ -178,13 +197,14 @@ impl WorkerFallbackPoller {
 
                 // Poll all supported namespace queues
                 for namespace in &config.supported_namespaces {
-                    let queue_name = format!("worker_{}_queue", namespace);
+                    // Use router abstraction for queue naming
+                    let queue_name = message_client.router().step_queue(namespace);
 
                     if let Err(e) = Self::poll_namespace_queue(
                         &queue_name,
                         namespace,
                         &config,
-                        &message_client,
+                        &messaging_provider,
                         &command_sender,
                         &stats,
                         poller_id,
@@ -216,12 +236,15 @@ impl WorkerFallbackPoller {
     }
 
     /// Poll a specific namespace queue for missed messages
+    ///
+    /// Uses the provider-agnostic `MessagingProvider.receive_messages()` abstraction.
+    /// The returned `QueuedMessage` objects already have proper handles set by the provider.
     async fn poll_namespace_queue(
         queue_name: &str,
         namespace: &str,
         config: &WorkerPollerConfig,
-        pgmq_client: &UnifiedPgmqClient,
-        command_sender: &mpsc::Sender<WorkerCommand>,
+        messaging_provider: &MessagingProvider,
+        command_sender: &WorkerCommandSender,
         stats: &WorkerPollerStats,
         poller_id: Uuid,
     ) -> TaskerResult<()> {
@@ -233,14 +256,20 @@ impl WorkerFallbackPoller {
             "Polling namespace queue for missed messages"
         );
 
-        // Read messages from the namespace queue
-        let messages = pgmq_client
-            .read_messages(
+        // Use provider-agnostic receive_messages() - returns QueuedMessage with proper handles
+        let messages: Vec<_> = messaging_provider
+            .receive_messages::<serde_json::Value>(
                 queue_name,
-                Some(config.visibility_timeout.as_secs() as i32),
-                Some(config.batch_size as i32),
+                config.batch_size as usize,
+                config.visibility_timeout,
             )
-            .await?;
+            .await
+            .map_err(|e| {
+                tasker_shared::TaskerError::MessagingError(format!(
+                    "Failed to read messages: {}",
+                    e
+                ))
+            })?;
 
         if messages.is_empty() {
             // Only log at debug level for empty queues to avoid noise
@@ -261,14 +290,13 @@ impl WorkerFallbackPoller {
             "Found messages in worker fallback polling - sending to command processor"
         );
 
-        for message in messages {
-            // This is the key insight - we don't need to re-read the message, we already have it
+        for queued_message in messages {
+            // Messages from receive_messages() already have proper handles - send directly
             let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
 
             let command_result = command_sender
                 .send(WorkerCommand::ExecuteStepFromMessage {
-                    queue_name: queue_name.to_string(),
-                    message: message.clone(),
+                    message: queued_message,
                     resp: resp_tx,
                 })
                 .await;
@@ -276,7 +304,6 @@ impl WorkerFallbackPoller {
             if let Err(e) = command_result {
                 warn!(
                     poller_id = %poller_id,
-                    msg_id = message.msg_id,
                     queue = %queue_name,
                     namespace = %namespace,
                     error = %e,
@@ -291,7 +318,6 @@ impl WorkerFallbackPoller {
 
                 debug!(
                     poller_id = %poller_id,
-                    msg_id = message.msg_id,
                     queue = %queue_name,
                     namespace = %namespace,
                     "Successfully sent worker command from fallback polling"

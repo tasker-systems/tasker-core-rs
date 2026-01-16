@@ -24,8 +24,8 @@ use tracing::{debug, error, event, info, span, warn, Instrument, Level};
 use uuid::Uuid;
 
 use tasker_shared::events::domain_events::EventMetadata;
-use tasker_shared::messaging::message::SimpleStepMessage;
-use tasker_shared::messaging::PgmqClientTrait;
+use tasker_shared::messaging::message::StepMessage;
+use tasker_shared::messaging::service::ReceiptHandle;
 use tasker_shared::metrics::worker::*;
 use tasker_shared::models::{
     orchestration::StepTransitiveDependenciesQuery, task::Task, workflow_step::WorkflowStepWithName,
@@ -134,7 +134,7 @@ impl StepExecutorService {
     /// Domain event dispatch is handled separately via `dispatch_domain_events()`.
     pub async fn execute_step(
         &self,
-        message: PgmqMessage<SimpleStepMessage>,
+        message: PgmqMessage<StepMessage>,
         queue_name: &str,
     ) -> TaskerResult<bool> {
         let start_time = std::time::Instant::now();
@@ -212,16 +212,17 @@ impl StepExecutorService {
         self.verify_state_visibility(&task_sequence_step, step_message)
             .await?;
 
-        // 4. Delete PGMQ message after claiming
+        // 4. Ack PGMQ message after claiming (TAS-133e: use provider-agnostic ack_message)
+        let receipt_handle = ReceiptHandle::from(message.msg_id);
         if let Err(err) = self
             .context
-            .message_client
-            .delete_message(queue_name, message.msg_id)
+            .message_client()
+            .ack_message(queue_name, &receipt_handle)
             .await
         {
             self.record_step_failure(step_message, &namespace, "message_deletion_failed");
             return Err(TaskerError::MessagingError(format!(
-                "Failed to delete message: {err}"
+                "Failed to ack message: {err}"
             )));
         }
 
@@ -250,7 +251,7 @@ impl StepExecutorService {
     async fn verify_state_visibility(
         &self,
         task_sequence_step: &TaskSequenceStep,
-        step_message: &SimpleStepMessage,
+        step_message: &StepMessage,
     ) -> TaskerResult<()> {
         let state_machine = StepStateMachine::new(
             task_sequence_step.workflow_step.clone().into(),
@@ -314,7 +315,7 @@ impl StepExecutorService {
     async fn execute_ffi_handler(
         &self,
         task_sequence_step: &TaskSequenceStep,
-        step_message: &SimpleStepMessage,
+        step_message: &StepMessage,
     ) -> TaskerResult<()> {
         let step_span = span!(
             Level::INFO,
@@ -547,12 +548,7 @@ impl StepExecutorService {
 
     // Metrics helper methods
 
-    fn record_step_failure(
-        &self,
-        step_message: &SimpleStepMessage,
-        namespace: &str,
-        error_type: &str,
-    ) {
+    fn record_step_failure(&self, step_message: &StepMessage, namespace: &str, error_type: &str) {
         if let Some(counter) = STEP_FAILURES_TOTAL.get() {
             counter.add(
                 1,
@@ -567,7 +563,7 @@ impl StepExecutorService {
 
     fn record_step_success(
         &self,
-        step_message: &SimpleStepMessage,
+        step_message: &StepMessage,
         namespace: &str,
         execution_time: u64,
     ) {
@@ -586,7 +582,7 @@ impl StepExecutorService {
 
     fn record_execution_duration(
         &self,
-        step_message: &SimpleStepMessage,
+        step_message: &StepMessage,
         namespace: &str,
         execution_time: u64,
         result: &str,

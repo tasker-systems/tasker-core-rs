@@ -1,9 +1,9 @@
 # Events and Commands Architecture
 
-**Last Updated**: 2025-10-11
+**Last Updated**: 2026-01-15
 **Audience**: Architects, Developers
-**Status**: Active (TAS-46 Actor Integration Complete)
-**Related Docs**: [Documentation Hub](README.md) | [Actor-Based Architecture](actors.md) | [States and Lifecycles](states-and-lifecycles.md) | [Deployment Patterns](deployment-patterns.md)
+**Status**: Active (TAS-46 Actor Integration, TAS-133 Messaging Abstraction Complete)
+**Related Docs**: [Documentation Hub](README.md) | [Actor-Based Architecture](actors.md) | [Messaging Abstraction](messaging-abstraction.md) | [States and Lifecycles](states-and-lifecycles.md) | [Deployment Patterns](deployment-patterns.md)
 
 ← Back to [Documentation Hub](README.md)
 
@@ -18,7 +18,7 @@ The tasker-core system implements a sophisticated hybrid architecture that combi
 1. **Event-Driven Systems**: Real-time coordination using PostgreSQL LISTEN/NOTIFY and PGMQ notifications
 2. **Command Pattern**: Async command processors using tokio mpsc channels for orchestration and worker operations
 3. **Hybrid Deployment Modes**: PollingOnly, EventDrivenOnly, and Hybrid modes with fallback polling
-4. **Queue-Based Communication**: PGMQ message queues for reliable step execution and result processing
+4. **Queue-Based Communication**: Provider-agnostic message queues (PGMQ or RabbitMQ) for reliable step execution and result processing
 
 This architecture eliminates polling complexity while maintaining resilience through fallback mechanisms and provides horizontal scaling capabilities with atomic operation guarantees.
 
@@ -82,11 +82,38 @@ The Tasker system is built with the expectation of distributed deployment with m
 
 ### Event Types and Sources
 
-#### Queue-Level Events (PGMQ)
+#### Queue-Level Events (Provider-Agnostic - TAS-133)
+
+The system supports multiple messaging backends through `MessageNotification`:
+
+```rust
+pub enum MessageNotification {
+    /// Signal-only notification (PGMQ style)
+    /// Indicates a message is available but requires separate fetch
+    Available {
+        queue_name: String,
+        msg_id: Option<i64>,
+    },
+
+    /// Full message notification (RabbitMQ style)
+    /// Contains the complete message payload
+    Message(QueuedMessage<Vec<u8>>),
+}
+```
+
+**Event Sources by Provider**:
+
+| Provider | Notification Type | Fetch Required | Fallback Polling |
+|----------|-------------------|----------------|------------------|
+| PGMQ | `Available` | Yes (read by msg_id) | Required |
+| RabbitMQ | `Message` | No (full payload) | Not needed |
+| InMemory | `Message` | No | Not needed |
+
+**Common Event Types**:
 - **Step Results**: Worker completion notifications
 - **Task Requests**: New task initialization requests
 - **Message Ready Events**: Queue message availability notifications
-- **Transport**: PGMQ with pg_notify integration
+- **Transport**: Provider-agnostic via `MessagingProvider.subscribe_many()`
 
 ## Command Pattern Architecture
 
@@ -141,6 +168,8 @@ pub struct OrchestrationEventSystem {
 
 #### Orchestration Command Types
 
+The command processor handles both full-message and signal-only notification types (TAS-133):
+
 ```rust
 pub enum OrchestrationCommand {
     // Task lifecycle
@@ -148,12 +177,14 @@ pub enum OrchestrationCommand {
     ProcessStepResult { result: StepExecutionResult, resp: CommandResponder<StepProcessResult> },
     FinalizeTask { task_uuid: Uuid, resp: CommandResponder<TaskFinalizationResult> },
 
-    // Message processing (PGMQ integration)
-    ProcessStepResultFromMessage { queue_name: String, message: PgmqMessage, resp: CommandResponder<StepProcessResult> },
-    InitializeTaskFromMessage { queue_name: String, message: PgmqMessage, resp: CommandResponder<TaskInitializeResult> },
-    FinalizeTaskFromMessage { queue_name: String, message: PgmqMessage, resp: CommandResponder<TaskFinalizationResult> },
+    // Full message processing (RabbitMQ style - MessageNotification::Message)
+    // Used when provider delivers complete message payload
+    ProcessStepResultFromMessage { queue_name: String, message: QueuedMessage, resp: CommandResponder<StepProcessResult> },
+    InitializeTaskFromMessage { queue_name: String, message: QueuedMessage, resp: CommandResponder<TaskInitializeResult> },
+    FinalizeTaskFromMessage { queue_name: String, message: QueuedMessage, resp: CommandResponder<TaskFinalizationResult> },
 
-    // Event processing (pg_notify integration)
+    // Signal-only processing (PGMQ style - MessageNotification::Available)
+    // Used when provider sends notification that requires separate fetch
     ProcessStepResultFromMessageEvent { message_event: MessageReadyEvent, resp: CommandResponder<StepProcessResult> },
     InitializeTaskFromMessageEvent { message_event: MessageReadyEvent, resp: CommandResponder<TaskInitializeResult> },
     FinalizeTaskFromMessageEvent { message_event: MessageReadyEvent, resp: CommandResponder<TaskFinalizationResult> },
@@ -167,6 +198,10 @@ pub enum OrchestrationCommand {
     Shutdown { resp: CommandResponder<()> },
 }
 ```
+
+**Command Routing by Notification Type**:
+- `MessageNotification::Message` -> `*FromMessage` commands (immediate processing)
+- `MessageNotification::Available` -> `*FromMessageEvent` commands (requires fetch)
 
 #### Orchestration Queue Architecture
 

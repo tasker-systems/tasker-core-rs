@@ -17,6 +17,7 @@
 //! the message itself contains all required data for task initialization.
 
 use pgmq::Message as PgmqMessage;
+use tasker_shared::messaging::service::QueuedMessage;
 use tasker_shared::messaging::TaskRequestMessage;
 use tasker_shared::{TaskerError, TaskerResult};
 use tracing::{debug, error, info};
@@ -92,6 +93,42 @@ impl TaskRequestHydrator {
             namespace = %task_request.task_request.namespace,
             handler_name = %task_request.task_request.name,
             "HYDRATOR: Successfully parsed TaskRequestMessage"
+        );
+
+        Ok(task_request)
+    }
+
+    /// TAS-133: Hydrate TaskRequestMessage from provider-agnostic QueuedMessage
+    ///
+    /// This is the provider-agnostic version of hydrate_from_message, working with
+    /// `QueuedMessage<serde_json::Value>` instead of PGMQ-specific `PgmqMessage`.
+    pub async fn hydrate_from_queued_message(
+        &self,
+        message: &QueuedMessage<serde_json::Value>,
+    ) -> TaskerResult<TaskRequestMessage> {
+        debug!(
+            handle = ?message.handle,
+            message_size = message.message.to_string().len(),
+            "HYDRATOR: Starting task request hydration from QueuedMessage"
+        );
+
+        // Parse the task request message
+        let task_request: TaskRequestMessage = serde_json::from_value(message.message.clone())
+            .map_err(|e| {
+                error!(
+                    handle = ?message.handle,
+                    error = %e,
+                    message_content = %message.message,
+                    "HYDRATOR: Failed to parse task request message"
+                );
+                TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
+            })?;
+
+        info!(
+            handle = ?message.handle,
+            namespace = %task_request.task_request.namespace,
+            handler_name = %task_request.task_request.name,
+            "HYDRATOR: Successfully parsed TaskRequestMessage from QueuedMessage"
         );
 
         Ok(task_request)

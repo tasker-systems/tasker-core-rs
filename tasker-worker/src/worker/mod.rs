@@ -4,10 +4,10 @@
 
 pub mod actor_command_processor; // TAS-69: Actor-based command processor (pure routing)
 pub mod actors; // TAS-69: Actor-based architecture for worker system
+pub mod channels; // TAS-133: Semantic NewType channel wrappers
 pub mod command_processor;
 pub mod core;
 pub mod domain_event_commands; // TAS-65/TAS-69: Domain event command types
-pub mod event_consumer; // TAS-65 Phase 2.3b: Event consumer service
 pub mod event_driven_processor;
 pub mod event_publisher;
 pub mod event_router; // TAS-65 Dual-Path: Routes events by delivery mode
@@ -27,10 +27,15 @@ pub mod worker_queues;
 
 pub use core::{DispatchHandles, WorkerCore, WorkerCoreStatus};
 
+// TAS-133: Semantic channel wrappers for type-safe channel usage
+pub use channels::{
+    ChannelFactory, WorkerCommandReceiver, WorkerCommandSender, WorkerNotificationReceiver,
+    WorkerNotificationSender,
+};
+
 pub use command_processor::{
     EventIntegrationStatus, StepExecutionStats, WorkerCommand, WorkerStatus,
 };
-pub use event_consumer::{EventConsumer, EventConsumerConfig, EventConsumerStats}; // TAS-65 Phase 2.3b
 pub use event_driven_processor::{EventDrivenConfig, EventDrivenStats};
 pub use event_publisher::{WorkerEventError, WorkerEventPublisher, WorkerEventPublisherStats};
 pub use event_router::{EventRouteOutcome, EventRouter, EventRouterBuilder, EventRouterError};

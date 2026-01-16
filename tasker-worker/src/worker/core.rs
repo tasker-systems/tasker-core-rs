@@ -26,6 +26,7 @@ use tasker_shared::{TaskerError, TaskerResult};
 
 use super::actor_command_processor::ActorCommandProcessor;
 use super::actors::DispatchHandlerMessage;
+use super::channels::WorkerCommandSender;
 use super::command_processor::{WorkerCommand, WorkerStatus};
 use super::event_driven_processor::{
     EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
@@ -93,8 +94,8 @@ pub struct WorkerCore {
     /// System context for dependency injection
     pub context: Arc<SystemContext>,
 
-    /// Command sender for worker operations
-    command_sender: mpsc::Sender<WorkerCommand>,
+    /// Command sender for worker operations (TAS-133: NewType wrapper)
+    command_sender: WorkerCommandSender,
 
     /// TAS-69: Actor-based command processor
     /// Uses actor pattern for pure routing and typed message handling
@@ -680,12 +681,12 @@ impl WorkerCore {
     /// Process step message via command pattern
     pub async fn process_step_message(
         &self,
-        _message: tasker_shared::messaging::message::SimpleStepMessage,
+        _message: tasker_shared::messaging::message::StepMessage,
     ) -> TaskerResult<tasker_shared::messaging::StepExecutionResult> {
         let (_resp_tx, _resp_rx) =
             oneshot::channel::<TaskerResult<tasker_shared::messaging::StepExecutionResult>>();
 
-        // TODO: This method needs to be updated to use TaskSequenceStep instead of SimpleStepMessage
+        // TODO: This method needs to be updated to use TaskSequenceStep instead of StepMessage
         // For now, we'll return an error to indicate this needs to be implemented properly
         Err(TaskerError::WorkerError(
             "process_step_message needs to be updated to use TaskSequenceStep pattern".to_string(),
@@ -734,7 +735,7 @@ impl WorkerCore {
     }
 
     /// Get the command sender for communicating with the worker processor
-    pub fn command_sender(&self) -> &mpsc::Sender<WorkerCommand> {
+    pub fn command_sender(&self) -> &WorkerCommandSender {
         &self.command_sender
     }
 

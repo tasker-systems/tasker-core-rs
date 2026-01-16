@@ -69,6 +69,8 @@ futures = "0.3"
 # TTY detection for ANSI colors
 is-terminal = "0.4"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+# AMQP 0.9.1 client for RabbitMQ (TAS-133d)
+lapin = "3.7"
 # FFI support to be added in bindings and workers
 magnus = "0.8"
 # Utility dependencies

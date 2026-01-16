@@ -1,9 +1,9 @@
 # Worker Event Systems Architecture
 
-**Last Updated**: 2025-12-07
+**Last Updated**: 2026-01-15
 **Audience**: Architects, Developers
-**Status**: Active (TAS-67 Complete)
-**Related Docs**: [Worker Actors](worker-actors.md) | [Events and Commands](events-and-commands.md) | [TAS-67](https://linear.app/tasker-systems/issue/TAS-67)
+**Status**: Active (TAS-67 Complete, TAS-133 Messaging Abstraction)
+**Related Docs**: [Worker Actors](worker-actors.md) | [Events and Commands](events-and-commands.md) | [Messaging Abstraction](messaging-abstraction.md)
 
 <- Back to [Documentation Hub](README.md)
 
@@ -15,10 +15,12 @@ This document provides comprehensive documentation of the worker event system ar
 
 The worker event system implements a **dual-channel architecture** for non-blocking step execution:
 
-1. **WorkerEventSystem**: Receives step execution events from PGMQ queues
+1. **WorkerEventSystem**: Receives step execution events via provider-agnostic subscriptions (TAS-133)
 2. **HandlerDispatchService**: Fire-and-forget handler invocation with bounded concurrency
 3. **CompletionProcessorService**: Routes results back to orchestration
 4. **DomainEventSystem**: Fire-and-forget domain event publishing
+
+**Messaging Backend Support** (TAS-133): The worker event system supports multiple messaging backends (PGMQ, RabbitMQ) through a provider-agnostic abstraction. See [Messaging Abstraction](messaging-abstraction.md) for details.
 
 This architecture enables true parallel handler execution while maintaining strict ordering guarantees for domain events.
 
@@ -29,21 +31,22 @@ This architecture enables true parallel handler execution while maintaining stri
 │                           WORKER EVENT FLOW                                  │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-                         PostgreSQL PGMQ Queues
+                    MessagingProvider (PGMQ or RabbitMQ)
                                   │
-                                  │ pg_notify / polling
+                                  │ provider.subscribe_many() (TAS-133)
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         WorkerEventSystem                                    │
 │  ┌──────────────────────┐    ┌──────────────────────┐                       │
 │  │  WorkerQueueListener │    │  WorkerFallbackPoller │                      │
-│  │  (event-driven)      │    │  (reliability)        │                      │
+│  │  (provider-agnostic) │    │  (PGMQ only)          │                      │
 │  └──────────┬───────────┘    └──────────┬───────────┘                       │
 │             │                           │                                    │
 │             └───────────┬───────────────┘                                    │
 │                         │                                                    │
 │                         ▼                                                    │
-│             WorkerCommand::ExecuteStepFromEvent                              │
+│   MessageNotification::Message → ExecuteStepFromMessage (RabbitMQ)          │
+│   MessageNotification::Available → ExecuteStepFromEvent (PGMQ)              │
 └─────────────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
@@ -107,13 +110,17 @@ This architecture enables true parallel handler execution while maintaining stri
 
 **Location**: `tasker-worker/src/worker/event_systems/worker_event_system.rs`
 
-Implements the `EventDrivenSystem` trait for worker namespace queue processing. Supports three deployment modes:
+Implements the `EventDrivenSystem` trait for worker namespace queue processing. Supports three deployment modes with provider-agnostic message handling (TAS-133):
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| `PollingOnly` | Traditional polling | Restricted environments |
-| `EventDrivenOnly` | Pure pg_notify | Low latency requirements |
-| `Hybrid` | Event-driven + polling fallback | Production (recommended) |
+| Mode | Description | PGMQ Behavior | RabbitMQ Behavior |
+|------|-------------|---------------|-------------------|
+| `PollingOnly` | Traditional polling | Poll PGMQ tables | Poll via basic_get |
+| `EventDrivenOnly` | Pure push delivery | pg_notify signals | basic_consume push |
+| `Hybrid` | Event-driven + polling | pg_notify + fallback | Push only (no fallback) |
+
+**Provider-Specific Behavior**:
+- **PGMQ**: Uses `MessageNotification::Available` (signal-only), requires fallback polling
+- **RabbitMQ**: Uses `MessageNotification::Message` (full payload), no fallback needed
 
 **Key Features**:
 - Unified configuration via `WorkerEventSystemConfig`
@@ -121,8 +128,17 @@ Implements the `EventDrivenSystem` trait for worker namespace queue processing. 
 - Converts `WorkerNotification` to `WorkerCommand` for processing
 
 ```rust
-// Worker notification to command conversion
+// Worker notification to command conversion (TAS-133 provider-agnostic)
 match notification {
+    // RabbitMQ style - full message delivered
+    WorkerNotification::Message(msg) => {
+        command_sender.send(WorkerCommand::ExecuteStepFromMessage {
+            queue_name: msg.queue_name.clone(),
+            message: msg,
+            resp: resp_tx,
+        }).await;
+    }
+    // PGMQ style - signal-only, requires fetch
     WorkerNotification::Event(WorkerQueueEvent::StepMessage(msg_event)) => {
         command_sender.send(WorkerCommand::ExecuteStepFromEvent {
             message_event: msg_event,
@@ -663,11 +679,11 @@ end
 
 ## Related Documentation
 
+- [Messaging Abstraction](messaging-abstraction.md) - Provider-agnostic messaging (TAS-133)
 - [Backpressure Architecture](backpressure-architecture.md) - Unified backpressure strategy
 - [Worker Actor-Based Architecture](worker-actors.md) - Actor pattern implementation
 - [Events and Commands](events-and-commands.md) - Command pattern details
 - [TAS-67 ADR](../decisions/TAS-67-dual-event-system.md) - Dual-channel event system decision
-- [TAS-67](https://linear.app/tasker-systems/issue/TAS-67) - Linear ticket for historical context
 - [FFI Callback Safety](development/ffi-callback-safety.md) - FFI guidelines
 - [RCA: Parallel Execution Timing Bugs](../decisions/rca-parallel-execution-timing-bugs.md) - Lessons learned
 - [Backpressure Monitoring Runbook](operations/backpressure-monitoring.md) - Metrics and alerting

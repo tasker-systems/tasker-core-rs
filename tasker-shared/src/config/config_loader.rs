@@ -72,6 +72,18 @@ fn get_env_var_allowlist() -> Vec<EnvVarRule> {
             // Unix/Windows path
             pattern: r"^[/\\]?[a-zA-Z0-9._/-]+$",
         },
+        EnvVarRule {
+            name: "RABBITMQ_URL",
+            description: "RabbitMQ connection URL (amqp://user:pass@host:port/vhost)",
+            // AMQP URL: amqp://[user[:password]@]host[:port][/vhost]
+            pattern: r"^amqp://([a-zA-Z0-9_-]+:[^@]+@)?[a-zA-Z0-9._-]+(:[0-9]+)?(/[a-zA-Z0-9_%.-]*)?$",
+        },
+        EnvVarRule {
+            name: "TASKER_MESSAGING_BACKEND",
+            description: "Messaging backend selection (pgmq or rabbitmq)",
+            // TAS-133: Valid backends for messaging provider selection
+            pattern: r"^(pgmq|rabbitmq)$",
+        },
     ]
 }
 

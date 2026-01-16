@@ -1,9 +1,9 @@
 # Deployment Patterns and Configuration
 
-**Last Updated**: 2025-10-10
+**Last Updated**: 2026-01-15
 **Audience**: Architects, Operators
-**Status**: Active
-**Related Docs**: [Documentation Hub](README.md) | [Quick Start](quick-start.md) | [Observability](observability/README.md)
+**Status**: Active (TAS-133 Messaging Abstraction Complete)
+**Related Docs**: [Documentation Hub](README.md) | [Quick Start](quick-start.md) | [Observability](observability/README.md) | [Messaging Abstraction](messaging-abstraction.md)
 
 ← Back to [Documentation Hub](README.md)
 
@@ -17,6 +17,99 @@ Tasker Core supports three deployment modes, each optimized for different operat
 - **Hybrid Mode** (Recommended) - Event-driven with polling fallback
 - **EventDrivenOnly Mode** - Pure event-driven for lowest latency
 - **PollingOnly Mode** - Traditional polling for restricted environments
+
+**Messaging Backend Options** (TAS-133):
+- **PGMQ** (Default) - PostgreSQL-based, single infrastructure dependency
+- **RabbitMQ** - AMQP broker, higher throughput for high-volume scenarios
+
+---
+
+## Messaging Backend Selection (TAS-133)
+
+Tasker Core supports multiple messaging backends through a provider-agnostic abstraction layer. The choice of backend affects deployment architecture and operational requirements.
+
+### Backend Comparison
+
+| Feature | PGMQ | RabbitMQ |
+|---------|------|----------|
+| **Infrastructure** | PostgreSQL only | PostgreSQL + RabbitMQ |
+| **Delivery Model** | Poll + pg_notify signals | Native push (basic_consume) |
+| **Fallback Polling** | Required for reliability | Not needed |
+| **Throughput** | Good | Higher |
+| **Latency** | Low (~10-50ms) | Lowest (~5-20ms) |
+| **Operational Complexity** | Lower | Higher |
+| **Message Persistence** | PostgreSQL transactions | RabbitMQ durability |
+
+### PGMQ (Default)
+
+PostgreSQL Message Queue is the default backend, ideal for:
+- **Simpler deployments**: Single database dependency
+- **Transactional workflows**: Messages participate in PostgreSQL transactions
+- **Smaller to medium scale**: Excellent for most workloads
+
+**Configuration**:
+```bash
+# Default - no additional configuration needed
+TASKER_MESSAGING_BACKEND=pgmq
+```
+
+**Deployment Mode Interaction**:
+- Uses `pg_notify` for real-time notifications
+- Fallback polling recommended for reliability
+- Hybrid mode provides best balance
+
+### RabbitMQ
+
+AMQP-based messaging for high-throughput scenarios:
+- **High-volume workloads**: Better throughput characteristics
+- **Existing RabbitMQ infrastructure**: Leverage existing investments
+- **Pure push delivery**: No fallback polling required
+
+**Configuration**:
+```bash
+TASKER_MESSAGING_BACKEND=rabbitmq
+RABBITMQ_URL=amqp://user:password@rabbitmq:5672/%2F
+```
+
+**Deployment Mode Interaction**:
+- EventDrivenOnly mode is natural fit (no fallback needed)
+- Native push delivery via `basic_consume()`
+- Protocol-guaranteed message delivery
+
+### Choosing a Backend
+
+```
+Decision Tree:
+                              ┌─────────────────┐
+                              │ Do you need the │
+                              │ highest possible │
+                              │ throughput?     │
+                              └────────┬────────┘
+                                       │
+                            ┌──────────┴──────────┐
+                            │                     │
+                           Yes                    No
+                            │                     │
+                            ▼                     ▼
+                   ┌────────────────┐   ┌────────────────┐
+                   │ Do you have    │   │ Use PGMQ       │
+                   │ existing       │   │ (simpler ops)  │
+                   │ RabbitMQ?      │   └────────────────┘
+                   └───────┬────────┘
+                           │
+                ┌──────────┴──────────┐
+                │                     │
+               Yes                    No
+                │                     │
+                ▼                     ▼
+       ┌────────────────┐    ┌────────────────┐
+       │ Use RabbitMQ   │    │ Evaluate       │
+       └────────────────┘    │ operational    │
+                             │ tradeoffs      │
+                             └────────────────┘
+```
+
+**Recommendation**: Start with PGMQ. Migrate to RabbitMQ only when throughput requirements demand it.
 
 ---
 

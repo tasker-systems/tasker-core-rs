@@ -24,11 +24,15 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
+use super::channels::{ChannelFactory, OrchestrationCommandReceiver, OrchestrationCommandSender};
+
 use pgmq::Message as PgmqMessage;
-use pgmq_notify::MessageReadyEvent;
+use tasker_shared::messaging::service::{
+    MessageEvent, MessageHandle, MessageMetadata, QueuedMessage,
+};
 use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
 use tasker_shared::{TaskerError, TaskerResult};
 
@@ -59,36 +63,45 @@ pub enum OrchestrationCommand {
         resp: CommandResponder<TaskFinalizationResult>,
     },
     /// Process step result from message - delegates full message lifecycle to worker
+    ///
+    /// TAS-133: Uses provider-agnostic QueuedMessage with explicit MessageHandle
     ProcessStepResultFromMessage {
-        queue_name: String,
-        message: PgmqMessage,
+        message: QueuedMessage<serde_json::Value>,
         resp: CommandResponder<StepProcessResult>,
     },
     /// Initialize task from message - delegates full message lifecycle to worker
+    ///
+    /// TAS-133: Uses provider-agnostic QueuedMessage with explicit MessageHandle
     InitializeTaskFromMessage {
-        queue_name: String,
-        message: PgmqMessage,
+        message: QueuedMessage<serde_json::Value>,
         resp: CommandResponder<TaskInitializeResult>,
     },
     /// Finalize task from message - delegates full message lifecycle to worker
+    ///
+    /// TAS-133: Uses provider-agnostic QueuedMessage with explicit MessageHandle
     FinalizeTaskFromMessage {
-        queue_name: String,
-        message: PgmqMessage,
+        message: QueuedMessage<serde_json::Value>,
         resp: CommandResponder<TaskFinalizationResult>,
     },
     /// Process step result from message event - delegates full message lifecycle to worker
+    ///
+    /// TAS-133: Uses provider-agnostic MessageEvent for multi-backend support
     ProcessStepResultFromMessageEvent {
-        message_event: MessageReadyEvent,
+        message_event: MessageEvent,
         resp: CommandResponder<StepProcessResult>,
     },
     /// Initialize task from message event - delegates full message lifecycle to worker
+    ///
+    /// TAS-133: Uses provider-agnostic MessageEvent for multi-backend support
     InitializeTaskFromMessageEvent {
-        message_event: MessageReadyEvent,
+        message_event: MessageEvent,
         resp: CommandResponder<TaskInitializeResult>,
     },
     /// Finalize task from message event - delegates full message lifecycle to worker
+    ///
+    /// TAS-133: Uses provider-agnostic MessageEvent for multi-backend support
     FinalizeTaskFromMessageEvent {
-        message_event: MessageReadyEvent,
+        message_event: MessageEvent,
         resp: CommandResponder<TaskFinalizationResult>,
     },
     /// Process task readiness event from PostgreSQL LISTEN/NOTIFY
@@ -227,7 +240,7 @@ use crate::orchestration::hydration::{
    // use crate::orchestration::lifecycle::result_processing::OrchestrationResultProcessor;
    // use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
    // use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
-use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
+use tasker_shared::messaging::client::MessageClient;
 use tasker_shared::monitoring::ChannelMonitor; // TAS-51: Channel monitoring
 use tasker_shared::system_context::SystemContext;
 
@@ -238,6 +251,7 @@ use tasker_shared::system_context::SystemContext;
 /// polling complexity.
 ///
 /// TAS-46: Uses ActorRegistry for message-based actor coordination.
+/// TAS-133e: Uses MessageClient for provider-agnostic messaging.
 #[derive(Debug)]
 pub struct OrchestrationProcessor {
     /// Shared system dependencies
@@ -246,14 +260,15 @@ pub struct OrchestrationProcessor {
     /// Actor registry for message-based coordination (TAS-46)
     actors: Arc<ActorRegistry>,
 
-    /// PGMQ client for message operations
-    pgmq_client: Arc<UnifiedPgmqClient>,
+    /// Message client for queue operations (TAS-133e: provider-agnostic)
+    message_client: Arc<MessageClient>,
 
     /// TAS-75: Cached health status for non-blocking health checks
     health_caches: HealthStatusCaches,
 
     /// Command receiver channel
-    command_rx: Option<mpsc::Receiver<OrchestrationCommand>>,
+    /// TAS-133: Uses NewType wrapper for type-safe channel communication
+    command_rx: Option<OrchestrationCommandReceiver>,
 
     /// Processor task handle
     task_handle: Option<JoinHandle<()>>,
@@ -269,15 +284,17 @@ impl OrchestrationProcessor {
     /// Create new OrchestrationProcessor with actor-based coordination (TAS-46)
     ///
     /// TAS-75: Now accepts `HealthStatusCaches` for non-blocking health checks.
+    /// TAS-133e: Now accepts `MessageClient` for provider-agnostic messaging.
     pub fn new(
         context: Arc<SystemContext>,
         actors: Arc<ActorRegistry>,
-        pgmq_client: Arc<UnifiedPgmqClient>,
+        message_client: Arc<MessageClient>,
         health_caches: HealthStatusCaches,
         buffer_size: usize,
         channel_monitor: ChannelMonitor,
-    ) -> (Self, mpsc::Sender<OrchestrationCommand>) {
-        let (command_tx, command_rx) = mpsc::channel(buffer_size);
+    ) -> (Self, OrchestrationCommandSender) {
+        // TAS-133: Use ChannelFactory for type-safe channel creation
+        let (command_tx, command_rx) = ChannelFactory::orchestration_command_channel(buffer_size);
 
         let stats = Arc::new(std::sync::RwLock::new(OrchestrationProcessingStats {
             task_requests_processed: 0,
@@ -297,7 +314,7 @@ impl OrchestrationProcessor {
         let processor = Self {
             context,
             actors,
-            pgmq_client,
+            message_client,
             health_caches,
             command_rx: Some(command_rx),
             task_handle: None,
@@ -312,7 +329,7 @@ impl OrchestrationProcessor {
     pub async fn start(&mut self) -> TaskerResult<()> {
         let context = self.context.clone();
         let stats = self.stats.clone();
-        let pgmq_client = self.pgmq_client.clone();
+        let message_client = self.message_client.clone();
         let health_caches = self.health_caches.clone(); // TAS-75: Clone health caches for spawned task
         let channel_monitor = self.channel_monitor.clone(); // TAS-51: Clone monitor for spawned task
         let mut command_rx = self.command_rx.take().ok_or_else(|| {
@@ -325,7 +342,7 @@ impl OrchestrationProcessor {
                 context,
                 actors,
                 stats,
-                pgmq_client,
+                message_client,
                 health_caches, // TAS-75: Pass health caches
             );
             while let Some(command) = command_rx.recv().await {
@@ -349,7 +366,7 @@ pub struct OrchestrationProcessorCommandHandler {
     context: Arc<SystemContext>,
     actors: Arc<ActorRegistry>, // TAS-46: Actor registry for message-based coordination
     stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
-    pgmq_client: Arc<UnifiedPgmqClient>,
+    message_client: Arc<MessageClient>, // TAS-133e: Provider-agnostic messaging
     health_caches: HealthStatusCaches, // TAS-75: Cached health status for non-blocking health checks
     step_result_hydrator: StepResultHydrator, // TAS-46 Phase 4: Hydrates step results from messages
     task_request_hydrator: TaskRequestHydrator, // TAS-46 Phase 4: Hydrates task requests from messages
@@ -361,7 +378,7 @@ impl OrchestrationProcessorCommandHandler {
         context: Arc<SystemContext>,
         actors: Arc<ActorRegistry>,
         stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
-        pgmq_client: Arc<UnifiedPgmqClient>,
+        message_client: Arc<MessageClient>,
         health_caches: HealthStatusCaches,
     ) -> Self {
         // TAS-46 Phase 4: Initialize hydrators for message transformation
@@ -373,12 +390,55 @@ impl OrchestrationProcessorCommandHandler {
             context,
             actors,
             stats,
-            pgmq_client,
+            message_client,
             health_caches,
             step_result_hydrator,
             task_request_hydrator,
             finalization_hydrator,
         }
+    }
+
+    /// Get the underlying PGMQ client for event-driven operations (TAS-133e)
+    ///
+    /// Returns an error if the provider is not PGMQ. Event-driven operations
+    /// using `MessageEvent` with PGMQ-specific `read_specific_message` require a PGMQ provider.
+    fn pgmq_client(&self) -> TaskerResult<&pgmq_notify::PgmqClient> {
+        self.message_client
+            .provider()
+            .as_pgmq()
+            .map(|s| s.client())
+            .ok_or_else(|| {
+                TaskerError::ConfigurationError(
+                    "Event-driven operations require PGMQ provider. Use polling mode with RabbitMQ.".to_string(),
+                )
+            })
+    }
+
+    /// TAS-133: Ack a message using provider-agnostic MessageHandle
+    async fn ack_message_with_handle(&self, handle: &MessageHandle) -> TaskerResult<()> {
+        let queue_name = handle.queue_name();
+        let receipt_handle = handle.as_receipt_handle();
+        self.message_client
+            .ack_message(queue_name, &receipt_handle)
+            .await
+    }
+
+    /// TAS-133: Convert a PGMQ message to a provider-agnostic QueuedMessage
+    ///
+    /// This is used by event handlers that receive raw PgmqMessage from
+    /// read_specific_message() calls to wrap them in the provider-agnostic format.
+    fn wrap_pgmq_message(
+        queue_name: &str,
+        message: PgmqMessage,
+    ) -> QueuedMessage<serde_json::Value> {
+        QueuedMessage::with_handle(
+            message.message.clone(),
+            MessageHandle::Pgmq {
+                msg_id: message.msg_id,
+                queue_name: queue_name.to_string(),
+            },
+            MessageMetadata::new(message.read_ct as u32, message.enqueued_at),
+        )
     }
 
     /// Process individual commands (no polling) with sophisticated delegation
@@ -489,25 +549,21 @@ impl OrchestrationProcessorCommandHandler {
                 }
                 let _ = resp.send(result);
             }
-            OrchestrationCommand::ProcessStepResultFromMessage {
-                queue_name,
-                message,
-                resp,
-            } => {
+            // TAS-133: Provider-agnostic message handling via QueuedMessage
+            OrchestrationCommand::ProcessStepResultFromMessage { message, resp } => {
+                let queue_name = message.queue_name();
                 debug!(
-                    msg_id = message.msg_id,
+                    handle = ?message.handle,
                     queue = %queue_name,
                     "Starting ProcessStepResultFromMessage"
                 );
 
-                let result = self
-                    .handle_step_result_from_message(&queue_name, message.clone())
-                    .await;
+                let result = self.handle_step_result_from_message(message.clone()).await;
 
                 match &result {
                     Ok(step_result) => {
                         info!(
-                            msg_id = message.msg_id,
+                            handle = ?message.handle,
                             queue = %queue_name,
                             result = ?step_result,
                             "ProcessStepResultFromMessage succeeded"
@@ -519,7 +575,7 @@ impl OrchestrationProcessorCommandHandler {
                     }
                     Err(error) => {
                         error!(
-                            msg_id = message.msg_id,
+                            handle = ?message.handle,
                             queue = %queue_name,
                             error = %error,
                             "ProcessStepResultFromMessage failed"
@@ -532,14 +588,9 @@ impl OrchestrationProcessorCommandHandler {
                 }
                 let _ = resp.send(result);
             }
-            OrchestrationCommand::InitializeTaskFromMessage {
-                queue_name,
-                message,
-                resp,
-            } => {
-                let result = self
-                    .handle_task_initialize_from_message(&queue_name, message)
-                    .await;
+            // TAS-133: Provider-agnostic message handling via QueuedMessage
+            OrchestrationCommand::InitializeTaskFromMessage { message, resp } => {
+                let result = self.handle_task_initialize_from_message(message).await;
                 if result.is_ok() {
                     self.stats
                         .write()
@@ -553,14 +604,9 @@ impl OrchestrationProcessorCommandHandler {
                 }
                 let _ = resp.send(result);
             }
-            OrchestrationCommand::FinalizeTaskFromMessage {
-                queue_name,
-                message,
-                resp,
-            } => {
-                let result = self
-                    .handle_task_finalize_from_message(&queue_name, message)
-                    .await;
+            // TAS-133: Provider-agnostic message handling via QueuedMessage
+            OrchestrationCommand::FinalizeTaskFromMessage { message, resp } => {
+                let result = self.handle_task_finalize_from_message(message).await;
                 if result.is_ok() {
                     self.stats
                         .write()
@@ -692,53 +738,105 @@ impl OrchestrationProcessorCommandHandler {
         })
     }
 
-    /// Handle step result processing from message event - SimpleStepMessage approach with database hydration
+    /// Handle step result processing from message event - StepMessage approach with database hydration
+    ///
+    /// ## PGMQ-Specific Code Path
+    ///
+    /// This handler is **exclusively for PGMQ's signal-only notification flow** for large
+    /// messages (>7KB). When PGMQ receives a message larger than the pg_notify payload
+    /// limit, it sends a `MessageReady` signal containing only the message ID. The
+    /// consumer must then fetch the full message using `read_specific_message(msg_id)`.
+    ///
+    /// ## Why This Handler Cannot Be Provider-Agnostic
+    ///
+    /// - **RabbitMQ**: Always delivers full messages via `basic_consume()`. There is no
+    ///   "fetch by message ID" concept - the message is already delivered in full.
+    ///   RabbitMQ should use `ProcessStepResultFromMessage` instead.
+    ///
+    /// - **InMemory**: For testing, uses `receive_messages()` polling. No signal-only
+    ///   notification flow exists.
+    ///
+    /// TAS-133e: Uses PGMQ client for event-driven operations. Accepts provider-agnostic
+    /// `MessageEvent` but internally uses PGMQ-specific `read_specific_message`.
     async fn handle_step_result_from_message_event(
         &self,
-        message_event: MessageReadyEvent,
+        message_event: MessageEvent,
     ) -> TaskerResult<StepProcessResult> {
+        // TAS-133: Guard clause - this code path is only valid for providers that support
+        // fetching messages by ID after signal-only notifications (PGMQ large messages).
+        let provider = self.message_client.provider();
+        if !provider.supports_fetch_by_message_id() {
+            error!(
+                provider = provider.provider_name(),
+                msg_id = %message_event.message_id,
+                queue = %message_event.queue_name,
+                "CRITICAL: Signal-only notification received but provider '{}' does not support \
+                 fetch-by-message-ID. This is a CONFIGURATION ERROR. The provider should route \
+                 messages to ProcessStepResultFromMessage instead. This step result processing will fail.",
+                provider.provider_name()
+            );
+            return Err(TaskerError::MessagingError(format!(
+                "Provider '{}' does not support fetch-by-message-ID flow. \
+                 Use ProcessStepResultFromMessage for full message delivery providers.",
+                provider.provider_name()
+            )));
+        }
+
+        // TAS-133: Parse message_id back to i64 for PGMQ-specific operations
+        let msg_id: i64 = message_event.message_id.as_str().parse().map_err(|e| {
+            TaskerError::ValidationError(format!(
+                "Invalid message ID '{}' for PGMQ: {e}",
+                message_event.message_id
+            ))
+        })?;
+
         // Read the specific message by ID (the correct approach for event-driven processing)
+        // TAS-133e: Use PGMQ client for event-driven operations
         let message = self
-            .pgmq_client
+            .pgmq_client()?
             .read_specific_message::<serde_json::Value>(
                 &message_event.queue_name,
-                message_event.msg_id,
+                msg_id,
                 30, // visibility timeout
             )
             .await
             .map_err(|e| {
                 TaskerError::MessagingError(format!(
                     "Failed to read specific step result message {} from queue {}: {e}",
-                    message_event.msg_id, message_event.queue_name
+                    msg_id, message_event.queue_name
                 ))
             })?
             .ok_or_else(|| {
                 TaskerError::ValidationError(format!(
                     "Step result message {} not found in queue {}",
-                    message_event.msg_id, message_event.queue_name
+                    msg_id, message_event.queue_name
                 ))
             })?;
 
-        self.handle_step_result_from_message(&message_event.queue_name, message)
-            .await
+        // TAS-133: Wrap PgmqMessage in provider-agnostic QueuedMessage
+        let queued_message = Self::wrap_pgmq_message(&message_event.queue_name, message);
+        self.handle_step_result_from_message(queued_message).await
     }
 
-    /// Handle step result processing from message event - SimpleStepMessage approach with database hydration
+    /// Handle step result processing from message - StepMessage approach with database hydration
+    ///
+    /// TAS-133: Now accepts provider-agnostic QueuedMessage with explicit MessageHandle
     async fn handle_step_result_from_message(
         &self,
-        queue_name: &str,
-        message: PgmqMessage,
+        message: QueuedMessage<serde_json::Value>,
     ) -> TaskerResult<StepProcessResult> {
+        let queue_name = message.queue_name();
         debug!(
-            msg_id = message.msg_id,
+            handle = ?message.handle,
             queue = %queue_name,
             "STEP_RESULT_HANDLER: Processing step result message via hydrator"
         );
 
         // TAS-46 Phase 4: Hydrate full StepExecutionResult from lightweight message
+        // TAS-133: Hydrator now accepts QueuedMessage
         let step_execution_result = self
             .step_result_hydrator
-            .hydrate_from_message(&message)
+            .hydrate_from_queued_message(&message)
             .await?;
 
         debug!(
@@ -754,44 +852,41 @@ impl OrchestrationProcessorCommandHandler {
         match &result {
             Ok(step_result) => {
                 info!(
-                    msg_id = message.msg_id,
+                    handle = ?message.handle,
                     step_uuid = %step_execution_result.step_uuid,
                     result = ?step_result,
                     "STEP_RESULT_HANDLER: Result processing succeeded"
                 );
 
-                // Delete the message only if processing was successful
+                // Ack the message only if processing was successful (TAS-133e)
+                // TAS-133: Use MessageHandle for provider-agnostic ack
                 debug!(
-                    msg_id = message.msg_id,
+                    handle = ?message.handle,
                     queue = %queue_name,
-                    "STEP_RESULT_HANDLER: Deleting successfully processed message"
+                    "STEP_RESULT_HANDLER: Acknowledging successfully processed message"
                 );
 
-                match self
-                    .pgmq_client
-                    .delete_message(queue_name, message.msg_id)
-                    .await
-                {
-                    Ok(_) => {
+                match self.ack_message_with_handle(&message.handle).await {
+                    Ok(()) => {
                         info!(
-                            msg_id = message.msg_id,
+                            handle = ?message.handle,
                             queue = %queue_name,
-                            "STEP_RESULT_HANDLER: Successfully deleted processed message"
+                            "STEP_RESULT_HANDLER: Successfully acknowledged processed message"
                         );
                     }
                     Err(e) => {
                         warn!(
-                            msg_id = message.msg_id,
+                            handle = ?message.handle,
                             queue = %queue_name,
                             error = %e,
-                            "STEP_RESULT_HANDLER: Failed to delete processed step result message (will be reprocessed)"
+                            "STEP_RESULT_HANDLER: Failed to acknowledge processed step result message (will be reprocessed)"
                         );
                     }
                 }
             }
             Err(error) => {
                 error!(
-                    msg_id = message.msg_id,
+                    handle = ?message.handle,
                     step_uuid = %step_execution_result.step_uuid,
                     error = %error,
                     "STEP_RESULT_HANDLER: Result processing failed (message will remain for retry)"
@@ -803,79 +898,131 @@ impl OrchestrationProcessorCommandHandler {
     }
 
     /// Handle task initialization from message event - delegates full message lifecycle to worker
+    ///
+    /// ## PGMQ-Specific Code Path
+    ///
+    /// This handler is **exclusively for PGMQ's signal-only notification flow** for large
+    /// messages (>7KB). When PGMQ receives a message larger than the pg_notify payload
+    /// limit, it sends a `MessageReady` signal containing only the message ID. The
+    /// consumer must then fetch the full message using `read_specific_message(msg_id)`.
+    ///
+    /// ## Why This Handler Cannot Be Provider-Agnostic
+    ///
+    /// - **RabbitMQ**: Always delivers full messages via `basic_consume()`. There is no
+    ///   "fetch by message ID" concept - the message is already delivered in full.
+    ///   RabbitMQ should use `InitializeTaskFromMessage` instead.
+    ///
+    /// - **InMemory**: For testing, uses `receive_messages()` polling. No signal-only
+    ///   notification flow exists.
+    ///
+    /// TAS-133e: Uses PGMQ client for event-driven operations. Accepts provider-agnostic
+    /// `MessageEvent` but internally uses PGMQ-specific `read_specific_message`.
     async fn handle_task_initialize_from_message_event(
         &self,
-        message_event: MessageReadyEvent,
+        message_event: MessageEvent,
     ) -> TaskerResult<TaskInitializeResult> {
+        // TAS-133: Guard clause - this code path is only valid for providers that support
+        // fetching messages by ID after signal-only notifications (PGMQ large messages).
+        let provider = self.message_client.provider();
+        if !provider.supports_fetch_by_message_id() {
+            error!(
+                provider = provider.provider_name(),
+                msg_id = %message_event.message_id,
+                queue = %message_event.queue_name,
+                "CRITICAL: Signal-only notification received but provider '{}' does not support \
+                 fetch-by-message-ID. This is a CONFIGURATION ERROR. The provider should route \
+                 messages to InitializeTaskFromMessage instead. This task initialization will fail.",
+                provider.provider_name()
+            );
+            return Err(TaskerError::MessagingError(format!(
+                "Provider '{}' does not support fetch-by-message-ID flow. \
+                 Use InitializeTaskFromMessage for full message delivery providers.",
+                provider.provider_name()
+            )));
+        }
+
+        // TAS-133: Parse message_id back to i64 for PGMQ-specific operations
+        let msg_id: i64 = message_event.message_id.as_str().parse().map_err(|e| {
+            TaskerError::ValidationError(format!(
+                "Invalid message ID '{}' for PGMQ: {e}",
+                message_event.message_id
+            ))
+        })?;
+
         tracing::debug!(
-            msg_id = message_event.msg_id,
+            msg_id = msg_id,
             queue = %message_event.queue_name,
             "Processing task initialization from message event"
         );
 
         // Read the specific message by ID (the correct approach for event-driven processing)
         let message = self
-            .pgmq_client
+            .pgmq_client()?
             .read_specific_message::<serde_json::Value>(
                 &message_event.queue_name,
-                message_event.msg_id,
+                msg_id,
                 30, // visibility timeout
             )
             .await
             .map_err(|e| {
                 tracing::error!(
-                    msg_id = message_event.msg_id,
+                    msg_id = msg_id,
                     queue = %message_event.queue_name,
                     error = %e,
                     "Failed to read specific task request message from queue"
                 );
                 TaskerError::MessagingError(format!(
                     "Failed to read specific task request message {} from queue {}: {e}",
-                    message_event.msg_id, message_event.queue_name
+                    msg_id, message_event.queue_name
                 ))
             })?
             .ok_or_else(|| {
                 tracing::error!(
-                    msg_id = message_event.msg_id,
+                    msg_id = msg_id,
                     queue = %message_event.queue_name,
                     "Task request message not found in queue"
                 );
                 TaskerError::ValidationError(format!(
                     "Task request message {} not found in queue {}",
-                    message_event.msg_id, message_event.queue_name
+                    msg_id, message_event.queue_name
                 ))
             })?;
 
         tracing::debug!(
-            msg_id = message_event.msg_id,
+            msg_id = msg_id,
             queue = %message_event.queue_name,
             "Successfully read specific task request message"
         );
 
-        self.handle_task_initialize_from_message(&message_event.queue_name, message)
+        // TAS-133: Wrap PgmqMessage in provider-agnostic QueuedMessage
+        let queued_message = Self::wrap_pgmq_message(&message_event.queue_name, message);
+        self.handle_task_initialize_from_message(queued_message)
             .await
     }
 
-    /// Handle task initialization from message event - delegates full message lifecycle to worker
+    /// Handle task initialization from message - delegates full message lifecycle to worker
+    ///
+    /// TAS-133: Now accepts provider-agnostic QueuedMessage with explicit MessageHandle
     async fn handle_task_initialize_from_message(
         &self,
-        queue_name: &str,
-        message: PgmqMessage,
+        message: QueuedMessage<serde_json::Value>,
     ) -> TaskerResult<TaskInitializeResult> {
+        let queue_name = message.queue_name();
         debug!(
-            msg_id = message.msg_id,
+            handle = ?message.handle,
             queue = %queue_name,
             "TASK_INIT_HANDLER: Processing task initialization via hydrator"
         );
 
-        // TAS-46 Phase 4: Hydrate TaskRequestMessage from PGMQ message
+        // TAS-46 Phase 4: Hydrate TaskRequestMessage from message
+        // TAS-133: Hydrator now accepts QueuedMessage
         let task_request = self
             .task_request_hydrator
-            .hydrate_from_message(&message)
+            .hydrate_from_queued_message(&message)
             .await?;
 
         debug!(
-            msg_id = message.msg_id,
+            handle = ?message.handle,
             namespace = %task_request.task_request.namespace,
             handler = %task_request.task_request.name,
             "TASK_INIT_HANDLER: Hydration complete, delegating to task initialization"
@@ -887,36 +1034,32 @@ impl OrchestrationProcessorCommandHandler {
         match &result {
             Ok(_) => {
                 tracing::debug!(
-                    msg_id = message.msg_id,
+                    handle = ?message.handle,
                     queue = %queue_name,
-                    "Task initialization successful, deleting message"
+                    "Task initialization successful, acknowledging message (TAS-133e)"
                 );
-                // Delete the message only if processing was successful
-                match self
-                    .pgmq_client
-                    .delete_message(queue_name, message.msg_id)
-                    .await
-                {
-                    Ok(_) => {
+                // TAS-133: Use MessageHandle for provider-agnostic ack
+                match self.ack_message_with_handle(&message.handle).await {
+                    Ok(()) => {
                         tracing::debug!(
-                            msg_id = message.msg_id,
+                            handle = ?message.handle,
                             queue = %queue_name,
-                            "Successfully deleted processed task request message"
+                            "Successfully acknowledged processed task request message"
                         );
                     }
                     Err(e) => {
                         tracing::warn!(
-                            msg_id = message.msg_id,
+                            handle = ?message.handle,
                             queue = %queue_name,
                             error = %e,
-                            "Failed to delete processed task request message"
+                            "Failed to acknowledge processed task request message"
                         );
                     }
                 }
             }
             Err(e) => {
                 tracing::error!(
-                    msg_id = message.msg_id,
+                    handle = ?message.handle,
                     queue = %queue_name,
                     error = %e,
                     "Task initialization failed, keeping message in queue"
@@ -928,56 +1071,107 @@ impl OrchestrationProcessorCommandHandler {
     }
 
     /// Handle task finalization from message event - delegates full message lifecycle to worker
+    ///
+    /// ## PGMQ-Specific Code Path
+    ///
+    /// This handler is **exclusively for PGMQ's signal-only notification flow** for large
+    /// messages (>7KB). When PGMQ receives a message larger than the pg_notify payload
+    /// limit, it sends a `MessageReady` signal containing only the message ID. The
+    /// consumer must then fetch the full message using `read_specific_message(msg_id)`.
+    ///
+    /// ## Why This Handler Cannot Be Provider-Agnostic
+    ///
+    /// - **RabbitMQ**: Always delivers full messages via `basic_consume()`. There is no
+    ///   "fetch by message ID" concept - the message is already delivered in full.
+    ///   RabbitMQ should use `FinalizeTaskFromMessage` instead.
+    ///
+    /// - **InMemory**: For testing, uses `receive_messages()` polling. No signal-only
+    ///   notification flow exists.
+    ///
+    /// TAS-133e: Uses PGMQ client for event-driven operations. Accepts provider-agnostic
+    /// `MessageEvent` but internally uses PGMQ-specific `read_specific_message`.
     async fn handle_task_finalize_from_message_event(
         &self,
-        message_event: MessageReadyEvent,
+        message_event: MessageEvent,
     ) -> TaskerResult<TaskFinalizationResult> {
+        // TAS-133: Guard clause - this code path is only valid for providers that support
+        // fetching messages by ID after signal-only notifications (PGMQ large messages).
+        let provider = self.message_client.provider();
+        if !provider.supports_fetch_by_message_id() {
+            error!(
+                provider = provider.provider_name(),
+                msg_id = %message_event.message_id,
+                queue = %message_event.queue_name,
+                "CRITICAL: Signal-only notification received but provider '{}' does not support \
+                 fetch-by-message-ID. This is a CONFIGURATION ERROR. The provider should route \
+                 messages to FinalizeTaskFromMessage instead. This task finalization will fail.",
+                provider.provider_name()
+            );
+            return Err(TaskerError::MessagingError(format!(
+                "Provider '{}' does not support fetch-by-message-ID flow. \
+                 Use FinalizeTaskFromMessage for full message delivery providers.",
+                provider.provider_name()
+            )));
+        }
+
+        // TAS-133: Parse message_id back to i64 for PGMQ-specific operations
+        let msg_id: i64 = message_event.message_id.as_str().parse().map_err(|e| {
+            TaskerError::ValidationError(format!(
+                "Invalid message ID '{}' for PGMQ: {e}",
+                message_event.message_id
+            ))
+        })?;
+
         // Read the specific message by ID (the correct approach for event-driven processing)
         let message = self
-            .pgmq_client
+            .pgmq_client()?
             .read_specific_message::<serde_json::Value>(
                 &message_event.queue_name,
-                message_event.msg_id,
+                msg_id,
                 30, // visibility timeout
             )
             .await
             .map_err(|e| {
                 TaskerError::MessagingError(format!(
                     "Failed to read specific finalization message {} from queue {}: {e}",
-                    message_event.msg_id, message_event.queue_name
+                    msg_id, message_event.queue_name
                 ))
             })?
             .ok_or_else(|| {
                 TaskerError::OrchestrationError(format!(
                     "Finalization message {} not found in queue {}",
-                    message_event.msg_id, message_event.queue_name
+                    msg_id, message_event.queue_name
                 ))
             })?;
 
-        self.handle_task_finalize_from_message(&message_event.queue_name, message)
-            .await
+        // TAS-133: Wrap PgmqMessage in provider-agnostic QueuedMessage
+        let queued_message = Self::wrap_pgmq_message(&message_event.queue_name, message);
+        self.handle_task_finalize_from_message(queued_message).await
     }
 
-    /// Handle task finalization from message event - delegates full message lifecycle to worker
+    /// Handle task finalization from message - delegates full message lifecycle to worker
+    ///
+    /// TAS-133: Now accepts provider-agnostic QueuedMessage with explicit MessageHandle
     async fn handle_task_finalize_from_message(
         &self,
-        queue_name: &str,
-        message: PgmqMessage,
+        message: QueuedMessage<serde_json::Value>,
     ) -> TaskerResult<TaskFinalizationResult> {
+        let queue_name = message.queue_name();
         debug!(
-            msg_id = message.msg_id,
+            handle = ?message.handle,
             queue = %queue_name,
             "FINALIZATION_HANDLER: Processing finalization via hydrator"
         );
 
-        // TAS-46 Phase 4: Hydrate task_uuid from PGMQ message
+        // TAS-46 Phase 4: Hydrate task_uuid from message
+        // TAS-133: Hydrator now accepts QueuedMessage
         let task_uuid = self
             .finalization_hydrator
-            .hydrate_from_message(&message)
+            .hydrate_from_queued_message(&message)
             .await?;
 
         debug!(
-            msg_id = message.msg_id,
+            handle = ?message.handle,
             task_uuid = %task_uuid,
             "FINALIZATION_HANDLER: Hydration complete, delegating to task finalization"
         );
@@ -985,21 +1179,18 @@ impl OrchestrationProcessorCommandHandler {
         // Delegate to existing task finalization logic
         let result = self.handle_finalize_task(task_uuid).await;
 
-        // Delete the message only if processing was successful
+        // Ack the message only if processing was successful (TAS-133e)
+        // TAS-133: Use MessageHandle for provider-agnostic ack
         if matches!(result, Ok(TaskFinalizationResult::Success { .. })) {
-            match self
-                .pgmq_client
-                .delete_message(queue_name, message.msg_id)
-                .await
-            {
-                Ok(_) => (),
+            match self.ack_message_with_handle(&message.handle).await {
+                Ok(()) => (),
                 Err(e) => {
                     tracing::warn!(
-                        msg_id = message.msg_id,
+                        handle = ?message.handle,
                         queue = %queue_name,
                         task_uuid = %task_uuid,
                         error = %e,
-                        "Failed to delete processed finalization message"
+                        "Failed to acknowledge processed finalization message"
                     );
                 }
             }
@@ -1015,7 +1206,7 @@ impl OrchestrationProcessorCommandHandler {
             };
 
             tracing::warn!(
-                msg_id = message.msg_id,
+                handle = ?message.handle,
                 queue = %queue_name,
                 task_uuid = %task_uuid,
                 result = %error_msg,

@@ -164,6 +164,121 @@ impl MessagingError {
             message: message.into(),
         }
     }
+
+    // TAS-133b: Additional helper methods for MessagingService providers
+
+    /// Create a connection error
+    pub fn connection(message: impl Into<String>) -> Self {
+        Self::DatabaseConnection {
+            message: message.into(),
+        }
+    }
+
+    /// Create a serialization error (alias for message_serialization)
+    pub fn serialization(message: impl Into<String>) -> Self {
+        Self::MessageSerialization {
+            message: message.into(),
+        }
+    }
+
+    /// Create a deserialization error (alias for message_deserialization)
+    pub fn deserialization(message: impl Into<String>) -> Self {
+        Self::MessageDeserialization {
+            message: message.into(),
+        }
+    }
+
+    /// Create a queue creation error
+    pub fn queue_creation(queue_name: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::QueueOperation {
+            queue_name: queue_name.into(),
+            operation: "create".to_string(),
+            message: message.into(),
+        }
+    }
+
+    /// Create a send error
+    pub fn send(queue_name: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::QueueOperation {
+            queue_name: queue_name.into(),
+            operation: "send".to_string(),
+            message: message.into(),
+        }
+    }
+
+    /// Create a receive error
+    pub fn receive(queue_name: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::QueueOperation {
+            queue_name: queue_name.into(),
+            operation: "receive".to_string(),
+            message: message.into(),
+        }
+    }
+
+    /// Create an ack error
+    pub fn ack(queue_name: impl Into<String>, message_id: i64, message: impl Into<String>) -> Self {
+        Self::QueueOperation {
+            queue_name: queue_name.into(),
+            operation: format!("ack(msg_id={})", message_id),
+            message: message.into(),
+        }
+    }
+
+    /// Create a nack error
+    pub fn nack(
+        queue_name: impl Into<String>,
+        message_id: i64,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::QueueOperation {
+            queue_name: queue_name.into(),
+            operation: format!("nack(msg_id={})", message_id),
+            message: message.into(),
+        }
+    }
+
+    /// Create an extend visibility error
+    pub fn extend_visibility(
+        queue_name: impl Into<String>,
+        message_id: i64,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::QueueOperation {
+            queue_name: queue_name.into(),
+            operation: format!("extend_visibility(msg_id={})", message_id),
+            message: message.into(),
+        }
+    }
+
+    /// Create a queue stats error
+    pub fn queue_stats(queue_name: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::QueueOperation {
+            queue_name: queue_name.into(),
+            operation: "queue_stats".to_string(),
+            message: message.into(),
+        }
+    }
+
+    /// Create a health check error
+    pub fn health_check(message: impl Into<String>) -> Self {
+        Self::Internal {
+            message: format!("health_check: {}", message.into()),
+        }
+    }
+
+    /// Create an invalid receipt handle error
+    pub fn invalid_receipt_handle(handle: impl Into<String>) -> Self {
+        Self::Internal {
+            message: format!("Invalid receipt handle: {}", handle.into()),
+        }
+    }
+
+    /// Create a message not found error
+    pub fn message_not_found(message_id: impl Into<String>) -> Self {
+        Self::Internal {
+            message: format!("Message not found: {}", message_id.into()),
+        }
+    }
 }
 
 /// Conversion from sqlx::Error to MessagingError
