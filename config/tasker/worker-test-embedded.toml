@@ -124,7 +124,10 @@ overflow_threshold = 1000
 warning_threshold = 100
 
 [common.queues.rabbitmq]
-connection_timeout_seconds = 30
+url = "${RABBITMQ_URL:-amqp://tasker:tasker@localhost:5672/%2F}"
+connection_timeout_seconds = 5
+heartbeat_seconds = 30
+prefetch_count = 10
 
 [common.system]
 default_dependent_system = "default"
