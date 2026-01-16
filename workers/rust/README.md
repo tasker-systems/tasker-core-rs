@@ -548,7 +548,7 @@ impl RustStepHandler for LinearStep1Handler {
 ### Prerequisites
 
 - **Rust 1.70+**: Latest stable Rust toolchain
-- **PostgreSQL 14+**: Database with PGMQ extension
+- **PostgreSQL 17+**: Database with uuidv7 support (PGMQ extension for default messaging)
 - **Tasker Core System**: Running orchestration infrastructure
 
 ### Installation

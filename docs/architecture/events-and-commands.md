@@ -18,7 +18,7 @@ The tasker-core system implements a sophisticated hybrid architecture that combi
 1. **Event-Driven Systems**: Real-time coordination using PostgreSQL LISTEN/NOTIFY and PGMQ notifications
 2. **Command Pattern**: Async command processors using tokio mpsc channels for orchestration and worker operations
 3. **Hybrid Deployment Modes**: PollingOnly, EventDrivenOnly, and Hybrid modes with fallback polling
-4. **Queue-Based Communication**: PGMQ message queues for reliable step execution and result processing
+4. **Queue-Based Communication**: Provider-agnostic message queues (PGMQ or RabbitMQ) for reliable step execution and result processing
 
 This architecture eliminates polling complexity while maintaining resilience through fallback mechanisms and provides horizontal scaling capabilities with atomic operation guarantees.
 

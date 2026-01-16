@@ -1,6 +1,6 @@
 # CLAUDE.md - Tasker Core Project Context
 
-**Project Status**: Production Ready (v0.1.0) | 1185+ tests | Rust orchestration with PostgreSQL/PGMQ
+**Project Status**: Production Ready (v0.1.0) | 1185+ tests | Rust orchestration with PostgreSQL (PGMQ or RabbitMQ messaging)
 
 ---
 
@@ -95,9 +95,9 @@ cargo nextest run --profile local      # Fail-fast mode
 The project uses Podman as the container runtime. Docker CLI commands work via shell aliases (`docker` → `podman`, `docker-compose` → `podman compose`).
 
 ```bash
-docker-compose up -d postgres                           # Start PostgreSQL with PGMQ
+docker-compose up -d postgres                           # Start PostgreSQL (includes PGMQ)
 docker-compose --profile server up -d                   # Full server
-docker compose -f docker/docker-compose.test.yml up -d  # Test services
+docker compose -f docker/docker-compose.test.yml up -d  # Test services (includes RabbitMQ)
 
 # Direct podman commands (equivalent)
 podman compose up -d postgres
@@ -165,7 +165,7 @@ config/tasker/environments/{test,development,production}/
 ## Architecture Overview
 
 ### Core Pattern
-PostgreSQL message queue (PGMQ) system with actor-based coordination. Rust handles orchestration via lightweight actors; workers process steps through queue polling.
+PostgreSQL-backed orchestration with provider-agnostic messaging (PGMQ default, RabbitMQ optional). Rust handles orchestration via lightweight actors; workers process steps via push notifications or polling.
 
 ### State Machines
 - **Task States (12)**: Pending → Initializing → EnqueuingSteps → StepsInProcess → EvaluatingResults → Complete/Error

@@ -459,7 +459,7 @@ Actions execute sequentially after transition persistence, ensuring consistency.
 - **pg_notify**: PostgreSQL notifications for real-time coordination
 - **Event Publishers**: Publish state transition events to event system
 - **Event Subscribers**: React to state changes across system boundaries
-- **Queue Integration**: PGMQ message queues for worker communication
+- **Queue Integration**: Provider-agnostic message queues (PGMQ or RabbitMQ) for worker communication
 
 ### Worker Integration
 

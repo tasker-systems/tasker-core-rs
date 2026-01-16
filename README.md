@@ -5,7 +5,7 @@
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tasker-systems/tasker-core-rs?color=blue&sort=semver)
 ![Tests](https://img.shields.io/badge/tests-1400%2B%20passing-brightgreen)
 
-High-performance Rust workflow orchestration built on PostgreSQL with PGMQ message queues. Tasker Core provides DAG-based task execution, event-driven coordination, and comprehensive state management for complex workflows.
+High-performance Rust workflow orchestration with PostgreSQL-native messaging. Tasker Core provides DAG-based task execution, event-driven coordination, and comprehensive state management for complex workflows. Supports PGMQ (default, single-dependency) or RabbitMQ (high-throughput) backends.
 
 **Status**: Production Ready | **Version**: 0.1.0
 
@@ -14,8 +14,8 @@ High-performance Rust workflow orchestration built on PostgreSQL with PGMQ messa
 ## Why Tasker Core?
 
 - **DAG-Based Workflows** - Define complex workflows as directed acyclic graphs with dependencies
-- **PostgreSQL-Native** - Database as coordination layer with PGMQ for reliable messaging
-- **Event-Driven** - Real-time step discovery via LISTEN/NOTIFY with polling fallback
+- **Flexible Messaging** - PGMQ (PostgreSQL-native, zero extra dependencies) or RabbitMQ (high-throughput)
+- **Event-Driven** - Real-time step discovery with push notifications and polling fallback
 - **Multi-Language Workers** - Rust native, Ruby via FFI, Python via PyO3, TypeScript FFI
 - **Production-Ready** - Circuit breakers, health monitoring, zero race conditions, 50+ metrics
 
@@ -38,12 +38,13 @@ High-performance Rust workflow orchestration built on PostgreSQL with PGMQ messa
 
 ### Prerequisites
 
-- **Rust** 1.75+ | **PostgreSQL** 14+ with PGMQ | **Docker** (recommended)
+- **Rust** 1.75+ | **PostgreSQL** 17+ (uuidv7 support) | **Docker** (recommended)
+- Optional: RabbitMQ (for high-throughput messaging)
 
 ### Get Running
 
 ```bash
-# Start PostgreSQL with PGMQ
+# Start PostgreSQL (includes PGMQ extension)
 docker-compose up -d postgres
 
 # Run migrations
@@ -82,12 +83,12 @@ curl http://localhost:8080/health
            │                                  │
            ▼                                  ▼
 ┌──────────────────────┐          ┌──────────────────────────┐
-│   PostgreSQL + PGMQ  │◄────────►│  Namespace Worker Pools  │
-│   (State + Queues)   │          │  (Horizontal Scaling)    │
+│  PostgreSQL + Broker │◄────────►│  Namespace Worker Pools  │
+│ (PGMQ or RabbitMQ)   │          │  (Horizontal Scaling)    │
 └──────────────────────┘          └──────────────────────────┘
 ```
 
-**Key Patterns**: Dual state machines (12 task + 9 step states), event-driven with polling fallback, autonomous workers, PostgreSQL as source of truth.
+**Key Patterns**: Dual state machines (12 task + 9 step states), event-driven with polling fallback, autonomous workers, PostgreSQL as source of truth. Messaging via PGMQ (default) or RabbitMQ.
 
 **Deep Dive**: [Architecture Documentation](docs/architecture/)
 
@@ -97,8 +98,8 @@ curl http://localhost:8080/health
 
 | Crate | Purpose |
 |-------|---------|
-| `pgmq-notify` | PGMQ wrapper with atomic notify |
-| `tasker-shared` | Core types, state machines, SQL functions |
+| `pgmq-notify` | PGMQ wrapper with atomic notify (PostgreSQL backend) |
+| `tasker-shared` | Core types, state machines, messaging abstraction |
 | `tasker-orchestration` | Task coordination, REST API |
 | `tasker-worker` | Step execution, FFI layer |
 | `tasker-client` | REST client and CLI |

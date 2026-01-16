@@ -159,17 +159,21 @@ This freedom enables:
 
 ### 9. PostgreSQL as Foundation
 
-**PGMQ, atomic SQL functions, and database-level guarantees.**
+**Database-level guarantees with flexible messaging (PGMQ default, RabbitMQ optional).**
 
 PostgreSQL provides:
-- **PGMQ**: Message queue with exactly-once semantics
+- **State storage**: Task and step state with transactional guarantees
 - **Advisory locks**: Distributed coordination primitives
 - **Atomic functions**: State transitions in single round-trip
 - **Row-level locking**: Prevents concurrent modification
 
-The database is not just storage - it's the coordination layer.
+Messaging is provider-agnostic:
+- **PGMQ** (default): Message queue built on PostgreSQL—single-dependency deployment
+- **RabbitMQ** (optional): For high-throughput or existing broker infrastructure
 
-**Origin**: Core architecture decision - PostgreSQL's transactional guarantees eliminate entire classes of distributed systems problems.
+The database is not just storage—it's the coordination layer. Message delivery is pluggable.
+
+**Origin**: Core architecture decision - PostgreSQL's transactional guarantees eliminate entire classes of distributed systems problems. TAS-133 added messaging abstraction for deployment flexibility.
 
 ---
 

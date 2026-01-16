@@ -80,7 +80,7 @@ This philosophy manifests in several ways:
 
 Tasker's architecture reflects lessons learned from building distributed systems:
 
-**PostgreSQL-native.** Everything flows through Postgres—task state, step queues (via PGMQ), event coordination (via LISTEN/NOTIFY). This isn't because Postgres is trendy; it's because many teams already have Postgres expertise and operational knowledge. Tasker doesn't require a separate message broker or state store to operate.
+**PostgreSQL-native by default.** Everything flows through Postgres—task state, step queues (via PGMQ), event coordination (via LISTEN/NOTIFY). This isn't because Postgres is trendy; it's because many teams already have Postgres expertise and operational knowledge. Tasker works as a single-dependency system on PostgreSQL alone. For environments requiring higher throughput or existing RabbitMQ infrastructure, Tasker also supports RabbitMQ as an alternative messaging backend—switch with a configuration change.
 
 **Event-driven with polling fallback.** Real-time responsiveness through Postgres notifications, but with polling as a reliability backstop. Events can be missed; polling ensures eventual consistency.
 
@@ -120,7 +120,7 @@ Tasker may not be the right choice when:
 ### Tasker Is:
 
 - **A workflow orchestration engine** for step-based DAG execution with complex dependencies
-- **Event-driven and database-backed** using PostgreSQL and PGMQ
+- **PostgreSQL-native with flexible messaging** using PGMQ (default) or RabbitMQ
 - **Polyglot by design** with first-class support for multiple languages
 - **Focused on developer experience** for teams who want minimal intrusion
 - **Open source (MIT license)** and built as a labor of love
@@ -130,7 +130,7 @@ Tasker may not be the right choice when:
 - **A data orchestration platform** like Dagster with asset lineage and data quality primitives
 - **A durable execution engine** like Temporal with deterministic replay and unlimited durability
 - **A scheduled job runner** for simple cron-style workloads (use actual cron)
-- **A message bus** for pure pub/sub fan-out (use Kafka, RabbitMQ)
+- **A message bus** for pure pub/sub fan-out (use Kafka or dedicated brokers)
 - **Enterprise software** with commercial support, SLAs, or managed offerings
 
 ---
