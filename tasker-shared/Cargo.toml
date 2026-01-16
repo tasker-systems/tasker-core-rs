@@ -70,7 +70,7 @@ dotenvy = { workspace = true }  # For loading .env files
 fastrand = { workspace = true }
 futures = { workspace = true }
 is-terminal = { workspace = true }
-jsonschema = "0.20"
+jsonschema = "0.39"
 jsonwebtoken = { workspace = true, optional = true }
 # AMQP 0.9.1 client for RabbitMQ (TAS-133d)
 lapin = { workspace = true }
