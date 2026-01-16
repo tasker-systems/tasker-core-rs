@@ -31,6 +31,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
+use super::channels::{ChannelFactory, WorkerCommandReceiver, WorkerCommandSender};
 use tasker_shared::messaging::StepExecutionResult;
 use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::system_context::SystemContext;
@@ -74,8 +75,8 @@ pub struct ActorCommandProcessor {
     /// Actor registry with all worker actors
     actors: WorkerActorRegistry,
 
-    /// Command receiver
-    command_receiver: Option<mpsc::Receiver<WorkerCommand>>,
+    /// Command receiver (TAS-133: NewType wrapper for type safety)
+    command_receiver: Option<WorkerCommandReceiver>,
 
     /// Channel monitor for command channel observability (TAS-51)
     command_channel_monitor: ChannelMonitor,
@@ -129,8 +130,10 @@ impl ActorCommandProcessor {
         command_buffer_size: usize,
         command_channel_monitor: ChannelMonitor,
         dispatch_config: DispatchModeConfig,
-    ) -> TaskerResult<(Self, mpsc::Sender<WorkerCommand>, DispatchChannels)> {
-        let (command_sender, command_receiver) = mpsc::channel(command_buffer_size);
+    ) -> TaskerResult<(Self, WorkerCommandSender, DispatchChannels)> {
+        // TAS-133: Use ChannelFactory for type-safe channel creation
+        let (command_sender, command_receiver) =
+            ChannelFactory::worker_command_channel(command_buffer_size);
 
         // Build actor registry with dispatch - this creates the channels
         let (actors, dispatch_channels) = WorkerActorRegistry::build(

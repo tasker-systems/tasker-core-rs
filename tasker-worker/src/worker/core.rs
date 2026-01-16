@@ -26,6 +26,7 @@ use tasker_shared::{TaskerError, TaskerResult};
 
 use super::actor_command_processor::ActorCommandProcessor;
 use super::actors::DispatchHandlerMessage;
+use super::channels::WorkerCommandSender;
 use super::command_processor::{WorkerCommand, WorkerStatus};
 use super::event_driven_processor::{
     EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
@@ -93,8 +94,8 @@ pub struct WorkerCore {
     /// System context for dependency injection
     pub context: Arc<SystemContext>,
 
-    /// Command sender for worker operations
-    command_sender: mpsc::Sender<WorkerCommand>,
+    /// Command sender for worker operations (TAS-133: NewType wrapper)
+    command_sender: WorkerCommandSender,
 
     /// TAS-69: Actor-based command processor
     /// Uses actor pattern for pure routing and typed message handling
@@ -734,7 +735,7 @@ impl WorkerCore {
     }
 
     /// Get the command sender for communicating with the worker processor
-    pub fn command_sender(&self) -> &mpsc::Sender<WorkerCommand> {
+    pub fn command_sender(&self) -> &WorkerCommandSender {
         &self.command_sender
     }
 

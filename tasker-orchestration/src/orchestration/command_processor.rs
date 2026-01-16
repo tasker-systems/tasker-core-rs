@@ -24,8 +24,10 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use uuid::Uuid;
+
+use super::channels::{ChannelFactory, OrchestrationCommandReceiver, OrchestrationCommandSender};
 
 use pgmq::Message as PgmqMessage;
 use tasker_shared::messaging::service::{MessageEvent, MessageHandle, MessageMetadata, QueuedMessage};
@@ -263,7 +265,8 @@ pub struct OrchestrationProcessor {
     health_caches: HealthStatusCaches,
 
     /// Command receiver channel
-    command_rx: Option<mpsc::Receiver<OrchestrationCommand>>,
+    /// TAS-133: Uses NewType wrapper for type-safe channel communication
+    command_rx: Option<OrchestrationCommandReceiver>,
 
     /// Processor task handle
     task_handle: Option<JoinHandle<()>>,
@@ -287,8 +290,9 @@ impl OrchestrationProcessor {
         health_caches: HealthStatusCaches,
         buffer_size: usize,
         channel_monitor: ChannelMonitor,
-    ) -> (Self, mpsc::Sender<OrchestrationCommand>) {
-        let (command_tx, command_rx) = mpsc::channel(buffer_size);
+    ) -> (Self, OrchestrationCommandSender) {
+        // TAS-133: Use ChannelFactory for type-safe channel creation
+        let (command_tx, command_rx) = ChannelFactory::orchestration_command_channel(buffer_size);
 
         let stats = Arc::new(std::sync::RwLock::new(OrchestrationProcessingStats {
             task_requests_processed: 0,

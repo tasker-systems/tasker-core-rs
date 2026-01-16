@@ -3,6 +3,7 @@
 //! Command pattern worker implementation that mirrors OrchestrationCore architecture
 
 pub mod actor_command_processor; // TAS-69: Actor-based command processor (pure routing)
+pub mod channels; // TAS-133: Semantic NewType channel wrappers
 pub mod actors; // TAS-69: Actor-based architecture for worker system
 pub mod command_processor;
 pub mod core;
@@ -25,6 +26,12 @@ pub mod traits; // TAS-65: Worker traits including DomainEventPublishable
 pub mod worker_queues;
 
 pub use core::{DispatchHandles, WorkerCore, WorkerCoreStatus};
+
+// TAS-133: Semantic channel wrappers for type-safe channel usage
+pub use channels::{
+    ChannelFactory, WorkerCommandReceiver, WorkerCommandSender, WorkerNotificationReceiver,
+    WorkerNotificationSender,
+};
 
 pub use command_processor::{
     EventIntegrationStatus, StepExecutionStats, WorkerCommand, WorkerStatus,

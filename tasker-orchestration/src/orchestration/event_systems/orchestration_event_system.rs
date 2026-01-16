@@ -13,10 +13,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tasker_shared::config::orchestration::event_systems::OrchestrationEventSystemConfig;
 use tasker_shared::{system_context::SystemContext, TaskerResult};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::orchestration::{
+    channels::{ChannelFactory, OrchestrationCommandSender},
     command_processor::OrchestrationCommand,
     orchestration_queues::{
         OrchestrationFallbackPoller, OrchestrationListenerConfig, OrchestrationListenerStats,
@@ -63,8 +63,8 @@ pub struct OrchestrationEventSystem {
     )]
     orchestration_core: Arc<OrchestrationCore>,
 
-    /// Command sender for orchestration operations
-    command_sender: mpsc::Sender<OrchestrationCommand>,
+    /// Command sender for orchestration operations (TAS-133: NewType wrapper)
+    command_sender: OrchestrationCommandSender,
 
     /// System configuration
     config: OrchestrationEventSystemConfig,
@@ -246,7 +246,7 @@ impl OrchestrationEventSystem {
         config: OrchestrationEventSystemConfig,
         context: Arc<SystemContext>,
         orchestration_core: Arc<OrchestrationCore>,
-        command_sender: mpsc::Sender<OrchestrationCommand>,
+        command_sender: OrchestrationCommandSender,
         command_channel_monitor: ChannelMonitor,
     ) -> TaskerResult<Self> {
         info!(
@@ -452,7 +452,9 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     .as_ref()
                     .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
                     .unwrap_or(10000);
-                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
+                // TAS-133: Use ChannelFactory for type-safe channel creation
+                let (event_sender, mut event_receiver) =
+                    ChannelFactory::orchestration_notification_channel(buffer_size as usize);
 
                 // TAS-51: Initialize channel monitor for observability
                 let channel_monitor =
@@ -517,7 +519,9 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     .as_ref()
                     .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
                     .unwrap_or(10000);
-                let (event_sender, mut event_receiver) = mpsc::channel(buffer_size as usize);
+                // TAS-133: Use ChannelFactory for type-safe channel creation
+                let (event_sender, mut event_receiver) =
+                    ChannelFactory::orchestration_notification_channel(buffer_size as usize);
 
                 // TAS-51: Initialize channel monitor for observability
                 let channel_monitor = ChannelMonitor::new(
@@ -1135,7 +1139,7 @@ impl OrchestrationEventSystem {
     async fn process_orchestration_notification(
         notification: OrchestrationNotification,
         _context: &Arc<SystemContext>,
-        command_sender: &mpsc::Sender<OrchestrationCommand>,
+        command_sender: &OrchestrationCommandSender,
         command_channel_monitor: &ChannelMonitor,
         statistics: &Arc<OrchestrationStatistics>,
     ) {

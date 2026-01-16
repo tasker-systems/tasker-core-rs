@@ -4,7 +4,6 @@
 //! through worker queue processing to command execution.
 
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 use tasker_shared::{
     messaging::service::MessageEvent,
@@ -23,6 +22,7 @@ use tasker_shared::{
     system_context::SystemContext,
 };
 use tasker_worker::worker::{
+    channels::ChannelFactory,
     event_systems::worker_event_system::{WorkerEventSystem, WorkerEventSystemConfig},
     worker_queues::events::WorkerQueueEvent,
 };
@@ -109,7 +109,8 @@ async fn test_worker_event_system_creation_and_startup() {
     );
 
     // Create command channel
-    let (command_sender, _command_receiver) = mpsc::channel(100);
+    // TAS-133: Use ChannelFactory for type-safe channel creation
+    let (command_sender, _command_receiver) = ChannelFactory::worker_command_channel(100);
 
     // Create WorkerEventSystem
     let event_system =
@@ -152,7 +153,8 @@ async fn test_worker_event_processing_flow() {
             .await
             .expect("Failed to create SystemContext"),
     );
-    let (command_sender, _command_receiver) = mpsc::channel(100);
+    // TAS-133: Use ChannelFactory for type-safe channel creation
+    let (command_sender, _command_receiver) = ChannelFactory::worker_command_channel(100);
 
     let event_system = WorkerEventSystem::new(
         config,
@@ -193,7 +195,8 @@ async fn test_worker_notification_handling() {
             .await
             .expect("Failed to create SystemContext"),
     );
-    let (command_sender, _command_receiver) = mpsc::channel(100);
+    // TAS-133: Use ChannelFactory for type-safe channel creation
+    let (command_sender, _command_receiver) = ChannelFactory::worker_command_channel(100);
 
     let event_system = WorkerEventSystem::new(
         config,
@@ -256,7 +259,8 @@ async fn test_deployment_mode_behavior() {
                 .await
                 .expect("Failed to create SystemContext"),
         );
-        let (command_sender, _command_receiver) = mpsc::channel(100);
+        // TAS-133: Use ChannelFactory for type-safe channel creation
+    let (command_sender, _command_receiver) = ChannelFactory::worker_command_channel(100);
 
         let event_system =
             WorkerEventSystem::new(config, command_sender, context, vec!["default".to_string()]);
@@ -288,7 +292,8 @@ async fn test_event_processing_error_handling() {
             .await
             .expect("Failed to create SystemContext"),
     );
-    let (command_sender, _command_receiver) = mpsc::channel(100);
+    // TAS-133: Use ChannelFactory for type-safe channel creation
+    let (command_sender, _command_receiver) = ChannelFactory::worker_command_channel(100);
 
     let event_system =
         WorkerEventSystem::new(config, command_sender, context, vec!["default".to_string()]);
@@ -399,7 +404,8 @@ async fn test_complete_tas43_integration() {
             .await
             .expect("Failed to create SystemContext"),
     );
-    let (command_sender, _command_receiver) = mpsc::channel(1000);
+    // TAS-133: Use ChannelFactory for type-safe channel creation
+    let (command_sender, _command_receiver) = ChannelFactory::worker_command_channel(1000);
 
     // 3. Create and verify WorkerEventSystem
     let event_system = WorkerEventSystem::new(

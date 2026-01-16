@@ -18,8 +18,9 @@ use std::sync::{
     Arc,
 };
 use std::time::{Instant, SystemTime};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
+
+use crate::worker::channels::ChannelFactory;
 
 use async_trait::async_trait;
 use tasker_shared::{
@@ -118,7 +119,8 @@ pub struct WorkerEventSystem {
     /// Fallback poller for reliability
     fallback_poller: Option<WorkerFallbackPoller>,
     /// Worker command sender (for FFI event forwarding)
-    command_sender: mpsc::Sender<WorkerCommand>,
+    /// TAS-133: Updated to use NewType wrapper for type safety
+    command_sender: crate::worker::channels::WorkerCommandSender,
     /// Unified system configuration
     config: WorkerEventSystemConfig,
     /// Runtime statistics
@@ -214,7 +216,7 @@ impl WorkerEventSystem {
     /// Create new WorkerEventSystem with unified configuration
     pub fn new(
         config: WorkerEventSystemConfig,
-        command_sender: mpsc::Sender<WorkerCommand>,
+        command_sender: crate::worker::channels::WorkerCommandSender,
         context: Arc<SystemContext>,
         supported_namespaces: Vec<String>,
     ) -> Self {
@@ -346,6 +348,7 @@ impl WorkerEventSystem {
                 // Create a notification sender - we'll convert notifications to commands
                 // TAS-51: Use configured buffer size for notification channel
                 // TAS-61 Phase 6D: Worker-specific mpsc channels are in worker.mpsc_channels
+                // TAS-133: Use ChannelFactory for type-safe channel creation
                 let buffer_size = self
                     .context
                     .tasker_config
@@ -354,7 +357,7 @@ impl WorkerEventSystem {
                     .map(|w| w.mpsc_channels.event_systems.event_channel_buffer_size as usize)
                     .expect("Worker configuration required for event channel buffer size");
                 let (notification_sender, mut notification_receiver) =
-                    mpsc::channel::<WorkerNotification>(buffer_size);
+                    ChannelFactory::worker_notification_channel(buffer_size);
 
                 // TAS-51: Initialize channel monitor for observability
                 let channel_monitor = ChannelMonitor::new("worker_event_channel", buffer_size);

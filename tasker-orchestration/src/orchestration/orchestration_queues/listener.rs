@@ -22,7 +22,6 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -33,6 +32,7 @@ use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
 use super::events::OrchestrationQueueEvent;
+use crate::orchestration::channels::OrchestrationNotificationSender;
 
 /// Provider-agnostic listener for orchestration queue notifications
 ///
@@ -47,8 +47,8 @@ pub struct OrchestrationQueueListener {
     config: OrchestrationListenerConfig,
     /// System context
     context: Arc<SystemContext>,
-    /// Event sender channel
-    event_sender: mpsc::Sender<OrchestrationNotification>,
+    /// Event sender channel (TAS-133: NewType wrapper for type safety)
+    event_sender: OrchestrationNotificationSender,
     /// Channel monitor for observability (TAS-51)
     channel_monitor: ChannelMonitor,
     /// Config-driven queue classifier for event classification
@@ -153,7 +153,7 @@ impl OrchestrationQueueListener {
     pub async fn new(
         config: OrchestrationListenerConfig,
         context: Arc<SystemContext>,
-        event_sender: mpsc::Sender<OrchestrationNotification>,
+        event_sender: OrchestrationNotificationSender,
         channel_monitor: ChannelMonitor,
     ) -> TaskerResult<Self> {
         let listener_id = Uuid::new_v4();
@@ -266,7 +266,7 @@ impl OrchestrationQueueListener {
     /// from any provider and converts them to `OrchestrationQueueEvent`.
     async fn process_subscription_stream(
         mut stream: std::pin::Pin<Box<dyn futures::Stream<Item = MessageNotification> + Send>>,
-        sender: mpsc::Sender<OrchestrationNotification>,
+        sender: OrchestrationNotificationSender,
         classifier: QueueClassifier,
         stats: Arc<OrchestrationListenerStats>,
         namespace: String,

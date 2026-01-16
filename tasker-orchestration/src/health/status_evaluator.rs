@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tasker_shared::metrics::health as health_metrics;
 use tasker_shared::monitoring::channel_metrics::ChannelMonitor;
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
@@ -27,7 +26,7 @@ use super::types::{
     BackpressureSource, BackpressureStatus, ChannelHealthStatus, DatabaseHealthStatus,
     HealthConfig, QueueDepthStatus, QueueDepthTier,
 };
-use crate::orchestration::command_processor::OrchestrationCommand;
+use crate::orchestration::channels::OrchestrationCommandSender;
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 
 /// Background health status evaluator
@@ -73,7 +72,8 @@ pub struct StatusEvaluator {
     channel_monitor: ChannelMonitor,
 
     /// Command sender for capacity checks
-    command_sender: mpsc::Sender<OrchestrationCommand>,
+    /// TAS-133: Uses NewType wrapper for type-safe channel communication
+    command_sender: OrchestrationCommandSender,
 
     /// Queue names to monitor
     queue_names: Vec<String>,
@@ -118,7 +118,7 @@ impl StatusEvaluator {
         db_pool: PgPool,
         pgmq_pool: PgPool,
         channel_monitor: ChannelMonitor,
-        command_sender: mpsc::Sender<OrchestrationCommand>,
+        command_sender: OrchestrationCommandSender,
         queue_names: Vec<String>,
         circuit_breaker: Arc<WebDatabaseCircuitBreaker>,
         config: HealthConfig,
@@ -183,10 +183,11 @@ impl StatusEvaluator {
 
         // 2. Check channel saturation (if enabled)
         // When disabled, returns default with evaluated=false to indicate "unknown"
+        // TAS-133: Use .inner() to access raw sender for generic evaluate_channel_status
         let channel_status = if self.config.check_channels {
             evaluate_channel_status(
                 &self.channel_monitor,
-                &self.command_sender,
+                self.command_sender.inner(),
                 &self.config.channels,
             )
         } else {
