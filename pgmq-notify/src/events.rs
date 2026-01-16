@@ -78,6 +78,9 @@ use std::collections::HashMap;
 ///     PgmqNotifyEvent::MessageReady(e) => {
 ///         println!("Message ready: {}", e.msg_id);
 ///     }
+///     PgmqNotifyEvent::MessageWithPayload(e) => {
+///         println!("Message with payload: {}", e.msg_id);
+///     }
 ///     PgmqNotifyEvent::BatchReady(e) => {
 ///         println!("Batch ready: {} messages", e.message_count);
 ///     }

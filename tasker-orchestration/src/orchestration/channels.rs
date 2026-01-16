@@ -124,6 +124,10 @@ impl OrchestrationCommandSender {
     }
 
     /// Try to send a command without waiting.
+    #[expect(
+        clippy::result_large_err,
+        reason = "TrySendError includes the command for recovery; boxing would complicate error handling"
+    )]
     pub fn try_send(
         &self,
         command: OrchestrationCommand,
@@ -237,9 +241,11 @@ mod tests {
         let (tx, mut rx) = ChannelFactory::orchestration_notification_channel(10);
 
         // Send a notification
-        tx.send(OrchestrationNotification::ConnectionError("test".to_string()))
-            .await
-            .unwrap();
+        tx.send(OrchestrationNotification::ConnectionError(
+            "test".to_string(),
+        ))
+        .await
+        .unwrap();
 
         // Receive it
         let notification = rx.recv().await.unwrap();

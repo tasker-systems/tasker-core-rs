@@ -124,6 +124,10 @@ impl WorkerCommandSender {
     }
 
     /// Try to send a command without waiting.
+    #[expect(
+        clippy::result_large_err,
+        reason = "TrySendError includes the command for recovery; boxing would complicate error handling"
+    )]
     pub fn try_send(
         &self,
         command: WorkerCommand,

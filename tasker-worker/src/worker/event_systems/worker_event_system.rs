@@ -443,7 +443,9 @@ impl WorkerEventSystem {
                                             })
                                             .await
                                         {
-                                            statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                                            statistics
+                                                .events_failed
+                                                .fetch_add(1, Ordering::Relaxed);
                                             error!("Failed to forward step message to command processor: {}", e);
                                         }
                                     }

@@ -26,9 +26,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::{
-    messaging::service::MessagingProvider,
-    system_context::SystemContext,
-    TaskerResult,
+    messaging::service::MessagingProvider, system_context::SystemContext, TaskerResult,
 };
 
 // Import command pattern types for direct command sending
@@ -267,7 +265,10 @@ impl WorkerFallbackPoller {
             )
             .await
             .map_err(|e| {
-                tasker_shared::TaskerError::MessagingError(format!("Failed to read messages: {}", e))
+                tasker_shared::TaskerError::MessagingError(format!(
+                    "Failed to read messages: {}",
+                    e
+                ))
             })?;
 
         if messages.is_empty() {

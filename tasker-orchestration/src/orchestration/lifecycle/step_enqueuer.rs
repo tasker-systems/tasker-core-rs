@@ -502,9 +502,7 @@ impl StepEnqueuer {
         );
 
         // Create UUID-based step message (simplified architecture)
-        let step_message = self
-            .create_step_message(task_info, viable_step)
-            .await?;
+        let step_message = self.create_step_message(task_info, viable_step).await?;
 
         // Enqueue to namespace-specific queue
         let queue_name = format!("worker_{}_queue", task_info.namespace_name);

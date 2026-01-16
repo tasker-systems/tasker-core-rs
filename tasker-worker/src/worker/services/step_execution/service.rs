@@ -548,12 +548,7 @@ impl StepExecutorService {
 
     // Metrics helper methods
 
-    fn record_step_failure(
-        &self,
-        step_message: &StepMessage,
-        namespace: &str,
-        error_type: &str,
-    ) {
+    fn record_step_failure(&self, step_message: &StepMessage, namespace: &str, error_type: &str) {
         if let Some(counter) = STEP_FAILURES_TOTAL.get() {
             counter.add(
                 1,

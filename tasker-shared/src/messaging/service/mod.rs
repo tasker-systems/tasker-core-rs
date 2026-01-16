@@ -65,8 +65,8 @@ pub use providers::{InMemoryMessagingService, PgmqMessagingService};
 pub use router::{DefaultMessageRouter, MessageRouter, MessageRouterKind};
 pub use traits::{MessagingService, NotificationStream, QueueMessage, SupportsPushNotifications};
 pub use types::{
-    AtomicQueueStats, MessageEvent, MessageHandle, MessageId, MessageMetadata,
-    MessageNotification, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle,
+    AtomicQueueStats, MessageEvent, MessageHandle, MessageId, MessageMetadata, MessageNotification,
+    QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle,
 };
 
 // Re-export MessagingError from parent module - no duplication

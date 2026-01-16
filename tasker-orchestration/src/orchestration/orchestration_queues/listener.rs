@@ -303,7 +303,8 @@ impl OrchestrationQueueListener {
                     msg_id,
                 } => {
                     // PGMQ style: signal only, need to fetch message
-                    let message_event = MessageEvent::from_available(&notif_queue, msg_id, &namespace);
+                    let message_event =
+                        MessageEvent::from_available(&notif_queue, msg_id, &namespace);
 
                     info!(
                         listener_id = %listener_id,
@@ -323,17 +324,30 @@ impl OrchestrationQueueListener {
                     match classified {
                         ConfigDrivenMessageEvent::StepResults(event) => {
                             stats.step_results_processed.fetch_add(1, Ordering::Relaxed);
-                            OrchestrationNotification::Event(OrchestrationQueueEvent::StepResult(event))
+                            OrchestrationNotification::Event(OrchestrationQueueEvent::StepResult(
+                                event,
+                            ))
                         }
                         ConfigDrivenMessageEvent::TaskRequests(event) => {
-                            stats.task_requests_processed.fetch_add(1, Ordering::Relaxed);
-                            OrchestrationNotification::Event(OrchestrationQueueEvent::TaskRequest(event))
+                            stats
+                                .task_requests_processed
+                                .fetch_add(1, Ordering::Relaxed);
+                            OrchestrationNotification::Event(OrchestrationQueueEvent::TaskRequest(
+                                event,
+                            ))
                         }
                         ConfigDrivenMessageEvent::TaskFinalizations(event) => {
-                            stats.queue_management_processed.fetch_add(1, Ordering::Relaxed);
-                            OrchestrationNotification::Event(OrchestrationQueueEvent::TaskFinalization(event))
+                            stats
+                                .queue_management_processed
+                                .fetch_add(1, Ordering::Relaxed);
+                            OrchestrationNotification::Event(
+                                OrchestrationQueueEvent::TaskFinalization(event),
+                            )
                         }
-                        ConfigDrivenMessageEvent::WorkerNamespace { namespace: worker_ns, event } => {
+                        ConfigDrivenMessageEvent::WorkerNamespace {
+                            namespace: worker_ns,
+                            event,
+                        } => {
                             debug!(
                                 listener_id = %listener_id,
                                 queue = %event.queue_name,
@@ -646,6 +660,9 @@ mod tests {
         ));
 
         let reconnected = OrchestrationNotification::Reconnected;
-        assert!(matches!(reconnected, OrchestrationNotification::Reconnected));
+        assert!(matches!(
+            reconnected,
+            OrchestrationNotification::Reconnected
+        ));
     }
 }

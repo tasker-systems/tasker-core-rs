@@ -8,11 +8,15 @@ use std::time::Duration;
 use futures::Stream;
 use pgmq_notify::PgmqNotifyConfig;
 
-use crate::config::tasker::RabbitmqConfig;
 use super::providers::{InMemoryMessagingService, PgmqMessagingService, RabbitMqMessagingService};
-use super::traits::{MessagingService, NotificationStream, QueueMessage, SupportsPushNotifications};
-use super::types::{MessageId, MessageNotification, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle};
+use super::traits::{
+    MessagingService, NotificationStream, QueueMessage, SupportsPushNotifications,
+};
+use super::types::{
+    MessageId, MessageNotification, QueueHealthReport, QueueStats, QueuedMessage, ReceiptHandle,
+};
 use super::MessagingError;
+use crate::config::tasker::RabbitmqConfig;
 
 /// Provider enum for zero-cost dispatch
 ///

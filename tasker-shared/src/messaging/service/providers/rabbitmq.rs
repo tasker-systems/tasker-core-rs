@@ -63,7 +63,9 @@ use lapin::{BasicProperties, Channel, Connection, ConnectionProperties, Exchange
 use tokio::sync::RwLock;
 
 use crate::config::tasker::{RabbitmqConfig, TaskerConfig};
-use crate::messaging::service::traits::{MessagingService, QueueMessage, SupportsPushNotifications};
+use crate::messaging::service::traits::{
+    MessagingService, QueueMessage, SupportsPushNotifications,
+};
 use crate::messaging::service::types::{
     MessageHandle, MessageId, MessageMetadata, MessageNotification, QueueHealthReport, QueueStats,
     QueuedMessage, ReceiptHandle,
@@ -109,22 +111,25 @@ impl RabbitMqMessagingService {
     pub async fn from_config(config: RabbitmqConfig) -> Result<Self, MessagingError> {
         let connection = Connection::connect(
             &config.url,
-            ConnectionProperties::default()
-                .with_connection_name("tasker-messaging".into()),
+            ConnectionProperties::default().with_connection_name("tasker-messaging".into()),
         )
         .await
         .map_err(|e| MessagingError::connection(format!("RabbitMQ connection failed: {}", e)))?;
 
-        let channel = connection
-            .create_channel()
-            .await
-            .map_err(|e| MessagingError::connection(format!("RabbitMQ channel creation failed: {}", e)))?;
+        let channel = connection.create_channel().await.map_err(|e| {
+            MessagingError::connection(format!("RabbitMQ channel creation failed: {}", e))
+        })?;
 
         // Set prefetch for backpressure
         channel
-            .basic_qos(config.prefetch_count, lapin::options::BasicQosOptions::default())
+            .basic_qos(
+                config.prefetch_count,
+                lapin::options::BasicQosOptions::default(),
+            )
             .await
-            .map_err(|e| MessagingError::configuration("rabbitmq", format!("Failed to set QoS: {}", e)))?;
+            .map_err(|e| {
+                MessagingError::configuration("rabbitmq", format!("Failed to set QoS: {}", e))
+            })?;
 
         Ok(Self {
             connection: Arc::new(connection),
@@ -140,17 +145,12 @@ impl RabbitMqMessagingService {
     /// Extracts the RabbitMQ configuration from TaskerConfig, cloning it.
     /// Returns an error if RabbitMQ is not configured.
     pub async fn from_tasker_config(config: &TaskerConfig) -> Result<Self, MessagingError> {
-        let rabbitmq_config = config
-            .common
-            .queues
-            .rabbitmq
-            .clone()
-            .ok_or_else(|| {
-                MessagingError::configuration(
-                    "rabbitmq",
-                    "RabbitMQ configuration not found in TaskerConfig".to_string(),
-                )
-            })?;
+        let rabbitmq_config = config.common.queues.rabbitmq.clone().ok_or_else(|| {
+            MessagingError::configuration(
+                "rabbitmq",
+                "RabbitMQ configuration not found in TaskerConfig".to_string(),
+            )
+        })?;
 
         Self::from_config(rabbitmq_config).await
     }
@@ -270,10 +270,7 @@ impl RabbitMqMessagingService {
             )
             .await
             .map_err(|e| {
-                MessagingError::queue_creation(
-                    &dlq_name,
-                    format!("DLQ binding failed: {}", e),
-                )
+                MessagingError::queue_creation(&dlq_name, format!("DLQ binding failed: {}", e))
             })?;
 
         Ok(())
@@ -454,16 +451,14 @@ impl MessagingService for RabbitMqMessagingService {
             })?;
 
         // Wait for confirmation
-        confirm
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    queue_name = %queue_name,
-                    error = %e,
-                    "RabbitMQ: Publish confirmation failed"
-                );
-                MessagingError::send(queue_name, format!("Publish confirmation failed: {}", e))
-            })?;
+        confirm.await.map_err(|e| {
+            tracing::error!(
+                queue_name = %queue_name,
+                error = %e,
+                "RabbitMQ: Publish confirmation failed"
+            );
+            MessagingError::send(queue_name, format!("Publish confirmation failed: {}", e))
+        })?;
 
         // Track stats
         let stats = self.get_or_create_stats(queue_name).await;
@@ -569,7 +564,11 @@ impl MessagingService for RabbitMqMessagingService {
             .basic_ack(delivery_tag, BasicAckOptions::default())
             .await
             .map_err(|e| {
-                MessagingError::ack(queue_name, delivery_tag as i64, format!("ack failed: {}", e))
+                MessagingError::ack(
+                    queue_name,
+                    delivery_tag as i64,
+                    format!("ack failed: {}", e),
+                )
             })?;
 
         // Track stats
@@ -652,17 +651,18 @@ impl MessagingService for RabbitMqMessagingService {
                 FieldTable::default(),
             )
             .await
-            .map_err(|e| MessagingError::queue_stats(queue_name, format!("Queue query failed: {}", e)))?;
+            .map_err(|e| {
+                MessagingError::queue_stats(queue_name, format!("Queue query failed: {}", e))
+            })?;
 
         let our_stats = self.get_or_create_stats(queue_name).await;
 
-        let stats = QueueStats::new(queue_name, queue_state.message_count() as u64)
-            .with_counters(
-                our_stats.total_sent.load(Ordering::Relaxed),
-                our_stats.total_received.load(Ordering::Relaxed),
-                our_stats.total_acked.load(Ordering::Relaxed),
-                our_stats.total_nacked.load(Ordering::Relaxed),
-            );
+        let stats = QueueStats::new(queue_name, queue_state.message_count() as u64).with_counters(
+            our_stats.total_sent.load(Ordering::Relaxed),
+            our_stats.total_received.load(Ordering::Relaxed),
+            our_stats.total_acked.load(Ordering::Relaxed),
+            our_stats.total_nacked.load(Ordering::Relaxed),
+        );
 
         // Note: consumer_count available via queue_state.consumer_count()
         // but we don't have a field for it in QueueStats currently
@@ -675,7 +675,9 @@ impl MessagingService for RabbitMqMessagingService {
         if self.connection.status().connected() {
             Ok(true)
         } else {
-            Err(MessagingError::health_check("RabbitMQ connection is not connected"))
+            Err(MessagingError::health_check(
+                "RabbitMQ connection is not connected",
+            ))
         }
     }
 
@@ -817,7 +819,13 @@ impl SupportsPushNotifications for RabbitMqMessagingService {
                                 "RabbitMQ: Notification channel closed, stopping consumer"
                             );
                             // NACK the message so it gets redelivered
-                            if let Err(e) = delivery.nack(BasicNackOptions { requeue: true, ..Default::default() }).await {
+                            if let Err(e) = delivery
+                                .nack(BasicNackOptions {
+                                    requeue: true,
+                                    ..Default::default()
+                                })
+                                .await
+                            {
                                 tracing::warn!(
                                     queue_name = %queue_name,
                                     delivery_tag = delivery.delivery_tag,
@@ -1122,20 +1130,19 @@ mod tests {
         service.ensure_queue(&queue_name).await.unwrap();
 
         // Subscribe to push notifications
-        let mut stream = service.subscribe(&queue_name).expect("Subscribe should succeed");
+        let mut stream = service
+            .subscribe(&queue_name)
+            .expect("Subscribe should succeed");
 
         // Send a test message
         let msg = serde_json::json!({"push": "test", "id": 1});
         service.send_message(&queue_name, &msg).await.unwrap();
 
         // We should receive a MessageNotification::Message with full payload
-        let notification = tokio::time::timeout(
-            Duration::from_secs(5),
-            stream.next()
-        )
-        .await
-        .expect("Should receive notification within timeout")
-        .expect("Stream should not be empty");
+        let notification = tokio::time::timeout(Duration::from_secs(5), stream.next())
+            .await
+            .expect("Should receive notification within timeout")
+            .expect("Stream should not be empty");
 
         // RabbitMQ delivers full messages, not just signals
         assert!(
@@ -1144,9 +1151,11 @@ mod tests {
         );
 
         // Verify we got the message content
-        let queued_msg = notification.into_message().expect("Should be Message variant");
-        let decoded: serde_json::Value = serde_json::from_slice(&queued_msg.message)
-            .expect("Should deserialize payload");
+        let queued_msg = notification
+            .into_message()
+            .expect("Should be Message variant");
+        let decoded: serde_json::Value =
+            serde_json::from_slice(&queued_msg.message).expect("Should deserialize payload");
         assert_eq!(decoded["push"], "test");
         assert_eq!(decoded["id"], 1);
     }

@@ -435,10 +435,10 @@ impl MessagingService for InMemoryMessagingService {
 // SupportsPushNotifications implementation (TAS-133)
 // =============================================================================
 
-use std::pin::Pin;
-use futures::Stream;
 use crate::messaging::service::traits::SupportsPushNotifications;
 use crate::messaging::service::types::MessageNotification;
+use futures::Stream;
+use std::pin::Pin;
 
 impl SupportsPushNotifications for InMemoryMessagingService {
     /// Subscribe to push notifications for a queue
@@ -629,10 +629,7 @@ mod tests {
             },
         ];
 
-        let ids = service
-            .send_batch("test_queue", &messages)
-            .await
-            .unwrap();
+        let ids = service.send_batch("test_queue", &messages).await.unwrap();
         assert_eq!(ids.len(), 3);
 
         let received: Vec<QueuedMessage<TestMessage>> = service

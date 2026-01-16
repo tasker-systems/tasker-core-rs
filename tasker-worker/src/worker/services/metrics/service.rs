@@ -289,7 +289,10 @@ impl MetricsService {
                                 value: oldest_age_seconds as f64,
                                 metric_type: "gauge".to_string(),
                                 labels,
-                                help: format!("Age of oldest message in {} queue (seconds)", namespace),
+                                help: format!(
+                                    "Age of oldest message in {} queue (seconds)",
+                                    namespace
+                                ),
                             },
                         );
                     }

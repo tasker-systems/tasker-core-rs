@@ -265,12 +265,8 @@ mod tests {
 
     #[test]
     fn test_custom_router() {
-        let router = DefaultMessageRouter::new(
-            "custom",
-            "my_results",
-            "my_requests",
-            "my_finalizations",
-        );
+        let router =
+            DefaultMessageRouter::new("custom", "my_results", "my_requests", "my_finalizations");
 
         assert_eq!(router.step_queue("test"), "custom_test_queue");
         assert_eq!(router.result_queue(), "my_results");

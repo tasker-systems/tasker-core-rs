@@ -14,8 +14,8 @@
 //! Event types use provider-agnostic `MessageEvent` for multi-backend support.
 
 use serde::{Deserialize, Serialize};
-use tasker_shared::messaging::service::QueuedMessage;
 use tasker_shared::messaging::service::MessageEvent;
+use tasker_shared::messaging::service::QueuedMessage;
 
 /// Worker queue event classification
 ///

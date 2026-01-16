@@ -7,8 +7,7 @@ use tracing::{debug, error, instrument, warn};
 use crate::config::PgmqNotifyConfig;
 use crate::error::{PgmqNotifyError, Result};
 use crate::events::{
-    BatchReadyEvent, MessageReadyEvent, MessageWithPayloadEvent, PgmqNotifyEvent,
-    QueueCreatedEvent,
+    BatchReadyEvent, MessageReadyEvent, MessageWithPayloadEvent, PgmqNotifyEvent, QueueCreatedEvent,
 };
 
 /// Trait for emitting PGMQ notifications

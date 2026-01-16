@@ -183,7 +183,10 @@ impl StepResultProcessor {
                     if let Err(e) = self
                         .context
                         .message_client()
-                        .ack_message(&self.config.step_results_queue_name, &message.receipt_handle)
+                        .ack_message(
+                            &self.config.step_results_queue_name,
+                            &message.receipt_handle,
+                        )
                         .await
                     {
                         warn!(
@@ -206,7 +209,11 @@ impl StepResultProcessor {
                     if let Err(nack_err) = self
                         .context
                         .message_client()
-                        .nack_message(&self.config.step_results_queue_name, &message.receipt_handle, false)
+                        .nack_message(
+                            &self.config.step_results_queue_name,
+                            &message.receipt_handle,
+                            false,
+                        )
                         .await
                     {
                         warn!(

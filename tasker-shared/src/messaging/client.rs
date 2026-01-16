@@ -213,10 +213,7 @@ impl MessageClient {
     /// Send a task finalization message
     ///
     /// Routes the message to the configured task finalization queue.
-    pub async fn send_task_finalization<T: QueueMessage>(
-        &self,
-        message: &T,
-    ) -> TaskerResult<()> {
+    pub async fn send_task_finalization<T: QueueMessage>(&self, message: &T) -> TaskerResult<()> {
         let queue = self.router.task_finalization_queue();
         self.provider
             .send_message(&queue, message)
@@ -436,10 +433,7 @@ mod tests {
             client.router().step_queue("payments"),
             "worker_payments_queue"
         );
-        assert_eq!(
-            client.router().result_queue(),
-            "orchestration_step_results"
-        );
+        assert_eq!(client.router().result_queue(), "orchestration_step_results");
         assert_eq!(
             client.router().task_request_queue(),
             "orchestration_task_requests"

@@ -469,8 +469,7 @@ mod tests {
         };
 
         let bytes = msg.to_bytes().expect("serialization should succeed");
-        let decoded =
-            TestMessage::from_bytes(&bytes).expect("deserialization should succeed");
+        let decoded = TestMessage::from_bytes(&bytes).expect("deserialization should succeed");
 
         assert_eq!(msg, decoded);
     }

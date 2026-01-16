@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use tasker_shared::{
-    messaging::service::MessageEvent,
     config::event_systems::{
         // TAS-61: BackoffConfig import removed - no longer used in tests
         EventSystemHealthConfig,
@@ -19,6 +18,7 @@ use tasker_shared::{
         WorkerEventSystemMetadata,
     },
     event_system::{deployment::DeploymentMode, event_driven::EventDrivenSystem},
+    messaging::service::MessageEvent,
     system_context::SystemContext,
 };
 use tasker_worker::worker::{
@@ -260,7 +260,7 @@ async fn test_deployment_mode_behavior() {
                 .expect("Failed to create SystemContext"),
         );
         // TAS-133: Use ChannelFactory for type-safe channel creation
-    let (command_sender, _command_receiver) = ChannelFactory::worker_command_channel(100);
+        let (command_sender, _command_receiver) = ChannelFactory::worker_command_channel(100);
 
         let event_system =
             WorkerEventSystem::new(config, command_sender, context, vec!["default".to_string()]);
@@ -322,11 +322,7 @@ async fn test_event_processing_error_handling() {
 // Helper functions
 
 /// TAS-133: Create a provider-agnostic MessageEvent for testing
-fn create_test_message_ready_event(
-    msg_id: i64,
-    queue_name: &str,
-    namespace: &str,
-) -> MessageEvent {
+fn create_test_message_ready_event(msg_id: i64, queue_name: &str, namespace: &str) -> MessageEvent {
     MessageEvent::new(queue_name, namespace, msg_id.to_string())
 }
 

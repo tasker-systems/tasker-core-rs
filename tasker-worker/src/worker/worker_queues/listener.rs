@@ -320,13 +320,19 @@ impl WorkerQueueListener {
                     // Update statistics
                     match &queue_event {
                         WorkerQueueEvent::StepMessage(_) => {
-                            stats.step_messages_processed.fetch_add(1, Ordering::Relaxed);
+                            stats
+                                .step_messages_processed
+                                .fetch_add(1, Ordering::Relaxed);
                         }
                         WorkerQueueEvent::HealthCheck(_) => {
-                            stats.health_checks_processed.fetch_add(1, Ordering::Relaxed);
+                            stats
+                                .health_checks_processed
+                                .fetch_add(1, Ordering::Relaxed);
                         }
                         WorkerQueueEvent::ConfigurationUpdate(_) => {
-                            stats.config_updates_processed.fetch_add(1, Ordering::Relaxed);
+                            stats
+                                .config_updates_processed
+                                .fetch_add(1, Ordering::Relaxed);
                         }
                         WorkerQueueEvent::Unknown { .. } => {
                             stats.unknown_events.fetch_add(1, Ordering::Relaxed);
@@ -349,7 +355,9 @@ impl WorkerQueueListener {
                         "Full message received, routing to StepMessageWithPayload"
                     );
 
-                    stats.step_messages_processed.fetch_add(1, Ordering::Relaxed);
+                    stats
+                        .step_messages_processed
+                        .fetch_add(1, Ordering::Relaxed);
 
                     WorkerNotification::StepMessageWithPayload(queued_msg)
                 }
@@ -471,7 +479,11 @@ mod tests {
     /// TAS-133 Phase 2 Validation: Test MessageEvent classification for step messages
     #[test]
     fn classify_event_step_message() {
-        let event = MessageEvent::new("linear_workflow_queue", "linear_workflow", MessageId::from(42i64));
+        let event = MessageEvent::new(
+            "linear_workflow_queue",
+            "linear_workflow",
+            MessageId::from(42i64),
+        );
         let classified = WorkerQueueListener::classify_event(&event);
 
         match classified {
@@ -518,7 +530,10 @@ mod tests {
         let classified = WorkerQueueListener::classify_event(&event);
 
         match classified {
-            WorkerQueueEvent::Unknown { queue_name, payload } => {
+            WorkerQueueEvent::Unknown {
+                queue_name,
+                payload,
+            } => {
                 assert_eq!(queue_name, "some_random_pattern");
                 assert!(payload.contains("Unclassified"));
             }
@@ -560,9 +575,15 @@ mod tests {
     #[test]
     fn listener_config_defaults() {
         let config = WorkerListenerConfig::default();
-        assert!(config.supported_namespaces.contains(&"linear_workflow".to_string()));
-        assert!(config.supported_namespaces.contains(&"diamond_workflow".to_string()));
-        assert!(config.supported_namespaces.contains(&"order_fulfillment".to_string()));
+        assert!(config
+            .supported_namespaces
+            .contains(&"linear_workflow".to_string()));
+        assert!(config
+            .supported_namespaces
+            .contains(&"diamond_workflow".to_string()));
+        assert!(config
+            .supported_namespaces
+            .contains(&"order_fulfillment".to_string()));
         assert_eq!(config.max_retry_attempts, 10);
         assert!(config.batch_processing);
     }

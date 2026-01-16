@@ -85,7 +85,10 @@ impl std::fmt::Debug for SystemContext {
             .field("tasker_config", &"Arc<TaskerConfig>")
             .field(
                 "messaging_provider",
-                &format!("Arc<MessagingProvider::{}>", self.messaging_provider.provider_name()),
+                &format!(
+                    "Arc<MessagingProvider::{}>",
+                    self.messaging_provider.provider_name()
+                ),
             )
             .field("message_client", &"Arc<MessageClient>")
             .field("database_pools", &self.database_pools)
@@ -238,7 +241,8 @@ impl SystemContext {
             "rabbitmq" => {
                 let rabbitmq_config = config.common.queues.rabbitmq.as_ref().ok_or_else(|| {
                     TaskerError::ConfigurationError(
-                        "RabbitMQ backend selected but [common.queues.rabbitmq] config not found".to_string(),
+                        "RabbitMQ backend selected but [common.queues.rabbitmq] config not found"
+                            .to_string(),
                     )
                 })?;
 
@@ -282,9 +286,7 @@ impl SystemContext {
     }
 
     /// Get circuit breaker manager if enabled (TAS-133e: separated from messaging)
-    fn create_circuit_breaker_manager(
-        config: &TaskerConfig,
-    ) -> Option<Arc<CircuitBreakerManager>> {
+    fn create_circuit_breaker_manager(config: &TaskerConfig) -> Option<Arc<CircuitBreakerManager>> {
         if config.common.circuit_breakers.enabled {
             info!("Circuit breaker manager enabled");
             Some(Arc::new(CircuitBreakerManager::from_config(

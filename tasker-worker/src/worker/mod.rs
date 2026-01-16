@@ -3,8 +3,8 @@
 //! Command pattern worker implementation that mirrors OrchestrationCore architecture
 
 pub mod actor_command_processor; // TAS-69: Actor-based command processor (pure routing)
-pub mod channels; // TAS-133: Semantic NewType channel wrappers
 pub mod actors; // TAS-69: Actor-based architecture for worker system
+pub mod channels; // TAS-133: Semantic NewType channel wrappers
 pub mod command_processor;
 pub mod core;
 pub mod domain_event_commands; // TAS-65/TAS-69: Domain event command types

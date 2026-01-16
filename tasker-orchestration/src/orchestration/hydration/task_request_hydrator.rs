@@ -113,8 +113,8 @@ impl TaskRequestHydrator {
         );
 
         // Parse the task request message
-        let task_request: TaskRequestMessage =
-            serde_json::from_value(message.message.clone()).map_err(|e| {
+        let task_request: TaskRequestMessage = serde_json::from_value(message.message.clone())
+            .map_err(|e| {
                 error!(
                     handle = ?message.handle,
                     error = %e,

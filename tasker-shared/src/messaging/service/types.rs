@@ -690,11 +690,7 @@ impl AtomicQueueStats {
         QueueStats {
             queue_name: self.queue_name.clone(),
             message_count,
-            in_flight_count: if in_flight > 0 {
-                Some(in_flight)
-            } else {
-                None
-            },
+            in_flight_count: if in_flight > 0 { Some(in_flight) } else { None },
             oldest_message_age_ms: if oldest_age > 0 {
                 Some(oldest_age)
             } else {
@@ -739,20 +735,26 @@ impl AtomicQueueStats {
         // Record counter deltas
         // We swap the last_recorded value with the current total and compute the delta
         let current_sent = self.total_sent.load(Ordering::Relaxed);
-        let last_sent = self.last_recorded_sent.swap(current_sent, Ordering::Relaxed);
+        let last_sent = self
+            .last_recorded_sent
+            .swap(current_sent, Ordering::Relaxed);
         if current_sent > last_sent {
             messages_sent_total().add(current_sent - last_sent, labels);
         }
 
         let current_received = self.total_received.load(Ordering::Relaxed);
-        let last_received = self.last_recorded_received.swap(current_received, Ordering::Relaxed);
+        let last_received = self
+            .last_recorded_received
+            .swap(current_received, Ordering::Relaxed);
         if current_received > last_received {
             messages_received_total().add(current_received - last_received, labels);
         }
 
         // Acked messages map to "archived" in PGMQ terminology
         let current_acked = self.total_acked.load(Ordering::Relaxed);
-        let last_acked = self.last_recorded_acked.swap(current_acked, Ordering::Relaxed);
+        let last_acked = self
+            .last_recorded_acked
+            .swap(current_acked, Ordering::Relaxed);
         if current_acked > last_acked {
             messages_archived_total().add(current_acked - last_acked, labels);
         }
@@ -760,7 +762,9 @@ impl AtomicQueueStats {
         // Note: total_nacked doesn't have a direct counter in messaging.rs
         // It's tracked internally but could be added if needed
         let current_nacked = self.total_nacked.load(Ordering::Relaxed);
-        let _last_nacked = self.last_recorded_nacked.swap(current_nacked, Ordering::Relaxed);
+        let _last_nacked = self
+            .last_recorded_nacked
+            .swap(current_nacked, Ordering::Relaxed);
         // Future: add messages_nacked_total() counter if needed
     }
 
@@ -771,8 +775,10 @@ impl AtomicQueueStats {
     pub fn reset_metrics_baseline(&self) {
         self.last_recorded_sent
             .store(self.total_sent.load(Ordering::Relaxed), Ordering::Relaxed);
-        self.last_recorded_received
-            .store(self.total_received.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.last_recorded_received.store(
+            self.total_received.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
         self.last_recorded_acked
             .store(self.total_acked.load(Ordering::Relaxed), Ordering::Relaxed);
         self.last_recorded_nacked
@@ -1192,12 +1198,7 @@ mod tests {
 
     #[test]
     fn test_queued_message_map() {
-        let msg = QueuedMessage::new(
-            ReceiptHandle::from("handle"),
-            42_i32,
-            1,
-            chrono::Utc::now(),
-        );
+        let msg = QueuedMessage::new(ReceiptHandle::from("handle"), 42_i32, 1, chrono::Utc::now());
 
         let mapped = msg.map(|n| n.to_string());
         assert_eq!(mapped.message, "42");

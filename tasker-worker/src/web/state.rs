@@ -179,9 +179,8 @@ impl WorkerWebState {
         info!(worker_id = %worker_id, "Worker ID cached for web state");
 
         // TAS-133e: Create message client using the new provider-agnostic API
-        let messaging_provider = Arc::new(
-            MessagingProvider::new_pgmq_with_pool((*pgmq_pool).clone()).await,
-        );
+        let messaging_provider =
+            Arc::new(MessagingProvider::new_pgmq_with_pool((*pgmq_pool).clone()).await);
         let message_client = Arc::new(MessageClient::new(
             messaging_provider,
             tasker_shared::messaging::service::MessageRouterKind::default(),

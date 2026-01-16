@@ -475,8 +475,8 @@ impl SupportsPushNotifications for PgmqMessagingService {
                                 enqueued_at: e.ready_at,
                             };
                             // Serialize the JSON payload to bytes
-                            let payload_bytes = serde_json::to_vec(&e.message)
-                                .unwrap_or_else(|_| Vec::new());
+                            let payload_bytes =
+                                serde_json::to_vec(&e.message).unwrap_or_else(|_| Vec::new());
                             let queued_msg =
                                 QueuedMessage::with_handle(payload_bytes, handle, metadata);
                             MessageNotification::message(queued_msg)
@@ -610,7 +610,10 @@ impl SupportsPushNotifications for PgmqMessagingService {
             let stream = futures::stream::unfold(rx, |mut rx| async move {
                 rx.recv().await.map(|item| (item, rx))
             });
-            result_streams.push((queue_name.to_string(), Box::pin(stream) as NotificationStream));
+            result_streams.push((
+                queue_name.to_string(),
+                Box::pin(stream) as NotificationStream,
+            ));
         }
 
         // Collect unique channels to listen to
@@ -641,18 +644,18 @@ impl SupportsPushNotifications for PgmqMessagingService {
 
             // Create and connect ONE listener
             let buffer_size = 100;
-            let mut listener = match PgmqNotifyListener::new(pool, config.clone(), buffer_size).await
-            {
-                Ok(l) => l,
-                Err(e) => {
-                    error!(
-                        "Failed to create shared PGMQ listener for {} queues: {}",
-                        queue_names_owned.len(),
-                        e
-                    );
-                    return;
-                }
-            };
+            let mut listener =
+                match PgmqNotifyListener::new(pool, config.clone(), buffer_size).await {
+                    Ok(l) => l,
+                    Err(e) => {
+                        error!(
+                            "Failed to create shared PGMQ listener for {} queues: {}",
+                            queue_names_owned.len(),
+                            e
+                        );
+                        return;
+                    }
+                };
 
             if let Err(e) = listener.connect().await {
                 error!(
@@ -679,7 +682,8 @@ impl SupportsPushNotifications for PgmqMessagingService {
 
             // Event handler that demultiplexes to per-queue senders
             struct DemultiplexingForwarder {
-                senders: Arc<RwLock<HashMap<String, tokio::sync::mpsc::Sender<MessageNotification>>>>,
+                senders:
+                    Arc<RwLock<HashMap<String, tokio::sync::mpsc::Sender<MessageNotification>>>>,
                 queue_names: Vec<String>,
             }
 

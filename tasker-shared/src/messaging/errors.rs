@@ -216,11 +216,7 @@ impl MessagingError {
     }
 
     /// Create an ack error
-    pub fn ack(
-        queue_name: impl Into<String>,
-        message_id: i64,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn ack(queue_name: impl Into<String>, message_id: i64, message: impl Into<String>) -> Self {
         Self::QueueOperation {
             queue_name: queue_name.into(),
             operation: format!("ack(msg_id={})", message_id),

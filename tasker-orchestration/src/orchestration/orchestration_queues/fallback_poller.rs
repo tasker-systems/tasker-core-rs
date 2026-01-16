@@ -101,7 +101,10 @@ impl std::fmt::Debug for OrchestrationFallbackPoller {
         f.debug_struct("OrchestrationFallbackPoller")
             .field("poller_id", &self.poller_id)
             .field("config", &self.config)
-            .field("provider", &self.context.messaging_provider().provider_name())
+            .field(
+                "provider",
+                &self.context.messaging_provider().provider_name(),
+            )
             .field(
                 "is_running",
                 &self.is_running.load(std::sync::atomic::Ordering::Relaxed),

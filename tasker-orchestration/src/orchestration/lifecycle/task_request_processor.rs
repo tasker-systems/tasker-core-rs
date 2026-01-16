@@ -131,7 +131,11 @@ impl TaskRequestProcessor {
                     // Nack malformed or repeatedly failing messages without requeue (TAS-133e)
                     if let Err(nack_err) = self
                         .message_client
-                        .nack_message(&self.config.request_queue_name, &message.receipt_handle, false)
+                        .nack_message(
+                            &self.config.request_queue_name,
+                            &message.receipt_handle,
+                            false,
+                        )
                         .await
                     {
                         warn!(

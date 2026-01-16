@@ -197,7 +197,11 @@ async fn test_publish_event(pool: PgPool) -> sqlx::Result<()> {
         .await
         .map_err(|e| sqlx::Error::Protocol(format!("Failed to receive messages: {}", e)))?;
 
-    assert_eq!(messages.len(), 1, "Should have exactly one message in queue");
+    assert_eq!(
+        messages.len(),
+        1,
+        "Should have exactly one message in queue"
+    );
 
     // TAS-133: Cleanup only for PGMQ (RabbitMQ queues are managed externally)
     if provider.provider_name() == "pgmq" {

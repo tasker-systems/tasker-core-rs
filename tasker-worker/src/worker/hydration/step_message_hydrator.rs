@@ -112,11 +112,9 @@ impl StepMessageHydrator {
     ///
     /// # Returns
     /// The typed `PgmqMessage<StepMessage>` or an error
-    pub fn parse_step_message(
-        message: PgmqMessage,
-    ) -> TaskerResult<PgmqMessage<StepMessage>> {
-        let step_message: StepMessage = serde_json::from_value(message.message.clone())
-            .map_err(|e| {
+    pub fn parse_step_message(message: PgmqMessage) -> TaskerResult<PgmqMessage<StepMessage>> {
+        let step_message: StepMessage =
+            serde_json::from_value(message.message.clone()).map_err(|e| {
                 TaskerError::MessagingError(format!("Failed to deserialize step message: {}", e))
             })?;
 

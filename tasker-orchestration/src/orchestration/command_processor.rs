@@ -30,7 +30,9 @@ use uuid::Uuid;
 use super::channels::{ChannelFactory, OrchestrationCommandReceiver, OrchestrationCommandSender};
 
 use pgmq::Message as PgmqMessage;
-use tasker_shared::messaging::service::{MessageEvent, MessageHandle, MessageMetadata, QueuedMessage};
+use tasker_shared::messaging::service::{
+    MessageEvent, MessageHandle, MessageMetadata, QueuedMessage,
+};
 use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
 use tasker_shared::{TaskerError, TaskerResult};
 
@@ -781,16 +783,12 @@ impl OrchestrationProcessorCommandHandler {
         }
 
         // TAS-133: Parse message_id back to i64 for PGMQ-specific operations
-        let msg_id: i64 = message_event
-            .message_id
-            .as_str()
-            .parse()
-            .map_err(|e| {
-                TaskerError::ValidationError(format!(
-                    "Invalid message ID '{}' for PGMQ: {e}",
-                    message_event.message_id
-                ))
-            })?;
+        let msg_id: i64 = message_event.message_id.as_str().parse().map_err(|e| {
+            TaskerError::ValidationError(format!(
+                "Invalid message ID '{}' for PGMQ: {e}",
+                message_event.message_id
+            ))
+        })?;
 
         // Read the specific message by ID (the correct approach for event-driven processing)
         // TAS-133e: Use PGMQ client for event-driven operations
@@ -944,16 +942,12 @@ impl OrchestrationProcessorCommandHandler {
         }
 
         // TAS-133: Parse message_id back to i64 for PGMQ-specific operations
-        let msg_id: i64 = message_event
-            .message_id
-            .as_str()
-            .parse()
-            .map_err(|e| {
-                TaskerError::ValidationError(format!(
-                    "Invalid message ID '{}' for PGMQ: {e}",
-                    message_event.message_id
-                ))
-            })?;
+        let msg_id: i64 = message_event.message_id.as_str().parse().map_err(|e| {
+            TaskerError::ValidationError(format!(
+                "Invalid message ID '{}' for PGMQ: {e}",
+                message_event.message_id
+            ))
+        })?;
 
         tracing::debug!(
             msg_id = msg_id,
@@ -1121,16 +1115,12 @@ impl OrchestrationProcessorCommandHandler {
         }
 
         // TAS-133: Parse message_id back to i64 for PGMQ-specific operations
-        let msg_id: i64 = message_event
-            .message_id
-            .as_str()
-            .parse()
-            .map_err(|e| {
-                TaskerError::ValidationError(format!(
-                    "Invalid message ID '{}' for PGMQ: {e}",
-                    message_event.message_id
-                ))
-            })?;
+        let msg_id: i64 = message_event.message_id.as_str().parse().map_err(|e| {
+            TaskerError::ValidationError(format!(
+                "Invalid message ID '{}' for PGMQ: {e}",
+                message_event.message_id
+            ))
+        })?;
 
         // Read the specific message by ID (the correct approach for event-driven processing)
         let message = self
