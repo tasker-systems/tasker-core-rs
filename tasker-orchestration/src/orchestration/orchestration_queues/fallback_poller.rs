@@ -29,7 +29,7 @@ use tasker_shared::messaging::service::MessagingProvider;
 use tasker_shared::{system_context::SystemContext, TaskerResult};
 
 use crate::orchestration::channels::OrchestrationCommandSender;
-use crate::orchestration::command_processor::OrchestrationCommand;
+use crate::orchestration::commands::OrchestrationCommand;
 
 /// Configuration for orchestration queue fallback polling
 ///

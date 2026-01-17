@@ -25,7 +25,7 @@
 
 use tokio::sync::mpsc;
 
-use super::command_processor::OrchestrationCommand;
+use super::commands::OrchestrationCommand;
 use super::orchestration_queues::listener::OrchestrationNotification;
 
 // ============================================================================

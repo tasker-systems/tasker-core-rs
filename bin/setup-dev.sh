@@ -297,7 +297,12 @@ setup_workers() {
     if [[ -d "workers/python" ]]; then
         cd workers/python
         if command_exists uv; then
-            uv venv 2>/dev/null || true
+            # Recreate venv to ensure it's in the correct location
+            if [[ -d ".venv" ]]; then
+                info "Removing old venv (may be from different location)..."
+                rm -rf .venv
+            fi
+            uv venv
             uv sync --group dev
             success "Python worker dependencies installed"
         else

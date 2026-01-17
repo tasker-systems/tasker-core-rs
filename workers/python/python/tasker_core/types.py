@@ -1009,7 +1009,7 @@ class StepHandlerResult(BaseModel):
             >>> result = StepHandlerResult.success({"processed": 100, "skipped": 5})
         """
         return cls(
-            is_success=True,  # type: ignore[call-arg]  # populate_by_name=True allows this
+            is_success=True,
             result=result,
             metadata=metadata or {},
         )
@@ -1054,7 +1054,7 @@ class StepHandlerResult(BaseModel):
         # Convert ErrorType enum to string value if needed
         error_type_str = error_type.value if isinstance(error_type, ErrorType) else error_type
         return cls(
-            is_success=False,  # type: ignore[call-arg]  # populate_by_name=True allows this
+            is_success=False,
             error_message=message,
             error_type=error_type_str,
             error_code=error_code,

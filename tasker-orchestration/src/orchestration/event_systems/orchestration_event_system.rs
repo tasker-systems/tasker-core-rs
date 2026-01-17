@@ -17,7 +17,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::orchestration::{
     channels::{ChannelFactory, OrchestrationCommandSender},
-    command_processor::OrchestrationCommand,
+    commands::OrchestrationCommand,
     orchestration_queues::{
         OrchestrationFallbackPoller, OrchestrationListenerConfig, OrchestrationListenerStats,
         OrchestrationNotification, OrchestrationPollerConfig, OrchestrationPollerStats,
@@ -28,7 +28,7 @@ use crate::orchestration::{
 use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
 
-use crate::orchestration::command_processor::{
+use crate::orchestration::commands::{
     StepProcessResult, TaskFinalizationResult, TaskInitializeResult,
 };
 use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};

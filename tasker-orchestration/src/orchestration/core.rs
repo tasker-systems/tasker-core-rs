@@ -5,7 +5,7 @@
 //!
 //! ## Key Features
 //!
-//! - **Command Pattern Integration**: Uses OrchestrationProcessor for all orchestration operations
+//! - **Command Pattern Integration**: Uses OrchestrationCommandProcessorActor (TAS-148) for all operations
 //! - **Sophisticated Delegation**: Maintains existing sophisticated orchestration logic through delegation
 //! - **No Polling**: Pure command-driven architecture with tokio channels
 //! - **Race Condition Prevention**: TAS-37 atomic finalization claiming preserved through delegation
@@ -22,10 +22,11 @@ use tasker_shared::monitoring::ChannelMonitor; // TAS-51: Channel monitoring
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
+use crate::actors::OrchestrationCommandProcessorActor;
 use crate::health::{BackpressureChecker, HealthStatusCaches, StatusEvaluator};
 use crate::orchestration::channels::OrchestrationCommandSender;
-use crate::orchestration::command_processor::{
-    OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, SystemHealth,
+use crate::orchestration::commands::{
+    OrchestrationCommand, OrchestrationProcessingStats, SystemHealth,
 };
 use crate::orchestration::staleness_detector::StalenessDetector;
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
@@ -42,10 +43,10 @@ pub struct OrchestrationCore {
     /// TAS-133: Uses NewType wrapper for type-safe channel communication
     command_sender: OrchestrationCommandSender,
 
-    /// Orchestration processor (handles commands in background)
+    /// TAS-148: Command processor actor (handles commands in background)
     /// Kept alive for the lifetime of OrchestrationCore to ensure background task runs
     /// Future: Will be used for reaper/sweeper processes for missed messages
-    processor: Option<OrchestrationProcessor>,
+    processor: Option<OrchestrationCommandProcessorActor>,
 
     /// System status - shared via Arc\<RwLock\> so web layer can read without locking the core
     pub status: Arc<RwLock<OrchestrationCoreStatus>>,
@@ -119,7 +120,7 @@ impl OrchestrationCore {
         // let result_processor = Self::create_result_processor(&context).await?;
         // let task_claim_step_enqueuer = Self::create_task_claim_step_enqueuer(&context).await?;
 
-        // Create OrchestrationProcessor with actor registry (TAS-46)
+        // TAS-148: Create OrchestrationCommandProcessorActor with actor registry
         // TAS-51: Use configured buffer size for command processor
         // TAS-61 V2: Access mpsc_channels from orchestration context
         let command_buffer_size = context
@@ -141,7 +142,7 @@ impl OrchestrationCore {
         let backpressure_checker =
             BackpressureChecker::with_default_threshold(health_caches.clone());
 
-        let (mut processor, command_sender) = OrchestrationProcessor::new(
+        let (mut processor, command_sender) = OrchestrationCommandProcessorActor::new(
             context.clone(),
             actors,
             context.message_client(),

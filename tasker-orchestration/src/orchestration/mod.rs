@@ -46,7 +46,7 @@
 // Core Components
 pub mod bootstrap;
 pub mod channels; // TAS-133: Semantic NewType channel wrappers
-pub mod command_processor;
+pub mod commands; // TAS-148: Command types (extracted from legacy command_processor)
 pub mod core;
 pub mod state_manager;
 
@@ -87,9 +87,10 @@ pub use channels::{
     OrchestrationNotificationReceiver, OrchestrationNotificationSender,
 };
 
-pub use command_processor::{
-    OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, StepProcessResult,
-    SystemHealth, TaskFinalizationResult, TaskInitializeResult,
+// TAS-148: Re-export command types from the commands module
+pub use commands::{
+    CommandResponder, OrchestrationCommand, OrchestrationProcessingStats, StepProcessResult,
+    SystemHealth, TaskFinalizationResult, TaskInitializeResult, TaskReadinessResult,
 };
 
 pub use core::{OrchestrationCore, OrchestrationCoreStatus};

@@ -59,6 +59,9 @@ brew "uv"
 # ruff - Fast Python linter and formatter (also available via uv)
 brew "ruff"
 
+# mypy - Static type checker for Python
+brew "mypy"
+
 # -----------------------------------------------------------------------------
 # Ruby Tooling
 # -----------------------------------------------------------------------------

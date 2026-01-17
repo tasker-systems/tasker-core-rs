@@ -3,6 +3,7 @@ use magnus::{Error as MagnusError, Module, Ruby};
 mod bootstrap;
 mod bridge;
 mod conversions;
+mod diagnostics; // System diagnostics for troubleshooting
 mod event_publisher_ffi; // TAS-65 Phase 2.4a: Domain event publishing FFI
 mod ffi_logging;
 mod global_event_system;
@@ -28,6 +29,12 @@ fn init(ruby: &Ruby) -> Result<(), MagnusError> {
 
     // Initialize bridge with all lifecycle methods
     bridge::init_bridge(&ffi_module)?;
+
+    // Add diagnostic function for troubleshooting
+    ffi_module.define_module_function(
+        "system_diagnostics",
+        magnus::function!(diagnostics::system_diagnostics, 0),
+    )?;
 
     Ok(())
 }
