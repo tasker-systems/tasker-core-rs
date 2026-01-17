@@ -13,8 +13,8 @@
 //! - **Graceful Shutdown**: Proper cleanup and resource management
 //! - **Consistent API**: Same bootstrap interface regardless of deployment mode
 
-// Note: OrchestrationLoopCoordinator removed as part of TAS-40 command pattern migration
-// Bootstrap will be updated to use OrchestrationProcessor once implemented
+// Note: TAS-40 command pattern migration complete. TAS-148 unified the processor into
+// OrchestrationCommandProcessorActor in the actors module.
 use crate::orchestration::{
     event_systems::{UnifiedCoordinatorConfig, UnifiedEventCoordinator},
     OrchestrationCore,

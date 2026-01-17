@@ -25,8 +25,8 @@ use tasker_shared::{system_context::SystemContext, TaskerResult};
 /// Registry managing all orchestration actors
 ///
 /// The ActorRegistry holds Arc references to all actors in the system,
-/// providing centralized access and lifecycle management. This serves as
-/// the replacement for the individual component fields in OrchestrationProcessor.
+/// providing centralized access and lifecycle management. This is used by
+/// `OrchestrationCommandProcessorActor` (TAS-148) for delegating commands to actors.
 ///
 /// ## Design
 ///
