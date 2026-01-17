@@ -38,7 +38,10 @@ chrono = { workspace = true }
 # Environment variable loading
 dotenvy = { workspace = true }
 # Ruby FFI
-magnus = { version = "0.8", features = ["embed"] }
+# NOTE: "embed" feature removed for M4 Pro compatibility (TAS-XXX)
+# Static linking with embed causes segfaults on Apple M4 Pro due to
+# ARM64 FEAT_LSE2 atomic instruction incompatibility
+magnus = { version = "0.8" }
 # Once Cell
 once_cell = { workspace = true }
 # Serde for serialization/deserialization

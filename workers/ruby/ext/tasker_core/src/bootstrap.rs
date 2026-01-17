@@ -70,11 +70,19 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
         return Ok(hash.as_value());
     }
 
-    // Create tokio runtime
-    let runtime = tokio::runtime::Runtime::new().map_err(|e| {
-        error!("Failed to create tokio runtime: {}", e);
-        Error::new(runtime_error_class(), "Runtime creation failed")
-    })?;
+    // Create tokio runtime with explicit thread pool sizing
+    // NOTE: Explicit worker_threads=8 for M2/M4 Pro compatibility (TAS-XXX)
+    // M4 Pro has 12 cores (10 P + 2 E), M2 Pro has 8 cores (6 P + 2 E)
+    // Using 8 threads ensures consistent behavior across architectures
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(8)
+        .thread_name("ruby-ffi-runtime")
+        .enable_all()
+        .build()
+        .map_err(|e| {
+            error!("Failed to create tokio runtime: {}", e);
+            Error::new(runtime_error_class(), "Runtime creation failed")
+        })?;
 
     // TAS-65 Phase 2: Initialize telemetry in Tokio runtime context
     runtime.block_on(async {
