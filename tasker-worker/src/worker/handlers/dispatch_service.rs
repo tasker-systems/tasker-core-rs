@@ -821,10 +821,6 @@ mod tests {
     }
 
     // Test registry for integration tests
-    #[expect(
-        dead_code,
-        reason = "Test registry used for dispatch service integration tests"
-    )]
     struct TestRegistry {
         handlers: RwLock<HashMap<String, Arc<dyn StepHandler>>>,
     }

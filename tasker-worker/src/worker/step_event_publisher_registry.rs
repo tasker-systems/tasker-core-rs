@@ -479,11 +479,6 @@ mod tests {
     #[derive(Debug)]
     struct TestPublisher {
         name: String,
-        // In tests, we don't actually use the domain publisher
-        #[expect(
-            dead_code,
-            reason = "Domain publisher required by StepEventPublisher trait but unused in tests"
-        )]
         domain_publisher: Arc<DomainEventPublisher>,
     }
 
