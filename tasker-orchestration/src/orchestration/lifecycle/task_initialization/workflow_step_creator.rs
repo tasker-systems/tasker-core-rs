@@ -51,10 +51,19 @@ impl WorkflowStepCreator {
         Self { context }
     }
 
-    /// Create a single workflow step and its named step
+    /// Create a single workflow step and its named step (idempotent)
     ///
-    /// This is the core step creation logic, used by both task initialization
-    /// and dynamic decision point creation.
+    /// TAS-151: This is the core step creation logic, used by both task initialization
+    /// and dynamic decision point creation. It uses find_or_create semantics to handle
+    /// race conditions where multiple orchestrators may attempt to create the same step
+    /// concurrently.
+    ///
+    /// ## Idempotency
+    ///
+    /// Uses "first past the finish" semantics:
+    /// - First operation to complete INSERT wins
+    /// - Subsequent operations return the existing step
+    /// - All callers receive a valid WorkflowStep reference
     ///
     /// ## Transaction Safety
     ///
@@ -72,8 +81,7 @@ impl WorkflowStepCreator {
         // Serialize handler initialization
         let inputs = self.serialize_handler_initialization(step_definition)?;
 
-        // Create workflow step
-
+        // Find or create workflow step (idempotent operation)
         let new_workflow_step = NewWorkflowStep {
             task_uuid,
             named_step_uuid: named_step.named_step_uuid,
@@ -82,14 +90,24 @@ impl WorkflowStepCreator {
             inputs,
         };
 
-        let workflow_step = WorkflowStep::create_with_transaction(tx, new_workflow_step)
-            .await
-            .map_err(|e| {
-                TaskInitializationError::Database(format!(
-                    "Failed to create WorkflowStep '{}': {}",
-                    step_definition.name, e
-                ))
-            })?;
+        let (workflow_step, created) =
+            WorkflowStep::find_or_create_with_transaction(tx, new_workflow_step)
+                .await
+                .map_err(|e| {
+                    TaskInitializationError::Database(format!(
+                        "Failed to find or create WorkflowStep '{}': {}",
+                        step_definition.name, e
+                    ))
+                })?;
+
+        if !created {
+            tracing::debug!(
+                step_name = %step_definition.name,
+                workflow_step_uuid = %workflow_step.workflow_step_uuid,
+                task_uuid = %task_uuid,
+                "WorkflowStep already existed (concurrent creation resolved)"
+            );
+        }
 
         Ok((workflow_step, named_step))
     }

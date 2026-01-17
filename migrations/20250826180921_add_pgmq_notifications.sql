@@ -20,7 +20,7 @@
 -- UP Migration
 
 -- Robust namespace extraction helper function
-CREATE OR REPLACE FUNCTION extract_queue_namespace(queue_name TEXT)
+CREATE OR REPLACE FUNCTION tasker.extract_queue_namespace(queue_name TEXT)
 RETURNS TEXT AS $$
 BEGIN
     -- Handle orchestration queues
@@ -50,7 +50,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function to notify when queues are created (updated to use robust extraction)
-CREATE OR REPLACE FUNCTION pgmq_notify_queue_created()
+CREATE OR REPLACE FUNCTION tasker.pgmq_notify_queue_created()
 RETURNS trigger AS $$
 DECLARE
     event_payload TEXT;
@@ -58,7 +58,7 @@ DECLARE
     namespace_name TEXT;
 BEGIN
     -- Extract namespace using robust helper function
-    namespace_name := extract_queue_namespace(NEW.queue_name);
+    namespace_name := tasker.extract_queue_namespace(NEW.queue_name);
 
     -- Build event payload
     event_payload := json_build_object(
@@ -83,7 +83,7 @@ $$ LANGUAGE plpgsql;
 -- TAS-133: Payload size threshold for full message inclusion
 -- pg_notify has ~8KB limit; we use 7000 bytes to leave room for metadata JSON wrapper
 -- Messages larger than this threshold fall back to signal-only notifications
-CREATE OR REPLACE FUNCTION pgmq_payload_size_threshold()
+CREATE OR REPLACE FUNCTION tasker.pgmq_payload_size_threshold()
 RETURNS INTEGER AS $$
 BEGIN
     RETURN 7000;
@@ -92,7 +92,7 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 
 -- Wrapper function that sends message AND notification atomically
 -- TAS-133: Now includes full message payload when size < 7KB threshold
-CREATE OR REPLACE FUNCTION pgmq_send_with_notify(
+CREATE OR REPLACE FUNCTION tasker.pgmq_send_with_notify(
     queue_name TEXT,
     message JSONB,
     delay_seconds INTEGER DEFAULT 0
@@ -111,7 +111,7 @@ BEGIN
     SELECT pgmq.send(queue_name, message, delay_seconds) INTO msg_id;
 
     -- Extract namespace from queue name using robust helper
-    namespace_name := extract_queue_namespace(queue_name);
+    namespace_name := tasker.extract_queue_namespace(queue_name);
 
     -- Build namespace-specific channel name
     namespace_channel := 'pgmq_message_ready.' || namespace_name;
@@ -119,7 +119,7 @@ BEGIN
     -- TAS-133: Check if we can include full message payload
     -- This enables RabbitMQ-style direct processing without separate fetch
     message_str := message::text;
-    size_threshold := pgmq_payload_size_threshold();
+    size_threshold := tasker.pgmq_payload_size_threshold();
     include_full_payload := length(message_str) < size_threshold;
 
     IF include_full_payload THEN
@@ -175,7 +175,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Batch version for efficiency
-CREATE OR REPLACE FUNCTION pgmq_send_batch_with_notify(
+CREATE OR REPLACE FUNCTION tasker.pgmq_send_batch_with_notify(
     queue_name TEXT,
     messages JSONB[],
     delay_seconds INTEGER DEFAULT 0
@@ -193,7 +193,7 @@ BEGIN
     FROM pgmq.send_batch(queue_name, messages, delay_seconds) AS t(msg_id);
 
     -- Extract namespace and build channels
-    namespace_name := extract_queue_namespace(queue_name);
+    namespace_name := tasker.extract_queue_namespace(queue_name);
     namespace_channel := 'pgmq_message_ready.' || namespace_name;
 
     -- Build event payload for batch
@@ -240,7 +240,7 @@ BEGIN
         CREATE TRIGGER pgmq_queue_created_trigger
             AFTER INSERT ON pgmq.meta
             FOR EACH ROW
-            EXECUTE FUNCTION pgmq_notify_queue_created();
+            EXECUTE FUNCTION tasker.pgmq_notify_queue_created();
 
         RAISE NOTICE 'Installed queue creation trigger on pgmq.meta';
     ELSE
@@ -267,7 +267,7 @@ $$;
 -- and sets a visibility timeout to prevent race conditions
 
 -- Function to read a specific message by ID with visibility timeout
-CREATE OR REPLACE FUNCTION pgmq_read_specific_message(
+CREATE OR REPLACE FUNCTION tasker.pgmq_read_specific_message(
     queue_name text,
     target_msg_id bigint,
     vt_seconds integer DEFAULT 30
@@ -333,7 +333,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function to delete a specific message by ID (after successful processing)
-CREATE OR REPLACE FUNCTION pgmq_delete_specific_message(
+CREATE OR REPLACE FUNCTION tasker.pgmq_delete_specific_message(
     queue_name text,
     target_msg_id bigint
 ) RETURNS boolean AS $$
@@ -369,7 +369,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function to extend visibility timeout for a specific message (if processing takes longer)
-CREATE OR REPLACE FUNCTION pgmq_extend_vt_specific_message(
+CREATE OR REPLACE FUNCTION tasker.pgmq_extend_vt_specific_message(
     queue_name text,
     target_msg_id bigint,
     additional_vt_seconds integer DEFAULT 30
@@ -412,8 +412,8 @@ $$ LANGUAGE plpgsql;
 -- DOWN Migration (Rollback)
 -- Uncomment to rollback wrapper functions:
 
--- DROP FUNCTION IF EXISTS pgmq_send_batch_with_notify(TEXT, JSONB[], INTEGER) CASCADE;
--- DROP FUNCTION IF EXISTS pgmq_send_with_notify(TEXT, JSONB, INTEGER) CASCADE;
--- DROP FUNCTION IF EXISTS pgmq_notify_queue_created() CASCADE;
--- DROP FUNCTION IF EXISTS extract_queue_namespace(TEXT) CASCADE;
+-- DROP FUNCTION IF EXISTS tasker.pgmq_send_batch_with_notify(TEXT, JSONB[], INTEGER) CASCADE;
+-- DROP FUNCTION IF EXISTS tasker.pgmq_send_with_notify(TEXT, JSONB, INTEGER) CASCADE;
+-- DROP FUNCTION IF EXISTS tasker.pgmq_notify_queue_created() CASCADE;
+-- DROP FUNCTION IF EXISTS tasker.extract_queue_namespace(TEXT) CASCADE;
 -- DROP TRIGGER IF EXISTS pgmq_queue_created_trigger ON pgmq.meta;

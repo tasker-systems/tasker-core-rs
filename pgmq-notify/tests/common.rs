@@ -106,7 +106,7 @@ impl TestDb {
         let mut results = HashMap::new();
 
         for queue_name in queue_names {
-            let row = sqlx::query("SELECT extract_queue_namespace($1) as namespace")
+            let row = sqlx::query("SELECT tasker.extract_queue_namespace($1) as namespace")
                 .bind(queue_name)
                 .fetch_one(&self.pool)
                 .await?;
