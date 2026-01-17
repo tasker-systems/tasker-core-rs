@@ -79,6 +79,11 @@ COMMENT ON CONSTRAINT unique_edge_per_step_pair ON tasker.workflow_step_edges IS
 ALTER TABLE ONLY tasker.workflow_step_result_audit
     ADD CONSTRAINT uq_audit_step_transition UNIQUE (workflow_step_uuid, workflow_step_transition_uuid);
 
+ALTER TABLE ONLY tasker.workflow_steps
+    ADD CONSTRAINT uq_workflow_step_task_named_step UNIQUE (task_uuid, named_step_uuid);
+
+COMMENT ON CONSTRAINT uq_workflow_step_task_named_step ON tasker.workflow_steps IS 'TAS-151: Prevents duplicate workflow steps for the same task and named step. Critical for idempotency in decision point processing where multiple orchestrators may process the same outcome concurrently.';
+
 -- =============================================================================
 -- FOREIGN KEY CONSTRAINTS
 -- =============================================================================

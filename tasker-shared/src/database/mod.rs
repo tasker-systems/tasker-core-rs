@@ -45,10 +45,12 @@
 //! # }
 //! ```
 
+pub mod error_codes;
 pub mod migrator;
 pub mod pools;
 pub mod sql_functions;
 
+pub use error_codes::PgErrorCode;
 pub use pools::{DatabaseOperation, DatabasePools};
 pub use sql_functions::{
     AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,

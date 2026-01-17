@@ -190,6 +190,117 @@ impl WorkflowStep {
         Ok(step)
     }
 
+    /// Find or create a workflow step within a transaction (idempotent operation)
+    ///
+    /// TAS-151: This method provides idempotent step creation for scenarios where multiple
+    /// orchestrators may attempt to create the same step concurrently (e.g., decision point
+    /// outcome processing).
+    ///
+    /// # Semantics: "First Past the Finish"
+    ///
+    /// When multiple concurrent operations attempt to create the same step:
+    /// 1. The first operation to complete the INSERT wins and creates the step
+    /// 2. Subsequent operations detect the unique constraint violation
+    /// 3. Rather than failing, they re-query and return the existing step
+    ///
+    /// This ensures exactly-once step creation while allowing all callers to receive
+    /// a valid WorkflowStep reference.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Check if step already exists for (task_uuid, named_step_uuid)
+    /// 2. If exists, return it immediately
+    /// 3. If not exists, attempt INSERT
+    /// 4. If INSERT fails with unique violation, re-query once (no recursion)
+    /// 5. Return the step (created or found)
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (WorkflowStep, bool) where the bool indicates:
+    /// - `true`: Step was newly created
+    /// - `false`: Step already existed (found, not created)
+    pub async fn find_or_create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_step: NewWorkflowStep,
+    ) -> Result<(WorkflowStep, bool), sqlx::Error> {
+        // Step 1: Check if the step already exists
+        let existing = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
+                   in_process, processed, processed_at, attempts, last_attempted_at,
+                   backoff_request_seconds, inputs, results, checkpoint, created_at, updated_at
+            FROM tasker.workflow_steps
+            WHERE task_uuid = $1::uuid AND named_step_uuid = $2::uuid
+            "#,
+            new_step.task_uuid,
+            new_step.named_step_uuid
+        )
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if let Some(step) = existing {
+            // Step already exists - return it with created=false
+            return Ok((step, false));
+        }
+
+        // Step 2: Attempt to create the step
+        let create_result = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            INSERT INTO tasker.workflow_steps (
+                task_uuid, named_step_uuid, retryable, max_attempts, inputs, created_at, updated_at
+            )
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5, NOW(), NOW())
+            RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
+                      in_process, processed, processed_at, attempts, last_attempted_at,
+                      backoff_request_seconds, inputs, results, checkpoint, created_at, updated_at
+            "#,
+            new_step.task_uuid,
+            new_step.named_step_uuid,
+            new_step.retryable.unwrap_or(true),
+            new_step.max_attempts.unwrap_or(3),
+            new_step.inputs
+        )
+        .fetch_one(&mut **tx)
+        .await;
+
+        match create_result {
+            Ok(step) => Ok((step, true)), // Successfully created
+            Err(sqlx::Error::Database(db_err)) => {
+                // Check if this is a unique constraint violation
+                if db_err
+                    .code()
+                    .map(|c| crate::database::PgErrorCode::is_unique_violation(c.as_ref()))
+                    .unwrap_or(false)
+                {
+                    // Step 3: Race condition - another transaction created the step first
+                    // Re-query once (no recursion to prevent infinite loops)
+                    let found_step = sqlx::query_as!(
+                        WorkflowStep,
+                        r#"
+                        SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,
+                               in_process, processed, processed_at, attempts, last_attempted_at,
+                               backoff_request_seconds, inputs, results, checkpoint, created_at, updated_at
+                        FROM tasker.workflow_steps
+                        WHERE task_uuid = $1::uuid AND named_step_uuid = $2::uuid
+                        "#,
+                        new_step.task_uuid,
+                        new_step.named_step_uuid
+                    )
+                    .fetch_one(&mut **tx)
+                    .await?;
+
+                    Ok((found_step, false)) // Found existing step
+                } else {
+                    // Some other database error - propagate it
+                    Err(sqlx::Error::Database(db_err))
+                }
+            }
+            Err(e) => Err(e), // Non-database error - propagate it
+        }
+    }
+
     /// Find a workflow step by ID
     pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<WorkflowStep>, sqlx::Error> {
         let step = sqlx::query_as!(

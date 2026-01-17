@@ -110,14 +110,17 @@ mod tests {
 
     #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_create_workflow_step_edge(pool: PgPool) -> FactoryResult<()> {
-        // Create task and steps
+        // Create task and steps with different named steps
+        // (task_uuid, named_step_uuid) must be unique per TAS-151 constraint
         let task = TaskFactory::new().create(&pool).await?;
         let step1 = WorkflowStepFactory::new()
             .for_task(task.task_uuid)
+            .with_named_step("step_one")
             .create(&pool)
             .await?;
         let step2 = WorkflowStepFactory::new()
             .for_task(task.task_uuid)
+            .with_named_step("step_two")
             .create(&pool)
             .await?;
 
