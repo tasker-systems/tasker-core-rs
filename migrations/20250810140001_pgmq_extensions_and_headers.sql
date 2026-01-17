@@ -16,6 +16,9 @@
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS pgmq CASCADE;
 
+-- Create tasker schema (needed for functions below)
+CREATE SCHEMA IF NOT EXISTS tasker;
+
 -- UUID v7 Compatibility Layer: Supports both PostgreSQL 17 (pg_uuidv7 extension)
 -- and PostgreSQL 18+ (native uuidv7() function)
 DO $uuid_compat$
@@ -42,7 +45,7 @@ END $uuid_compat$;
 --
 
 -- Function to add headers column to a pgmq queue table if it doesn't exist
-CREATE OR REPLACE FUNCTION pgmq_ensure_headers_column(queue_name TEXT)
+CREATE OR REPLACE FUNCTION tasker.pgmq_ensure_headers_column(queue_name TEXT)
 RETURNS VOID AS $$
 DECLARE
     full_table_name TEXT;
@@ -87,14 +90,14 @@ BEGIN
         SELECT substring(queue_record.tablename from 3) INTO table_name;
 
         -- Use our function to ensure headers column exists
-        PERFORM pgmq_ensure_headers_column(table_name);
+        PERFORM tasker.pgmq_ensure_headers_column(table_name);
     END LOOP;
 END;
 $$;
 
 -- Create a trigger function to automatically add headers column to new queue tables
 -- This ensures future queue tables created by pgmq-rs will be compatible
-CREATE OR REPLACE FUNCTION pgmq_auto_add_headers_trigger()
+CREATE OR REPLACE FUNCTION tasker.pgmq_auto_add_headers_trigger()
 RETURNS event_trigger AS $$
 DECLARE
     obj RECORD;
@@ -109,7 +112,7 @@ BEGIN
             queue_name := substring(obj.object_identity from 8);  -- Remove 'pgmq.q_'
 
             -- Ensure the new table has headers column
-            PERFORM pgmq_ensure_headers_column(queue_name);
+            PERFORM tasker.pgmq_ensure_headers_column(queue_name);
         END IF;
     END LOOP;
 END;
@@ -120,12 +123,12 @@ DROP EVENT TRIGGER IF EXISTS pgmq_headers_compatibility_trigger;
 CREATE EVENT TRIGGER pgmq_headers_compatibility_trigger
     ON ddl_command_end
     WHEN TAG IN ('CREATE TABLE')
-    EXECUTE FUNCTION pgmq_auto_add_headers_trigger();
+    EXECUTE FUNCTION tasker.pgmq_auto_add_headers_trigger();
 
-COMMENT ON FUNCTION pgmq_ensure_headers_column(TEXT) IS
+COMMENT ON FUNCTION tasker.pgmq_ensure_headers_column(TEXT) IS
 'Ensures a pgmq queue table has the headers JSONB column required by pgmq extension v1.5.1+';
 
-COMMENT ON FUNCTION pgmq_auto_add_headers_trigger() IS
+COMMENT ON FUNCTION tasker.pgmq_auto_add_headers_trigger() IS
 'Event trigger function to automatically add headers column to new pgmq queue tables';
 
 COMMENT ON EVENT TRIGGER pgmq_headers_compatibility_trigger IS
