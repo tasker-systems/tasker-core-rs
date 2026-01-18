@@ -6,3 +6,7 @@ pub mod integration_test_manager;
 pub mod integration_test_utils;
 pub mod lifecycle_test_manager;
 pub mod test_utils;
+
+// TAS-73: Multi-instance testing infrastructure
+pub mod multi_instance_test_manager;
+pub mod orchestration_cluster;
