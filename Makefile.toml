@@ -938,3 +938,107 @@ description = "Check TypeScript worker status"
 cwd = "workers/typescript"
 command = "cargo"
 args = ["make", "status"]
+
+# =============================================================================
+# TAS-73: Multi-Instance Cluster Tasks
+# =============================================================================
+# Run multiple instances of orchestration/workers for horizontal scaling tests.
+#
+# Port Allocation (multi-instance mode):
+#   Orchestration:  8080-8089 (up to 10 instances)
+#   Rust Workers:   8100-8109
+#   Ruby Workers:   8200-8209
+#   Python Workers: 8300-8309
+#   TS Workers:     8400-8409
+#
+# Usage:
+#   cargo make cluster-start              # Start default cluster (2 orch + 2 workers)
+#   cargo make cluster-stop               # Stop all cluster instances
+#   cargo make cluster-status             # Check all instance health
+#   cargo make cluster-start-orchestration # Start orchestration instances only
+#   cargo make cluster-start-workers      # Start worker instances only
+#
+# Environment Variables:
+#   TASKER_ORCHESTRATION_INSTANCES - Number of orchestration instances (default: 2)
+#   TASKER_WORKER_RUST_INSTANCES   - Number of rust worker instances (default: 2)
+#
+# See: docs/ticket-specs/TAS-73/multi-instance-deployment.md
+
+[tasks.cluster-start]
+description = "Start full multi-instance cluster (orchestration + workers)"
+dependencies = ["cluster-start-orchestration", "cluster-start-workers"]
+script = '''
+echo ""
+echo "⏳ Waiting for cluster to initialize..."
+sleep 5
+cargo make cluster-status
+'''
+
+[tasks.cluster-start-orchestration]
+description = "Start N orchestration instances"
+script = '''
+COUNT="${TASKER_ORCHESTRATION_INSTANCES:-2}"
+echo "🚀 Starting $COUNT orchestration instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" orchestration "$COUNT"
+'''
+
+[tasks.cluster-start-workers]
+description = "Start N worker instances of each configured type"
+script = '''
+RUST_COUNT="${TASKER_WORKER_RUST_INSTANCES:-2}"
+echo "🚀 Starting $RUST_COUNT rust worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-rust "$RUST_COUNT"
+'''
+
+[tasks.cluster-stop]
+description = "Stop all cluster instances"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh"
+'''
+
+[tasks.cluster-stop-orchestration]
+description = "Stop orchestration instances only"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" orchestration
+'''
+
+[tasks.cluster-stop-workers]
+description = "Stop all worker instances"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" worker-rust
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" worker-ruby
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" worker-python
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" worker-ts
+'''
+
+[tasks.cluster-status]
+description = "Check status and health of all cluster instances"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/cluster-status.sh"
+'''
+
+[tasks.cluster-status-quick]
+description = "Check status of cluster instances (no health checks)"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/cluster-status.sh" --no-health
+'''
+
+[tasks.cluster-logs]
+description = "Tail logs from all cluster instances"
+script = '''
+if ls .logs/orchestration-*.log .logs/worker-*.log 1>/dev/null 2>&1; then
+    tail -f .logs/orchestration-*.log .logs/worker-*.log
+else
+    echo "No cluster logs found. Start cluster first with: cargo make cluster-start"
+fi
+'''
+
+[tasks.cluster-logs-orchestration]
+description = "Tail logs from orchestration instances only"
+script = '''
+if ls .logs/orchestration-*.log 1>/dev/null 2>&1; then
+    tail -f .logs/orchestration-*.log
+else
+    echo "No orchestration logs found. Start cluster first with: cargo make cluster-start-orchestration"
+fi
+'''

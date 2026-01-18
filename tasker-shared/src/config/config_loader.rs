@@ -84,6 +84,25 @@ fn get_env_var_allowlist() -> Vec<EnvVarRule> {
             // TAS-133: Valid backends for messaging provider selection
             pattern: r"^(pgmq|rabbitmq)$",
         },
+        // TAS-73: Multi-instance deployment support
+        EnvVarRule {
+            name: "TASKER_INSTANCE_ID",
+            description: "Instance identifier for multi-instance deployments (e.g., orchestration-1, worker-rust-2)",
+            // Alphanumeric with hyphens, 1-64 chars
+            pattern: r"^[a-zA-Z0-9][a-zA-Z0-9\-]{0,63}$",
+        },
+        EnvVarRule {
+            name: "TASKER_INSTANCE_PORT",
+            description: "Override port for this instance (e.g., 8080, 8100)",
+            // Port number 1-65535
+            pattern: r"^[0-9]{1,5}$",
+        },
+        EnvVarRule {
+            name: "TASKER_WORKER_ID",
+            description: "Worker identifier for logging and metrics",
+            // Alphanumeric with hyphens, 1-64 chars
+            pattern: r"^[a-zA-Z0-9][a-zA-Z0-9\-]{0,63}$",
+        },
     ]
 }
 
