@@ -284,11 +284,7 @@ description = "Build Python worker (auto-detects split-db mode)"
 script = '''
 #!/bin/bash
 set -euo pipefail
-# Enable SQLX_OFFLINE in split-database mode
-if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
-    echo "🔀 Split database mode - using SQLX_OFFLINE=true for Python build"
-    export SQLX_OFFLINE=true
-fi
+source "cargo-make/scripts/split-db-env.sh"
 cd workers/python && cargo make build
 '''
 
@@ -319,11 +315,7 @@ description = "Build Ruby worker (auto-detects split-db mode)"
 script = '''
 #!/bin/bash
 set -euo pipefail
-# Enable SQLX_OFFLINE in split-database mode
-if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
-    echo "🔀 Split database mode - using SQLX_OFFLINE=true for Ruby build"
-    export SQLX_OFFLINE=true
-fi
+source "cargo-make/scripts/split-db-env.sh"
 cd workers/ruby && cargo make build
 '''
 
@@ -354,11 +346,7 @@ description = "Build TypeScript worker (auto-detects split-db mode)"
 script = '''
 #!/bin/bash
 set -euo pipefail
-# Enable SQLX_OFFLINE in split-database mode
-if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
-    echo "🔀 Split database mode - using SQLX_OFFLINE=true for TypeScript build"
-    export SQLX_OFFLINE=true
-fi
+source "cargo-make/scripts/split-db-env.sh"
 cd workers/typescript && cargo make build
 '''
 
@@ -497,26 +485,7 @@ script = { file = "${SCRIPTS_DIR}/reset-db.sh" }
 # TAS-78: Split Database Mode Tasks
 [tasks.db-migrate-split]
 description = "Run migrations in split database mode (requires PGMQ_DATABASE_URL)"
-script = '''
-#!/bin/bash
-set -euo pipefail
-
-if [ -z "${PGMQ_DATABASE_URL:-}" ]; then
-    echo "❌ PGMQ_DATABASE_URL not set"
-    echo ""
-    echo "Usage:"
-    echo "  PGMQ_DATABASE_URL=postgresql://... cargo make db-migrate-split"
-    echo ""
-    echo "Or use docker-compose for dual-database testing:"
-    echo "  docker compose -f docker/docker-compose.dual-pg.test.yml up -d"
-    echo "  source docker/dual-pg.env"
-    echo "  cargo make db-migrate-split"
-    exit 1
-fi
-
-echo "🔀 Running split database migrations..."
-${SCRIPTS_DIR}/run-migrations.sh
-'''
+script = { file = "${SCRIPTS_DIR}/migrate-db-split.sh" }
 
 [tasks.db-setup-split]
 description = "Setup split databases with migrations (requires PGMQ_DATABASE_URL)"
@@ -524,35 +493,7 @@ dependencies = ["db-check-split", "db-migrate-split"]
 
 [tasks.db-check-split]
 description = "Check connectivity to both Tasker and PGMQ databases"
-script = '''
-#!/bin/bash
-set -euo pipefail
-
-echo "🔍 Checking database connectivity..."
-
-# Check Tasker database
-echo -n "Tasker DB: "
-if pg_isready -d "${DATABASE_URL}" > /dev/null 2>&1; then
-    echo "✓ connected"
-else
-    echo "❌ not reachable"
-    exit 1
-fi
-
-# Check PGMQ database (if set)
-if [ -n "${PGMQ_DATABASE_URL:-}" ]; then
-    echo -n "PGMQ DB:   "
-    if pg_isready -d "${PGMQ_DATABASE_URL}" > /dev/null 2>&1; then
-        echo "✓ connected"
-    else
-        echo "❌ not reachable"
-        exit 1
-    fi
-fi
-
-echo ""
-echo "✓ All databases reachable"
-'''
+script = { file = "${SCRIPTS_DIR}/check-db-split.sh" }
 
 # =============================================================================
 # SQLX Cache Tasks
@@ -684,14 +625,11 @@ cargo watch -x "clippy --all-targets --all-features"
 # =============================================================================
 # Quick Shortcuts
 # =============================================================================
+# Note: t, tu, te, tc shortcuts defined in TAS-73 Test Infrastructure section
 
 [tasks.c]
 description = "Alias for check"
 alias = "check"
-
-[tasks.t]
-description = "Alias for test"
-alias = "test"
 
 [tasks.f]
 description = "Alias for fix"
@@ -700,10 +638,6 @@ alias = "fix"
 [tasks.b]
 description = "Alias for build"
 alias = "build"
-
-[tasks.tu]
-description = "Alias for test-rust-unit (unit tests only, no services required)"
-alias = "test-rust-unit"
 
 # =============================================================================
 # Service Management Tasks
@@ -738,30 +672,7 @@ PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-status.sh --all
 
 [tasks.services-start]
 description = "Start all services (orchestration + all workers)"
-script = '''
-echo "🚀 Starting all Tasker services..."
-echo ""
-
-# Start orchestration first
-echo "=== Starting Orchestration ==="
-cargo make run-orchestration
-echo ""
-
-# Start workers in parallel by launching them sequentially
-# (each returns quickly after backgrounding)
-echo "=== Starting Workers ==="
-cargo make run-worker-rust
-cargo make run-worker-python
-cargo make run-worker-ruby
-cargo make run-worker-typescript
-
-echo ""
-echo "⏳ Waiting for services to initialize..."
-sleep 5
-
-echo ""
-cargo make services-status
-'''
+script = { file = "${SCRIPTS_DIR}/services-start-all.sh" }
 
 [tasks.services-logs-clear]
 description = "Clear all service log files"
@@ -778,119 +689,17 @@ fi
 
 [tasks.services-stop]
 description = "Stop all running services"
-script = '''
-echo "🛑 Stopping all services..."
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh orchestration || true
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh rust-worker || true
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh ruby-worker || true
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh python-worker || true
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh typescript-worker || true
-echo "✅ All services stopped"
-'''
+script = { file = "${SCRIPTS_DIR}/services-stop-all.sh" }
 
 [tasks.services-health-check]
 description = "Check health endpoints of all running services"
-script = '''
-#!/bin/bash
-# Services health check - validates health endpoints for all workers
-# Uses port configuration from worker .env files
-
-echo "🏥 Checking service health endpoints..."
-echo ""
-
-# Service definitions: name|port|.env path
-services=(
-    "Orchestration|8080|"
-    "Rust Worker|8081|workers/rust/.env"
-    "Ruby Worker|8082|workers/ruby/.env"
-    "Python Worker|8083|workers/python/.env"
-    "TypeScript Worker|8085|workers/typescript/.env"
-)
-
-all_healthy=true
-failed_count=0
-success_count=0
-
-for service in "${services[@]}"; do
-    IFS='|' read -r name port env_file <<< "$service"
-
-    # Try to get port from .env if specified
-    if [ -n "$env_file" ] && [ -f "$env_file" ]; then
-        env_port=$(grep "^PORT=" "$env_file" | cut -d'=' -f2 | tr -d '"' | tr -d "'")
-        if [ -n "$env_port" ]; then
-            port="$env_port"
-        fi
-    fi
-
-    url="http://localhost:${port}/health"
-    printf "%-20s " "$name (${port}):"
-
-    # Check health endpoint with timeout
-    response=$(curl -s --connect-timeout 2 --max-time 5 "$url" 2>/dev/null)
-
-    if [ -n "$response" ]; then
-        # Parse status using jq if available, otherwise grep
-        if command -v jq &> /dev/null; then
-            status=$(echo "$response" | jq -r '.status // "unknown"' 2>/dev/null)
-        else
-            status=$(echo "$response" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
-        fi
-
-        if [ "$status" = "healthy" ]; then
-            echo "✅ healthy"
-            ((success_count++))
-        else
-            echo "⚠️  status: $status"
-            all_healthy=false
-            ((failed_count++))
-        fi
-    else
-        echo "❌ not responding"
-        all_healthy=false
-        ((failed_count++))
-    fi
-done
-
-echo ""
-echo "────────────────────────────────"
-echo "Summary: $success_count healthy, $failed_count failed"
-
-if [ "$all_healthy" = true ]; then
-    echo "✅ All services healthy"
-    exit 0
-else
-    echo "⚠️  Some services not healthy"
-    exit 1
-fi
-'''
+script = { file = "${SCRIPTS_DIR}/services-health-check.sh" }
 
 # --- Orchestration Service ---
 
 [tasks.run-orchestration]
 description = "Run orchestration service (port 8080)"
-script = '''
-# TAS-78: Preserve database URLs if already set (for split-database mode)
-_SAVED_DATABASE_URL="${DATABASE_URL:-}"
-_SAVED_PGMQ_DATABASE_URL="${PGMQ_DATABASE_URL:-}"
-
-source .env 2>/dev/null || true
-
-# Restore preserved URLs (split-db mode takes precedence)
-[ -n "$_SAVED_DATABASE_URL" ] && export DATABASE_URL="$_SAVED_DATABASE_URL"
-[ -n "$_SAVED_PGMQ_DATABASE_URL" ] && export PGMQ_DATABASE_URL="$_SAVED_PGMQ_DATABASE_URL"
-
-export TASKER_ENV=${TASKER_ENV:-test}
-export PORT=8080
-export TASKER_CONFIG_PATH=${TASKER_CONFIG_PATH:-$(pwd)/config/tasker/complete-test.toml}
-
-echo "🎯 Starting orchestration service..."
-echo "   Port: ${PORT}"
-echo "   Config: ${TASKER_CONFIG_PATH}"
-echo "   Database: ${DATABASE_URL}"
-
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-start.sh orchestration \
-    cargo run -p tasker-orchestration
-'''
+script = { file = "${SCRIPTS_DIR}/run-orchestration.sh" }
 
 [tasks.stop-orchestration]
 description = "Stop orchestration service"

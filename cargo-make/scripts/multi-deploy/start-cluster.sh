@@ -54,8 +54,8 @@ case "$SERVICE_TYPE" in
         ;;
     worker-rust)
         BASE_PORT="${BASE_PORT:-8100}"
-        PACKAGE="workers/rust"
-        BINARY_ARGS="--bin rust-worker"
+        PACKAGE="tasker-worker-rust"
+        BINARY_ARGS=""
         ;;
     worker-ruby)
         BASE_PORT="${BASE_PORT:-8200}"

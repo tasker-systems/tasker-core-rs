@@ -200,7 +200,7 @@ args = ["run", "build:watch"]
 
 [tasks.dev]
 description = "Development mode: build debug FFI and watch TS"
-dependencies = ["build-ffi-debug", "watch"]
+dependencies = ["build-ffi", "watch"]
 
 # =============================================================================
 # FFI Integration Test Tasks
