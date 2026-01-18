@@ -17,7 +17,6 @@ use crate::common::multi_instance_test_manager::MultiInstanceTestManager;
 /// 2. All tasks complete successfully
 /// 3. State is consistent across all instances
 #[tokio::test]
-#[ignore = "Requires multi-instance cluster: cargo make cluster-start"]
 async fn test_concurrent_task_creation_across_instances() -> Result<()> {
     println!("\n🧪 Testing concurrent task creation across instances...");
 
@@ -109,7 +108,6 @@ async fn test_concurrent_task_creation_across_instances() -> Result<()> {
 ///
 /// Creates many tasks in quick succession to stress test the system.
 #[tokio::test]
-#[ignore = "Requires multi-instance cluster: cargo make cluster-start"]
 async fn test_rapid_task_creation_burst() -> Result<()> {
     println!("\n🧪 Testing rapid task creation burst...");
 
@@ -163,7 +161,6 @@ async fn test_rapid_task_creation_burst() -> Result<()> {
 ///
 /// Verifies that tasks are distributed across instances using round-robin.
 #[tokio::test]
-#[ignore = "Requires multi-instance cluster: cargo make cluster-start"]
 async fn test_task_creation_round_robin_distribution() -> Result<()> {
     println!("\n🧪 Testing round-robin task distribution...");
 

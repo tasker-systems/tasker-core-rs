@@ -15,7 +15,6 @@ use crate::common::multi_instance_test_manager::MultiInstanceTestManager;
 /// Creates a task through one instance and verifies it can be
 /// read consistently through all instances.
 #[tokio::test]
-#[ignore = "Requires multi-instance cluster: cargo make cluster-start"]
 async fn test_state_consistency_across_instances() -> Result<()> {
     println!("\n🧪 Testing state consistency across instances...");
 
@@ -84,7 +83,6 @@ async fn test_state_consistency_across_instances() -> Result<()> {
 /// Creates multiple tasks concurrently and verifies they all
 /// reach consistent state across instances.
 #[tokio::test]
-#[ignore = "Requires multi-instance cluster: cargo make cluster-start"]
 async fn test_eventual_consistency_after_concurrent_operations() -> Result<()> {
     println!("\n🧪 Testing eventual consistency after concurrent operations...");
 
@@ -139,7 +137,6 @@ async fn test_eventual_consistency_after_concurrent_operations() -> Result<()> {
 /// Verifies that immediately after creating a task through one instance,
 /// it can be read through any other instance.
 #[tokio::test]
-#[ignore = "Requires multi-instance cluster: cargo make cluster-start"]
 async fn test_read_after_write_consistency() -> Result<()> {
     println!("\n🧪 Testing read-after-write consistency...");
 

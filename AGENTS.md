@@ -11,15 +11,21 @@
 **Preferred: cargo-make (unified task runner)**
 ```bash
 cargo make check       # All quality checks across workspace
-cargo make test        # All tests across workspace
+cargo make test        # All tests (requires services running)
 cargo make fix         # Auto-fix all fixable issues
 cargo make build       # Build everything
 
 # Shortcuts
 cargo make c           # check
-cargo make t           # test
+cargo make t           # test (requires services)
 cargo make f           # fix
 cargo make b           # build
+
+# Test levels (TAS-73 feature-gated hierarchy)
+cargo make test-rust-unit     # tu - Unit tests (DB + messaging only)
+cargo make test-rust-e2e      # te - E2E tests (requires services)
+cargo make test-rust-cluster  # tc - Cluster tests (requires: cluster-start)
+cargo make test-rust-all      # All tests including cluster
 
 # Language-specific
 cargo make check-rust
@@ -30,18 +36,25 @@ cargo make check-typescript
 
 **Direct cargo commands (when needed)**
 ```bash
-# Build and test (ALWAYS use --all-features)
+# Build (ALWAYS use --all-features for builds)
 cargo build --all-features
-cargo test --all-features
 cargo clippy --all-targets --all-features
 cargo fmt
 
 # Fast compilation check
 cargo check --all-features
 
+# Tests use feature flags for infrastructure levels:
+#   --features test-messaging  → DB + messaging (unit/integration tests)
+#   --features test-services   → + services running (E2E tests)
+#   --features test-cluster    → + multi-instance cluster (local only)
+#   --all-features             → everything including cluster tests
+cargo test --features test-services              # Standard E2E tests
+cargo test --features test-messaging --lib       # Library tests only
+
 # Run specific package/test
-cargo test --all-features --package <package-name>
-cargo test --all-features <test-name>
+cargo test --features test-services --package <package-name>
+cargo test --features test-services <test-name>
 
 # Documentation
 cargo doc --all-features --open

@@ -98,40 +98,97 @@ dependencies = ["build-rust", "build-python", "build-ruby", "build-typescript"]
 description = "Run all Rust quality checks"
 dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-doctests", "rust-machete"]
 
+# =============================================================================
+# TAS-73: Test Infrastructure Levels
+# =============================================================================
+# Feature flags control which tests compile:
+#   test-messaging  → DB + messaging (crate-level + integration tests)
+#   test-services   → + running services (E2E tests)
+#   test-cluster    → + multi-instance cluster (LOCAL ONLY - not in CI)
+#
+# See docs/ticket-specs/TAS-73/test-feature-flags-design.md for details.
+# =============================================================================
+
 [tasks.test-rust]
-description = "Run all Rust tests with nextest (loads .env for E2E tests)"
+description = "Run Rust tests (requires DB + messaging + services)"
 script = '''
 #!/bin/bash
-# Load environment from .env for E2E tests
 set -a
 source .env 2>/dev/null || true
 set +a
-cargo nextest run --workspace --all-features
+cargo nextest run --workspace --features test-services
 '''
 
 [tasks.test-rust-unit]
-description = "Run Rust unit tests only across workspace (excludes e2e and integration tests that require services)"
+description = "Run unit tests only (requires DB + messaging, no services)"
 script = '''
-cargo nextest run --workspace --all-features -E 'not binary(e2e_tests) & not binary(integration_tests)'
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+set +a
+cargo nextest run --workspace --features test-messaging \
+  -E 'not binary(e2e_tests)'
 '''
 
 [tasks.test-rust-e2e]
-description = "Run Rust e2e and integration tests only (requires services running)"
+description = "Run E2E tests (requires services running)"
 script = '''
 #!/bin/bash
-# Load environment from .env for fixture paths and config
 set -a
 source .env
 set +a
 echo "📋 Loaded environment: TASKER_FIXTURE_PATH=$TASKER_FIXTURE_PATH"
-cargo nextest run --workspace --all-features -E 'binary(e2e_tests) | binary(integration_tests)'
+cargo nextest run --workspace --features test-services \
+  -E 'binary(e2e_tests) | binary(integration_tests)'
+'''
+
+[tasks.test-rust-cluster]
+description = "Run cluster tests (requires: cargo make cluster-start)"
+script = '''
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+set +a
+echo "⚠️  Cluster tests require: cargo make cluster-start"
+echo "⚠️  These tests are NOT run in CI due to resource constraints"
+cargo nextest run --workspace --features test-cluster \
+  -E 'test(multi_instance)'
+'''
+
+[tasks.test-rust-all]
+description = "Run ALL tests including cluster (local development only)"
+script = '''
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+set +a
+echo "🚀 Running ALL tests (including cluster tests)"
+echo "⚠️  Ensure cluster is running: cargo make cluster-start"
+cargo nextest run --workspace --all-features
 '''
 
 [tasks.test-rust-verbose]
 description = "Run Rust tests with output"
 script = '''
-cargo nextest run --all-features --no-capture
+cargo nextest run --features test-services --no-capture
 '''
+
+# Test shortcuts
+[tasks.t]
+alias = "test-rust"
+description = "Shortcut for test-rust"
+
+[tasks.tu]
+alias = "test-rust-unit"
+description = "Shortcut for test-rust-unit"
+
+[tasks.te]
+alias = "test-rust-e2e"
+description = "Shortcut for test-rust-e2e"
+
+[tasks.tc]
+alias = "test-rust-cluster"
+description = "Shortcut for test-rust-cluster"
 
 [tasks.fix-rust]
 description = "Fix Rust formatting and clippy issues"

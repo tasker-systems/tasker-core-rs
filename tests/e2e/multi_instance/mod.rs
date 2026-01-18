@@ -4,11 +4,17 @@
 //! and worker instances. These tests require the multi-instance cluster
 //! to be running.
 //!
+//! **Feature gate**: `test-cluster` (implies `test-services`)
+//!
+//! **NOT run in CI** - GitHub Actions resource constraints prevent running
+//! multiple orchestration + worker instances. Run locally only.
+//!
 //! ## Prerequisites
 //!
 //! Start the cluster before running these tests:
 //! ```bash
 //! cargo make cluster-start
+//! cargo make test-rust-cluster  # or: cargo make tc
 //! ```
 //!
 //! Or configure custom URLs via environment:
@@ -22,6 +28,8 @@
 //! - **Concurrent Task Creation**: Validates task creation across instances
 //! - **Step Contention**: Validates atomic step claiming under load
 //! - **Consistency**: Validates state consistency across all instances
+
+#![cfg(feature = "test-cluster")]
 
 mod concurrent_task_creation_test;
 mod consistency_test;

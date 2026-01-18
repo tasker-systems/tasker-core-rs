@@ -140,5 +140,12 @@ web-api = [
   "utoipa-swagger-ui",
 ]
 
+# TAS-73: Test infrastructure levels (cumulative)
+# Crate-level tests require at minimum test-messaging (DB + queue)
+test-db = []
+test-messaging = ["test-db"]
+test-services = ["test-messaging"]
+test-cluster = ["test-services"]
+
 [lints]
 workspace = true
