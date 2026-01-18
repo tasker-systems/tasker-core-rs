@@ -1,8 +1,9 @@
-# TAS-73: Task Identity Hash Strategy
+# TAS-154: Task Identity Strategy Pattern
 
-**Status:** Design Required
-**Priority:** P1 (prerequisite for multi-instance testing)
-**Related:** TAS-73 research findings, idempotency-and-atomicity.md
+**Status:** Ready for Implementation
+**Priority:** P1 (feature enhancement for configurable deduplication)
+**Parent:** Identified during TAS-73 resiliency research
+**Related:** `docs/ticket-specs/TAS-73/research-findings.md`, `docs/architecture/idempotency-and-atomicity.md`
 
 ---
 
@@ -181,11 +182,16 @@ impl Task {
 2. Add `created` and `deduplicated_from` to response
 3. Update API documentation
 
-### Phase 4: Testing
+### Phase 4: Testing & Validation
 
 1. Unit tests for each strategy
 2. Integration tests for deduplication behavior
-3. Multi-instance tests for concurrent identical requests
+3. **Thundering herd test** (critical validation):
+   - Submit N=50 identical tasks simultaneously from multiple clients
+   - Verify STRICT strategy deduplicates to exactly 1 task
+   - Verify ALWAYS_UNIQUE creates N separate tasks
+   - Verify CALLER_PROVIDED with same key deduplicates correctly
+4. Multi-instance tests for concurrent identical requests across orchestrators
 
 ---
 
@@ -236,6 +242,21 @@ impl Task {
 
 ## Action Items
 
-- [ ] Add UNIQUE constraint to existing migration file
-- [ ] Update idempotency-and-atomicity.md to reflect actual implementation
-- [ ] Create sub-ticket for strategy implementation (post-TAS-73)
+- [ ] Add UNIQUE constraint to existing migration file (`20260110000002_constraints_and_indexes.sql`)
+- [ ] Implement `IdentityStrategy` enum in `tasker-shared`
+- [ ] Add `identity_strategy` column to `named_tasks` table (new migration)
+- [ ] Update `Task::compute_identity_hash()` with strategy support
+- [ ] Add `idempotency_key` to `TaskRequest`
+- [ ] Add `created` and `deduplicated_from` to `TaskResponse`
+- [ ] Implement thundering herd test (`tests/integration/concurrency/thundering_herd_test.rs`)
+- [ ] Update `docs/architecture/idempotency-and-atomicity.md` to reflect implementation
+
+## Success Criteria
+
+TAS-154 will be considered complete when:
+
+1. **UNIQUE constraint enforced**: `identity_hash` has database-level uniqueness
+2. **Strategy pattern implemented**: Named tasks can declare STRICT, CALLER_PROVIDED, or ALWAYS_UNIQUE
+3. **API enhanced**: `idempotency_key` accepted on TaskRequest, `created` flag in response
+4. **Thundering herd validated**: 50 simultaneous identical requests deduplicate correctly
+5. **Documentation updated**: Architecture docs reflect actual implementation

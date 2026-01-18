@@ -1,7 +1,7 @@
 # TAS-73: Research Findings Report
 
 **Date:** 2026-01-17
-**Status:** Research Phase Complete
+**Status:** Research Complete, Implementation In Progress
 **Branch:** `jcoletaylor/tas-73-resiliency-and-redundancy-ensuring-atomicity-and-idempotency`
 
 ---
@@ -56,55 +56,47 @@ Task identity is **domain-specific**. The current approach (`hash(named_task_uui
 - `CALLER_PROVIDED`: Caller supplies idempotency_key (like Stripe)
 - `ALWAYS_UNIQUE`: Every request creates new task (uuidv7)
 
-**Detailed Design:** See `docs/ticket-specs/TAS-73/identity-hash-strategy.md`
+**Ticket Created:** This work has been moved to **TAS-154** as it represents a feature enhancement rather than a resiliency gap.
 
-**Action Items:**
-1. Add UNIQUE constraint to existing migration file (not standalone migration)
-2. Implement identity strategy pattern on named tasks
-3. Add optional `idempotency_key` to TaskRequest
+**Detailed Design:** See `docs/ticket-specs/TAS-154/identity-hash-strategy.md`
 
-**Priority:** P1 - Design document created, implementation can follow TAS-73 core work
+**Status:** ✅ MOVED TO TAS-154 - Not in TAS-73 scope
 
 ---
 
-### Finding 2: Task Finalization Race Condition (MEDIUM)
+### Finding 2: Task Finalization Race Condition (MEDIUM) - ✅ IMPLEMENTED
 
-**Location:** `tasker-orchestration/src/orchestration/lifecycle/task_finalization/completion_handler.rs:57-78`
+**Location:** `tasker-orchestration/src/orchestration/lifecycle/task_finalization/completion_handler.rs`
 
-**Issue:** Task finalization uses a check-then-act pattern without atomic locking. If two orchestrators simultaneously detect task completion, both may attempt finalization.
+**Issue:** Task finalization used a check-then-act pattern without atomic locking. If two orchestrators simultaneously detected task completion, both would attempt finalization.
 
-**Current Pattern:**
+**Previous Pattern (Fixed):**
 ```rust
 let current_state = state_machine.current_state().await?;  // T0: Query (no lock)
 if current_state == TaskState::Complete {
     return Ok(...);  // Idempotent if already done
 }
-// ← GAP: Another orchestrator can be here simultaneously
+// ← GAP: Another orchestrator could be here simultaneously
 state_machine.transition(TaskEvent::AllStepsSuccessful).await?;  // T2: Transition
 ```
 
-**Race Scenario:**
+**Race Scenario (Before Fix):**
 1. Orchestrator A queries state → `EvaluatingResults`
 2. Orchestrator B queries state → `EvaluatingResults`
 3. A transitions to `Complete` (succeeds)
 4. B attempts transition (gets state machine error, not graceful)
 
-**Impact:**
-- Not data corruption (state machine prevents invalid transitions)
-- Operationally suboptimal (second orchestrator gets error instead of silent idempotency)
-- Logged errors in multi-instance deployments
-
-**Previous Attempt (Rejected):** Claim-based approach with `finalization_claimed_by` column was tried but created stuck claims when orchestrators crashed after claiming but before completing.
-
-**Recommended Fix:** Transaction-based locking using `SELECT ... FOR UPDATE`:
-- Wrap finalization in a transaction that acquires row lock
+**Implemented Fix:** Transaction-based locking using `SELECT ... FOR UPDATE`:
+- `complete_task()` now wraps finalization in a transaction that acquires row lock
 - Other orchestrators wait for lock instead of racing
 - Crash = transaction rollback = lock released automatically
-- Uses existing `TaskTransition::create_with_transaction()` method
+- Both orchestrators return successfully (one does work, other returns gracefully)
 
 **Detailed Design:** See `docs/ticket-specs/TAS-73/atomic-finalization-design.md`
 
-**Priority:** P2 - Operational improvement, not correctness issue. Implement after multi-instance testing validates frequency of this race.
+**Test Added:** `test_concurrent_finalization_is_graceful` in `completion_handler.rs`
+
+**Status:** ✅ IMPLEMENTED - Both `complete_task()` and `error_task()` now use atomic finalization
 
 ---
 
@@ -114,10 +106,10 @@ state_machine.transition(TaskEvent::AllStepsSuccessful).await?;  // T2: Transiti
 
 | Code Path | Protection Mechanism | Risk | Status |
 |-----------|---------------------|------|--------|
-| Task creation (POST /v1/tasks) | `identity_hash` index (NOT unique) | **CRITICAL** | ⚠️ FIX REQUIRED |
+| Task creation (POST /v1/tasks) | `identity_hash` index (NOT unique) | **CRITICAL** | ⚠️ TAS-154 (feature) |
 | Task initialization | Transaction scoping | Low | ✓ SOLID |
 | Task state transitions | `FOR UPDATE` + compare-and-swap | Low | ✓ SOLID |
-| Task finalization | State guard (non-atomic claim) | Medium | ⚠️ IMPROVEMENT NEEDED |
+| Task finalization | `FOR UPDATE` + transaction-based locking | Low | ✓ IMPLEMENTED |
 | Task DLQ entry | `idx_dlq_unique_pending_task` partial unique | Low | ✓ SOLID |
 
 ### 2.2 Step Lifecycle Code Paths
@@ -214,11 +206,11 @@ state_machine.transition(TaskEvent::AllStepsSuccessful).await?;  // T2: Transiti
 
 | Gap | Risk | Priority | Recommended Test |
 |-----|------|----------|------------------|
-| No thundering herd test | High | P0 | Submit N=50 identical tasks simultaneously |
+| No thundering herd test | High | P0 | ⚠️ TAS-154 scope (identity hash validation) |
 | No multi-worker contention | High | P0 | 5 workers competing for same queue |
 | No concurrent orchestrator test | High | P0 | 2+ orchestration instances processing same tasks |
 | No duplicate result test | High | P1 | Same result message processed twice |
-| No concurrent finalization test | High | P1 | 2+ orchestrators finalizing same task |
+| No concurrent finalization test | High | P1 | ✅ Added in `completion_handler.rs` |
 | No chaos injection | Medium | P2 | Random service restarts during processing |
 | No graceful shutdown test | Medium | P2 | Validate cleanup on shutdown |
 
@@ -240,19 +232,24 @@ Missing:
 
 ## Part 5: Recommended Implementation Plan
 
-### Phase 1: Task Identity Strategy (Parallel Track)
+### ✅ Phase 0: Atomic Finalization (COMPLETED)
 
-**TAS-73a: Identity Hash Strategy Implementation**
+**Implemented:** Transaction-based locking for task finalization
+- Modified `completion_handler.rs` with `SELECT ... FOR UPDATE` pattern
+- Both `complete_task()` and `error_task()` now use atomic finalization
+- Added `test_concurrent_finalization_is_graceful` unit test
+- Commit: "feat(TAS-73): implement atomic task finalization with transaction-based locking"
 
-See: `docs/ticket-specs/TAS-73/identity-hash-strategy.md`
+### Phase 1: Task Identity Strategy → ⚠️ MOVED TO TAS-154
 
-1. Add UNIQUE constraint to existing migration file (`20260110000002_constraints_and_indexes.sql`)
-2. Add `identity_strategy` column to `named_tasks` table
-3. Implement strategy pattern (STRICT, CALLER_PROVIDED, ALWAYS_UNIQUE)
-4. Add optional `idempotency_key` to TaskRequest
-5. Update documentation to match implementation
+**Separate Ticket:** TAS-154 - Task Identity Strategy Pattern
 
-**Note:** This can be developed in parallel with multi-instance testing infrastructure. The UNIQUE constraint is the minimum requirement; full strategy implementation enhances the design.
+See: `docs/ticket-specs/TAS-154/identity-hash-strategy.md`
+
+This work was moved out of TAS-73 scope because it represents a **feature enhancement** (configurable deduplication semantics) rather than a **resiliency gap**. TAS-154 includes:
+- UNIQUE constraint on identity_hash
+- Identity strategy pattern (STRICT, CALLER_PROVIDED, ALWAYS_UNIQUE)
+- Thundering herd test validation
 
 ### Phase 2: Infrastructure Development
 
@@ -284,25 +281,31 @@ Priority order:
 2. Database connectivity loss
 3. Long-running step timeout
 
-### Phase 4: Operational Improvements
+### ✅ Phase 4: Operational Improvements (COMPLETED)
 
-**TAS-73f: Atomic Finalization Claiming** (if needed after testing)
-1. Add `finalization_claimed_at` and `finalization_claimed_by` columns
-2. Implement `claim_task_for_finalization()` SQL function
-3. Update completion handler to use atomic claiming
+**Atomic Finalization** - Implemented using transaction-based locking instead of claim-based approach:
+- No schema changes needed (uses PostgreSQL row locks)
+- Crash recovery is automatic (transaction rollback releases locks)
+- Concurrent finalization returns gracefully (no errors logged)
 
 ---
 
 ## Part 6: Files to Create/Modify
 
-### New Files
+### Completed Files
 
 ```
 docs/ticket-specs/TAS-73/
 ├── research-findings.md (this file)
-├── implementation-plan.md (next step)
-└── test-results.md (after testing)
+├── atomic-finalization-design.md ✅
 
+tasker-orchestration/src/orchestration/lifecycle/task_finalization/
+└── completion_handler.rs ✅ (atomic finalization implemented)
+```
+
+### New Files (TAS-73 Remaining Scope)
+
+```
 cargo-make/scripts/multi-deploy/
 ├── start-orchestration-cluster.sh
 ├── start-worker-cluster.sh
@@ -311,19 +314,24 @@ cargo-make/scripts/multi-deploy/
 
 tests/integration/concurrency/
 ├── mod.rs
-├── thundering_herd_test.rs
 ├── step_claiming_contention_test.rs
 ├── orchestrator_race_test.rs
-├── duplicate_result_test.rs
-└── concurrent_finalization_test.rs
+└── duplicate_result_test.rs
 ```
 
-### Modified Files
+### Files Moved to TAS-154
 
 ```
-migrations/
-└── 20260117XXXXXX_tas_73_identity_hash_unique.sql (new migration)
+docs/ticket-specs/TAS-154/
+└── identity-hash-strategy.md (moved from TAS-73)
 
+tests/integration/concurrency/
+└── thundering_herd_test.rs (validates identity hash deduplication)
+```
+
+### Modified Files (TAS-73)
+
+```
 tests/common/
 ├── mod.rs (export new types)
 ├── orchestration_cluster.rs (new)
@@ -339,11 +347,13 @@ config/tasker/base/
 
 TAS-73 will be considered complete when:
 
-1. **No data corruption:** Identity hash uniqueness enforced at database level
+1. ✅ **Atomic finalization:** Task finalization is graceful under concurrent orchestrator access
 2. **Exactly-once semantics:** Each step processed exactly once across N workers
 3. **Correct convergence:** Fan-out/fan-in produces correct results with multiple orchestrators
 4. **Graceful degradation:** Service failures don't corrupt state
-5. **Test validation:** All new concurrency tests pass with N=2 orchestration + N=2 workers
+5. **Test validation:** Multi-instance tests pass with N=2 orchestration + N=2 workers
+
+**Note:** Identity hash uniqueness (thundering herd) moved to TAS-154 as a feature enhancement.
 
 ---
 
@@ -423,5 +433,7 @@ T33: C discards message (idempotent)
 
 ---
 
-**Report Status:** Complete
-**Next Step:** Create implementation plan based on findings
+**Report Status:** Research Complete, Partial Implementation Done
+**Completed:** Atomic task finalization (transaction-based locking)
+**Separated:** TAS-154 created for identity hash strategy pattern
+**Next Step:** Multi-instance deployment infrastructure and stress tests
