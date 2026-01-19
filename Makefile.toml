@@ -462,6 +462,41 @@ ${SCRIPTS_DIR}/setup-env.sh --target=python-worker --mode=test-split
 ${SCRIPTS_DIR}/setup-env.sh --target=typescript-worker --mode=test-split
 '''
 
+# TAS-73: Cluster Environment Setup
+[tasks.setup-env-cluster]
+description = "Generate root .env with cluster configuration"
+script = '''
+${SCRIPTS_DIR}/setup-env.sh --target=root --mode=test-cluster
+'''
+
+[tasks.setup-env-cluster-split]
+description = "Generate root .env with cluster + split database configuration"
+script = '''
+${SCRIPTS_DIR}/setup-env.sh --target=root --mode=test-cluster-split
+'''
+
+[tasks.setup-env-all-cluster]
+description = "Generate .env files for all targets (cluster mode)"
+script = '''
+${SCRIPTS_DIR}/setup-env.sh --target=root --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=orchestration --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=rust-worker --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=ruby-worker --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=python-worker --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=typescript-worker --mode=test-cluster
+'''
+
+[tasks.setup-env-all-cluster-split]
+description = "Generate .env files for all targets (cluster + split database mode)"
+script = '''
+${SCRIPTS_DIR}/setup-env.sh --target=root --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=orchestration --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=rust-worker --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=ruby-worker --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=python-worker --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=typescript-worker --mode=test-cluster-split
+'''
+
 # =============================================================================
 # Database & Infrastructure Tasks
 # =============================================================================
