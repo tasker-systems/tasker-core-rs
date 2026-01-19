@@ -197,7 +197,26 @@ for i in $(seq 1 "$COUNT"); do
             echo $! > "$PID_FILE"
         )
     else
-        # Rust service: run from project root
+        # Rust service: run from project root with service-specific config
+        # Set appropriate config/template paths based on service type
+        case "$SERVICE_TYPE" in
+            orchestration)
+                CONFIG_PATH="${PROJECT_ROOT}/config/tasker/orchestration-test.toml"
+                TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates/rust"
+                ;;
+            worker-rust)
+                CONFIG_PATH="${PROJECT_ROOT}/config/tasker/worker-test.toml"
+                TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates/rust"
+                ;;
+            *)
+                # Default to complete-test for any other rust service
+                CONFIG_PATH="${PROJECT_ROOT}/config/tasker/complete-test.toml"
+                TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates/rust"
+                ;;
+        esac
+
+        TASKER_CONFIG_PATH="$CONFIG_PATH" \
+        TASKER_TEMPLATE_PATH="$TEMPLATE_PATH" \
         TASKER_INSTANCE_ID="$INSTANCE_ID" \
         TASKER_INSTANCE_PORT="$PORT" \
         TASKER_WEB_BIND_ADDRESS="0.0.0.0:$PORT" \
