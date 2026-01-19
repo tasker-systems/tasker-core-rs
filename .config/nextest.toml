@@ -3,7 +3,12 @@ retries = 0
 leak-timeout = { period = "500ms", result = "fail" }
 fail-fast = false
 
-# Environment variables for E2E tests with Docker services
+# Multi-instance tests need to run serially due to shared cluster resources
+[[profile.default.overrides]]
+filter = 'test(multi_instance)'
+test-threads = 1
+
+# E2E tests with Docker services
 [[profile.default.overrides]]
 filter = 'test(e2e::)'
 

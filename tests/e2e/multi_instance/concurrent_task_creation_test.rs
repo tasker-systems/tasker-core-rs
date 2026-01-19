@@ -82,10 +82,11 @@ async fn test_concurrent_task_creation_across_instances() -> Result<()> {
         .await?;
 
     // Verify all tasks completed successfully
+    // Note: Task status can be "complete" or "all_complete" depending on workflow
     for (i, task) in completed.iter().enumerate() {
-        assert_eq!(
-            task.status, "complete",
-            "Task {} did not complete: status={}",
+        assert!(
+            task.status == "complete" || task.status == "all_complete",
+            "Task {} did not complete successfully: status={}",
             i, task.status
         );
     }

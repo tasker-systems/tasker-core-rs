@@ -177,7 +177,8 @@ impl MultiInstanceTestManager {
             let task = client.get_task(task_uuid).await?;
 
             match task.status.as_str() {
-                "complete" | "error" | "cancelled" => {
+                // Terminal states - task lifecycle is complete
+                "complete" | "all_complete" | "error" | "cancelled" => {
                     return Ok(task);
                 }
                 _ => {

@@ -159,12 +159,19 @@ cargo nextest run --workspace --features test-cluster \
 description = "Run ALL tests including cluster (local development only)"
 script = '''
 #!/bin/bash
+# Source .env and export all variables for child processes (nextest)
+# Using set -a ensures all variables are auto-exported
 set -a
-source .env 2>/dev/null || true
+[ -f .env ] && source .env
 set +a
+
 echo "🚀 Running ALL tests (including cluster tests)"
 echo "⚠️  Ensure cluster is running: cargo make cluster-start"
-cargo nextest run --workspace --all-features
+echo "   Orchestration URLs: ${TASKER_TEST_ORCHESTRATION_URLS:-default (single instance)}"
+echo "   Worker URLs: ${TASKER_TEST_WORKER_URLS:-default (single instance)}"
+
+# Run nextest with explicitly exported environment
+exec cargo nextest run --workspace --all-features
 '''
 
 [tasks.test-rust-verbose]
@@ -864,9 +871,9 @@ args = ["make", "status"]
 # Environment Variables (set via cluster.env or exported):
 #   TASKER_ORCHESTRATION_INSTANCES   - Number of orchestration instances (default: 2)
 #   TASKER_WORKER_RUST_INSTANCES     - Number of rust worker instances (default: 2)
-#   TASKER_WORKER_RUBY_INSTANCES     - Number of ruby worker instances (default: 0)
-#   TASKER_WORKER_PYTHON_INSTANCES   - Number of python worker instances (default: 0)
-#   TASKER_WORKER_TS_INSTANCES       - Number of typescript worker instances (default: 0)
+#   TASKER_WORKER_RUBY_INSTANCES     - Number of ruby worker instances (default: 2)
+#   TASKER_WORKER_PYTHON_INSTANCES   - Number of python worker instances (default: 2)
+#   TASKER_WORKER_TS_INSTANCES       - Number of typescript worker instances (default: 2)
 #
 # See: docs/ticket-specs/TAS-73/multi-instance-deployment.md
 
@@ -899,10 +906,11 @@ bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-rust "$RUST_COUNT"
 [tasks.cluster-start-workers-all]
 description = "Start worker instances of all configured types"
 script = '''
+# Default to 2 instances for all worker types (matches individual task defaults)
 RUST_COUNT="${TASKER_WORKER_RUST_INSTANCES:-2}"
-RUBY_COUNT="${TASKER_WORKER_RUBY_INSTANCES:-0}"
-PYTHON_COUNT="${TASKER_WORKER_PYTHON_INSTANCES:-0}"
-TS_COUNT="${TASKER_WORKER_TS_INSTANCES:-0}"
+RUBY_COUNT="${TASKER_WORKER_RUBY_INSTANCES:-2}"
+PYTHON_COUNT="${TASKER_WORKER_PYTHON_INSTANCES:-2}"
+TS_COUNT="${TASKER_WORKER_TS_INSTANCES:-2}"
 
 if [ "$RUST_COUNT" -gt 0 ]; then
     echo "🚀 Starting $RUST_COUNT rust worker instance(s)..."

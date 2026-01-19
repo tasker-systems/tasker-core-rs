@@ -59,7 +59,10 @@ fn create_domain_event_task_request(
 /// - Fast execution (< 10s for 4 steps with events)
 /// - **TAS-65**: Verifies events were actually published via /metrics/events stats
 /// - **TAS-65**: Verifies FFI channel dispatches for Python handler integration
+///
+/// **TAS-73 Note**: Skipped in cluster mode - metrics non-deterministic across instances.
 #[tokio::test]
+#[cfg_attr(feature = "test-cluster", ignore)]
 async fn test_python_domain_event_publishing_success() -> Result<()> {
     println!("🚀 Starting Domain Event Publishing Test (Python Worker - Success Path)");
     println!(
@@ -273,7 +276,10 @@ async fn test_python_domain_event_publishing_success() -> Result<()> {
 /// - Multiple tasks with events can run concurrently
 /// - Event publishing doesn't create bottlenecks
 /// - System handles high event throughput
+///
+/// **TAS-73 Note**: Skipped in cluster mode - metrics non-deterministic across instances.
 #[tokio::test]
+#[cfg_attr(feature = "test-cluster", ignore)]
 async fn test_python_domain_event_publishing_concurrent() -> Result<()> {
     println!("🚀 Starting Domain Event Publishing Concurrent Test (Python)");
     println!("   Testing: 3 concurrent tasks with domain events");
