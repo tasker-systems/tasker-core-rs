@@ -45,46 +45,108 @@ if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_UR
     export SQLX_OFFLINE=true
 fi
 
-# Determine base port and binary/package from service type
+# Determine base port, working directory, and start command from service type
+WORKER_DIR=""
+START_CMD=""
+RUNTIME_TYPE="cargo"  # cargo, bundle, uv, or bun
+
 case "$SERVICE_TYPE" in
     orchestration)
         BASE_PORT="${BASE_PORT:-8080}"
-        PACKAGE="tasker-orchestration"
-        BINARY_ARGS="--bin tasker-server"
+        START_CMD="cargo run --release -p tasker-orchestration --bin tasker-server"
+        RUNTIME_TYPE="cargo"
         ;;
     worker-rust)
         BASE_PORT="${BASE_PORT:-8100}"
-        PACKAGE="tasker-worker-rust"
-        BINARY_ARGS=""
+        START_CMD="cargo run --release -p tasker-worker-rust"
+        RUNTIME_TYPE="cargo"
         ;;
     worker-ruby)
         BASE_PORT="${BASE_PORT:-8200}"
-        PACKAGE="workers/ruby"
-        BINARY_ARGS=""
-        # Ruby worker has different startup mechanism
-        echo "❌ Ruby worker cluster not yet implemented"
-        exit 1
+        WORKER_DIR="${PROJECT_ROOT}/workers/ruby"
+        START_CMD="bundle exec ruby bin/server.rb"
+        RUNTIME_TYPE="bundle"
         ;;
     worker-python)
         BASE_PORT="${BASE_PORT:-8300}"
-        PACKAGE="workers/python"
-        BINARY_ARGS=""
-        # Python worker has different startup mechanism
-        echo "❌ Python worker cluster not yet implemented"
-        exit 1
+        WORKER_DIR="${PROJECT_ROOT}/workers/python"
+        START_CMD="uv run python bin/server.py"
+        RUNTIME_TYPE="uv"
         ;;
     worker-ts)
         BASE_PORT="${BASE_PORT:-8400}"
-        PACKAGE="workers/typescript"
-        BINARY_ARGS=""
-        # TypeScript worker has different startup mechanism
-        echo "❌ TypeScript worker cluster not yet implemented"
-        exit 1
+        WORKER_DIR="${PROJECT_ROOT}/workers/typescript"
+        START_CMD="bun run bin/server.ts"
+        RUNTIME_TYPE="bun"
         ;;
     *)
         echo "❌ Unknown service type: $SERVICE_TYPE"
         echo "   Valid types: orchestration, worker-rust, worker-ruby, worker-python, worker-ts"
         exit 1
+        ;;
+esac
+
+# Verify worker directory exists for non-Rust workers
+if [ -n "$WORKER_DIR" ] && [ ! -d "$WORKER_DIR" ]; then
+    echo "❌ Worker directory not found: $WORKER_DIR"
+    exit 1
+fi
+
+# Check runtime availability for non-Rust workers
+case "$RUNTIME_TYPE" in
+    bundle)
+        if ! command -v bundle &>/dev/null; then
+            echo "❌ bundle not found. Install Ruby and Bundler first."
+            exit 1
+        fi
+        # Ensure dependencies are installed
+        echo "📦 Checking Ruby dependencies..."
+        (cd "$WORKER_DIR" && bundle check &>/dev/null) || {
+            echo "   Installing Ruby dependencies..."
+            (cd "$WORKER_DIR" && bundle install)
+        }
+        # Ensure extension is compiled
+        echo "🔨 Checking Ruby extension..."
+        (cd "$WORKER_DIR" && bundle exec rake compile 2>/dev/null) || {
+            echo "   Compiling Ruby extension..."
+            (cd "$WORKER_DIR" && bundle exec rake compile)
+        }
+        ;;
+    uv)
+        if ! command -v uv &>/dev/null; then
+            echo "❌ uv not found. Install uv (https://github.com/astral-sh/uv) first."
+            exit 1
+        fi
+        # Ensure virtual environment and dependencies
+        echo "📦 Checking Python dependencies..."
+        (cd "$WORKER_DIR" && uv sync --group dev 2>/dev/null) || {
+            echo "   Setting up Python environment..."
+            (cd "$WORKER_DIR" && uv venv && uv sync --group dev)
+        }
+        # Build the maturin extension
+        echo "🔨 Checking Python extension..."
+        (cd "$WORKER_DIR" && uv run maturin develop 2>/dev/null) || {
+            echo "   Building Python extension..."
+            (cd "$WORKER_DIR" && uv run maturin develop)
+        }
+        ;;
+    bun)
+        if ! command -v bun &>/dev/null; then
+            echo "❌ bun not found. Install Bun (https://bun.sh) first."
+            exit 1
+        fi
+        # Ensure dependencies are installed
+        echo "📦 Checking TypeScript dependencies..."
+        if [ ! -d "$WORKER_DIR/node_modules" ]; then
+            echo "   Installing TypeScript dependencies..."
+            (cd "$WORKER_DIR" && bun install --frozen-lockfile)
+        fi
+        # Build the FFI library
+        echo "🔨 Checking TypeScript FFI library..."
+        (cd "$PROJECT_ROOT" && cargo build -p tasker-worker-ts 2>/dev/null) || {
+            echo "   Building TypeScript FFI library..."
+            (cd "$PROJECT_ROOT" && cargo build -p tasker-worker-ts)
+        }
         ;;
 esac
 
@@ -114,27 +176,52 @@ for i in $(seq 1 "$COUNT"); do
     echo "   Starting $INSTANCE_ID on port $PORT..."
 
     # Start the instance with instance-specific environment
-    TASKER_INSTANCE_ID="$INSTANCE_ID" \
-    TASKER_INSTANCE_PORT="$PORT" \
-    TASKER_WEB_BIND_ADDRESS="0.0.0.0:$PORT" \
-    TASKER_WORKER_ID="$INSTANCE_ID" \
-    nohup cargo run --release -p "$PACKAGE" $BINARY_ARGS \
-        >> "$LOG_FILE" 2>&1 &
+    if [ -n "$WORKER_DIR" ]; then
+        # Non-Rust worker: run from worker directory
+        (
+            cd "$WORKER_DIR"
+            # Source worker-specific .env if it exists
+            if [ -f ".env" ]; then
+                set -a
+                source .env
+                set +a
+            fi
+            # Export instance-specific environment
+            export TASKER_INSTANCE_ID="$INSTANCE_ID"
+            export TASKER_INSTANCE_PORT="$PORT"
+            export PORT="$PORT"
+            export TASKER_WEB_BIND_ADDRESS="0.0.0.0:$PORT"
+            export TASKER_WORKER_ID="$INSTANCE_ID"
 
-    PID=$!
-    echo "$PID" > "$PID_FILE"
+            nohup $START_CMD >> "$LOG_FILE" 2>&1 &
+            echo $! > "$PID_FILE"
+        )
+    else
+        # Rust service: run from project root
+        TASKER_INSTANCE_ID="$INSTANCE_ID" \
+        TASKER_INSTANCE_PORT="$PORT" \
+        TASKER_WEB_BIND_ADDRESS="0.0.0.0:$PORT" \
+        TASKER_WORKER_ID="$INSTANCE_ID" \
+        nohup $START_CMD >> "$LOG_FILE" 2>&1 &
+
+        PID=$!
+        echo "$PID" > "$PID_FILE"
+    fi
+
+    # Get PID from file (for non-Rust workers started in subshell)
+    PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
 
     # Brief wait to check if process started
     sleep 1
-    if kill -0 "$PID" 2>/dev/null; then
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
         echo "   ✅ $INSTANCE_ID: started (PID $PID, port $PORT)"
         echo "      Log: $LOG_FILE"
-        ((STARTED++))
+        ((STARTED++)) || true
     else
         echo "   ❌ $INSTANCE_ID: failed to start"
         echo "      Check log: $LOG_FILE"
         rm -f "$PID_FILE"
-        ((FAILED++))
+        ((FAILED++)) || true
     fi
 done
 

@@ -853,15 +853,20 @@ args = ["make", "status"]
 #   TS Workers:     8400-8409
 #
 # Usage:
-#   cargo make cluster-start              # Start default cluster (2 orch + 2 workers)
+#   cargo make cluster-start              # Start default cluster (orchestration + rust workers)
+#   cargo make cluster-start-all          # Start cluster with all worker types
 #   cargo make cluster-stop               # Stop all cluster instances
 #   cargo make cluster-status             # Check all instance health
 #   cargo make cluster-start-orchestration # Start orchestration instances only
-#   cargo make cluster-start-workers      # Start worker instances only
+#   cargo make cluster-start-workers      # Start rust worker instances only
+#   cargo make cluster-start-workers-all  # Start all configured worker types
 #
-# Environment Variables:
-#   TASKER_ORCHESTRATION_INSTANCES - Number of orchestration instances (default: 2)
-#   TASKER_WORKER_RUST_INSTANCES   - Number of rust worker instances (default: 2)
+# Environment Variables (set via cluster.env or exported):
+#   TASKER_ORCHESTRATION_INSTANCES   - Number of orchestration instances (default: 2)
+#   TASKER_WORKER_RUST_INSTANCES     - Number of rust worker instances (default: 2)
+#   TASKER_WORKER_RUBY_INSTANCES     - Number of ruby worker instances (default: 0)
+#   TASKER_WORKER_PYTHON_INSTANCES   - Number of python worker instances (default: 0)
+#   TASKER_WORKER_TS_INSTANCES       - Number of typescript worker instances (default: 0)
 #
 # See: docs/ticket-specs/TAS-73/multi-instance-deployment.md
 
@@ -884,11 +889,82 @@ bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" orchestration "$COUNT"
 '''
 
 [tasks.cluster-start-workers]
-description = "Start N worker instances of each configured type"
+description = "Start N rust worker instances (default cluster workers)"
 script = '''
 RUST_COUNT="${TASKER_WORKER_RUST_INSTANCES:-2}"
 echo "🚀 Starting $RUST_COUNT rust worker instance(s)..."
 bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-rust "$RUST_COUNT"
+'''
+
+[tasks.cluster-start-workers-all]
+description = "Start worker instances of all configured types"
+script = '''
+RUST_COUNT="${TASKER_WORKER_RUST_INSTANCES:-2}"
+RUBY_COUNT="${TASKER_WORKER_RUBY_INSTANCES:-0}"
+PYTHON_COUNT="${TASKER_WORKER_PYTHON_INSTANCES:-0}"
+TS_COUNT="${TASKER_WORKER_TS_INSTANCES:-0}"
+
+if [ "$RUST_COUNT" -gt 0 ]; then
+    echo "🚀 Starting $RUST_COUNT rust worker instance(s)..."
+    bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-rust "$RUST_COUNT"
+fi
+
+if [ "$RUBY_COUNT" -gt 0 ]; then
+    echo "💎 Starting $RUBY_COUNT ruby worker instance(s)..."
+    bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-ruby "$RUBY_COUNT"
+fi
+
+if [ "$PYTHON_COUNT" -gt 0 ]; then
+    echo "🐍 Starting $PYTHON_COUNT python worker instance(s)..."
+    bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-python "$PYTHON_COUNT"
+fi
+
+if [ "$TS_COUNT" -gt 0 ]; then
+    echo "📘 Starting $TS_COUNT typescript worker instance(s)..."
+    bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-ts "$TS_COUNT"
+fi
+'''
+
+[tasks.cluster-start-workers-rust]
+description = "Start N rust worker instances"
+script = '''
+COUNT="${TASKER_WORKER_RUST_INSTANCES:-2}"
+echo "🚀 Starting $COUNT rust worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-rust "$COUNT"
+'''
+
+[tasks.cluster-start-workers-ruby]
+description = "Start N ruby worker instances"
+script = '''
+COUNT="${TASKER_WORKER_RUBY_INSTANCES:-2}"
+echo "💎 Starting $COUNT ruby worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-ruby "$COUNT"
+'''
+
+[tasks.cluster-start-workers-python]
+description = "Start N python worker instances"
+script = '''
+COUNT="${TASKER_WORKER_PYTHON_INSTANCES:-2}"
+echo "🐍 Starting $COUNT python worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-python "$COUNT"
+'''
+
+[tasks.cluster-start-workers-ts]
+description = "Start N typescript worker instances"
+script = '''
+COUNT="${TASKER_WORKER_TS_INSTANCES:-2}"
+echo "📘 Starting $COUNT typescript worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-ts "$COUNT"
+'''
+
+[tasks.cluster-start-all]
+description = "Start full multi-instance cluster with all worker types"
+dependencies = ["cluster-start-orchestration", "cluster-start-workers-all"]
+script = '''
+echo ""
+echo "⏳ Waiting for cluster to initialize..."
+sleep 5
+cargo make cluster-status
 '''
 
 [tasks.cluster-stop]
