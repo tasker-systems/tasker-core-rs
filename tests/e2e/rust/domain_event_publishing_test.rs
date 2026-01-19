@@ -72,7 +72,12 @@ fn create_rust_domain_event_task_request(
 /// - Fast execution (< 10s for 4 steps with events)
 /// - **NEW TAS-65**: Actually verifies events were published via /metrics/events stats
 /// - 2x2 publisher matrix coverage (durable/fast x default/custom)
+///
+/// **TAS-73 Note**: This test is skipped in cluster mode because metrics verification
+/// is non-deterministic when tasks may be processed by different worker instances.
+/// See docs/ticket-specs/TAS-73/domain-event-testing.md for details.
 #[tokio::test]
+#[cfg_attr(feature = "test-cluster", ignore)]
 async fn test_rust_domain_event_publishing_success() -> Result<()> {
     println!("🚀 Starting Domain Event Publishing Test (Rust Worker - Success Path)");
     println!(
@@ -289,7 +294,10 @@ async fn test_rust_domain_event_publishing_success() -> Result<()> {
 /// - Multiple tasks with events can run concurrently
 /// - Event publishing doesn't create bottlenecks
 /// - System handles high event throughput
+///
+/// **TAS-73 Note**: Skipped in cluster mode - metrics non-deterministic across instances.
 #[tokio::test]
+#[cfg_attr(feature = "test-cluster", ignore)]
 async fn test_rust_domain_event_publishing_concurrent() -> Result<()> {
     println!("🚀 Starting Domain Event Publishing Concurrent Test (Rust Worker)");
     println!("   Testing: 3 concurrent tasks with domain events");
