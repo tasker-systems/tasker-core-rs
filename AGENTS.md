@@ -252,8 +252,15 @@ Dual-channel system: dispatch channel + completion channel
 | Channel Tuning | `docs/operations/mpsc-channel-tuning.md` |
 | Backpressure Monitoring | `docs/operations/backpressure-monitoring.md` |
 
+### Testing
+| Topic | Document |
+|-------|----------|
+| Cluster Testing | `docs/testing/cluster-testing-guide.md` |
+| Lifecycle Testing | `docs/testing/comprehensive-lifecycle-testing-guide.md` |
+| Decision Point Tests | `docs/testing/decision-point-e2e-tests.md` |
+
 ### Ticket Specs (Historical)
-Detailed feature specifications: `docs/ticket-specs/TAS-{37,39,40,41,46,49,51,53,54,58,59,67,69,75}/`
+Detailed feature specifications: `docs/ticket-specs/TAS-{37,39,40,41,46,49,51,53,54,58,59,67,69,73,75}/`
 
 ---
 
@@ -268,6 +275,8 @@ Detailed feature specifications: `docs/ticket-specs/TAS-{37,39,40,41,46,49,51,53
 - Run with `--nocapture` for full output
 - Ensure `--all-features` flag used
 - Check DATABASE_URL is exported (not SQLX_OFFLINE)
+- For cluster tests: Ensure cluster is running (`cargo make cluster-start-all`)
+- See: `docs/testing/cluster-testing-guide.md` for cluster test troubleshooting
 
 ### Ruby Extension
 - Clean rebuild: `cd workers/ruby && rake clean && rake compile`

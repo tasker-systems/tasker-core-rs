@@ -3,10 +3,11 @@ retries = 0
 leak-timeout = { period = "500ms", result = "fail" }
 fail-fast = false
 
-# Multi-instance tests need to run serially due to shared cluster resources
+# Multi-instance tests can run in parallel once cluster is warmed up
+# Note: If tests fail with "Failed to create task after all retries" immediately
+# after cluster-start-all, wait a few seconds for connection pools to warm up
 [[profile.default.overrides]]
 filter = 'test(multi_instance)'
-test-threads = 1
 
 # E2E tests with Docker services
 [[profile.default.overrides]]

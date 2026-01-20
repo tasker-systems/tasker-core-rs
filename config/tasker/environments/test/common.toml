@@ -8,20 +8,19 @@ database = "tasker_rust_test"
 skip_migration_check = false
 
 [common.database.pool]
-# Test environment: balanced pool for CI with postgres max_connections=500
-# Allocation:
-# - 3 services (orch/worker/ruby) × 20 main pool = 60
-# - Web API pools (orch 15 + worker 10 + ruby 10) = 35
-# - Parallel tests (4 threads × 20 connections) = 80
-# - Total: ~175 connections, leaves 325 headroom out of 500
+# Test environment: balanced pool for CI/cluster with postgres max_connections=500
+# Allocation for cluster mode (10 services):
+# - 10 services × 30 main pool = 300
+# - Web API pools = ~50
+# - Total: ~350 connections, leaves 150 headroom out of 500
 #
 # Bootstrap Strategy:
-# - Start with min_connections=1 for fast, reliable bootstrap
-# - Pool grows to max_connections=20 as needed under load
-# - acquire_timeout_seconds=10 provides buffer for connection establishment
-max_connections = 20
-min_connections = 1
-acquire_timeout_seconds = 10
+# - Start with min_connections=2 for faster warmup under load
+# - Pool grows to max_connections=30 as needed under concurrent requests
+# - acquire_timeout_seconds=30 provides buffer for high-concurrency scenarios
+max_connections = 30
+min_connections = 2
+acquire_timeout_seconds = 30
 idle_timeout_seconds = 60
 max_lifetime_seconds = 3600
 

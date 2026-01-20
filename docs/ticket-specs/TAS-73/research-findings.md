@@ -1,7 +1,7 @@
 # TAS-73: Research Findings Report
 
-**Date:** 2026-01-17
-**Status:** Research Complete, Implementation In Progress
+**Date:** 2026-01-19 (Updated)
+**Status:** Research Complete, Implementation Complete
 **Branch:** `jcoletaylor/tas-73-resiliency-and-redundancy-ensuring-atomicity-and-idempotency`
 
 ---
@@ -14,10 +14,11 @@ This report synthesizes the findings from systematic code audits of all concurre
 
 | Category | Critical | High | Medium | Low | Design |
 |----------|----------|------|--------|-----|--------|
-| Task Lifecycle | 0 | 0 | 1 | 3 | 1 |
+| Task Lifecycle | 0 | 0 | 0 | 4 | 1 |
 | Step Lifecycle | 0 | 0 | 0 | 7 | 0 |
 | Message Queue | 0 | 0 | 2 | 3 | 0 |
-| Test Coverage | 0 | 5 | 2 | 0 | 0 |
+| Test Coverage | 0 | 3 | 2 | 0 | 0 |
+| **Fixed in TAS-73** | - | 1 | 1 | - | - |
 
 ---
 
@@ -64,7 +65,43 @@ Task identity is **domain-specific**. The current approach (`hash(named_task_uui
 
 ---
 
-### Finding 2: Task Finalization Race Condition (MEDIUM) - ✅ IMPLEMENTED
+### Finding 2: Connection Pool Deadlock Pattern (HIGH) - ✅ FIXED
+
+**Location:** `tasker-orchestration/src/orchestration/lifecycle/task_initialization/service.rs:158`
+
+**Issue:** Task initialization started a database transaction, then performed template loading which required acquiring another connection from the same pool. Under high concurrency, this caused connection pool deadlock.
+
+**Evidence:**
+```rust
+// BEFORE (line 158 - caused deadlock):
+let mut tx = self.context.database_pool().begin().await?;  // Holds connection 1
+let task_template = self.template_loader.load_task_template(...).await?;  // Needs connection 2!
+
+// AFTER (fix applied):
+let task_template = self.template_loader.load_task_template(...).await?;  // Releases connection
+let mut tx = self.context.database_pool().begin().await?;  // Now safe
+```
+
+**Deadlock Scenario:**
+1. N concurrent task creations each start transactions (hold N connections)
+2. Each needs 1 more connection for template loading
+3. Pool exhausted → all requests timeout waiting
+
+**Implemented Fix:**
+- Moved template loading BEFORE transaction begins
+- Template loading releases connection after read completes
+- Transaction only holds connection during write operations
+- Added pool size tuning (20→30 max, 1→2 min connections)
+
+**Test Added:** Validated with `test_rapid_task_creation_burst` (25 concurrent tasks)
+
+**Detailed Design:** See `docs/ticket-specs/TAS-73/connection-pool-deadlock-pattern.md`
+
+**Status:** ✅ FIXED - Template loading now precedes transaction
+
+---
+
+### Finding 3: Task Finalization Race Condition (MEDIUM) - ✅ IMPLEMENTED
 
 **Location:** `tasker-orchestration/src/orchestration/lifecycle/task_finalization/completion_handler.rs`
 
@@ -298,9 +335,14 @@ Priority order:
 docs/ticket-specs/TAS-73/
 ├── research-findings.md (this file)
 ├── atomic-finalization-design.md ✅
+├── connection-pool-deadlock-pattern.md ✅ (NEW)
 
-tasker-orchestration/src/orchestration/lifecycle/task_finalization/
-└── completion_handler.rs ✅ (atomic finalization implemented)
+tasker-orchestration/src/orchestration/lifecycle/
+├── task_finalization/completion_handler.rs ✅ (atomic finalization)
+└── task_initialization/service.rs ✅ (connection pool deadlock fix)
+
+config/tasker/environments/test/
+└── common.toml ✅ (pool size tuning)
 ```
 
 ### New Files (TAS-73 Remaining Scope)
@@ -364,6 +406,7 @@ TAS-73 will be considered complete when:
 | Finding | File | Line(s) |
 |---------|------|---------|
 | Missing identity_hash constraint | `migrations/20260110000002_constraints_and_indexes.sql` | 183 |
+| Connection pool deadlock fix | `tasker-orchestration/src/orchestration/lifecycle/task_initialization/service.rs` | 112-166 |
 | Task finalization handler | `tasker-orchestration/src/orchestration/lifecycle/task_finalization/completion_handler.rs` | 57-78 |
 | State transition atomic function | `migrations/20260110000003_sql_functions.sql` | 1687-1718 |
 | Step state machine guards | `tasker-shared/src/state_machine/step_state_machine.rs` | 63-136 |
@@ -433,7 +476,10 @@ T33: C discards message (idempotent)
 
 ---
 
-**Report Status:** Research Complete, Partial Implementation Done
-**Completed:** Atomic task finalization (transaction-based locking)
+**Report Status:** Research Complete, Implementation Complete
+**Completed:**
+- Atomic task finalization (transaction-based locking)
+- Connection pool deadlock fix (template loading before transaction)
+- Pool size tuning for cluster workloads
 **Separated:** TAS-154 created for identity hash strategy pattern
-**Next Step:** Multi-instance deployment infrastructure and stress tests
+**Validated:** All 9 cluster tests passing with 2x orchestration + 10 total services

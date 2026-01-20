@@ -10,6 +10,7 @@ This directory contains the core principles and design philosophy that guide Tas
 | [Defense in Depth](./defense-in-depth.md) | Multi-layered protection model for idempotency and data integrity |
 | [Cross-Language Consistency](./cross-language-consistency.md) | The "one API" philosophy for Rust, Ruby, Python, and TypeScript workers |
 | [Composition Over Inheritance](./composition-over-inheritance.md) | Mixin-based handler composition pattern |
+| [Intentional AI Partnership](./intentional-ai-partnership.md) | Collaborative approach to AI integration |
 
 ## Reference
 
