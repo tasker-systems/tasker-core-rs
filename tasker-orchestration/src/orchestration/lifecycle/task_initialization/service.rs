@@ -109,7 +109,52 @@ impl TaskInitializer {
             "Starting task initialization"
         );
 
-        // Use SQLx transaction for atomicity
+        // IMPORTANT: Load task template BEFORE starting the transaction.
+        // Template loading requires database queries. If we start the transaction first,
+        // we hold a connection while trying to acquire another for template loading.
+        // Under high concurrency, this causes connection pool deadlock:
+        // - N transactions hold N connections
+        // - Each needs 1 more connection for template loading
+        // - Pool exhausted → deadlock
+        // By loading templates first, we release the connection before starting the transaction.
+        let task_template = match self
+            .template_loader
+            .load_task_template(&task_request_for_handler)
+            .await
+        {
+            Ok(template) => {
+                logging::log_registry_operation(
+                    "TASK_TEMPLATE_LOADED",
+                    Some(&namespace),
+                    Some(&task_name),
+                    Some(&version),
+                    "SUCCESS",
+                    Some(&format!("Found {} step definitions", template.steps.len())),
+                );
+                template
+            }
+            Err(e) => {
+                logging::log_registry_operation(
+                    "TASK_TEMPLATE_FAILED",
+                    Some(&namespace),
+                    Some(&task_name),
+                    Some(&version),
+                    "FAILED",
+                    Some(&format!("Registry lookup failed: {e}")),
+                );
+                error!(
+                  correlation_id = %correlation_id,
+                  task_name = %task_name,
+                  error = %e,
+                  "Failed to load task template"
+                );
+                return Err(TaskInitializationError::ConfigurationNotFound(format!(
+                    "Failed to load task template for task: {task_name}, namespace: {namespace}, version: {version}, error: {e}"
+                )));
+            }
+        };
+
+        // Use SQLx transaction for atomicity (now safe - template already loaded)
         let mut tx = self.context.database_pool().begin().await.map_err(|e| {
             logging::log_error(
                 "TaskInitializer",
@@ -141,45 +186,6 @@ impl TaskInitializer {
             "SUCCESS",
             Some("Task record created in database"),
         );
-
-        // Try to load task template
-        let task_template = match self
-            .template_loader
-            .load_task_template(&task_request_for_handler)
-            .await
-        {
-            Ok(template) => {
-                logging::log_registry_operation(
-                    "TASK_TEMPLATE_LOADED",
-                    Some(&namespace),
-                    Some(&task_name),
-                    Some(&version),
-                    "SUCCESS",
-                    Some(&format!("Found {} step definitions", template.steps.len())),
-                );
-                template
-            }
-            Err(e) => {
-                logging::log_registry_operation(
-                    "TASK_TEMPLATE_FAILED",
-                    Some(&namespace),
-                    Some(&task_name),
-                    Some(&version),
-                    "FAILED",
-                    Some(&format!("Registry lookup failed: {e}")),
-                );
-                error!(
-                  correlation_id = %correlation_id,
-                  task_uuid = %task_uuid,
-                  task_name = %task_name,
-                  error = %e,
-                  "Failed to load task template"
-                );
-                return Err(TaskInitializationError::ConfigurationNotFound(format!(
-                    "Failed to load task template for task: {task_name}, namespace: {namespace}, version: {version}, error: {e}"
-                )));
-            }
-        };
 
         logging::log_task_operation(
             "WORKFLOW_STEPS_CREATION_START",

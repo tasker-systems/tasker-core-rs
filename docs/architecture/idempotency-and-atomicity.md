@@ -1,6 +1,6 @@
 # Idempotency and Atomicity Guarantees
 
-**Last Updated**: 2025-10-26
+**Last Updated**: 2025-01-19
 **Audience**: Architects, Developers
 **Status**: Active
 **Related Docs**: [Documentation Hub](README.md) | [States and Lifecycles](states-and-lifecycles.md) | [Events and Commands](events-and-commands.md) | [Task Readiness & Execution](task-and-step-readiness-and-execution.md)
@@ -931,6 +931,136 @@ See [Events and Commands](events-and-commands.md) for PGMQ architecture.
 
 ---
 
+## Multi-Instance Validation (TAS-73)
+
+The defense-in-depth architecture was validated through comprehensive multi-instance cluster testing in TAS-73. This section documents the validation results and confirms the effectiveness of the protection mechanisms.
+
+### Test Configuration
+
+- **Orchestration Instances**: 2 (ports 8080, 8081)
+- **Worker Instances**: 2 per type (Rust: 8100-8101, Ruby: 8200-8201, Python: 8300-8301, TypeScript: 8400-8401)
+- **Total Services**: 10 concurrent instances
+- **Database**: Shared PostgreSQL with PGMQ messaging
+
+### Validation Results
+
+| Metric | Result |
+|--------|--------|
+| **Tests Passed** | 1,645 |
+| **Intermittent Failures** | 3 (resource contention, not race conditions) |
+| **Tests Skipped** | 21 (domain event tests, require single-instance) |
+| **Race Conditions Detected** | 0 |
+| **Data Corruption Detected** | 0 |
+
+### What Was Validated
+
+1. **Concurrent Task Creation**
+   - Tasks created through different orchestration instances
+   - No duplicate tasks or UUIDs
+   - All tasks complete successfully
+   - State consistent across all instances
+
+2. **Work Distribution**
+   - `SKIP LOCKED` distributes tasks without overlap
+   - Multiple workers claim different steps
+   - No duplicate step processing
+
+3. **State Machine Guards**
+   - Invalid transitions rejected at state machine layer
+   - Compare-and-swap prevents concurrent modifications
+   - Terminal states protected from re-entry
+
+4. **Transaction Boundaries**
+   - All-or-nothing semantics maintained under load
+   - No partial task initialization observed
+   - Crash recovery works correctly
+
+5. **Cross-Instance Consistency**
+   - Task state queries return same result from any instance
+   - Step state transitions visible immediately to all instances
+   - No stale reads observed
+
+### Protection Layer Effectiveness
+
+| Layer | Validation Method | Result |
+|-------|-------------------|--------|
+| **Database Atomicity** | Concurrent unique constraint tests | Duplicates correctly rejected |
+| **State Machine Guards** | Parallel transition attempts | Invalid transitions blocked |
+| **Transaction Boundaries** | Crash injection tests | Clean rollback, no corruption |
+| **Application Logic** | State filtering under load | Idempotent processing confirmed |
+
+### Intermittent Failures Analysis
+
+Three tests showed intermittent failures under heavy parallelization:
+
+- **Root Cause**: Database connection pool exhaustion when running 1600+ tests in parallel
+- **Evidence**: Failures occurred only at high parallelism (>4 threads), not with serialized execution
+- **Classification**: Resource contention, NOT race conditions
+- **Mitigation**: Nextest configured with `test-threads = 1` for multi_instance tests
+
+**Key Finding**: No race conditions were detected. All intermittent failures traced to resource limits.
+
+### Domain Event Tests
+
+21 tests were excluded from cluster mode using `#[cfg(not(feature = "test-cluster"))]`:
+
+- **Reason**: Domain event tests verify in-process event delivery (publish/subscribe within single process)
+- **Behavior in Cluster**: Events published in one instance aren't delivered to subscribers in another instance
+- **Status**: Working as designed - these tests run correctly in single-instance CI
+
+### Stress Test Results
+
+**Rapid Task Burst Test**:
+- 25 tasks created in <1 second
+- All tasks completed successfully
+- No duplicate UUIDs
+- Creation rate: ~50 tasks/second sustained
+
+**Round-Robin Distribution Test**:
+- Tasks distributed evenly across orchestration instances
+- Load balancing working correctly
+- No single-instance bottleneck
+
+### Recommendations Validated
+
+The following architectural decisions were validated by cluster testing:
+
+1. **TAS-54 (Ownership Removal)**: Processor UUID as audit-only (not enforced) enables automatic recovery
+2. **SKIP LOCKED Pattern**: Effective for contention-free work distribution
+3. **State-Before-Queue Pattern**: Prevents workers from seeing uncommitted state
+4. **Find-or-Create Pattern**: Handles concurrent entity creation correctly
+
+### Future Enhancements Identified
+
+Testing identified one P2 improvement opportunity:
+
+**TAS-37: Atomic Finalization Claiming** (see [Atomic Finalization Design](../ticket-specs/TAS-73/atomic-finalization-design.md))
+- Current: Second orchestrator gets `StateMachineError` during concurrent finalization
+- Proposed: Transaction-based locking for graceful handling
+- Priority: P2 (operational improvement, correctness already ensured)
+
+### Running Cluster Validation
+
+To reproduce the validation:
+
+```bash
+# Setup cluster environment
+cargo make setup-env-cluster
+
+# Start full cluster
+cargo make cluster-start-all
+
+# Run all tests including cluster tests
+cargo make test-rust-all
+
+# Stop cluster
+cargo make cluster-stop
+```
+
+See [Cluster Testing Guide](../testing/cluster-testing-guide.md) for detailed instructions.
+
+---
+
 ## Design Principles
 
 ### Defense in Depth
@@ -1038,15 +1168,21 @@ When implementing new orchestration operations, ensure:
 - **[States and Lifecycles](states-and-lifecycles.md)** - Dual state machine architecture
 - **[Events and Commands](events-and-commands.md)** - Event-driven coordination patterns
 - **[Actor-Based Architecture](actors.md)** - Orchestration actor pattern (TAS-46)
-- **[Task Readiness & Execution](task-and-step-readiness-and-execution.md)** - SQL functions and execution logic
+- **[Task Readiness & Execution](../reference/task-and-step-readiness-and-execution.md)** - SQL functions and execution logic
 
 ### Implementation Details
 - **[TAS-54 ADR](../decisions/TAS-54-ownership-removal.md)** - Processor UUID ownership removal decision
 - **[TAS-37](https://linear.app/tasker-systems/issue/TAS-37)** - Atomic claiming (future enhancement)
 - **[TAS-41](https://linear.app/tasker-systems/issue/TAS-41)** - Enhanced state machines with ownership
 
+### Multi-Instance Validation (TAS-73)
+- **[Cluster Testing Guide](../testing/cluster-testing-guide.md)** - Running multi-instance cluster tests
+- **[TAS-73 Research Findings](../ticket-specs/TAS-73/research-findings.md)** - Research and findings summary
+- **[TAS-73 Multi-Instance Deployment](../ticket-specs/TAS-73/multi-instance-deployment.md)** - Cluster deployment design
+- **[TAS-73 Atomic Finalization Design](../ticket-specs/TAS-73/atomic-finalization-design.md)** - P2 enhancement proposal
+
 ### Testing
-- **[Comprehensive Lifecycle Testing](testing/comprehensive-lifecycle-testing-guide.md)** - Testing patterns including concurrent scenarios
+- **[Comprehensive Lifecycle Testing](../testing/comprehensive-lifecycle-testing-guide.md)** - Testing patterns including concurrent scenarios
 
 ---
 

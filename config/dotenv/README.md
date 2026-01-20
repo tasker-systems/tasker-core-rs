@@ -11,6 +11,9 @@ cargo make setup-env
 # Generate .env for split database mode (TAS-78)
 cargo make setup-env-split
 
+# Generate .env for cluster testing (TAS-73)
+cargo make setup-env-cluster
+
 # Generate .env files for all services
 cargo make setup-env-all
 ```
@@ -22,6 +25,7 @@ cargo make setup-env-all
 | `base.env` | Common variables: logging, paths, TASKER_ENV |
 | `test.env` | Test environment: DATABASE_URL (port 5432), JWT keys, web config |
 | `test-split.env` | Split DB overrides: DATABASE_URL (port 5433), PGMQ_DATABASE_URL |
+| `cluster.env` | Cluster testing: multi-instance URLs, port allocation (TAS-73) |
 | `orchestration.env` | Orchestration service: port 8080, config path |
 | `rust-worker.env` | Rust worker: port 8081, template path |
 | `ruby-worker.env` | Ruby worker: port 8082, handler path |
@@ -34,8 +38,11 @@ The `setup-env.sh` script assembles files in this order:
 
 1. `base.env` - Always included
 2. `test.env` - For test modes
-3. `test-split.env` - Only for split database mode
-4. `<target>.env` - Target-specific (orchestration, rust-worker, etc.)
+3. `test-split.env` - Only for split database modes
+4. `cluster.env` - Only for cluster modes
+5. `<target>.env` - Target-specific (orchestration, rust-worker, etc.)
+
+Layer order ensures later files override earlier ones (e.g., cluster overrides split).
 
 ## Available Tasks
 
@@ -43,6 +50,8 @@ The `setup-env.sh` script assembles files in this order:
 |------|--------|-------------|
 | `setup-env` | `.env` | Root env for standard tests |
 | `setup-env-split` | `.env` | Root env for split DB tests |
+| `setup-env-cluster` | `.env` | Root env for cluster tests (TAS-73) |
+| `setup-env-cluster-split` | `.env` | Root env for cluster + split DB |
 | `setup-env-orchestration` | `tasker-orchestration/.env` | Orchestration service |
 | `setup-env-rust-worker` | `workers/rust/.env` | Rust worker |
 | `setup-env-ruby-worker` | `workers/ruby/.env` | Ruby worker |
@@ -50,6 +59,8 @@ The `setup-env.sh` script assembles files in this order:
 | `setup-env-typescript-worker` | `workers/typescript/.env` | TypeScript worker |
 | `setup-env-all` | All above | Generate all env files |
 | `setup-env-all-split` | All above | Generate all for split mode |
+| `setup-env-all-cluster` | All above | Generate all for cluster mode |
+| `setup-env-all-cluster-split` | All above | Generate all for cluster + split |
 
 ## Customization
 
@@ -84,6 +95,30 @@ Split mode sets:
 - `DATABASE_URL` → port 5433, `tasker_split_test` database
 - `PGMQ_DATABASE_URL` → port 5433, `pgmq_split_test` database
 - `SQLX_OFFLINE=true` → Required for builds
+
+## Cluster Mode (TAS-73)
+
+For testing multi-instance deployments (race conditions, horizontal scaling):
+
+```bash
+# Generate cluster-mode env files
+cargo make setup-env-cluster
+
+# Start cluster services (2 orchestration + 2 workers)
+cargo make cluster-start
+
+# Run cluster tests
+cargo make test-rust-cluster
+
+# Stop cluster services
+cargo make cluster-stop
+```
+
+Cluster mode sets:
+- `TASKER_MULTI_INSTANCE_MODE=true`
+- `TASKER_TEST_ORCHESTRATION_URLS=http://localhost:8080,http://localhost:8081`
+- `TASKER_TEST_WORKER_URLS=http://localhost:8100,http://localhost:8101`
+- Port allocation: Orchestration 8080-8089, Rust Workers 8100-8109
 
 ## Legacy Files
 

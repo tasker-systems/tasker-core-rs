@@ -98,40 +98,104 @@ dependencies = ["build-rust", "build-python", "build-ruby", "build-typescript"]
 description = "Run all Rust quality checks"
 dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-doctests", "rust-machete"]
 
+# =============================================================================
+# TAS-73: Test Infrastructure Levels
+# =============================================================================
+# Feature flags control which tests compile:
+#   test-messaging  → DB + messaging (crate-level + integration tests)
+#   test-services   → + running services (E2E tests)
+#   test-cluster    → + multi-instance cluster (LOCAL ONLY - not in CI)
+#
+# See docs/ticket-specs/TAS-73/test-feature-flags-design.md for details.
+# =============================================================================
+
 [tasks.test-rust]
-description = "Run all Rust tests with nextest (loads .env for E2E tests)"
+description = "Run Rust tests (requires DB + messaging + services)"
 script = '''
 #!/bin/bash
-# Load environment from .env for E2E tests
 set -a
 source .env 2>/dev/null || true
 set +a
-cargo nextest run --workspace --all-features
+cargo nextest run --workspace --features test-services
 '''
 
 [tasks.test-rust-unit]
-description = "Run Rust unit tests only across workspace (excludes e2e and integration tests that require services)"
+description = "Run unit tests only (requires DB + messaging, no services)"
 script = '''
-cargo nextest run --workspace --all-features -E 'not binary(e2e_tests) & not binary(integration_tests)'
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+set +a
+cargo nextest run --workspace --features test-messaging \
+  -E 'not binary(e2e_tests)'
 '''
 
 [tasks.test-rust-e2e]
-description = "Run Rust e2e and integration tests only (requires services running)"
+description = "Run E2E tests (requires services running)"
 script = '''
 #!/bin/bash
-# Load environment from .env for fixture paths and config
 set -a
 source .env
 set +a
 echo "📋 Loaded environment: TASKER_FIXTURE_PATH=$TASKER_FIXTURE_PATH"
-cargo nextest run --workspace --all-features -E 'binary(e2e_tests) | binary(integration_tests)'
+cargo nextest run --workspace --features test-services \
+  -E 'binary(e2e_tests) | binary(integration_tests)'
+'''
+
+[tasks.test-rust-cluster]
+description = "Run cluster tests (requires: cargo make cluster-start)"
+script = '''
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+set +a
+echo "⚠️  Cluster tests require: cargo make cluster-start"
+echo "⚠️  These tests are NOT run in CI due to resource constraints"
+cargo nextest run --workspace --features test-cluster \
+  -E 'test(multi_instance)'
+'''
+
+[tasks.test-rust-all]
+description = "Run ALL tests including cluster (local development only)"
+script = '''
+#!/bin/bash
+# Source .env and export all variables for child processes (nextest)
+# Using set -a ensures all variables are auto-exported
+set -a
+[ -f .env ] && source .env
+set +a
+
+echo "🚀 Running ALL tests (including cluster tests)"
+echo "⚠️  Ensure cluster is running: cargo make cluster-start"
+echo "   Orchestration URLs: ${TASKER_TEST_ORCHESTRATION_URLS:-default (single instance)}"
+echo "   Worker URLs: ${TASKER_TEST_WORKER_URLS:-default (single instance)}"
+
+# Run nextest with explicitly exported environment
+exec cargo nextest run --workspace --all-features
 '''
 
 [tasks.test-rust-verbose]
 description = "Run Rust tests with output"
 script = '''
-cargo nextest run --all-features --no-capture
+cargo nextest run --features test-services --no-capture
 '''
+
+# Test shortcuts
+[tasks.t]
+alias = "test-rust"
+description = "Shortcut for test-rust"
+
+[tasks.tu]
+alias = "test-rust-unit"
+description = "Shortcut for test-rust-unit"
+
+[tasks.te]
+alias = "test-rust-e2e"
+description = "Shortcut for test-rust-e2e"
+
+[tasks.tc]
+alias = "test-rust-cluster"
+description = "Shortcut for test-rust-cluster"
 
 [tasks.fix-rust]
 description = "Fix Rust formatting and clippy issues"
@@ -227,11 +291,7 @@ description = "Build Python worker (auto-detects split-db mode)"
 script = '''
 #!/bin/bash
 set -euo pipefail
-# Enable SQLX_OFFLINE in split-database mode
-if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
-    echo "🔀 Split database mode - using SQLX_OFFLINE=true for Python build"
-    export SQLX_OFFLINE=true
-fi
+source "cargo-make/scripts/split-db-env.sh"
 cd workers/python && cargo make build
 '''
 
@@ -262,11 +322,7 @@ description = "Build Ruby worker (auto-detects split-db mode)"
 script = '''
 #!/bin/bash
 set -euo pipefail
-# Enable SQLX_OFFLINE in split-database mode
-if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
-    echo "🔀 Split database mode - using SQLX_OFFLINE=true for Ruby build"
-    export SQLX_OFFLINE=true
-fi
+source "cargo-make/scripts/split-db-env.sh"
 cd workers/ruby && cargo make build
 '''
 
@@ -297,11 +353,7 @@ description = "Build TypeScript worker (auto-detects split-db mode)"
 script = '''
 #!/bin/bash
 set -euo pipefail
-# Enable SQLX_OFFLINE in split-database mode
-if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
-    echo "🔀 Split database mode - using SQLX_OFFLINE=true for TypeScript build"
-    export SQLX_OFFLINE=true
-fi
+source "cargo-make/scripts/split-db-env.sh"
 cd workers/typescript && cargo make build
 '''
 
@@ -417,6 +469,41 @@ ${SCRIPTS_DIR}/setup-env.sh --target=python-worker --mode=test-split
 ${SCRIPTS_DIR}/setup-env.sh --target=typescript-worker --mode=test-split
 '''
 
+# TAS-73: Cluster Environment Setup
+[tasks.setup-env-cluster]
+description = "Generate root .env with cluster configuration"
+script = '''
+${SCRIPTS_DIR}/setup-env.sh --target=root --mode=test-cluster
+'''
+
+[tasks.setup-env-cluster-split]
+description = "Generate root .env with cluster + split database configuration"
+script = '''
+${SCRIPTS_DIR}/setup-env.sh --target=root --mode=test-cluster-split
+'''
+
+[tasks.setup-env-all-cluster]
+description = "Generate .env files for all targets (cluster mode)"
+script = '''
+${SCRIPTS_DIR}/setup-env.sh --target=root --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=orchestration --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=rust-worker --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=ruby-worker --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=python-worker --mode=test-cluster
+${SCRIPTS_DIR}/setup-env.sh --target=typescript-worker --mode=test-cluster
+'''
+
+[tasks.setup-env-all-cluster-split]
+description = "Generate .env files for all targets (cluster + split database mode)"
+script = '''
+${SCRIPTS_DIR}/setup-env.sh --target=root --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=orchestration --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=rust-worker --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=ruby-worker --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=python-worker --mode=test-cluster-split
+${SCRIPTS_DIR}/setup-env.sh --target=typescript-worker --mode=test-cluster-split
+'''
+
 # =============================================================================
 # Database & Infrastructure Tasks
 # =============================================================================
@@ -440,26 +527,7 @@ script = { file = "${SCRIPTS_DIR}/reset-db.sh" }
 # TAS-78: Split Database Mode Tasks
 [tasks.db-migrate-split]
 description = "Run migrations in split database mode (requires PGMQ_DATABASE_URL)"
-script = '''
-#!/bin/bash
-set -euo pipefail
-
-if [ -z "${PGMQ_DATABASE_URL:-}" ]; then
-    echo "❌ PGMQ_DATABASE_URL not set"
-    echo ""
-    echo "Usage:"
-    echo "  PGMQ_DATABASE_URL=postgresql://... cargo make db-migrate-split"
-    echo ""
-    echo "Or use docker-compose for dual-database testing:"
-    echo "  docker compose -f docker/docker-compose.dual-pg.test.yml up -d"
-    echo "  source docker/dual-pg.env"
-    echo "  cargo make db-migrate-split"
-    exit 1
-fi
-
-echo "🔀 Running split database migrations..."
-${SCRIPTS_DIR}/run-migrations.sh
-'''
+script = { file = "${SCRIPTS_DIR}/migrate-db-split.sh" }
 
 [tasks.db-setup-split]
 description = "Setup split databases with migrations (requires PGMQ_DATABASE_URL)"
@@ -467,35 +535,7 @@ dependencies = ["db-check-split", "db-migrate-split"]
 
 [tasks.db-check-split]
 description = "Check connectivity to both Tasker and PGMQ databases"
-script = '''
-#!/bin/bash
-set -euo pipefail
-
-echo "🔍 Checking database connectivity..."
-
-# Check Tasker database
-echo -n "Tasker DB: "
-if pg_isready -d "${DATABASE_URL}" > /dev/null 2>&1; then
-    echo "✓ connected"
-else
-    echo "❌ not reachable"
-    exit 1
-fi
-
-# Check PGMQ database (if set)
-if [ -n "${PGMQ_DATABASE_URL:-}" ]; then
-    echo -n "PGMQ DB:   "
-    if pg_isready -d "${PGMQ_DATABASE_URL}" > /dev/null 2>&1; then
-        echo "✓ connected"
-    else
-        echo "❌ not reachable"
-        exit 1
-    fi
-fi
-
-echo ""
-echo "✓ All databases reachable"
-'''
+script = { file = "${SCRIPTS_DIR}/check-db-split.sh" }
 
 # =============================================================================
 # SQLX Cache Tasks
@@ -627,14 +667,11 @@ cargo watch -x "clippy --all-targets --all-features"
 # =============================================================================
 # Quick Shortcuts
 # =============================================================================
+# Note: t, tu, te, tc shortcuts defined in TAS-73 Test Infrastructure section
 
 [tasks.c]
 description = "Alias for check"
 alias = "check"
-
-[tasks.t]
-description = "Alias for test"
-alias = "test"
 
 [tasks.f]
 description = "Alias for fix"
@@ -643,10 +680,6 @@ alias = "fix"
 [tasks.b]
 description = "Alias for build"
 alias = "build"
-
-[tasks.tu]
-description = "Alias for test-rust-unit (unit tests only, no services required)"
-alias = "test-rust-unit"
 
 # =============================================================================
 # Service Management Tasks
@@ -681,30 +714,7 @@ PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-status.sh --all
 
 [tasks.services-start]
 description = "Start all services (orchestration + all workers)"
-script = '''
-echo "🚀 Starting all Tasker services..."
-echo ""
-
-# Start orchestration first
-echo "=== Starting Orchestration ==="
-cargo make run-orchestration
-echo ""
-
-# Start workers in parallel by launching them sequentially
-# (each returns quickly after backgrounding)
-echo "=== Starting Workers ==="
-cargo make run-worker-rust
-cargo make run-worker-python
-cargo make run-worker-ruby
-cargo make run-worker-typescript
-
-echo ""
-echo "⏳ Waiting for services to initialize..."
-sleep 5
-
-echo ""
-cargo make services-status
-'''
+script = { file = "${SCRIPTS_DIR}/services-start-all.sh" }
 
 [tasks.services-logs-clear]
 description = "Clear all service log files"
@@ -721,119 +731,17 @@ fi
 
 [tasks.services-stop]
 description = "Stop all running services"
-script = '''
-echo "🛑 Stopping all services..."
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh orchestration || true
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh rust-worker || true
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh ruby-worker || true
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh python-worker || true
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-stop.sh typescript-worker || true
-echo "✅ All services stopped"
-'''
+script = { file = "${SCRIPTS_DIR}/services-stop-all.sh" }
 
 [tasks.services-health-check]
 description = "Check health endpoints of all running services"
-script = '''
-#!/bin/bash
-# Services health check - validates health endpoints for all workers
-# Uses port configuration from worker .env files
-
-echo "🏥 Checking service health endpoints..."
-echo ""
-
-# Service definitions: name|port|.env path
-services=(
-    "Orchestration|8080|"
-    "Rust Worker|8081|workers/rust/.env"
-    "Ruby Worker|8082|workers/ruby/.env"
-    "Python Worker|8083|workers/python/.env"
-    "TypeScript Worker|8085|workers/typescript/.env"
-)
-
-all_healthy=true
-failed_count=0
-success_count=0
-
-for service in "${services[@]}"; do
-    IFS='|' read -r name port env_file <<< "$service"
-
-    # Try to get port from .env if specified
-    if [ -n "$env_file" ] && [ -f "$env_file" ]; then
-        env_port=$(grep "^PORT=" "$env_file" | cut -d'=' -f2 | tr -d '"' | tr -d "'")
-        if [ -n "$env_port" ]; then
-            port="$env_port"
-        fi
-    fi
-
-    url="http://localhost:${port}/health"
-    printf "%-20s " "$name (${port}):"
-
-    # Check health endpoint with timeout
-    response=$(curl -s --connect-timeout 2 --max-time 5 "$url" 2>/dev/null)
-
-    if [ -n "$response" ]; then
-        # Parse status using jq if available, otherwise grep
-        if command -v jq &> /dev/null; then
-            status=$(echo "$response" | jq -r '.status // "unknown"' 2>/dev/null)
-        else
-            status=$(echo "$response" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
-        fi
-
-        if [ "$status" = "healthy" ]; then
-            echo "✅ healthy"
-            ((success_count++))
-        else
-            echo "⚠️  status: $status"
-            all_healthy=false
-            ((failed_count++))
-        fi
-    else
-        echo "❌ not responding"
-        all_healthy=false
-        ((failed_count++))
-    fi
-done
-
-echo ""
-echo "────────────────────────────────"
-echo "Summary: $success_count healthy, $failed_count failed"
-
-if [ "$all_healthy" = true ]; then
-    echo "✅ All services healthy"
-    exit 0
-else
-    echo "⚠️  Some services not healthy"
-    exit 1
-fi
-'''
+script = { file = "${SCRIPTS_DIR}/services-health-check.sh" }
 
 # --- Orchestration Service ---
 
 [tasks.run-orchestration]
 description = "Run orchestration service (port 8080)"
-script = '''
-# TAS-78: Preserve database URLs if already set (for split-database mode)
-_SAVED_DATABASE_URL="${DATABASE_URL:-}"
-_SAVED_PGMQ_DATABASE_URL="${PGMQ_DATABASE_URL:-}"
-
-source .env 2>/dev/null || true
-
-# Restore preserved URLs (split-db mode takes precedence)
-[ -n "$_SAVED_DATABASE_URL" ] && export DATABASE_URL="$_SAVED_DATABASE_URL"
-[ -n "$_SAVED_PGMQ_DATABASE_URL" ] && export PGMQ_DATABASE_URL="$_SAVED_PGMQ_DATABASE_URL"
-
-export TASKER_ENV=${TASKER_ENV:-test}
-export PORT=8080
-export TASKER_CONFIG_PATH=${TASKER_CONFIG_PATH:-$(pwd)/config/tasker/complete-test.toml}
-
-echo "🎯 Starting orchestration service..."
-echo "   Port: ${PORT}"
-echo "   Config: ${TASKER_CONFIG_PATH}"
-echo "   Database: ${DATABASE_URL}"
-
-PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-start.sh orchestration \
-    cargo run -p tasker-orchestration
-'''
+script = { file = "${SCRIPTS_DIR}/run-orchestration.sh" }
 
 [tasks.stop-orchestration]
 description = "Stop orchestration service"
@@ -938,3 +846,184 @@ description = "Check TypeScript worker status"
 cwd = "workers/typescript"
 command = "cargo"
 args = ["make", "status"]
+
+# =============================================================================
+# TAS-73: Multi-Instance Cluster Tasks
+# =============================================================================
+# Run multiple instances of orchestration/workers for horizontal scaling tests.
+#
+# Port Allocation (multi-instance mode):
+#   Orchestration:  8080-8089 (up to 10 instances)
+#   Rust Workers:   8100-8109
+#   Ruby Workers:   8200-8209
+#   Python Workers: 8300-8309
+#   TS Workers:     8400-8409
+#
+# Usage:
+#   cargo make cluster-start              # Start default cluster (orchestration + rust workers)
+#   cargo make cluster-start-all          # Start cluster with all worker types
+#   cargo make cluster-stop               # Stop all cluster instances
+#   cargo make cluster-status             # Check all instance health
+#   cargo make cluster-start-orchestration # Start orchestration instances only
+#   cargo make cluster-start-workers      # Start rust worker instances only
+#   cargo make cluster-start-workers-all  # Start all configured worker types
+#
+# Environment Variables (set via cluster.env or exported):
+#   TASKER_ORCHESTRATION_INSTANCES   - Number of orchestration instances (default: 2)
+#   TASKER_WORKER_RUST_INSTANCES     - Number of rust worker instances (default: 2)
+#   TASKER_WORKER_RUBY_INSTANCES     - Number of ruby worker instances (default: 2)
+#   TASKER_WORKER_PYTHON_INSTANCES   - Number of python worker instances (default: 2)
+#   TASKER_WORKER_TS_INSTANCES       - Number of typescript worker instances (default: 2)
+#
+# See: docs/ticket-specs/TAS-73/multi-instance-deployment.md
+
+[tasks.cluster-start]
+description = "Start full multi-instance cluster (orchestration + workers)"
+dependencies = ["cluster-start-orchestration", "cluster-start-workers"]
+script = '''
+echo ""
+echo "⏳ Waiting for cluster to initialize..."
+sleep 5
+cargo make cluster-status
+'''
+
+[tasks.cluster-start-orchestration]
+description = "Start N orchestration instances"
+script = '''
+COUNT="${TASKER_ORCHESTRATION_INSTANCES:-2}"
+echo "🚀 Starting $COUNT orchestration instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" orchestration "$COUNT"
+'''
+
+[tasks.cluster-start-workers]
+description = "Start N rust worker instances (default cluster workers)"
+script = '''
+RUST_COUNT="${TASKER_WORKER_RUST_INSTANCES:-2}"
+echo "🚀 Starting $RUST_COUNT rust worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-rust "$RUST_COUNT"
+'''
+
+[tasks.cluster-start-workers-all]
+description = "Start worker instances of all configured types"
+script = '''
+# Default to 2 instances for all worker types (matches individual task defaults)
+RUST_COUNT="${TASKER_WORKER_RUST_INSTANCES:-2}"
+RUBY_COUNT="${TASKER_WORKER_RUBY_INSTANCES:-2}"
+PYTHON_COUNT="${TASKER_WORKER_PYTHON_INSTANCES:-2}"
+TS_COUNT="${TASKER_WORKER_TS_INSTANCES:-2}"
+
+if [ "$RUST_COUNT" -gt 0 ]; then
+    echo "🚀 Starting $RUST_COUNT rust worker instance(s)..."
+    bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-rust "$RUST_COUNT"
+fi
+
+if [ "$RUBY_COUNT" -gt 0 ]; then
+    echo "💎 Starting $RUBY_COUNT ruby worker instance(s)..."
+    bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-ruby "$RUBY_COUNT"
+fi
+
+if [ "$PYTHON_COUNT" -gt 0 ]; then
+    echo "🐍 Starting $PYTHON_COUNT python worker instance(s)..."
+    bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-python "$PYTHON_COUNT"
+fi
+
+if [ "$TS_COUNT" -gt 0 ]; then
+    echo "📘 Starting $TS_COUNT typescript worker instance(s)..."
+    bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-ts "$TS_COUNT"
+fi
+'''
+
+[tasks.cluster-start-workers-rust]
+description = "Start N rust worker instances"
+script = '''
+COUNT="${TASKER_WORKER_RUST_INSTANCES:-2}"
+echo "🚀 Starting $COUNT rust worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-rust "$COUNT"
+'''
+
+[tasks.cluster-start-workers-ruby]
+description = "Start N ruby worker instances"
+script = '''
+COUNT="${TASKER_WORKER_RUBY_INSTANCES:-2}"
+echo "💎 Starting $COUNT ruby worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-ruby "$COUNT"
+'''
+
+[tasks.cluster-start-workers-python]
+description = "Start N python worker instances"
+script = '''
+COUNT="${TASKER_WORKER_PYTHON_INSTANCES:-2}"
+echo "🐍 Starting $COUNT python worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-python "$COUNT"
+'''
+
+[tasks.cluster-start-workers-ts]
+description = "Start N typescript worker instances"
+script = '''
+COUNT="${TASKER_WORKER_TS_INSTANCES:-2}"
+echo "📘 Starting $COUNT typescript worker instance(s)..."
+bash "${SCRIPTS_DIR}/multi-deploy/start-cluster.sh" worker-ts "$COUNT"
+'''
+
+[tasks.cluster-start-all]
+description = "Start full multi-instance cluster with all worker types"
+dependencies = ["cluster-start-orchestration", "cluster-start-workers-all"]
+script = '''
+echo ""
+echo "⏳ Waiting for cluster to initialize..."
+sleep 5
+cargo make cluster-status
+'''
+
+[tasks.cluster-stop]
+description = "Stop all cluster instances"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh"
+'''
+
+[tasks.cluster-stop-orchestration]
+description = "Stop orchestration instances only"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" orchestration
+'''
+
+[tasks.cluster-stop-workers]
+description = "Stop all worker instances"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" worker-rust
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" worker-ruby
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" worker-python
+bash "${SCRIPTS_DIR}/multi-deploy/stop-cluster.sh" worker-ts
+'''
+
+[tasks.cluster-status]
+description = "Check status and health of all cluster instances"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/cluster-status.sh"
+'''
+
+[tasks.cluster-status-quick]
+description = "Check status of cluster instances (no health checks)"
+script = '''
+bash "${SCRIPTS_DIR}/multi-deploy/cluster-status.sh" --no-health
+'''
+
+[tasks.cluster-logs]
+description = "Tail logs from all cluster instances"
+script = '''
+if ls .logs/orchestration-*.log .logs/worker-*.log 1>/dev/null 2>&1; then
+    tail -f .logs/orchestration-*.log .logs/worker-*.log
+else
+    echo "No cluster logs found. Start cluster first with: cargo make cluster-start"
+fi
+'''
+
+[tasks.cluster-logs-orchestration]
+description = "Tail logs from orchestration instances only"
+script = '''
+if ls .logs/orchestration-*.log 1>/dev/null 2>&1; then
+    tail -f .logs/orchestration-*.log
+else
+    echo "No orchestration logs found. Start cluster first with: cargo make cluster-start-orchestration"
+fi
+'''

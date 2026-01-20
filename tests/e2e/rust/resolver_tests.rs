@@ -119,7 +119,7 @@ async fn test_rust_backward_compatibility() -> Result<()> {
 
     // Use existing linear workflow template (no method/resolver fields)
     let task_request = create_task_request(
-        "linear_workflow",
+        "rust_e2e_linear",
         "mathematical_sequence",
         json!({ "even_number": 6 }),
     );

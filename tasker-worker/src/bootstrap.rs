@@ -191,8 +191,14 @@ pub struct WorkerBootstrapConfig {
 
 impl Default for WorkerBootstrapConfig {
     fn default() -> Self {
+        // TAS-73: Respect environment variables for worker identification
+        // Priority: TASKER_WORKER_ID > TASKER_INSTANCE_ID > generated UUID
+        let worker_id = std::env::var("TASKER_WORKER_ID")
+            .or_else(|_| std::env::var("TASKER_INSTANCE_ID"))
+            .unwrap_or_else(|_| format!("worker-{}", uuid::Uuid::new_v4()));
+
         Self {
-            worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
+            worker_id,
             enable_web_api: true,
             web_config: WorkerWebConfig::default(),
             orchestration_api_config: OrchestrationApiConfig::default(),
@@ -222,8 +228,18 @@ impl From<&TaskerConfig> for WorkerBootstrapConfig {
             })
             .unwrap_or((true, Some("Hybrid".to_string()))); // Default to Hybrid if worker config not present
 
+        // TAS-73: Respect environment variables and TOML config for worker identification
+        // Priority: TASKER_WORKER_ID env > TASKER_INSTANCE_ID env > TOML config > generated UUID
+        let worker_id = std::env::var("TASKER_WORKER_ID")
+            .or_else(|_| std::env::var("TASKER_INSTANCE_ID"))
+            .unwrap_or_else(|_| {
+                worker_config
+                    .map(|w| w.worker_id.clone())
+                    .unwrap_or_else(|| format!("worker-{}", uuid::Uuid::new_v4()))
+            });
+
         WorkerBootstrapConfig {
-            worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
+            worker_id,
             enable_web_api: worker_config
                 .and_then(|w| w.web.as_ref())
                 .map(|web| web.enabled)

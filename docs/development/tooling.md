@@ -208,6 +208,39 @@ CI environment setup that mirrors `.github/actions/setup-env`:
 | `cargo make test-typescript-ffi` | Run TypeScript FFI tests (all runtimes) |
 | `cargo make test-ffi-all` | Run all FFI integration tests |
 
+### Cluster Deployment Tasks (TAS-73)
+
+These tasks manage multi-instance cluster deployments for testing horizontal scaling, race conditions, and concurrent processing scenarios.
+
+| Task | Description |
+|------|-------------|
+| `cargo make cluster-start` | Start default cluster (orchestration + rust workers) |
+| `cargo make cluster-start-all` | Start cluster with all worker types (rust, ruby, python, ts) |
+| `cargo make cluster-stop` | Stop all cluster instances |
+| `cargo make cluster-status` | Check status and health of all instances |
+| `cargo make cluster-status-quick` | Check status without health checks |
+| `cargo make cluster-logs` | Tail logs from all cluster instances |
+| `cargo make cluster-logs-orchestration` | Tail orchestration logs only |
+
+**Per-Service Start Tasks:**
+
+| Task | Description |
+|------|-------------|
+| `cargo make cluster-start-orchestration` | Start N orchestration instances |
+| `cargo make cluster-start-workers` | Start rust worker instances only |
+| `cargo make cluster-start-workers-all` | Start all configured worker types |
+| `cargo make cluster-start-workers-rust` | Start N rust worker instances |
+| `cargo make cluster-start-workers-ruby` | Start N ruby worker instances |
+| `cargo make cluster-start-workers-python` | Start N python worker instances |
+| `cargo make cluster-start-workers-ts` | Start N typescript worker instances |
+
+**Per-Service Stop Tasks:**
+
+| Task | Description |
+|------|-------------|
+| `cargo make cluster-stop-orchestration` | Stop orchestration instances only |
+| `cargo make cluster-stop-workers` | Stop all worker instances |
+
 ### Shortcuts
 
 | Shortcut | Expands To |
@@ -333,6 +366,148 @@ The build system uses these environment variables:
 
 ---
 
+## Environment File Layering (config/dotenv/)
+
+The project uses a layered environment file system for different deployment scenarios. Files are sourced in order, with later files overriding earlier values.
+
+### Available Environment Files
+
+```
+config/dotenv/
+├── base.env              # Core paths, logging (sourced by all)
+├── test.env              # Test environment settings
+├── test-split.env        # Split database configuration (TAS-78)
+├── cluster.env           # Multi-instance cluster settings (TAS-73)
+├── orchestration.env     # Orchestration service configuration
+├── rust-worker.env       # Rust worker configuration
+├── ruby-worker.env       # Ruby worker configuration
+├── python-worker.env     # Python worker configuration
+└── typescript-worker.env # TypeScript worker configuration
+```
+
+### Layering Order
+
+```
+Single Instance:  base.env → test.env → service-specific.env
+Cluster Mode:     base.env → test.env → cluster.env → service-specific.env
+```
+
+### Setup Tasks
+
+| Task | Description |
+|------|-------------|
+| `cargo make setup-env` | Generate root .env for single-instance mode |
+| `cargo make setup-env-cluster` | Generate .env with cluster configuration |
+| `cargo make setup-env-cluster-split` | Generate .env for cluster + split database |
+| `cargo make setup-env-all-cluster-split` | Generate all service .env files for cluster mode |
+
+### Manual Sourcing
+
+```bash
+# Single-instance test mode
+source config/dotenv/base.env
+source config/dotenv/test.env
+
+# Cluster mode
+source config/dotenv/base.env
+source config/dotenv/test.env
+source config/dotenv/cluster.env
+```
+
+---
+
+## Multi-Instance Cluster Configuration (TAS-73)
+
+The cluster deployment system supports running multiple instances of orchestration and worker services for testing horizontal scaling and race conditions.
+
+### Port Allocation
+
+Each service type gets a dedicated port range (up to 10 instances each):
+
+| Service Type | Port Range | Example (2 instances) |
+|-------------|------------|----------------------|
+| Orchestration | 8080-8089 | 8080, 8081 |
+| Rust Workers | 8100-8109 | 8100, 8101 |
+| Ruby Workers | 8200-8209 | 8200, 8201 |
+| Python Workers | 8300-8309 | 8300, 8301 |
+| TypeScript Workers | 8400-8409 | 8400, 8401 |
+
+Formula: `PORT = BASE_PORT + (INSTANCE_NUMBER - 1)`
+
+### Instance Configuration
+
+Control instance counts via environment variables (set in `cluster.env` or exported):
+
+```bash
+# Number of instances per service type
+TASKER_ORCHESTRATION_INSTANCES=2
+TASKER_WORKER_RUST_INSTANCES=2
+TASKER_WORKER_RUBY_INSTANCES=2
+TASKER_WORKER_PYTHON_INSTANCES=2
+TASKER_WORKER_TS_INSTANCES=2
+```
+
+### Test URL Configuration
+
+Tests discover cluster instances via comma-separated URL lists:
+
+```bash
+# Orchestration endpoints (for MultiInstanceTestManager)
+TASKER_TEST_ORCHESTRATION_URLS=http://localhost:8080,http://localhost:8081
+
+# Worker endpoints by type
+TASKER_TEST_WORKER_RUST_URLS=http://localhost:8100,http://localhost:8101
+TASKER_TEST_WORKER_URLS=http://localhost:8100,http://localhost:8101  # All workers
+
+# Single-instance compatibility (used by IntegrationTestManager)
+TASKER_TEST_ORCHESTRATION_URL=http://localhost:8080
+TASKER_TEST_WORKER_URL=http://localhost:8100
+```
+
+### Instance Identification
+
+Each instance gets a unique identifier used in:
+- PID files: `.pids/orchestration-1.pid`, `.pids/worker-rust-2.pid`
+- Log files: `.logs/orchestration-1.log`, `.logs/worker-rust-2.log`
+- Metrics: `tasker_tasks_processed{instance="orchestration-1"}`
+
+### Quick Start: Running a Cluster
+
+```bash
+# 1. Setup cluster environment
+cargo make setup-env-cluster
+
+# 2. Start full cluster with all worker types
+cargo make cluster-start-all
+
+# 3. Check cluster health
+cargo make cluster-status
+
+# 4. Run cluster tests
+cargo make test-rust-cluster
+
+# 5. Stop cluster when done
+cargo make cluster-stop
+```
+
+### Monitoring the Cluster
+
+```bash
+# View all instance logs
+cargo make cluster-logs
+
+# View orchestration logs only
+cargo make cluster-logs-orchestration
+
+# Quick status (no health checks)
+cargo make cluster-status-quick
+
+# Full status with health checks
+cargo make cluster-status
+```
+
+---
+
 ## Common Workflows
 
 ### Starting Development
@@ -385,6 +560,27 @@ cargo make ci-flow
 cargo make ci-check
 cargo make ci-test
 ```
+
+### Running Cluster Tests
+
+```bash
+# Start the cluster
+cargo make cluster-start-all
+
+# Wait for health checks
+cargo make cluster-status
+
+# Run cluster-specific tests
+cargo make test-rust-cluster
+
+# Run all tests including cluster
+cargo make test-rust-all
+
+# Stop cluster when done
+cargo make cluster-stop
+```
+
+**Note**: Cluster tests are NOT run in CI due to GitHub Actions resource constraints. They must be run locally.
 
 ---
 
@@ -463,4 +659,6 @@ cargo make setup-workers
 
 - [Development Patterns](./development-patterns.md) - General development patterns
 - [MPSC Channel Guidelines](./mpsc-channel-guidelines.md) - Channel configuration
+- [Cluster Testing Guide](../testing/cluster-testing-guide.md) - Multi-instance test infrastructure
+- [TAS-73 Multi-Instance Deployment](../ticket-specs/TAS-73/multi-instance-deployment.md) - Cluster deployment design
 - [TAS-111 Spec](../ticket-specs/TAS-111.md) - Original specification for this tooling

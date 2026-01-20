@@ -1,5 +1,19 @@
 name: Integration Tests
 
+# =============================================================================
+# TAS-73: Test Infrastructure Note
+# =============================================================================
+# Cluster tests (test-cluster feature) are NOT run in CI.
+# These tests require multi-instance infrastructure (multiple orchestration +
+# worker processes) that exceeds GitHub Actions free tier resource limits.
+#
+# Run cluster tests locally with:
+#   cargo make cluster-start
+#   cargo make test-rust-cluster  # or: cargo make tc
+#
+# See docs/ticket-specs/TAS-73/test-feature-flags-design.md for details.
+# =============================================================================
+
 on:
   workflow_call:
     inputs:

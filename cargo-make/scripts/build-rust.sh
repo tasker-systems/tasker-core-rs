@@ -4,24 +4,17 @@
 # Handles split-database mode by enabling SQLX_OFFLINE when PGMQ uses
 # a separate database (compile-time verification can only use one DB).
 #
-# Usage:
-#   cargo make build-rust
+# NOTE: This script is called via cargo-make which sets cwd to project root.
 
 set -euo pipefail
 
-# Colors for output
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+# cargo-make sets cwd to project root
+SCRIPTS_DIR="$(pwd)/cargo-make/scripts"
 
-# Check if we're in split database mode
-if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
-    echo -e "${YELLOW}🔀 Split database mode detected - using SQLX_OFFLINE=true${NC}"
-    echo "   (SQLx compile-time checking requires single database)"
-    export SQLX_OFFLINE=true
-fi
+# Source split-db detection utility
+source "${SCRIPTS_DIR}/split-db-env.sh"
 
-echo -e "${YELLOW}🔨 Building Rust crates...${NC}"
+echo "Building Rust crates..."
 cargo build --all-features
 
-echo -e "${GREEN}✓ Rust build complete${NC}"
+echo "Rust build complete"

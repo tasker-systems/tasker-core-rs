@@ -8,7 +8,8 @@
 # Options:
 #   --target=TARGET    Target: root, orchestration, rust-worker, ruby-worker,
 #                      python-worker, typescript-worker (default: root)
-#   --mode=MODE        Mode: test, test-split (default: test)
+#   --mode=MODE        Mode: test, test-split, test-cluster, test-cluster-split
+#                      (default: test)
 #   --output=FILE      Output file (default: .env for target directory)
 #   --dry-run          Print what would be generated without writing
 #   --help             Show this help message
@@ -16,6 +17,8 @@
 # Examples:
 #   ./cargo-make/scripts/setup-env.sh                           # Root .env for standard test
 #   ./cargo-make/scripts/setup-env.sh --mode=test-split         # Root .env for split-db test
+#   ./cargo-make/scripts/setup-env.sh --mode=test-cluster       # Root .env for cluster test
+#   ./cargo-make/scripts/setup-env.sh --mode=test-cluster-split # Root .env for cluster + split-db
 #   ./cargo-make/scripts/setup-env.sh --target=rust-worker      # workers/rust/.env
 #   ./cargo-make/scripts/setup-env.sh --target=orchestration    # tasker-orchestration/.env
 
@@ -52,7 +55,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            head -25 "$0" | tail -22
+            head -27 "$0" | tail -24
             exit 0
             ;;
         *)
@@ -102,15 +105,26 @@ get_source_files() {
     # Always start with base
     files+=("${DOTENV_DIR}/base.env")
 
-    # Add test.env for test modes
-    if [[ "$MODE" == "test" || "$MODE" == "test-split" ]]; then
-        files+=("${DOTENV_DIR}/test.env")
-    fi
+    # Add test.env for all test modes
+    case "$MODE" in
+        test|test-split|test-cluster|test-cluster-split)
+            files+=("${DOTENV_DIR}/test.env")
+            ;;
+    esac
 
-    # Add split overrides if requested
-    if [[ "$MODE" == "test-split" ]]; then
-        files+=("${DOTENV_DIR}/test-split.env")
-    fi
+    # Add split overrides if requested (before cluster to allow cluster to override)
+    case "$MODE" in
+        test-split|test-cluster-split)
+            files+=("${DOTENV_DIR}/test-split.env")
+            ;;
+    esac
+
+    # Add cluster overrides if requested
+    case "$MODE" in
+        test-cluster|test-cluster-split)
+            files+=("${DOTENV_DIR}/cluster.env")
+            ;;
+    esac
 
     # Add target-specific file
     case $TARGET in

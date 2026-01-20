@@ -98,18 +98,49 @@ services:
   # ==========================================================================
   # PostgreSQL Database with PGMQ Extension
   # ==========================================================================
+  # TAS-73: Optimized for multi-instance cluster testing
+  # - max_connections=500: Support multiple orchestration + worker instances
+  # - shared_buffers=256MB: Cache for frequently accessed data
+  # - effective_cache_size=1GB: Planner hint for available memory
+  # - work_mem=16MB: Memory for complex queries (sorts, hashes)
+  # - maintenance_work_mem=128MB: Memory for maintenance ops
+  # - wal_buffers=16MB: Write-ahead log buffer
+  # - random_page_cost=1.1: Assume SSD storage
+  # - checkpoint_completion_target=0.9: Spread checkpoint I/O
+  # - default_statistics_target=100: Better query planning
   postgres:
     build:
       context: ..
       dockerfile: docker/db/Dockerfile
     command:
       - "postgres"
+      # Connection handling
       - "-c"
       - "max_connections=500"
+      # Memory settings
       - "-c"
       - "shared_buffers=256MB"
       - "-c"
       - "effective_cache_size=1GB"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+      # WAL and checkpoint settings
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      # Query planning
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "default_statistics_target=100"
+      # Logging (useful for debugging connection issues)
+      - "-c"
+      - "log_connections=on"
+      - "-c"
+      - "log_disconnections=on"
     environment:
       POSTGRES_DB: tasker_rust_test
       POSTGRES_USER: tasker
@@ -121,6 +152,13 @@ services:
       # Note: pg18+ uses /var/lib/postgresql with version-specific subdirectories
       # See: https://github.com/docker-library/postgres/pull/1259
       - postgres_data:/var/lib/postgresql
+    # TAS-73: Increase memory for cluster workloads
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tasker -d tasker_rust_test"]
       interval: 5s
