@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT task_namespace_uuid FROM tasker.task_namespaces WHERE name = 'test_namespace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_namespace_uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b70825f123c3306e69b2fa3ce7e2c6cccf35dc5f8666ca03e91bab03a1ae0ff9"
+}

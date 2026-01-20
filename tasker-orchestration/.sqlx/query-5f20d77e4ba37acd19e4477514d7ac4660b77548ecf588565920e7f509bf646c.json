@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tasker.tasks (task_uuid, named_task_uuid, complete, requested_at, identity_hash, priority, created_at, updated_at, correlation_id)\n            VALUES ($1, $2, false, NOW(), $3, 0, NOW(), NOW(), $4)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f20d77e4ba37acd19e4477514d7ac4660b77548ecf588565920e7f509bf646c"
+}

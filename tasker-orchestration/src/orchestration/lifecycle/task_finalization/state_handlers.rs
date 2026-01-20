@@ -194,9 +194,10 @@ impl StateHandlers {
             // This catches cases where SQL function might not have detected BlockedByFailures
             if ctx.failed_steps > 0 && ctx.ready_steps == 0 {
                 // If we have failures but no ready steps, verify these aren't all permanent
+                // TAS-157: Use optimized variant since we already have the task
                 let is_blocked = self
                     .context_provider
-                    .blocked_by_errors(task.task_uuid)
+                    .blocked_by_errors_with_correlation_id(task.task_uuid, task.correlation_id)
                     .await?;
                 if is_blocked {
                     warn!(
