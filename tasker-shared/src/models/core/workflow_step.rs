@@ -301,6 +301,39 @@ impl WorkflowStep {
         }
     }
 
+    /// Get correlation_id for a step via single JOIN query (TAS-157)
+    ///
+    /// This method performs a single JOIN query to get the correlation_id from the
+    /// associated task, eliminating the need for two sequential queries
+    /// (WorkflowStep::find_by_id + Task::find_by_id).
+    ///
+    /// # Performance
+    ///
+    /// - **Before**: 2 DB round-trips (step lookup + task lookup)
+    /// - **After**: 1 DB round-trip (single JOIN query)
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(uuid))`: The correlation_id from the task
+    /// - `Ok(None)`: The step doesn't exist
+    /// - `Err(_)`: Database error
+    pub async fn get_correlation_id(
+        pool: &PgPool,
+        step_uuid: Uuid,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        sqlx::query_scalar!(
+            r#"
+            SELECT t.correlation_id as "correlation_id!"
+            FROM tasker.workflow_steps ws
+            JOIN tasker.tasks t ON t.task_uuid = ws.task_uuid
+            WHERE ws.workflow_step_uuid = $1::uuid
+            "#,
+            step_uuid
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
     /// Find a workflow step by ID
     pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<WorkflowStep>, sqlx::Error> {
         let step = sqlx::query_as!(

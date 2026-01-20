@@ -9,6 +9,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::metadata_processor::MetadataProcessor;
+use super::processing_context::ResultProcessingContext;
 use super::state_transition_handler::StateTransitionHandler;
 use super::task_coordinator::TaskCoordinator;
 use crate::actors::batch_processing_actor::BatchProcessingActor;
@@ -17,11 +18,10 @@ use crate::actors::{Handler, ProcessBatchableStepMessage, ProcessDecisionPointMe
 use tasker_shared::errors::OrchestrationResult;
 use tasker_shared::messaging::{BatchProcessingOutcome, DecisionPointOutcome, StepExecutionStatus};
 use tasker_shared::metrics::orchestration::*;
-use tasker_shared::models::core::task_template::{StepType, TaskTemplate};
 use tasker_shared::system_context::SystemContext;
 
 use tasker_shared::messaging::{StepExecutionResult, StepResultMessage};
-use tasker_shared::models::{NamedStep, Task, WorkflowStep};
+use tasker_shared::models::WorkflowStep;
 
 /// Handles different message types for result processing
 ///
@@ -327,30 +327,37 @@ impl MessageHandler {
             return Err(e);
         }
 
-        // TAS-53 Phase 6: Check for decision point completion and process outcome
-        if let Err(e) = self
-            .process_decision_point_if_needed(step_uuid, status, correlation_id)
-            .await
-        {
-            warn!(
-                correlation_id = %correlation_id,
-                step_uuid = %step_uuid,
-                error = %e,
-                "Failed to process decision point outcome (non-fatal, continuing with task coordination)"
-            );
-        }
+        // TAS-157: Use shared ResultProcessingContext for decision point and batch processing checks
+        // to eliminate redundant database queries
+        if status == "completed" {
+            let mut processing_context =
+                ResultProcessingContext::new(self.context.clone(), *step_uuid, correlation_id);
 
-        // TAS-59 Phase 4: Check for batch processing outcome and create workers
-        if let Err(e) = self
-            .process_batch_outcome_if_needed(step_uuid, status, correlation_id)
-            .await
-        {
-            warn!(
-                correlation_id = %correlation_id,
-                step_uuid = %step_uuid,
-                error = %e,
-                "Failed to process batch processing outcome (non-fatal, continuing with task coordination)"
-            );
+            // TAS-53 Phase 6: Check for decision point completion and process outcome
+            if let Err(e) = self
+                .process_decision_point_with_context(&mut processing_context)
+                .await
+            {
+                warn!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    error = %e,
+                    "Failed to process decision point outcome (non-fatal, continuing with task coordination)"
+                );
+            }
+
+            // TAS-59 Phase 4: Check for batch processing outcome and create workers
+            if let Err(e) = self
+                .process_batch_outcome_with_context(&mut processing_context)
+                .await
+            {
+                warn!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    error = %e,
+                    "Failed to process batch processing outcome (non-fatal, continuing with task coordination)"
+                );
+            }
         }
 
         // Coordinate task finalization
@@ -359,48 +366,53 @@ impl MessageHandler {
             .await
     }
 
-    /// TAS-53 Phase 6: Process decision point outcome if this step is a decision point
+    /// Get correlation_id for a step by looking up its task (TAS-157 optimized)
     ///
-    /// This method:
-    /// 1. Loads the workflow step and determines if it's a decision point
-    /// 2. If it's a successful decision step, extracts the DecisionPointOutcome
-    /// 3. Sends the outcome to DecisionPointActor for dynamic step creation
-    ///
-    /// Note: Errors are logged but don't fail the overall result processing,
-    /// as decision point processing is an enhancement that shouldn't block
-    /// the core result processing flow.
-    async fn process_decision_point_if_needed(
-        &self,
-        step_uuid: &Uuid,
-        status: &String,
-        correlation_id: Uuid,
-    ) -> OrchestrationResult<()> {
-        // Only process successful completions
-        if status != "completed" {
-            return Ok(());
+    /// Uses a single JOIN query to get the correlation_id from the task,
+    /// eliminating the need for two sequential queries.
+    async fn get_correlation_id_for_step(&self, step_uuid: Uuid) -> Uuid {
+        // TAS-157: Single JOIN query instead of two sequential queries
+        match WorkflowStep::get_correlation_id(self.context.database_pool(), step_uuid).await {
+            Ok(Some(correlation_id)) => correlation_id,
+            Ok(None) | Err(_) => Uuid::nil(),
         }
+    }
 
-        // Load the workflow step
-        let workflow_step =
-            match WorkflowStep::find_by_id(self.context.database_pool(), *step_uuid).await? {
-                Some(step) => step,
-                None => {
-                    debug!(
-                        correlation_id = %correlation_id,
-                        step_uuid = %step_uuid,
-                        "Workflow step not found for decision point check"
-                    );
-                    return Ok(());
-                }
-            };
+    /// TAS-157: Process decision point outcome using cached context
+    ///
+    /// This method uses the `ResultProcessingContext` to avoid redundant database queries
+    /// when checking if a step is a decision point. The context caches entities loaded
+    /// during this check, which can be reused by batch processing checks.
+    ///
+    /// # Performance
+    ///
+    /// - **Before**: Each check loaded Task, TaskForOrchestration, NamedStep, TaskTemplate
+    /// - **After**: Entities are loaded once and cached in the context
+    async fn process_decision_point_with_context(
+        &self,
+        ctx: &mut ResultProcessingContext,
+    ) -> OrchestrationResult<()> {
+        let step_uuid = ctx.step_uuid();
+        let correlation_id = ctx.correlation_id();
 
-        // Check if this is a decision point by loading the task template
-        let is_decision = self
-            .is_decision_step(&workflow_step, correlation_id)
-            .await?;
+        // Check if this is a decision point using cached context
+        let is_decision = ctx.is_decision_step().await?;
         if !is_decision {
             return Ok(());
         }
+
+        // Get the workflow step from context (already loaded by is_decision_step)
+        let workflow_step = match ctx.workflow_step() {
+            Some(ws) => ws.clone(),
+            None => {
+                debug!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    "Workflow step not found for decision point processing"
+                );
+                return Ok(());
+            }
+        };
 
         debug!(
             correlation_id = %correlation_id,
@@ -441,7 +453,7 @@ impl MessageHandler {
 
         // Send to DecisionPointActor for processing
         let msg = ProcessDecisionPointMessage {
-            workflow_step_uuid: *step_uuid,
+            workflow_step_uuid: step_uuid,
             task_uuid: workflow_step.task_uuid,
             outcome,
         };
@@ -469,150 +481,41 @@ impl MessageHandler {
         }
     }
 
-    /// Check if a workflow step is a decision point by loading the task template
+    /// TAS-157: Process batch outcome using cached context
     ///
-    /// This method:
-    /// 1. Loads the task to get namespace/task name/version
-    /// 2. Loads the task template from the handler registry
-    /// 3. Finds the step definition by matching the named step name
-    /// 4. Checks if the step definition is a decision step
-    async fn is_decision_step(
+    /// This method uses the `ResultProcessingContext` to avoid redundant database queries
+    /// when checking if a step is batchable. The context may already have entities loaded
+    /// from the decision point check, which are reused here.
+    ///
+    /// # Performance
+    ///
+    /// - **Before**: Each check loaded Task, TaskForOrchestration, NamedStep, TaskTemplate
+    /// - **After**: Entities loaded during decision point check are reused
+    async fn process_batch_outcome_with_context(
         &self,
-        workflow_step: &WorkflowStep,
-        correlation_id: Uuid,
-    ) -> OrchestrationResult<bool> {
-        // Load the task to get metadata
-        let task =
-            match Task::find_by_id(self.context.database_pool(), workflow_step.task_uuid).await? {
-                Some(task) => task,
-                None => {
-                    debug!(
-                        correlation_id = %correlation_id,
-                        task_uuid = %workflow_step.task_uuid,
-                        "Task not found for decision point check"
-                    );
-                    return Ok(false);
-                }
-            };
-
-        // Get task orchestration metadata
-        let task_metadata = task
-            .for_orchestration(self.context.database_pool())
-            .await
-            .map_err(|e| {
-                tasker_shared::OrchestrationError::from(
-                    format!("Failed to load task orchestration metadata: {}", e).as_str(),
-                )
-            })?;
-
-        // Load the named step to get the step name
-        let named_step = match NamedStep::find_by_uuid(
-            self.context.database_pool(),
-            workflow_step.named_step_uuid,
-        )
-        .await?
-        {
-            Some(step) => step,
-            None => {
-                debug!(
-                    correlation_id = %correlation_id,
-                    named_step_uuid = %workflow_step.named_step_uuid,
-                    "Named step not found for decision point check"
-                );
-                return Ok(false);
-            }
-        };
-
-        // Load the task template from handler registry
-        let handler_metadata = self
-            .context
-            .task_handler_registry
-            .get_task_template_from_registry(
-                &task_metadata.namespace_name,
-                &task_metadata.task_name,
-                &task_metadata.task_version,
-            )
-            .await
-            .map_err(|e| {
-                tasker_shared::OrchestrationError::from(
-                    format!("Failed to load task template from registry: {}", e).as_str(),
-                )
-            })?;
-
-        // Extract TaskTemplate from handler metadata
-        let task_template: TaskTemplate =
-            serde_json::from_value(handler_metadata.config_schema.ok_or_else(|| {
-                tasker_shared::OrchestrationError::from(
-                    "No config schema found in handler metadata",
-                )
-            })?)
-            .map_err(|e| {
-                tasker_shared::OrchestrationError::from(
-                    format!("Failed to deserialize task template: {}", e).as_str(),
-                )
-            })?;
-
-        // Find the step definition in the template
-        let step_def = task_template
-            .steps
-            .iter()
-            .find(|s| s.name == named_step.name);
-
-        match step_def {
-            Some(def) => Ok(def.is_decision()),
-            None => {
-                debug!(
-                    correlation_id = %correlation_id,
-                    step_name = %named_step.name,
-                    "Step definition not found in template"
-                );
-                Ok(false)
-            }
-        }
-    }
-
-    /// TAS-59 Phase 4: Process batch processing outcome if this step is batchable
-    ///
-    /// This method:
-    /// 1. Loads the workflow step and determines if it's a batchable step
-    /// 2. If it's a successful batchable step, extracts the BatchProcessingOutcome
-    /// 3. Sends the outcome to BatchProcessingActor for dynamic worker creation
-    ///
-    /// Note: Errors are logged but don't fail the overall result processing,
-    /// as batch processing is an enhancement that shouldn't block
-    /// the core result processing flow.
-    async fn process_batch_outcome_if_needed(
-        &self,
-        step_uuid: &Uuid,
-        status: &String,
-        correlation_id: Uuid,
+        ctx: &mut ResultProcessingContext,
     ) -> OrchestrationResult<()> {
-        // Only process successful completions
-        if status != "completed" {
-            return Ok(());
-        }
+        let step_uuid = ctx.step_uuid();
+        let correlation_id = ctx.correlation_id();
 
-        // Load the workflow step
-        let workflow_step =
-            match WorkflowStep::find_by_id(self.context.database_pool(), *step_uuid).await? {
-                Some(step) => step,
-                None => {
-                    debug!(
-                        correlation_id = %correlation_id,
-                        step_uuid = %step_uuid,
-                        "Workflow step not found for batch processing check"
-                    );
-                    return Ok(());
-                }
-            };
-
-        // Check if this is a batchable step by loading the task template
-        let is_batchable = self
-            .is_batchable_step(&workflow_step, correlation_id)
-            .await?;
+        // Check if this is a batchable step using cached context
+        let is_batchable = ctx.is_batchable_step().await?;
         if !is_batchable {
             return Ok(());
         }
+
+        // Get the workflow step from context (already loaded)
+        let workflow_step = match ctx.workflow_step() {
+            Some(ws) => ws.clone(),
+            None => {
+                debug!(
+                    correlation_id = %correlation_id,
+                    step_uuid = %step_uuid,
+                    "Workflow step not found for batch processing"
+                );
+                return Ok(());
+            }
+        };
 
         debug!(
             correlation_id = %correlation_id,
@@ -697,124 +600,6 @@ impl MessageHandler {
                     e.to_string().as_str(),
                 ))
             }
-        }
-    }
-
-    /// Check if a workflow step is batchable by loading the task template
-    ///
-    /// This method:
-    /// 1. Loads the task to get namespace/task name/version
-    /// 2. Loads the task template from the handler registry
-    /// 3. Finds the step definition by matching the named step name
-    /// 4. Checks if the step definition is a batchable step
-    async fn is_batchable_step(
-        &self,
-        workflow_step: &WorkflowStep,
-        correlation_id: Uuid,
-    ) -> OrchestrationResult<bool> {
-        // Load the task to get metadata
-        let task =
-            match Task::find_by_id(self.context.database_pool(), workflow_step.task_uuid).await? {
-                Some(task) => task,
-                None => {
-                    debug!(
-                        correlation_id = %correlation_id,
-                        task_uuid = %workflow_step.task_uuid,
-                        "Task not found for batchable check"
-                    );
-                    return Ok(false);
-                }
-            };
-
-        // Get task orchestration metadata
-        let task_metadata = task
-            .for_orchestration(self.context.database_pool())
-            .await
-            .map_err(|e| {
-                tasker_shared::OrchestrationError::from(
-                    format!("Failed to load task orchestration metadata: {}", e).as_str(),
-                )
-            })?;
-
-        // Load the named step to get the step name
-        let named_step = match NamedStep::find_by_uuid(
-            self.context.database_pool(),
-            workflow_step.named_step_uuid,
-        )
-        .await?
-        {
-            Some(step) => step,
-            None => {
-                debug!(
-                    correlation_id = %correlation_id,
-                    named_step_uuid = %workflow_step.named_step_uuid,
-                    "Named step not found for batchable check"
-                );
-                return Ok(false);
-            }
-        };
-
-        // Load the task template from handler registry
-        let handler_metadata = self
-            .context
-            .task_handler_registry
-            .get_task_template_from_registry(
-                &task_metadata.namespace_name,
-                &task_metadata.task_name,
-                &task_metadata.task_version,
-            )
-            .await
-            .map_err(|e| {
-                tasker_shared::OrchestrationError::from(
-                    format!("Failed to load task template from registry: {}", e).as_str(),
-                )
-            })?;
-
-        // Extract TaskTemplate from handler metadata
-        let task_template: TaskTemplate =
-            serde_json::from_value(handler_metadata.config_schema.ok_or_else(|| {
-                tasker_shared::OrchestrationError::from(
-                    "No config schema found in handler metadata",
-                )
-            })?)
-            .map_err(|e| {
-                tasker_shared::OrchestrationError::from(
-                    format!("Failed to deserialize task template: {}", e).as_str(),
-                )
-            })?;
-
-        // Find the step definition in the template
-        let step_def = task_template
-            .steps
-            .iter()
-            .find(|s| s.name == named_step.name);
-
-        match step_def {
-            Some(def) => Ok(def.step_type == StepType::Batchable),
-            None => {
-                debug!(
-                    correlation_id = %correlation_id,
-                    step_name = %named_step.name,
-                    "Step definition not found in template"
-                );
-                Ok(false)
-            }
-        }
-    }
-
-    /// Get correlation_id for a step by looking up its task
-    async fn get_correlation_id_for_step(&self, step_uuid: Uuid) -> Uuid {
-        // First get the step to find its task_uuid
-        match WorkflowStep::find_by_id(self.context.database_pool(), step_uuid).await {
-            Ok(Some(workflow_step)) => {
-                // Now get the task to extract correlation_id
-                match Task::find_by_id(self.context.database_pool(), workflow_step.task_uuid).await
-                {
-                    Ok(Some(task)) => task.correlation_id,
-                    Ok(None) | Err(_) => Uuid::nil(),
-                }
-            }
-            Ok(None) | Err(_) => Uuid::nil(),
         }
     }
 }

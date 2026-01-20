@@ -43,16 +43,24 @@ impl ExecutionContextProvider {
         }
     }
 
-    /// Check if the task is blocked by errors
+    /// Check if the task is blocked by errors (TAS-157 optimized variant)
+    ///
+    /// This variant accepts a correlation_id parameter to avoid redundant Task lookup
+    /// when the caller already has the Task available.
+    ///
+    /// # Performance
+    ///
+    /// - **Before**: 2 DB round-trips (task lookup + context lookup)
+    /// - **After**: 1 DB round-trip (context lookup only)
     ///
     /// @param task_uuid The task ID to check
+    /// @param correlation_id The correlation ID for tracing
     /// @return True if task is blocked by errors
-    pub async fn blocked_by_errors(&self, task_uuid: Uuid) -> Result<bool, FinalizationError> {
-        // Fetch correlation_id from task
-        let correlation_id = {
-            let task = Task::find_by_id(self.context.database_pool(), task_uuid).await?;
-            task.map(|t| t.correlation_id).unwrap_or_else(Uuid::nil)
-        };
+    pub async fn blocked_by_errors_with_correlation_id(
+        &self,
+        task_uuid: Uuid,
+        correlation_id: Uuid,
+    ) -> Result<bool, FinalizationError> {
         let context = self
             .get_task_execution_context(task_uuid, correlation_id)
             .await?;
@@ -64,6 +72,22 @@ impl ExecutionContextProvider {
         };
 
         Ok(context.execution_status == ExecutionStatus::BlockedByFailures)
+    }
+
+    /// Check if the task is blocked by errors
+    ///
+    /// @param task_uuid The task ID to check
+    /// @return True if task is blocked by errors
+    pub async fn blocked_by_errors(&self, task_uuid: Uuid) -> Result<bool, FinalizationError> {
+        // Fetch correlation_id from task
+        let correlation_id = {
+            let task = Task::find_by_id(self.context.database_pool(), task_uuid).await?;
+            task.map(|t| t.correlation_id).unwrap_or_else(Uuid::nil)
+        };
+
+        // TAS-157: Delegate to the optimized variant
+        self.blocked_by_errors_with_correlation_id(task_uuid, correlation_id)
+            .await
     }
 }
 

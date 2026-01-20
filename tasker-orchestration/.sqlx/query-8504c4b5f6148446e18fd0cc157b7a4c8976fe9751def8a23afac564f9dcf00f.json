@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tasker.task_namespaces (name, description, created_at, updated_at)\n            VALUES ('test_namespace', 'Test namespace', NOW(), NOW())\n            ON CONFLICT (name) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8504c4b5f6148446e18fd0cc157b7a4c8976fe9751def8a23afac564f9dcf00f"
+}

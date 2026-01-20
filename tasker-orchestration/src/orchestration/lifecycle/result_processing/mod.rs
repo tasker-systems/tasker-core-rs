@@ -15,6 +15,7 @@ pub use service::OrchestrationResultProcessor;
 // Internal modules
 mod message_handler;
 mod metadata_processor;
+mod processing_context;
 mod service;
 mod state_transition_handler;
 mod task_coordinator;

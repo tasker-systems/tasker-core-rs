@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tasker.named_tasks (named_task_uuid, task_namespace_uuid, name, description, version, created_at, updated_at)\n            VALUES ($1, $2, 'test_task', 'Test task', 1, NOW(), NOW())\n            ON CONFLICT (task_namespace_uuid, name, version) DO UPDATE SET named_task_uuid = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9a6af3da1b2542e228d6347cab8d74dfaa7c47522f03442c5792da375cf871c6"
+}
