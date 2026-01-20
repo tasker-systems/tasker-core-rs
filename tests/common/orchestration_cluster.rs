@@ -27,7 +27,10 @@
 //! cluster.verify_task_consistency(task.task_uuid).await?;
 //! ```
 
-#![expect(dead_code, reason = "TAS-73: Test infrastructure for multi-instance testing")]
+#![expect(
+    dead_code,
+    reason = "TAS-73: Test infrastructure for multi-instance testing"
+)]
 
 use anyhow::{bail, Result};
 use std::env;
@@ -83,10 +86,8 @@ impl ClusterConfig {
     /// - `TASKER_TEST_ORCHESTRATION_URLS` - Comma-separated orchestration URLs
     /// - `TASKER_TEST_WORKER_URLS` - Comma-separated worker URLs
     pub fn from_env() -> Self {
-        let orchestration_urls = Self::parse_urls_from_env(
-            "TASKER_TEST_ORCHESTRATION_URLS",
-            &["http://localhost:8080"],
-        );
+        let orchestration_urls =
+            Self::parse_urls_from_env("TASKER_TEST_ORCHESTRATION_URLS", &["http://localhost:8080"]);
 
         let worker_urls =
             Self::parse_urls_from_env("TASKER_TEST_WORKER_URLS", &["http://localhost:8100"]);

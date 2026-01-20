@@ -83,10 +83,13 @@ impl CompletionHandler {
         })?;
 
         match row {
-            Some(r) => r.to_state.parse().map_err(|_| FinalizationError::StateMachine {
-                error: format!("Invalid state in database: {}", r.to_state),
-                task_uuid,
-            }),
+            Some(r) => r
+                .to_state
+                .parse()
+                .map_err(|_| FinalizationError::StateMachine {
+                    error: format!("Invalid state in database: {}", r.to_state),
+                    task_uuid,
+                }),
             None => Ok(TaskState::Pending),
         }
     }
@@ -168,10 +171,13 @@ impl CompletionHandler {
 
         // TAS-73: Start transaction and acquire exclusive lock on task row.
         // Other orchestrators will WAIT here instead of racing.
-        let mut tx = pool.begin().await.map_err(|e| FinalizationError::StateMachine {
-            error: format!("Failed to begin transaction: {e}"),
-            task_uuid,
-        })?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| FinalizationError::StateMachine {
+                error: format!("Failed to begin transaction: {e}"),
+                task_uuid,
+            })?;
 
         // Acquire exclusive row lock - this is the key to atomic finalization.
         // The SELECT FOR UPDATE locks the row until the transaction commits/rollbacks.
@@ -302,10 +308,12 @@ impl CompletionHandler {
         Self::mark_complete_with_tx(&mut tx, task_uuid).await?;
 
         // Commit the transaction - this releases the lock
-        tx.commit().await.map_err(|e| FinalizationError::StateMachine {
-            error: format!("Failed to commit finalization transaction: {e}"),
-            task_uuid,
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| FinalizationError::StateMachine {
+                error: format!("Failed to commit finalization transaction: {e}"),
+                task_uuid,
+            })?;
 
         debug!(
             task_uuid = %task_uuid,
@@ -341,10 +349,13 @@ impl CompletionHandler {
         let processor_uuid = self.context.processor_uuid();
 
         // TAS-73: Start transaction and acquire exclusive lock on task row
-        let mut tx = pool.begin().await.map_err(|e| FinalizationError::StateMachine {
-            error: format!("Failed to begin transaction: {e}"),
-            task_uuid,
-        })?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| FinalizationError::StateMachine {
+                error: format!("Failed to begin transaction: {e}"),
+                task_uuid,
+            })?;
 
         // Acquire exclusive row lock
         sqlx::query_scalar!(
@@ -421,10 +432,12 @@ impl CompletionHandler {
         }
 
         // Commit the transaction
-        tx.commit().await.map_err(|e| FinalizationError::StateMachine {
-            error: format!("Failed to commit error finalization transaction: {e}"),
-            task_uuid,
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| FinalizationError::StateMachine {
+                error: format!("Failed to commit error finalization transaction: {e}"),
+                task_uuid,
+            })?;
 
         debug!(
             task_uuid = %task_uuid,

@@ -42,7 +42,10 @@ async fn test_state_consistency_across_instances() -> Result<()> {
     println!("   Task completed with status: {}", completed.status);
 
     // Verify consistency across all instances
-    println!("   Verifying state across all {} instances...", instance_count);
+    println!(
+        "   Verifying state across all {} instances...",
+        instance_count
+    );
     manager.verify_task_consistency(task_uuid).await?;
 
     // Query task from each instance directly and compare
@@ -64,7 +67,8 @@ async fn test_state_consistency_across_instances() -> Result<()> {
     let first_status = &statuses[0];
     for (i, status) in statuses.iter().enumerate().skip(1) {
         assert_eq!(
-            status, first_status,
+            status,
+            first_status,
             "Instance {} reports different status '{}' vs '{}'",
             i + 1,
             status,

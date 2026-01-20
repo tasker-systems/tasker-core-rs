@@ -87,7 +87,8 @@ async fn test_concurrent_task_creation_across_instances() -> Result<()> {
         assert!(
             task.status == "complete" || task.status == "all_complete",
             "Task {} did not complete successfully: status={}",
-            i, task.status
+            i,
+            task.status
         );
     }
 
@@ -146,11 +147,7 @@ async fn test_rapid_task_creation_burst() -> Result<()> {
     uuids.sort();
     let original_len = uuids.len();
     uuids.dedup();
-    assert_eq!(
-        uuids.len(),
-        original_len,
-        "Duplicate task UUIDs detected!"
-    );
+    assert_eq!(uuids.len(), original_len, "Duplicate task UUIDs detected!");
 
     println!("   ✅ No duplicate UUIDs detected");
     println!("🎉 Rapid task creation burst test passed!");

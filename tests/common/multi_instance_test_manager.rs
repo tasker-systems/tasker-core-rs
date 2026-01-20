@@ -24,7 +24,10 @@
 //! }
 //! ```
 
-#![expect(dead_code, reason = "TAS-73: Test infrastructure for multi-instance testing")]
+#![expect(
+    dead_code,
+    reason = "TAS-73: Test infrastructure for multi-instance testing"
+)]
 
 use super::orchestration_cluster::{ClusterConfig, OrchestrationCluster};
 use anyhow::{bail, Result};
