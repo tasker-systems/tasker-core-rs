@@ -20,12 +20,13 @@ def extract_per_iteration_times(sample_data: dict) -> list[float]:
     """
     Extract per-iteration times from Criterion sample data.
 
-    Criterion uses cumulative iterations and times:
-    - iters: [5, 10, 15, ...] (cumulative count)
-    - times: [t1, t2, t3, ...] (cumulative total time in nanoseconds)
+    Criterion has two sampling modes:
+    - "Linear": cumulative iterations [5, 10, 15...], cumulative times
+    - "Flat": per-sample iterations [4, 4, 4...], per-sample times
 
     Returns list of per-iteration times in milliseconds.
     """
+    sampling_mode = sample_data.get("sampling_mode", "Linear")
     iters = sample_data.get("iters", [])
     times = sample_data.get("times", [])
 
@@ -33,20 +34,31 @@ def extract_per_iteration_times(sample_data: dict) -> list[float]:
         return []
 
     per_iteration_times = []
-    prev_iters = 0
-    prev_time = 0.0
 
-    for i, (cum_iters, cum_time) in enumerate(zip(iters, times)):
-        delta_iters = cum_iters - prev_iters
-        delta_time = cum_time - prev_time
+    if sampling_mode == "Flat":
+        # Flat mode: each entry is a separate sample
+        # time[i] = total time for iters[i] iterations
+        for batch_iters, batch_time in zip(iters, times):
+            if batch_iters > 0:
+                # Convert nanoseconds to milliseconds
+                avg_time_ms = (batch_time / batch_iters) / 1_000_000
+                per_iteration_times.append(avg_time_ms)
+    else:
+        # Linear mode: cumulative iterations and times
+        prev_iters = 0
+        prev_time = 0.0
 
-        if delta_iters > 0:
-            # Convert nanoseconds to milliseconds
-            avg_time_ms = (delta_time / delta_iters) / 1_000_000
-            per_iteration_times.append(avg_time_ms)
+        for cum_iters, cum_time in zip(iters, times):
+            delta_iters = cum_iters - prev_iters
+            delta_time = cum_time - prev_time
 
-        prev_iters = cum_iters
-        prev_time = cum_time
+            if delta_iters > 0:
+                # Convert nanoseconds to milliseconds
+                avg_time_ms = (delta_time / delta_iters) / 1_000_000
+                per_iteration_times.append(avg_time_ms)
+
+            prev_iters = cum_iters
+            prev_time = cum_time
 
     return per_iteration_times
 
