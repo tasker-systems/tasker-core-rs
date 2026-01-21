@@ -56,6 +56,7 @@ pub async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Cl
                 priority: Some(priority as i32),
                 correlation_id,
                 parent_correlation_id: None,
+                idempotency_key: None,
             };
 
             match client.create_task(task_request).await {

@@ -3,6 +3,7 @@
 //! Tests for the StepReadinessStatus model using SQLx native testing
 
 use sqlx::PgPool;
+use tasker_shared::models::core::IdentityStrategy;
 use tasker_shared::models::named_task::{NamedTask, NewNamedTask};
 use tasker_shared::models::orchestration::step_readiness_status::StepReadinessStatus;
 use tasker_shared::models::task::{NewTask, Task};
@@ -35,6 +36,7 @@ async fn test_get_step_readiness_status(pool: PgPool) -> sqlx::Result<()> {
             description: None,
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await
@@ -101,6 +103,7 @@ async fn test_readiness_summary(pool: PgPool) -> sqlx::Result<()> {
             description: None,
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await

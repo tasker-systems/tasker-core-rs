@@ -857,9 +857,16 @@ impl Task {
     ///
     /// # Performance
     ///
-    /// - **Hash Calculation**: O(1) for typical context sizes
+    /// - **Hash Calculation**: O(n log n) for context with n keys (due to sorting)
     /// - **Database Lookup**: O(1) via unique index on identity_hash
     /// - **Memory Usage**: Fixed 16-character string regardless of context size
+    ///
+    /// # JSON Normalization
+    ///
+    /// The context is normalized before hashing to ensure semantic equality:
+    /// - Object keys are sorted alphabetically (recursively)
+    /// - No whitespace differences affect the hash
+    /// - `{"b": 2, "a": 1}` and `{"a": 1, "b": 2}` produce the same hash
     pub fn generate_identity_hash(
         named_task_uuid: Uuid,
         context: &Option<serde_json::Value>,
@@ -870,9 +877,144 @@ impl Task {
         let mut hasher = DefaultHasher::new();
         named_task_uuid.hash(&mut hasher);
         if let Some(ctx) = context {
-            ctx.to_string().hash(&mut hasher);
+            // Use canonical JSON representation for consistent hashing
+            let normalized = Self::normalize_json_for_hash(ctx);
+            normalized.hash(&mut hasher);
         }
         format!("{:x}", hasher.finish())
+    }
+
+    /// Normalize a JSON value for consistent hashing.
+    ///
+    /// This function produces a canonical string representation where:
+    /// - Object keys are sorted alphabetically (recursively)
+    /// - No extra whitespace
+    /// - Consistent number formatting
+    ///
+    /// This ensures that semantically equivalent JSON produces the same hash,
+    /// regardless of key ordering or whitespace in the original.
+    fn normalize_json_for_hash(value: &serde_json::Value) -> String {
+        match value {
+            serde_json::Value::Object(map) => {
+                // Sort keys and recursively normalize values
+                let mut pairs: Vec<_> = map
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Self::normalize_json_for_hash(v)))
+                    .collect();
+                pairs.sort_by(|a, b| a.0.cmp(&b.0));
+
+                let inner: Vec<String> = pairs
+                    .into_iter()
+                    .map(|(k, v)| format!("\"{}\":{}", k, v))
+                    .collect();
+                format!("{{{}}}", inner.join(","))
+            }
+            serde_json::Value::Array(arr) => {
+                // Recursively normalize array elements (preserve order)
+                let inner: Vec<String> = arr.iter().map(Self::normalize_json_for_hash).collect();
+                format!("[{}]", inner.join(","))
+            }
+            serde_json::Value::String(s) => {
+                // Escape string properly for JSON
+                serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s))
+            }
+            // Numbers, bools, null use default serialization (no whitespace)
+            _ => value.to_string(),
+        }
+    }
+
+    /// TAS-154: Compute identity hash based on the named task's identity strategy.
+    ///
+    /// This function determines how task identity is computed for deduplication,
+    /// respecting the named task's configured strategy with optional per-request override.
+    ///
+    /// # Strategies
+    ///
+    /// - **Strict**: `hash(named_task_uuid, context)` - Full idempotency (default)
+    /// - **CallerProvided**: Uses the provided `idempotency_key` (required)
+    /// - **AlwaysUnique**: Generates a unique UUIDv7 (no deduplication)
+    ///
+    /// # Per-Request Override
+    ///
+    /// If `idempotency_key` is provided, it takes precedence over the named task's
+    /// strategy. This allows callers to control deduplication on a per-request basis.
+    ///
+    /// # Key Collision Prevention
+    ///
+    /// For CALLER_PROVIDED keys, we include the named_task_uuid in the hash to prevent
+    /// collisions across different named tasks using the same idempotency key.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(hash)` - The computed identity hash
+    /// - `Err(message)` - If CallerProvided strategy requires a key but none provided
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use tasker_shared::models::core::{IdentityStrategy, NamedTask, Task};
+    ///
+    /// // STRICT: hash based on context
+    /// let hash = Task::compute_identity_hash(
+    ///     IdentityStrategy::Strict,
+    ///     named_task_uuid,
+    ///     &Some(json!({"order_id": 123})),
+    ///     None
+    /// ).unwrap();
+    ///
+    /// // CALLER_PROVIDED: hash based on caller's key
+    /// let hash = Task::compute_identity_hash(
+    ///     IdentityStrategy::CallerProvided,
+    ///     named_task_uuid,
+    ///     &context,
+    ///     Some("my-unique-key")
+    /// ).unwrap();
+    ///
+    /// // ALWAYS_UNIQUE: generates unique hash each time
+    /// let hash = Task::compute_identity_hash(
+    ///     IdentityStrategy::AlwaysUnique,
+    ///     named_task_uuid,
+    ///     &context,
+    ///     None
+    /// ).unwrap();
+    /// ```
+    pub fn compute_identity_hash(
+        strategy: super::identity_strategy::IdentityStrategy,
+        named_task_uuid: Uuid,
+        context: &Option<serde_json::Value>,
+        idempotency_key: Option<&str>,
+    ) -> Result<String, String> {
+        use super::identity_strategy::IdentityStrategy;
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        // Per-request idempotency_key override takes precedence
+        if let Some(key) = idempotency_key {
+            // Include named_task_uuid to prevent collisions across different tasks
+            let mut hasher = DefaultHasher::new();
+            named_task_uuid.hash(&mut hasher);
+            key.hash(&mut hasher);
+            return Ok(format!("{:x}", hasher.finish()));
+        }
+
+        // Apply named task's strategy
+        match strategy {
+            IdentityStrategy::Strict => {
+                // Current behavior: hash(named_task_uuid, context)
+                Ok(Self::generate_identity_hash(named_task_uuid, context))
+            }
+            IdentityStrategy::CallerProvided => {
+                // Reject - caller must provide idempotency_key
+                Err(
+                    "idempotency_key is required when named task uses CallerProvided identity strategy"
+                        .to_string(),
+                )
+            }
+            IdentityStrategy::AlwaysUnique => {
+                // Generate unique identity using UUIDv7
+                Ok(Uuid::now_v7().to_string())
+            }
+        }
     }
 
     // ============================================================================
@@ -1961,5 +2103,362 @@ impl Task {
             metadata.version,
             metadata.status.unwrap_or("unknown".to_string()),
         ))
+    }
+}
+
+// =============================================================================
+// TAS-154: Identity Strategy Unit Tests
+// =============================================================================
+
+#[cfg(test)]
+mod identity_strategy_tests {
+    use super::*;
+    use crate::models::core::identity_strategy::IdentityStrategy;
+    use serde_json::json;
+
+    // =========================================================================
+    // JSON Normalization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_normalize_json_key_ordering() {
+        // Object keys should be sorted alphabetically
+        let json1 = json!({"zebra": 1, "alpha": 2, "beta": 3});
+        let json2 = json!({"alpha": 2, "beta": 3, "zebra": 1});
+
+        let norm1 = Task::normalize_json_for_hash(&json1);
+        let norm2 = Task::normalize_json_for_hash(&json2);
+
+        assert_eq!(
+            norm1, norm2,
+            "Different key orders should normalize to same string"
+        );
+        assert_eq!(
+            norm1, r#"{"alpha":2,"beta":3,"zebra":1}"#,
+            "Keys should be sorted alphabetically"
+        );
+    }
+
+    #[test]
+    fn test_normalize_json_nested_objects() {
+        // Nested objects should also have sorted keys
+        let json1 = json!({"outer": {"z": 1, "a": 2}, "inner": {"b": 3, "a": 4}});
+        let json2 = json!({"inner": {"a": 4, "b": 3}, "outer": {"a": 2, "z": 1}});
+
+        let norm1 = Task::normalize_json_for_hash(&json1);
+        let norm2 = Task::normalize_json_for_hash(&json2);
+
+        assert_eq!(norm1, norm2, "Nested objects should normalize the same");
+    }
+
+    #[test]
+    fn test_normalize_json_arrays_preserve_order() {
+        // Arrays should preserve element order (not sort)
+        let json1 = json!({"items": [3, 1, 2]});
+        let json2 = json!({"items": [1, 2, 3]});
+
+        let norm1 = Task::normalize_json_for_hash(&json1);
+        let norm2 = Task::normalize_json_for_hash(&json2);
+
+        assert_ne!(norm1, norm2, "Array order should be preserved");
+    }
+
+    #[test]
+    fn test_normalize_json_whitespace_insensitive() {
+        // The normalization produces compact JSON without whitespace
+        let compact = json!({"a":1,"b":2});
+        let _spaced = r#"{ "a" : 1 , "b" : 2 }"#; // Different whitespace
+
+        // When parsed, whitespace is already removed
+        let parsed: serde_json::Value = serde_json::from_str(r#"{ "a" : 1 , "b" : 2 }"#).unwrap();
+
+        let norm1 = Task::normalize_json_for_hash(&compact);
+        let norm2 = Task::normalize_json_for_hash(&parsed);
+
+        assert_eq!(norm1, norm2, "Whitespace should not affect normalization");
+    }
+
+    #[test]
+    fn test_normalize_json_string_escaping() {
+        // Strings with special characters should be properly escaped
+        let json = json!({"message": "Hello \"world\"\nNew line"});
+        let normalized = Task::normalize_json_for_hash(&json);
+
+        assert!(
+            normalized.contains(r#"\"world\""#),
+            "Quotes should be escaped"
+        );
+        assert!(normalized.contains(r#"\n"#), "Newlines should be escaped");
+    }
+
+    // =========================================================================
+    // Identity Hash Generation Tests
+    // =========================================================================
+
+    #[test]
+    fn test_identity_hash_same_context_same_hash() {
+        let uuid = Uuid::now_v7();
+        let context = Some(json!({"order_id": 12345}));
+
+        let hash1 = Task::generate_identity_hash(uuid, &context);
+        let hash2 = Task::generate_identity_hash(uuid, &context);
+
+        assert_eq!(hash1, hash2, "Same inputs should produce same hash");
+    }
+
+    #[test]
+    fn test_identity_hash_key_order_independent() {
+        let uuid = Uuid::now_v7();
+        let context1 = Some(json!({"b": 2, "a": 1}));
+        let context2 = Some(json!({"a": 1, "b": 2}));
+
+        let hash1 = Task::generate_identity_hash(uuid, &context1);
+        let hash2 = Task::generate_identity_hash(uuid, &context2);
+
+        assert_eq!(hash1, hash2, "Key order should not affect identity hash");
+    }
+
+    #[test]
+    fn test_identity_hash_different_uuid_different_hash() {
+        let uuid1 = Uuid::now_v7();
+        let uuid2 = Uuid::now_v7();
+        let context = Some(json!({"order_id": 12345}));
+
+        let hash1 = Task::generate_identity_hash(uuid1, &context);
+        let hash2 = Task::generate_identity_hash(uuid2, &context);
+
+        assert_ne!(
+            hash1, hash2,
+            "Different UUIDs should produce different hashes"
+        );
+    }
+
+    #[test]
+    fn test_identity_hash_different_context_different_hash() {
+        let uuid = Uuid::now_v7();
+        let context1 = Some(json!({"order_id": 12345}));
+        let context2 = Some(json!({"order_id": 99999}));
+
+        let hash1 = Task::generate_identity_hash(uuid, &context1);
+        let hash2 = Task::generate_identity_hash(uuid, &context2);
+
+        assert_ne!(
+            hash1, hash2,
+            "Different contexts should produce different hashes"
+        );
+    }
+
+    #[test]
+    fn test_identity_hash_none_context() {
+        let uuid = Uuid::now_v7();
+
+        let hash1 = Task::generate_identity_hash(uuid, &None);
+        let hash2 = Task::generate_identity_hash(uuid, &None);
+
+        assert_eq!(hash1, hash2, "None context should be consistent");
+    }
+
+    // =========================================================================
+    // Strategy Pattern Tests
+    // =========================================================================
+
+    #[test]
+    fn test_strict_strategy_uses_context() {
+        let uuid = Uuid::now_v7();
+        let context = Some(json!({"order_id": 12345}));
+
+        let hash1 =
+            Task::compute_identity_hash(IdentityStrategy::Strict, uuid, &context, None).unwrap();
+        let hash2 =
+            Task::compute_identity_hash(IdentityStrategy::Strict, uuid, &context, None).unwrap();
+
+        assert_eq!(
+            hash1, hash2,
+            "STRICT: same context should produce same hash"
+        );
+
+        let different_context = Some(json!({"order_id": 99999}));
+        let hash3 =
+            Task::compute_identity_hash(IdentityStrategy::Strict, uuid, &different_context, None)
+                .unwrap();
+
+        assert_ne!(
+            hash1, hash3,
+            "STRICT: different context should produce different hash"
+        );
+    }
+
+    #[test]
+    fn test_caller_provided_requires_key() {
+        let uuid = Uuid::now_v7();
+        let context = Some(json!({"order_id": 12345}));
+
+        let result =
+            Task::compute_identity_hash(IdentityStrategy::CallerProvided, uuid, &context, None);
+
+        assert!(result.is_err(), "CALLER_PROVIDED: should fail without key");
+        assert!(
+            result.unwrap_err().contains("idempotency_key is required"),
+            "Error should mention idempotency_key"
+        );
+    }
+
+    #[test]
+    fn test_caller_provided_uses_key() {
+        let uuid = Uuid::now_v7();
+        let context = Some(json!({"order_id": 12345}));
+
+        let hash1 = Task::compute_identity_hash(
+            IdentityStrategy::CallerProvided,
+            uuid,
+            &context,
+            Some("my-key"),
+        )
+        .unwrap();
+        let hash2 = Task::compute_identity_hash(
+            IdentityStrategy::CallerProvided,
+            uuid,
+            &context,
+            Some("my-key"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            hash1, hash2,
+            "CALLER_PROVIDED: same key should produce same hash"
+        );
+
+        let hash3 = Task::compute_identity_hash(
+            IdentityStrategy::CallerProvided,
+            uuid,
+            &context,
+            Some("different-key"),
+        )
+        .unwrap();
+
+        assert_ne!(
+            hash1, hash3,
+            "CALLER_PROVIDED: different keys produce different hashes"
+        );
+    }
+
+    #[test]
+    fn test_caller_provided_includes_uuid_in_hash() {
+        let uuid1 = Uuid::now_v7();
+        let uuid2 = Uuid::now_v7();
+        let context = Some(json!({"order_id": 12345}));
+        let key = "same-key";
+
+        let hash1 = Task::compute_identity_hash(
+            IdentityStrategy::CallerProvided,
+            uuid1,
+            &context,
+            Some(key),
+        )
+        .unwrap();
+        let hash2 = Task::compute_identity_hash(
+            IdentityStrategy::CallerProvided,
+            uuid2,
+            &context,
+            Some(key),
+        )
+        .unwrap();
+
+        assert_ne!(
+            hash1, hash2,
+            "CALLER_PROVIDED: same key with different UUIDs should produce different hashes"
+        );
+    }
+
+    #[test]
+    fn test_always_unique_generates_different_hashes() {
+        let uuid = Uuid::now_v7();
+        let context = Some(json!({"order_id": 12345}));
+
+        let hash1 =
+            Task::compute_identity_hash(IdentityStrategy::AlwaysUnique, uuid, &context, None)
+                .unwrap();
+        let hash2 =
+            Task::compute_identity_hash(IdentityStrategy::AlwaysUnique, uuid, &context, None)
+                .unwrap();
+
+        assert_ne!(
+            hash1, hash2,
+            "ALWAYS_UNIQUE: should generate different hash each time"
+        );
+
+        // Should be valid UUIDs
+        assert!(Uuid::parse_str(&hash1).is_ok(), "Hash should be valid UUID");
+        assert!(Uuid::parse_str(&hash2).is_ok(), "Hash should be valid UUID");
+    }
+
+    #[test]
+    fn test_idempotency_key_overrides_all_strategies() {
+        let uuid = Uuid::now_v7();
+        let context = Some(json!({"order_id": 12345}));
+        let key = "override-key";
+
+        let strict_hash =
+            Task::compute_identity_hash(IdentityStrategy::Strict, uuid, &context, Some(key))
+                .unwrap();
+        let caller_hash = Task::compute_identity_hash(
+            IdentityStrategy::CallerProvided,
+            uuid,
+            &context,
+            Some(key),
+        )
+        .unwrap();
+        let unique_hash =
+            Task::compute_identity_hash(IdentityStrategy::AlwaysUnique, uuid, &context, Some(key))
+                .unwrap();
+
+        assert_eq!(
+            strict_hash, caller_hash,
+            "idempotency_key should override strategy"
+        );
+        assert_eq!(
+            caller_hash, unique_hash,
+            "All strategies should produce same hash when key provided"
+        );
+    }
+
+    // =========================================================================
+    // Edge Cases
+    // =========================================================================
+
+    #[test]
+    fn test_empty_context_object() {
+        let uuid = Uuid::now_v7();
+        let empty_obj = Some(json!({}));
+
+        let hash1 = Task::generate_identity_hash(uuid, &empty_obj);
+        let hash2 = Task::generate_identity_hash(uuid, &empty_obj);
+
+        assert_eq!(hash1, hash2, "Empty object should produce consistent hash");
+    }
+
+    #[test]
+    fn test_deeply_nested_context() {
+        let uuid = Uuid::now_v7();
+        let context1 = Some(json!({
+            "level1": {
+                "z_key": {"c": 3, "a": 1, "b": 2},
+                "a_key": {"x": 10, "y": 20}
+            }
+        }));
+        let context2 = Some(json!({
+            "level1": {
+                "a_key": {"y": 20, "x": 10},
+                "z_key": {"a": 1, "b": 2, "c": 3}
+            }
+        }));
+
+        let hash1 = Task::generate_identity_hash(uuid, &context1);
+        let hash2 = Task::generate_identity_hash(uuid, &context2);
+
+        assert_eq!(
+            hash1, hash2,
+            "Deeply nested objects should normalize correctly"
+        );
     }
 }

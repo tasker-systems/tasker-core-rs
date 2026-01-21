@@ -1,6 +1,6 @@
 # TAS-154: Task Identity Strategy Pattern
 
-**Status:** Ready for Implementation
+**Status:** Implemented
 **Priority:** P1 (feature enhancement for configurable deduplication)
 **Parent:** Identified during TAS-73 resiliency research
 **Related:** `docs/ticket-specs/TAS-73/research-findings.md`, `docs/architecture/idempotency-and-atomicity.md`
@@ -213,21 +213,145 @@ impl Task {
 
 ---
 
+## Double Submission & Time-Bounded Deduplication
+
+### Design Decision: User-Space Responsibility
+
+After analysis, we've decided **not** to implement built-in time-bounded idempotency. Instead, callers manage temporal deduplication through explicit context or idempotency keys.
+
+#### Rationale
+
+1. **Implicit time windows are hard to reason about**
+   - Bucket boundary edge cases (23:59:59 vs 00:00:01)
+   - Debugging becomes difficult when deduplication depends on hidden time state
+
+2. **It conflates two concerns**
+   - **Deduplication**: Preventing accidental duplicates
+   - **Scheduling**: Allowing intentional repetition
+   - These are different problems with different solutions
+
+3. **Clean solutions already exist**
+   - CALLER_PROVIDED with time-aware keys
+   - STRICT with time-aware context fields
+   - ALWAYS_UNIQUE for no deduplication
+
+4. **Explicit is better than implicit**
+   - Callers understand their domain's "sameness" semantics
+   - Tasker provides clean primitives; callers compose them
+
+### Double Submission Scenarios
+
+| Scenario | Time Gap | Same Context? | Recommended Strategy |
+|----------|----------|---------------|---------------------|
+| Network retry | ms-seconds | Yes | STRICT (auto-dedupes) |
+| User double-click | seconds | Yes | STRICT (auto-dedupes) |
+| Webhook replay | seconds-minutes | Yes | STRICT (auto-dedupes) |
+| Scheduled job re-run | minutes-hours | Yes | CALLER_PROVIDED or time-aware context |
+| Daily batch (same params) | 24h+ | Yes | Include date in context |
+| Event re-trigger | varies | Yes | Domain-specific decision |
+
+### Recommended Patterns
+
+#### Pattern 1: CALLER_PROVIDED with Time-Bucketed Keys
+
+For callers who need deduplication within a window but allow repetition across windows:
+
+```rust
+// Dedupe within same hour, allow across hours
+let hour_bucket = chrono::Utc::now().format("%Y-%m-%d-%H");
+let idempotency_key = format!("{}-{}-{}", job_name, customer_id, hour_bucket);
+
+TaskRequest {
+    named_task_name: "generate-report".to_string(),
+    context: json!({ "customer_id": 12345 }),
+    idempotency_key: Some(idempotency_key),
+    ..Default::default()
+}
+```
+
+#### Pattern 2: STRICT with Time-Aware Context
+
+Include scheduling context directly in the request:
+
+```rust
+TaskRequest {
+    named_task_name: "daily-reconciliation".to_string(),
+    context: json!({
+        "account_id": "ACC-001",
+        "run_date": "2026-01-20",      // Changes daily
+        "run_window": "morning"         // Optional: finer granularity
+    }),
+    ..Default::default()
+}
+```
+
+#### Pattern 3: ALWAYS_UNIQUE for Independent Tasks
+
+When every submission should create a new task:
+
+```rust
+// Named task configured with identity_strategy: AlwaysUnique
+// Every request creates a new task, no deduplication
+TaskRequest {
+    named_task_name: "send-notification".to_string(),
+    context: json!({ "user_id": 123, "message": "Hello" }),
+    ..Default::default()
+}
+```
+
+### Granularity Guide
+
+| Dedup Window | Key/Context Pattern | Use Case |
+|--------------|---------------------|----------|
+| Per-minute | `{job}-{YYYY-MM-DD-HH-mm}` | High-frequency event processing |
+| Per-hour | `{job}-{YYYY-MM-DD-HH}` | Hourly reports, rate-limited APIs |
+| Per-day | `{job}-{YYYY-MM-DD}` | Daily batch jobs, EOD processing |
+| Per-week | `{job}-{YYYY-Www}` | Weekly aggregations |
+| Per-month | `{job}-{YYYY-MM}` | Monthly billing cycles |
+
+### Anti-Patterns to Avoid
+
+❌ **Don't rely on submission timing for identity**
+```rust
+// BAD: Hoping requests are "far enough apart"
+TaskRequest { context: json!({ "customer_id": 123 }) }
+```
+
+❌ **Don't use ALWAYS_UNIQUE when you need deduplication**
+```rust
+// BAD: Creates duplicate work on network retries
+// Named task with AlwaysUnique for payment processing
+```
+
+✅ **Do make identity explicit**
+```rust
+// GOOD: Clear what makes this task unique
+TaskRequest {
+    context: json!({
+        "payment_id": "PAY-123",  // Natural idempotency key
+        "amount": 100
+    })
+}
+```
+
+---
+
 ## Open Questions
 
 1. **Should CONTEXTUAL strategy be included in initial implementation?**
    - Adds complexity (need to define which fields)
    - Could be Phase 2 if there's demand
 
-2. **Should we support time-bounded idempotency?**
-   - "Same key within 24 hours = dedupe, after that = new task"
-   - Common in payment systems
-   - Adds complexity, defer for now
+2. ~~**Should we support time-bounded idempotency?**~~
+   - **RESOLVED**: No. Time-bounded deduplication is a user-space concern.
+   - Callers use CALLER_PROVIDED with time-bucketed keys or include time-aware fields in context.
+   - See "Double Submission & Time-Bounded Deduplication" section above.
 
-3. **What HTTP status for deduplicated requests?**
-   - 200 OK with `created: false` (current implicit behavior)
-   - 409 Conflict (some APIs do this)
-   - **Recommendation**: 200 OK with clear response fields
+3. ~~**What HTTP status for deduplicated requests?**~~
+   - **RESOLVED**: 409 Conflict
+   - Returning 200 OK with existing task UUID was rejected as a security risk (enables UUID probing)
+   - 409 Conflict clearly indicates the request failed due to deduplication policy
+   - See `docs/guides/identity-strategy.md` for full documentation
 
 ---
 
@@ -242,14 +366,17 @@ impl Task {
 
 ## Action Items
 
-- [ ] Add UNIQUE constraint to existing migration file (`20260110000002_constraints_and_indexes.sql`)
-- [ ] Implement `IdentityStrategy` enum in `tasker-shared`
-- [ ] Add `identity_strategy` column to `named_tasks` table (new migration)
-- [ ] Update `Task::compute_identity_hash()` with strategy support
-- [ ] Add `idempotency_key` to `TaskRequest`
-- [ ] Add `created` and `deduplicated_from` to `TaskResponse`
-- [ ] Implement thundering herd test (`tests/integration/concurrency/thundering_herd_test.rs`)
-- [ ] Update `docs/architecture/idempotency-and-atomicity.md` to reflect implementation
+- [x] Add UNIQUE constraint to existing migration file (`20260110000002_constraints_and_indexes.sql`)
+- [x] Implement `IdentityStrategy` enum in `tasker-shared`
+- [x] Add `identity_strategy` column to `named_tasks` table (new migration)
+- [x] Update `Task::compute_identity_hash()` with strategy support
+- [x] Add `idempotency_key` to `TaskRequest`
+- [x] Return 409 Conflict for duplicate identity (security-conscious alternative to returning existing task)
+- [x] Add JSON normalization for consistent hashing (key order, whitespace insensitive)
+- [x] Unit tests for identity strategy pattern (27 tests)
+- [x] E2E tests for 409 Conflict behavior (3 tests)
+- [x] Create `docs/guides/identity-strategy.md` with usage documentation
+- [ ] Implement thundering herd test (`tests/integration/concurrency/thundering_herd_test.rs`) - future enhancement
 
 ## Success Criteria
 

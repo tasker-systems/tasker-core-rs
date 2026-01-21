@@ -1,4 +1,5 @@
 pub mod batch_worker;
+pub mod identity_strategy;
 pub mod named_step;
 pub mod named_task;
 pub mod named_tasks_named_step;
@@ -11,3 +12,6 @@ pub mod workflow_step;
 pub mod workflow_step_edge;
 pub mod workflow_step_result_audit;
 pub mod workflow_step_transition;
+
+// Re-export IdentityStrategy for convenience
+pub use identity_strategy::IdentityStrategy;

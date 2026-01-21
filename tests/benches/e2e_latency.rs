@@ -89,16 +89,29 @@ fn ensure_services_ready() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Create a TaskRequest
+///
+/// TAS-154: Injects a unique test_run_id into the context to ensure each benchmark
+/// iteration produces a unique identity hash.
 fn create_task_request(
     namespace: &str,
     name: &str,
     input_context: serde_json::Value,
 ) -> TaskRequest {
+    // TAS-154: Inject unique test_run_id to ensure unique identity hash per iteration
+    let mut context = match input_context {
+        serde_json::Value::Object(map) => map,
+        _ => serde_json::Map::new(),
+    };
+    context.insert(
+        "_test_run_id".to_string(),
+        serde_json::Value::String(Uuid::now_v7().to_string()),
+    );
+
     TaskRequest {
         namespace: namespace.to_string(),
         name: name.to_string(),
         version: "1.0.0".to_string(),
-        context: input_context,
+        context: serde_json::Value::Object(context),
         correlation_id: Uuid::now_v7(),
         parent_correlation_id: None,
         initiator: "e2e-benchmark".to_string(),
@@ -109,6 +122,7 @@ fn create_task_request(
         requested_at: chrono::Utc::now().naive_utc(),
         options: None,
         priority: Some(5),
+        idempotency_key: None,
     }
 }
 

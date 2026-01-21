@@ -12,6 +12,7 @@ This directory contains practical how-to guides for working with Tasker Core.
 | [Batch Processing](./batch-processing.md) | Parallel processing with cursor-based workers |
 | [DLQ System](./dlq-system.md) | Dead letter queue investigation and resolution |
 | [Retry Semantics](./retry-semantics.md) | Understanding max_attempts and retryable flags |
+| [Identity Strategy](./identity-strategy.md) | Task deduplication with STRICT, CALLER_PROVIDED, ALWAYS_UNIQUE |
 | [Configuration Management](./configuration-management.md) | TOML architecture, CLI tools, runtime observability |
 
 ## When to Read These

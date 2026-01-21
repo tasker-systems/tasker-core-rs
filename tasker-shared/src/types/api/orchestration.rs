@@ -24,6 +24,23 @@ pub struct TaskCreationResponse {
     pub step_mapping: HashMap<String, String>,
     /// Handler configuration name used (if any)
     pub handler_config_name: Option<String>,
+
+    /// TAS-154: Whether this request created a new task (true) or returned an existing one (false)
+    ///
+    /// When `false`, this indicates deduplication occurred based on the identity_hash.
+    /// Check `deduplicated_from` for the original task creation timestamp.
+    #[serde(default = "default_true")]
+    pub created: bool,
+
+    /// TAS-154: If deduplicated, the original task creation timestamp
+    ///
+    /// Only present when `created` is `false`, indicating when the original task was created.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deduplicated_from: Option<DateTime<Utc>>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Task details response with execution context and step readiness information

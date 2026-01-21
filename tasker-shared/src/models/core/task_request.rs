@@ -87,6 +87,21 @@ pub struct TaskRequest {
     /// Optional parent correlation ID for nested/chained workflow relationships
     /// TAS-29: Enables tracking of workflow hierarchies
     pub parent_correlation_id: Option<Uuid>,
+
+    /// TAS-154: Optional caller-provided idempotency key.
+    ///
+    /// When provided, this key is used to compute the task's identity_hash,
+    /// overriding the named task's default identity strategy.
+    ///
+    /// Use cases:
+    /// - Override STRICT strategy with a custom key
+    /// - Provide required key for CALLER_PROVIDED strategy
+    /// - Time-bucketed keys for windowed deduplication (e.g., `"job-2026-01-20-09"`)
+    ///
+    /// The key is combined with the named_task_uuid to prevent collisions across
+    /// different named tasks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// Represents the resolved NamedTask and extracted options from a TaskRequest
@@ -178,6 +193,24 @@ impl TaskRequest {
         self
     }
 
+    /// TAS-154: Set idempotency key for custom deduplication control
+    ///
+    /// When provided, this key overrides the named task's identity strategy
+    /// and is used to compute the task's identity_hash.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Time-bucketed key for hourly deduplication
+    /// let hour = chrono::Utc::now().format("%Y-%m-%d-%H");
+    /// let request = TaskRequest::new("process-order".to_string(), "default".to_string())
+    ///     .with_idempotency_key(format!("order-{}-{}", order_id, hour));
+    /// ```
+    pub fn with_idempotency_key(mut self, idempotency_key: String) -> Self {
+        self.idempotency_key = Some(idempotency_key);
+        self
+    }
+
     /// Get the routing key for this task request (used by handler registry)
     /// Format: "namespace/name:version"
     pub fn routing_key(&self) -> String {
@@ -231,7 +264,7 @@ impl TaskRequest {
             NamedTask,
             r#"
             SELECT named_task_uuid, name, version, description, task_namespace_uuid,
-                   configuration, created_at, updated_at
+                   configuration, identity_strategy as "identity_strategy: _", created_at, updated_at
             FROM tasker.named_tasks
             WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3
             "#,
@@ -307,8 +340,21 @@ impl TaskRequest {
 
 impl ResolvedTaskRequest {
     /// Convert this resolved request into a NewTask for creation
-    pub fn to_new_task(&self) -> NewTask {
-        NewTask {
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the named task uses CallerProvided identity strategy
+    /// but no idempotency_key was provided in the request.
+    pub fn to_new_task(&self) -> Result<NewTask, String> {
+        // TAS-154: Compute identity hash using the named task's strategy
+        let identity_hash = Task::compute_identity_hash(
+            self.named_task.identity_strategy,
+            self.named_task.named_task_uuid,
+            &Some(self.resolved_context.clone()),
+            self.task_request.idempotency_key.as_deref(),
+        )?;
+
+        Ok(NewTask {
             named_task_uuid: self.named_task.named_task_uuid,
             requested_at: Some(self.task_request.requested_at),
             initiator: Some(self.task_request.initiator.clone()),
@@ -323,19 +369,23 @@ impl ResolvedTaskRequest {
                     .collect(),
             )),
             context: Some(self.resolved_context.clone()),
-            identity_hash: Task::generate_identity_hash(
-                self.named_task.named_task_uuid,
-                &Some(self.resolved_context.clone()),
-            ),
+            identity_hash,
             priority: self.task_request.priority,
             correlation_id: self.task_request.correlation_id,
             parent_correlation_id: self.task_request.parent_correlation_id,
-        }
+        })
     }
 
     /// Create and save a Task from this resolved request
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The named task uses CallerProvided strategy but no idempotency_key was provided
+    /// - Database operation fails
     pub async fn create_task(&self, pool: &PgPool) -> TaskerResult<Task> {
-        let new_task = self.to_new_task();
+        let new_task = self.to_new_task().map_err(TaskerError::ValidationError)?;
+
         Task::create(pool, new_task)
             .await
             .map_err(|e| TaskerError::DatabaseError(e.to_string()))
@@ -383,6 +433,8 @@ mod tests {
 
     #[test]
     fn test_context_merging() {
+        use super::super::identity_strategy::IdentityStrategy;
+
         let named_task = NamedTask {
             named_task_uuid: Uuid::now_v7(),
             name: "test_task".to_string(),
@@ -395,6 +447,7 @@ mod tests {
                     "retry_count": 3
                 }
             })),
+            identity_strategy: IdentityStrategy::Strict,
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
         };

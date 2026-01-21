@@ -4,6 +4,7 @@
 
 use bigdecimal::BigDecimal;
 use sqlx::PgPool;
+use tasker_shared::models::core::IdentityStrategy;
 use tasker_shared::models::named_task::{NamedTask, NewNamedTask};
 use tasker_shared::models::orchestration::task_execution_context::TaskExecutionContext;
 use tasker_shared::models::task::{NewTask, Task};
@@ -36,6 +37,7 @@ async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
             description: None,
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await

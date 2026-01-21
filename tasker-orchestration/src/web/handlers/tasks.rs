@@ -105,6 +105,10 @@ pub async fn create_task(
                 step_count: task_result.step_count,
                 step_mapping,
                 handler_config_name: task_result.handler_config_name.clone(),
+                // TAS-154: Deduplication status - actual deduplication handling
+                // will be implemented via unique constraint violation detection
+                created: true,
+                deduplicated_from: None,
             };
 
             info!(
@@ -117,6 +121,24 @@ pub async fn create_task(
             Ok(Json(response))
         }
         Err(init_error) => {
+            // TAS-154: Check for unique constraint violation on identity_hash (duplicate task)
+            let error_string = init_error.to_string();
+            if error_string.contains("duplicate key value violates unique constraint")
+                && error_string.contains("idx_tasks_identity_hash")
+            {
+                // This is NOT a system error - it's the deduplication working correctly
+                // Return 409 Conflict to indicate the task identity already exists
+                info!(
+                    namespace = %request.namespace,
+                    task_name = %request.name,
+                    "Task creation rejected - duplicate identity hash (deduplication policy enforced)"
+                );
+
+                return Err(ApiError::conflict(
+                    "A task with this identity already exists. The task's identity strategy prevents duplicate creation."
+                ));
+            }
+
             // Classify error type and handle appropriately
             if init_error.is_client_error() {
                 // Client errors (template not found, invalid config) should NOT trip circuit breaker

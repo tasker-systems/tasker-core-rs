@@ -228,6 +228,7 @@ Dual-channel system: dispatch channel + completion channel
 | Conditional Workflows | `docs/guides/conditional-workflows.md` |
 | Dead Letter Queue | `docs/guides/dlq-system.md` |
 | Retry Semantics | `docs/guides/retry-semantics.md` |
+| Identity Strategy | `docs/guides/identity-strategy.md` |
 
 ### Infrastructure
 | Topic | Document |

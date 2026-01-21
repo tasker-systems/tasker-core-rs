@@ -1,4 +1,5 @@
 use sqlx::PgPool;
+use tasker_shared::models::core::IdentityStrategy;
 use tasker_shared::models::named_task::{NamedTask, NewNamedTask};
 use tasker_shared::models::task_namespace::{NewTaskNamespace, TaskNamespace};
 
@@ -21,6 +22,7 @@ async fn test_named_task_crud(pool: PgPool) -> sqlx::Result<()> {
         description: Some("Test task description".to_string()),
         task_namespace_uuid: namespace.task_namespace_uuid,
         configuration: Some(serde_json::json!({"timeout": 300})),
+        identity_strategy: IdentityStrategy::Strict,
     };
 
     let created = NamedTask::create(&pool, new_task).await?;

@@ -238,6 +238,7 @@ pub fn create_test_task_request() -> TaskRequest {
         priority: Some(5),
         correlation_id: uuid::Uuid::now_v7(),
         parent_correlation_id: None,
+        idempotency_key: None,
     }
 }
 

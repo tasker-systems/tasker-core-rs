@@ -32,6 +32,10 @@ pub enum ApiError {
     #[error("Invalid request: {message}")]
     BadRequest { message: String },
 
+    /// TAS-154: Conflict - resource already exists (e.g., duplicate identity hash)
+    #[error("Conflict: {message}")]
+    Conflict { message: String },
+
     #[error("Service temporarily unavailable")]
     ServiceUnavailable,
 
@@ -78,6 +82,13 @@ impl ApiError {
     /// Create a BadRequest error with a custom message
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::BadRequest {
+            message: message.into(),
+        }
+    }
+
+    /// TAS-154: Create a Conflict error (409) for duplicate resources
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::Conflict {
             message: message.into(),
         }
     }
@@ -197,6 +208,9 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest { message } => {
                 (StatusCode::BAD_REQUEST, "BAD_REQUEST", message.as_str())
             }
+
+            // TAS-154: 409 Conflict for duplicate identity hash
+            ApiError::Conflict { message } => (StatusCode::CONFLICT, "CONFLICT", message.as_str()),
 
             ApiError::ServiceUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
