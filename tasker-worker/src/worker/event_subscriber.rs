@@ -173,8 +173,8 @@ impl WorkerEventSubscriber {
         let stats = Arc::clone(&self.stats);
         let monitor = channel_monitor;
 
-        // Spawn background task to listen for completion events
-        tokio::spawn(async move {
+        // TAS-158: Named spawn for tokio-console visibility
+        tasker_shared::spawn_named!("worker_completion_event_listener", async move {
             info!(
                 worker_id = %worker_id,
                 "Started completion event listener for FFI handlers"
@@ -457,7 +457,8 @@ impl CorrelatedCompletionListener {
         let correlation_tracker = Arc::clone(&self.correlation_tracker);
         let monitor = channel_monitor;
 
-        tokio::spawn(async move {
+        // TAS-158: Named spawn for tokio-console visibility
+        tasker_shared::spawn_named!("worker_step_dispatch_listener", async move {
             while let Ok(completion_event) = completion_receiver.recv().await {
                 let event_id = completion_event.event_id;
 
@@ -525,7 +526,8 @@ impl CorrelatedCompletionListener {
 
         // Start timeout cleanup task
         let correlation_tracker_cleanup = Arc::clone(&self.correlation_tracker);
-        tokio::spawn(async move {
+        // TAS-158: Named spawn for tokio-console visibility
+        tasker_shared::spawn_named!("worker_correlation_cleanup", async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
 
             loop {

@@ -231,7 +231,8 @@ impl OrchestrationCore {
                 batch_config,
             );
 
-            let handle = tokio::spawn(async move {
+            // TAS-158: Named spawn for tokio-console visibility
+            let handle = tasker_shared::spawn_named!("staleness_detector", async move {
                 info!("Spawning staleness detector background service");
                 if let Err(e) = detector.run().await {
                     error!(error = %e, "Staleness detector failed");

@@ -2,6 +2,74 @@
 //!
 //! This module provides macros to reduce boilerplate for repetitive implementations,
 //! particularly for Debug implementations of types containing non-Debug database types.
+//!
+//! ## TAS-158: Named Spawn Macro
+//!
+//! The [`spawn_named!`] macro provides named tokio task spawning when `tokio_unstable`
+//! is enabled, falling back to regular `tokio::spawn` otherwise. This enables
+//! tokio-console visibility for async tasks without breaking normal builds.
+//!
+//! ### Usage
+//!
+//! ```rust,ignore
+//! use tasker_shared::spawn_named;
+//!
+//! // Named spawn - name appears in tokio-console when enabled
+//! let handle = spawn_named!("my_background_task", async move {
+//!     // task code
+//! });
+//! ```
+
+/// Spawn a named tokio task with conditional tokio-console support (TAS-158)
+///
+/// When compiled with `RUSTFLAGS="--cfg tokio_unstable"`, this macro uses
+/// `tokio::task::Builder::new().name(name).spawn()` for tokio-console visibility.
+/// Otherwise, it falls back to regular `tokio::spawn()`.
+///
+/// # Arguments
+///
+/// * `$name` - A string literal for the task name (visible in tokio-console)
+/// * `$future` - The async block or future to spawn
+///
+/// # Returns
+///
+/// Returns a `tokio::task::JoinHandle<T>` where `T` is the output type of the future.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tasker_shared::spawn_named;
+///
+/// let handle = spawn_named!("worker_event_loop", async move {
+///     loop {
+///         // process events
+///     }
+/// });
+/// ```
+///
+/// # tokio-console Integration
+///
+/// To see named tasks in tokio-console:
+///
+/// 1. Build with unstable flag: `RUSTFLAGS="--cfg tokio_unstable" cargo build`
+/// 2. Run your application
+/// 3. In another terminal: `tokio-console`
+#[macro_export]
+macro_rules! spawn_named {
+    ($name:expr, $future:expr) => {{
+        #[cfg(tokio_unstable)]
+        {
+            tokio::task::Builder::new()
+                .name($name)
+                .spawn($future)
+                .expect(concat!("failed to spawn task: ", $name))
+        }
+        #[cfg(not(tokio_unstable))]
+        {
+            tokio::spawn($future)
+        }
+    }};
+}
 
 /// Implement Debug for a type containing a PgPool field
 ///

@@ -112,6 +112,10 @@ use uuid::Uuid;
 
 use crate::metrics;
 
+// TAS-158: tokio-console async debugging support
+#[cfg(feature = "tokio-console")]
+use console_subscriber::ConsoleLayer;
+
 use opentelemetry::{trace::TracerProvider as _, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::WithExportConfig;
@@ -344,6 +348,19 @@ pub fn init_console_only() {
 /// When OpenTelemetry is enabled (via TELEMETRY_ENABLED=true), it also
 /// configures distributed tracing with OTLP exporter.
 ///
+/// ## tokio-console Support (TAS-158)
+///
+/// When compiled with `--features tokio-console`, this function also enables
+/// the tokio-console async runtime introspection layer. This provides:
+/// - Real-time task and resource visualization
+/// - Async task lifecycle tracking
+/// - Spawn location and waker statistics
+///
+/// **Requirements for tokio-console:**
+/// 1. Compile with: `RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console`
+/// 2. Run the application
+/// 3. In a separate terminal: `tokio-console`
+///
 /// # Safety
 ///
 /// **IMPORTANT**: When telemetry is enabled, this function MUST be called from
@@ -377,16 +394,33 @@ pub fn init_tracing() {
         // Determine if we're in a TTY for ANSI color support
         let use_ansi = IsTerminal::is_terminal(&std::io::stdout());
 
-        // Create base console layer
-        let console_layer = fmt::layer()
+        // Create base console layer (stdout/stderr output)
+        let fmt_layer = fmt::layer()
             .with_target(true)
             .with_thread_ids(true)
             .with_level(true)
             .with_ansi(use_ansi)
             .with_filter(EnvFilter::new(&log_level));
 
-        // Build subscriber with optional OpenTelemetry layer
-        let subscriber = tracing_subscriber::registry().with(console_layer);
+        // TAS-158: Build subscriber with optional tokio-console layer
+        // When tokio-console feature is enabled, add ConsoleLayer first for async task tracking
+        #[cfg(feature = "tokio-console")]
+        let console_enabled = true;
+        #[cfg(not(feature = "tokio-console"))]
+        let console_enabled = false;
+
+        #[cfg(feature = "tokio-console")]
+        let subscriber = {
+            // ConsoleLayer must be added first to capture all async task spawns
+            // Requires: RUSTFLAGS="--cfg tokio_unstable" at compile time
+            let console_layer = ConsoleLayer::builder().spawn();
+            tracing_subscriber::registry()
+                .with(console_layer)
+                .with(fmt_layer)
+        };
+
+        #[cfg(not(feature = "tokio-console"))]
+        let subscriber = tracing_subscriber::registry().with(fmt_layer);
 
         if telemetry_config.enabled {
             // Initialize OpenTelemetry tracer (always when telemetry enabled)
@@ -409,6 +443,7 @@ pub fn init_tracing() {
                                     tracing::info!(
                                         environment = %environment,
                                         ansi_colors = use_ansi,
+                                        tokio_console_enabled = console_enabled,
                                         opentelemetry_enabled = true,
                                         otel_logs_enabled = true,
                                         otlp_endpoint = %telemetry_config.otlp_endpoint,
@@ -426,6 +461,7 @@ pub fn init_tracing() {
                                     tracing::warn!(
                                         environment = %environment,
                                         ansi_colors = use_ansi,
+                                        tokio_console_enabled = console_enabled,
                                         opentelemetry_enabled = true,
                                         otel_logs_enabled = false,
                                         error = %log_err,
@@ -445,6 +481,7 @@ pub fn init_tracing() {
                             tracing::info!(
                                 environment = %environment,
                                 ansi_colors = use_ansi,
+                                tokio_console_enabled = console_enabled,
                                 opentelemetry_enabled = true,
                                 otel_logs_enabled = false,
                                 otlp_endpoint = %telemetry_config.otlp_endpoint,
@@ -462,6 +499,7 @@ pub fn init_tracing() {
                         tracing::warn!(
                             environment = %environment,
                             ansi_colors = use_ansi,
+                            tokio_console_enabled = console_enabled,
                             error = %trace_err,
                             "Failed to initialize OpenTelemetry tracer - falling back to console-only logging"
                         );
@@ -476,6 +514,7 @@ pub fn init_tracing() {
                 tracing::info!(
                     environment = %environment,
                     ansi_colors = use_ansi,
+                    tokio_console_enabled = console_enabled,
                     opentelemetry_enabled = false,
                     "Console logging initialized"
                 );

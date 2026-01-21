@@ -449,7 +449,8 @@ impl WorkerCore {
                 core_id = %self.core_id,
                 "Starting ActorCommandProcessor"
             );
-            let handle = tokio::spawn(async move {
+            // TAS-158: Named spawn for tokio-console visibility
+            let handle = tasker_shared::spawn_named!("worker_command_processor", async move {
                 if let Err(e) = processor.start_with_events().await {
                     tracing::error!("ActorCommandProcessor error: {}", e);
                 }
@@ -463,8 +464,8 @@ impl WorkerCore {
                 core_id = %self.core_id,
                 "Starting DomainEventSystem background processing loop"
             );
-            // Store the JoinHandle so we can await clean shutdown
-            let handle = tokio::spawn(async move {
+            // TAS-158: Named spawn for tokio-console visibility
+            let handle = tasker_shared::spawn_named!("worker_domain_event_system", async move {
                 domain_event_system.run().await;
             });
             self.domain_event_task_handle = Some(handle);
@@ -485,7 +486,8 @@ impl WorkerCore {
                 self.worker_id.clone(),
                 config,
             );
-            let handle = tokio::spawn(async move {
+            // TAS-158: Named spawn for tokio-console visibility
+            let handle = tasker_shared::spawn_named!("worker_completion_processor", async move {
                 completion_processor.run().await;
             });
             self.completion_processor_task_handle = Some(handle);
