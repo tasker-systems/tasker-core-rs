@@ -109,15 +109,30 @@ brew "watch"
 brew "htop"
 
 # -----------------------------------------------------------------------------
-# Optional: Performance & Profiling Tools
+# Performance & Profiling Tools (TAS-71)
 # -----------------------------------------------------------------------------
-
-# perf tools for flamegraph generation (cargo-flamegraph)
-# Note: On macOS, flamegraph uses dtrace instead of perf
-# brew "dtrace" is built-in on macOS
+#
+# macOS Profiling Strategy:
+#   - samply: CPU sampling profiler with Firefox Profiler UI (cargo install)
+#   - cargo-flamegraph: Flamegraph generation via dtrace (cargo install)
+#   - tokio-console: Async runtime introspection (cargo install, requires code changes)
+#   - dhat-rs: Memory profiling (Cargo dev-dependency)
+#
+# Linux CI Note:
+#   Linux would use perf-based tools (cargo-flamegraph, heaptrack).
+#   Benchmarking and profiling are LOCAL ONLY for this project due to
+#   GHA runner constraints. See docs/ticket-specs/TAS-71/profiling-tool-evaluation.md
+#
+# Usage:
+#   cargo build --profile profiling    # Build with debug symbols
+#   samply record ./target/profiling/binary
+#   cargo flamegraph --profile profiling --bin binary
+#
+# Note: samply requires one-time setup: `samply setup` (self-signs binary)
 
 # hyperfine - Command-line benchmarking tool
 brew "hyperfine"
+
 
 # -----------------------------------------------------------------------------
 # Optional: GUI Applications (Casks)

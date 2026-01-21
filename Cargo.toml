@@ -301,3 +301,14 @@ debug = true
 overflow-checks = false
 incremental = false
 codegen-units = 1
+
+# Profiling profile (TAS-71)
+# Release-level optimization with debug symbols for flamegraph/samply/perf
+# Usage: cargo build --profile profiling
+[profile.profiling]
+inherits = "release"
+debug = true           # Keep debug symbols for stack traces
+strip = false          # Don't strip symbols (overrides release)
+panic = "unwind"       # Allow profiler stack unwinding (overrides release)
+# Keep release optimizations for representative performance:
+# lto = "fat", codegen-units = 1 inherited from release

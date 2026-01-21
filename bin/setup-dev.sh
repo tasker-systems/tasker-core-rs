@@ -153,7 +153,11 @@ setup_cargo_tools() {
         "cargo-llvm-cov"       # Code coverage
         "cargo-machete"        # Unused dependency checker
         "cargo-watch"          # File watcher for development
-        "flamegraph"           # Performance profiling via flamegraphs
+        # Profiling tools (TAS-71)
+        "flamegraph"           # CPU profiling via flamegraphs
+        "inferno"              # CPU profiling via flamegraphs
+        "samply"               # CPU sampling profiler with Firefox Profiler UI (macOS)
+        "tokio-console"        # Async runtime introspection CLI
     )
 
     for tool in "${CARGO_TOOLS[@]}"; do
@@ -177,6 +181,64 @@ setup_cargo_tools() {
     done
 
     success "All cargo tools installed"
+}
+
+# -----------------------------------------------------------------------------
+# Profiling Tools Setup (TAS-71)
+# -----------------------------------------------------------------------------
+
+setup_profiling_tools() {
+    header "Setting up Profiling Tools"
+
+    # Check if samply is installed and configured
+    if command_exists samply; then
+        success "samply is installed"
+
+        # Check if samply has been set up (self-signed)
+        # samply setup creates a code signature for process attachment
+        info "Checking samply setup status..."
+        echo ""
+        echo "  samply requires one-time self-signing for process attachment."
+        echo "  If you haven't run it yet, execute:"
+        echo ""
+        echo "    samply setup"
+        echo ""
+        echo "  Note: Run 'samply setup' again after updating samply."
+        echo ""
+    else
+        warn "samply not installed. Run: cargo install samply"
+    fi
+
+    # Check tokio-console
+    if command_exists tokio-console; then
+        success "tokio-console is installed"
+        echo ""
+        echo "  tokio-console requires code changes to use. See:"
+        echo "  docs/ticket-specs/TAS-71/profiling-tool-evaluation.md"
+        echo ""
+    else
+        warn "tokio-console not installed. Run: cargo install tokio-console"
+    fi
+
+    # Document profiling workflow
+    echo ""
+    info "Profiling Workflow (TAS-71):"
+    echo ""
+    echo "  1. Build with profiling profile:"
+    echo "     cargo build --profile profiling --bin <binary>"
+    echo ""
+    echo "  2. Profile with samply (CPU):"
+    echo "     samply record ./target/profiling/<binary>"
+    echo ""
+    echo "  3. Or use cargo-flamegraph:"
+    echo "     cargo flamegraph --profile profiling --bin <binary>"
+    echo ""
+    echo "  4. For async debugging (requires code changes):"
+    echo "     RUSTFLAGS=\"--cfg tokio_unstable\" cargo run --features tokio-console"
+    echo "     # In another terminal: tokio-console"
+    echo ""
+
+    success "Profiling tools setup complete"
 }
 
 # -----------------------------------------------------------------------------
@@ -393,6 +455,11 @@ verify_installation() {
         "cargo-audit:cargo-audit"
         "cargo-llvm-cov:cargo-llvm-cov"
         "cargo-watch:cargo-watch"
+        # Profiling tools (TAS-71)
+        "samply:samply (CPU profiler)"
+        "tokio-console:tokio-console (async debugger)"
+        "flamegraph:cargo-flamegraph"
+        # Language tooling
         "uv:uv (Python)"
         "ruff:ruff (Python linter)"
         "chruby-exec:chruby (Ruby)"
@@ -505,6 +572,7 @@ main() {
             setup_homebrew
             setup_rust
             setup_cargo_tools
+            setup_profiling_tools
             setup_python
             setup_ruby
             setup_typescript
