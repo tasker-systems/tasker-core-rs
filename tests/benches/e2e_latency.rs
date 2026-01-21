@@ -700,43 +700,45 @@ fn bench_tier5_batch(c: &mut Criterion) {
 // CRITERION CONFIGURATION
 // ===================================================================================
 
+// TAS-159: Sample size 50 enables meaningful p50/p95 percentile capture
+// p99 requires 100+ samples but 50 provides reasonable p95 accuracy
 criterion_group!(
     name = tier1_core;
     config = Criterion::default()
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(30));
+        .sample_size(50)
+        .measurement_time(Duration::from_secs(120));
     targets = bench_tier1_core
 );
 
 criterion_group!(
     name = tier2_complexity;
     config = Criterion::default()
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(45));
+        .sample_size(50)
+        .measurement_time(Duration::from_secs(150));
     targets = bench_tier2_complexity
 );
 
 criterion_group!(
     name = tier3_cluster;
     config = Criterion::default()
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(45));
+        .sample_size(50)
+        .measurement_time(Duration::from_secs(150));
     targets = bench_tier3_cluster
 );
 
 criterion_group!(
     name = tier4_languages;
     config = Criterion::default()
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(45));
+        .sample_size(50)
+        .measurement_time(Duration::from_secs(180));
     targets = bench_tier4_languages
 );
 
 criterion_group!(
     name = tier5_batch;
     config = Criterion::default()
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(60));
+        .sample_size(50)
+        .measurement_time(Duration::from_secs(180));
     targets = bench_tier5_batch
 );
 
