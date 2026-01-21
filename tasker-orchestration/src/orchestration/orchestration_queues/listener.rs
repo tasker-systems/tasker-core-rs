@@ -230,7 +230,8 @@ impl OrchestrationQueueListener {
             let is_running = self.is_running.clone();
             let queue_name_owned = queue_name.clone();
 
-            let handle = tokio::spawn(async move {
+            // TAS-158: Named spawn for tokio-console visibility
+            let handle = tasker_shared::spawn_named!("orchestration_queue_listener", async move {
                 Self::process_subscription_stream(
                     stream,
                     sender,

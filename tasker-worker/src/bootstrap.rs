@@ -383,8 +383,8 @@ impl WorkerBootstrap {
 
             let server = axum::serve(listener, app);
 
-            // Spawn web server in background
-            tokio::spawn(async move {
+            // TAS-158: Named spawn for tokio-console visibility
+            tasker_shared::spawn_named!("worker_web_server", async move {
                 if let Err(e) = server.await {
                     tracing::error!("Worker web server error: {}", e);
                 }
@@ -401,8 +401,8 @@ impl WorkerBootstrap {
         // Create shutdown channel
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
 
-        // Spawn background task to handle shutdown
-        tokio::spawn(async move {
+        // TAS-158: Named spawn for tokio-console visibility
+        tasker_shared::spawn_named!("worker_shutdown_handler", async move {
             if let Ok(()) = shutdown_receiver.await {
                 info!("Worker shutdown signal received");
             }

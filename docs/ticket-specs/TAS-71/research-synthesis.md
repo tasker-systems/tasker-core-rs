@@ -140,14 +140,27 @@ panic = "unwind"
 | Remove 2 empty benchmark stubs | 30 min | Cleaner codebase |
 | Document basic profiling workflow | 1 hr | Developer enablement |
 
-### Phase 2: Tooling Foundation (2-3 days)
+### Phase 2: Tooling Foundation (COMPLETED in TAS-158)
 
-| Task | Effort | Impact |
+| Task | Effort | Status |
 |------|--------|--------|
-| Add tokio-console feature flag | 2 hr | Async debugging |
-| Name 15 long-running spawns | 2 hr | tokio-console useful |
-| Add console-subscriber to logging.rs | 2 hr | Integration complete |
-| Create cargo-make profiling tasks | 1 hr | Easy profiling workflow |
+| Add tokio-console feature flag | 0.5 hr | DONE |
+| Name long-running spawns | 1.5 hr | DONE (13 spawns) |
+| Add console-subscriber to logging.rs | 0.5 hr | DONE |
+| Create spawn_named! macro | 0.5 hr | DONE |
+| Create cargo-make profiling tasks | 1 hr | Pending |
+
+**Usage:**
+```bash
+# Build with tokio-console support
+RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
+
+# Run your binary
+./target/debug/your-binary
+
+# In another terminal
+tokio-console
+```
 
 ### Phase 3: Benchmark Expansion (1 week)
 
@@ -177,17 +190,15 @@ Based on profiling and benchmark results, create targeted optimization tickets:
 
 ---
 
-## Suggested Follow-up Tickets
+## Follow-up Tickets Status
 
-| Ticket | Description | Priority |
-|--------|-------------|----------|
-| TAS-71a | Add profiling profile and install tooling | P0 |
-| TAS-71b | tokio-console integration + spawn naming | P1 |
-| TAS-71c | Expand E2E benchmarks (DAG, Tree, Decision) | P1 |
-| TAS-71d | Implement load testing framework | P2 |
-| TAS-71e | Remove empty benchmark stubs, cleanup | P2 |
-| TAS-72 | Run profiling, identify bottlenecks | P1 |
-| TAS-74 | Targeted optimizations (based on findings) | P2 |
+| Ticket | Description | Priority | Status |
+|--------|-------------|----------|--------|
+| TAS-71 | Add profiling profile and install tooling | P0 | DONE |
+| TAS-158 | tokio-console integration + spawn naming | P1 | DONE |
+| TAS-159 | Expand E2E benchmarks (DAG, Tree, Decision) | P1 | Pending |
+| TAS-160 | Implement load testing framework | P2 | Pending |
+| TAS-161 | Profile system and identify optimization targets | P1 | Pending |
 
 ---
 

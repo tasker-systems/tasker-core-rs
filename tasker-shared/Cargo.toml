@@ -107,6 +107,9 @@ tower-http = { workspace = true, optional = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
+# tokio-console async debugging (TAS-158)
+# Requires RUSTFLAGS="--cfg tokio_unstable" at compile time
+console-subscriber = { version = "0.4", optional = true }
 # OpenAPI documentation
 utoipa = { workspace = true, optional = true }
 utoipa-swagger-ui = { workspace = true, optional = true }
@@ -129,6 +132,11 @@ default = ["postgres", "test-utils", "web-api"]
 benchmarks = ["criterion"]
 postgres = ["sqlx/postgres"]
 test-utils = []
+# TAS-158: tokio-console async runtime introspection
+# Usage: cargo build --features tokio-console
+# Requires: RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
+# Then run: tokio-console (in separate terminal)
+tokio-console = ["console-subscriber"]
 web-api = [
   "axum",
   "axum-extra",

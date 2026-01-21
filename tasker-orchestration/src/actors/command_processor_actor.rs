@@ -154,7 +154,8 @@ impl OrchestrationCommandProcessorActor {
             TaskerError::OrchestrationError("Processor already started".to_string())
         })?;
 
-        let handle = tokio::spawn(async move {
+        // TAS-158: Named spawn for tokio-console visibility
+        let handle = tasker_shared::spawn_named!("orchestration_command_processor", async move {
             let handler =
                 CommandHandler::new(context, actors, stats, message_client, health_caches);
             while let Some(command) = command_rx.recv().await {
