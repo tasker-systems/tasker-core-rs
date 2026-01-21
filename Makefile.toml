@@ -71,6 +71,15 @@ echo "Infrastructure:"
 echo "  cargo make db-setup      Setup database"
 echo "  cargo make sqlx-prepare  Prepare SQLX cache"
 echo ""
+echo "Benchmarks (TAS-159):"
+echo "  cargo make services-start-release    Start services (release mode)"
+echo "  cargo make bench-e2e           (be)   Tier 1: Rust core"
+echo "  cargo make bench-e2e-full      (bef)  Tier 1+2: + complexity"
+echo "  cargo make bench-e2e-cluster   (bec)  Tier 3: Multi-instance"
+echo "  cargo make bench-e2e-languages (bel)  Tier 4: FFI comparison"
+echo "  cargo make bench-e2e-batch     (beb)  Tier 5: Batch processing"
+echo "  cargo make bench-e2e-all       (bea)  All tiers"
+echo ""
 echo "Profiling (TAS-158):"
 echo "  cargo make build-console              Build with tokio-console"
 echo "  cargo make run-console-orchestration  Run orchestration with console"
@@ -722,6 +731,43 @@ PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-status.sh --all
 description = "Start all services (orchestration + all workers)"
 script = { file = "${SCRIPTS_DIR}/services-start-all.sh" }
 
+[tasks.services-start-release]
+description = "Start services in release mode (orchestration + Rust worker only)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "🚀 Starting Tasker services (RELEASE mode)..."
+echo "   This starts orchestration + Rust worker for benchmarking."
+echo "   For FFI workers, use run-worker-{ruby,python,typescript} separately."
+echo ""
+
+# Build release first (if not already built)
+echo "=== Building Release ==="
+cargo build --release -p tasker-orchestration -p tasker-worker-rust
+echo ""
+
+# Start orchestration
+echo "=== Starting Orchestration (Release) ==="
+cargo make run-orchestration-release
+echo ""
+
+# Start Rust worker
+echo "=== Starting Rust Worker (Release) ==="
+cargo make run-worker-rust-release
+
+echo ""
+echo "Waiting for services to initialize..."
+sleep 5
+
+echo ""
+cargo make services-status
+'''
+
+[tasks.services-stop-release]
+description = "Stop release mode services"
+alias = "services-stop"
+
 [tasks.services-logs-clear]
 description = "Clear all service log files"
 script = '''
@@ -748,6 +794,35 @@ script = { file = "${SCRIPTS_DIR}/services-health-check.sh" }
 [tasks.run-orchestration]
 description = "Run orchestration service (port 8080)"
 script = { file = "${SCRIPTS_DIR}/run-orchestration.sh" }
+
+[tasks.run-orchestration-release]
+description = "Run orchestration service in release mode (port 8080)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+# TAS-78: Enable SQLX_OFFLINE in split-database mode
+if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
+    echo "🔀 Split database mode - using SQLX_OFFLINE=true"
+    export SQLX_OFFLINE=true
+fi
+
+export TASKER_ENV="${TASKER_ENV:-test}"
+export PORT="${PORT:-8080}"
+# For benchmarking, use ALL benchmark templates (override .env if set)
+# The parent directory contains rust/, ruby/, python/, typescript/ subdirectories
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/orchestration-test.toml"
+export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates"
+
+echo "🚀 Starting orchestration service (RELEASE mode)..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+
+PROJECT_ROOT="$(pwd)" "${SCRIPTS_DIR}/service-start.sh" orchestration \
+    cargo run --release -p tasker-orchestration --bin tasker-server
+'''
 
 [tasks.stop-orchestration]
 description = "Stop orchestration service"
@@ -780,6 +855,36 @@ description = "Run Rust worker service (port 8081)"
 cwd = "workers/rust"
 command = "cargo"
 args = ["make", "run"]
+
+[tasks.run-worker-rust-release]
+description = "Run Rust worker service in release mode (port 8081)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+# TAS-78: Enable SQLX_OFFLINE in split-database mode
+if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
+    echo "🔀 Split database mode - using SQLX_OFFLINE=true"
+    export SQLX_OFFLINE=true
+fi
+
+export TASKER_ENV="${TASKER_ENV:-test}"
+export PORT="${PORT:-8081}"
+# TAS-159: Rust worker uses ONLY Rust templates (to avoid subscribing to other language queues)
+# Orchestration loads ALL templates for task creation, but workers are language-specific
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/worker-test.toml"
+export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
+export TASKER_WEB_BIND_ADDRESS="0.0.0.0:${PORT}"
+
+echo "🚀 Starting Rust worker (RELEASE mode)..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+
+PROJECT_ROOT="$(pwd)" "${SCRIPTS_DIR}/service-start.sh" rust-worker \
+    cargo run --release -p tasker-worker-rust
+'''
 
 [tasks.stop-worker-rust]
 description = "Stop Rust worker service"
@@ -1155,3 +1260,163 @@ description = "Shortcut for run-console-orchestration"
 [tasks.rcw]
 alias = "run-console-worker-rust"
 description = "Shortcut for run-console-worker-rust"
+
+# =============================================================================
+# TAS-159: E2E Benchmark Tasks
+# =============================================================================
+# Comprehensive end-to-end latency benchmarks across multiple tiers.
+#
+# Tier Overview:
+#   Tier 1 (Core):       Rust native linear/diamond workflows
+#   Tier 2 (Complexity): Complex DAG, hierarchical tree, conditional routing
+#   Tier 3 (Cluster):    Multi-instance coordination (requires cluster running)
+#   Tier 4 (Languages):  FFI comparison (Ruby, Python, TypeScript)
+#   Tier 5 (Batch):      CSV batch processing with parallel workers
+#
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ BENCHMARK BASELINE WORKFLOW                                                 │
+# ├─────────────────────────────────────────────────────────────────────────────┤
+# │                                                                             │
+# │ 1. TIER 1 + 2 + 5 (Single-instance, Release Mode):                         │
+# │    cargo make services-start-release   # Orchestration + Rust worker       │
+# │    cargo make bench-e2e-full           # Tier 1 + 2                         │
+# │    cargo make bench-e2e-batch          # Tier 5                             │
+# │    cargo make services-stop                                                 │
+# │                                                                             │
+# │ 2. TIER 3 (Cluster, Already Release Mode):                                  │
+# │    cargo make cluster-start-all        # 2x orchestration + all workers    │
+# │    cargo make bench-e2e-cluster        # Tier 3                             │
+# │    cargo make cluster-stop                                                  │
+# │                                                                             │
+# │ 3. TIER 4 (FFI Languages):                                                  │
+# │    cargo make services-start-release   # Orchestration + Rust worker       │
+# │    cargo make run-worker-ruby &        # Port 8082                          │
+# │    cargo make run-worker-python &      # Port 8083                          │
+# │    cargo make run-worker-typescript &  # Port 8085                          │
+# │    cargo make bench-e2e-languages      # Tier 4                             │
+# │    cargo make services-stop                                                 │
+# │                                                                             │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# NOTE: All benchmarks are local-only (not in CI) due to resource constraints.
+#
+# See: tests/benches/e2e_latency.rs for implementation details.
+
+[tasks.bench-e2e]
+description = "Run Tier 1 E2E benchmarks (Rust linear/diamond)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 1: Core Performance Benchmarks"
+echo "   Requires: cargo make services-start-release"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier1_core"
+'''
+
+[tasks.bench-e2e-full]
+description = "Run Tier 1 + Tier 2 benchmarks (core + complexity)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 1 + Tier 2: Core + Complexity Benchmarks"
+echo "   Requires: cargo make services-start-release"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier1_core|tier2_complexity"
+'''
+
+[tasks.bench-e2e-cluster]
+description = "Run Tier 3 cluster benchmarks (multi-instance)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 3: Cluster Performance Benchmarks"
+echo "   Requires: cargo make cluster-start-all"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier3_cluster"
+'''
+
+[tasks.bench-e2e-languages]
+description = "Run Tier 4 language comparison benchmarks (Ruby, Python, TS)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 4: FFI Language Comparison Benchmarks"
+echo "   Requires: cargo make services-start-release"
+echo "   Optional: cargo make run-worker-ruby"
+echo "   Optional: cargo make run-worker-python"
+echo "   Optional: cargo make run-worker-typescript"
+echo ""
+echo "   Note: Unavailable workers will be skipped gracefully"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier4_languages"
+'''
+
+[tasks.bench-e2e-batch]
+description = "Run Tier 5 batch processing benchmarks"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 5: Batch Processing Benchmarks"
+echo "   Requires: cargo make services-start-release"
+echo "   Uses: tests/fixtures/products.csv (1000 rows, 5 workers)"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier5_batch"
+'''
+
+[tasks.bench-e2e-all]
+description = "Run ALL E2E benchmarks (all 5 tiers)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running ALL E2E Benchmarks (Tiers 1-5)"
+echo ""
+echo "Prerequisites:"
+echo "   - cargo make services-start-release"
+echo "   - cargo make cluster-start-all (for Tier 3)"
+echo "   - Language workers optional (Tier 4 skips unavailable)"
+echo ""
+
+cargo bench --bench e2e_latency
+'''
+
+# Benchmark shortcuts
+[tasks.be]
+alias = "bench-e2e"
+description = "Shortcut for bench-e2e (Tier 1)"
+
+[tasks.bef]
+alias = "bench-e2e-full"
+description = "Shortcut for bench-e2e-full (Tier 1+2)"
+
+[tasks.bec]
+alias = "bench-e2e-cluster"
+description = "Shortcut for bench-e2e-cluster (Tier 3)"
+
+[tasks.bel]
+alias = "bench-e2e-languages"
+description = "Shortcut for bench-e2e-languages (Tier 4)"
+
+[tasks.beb]
+alias = "bench-e2e-batch"
+description = "Shortcut for bench-e2e-batch (Tier 5)"
+
+[tasks.bea]
+alias = "bench-e2e-all"
+description = "Shortcut for bench-e2e-all (All tiers)"
