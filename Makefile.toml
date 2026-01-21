@@ -80,6 +80,7 @@ echo "  cargo make bench-e2e-languages (bel)  Tier 4: FFI comparison"
 echo "  cargo make bench-e2e-batch     (beb)  Tier 5: Batch processing"
 echo "  cargo make bench-e2e-all       (bea)  All tiers"
 echo "  cargo make bench-report        (br)   Generate percentile report"
+echo "  cargo make bench-analysis      (ba)   Generate analysis document"
 echo ""
 echo "Profiling (TAS-158):"
 echo "  cargo make build-console              Build with tokio-console"
@@ -1443,3 +1444,25 @@ python3 cargo-make/scripts/bench-percentiles.py target/criterion
 [tasks.br]
 alias = "bench-report"
 description = "Shortcut for bench-report"
+
+[tasks.bench-analysis]
+description = "Generate benchmark analysis document in ticket-specs"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "📊 Generating Benchmark Analysis Document"
+echo ""
+
+if [ ! -f "target/criterion/percentile_report.json" ]; then
+    echo "❌ No percentile report found"
+    echo "   Run: cargo make bench-report first"
+    exit 1
+fi
+
+bash cargo-make/scripts/bench-analysis.sh
+'''
+
+[tasks.ba]
+alias = "bench-analysis"
+description = "Shortcut for bench-analysis"
