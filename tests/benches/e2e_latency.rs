@@ -491,7 +491,7 @@ fn bench_tier3_cluster(c: &mut Criterion) {
 /// Compares execution performance across different language workers:
 /// - Ruby (port 8082): Magnus FFI bridge
 /// - Python (port 8083): PyO3 FFI bridge
-/// - TypeScript (port 8085): Bun/Node FFI bridge
+/// - TypeScript (port 8084): Bun/Node FFI bridge
 ///
 /// Each worker has different event mechanics for non-blocking handler invocation.
 fn bench_tier4_languages(c: &mut Criterion) {
@@ -591,9 +591,9 @@ fn bench_tier4_languages(c: &mut Criterion) {
         eprintln!("   Start with: cargo make run-worker-python");
     }
 
-    // TypeScript Worker (port 8085)
-    if check_worker_health(8085) {
-        eprintln!("✅ TypeScript worker available (port 8085)");
+    // TypeScript Worker (port 8084)
+    if check_worker_health(8084) {
+        eprintln!("✅ TypeScript worker available (port 8084)");
 
         group.bench_function(BenchmarkId::new("typescript", "linear"), |b| {
             b.iter(|| {
