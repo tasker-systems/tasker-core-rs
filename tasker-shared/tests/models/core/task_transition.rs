@@ -3,6 +3,7 @@
 //! Tests for the TaskTransition model using SQLx native testing
 
 use sqlx::PgPool;
+use tasker_shared::models::core::IdentityStrategy;
 use tasker_shared::models::named_task::{NamedTask, NewNamedTask};
 use tasker_shared::models::task::{NewTask, Task};
 use tasker_shared::models::task_namespace::{NewTaskNamespace, TaskNamespace};
@@ -28,6 +29,7 @@ async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
             description: None,
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await?;
@@ -146,6 +148,7 @@ async fn test_task_transition_status_tracking(pool: PgPool) -> sqlx::Result<()> 
             description: None,
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await?;

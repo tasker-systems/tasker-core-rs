@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
+use super::identity_strategy::IdentityStrategy;
+
 /// NamedTask represents task templates/definitions with versioning
 /// Uses UUID v7 for primary key to ensure time-ordered UUIDs
 /// Maps to `tasker.named_tasks` table
@@ -14,6 +16,9 @@ pub struct NamedTask {
     pub description: Option<String>,
     pub task_namespace_uuid: Uuid,
     pub configuration: Option<serde_json::Value>, // Added configuration field
+    /// TAS-154: Identity strategy for task deduplication
+    /// Determines how the identity_hash is computed when creating tasks
+    pub identity_strategy: IdentityStrategy,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -26,6 +31,9 @@ pub struct NewNamedTask {
     pub description: Option<String>,
     pub task_namespace_uuid: Uuid,
     pub configuration: Option<serde_json::Value>,
+    /// TAS-154: Identity strategy for task deduplication (defaults to Strict)
+    #[serde(default)]
+    pub identity_strategy: IdentityStrategy,
 }
 
 /// NamedTask with associated steps for delegation
@@ -49,15 +57,17 @@ impl NamedTask {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            INSERT INTO tasker.named_tasks (name, version, description, task_namespace_uuid, configuration, created_at, updated_at)
-            VALUES ($1, $2, $3, $4::uuid, $5, NOW(), NOW())
-            RETURNING named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
+            INSERT INTO tasker.named_tasks (name, version, description, task_namespace_uuid, configuration, identity_strategy, created_at, updated_at)
+            VALUES ($1, $2, $3, $4::uuid, $5, $6, NOW(), NOW())
+            RETURNING named_task_uuid, name, version, description, task_namespace_uuid, configuration,
+                      identity_strategy as "identity_strategy: IdentityStrategy", created_at, updated_at
             "#,
             new_task.name,
             version,
             new_task.description,
             new_task.task_namespace_uuid,
-            configuration
+            configuration,
+            new_task.identity_strategy as IdentityStrategy
         )
         .fetch_one(pool)
         .await?;
@@ -70,7 +80,8 @@ impl NamedTask {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration,
+                   identity_strategy as "identity_strategy: IdentityStrategy", created_at, updated_at
             FROM tasker.named_tasks
             WHERE named_task_uuid = $1::uuid
             "#,
@@ -92,7 +103,8 @@ impl NamedTask {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration,
+                   identity_strategy as "identity_strategy: IdentityStrategy", created_at, updated_at
             FROM tasker.named_tasks
             WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3::uuid
             "#,
@@ -115,7 +127,8 @@ impl NamedTask {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration,
+                   identity_strategy as "identity_strategy: IdentityStrategy", created_at, updated_at
             FROM tasker.named_tasks
             WHERE name = $1 AND task_namespace_uuid = $2::uuid
             ORDER BY created_at DESC
@@ -139,7 +152,8 @@ impl NamedTask {
         let tasks = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration,
+                   identity_strategy as "identity_strategy: IdentityStrategy", created_at, updated_at
             FROM tasker.named_tasks
             WHERE name = $1 AND task_namespace_uuid = $2::uuid
             ORDER BY created_at DESC
@@ -161,7 +175,8 @@ impl NamedTask {
         let tasks = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration,
+                   identity_strategy as "identity_strategy: IdentityStrategy", created_at, updated_at
             FROM tasker.named_tasks
             WHERE task_namespace_uuid = $1::uuid
             ORDER BY name, created_at DESC
@@ -183,7 +198,8 @@ impl NamedTask {
             NamedTask,
             r#"
             SELECT DISTINCT ON (name)
-                named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
+                named_task_uuid, name, version, description, task_namespace_uuid, configuration,
+                identity_strategy as "identity_strategy: IdentityStrategy", created_at, updated_at
             FROM tasker.named_tasks
             WHERE task_namespace_uuid = $1::uuid
             ORDER BY name, created_at DESC
@@ -212,11 +228,39 @@ impl NamedTask {
                 configuration = COALESCE($3, configuration),
                 updated_at = NOW()
             WHERE named_task_uuid = $1::uuid
-            RETURNING named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
+            RETURNING named_task_uuid, name, version, description, task_namespace_uuid, configuration,
+                      identity_strategy as "identity_strategy: IdentityStrategy", created_at, updated_at
             "#,
             uuid,
             description,
             configuration
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(task)
+    }
+
+    /// Update a named task's identity strategy
+    /// TAS-154: Allows changing the deduplication behavior for a named task
+    pub async fn update_identity_strategy(
+        pool: &PgPool,
+        uuid: Uuid,
+        identity_strategy: IdentityStrategy,
+    ) -> Result<NamedTask, sqlx::Error> {
+        let task = sqlx::query_as!(
+            NamedTask,
+            r#"
+            UPDATE tasker.named_tasks
+            SET
+                identity_strategy = $2,
+                updated_at = NOW()
+            WHERE named_task_uuid = $1::uuid
+            RETURNING named_task_uuid, name, version, description, task_namespace_uuid, configuration,
+                      identity_strategy as "identity_strategy: IdentityStrategy", created_at, updated_at
+            "#,
+            uuid,
+            identity_strategy as IdentityStrategy
         )
         .fetch_one(pool)
         .await?;
@@ -346,13 +390,14 @@ impl NamedTask {
             return Ok(existing);
         }
 
-        // Create new named task if not found
+        // Create new named task if not found (defaults to Strict identity strategy)
         let new_named_task = NewNamedTask {
             name: name.to_string(),
             task_namespace_uuid: namespace_uuid,
             description: Some(format!("Auto-created task: {name} v{version}")),
             version: Some(version.to_string()),
             configuration: Some(serde_json::json!({"auto_created": true})),
+            identity_strategy: IdentityStrategy::default(),
         };
 
         Self::create(pool, new_named_task).await
@@ -367,7 +412,9 @@ impl NamedTask {
             NamedTask,
             r#"
             SELECT nt.named_task_uuid, nt.name, nt.version, nt.description,
-                   nt.task_namespace_uuid, nt.configuration, nt.created_at, nt.updated_at
+                   nt.task_namespace_uuid, nt.configuration,
+                   nt.identity_strategy as "identity_strategy: IdentityStrategy",
+                   nt.created_at, nt.updated_at
             FROM tasker.named_tasks nt
             JOIN tasker.task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
             WHERE tn.name = $1
@@ -391,7 +438,9 @@ impl NamedTask {
             NamedTask,
             r#"
             SELECT nt.named_task_uuid, nt.name, nt.version, nt.description,
-                   nt.task_namespace_uuid, nt.configuration, nt.created_at, nt.updated_at
+                   nt.task_namespace_uuid, nt.configuration,
+                   nt.identity_strategy as "identity_strategy: IdentityStrategy",
+                   nt.created_at, nt.updated_at
             FROM tasker.named_tasks nt
             JOIN tasker.task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
             WHERE tn.name = $1 AND nt.name = $2

@@ -242,6 +242,7 @@ impl TaskTemplateManager {
             priority: Some(5),
             correlation_id: uuid::Uuid::now_v7(), // TAS-29: Test correlation_id
             parent_correlation_id: None,
+            idempotency_key: None,
         };
 
         self.registry.resolve_handler(&task_request).await
@@ -556,6 +557,7 @@ impl TaskTemplateManager {
                 priority: Some(5),
                 correlation_id: uuid::Uuid::now_v7(), // TAS-29: Test correlation_id
                 parent_correlation_id: None,
+                idempotency_key: None,
             })
             .await?;
 

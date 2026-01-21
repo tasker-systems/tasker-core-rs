@@ -7,7 +7,8 @@
 use super::base::*;
 
 use crate::models::core::{
-    named_step::NewNamedStep, named_task::NewNamedTask, task_namespace::NewTaskNamespace,
+    identity_strategy::IdentityStrategy, named_step::NewNamedStep, named_task::NewNamedTask,
+    task_namespace::NewTaskNamespace,
 };
 use crate::models::{NamedStep, NamedTask, TaskNamespace};
 use async_trait::async_trait;
@@ -100,6 +101,8 @@ pub struct NamedTaskFactory {
     version: String,
     description: Option<String>,
     configuration: Option<Value>,
+    /// TAS-154: Identity strategy for task deduplication
+    identity_strategy: IdentityStrategy,
 }
 
 impl Default for NamedTaskFactory {
@@ -113,6 +116,7 @@ impl Default for NamedTaskFactory {
                 "test_mode": true,
                 "auto_generated": true
             })),
+            identity_strategy: IdentityStrategy::Strict,
         }
     }
 }
@@ -136,6 +140,12 @@ impl NamedTaskFactory {
         self.version = version.to_string();
         self
     }
+
+    /// TAS-154: Set the identity strategy for this named task
+    pub fn with_identity_strategy(mut self, strategy: IdentityStrategy) -> Self {
+        self.identity_strategy = strategy;
+        self
+    }
 }
 
 #[async_trait]
@@ -156,6 +166,7 @@ impl SqlxFactory<NamedTask> for NamedTaskFactory {
             version: Some(self.version.clone()),
             description: self.description.clone(),
             configuration: Some(config),
+            identity_strategy: self.identity_strategy,
         };
 
         let task = NamedTask::create(pool, new_task).await?;

@@ -8,6 +8,7 @@ mod diamond_decision_batch_workflow;
 mod diamond_workflow;
 mod domain_event_publishing_test; // TAS-65: Domain event publishing
 mod ecommerce_order_test; // TAS-91 Blog Post 01
+mod identity_strategy_test; // TAS-154: Identity strategy E2E tests
 mod linear_workflow;
 mod microservices_user_registration_test; // TAS-91 Blog Post 03
 mod mixed_dag_workflow;

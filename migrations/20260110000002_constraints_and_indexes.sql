@@ -180,7 +180,16 @@ CREATE INDEX idx_tasks_complete ON tasker.tasks USING btree (complete);
 CREATE INDEX idx_tasks_completed_at ON tasker.tasks USING btree (completed_at);
 CREATE INDEX idx_tasks_correlation_hierarchy ON tasker.tasks USING btree (parent_correlation_id, correlation_id) WHERE (parent_correlation_id IS NOT NULL);
 CREATE INDEX idx_tasks_correlation_id ON tasker.tasks USING btree (correlation_id);
-CREATE INDEX idx_tasks_identity_hash ON tasker.tasks USING btree (identity_hash);
+
+-- TAS-154: UNIQUE constraint for task identity deduplication
+-- This ensures that tasks with the same identity_hash cannot be created.
+-- The identity_hash is computed based on the named_task's identity_strategy:
+--   - STRICT: hash(named_task_uuid, context) - default, full idempotency
+--   - CALLER_PROVIDED: caller provides idempotency_key
+--   - ALWAYS_UNIQUE: uuidv7() - no deduplication
+CREATE UNIQUE INDEX idx_tasks_identity_hash ON tasker.tasks USING btree (identity_hash);
+
+COMMENT ON INDEX tasker.idx_tasks_identity_hash IS 'TAS-154: Unique constraint for task identity deduplication. Enforces that no two tasks can have the same identity_hash, enabling configurable deduplication strategies.';
 CREATE INDEX idx_tasks_named_task_uuid ON tasker.tasks USING btree (named_task_uuid);
 CREATE INDEX idx_tasks_parent_correlation_id ON tasker.tasks USING btree (parent_correlation_id) WHERE (parent_correlation_id IS NOT NULL);
 CREATE INDEX idx_tasks_priority ON tasker.tasks USING btree (priority);

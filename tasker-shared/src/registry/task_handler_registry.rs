@@ -258,6 +258,7 @@ impl TaskHandlerRegistry {
             .map_err(|e| TaskerError::DatabaseError(format!("Failed to update named task: {e}")))?;
         } else {
             // Create new named task
+            use crate::models::core::identity_strategy::IdentityStrategy;
             use crate::models::core::named_task::NewNamedTask;
             let new_task = NewNamedTask {
                 name: template.name.clone(),
@@ -265,6 +266,7 @@ impl TaskHandlerRegistry {
                 description: template.description.clone(),
                 task_namespace_uuid: namespace.task_namespace_uuid,
                 configuration: Some(configuration),
+                identity_strategy: IdentityStrategy::Strict,
             };
 
             NamedTask::create(&self.db_pool, new_task)

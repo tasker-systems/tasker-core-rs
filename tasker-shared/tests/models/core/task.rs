@@ -4,6 +4,7 @@
 
 use serde_json::json;
 use sqlx::PgPool;
+use tasker_shared::models::core::IdentityStrategy;
 use tasker_shared::models::named_task::{NamedTask, NewNamedTask};
 use tasker_shared::models::task::{NewTask, Task};
 use tasker_shared::models::task_namespace::{NewTaskNamespace, TaskNamespace};
@@ -29,6 +30,7 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
             description: None,
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await?;
@@ -102,4 +104,179 @@ fn test_identity_hash_generation() {
 
     // Different inputs should produce different hash
     assert_ne!(hash1, hash3);
+}
+
+// =============================================================================
+// TAS-154: Identity Strategy Tests
+// =============================================================================
+
+#[test]
+fn test_compute_identity_hash_strict_strategy() {
+    let named_task_uuid = Uuid::now_v7();
+    let context = Some(json!({"order_id": 12345}));
+
+    // STRICT strategy: hash(named_task_uuid, context)
+    let hash1 = Task::compute_identity_hash(
+        IdentityStrategy::Strict,
+        named_task_uuid,
+        &context,
+        None, // No idempotency key
+    )
+    .unwrap();
+
+    let hash2 = Task::compute_identity_hash(
+        IdentityStrategy::Strict,
+        named_task_uuid,
+        &context,
+        None,
+    )
+    .unwrap();
+
+    // Same inputs should produce same hash
+    assert_eq!(hash1, hash2);
+
+    // Different context should produce different hash
+    let different_context = Some(json!({"order_id": 99999}));
+    let hash3 = Task::compute_identity_hash(
+        IdentityStrategy::Strict,
+        named_task_uuid,
+        &different_context,
+        None,
+    )
+    .unwrap();
+    assert_ne!(hash1, hash3);
+}
+
+#[test]
+fn test_compute_identity_hash_caller_provided_strategy() {
+    let named_task_uuid = Uuid::now_v7();
+    let context = Some(json!({"order_id": 12345}));
+
+    // CALLER_PROVIDED strategy requires idempotency_key
+    let result = Task::compute_identity_hash(
+        IdentityStrategy::CallerProvided,
+        named_task_uuid,
+        &context,
+        None, // Missing required key
+    );
+
+    // Should fail without idempotency_key
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .contains("idempotency_key is required"));
+
+    // With idempotency_key, should succeed
+    let hash = Task::compute_identity_hash(
+        IdentityStrategy::CallerProvided,
+        named_task_uuid,
+        &context,
+        Some("my-unique-key"),
+    )
+    .unwrap();
+    assert!(!hash.is_empty());
+
+    // Same key should produce same hash
+    let hash2 = Task::compute_identity_hash(
+        IdentityStrategy::CallerProvided,
+        named_task_uuid,
+        &context,
+        Some("my-unique-key"),
+    )
+    .unwrap();
+    assert_eq!(hash, hash2);
+}
+
+#[test]
+fn test_compute_identity_hash_always_unique_strategy() {
+    let named_task_uuid = Uuid::now_v7();
+    let context = Some(json!({"order_id": 12345}));
+
+    // ALWAYS_UNIQUE strategy: generates unique hash each time
+    let hash1 = Task::compute_identity_hash(
+        IdentityStrategy::AlwaysUnique,
+        named_task_uuid,
+        &context,
+        None,
+    )
+    .unwrap();
+
+    let hash2 = Task::compute_identity_hash(
+        IdentityStrategy::AlwaysUnique,
+        named_task_uuid,
+        &context,
+        None,
+    )
+    .unwrap();
+
+    // Each call should produce a different hash (UUIDv7)
+    assert_ne!(hash1, hash2);
+
+    // Hashes should be valid UUIDs
+    assert!(Uuid::parse_str(&hash1).is_ok());
+    assert!(Uuid::parse_str(&hash2).is_ok());
+}
+
+#[test]
+fn test_compute_identity_hash_idempotency_key_override() {
+    let named_task_uuid = Uuid::now_v7();
+    let context = Some(json!({"order_id": 12345}));
+    let idempotency_key = "custom-override-key";
+
+    // With idempotency_key, all strategies should use the key
+    let strict_hash = Task::compute_identity_hash(
+        IdentityStrategy::Strict,
+        named_task_uuid,
+        &context,
+        Some(idempotency_key),
+    )
+    .unwrap();
+
+    let caller_hash = Task::compute_identity_hash(
+        IdentityStrategy::CallerProvided,
+        named_task_uuid,
+        &context,
+        Some(idempotency_key),
+    )
+    .unwrap();
+
+    let unique_hash = Task::compute_identity_hash(
+        IdentityStrategy::AlwaysUnique,
+        named_task_uuid,
+        &context,
+        Some(idempotency_key),
+    )
+    .unwrap();
+
+    // All should produce the same hash when idempotency_key is provided
+    assert_eq!(strict_hash, caller_hash);
+    assert_eq!(caller_hash, unique_hash);
+}
+
+#[test]
+fn test_compute_identity_hash_includes_named_task_uuid() {
+    let context = Some(json!({"order_id": 12345}));
+    let idempotency_key = "same-key";
+
+    // Different named tasks with same key should produce different hashes
+    // (prevents cross-task collisions)
+    let hash1 = Task::compute_identity_hash(
+        IdentityStrategy::CallerProvided,
+        Uuid::now_v7(),
+        &context,
+        Some(idempotency_key),
+    )
+    .unwrap();
+
+    let hash2 = Task::compute_identity_hash(
+        IdentityStrategy::CallerProvided,
+        Uuid::now_v7(),
+        &context,
+        Some(idempotency_key),
+    )
+    .unwrap();
+
+    // Different named_task_uuids should produce different hashes
+    // even with the same idempotency key
+    assert_ne!(hash1, hash2);
 }

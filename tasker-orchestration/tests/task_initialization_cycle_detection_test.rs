@@ -6,6 +6,7 @@
 
 use sqlx::PgPool;
 use tasker_shared::models::{
+    core::IdentityStrategy,
     named_step::{NamedStep, NewNamedStep},
     named_task::{NamedTask, NewNamedTask},
     task::{NewTask, Task},
@@ -34,6 +35,7 @@ async fn create_test_task(pool: &PgPool, identity_hash: &str) -> sqlx::Result<Ta
             description: Some("Test task for cycle detection".to_string()),
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await?;

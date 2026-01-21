@@ -3,6 +3,7 @@
 //! Tests the association between NamedTask and NamedStep with configuration options.
 
 use sqlx::PgPool;
+use tasker_shared::models::core::IdentityStrategy;
 use tasker_shared::models::named_tasks_named_step::{NamedTasksNamedStep, NewNamedTasksNamedStep};
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
@@ -25,6 +26,7 @@ async fn test_named_tasks_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
             description: None,
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await?;
@@ -118,6 +120,7 @@ async fn test_default_values(pool: PgPool) -> sqlx::Result<()> {
             description: None,
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await?;

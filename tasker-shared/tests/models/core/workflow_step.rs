@@ -6,6 +6,7 @@ use serde_json::json;
 use sqlx::PgPool;
 
 use tasker_shared::models::{
+    core::IdentityStrategy,
     named_step::{NamedStep, NewNamedStep},
     named_task::{NamedTask, NewNamedTask},
     task::{NewTask, Task},
@@ -34,6 +35,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
             description: None,
             task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
+            identity_strategy: IdentityStrategy::Strict,
         },
     )
     .await?;

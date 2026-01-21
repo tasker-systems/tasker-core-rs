@@ -123,6 +123,7 @@ fn create_task_request(
         context: input_context,
         correlation_id: Uuid::now_v7(),
         parent_correlation_id: None,
+        idempotency_key: None,
         initiator: "benchmark-suite".to_string(),
         source_system: "criterion-benchmarks".to_string(),
         reason: "API latency benchmark measurement".to_string(),

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*) as count\n            FROM tasker.workflow_step_transitions\n            WHERE created_at > NOW() - INTERVAL '24 hours'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d92dcc210cb8fcd0ff7548a01d7426d5220a4f4b87bee9f5b0e9a77978571307"
+}

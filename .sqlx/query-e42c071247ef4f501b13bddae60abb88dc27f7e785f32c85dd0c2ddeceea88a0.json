@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,\n                           workflow_step_uuid, created_at, updated_at\n                    FROM tasker.workflow_step_transitions\n                    WHERE workflow_step_uuid = $1::uuid AND most_recent = true\n                    ORDER BY workflow_step_uuid, sort_key DESC\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workflow_step_transition_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "to_state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "from_state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "sort_key",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "most_recent",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "workflow_step_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e42c071247ef4f501b13bddae60abb88dc27f7e785f32c85dd0c2ddeceea88a0"
+}

@@ -165,17 +165,30 @@ impl LifecycleTestManager {
     }
 
     /// Create a TaskRequest for a specific template with context
+    ///
+    /// TAS-154: Injects a unique test_run_id into the context to ensure each test run
+    /// produces a unique identity hash.
     pub fn create_task_request_for_template(
         &self,
         template_name: &str,
         namespace: &str,
         context: serde_json::Value,
     ) -> TaskRequest {
+        // TAS-154: Inject unique test_run_id to ensure unique identity hash per test run
+        let mut ctx = match context {
+            serde_json::Value::Object(map) => map,
+            _ => serde_json::Map::new(),
+        };
+        ctx.insert(
+            "_test_run_id".to_string(),
+            serde_json::Value::String(Uuid::now_v7().to_string()),
+        );
+
         TaskRequest {
             name: template_name.to_string(),
             namespace: namespace.to_string(),
             version: "1.0.0".to_string(),
-            context,
+            context: serde_json::Value::Object(ctx),
             correlation_id: Uuid::now_v7(),
             parent_correlation_id: None,
             initiator: "lifecycle_test".to_string(),
@@ -186,6 +199,7 @@ impl LifecycleTestManager {
             requested_at: chrono::Utc::now().naive_utc(),
             options: None,
             priority: Some(5),
+            idempotency_key: None,
         }
     }
 
