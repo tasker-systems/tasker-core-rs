@@ -65,5 +65,12 @@ tasker-orchestration = { path = "../../tasker-orchestration" }
 tokio-test = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+[features]
+default = []
+
+# TAS-158: tokio-console async runtime introspection
+# Requires: RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
+tokio-console = ["tasker-worker/tokio-console", "tasker-shared/tokio-console"]
+
 [lints]
 workspace = true

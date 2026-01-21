@@ -148,15 +148,30 @@ panic = "unwind"
 | Name long-running spawns | 1.5 hr | DONE (13 spawns) |
 | Add console-subscriber to logging.rs | 0.5 hr | DONE |
 | Create spawn_named! macro | 0.5 hr | DONE |
-| Create cargo-make profiling tasks | 1 hr | Pending |
+| Create cargo-make profiling tasks | 1 hr | DONE |
 
-**Usage:**
+**Usage via cargo-make (recommended):**
+```bash
+# Build with tokio-console support
+cargo make build-console      # or: cargo make bc
+
+# Run orchestration with console support
+cargo make run-console-orchestration  # or: cargo make rco
+
+# Run worker with console support
+cargo make run-console-worker  # or: cargo make rcw
+
+# Connect tokio-console (in another terminal)
+cargo make console
+```
+
+**Manual usage:**
 ```bash
 # Build with tokio-console support
 RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
 
 # Run your binary
-./target/debug/your-binary
+./target/debug/tasker-server  # or tasker-worker
 
 # In another terminal
 tokio-console

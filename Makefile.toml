@@ -71,6 +71,12 @@ echo "Infrastructure:"
 echo "  cargo make db-setup      Setup database"
 echo "  cargo make sqlx-prepare  Prepare SQLX cache"
 echo ""
+echo "Profiling (TAS-158):"
+echo "  cargo make build-console              Build with tokio-console"
+echo "  cargo make run-console-orchestration  Run orchestration with console"
+echo "  cargo make run-console-worker-rust    Run Rust worker with console"
+echo "  cargo make console                    Open tokio-console"
+echo ""
 echo "Run 'cargo make --list-all-steps' for all tasks"
 '''
 
@@ -1027,3 +1033,125 @@ else
     echo "No orchestration logs found. Start cluster first with: cargo make cluster-start-orchestration"
 fi
 '''
+
+# =============================================================================
+# TAS-158: tokio-console Profiling Tasks
+# =============================================================================
+# Runtime introspection with tokio-console for debugging async behavior.
+#
+# Prerequisites:
+#   1. Install tokio-console: cargo install tokio-console
+#   2. Build with console support: cargo make build-console
+#   3. Run the service (in one terminal): cargo make run-console-orchestration
+#   4. Connect tokio-console (in another terminal): tokio-console
+#
+# Note: These builds use RUSTFLAGS="--cfg tokio_unstable" which requires
+# recompilation of tokio and dependencies. Build times will be longer than
+# standard builds. This is opt-in rather than default to avoid impacting
+# normal development workflows.
+#
+# See: docs/ticket-specs/TAS-71/tokio-analysis.md
+
+[tasks.build-console]
+description = "Build all crates with tokio-console support (TAS-158)"
+env = { RUSTFLAGS = "--cfg tokio_unstable" }
+script = '''
+#!/bin/bash
+set -euo pipefail
+echo "🔍 Building with tokio-console support..."
+echo "   RUSTFLAGS=$RUSTFLAGS"
+echo "   Features: tokio-console"
+echo ""
+echo "⚠️  This requires recompilation of tokio with unstable features."
+echo "   Build will take longer than normal."
+echo ""
+
+# Build orchestration and Rust worker with tokio-console feature
+# Note: tasker-worker is a library crate (embedded by language workers), not standalone
+cargo build --package tasker-orchestration --features tokio-console
+cargo build --package tasker-worker-rust --features tokio-console
+
+echo ""
+echo "✅ Build complete. Run services with:"
+echo "   cargo make run-console-orchestration   (rco)"
+echo "   cargo make run-console-worker-rust     (rcwr)"
+echo ""
+echo "Then connect tokio-console in another terminal:"
+echo "   cargo make console"
+'''
+
+[tasks.build-console-release]
+description = "Build release with tokio-console support"
+env = { RUSTFLAGS = "--cfg tokio_unstable" }
+script = '''
+#!/bin/bash
+set -euo pipefail
+cargo build --package tasker-orchestration --features tokio-console --release
+cargo build --package tasker-worker --features tokio-console --release
+'''
+
+[tasks.run-console-orchestration]
+description = "Run orchestration with tokio-console (port 8080)"
+env = { RUSTFLAGS = "--cfg tokio_unstable" }
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "🔍 Starting orchestration with tokio-console support..."
+echo "   Connect with: tokio-console (in another terminal)"
+echo ""
+
+# Run with tokio-console feature enabled
+RUSTFLAGS="--cfg tokio_unstable" cargo run \
+    --package tasker-orchestration \
+    --features tokio-console \
+    --bin tasker-server
+'''
+
+[tasks.run-console-worker-rust]
+description = "Run Rust worker with tokio-console (port 8081)"
+env = { RUSTFLAGS = "--cfg tokio_unstable" }
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "🔍 Starting Rust worker with tokio-console support..."
+echo "   Connect with: tokio-console (in another terminal)"
+echo ""
+
+# Build and run the Rust worker with tokio-console feature
+cd workers/rust
+RUSTFLAGS="--cfg tokio_unstable" cargo run --features tokio-console
+'''
+
+[tasks.console]
+description = "Open tokio-console (must have service running with console support)"
+script = '''
+#!/bin/bash
+if ! command -v tokio-console &> /dev/null; then
+    echo "❌ tokio-console not found"
+    echo ""
+    echo "Install with: cargo install tokio-console"
+    exit 1
+fi
+
+echo "🔍 Connecting to tokio-console..."
+echo "   Make sure a service is running with: cargo make run-console-orchestration"
+echo ""
+tokio-console
+'''
+
+# Shortcuts for console tasks
+[tasks.bc]
+alias = "build-console"
+description = "Shortcut for build-console"
+
+[tasks.rco]
+alias = "run-console-orchestration"
+description = "Shortcut for run-console-orchestration"
+
+[tasks.rcw]
+alias = "run-console-worker-rust"
+description = "Shortcut for run-console-worker-rust"

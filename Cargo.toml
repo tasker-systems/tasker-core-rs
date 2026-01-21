@@ -205,6 +205,10 @@ missing_debug_implementations = "warn"
 redundant_imports = "warn"
 unsafe_op_in_unsafe_fn = "warn"
 
+# TAS-158: Declare tokio_unstable as expected cfg for spawn_named! macro
+# This suppresses warnings when using the macro without RUSTFLAGS="--cfg tokio_unstable"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+
 # Phase 2: Additional compiler lints (COMMENTED OUT - Enable next)
 # ambiguous_negative_literals = "warn"
 # redundant_lifetimes = "warn"
