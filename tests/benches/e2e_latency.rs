@@ -126,10 +126,24 @@ fn check_worker_health(port: u16) -> bool {
     })
 }
 
+/// Check if a port is an orchestration instance (not just any healthy service)
+fn is_orchestration_instance(port: u16) -> bool {
+    // Orchestration has /api/v1/tasks endpoint, workers don't
+    let url = format!("http://localhost:{}/api/v1/tasks", port);
+    reqwest::blocking::Client::new()
+        .head(&url)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .map(|r| r.status() != reqwest::StatusCode::NOT_FOUND)
+        .unwrap_or(false)
+}
+
 /// Check if cluster orchestration instances are healthy
+/// Verifies BOTH ports are orchestration services (not just healthy)
 fn check_cluster_health() -> bool {
     // Check both orchestration instances (8080, 8081)
-    check_worker_health(8080) && check_worker_health(8081)
+    // Both must be orchestration services, not workers
+    is_orchestration_instance(8080) && is_orchestration_instance(8081)
 }
 
 /// Create a TaskRequest with unique identity hash per iteration
@@ -249,7 +263,7 @@ fn bench_tier1_core(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
     let mut group = c.benchmark_group("e2e_tier1_core");
-    group.sample_size(10);
+    group.sample_size(50);
     group.measurement_time(Duration::from_secs(30));
 
     let scenarios = vec![
@@ -315,7 +329,7 @@ fn bench_tier2_complexity(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
     let mut group = c.benchmark_group("e2e_tier2_complexity");
-    group.sample_size(10);
+    group.sample_size(50);
     group.measurement_time(Duration::from_secs(45));
 
     // Complex DAG: 7 steps, multi-path convergence
@@ -405,7 +419,7 @@ fn bench_tier3_cluster(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
     let mut group = c.benchmark_group("e2e_tier3_cluster");
-    group.sample_size(10);
+    group.sample_size(50);
     group.measurement_time(Duration::from_secs(45));
 
     // Single task through cluster (tests basic cluster routing)
@@ -512,7 +526,7 @@ fn bench_tier4_languages(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
     let mut group = c.benchmark_group("e2e_tier4_languages");
-    group.sample_size(10);
+    group.sample_size(50);
     group.measurement_time(Duration::from_secs(45));
 
     // Ruby Worker (port 8082)
@@ -667,7 +681,7 @@ fn bench_tier5_batch(c: &mut Criterion) {
     eprintln!("   CSV file: {}", csv_file_path);
 
     let mut group = c.benchmark_group("e2e_tier5_batch");
-    group.sample_size(10);
+    group.sample_size(50);
     group.measurement_time(Duration::from_secs(60));
 
     // CSV Batch Processing: 1000 rows, 5 workers, ~200 rows each
