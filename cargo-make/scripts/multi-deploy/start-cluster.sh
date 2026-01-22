@@ -206,7 +206,7 @@ for i in $(seq 1 "$COUNT"); do
                 ;;
             worker-rust)
                 CONFIG_PATH="${PROJECT_ROOT}/config/tasker/worker-test.toml"
-                TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates"
+                TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates/rust"
                 ;;
             *)
                 # Default to complete-test for any other rust service

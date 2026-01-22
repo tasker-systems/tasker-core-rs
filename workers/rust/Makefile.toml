@@ -90,7 +90,7 @@ echo "   Templates: ${TASKER_TEMPLATE_PATH}"
 
 PROJECT_ROOT="$(cd ../.. && pwd)" \
 ../../cargo-make/scripts/service-start.sh rust-worker \
-    cargo run -p tasker-worker-rust --all-features
+    cargo run -p tasker-worker-rust
 '''
 
 [tasks.run-foreground]
@@ -109,7 +109,7 @@ echo "   Port: ${PORT}"
 echo "   Config: ${TASKER_CONFIG_PATH}"
 echo "   Templates: ${TASKER_TEMPLATE_PATH}"
 
-cargo run -p tasker-worker-rust --all-features
+cargo run -p tasker-worker-rust
 '''
 
 [tasks.run-release]
@@ -130,7 +130,7 @@ echo "   Templates: ${TASKER_TEMPLATE_PATH}"
 
 PROJECT_ROOT="$(cd ../.. && pwd)" \
 ../../cargo-make/scripts/service-start.sh rust-worker \
-    cargo run -p tasker-worker-rust --all-features --release
+    cargo run -p tasker-worker-rust --release
 '''
 
 [tasks.stop]

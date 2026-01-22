@@ -19,24 +19,18 @@
 //! - **Real Network Overhead**: Actual distributed system performance
 //! - **Different Workflow Patterns**: Linear, Diamond, DAG, Tree, Conditional, Batch
 //!
-//! ## Prerequisites
+//! ## Environment Variables
 //!
-//! **Tier 1-2, 5**: Single instance services
-//! ```bash
-//! cargo make services-start
-//! ```
+//! Configuration follows the same patterns as `tests/common/integration_test_manager.rs`
+//! and `tests/common/orchestration_cluster.rs`:
 //!
-//! **Tier 3**: Multi-instance cluster
-//! ```bash
-//! cargo make cluster-start-all
-//! ```
-//!
-//! **Tier 4**: FFI language workers
-//! ```bash
-//! cargo make run-worker-ruby &
-//! cargo make run-worker-python &
-//! cargo make run-worker-typescript &
-//! ```
+//! | Variable | Description | Default |
+//! |----------|-------------|---------|
+//! | `TASKER_TEST_ORCHESTRATION_URL` | Single orchestration URL | `http://localhost:8080` |
+//! | `TASKER_TEST_ORCHESTRATION_URLS` | Comma-separated cluster URLs | - |
+//! | `TASKER_TEST_RUBY_WORKER_URL` | Ruby worker URL | `http://localhost:8082` |
+//! | `TASKER_TEST_PYTHON_WORKER_URL` | Python worker URL | `http://localhost:8083` |
+//! | `TASKER_TEST_TS_WORKER_URL` | TypeScript worker URL | `http://localhost:8084` |
 //!
 //! ## Running Benchmarks
 //!
@@ -62,10 +56,13 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use serde_json::json;
+use std::env;
 use std::time::Duration;
 use uuid::Uuid;
 
-use tasker_client::{OrchestrationApiClient, OrchestrationApiConfig};
+use tasker_client::{
+    OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig,
+};
 use tasker_shared::models::core::task_request::TaskRequest;
 
 // ===================================================================================
@@ -91,59 +88,152 @@ const TIMEOUT_BATCH_MS: u64 = 45_000;
 const TIMEOUT_CLUSTER_MS: u64 = 20_000;
 
 // ===================================================================================
-// SETUP AND UTILITIES
+// BENCHMARK CONFIGURATION
+// ===================================================================================
+//
+// Follows patterns from:
+// - tests/common/integration_test_manager.rs (IntegrationConfig)
+// - tests/common/orchestration_cluster.rs (ClusterConfig)
+
+/// Benchmark configuration loaded from environment variables
+#[derive(Debug, Clone)]
+struct BenchmarkConfig {
+    /// Primary orchestration URL (single-instance mode)
+    orchestration_url: String,
+    /// Cluster orchestration URLs (multi-instance mode)
+    cluster_urls: Vec<String>,
+    /// Ruby worker URL (if available)
+    ruby_worker_url: Option<String>,
+    /// Python worker URL (if available)
+    python_worker_url: Option<String>,
+    /// TypeScript worker URL (if available)
+    typescript_worker_url: Option<String>,
+}
+
+impl Default for BenchmarkConfig {
+    fn default() -> Self {
+        // Primary orchestration URL
+        let orchestration_url = env::var("TASKER_TEST_ORCHESTRATION_URL")
+            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+
+        // Cluster URLs (comma-separated)
+        let cluster_urls = env::var("TASKER_TEST_ORCHESTRATION_URLS")
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default();
+
+        // FFI worker URLs - check env var then try default port
+        let ruby_worker_url = env::var("TASKER_TEST_RUBY_WORKER_URL")
+            .ok()
+            .or_else(|| Some("http://localhost:8082".to_string()));
+
+        let python_worker_url = env::var("TASKER_TEST_PYTHON_WORKER_URL")
+            .ok()
+            .or_else(|| Some("http://localhost:8083".to_string()));
+
+        let typescript_worker_url = env::var("TASKER_TEST_TS_WORKER_URL")
+            .ok()
+            .or_else(|| Some("http://localhost:8084".to_string()));
+
+        Self {
+            orchestration_url,
+            cluster_urls,
+            ruby_worker_url,
+            python_worker_url,
+            typescript_worker_url,
+        }
+    }
+}
+
+impl BenchmarkConfig {
+    /// Check if cluster mode is configured (multiple orchestration URLs)
+    fn is_cluster_mode(&self) -> bool {
+        self.cluster_urls.len() > 1
+    }
+
+    /// Get orchestration URLs for the current mode
+    fn orchestration_urls(&self) -> Vec<String> {
+        if self.is_cluster_mode() {
+            self.cluster_urls.clone()
+        } else {
+            vec![self.orchestration_url.clone()]
+        }
+    }
+}
+
+// ===================================================================================
+// HEALTH CHECK UTILITIES (using tasker-client)
 // ===================================================================================
 
-/// Verify orchestration service is healthy
-fn ensure_services_ready() -> Result<(), Box<dyn std::error::Error>> {
-    let runtime = tokio::runtime::Runtime::new()?;
-    let response =
-        runtime.block_on(async { reqwest::get("http://localhost:8080/health").await })?;
+/// Create an orchestration client for the given URL
+fn create_orchestration_client(
+    url: &str,
+) -> Result<OrchestrationApiClient, Box<dyn std::error::Error>> {
+    let config = OrchestrationApiConfig {
+        base_url: url.to_string(),
+        timeout_ms: 10000,
+        max_retries: 1,
+        auth: None,
+    };
+    OrchestrationApiClient::new(config).map_err(|e| e.into())
+}
 
-    if !response.status().is_success() {
-        eprintln!("❌ Orchestration service not healthy");
+/// Create a worker client for the given URL
+fn create_worker_client(url: &str) -> Result<WorkerApiClient, Box<dyn std::error::Error>> {
+    let config = WorkerApiConfig {
+        base_url: url.to_string(),
+        timeout_ms: 5000,
+        max_retries: 1,
+        auth: None,
+    };
+    WorkerApiClient::new(config).map_err(|e| e.into())
+}
+
+/// Check if an orchestration service is healthy at the given URL using tasker-client
+fn check_orchestration_health(runtime: &tokio::runtime::Runtime, url: &str) -> bool {
+    match create_orchestration_client(url) {
+        Ok(client) => runtime.block_on(client.health_check()).is_ok(),
+        Err(_) => false,
+    }
+}
+
+/// Check if a worker service is healthy at the given URL using tasker-client
+fn check_worker_health(runtime: &tokio::runtime::Runtime, url: &str) -> bool {
+    match create_worker_client(url) {
+        Ok(client) => runtime
+            .block_on(client.health_check())
+            .map(|h| h.status == "healthy")
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+/// Check if cluster orchestration instances are healthy
+fn check_cluster_health(runtime: &tokio::runtime::Runtime, config: &BenchmarkConfig) -> bool {
+    if !config.is_cluster_mode() {
+        return false;
+    }
+    // All configured cluster URLs must be healthy
+    config
+        .cluster_urls
+        .iter()
+        .all(|url| check_orchestration_health(runtime, url))
+}
+
+/// Verify orchestration service is healthy and ready
+fn ensure_services_ready(
+    runtime: &tokio::runtime::Runtime,
+    config: &BenchmarkConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !check_orchestration_health(runtime, &config.orchestration_url) {
+        eprintln!(
+            "❌ Orchestration service not healthy at {}",
+            config.orchestration_url
+        );
         eprintln!("\nPlease start services with:");
         eprintln!("  cargo make services-start\n");
         return Err("Orchestration service not healthy".into());
     }
-
     Ok(())
-}
-
-/// Check if a worker is healthy on the given port
-fn check_worker_health(port: u16) -> bool {
-    let runtime = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(_) => return false,
-    };
-
-    let url = format!("http://localhost:{}/health", port);
-    runtime.block_on(async {
-        match reqwest::get(&url).await {
-            Ok(response) => response.status().is_success(),
-            Err(_) => false,
-        }
-    })
-}
-
-/// Check if a port is an orchestration instance (not just any healthy service)
-fn is_orchestration_instance(port: u16) -> bool {
-    // Orchestration has /api/v1/tasks endpoint, workers don't
-    let url = format!("http://localhost:{}/api/v1/tasks", port);
-    reqwest::blocking::Client::new()
-        .head(&url)
-        .timeout(std::time::Duration::from_secs(2))
-        .send()
-        .map(|r| r.status() != reqwest::StatusCode::NOT_FOUND)
-        .unwrap_or(false)
-}
-
-/// Check if cluster orchestration instances are healthy
-/// Verifies BOTH ports are orchestration services (not just healthy)
-fn check_cluster_health() -> bool {
-    // Check both orchestration instances (8080, 8081)
-    // Both must be orchestration services, not workers
-    is_orchestration_instance(8080) && is_orchestration_instance(8081)
 }
 
 /// Create a TaskRequest with unique identity hash per iteration
@@ -250,17 +340,12 @@ fn bench_tier1_core(c: &mut Criterion) {
     eprintln!("📊 TIER 1: CORE PERFORMANCE (Rust Native)");
     eprintln!("{}", "═".repeat(80));
 
-    ensure_services_ready().expect("Services must be running");
-
-    let config = OrchestrationApiConfig {
-        base_url: "http://localhost:8080".to_string(),
-        timeout_ms: 30000,
-        max_retries: 1,
-        auth: None,
-    };
-
-    let client = OrchestrationApiClient::new(config).expect("Failed to create client");
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let bench_config = BenchmarkConfig::default();
+    ensure_services_ready(&runtime, &bench_config).expect("Services must be running");
+
+    let client = create_orchestration_client(&bench_config.orchestration_url)
+        .expect("Failed to create client");
 
     let mut group = c.benchmark_group("e2e_tier1_core");
     group.sample_size(50);
@@ -316,17 +401,12 @@ fn bench_tier2_complexity(c: &mut Criterion) {
     eprintln!("📊 TIER 2: COMPLEXITY SCALING");
     eprintln!("{}", "═".repeat(80));
 
-    ensure_services_ready().expect("Services must be running");
-
-    let config = OrchestrationApiConfig {
-        base_url: "http://localhost:8080".to_string(),
-        timeout_ms: 30000,
-        max_retries: 1,
-        auth: None,
-    };
-
-    let client = OrchestrationApiClient::new(config).expect("Failed to create client");
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let bench_config = BenchmarkConfig::default();
+    ensure_services_ready(&runtime, &bench_config).expect("Services must be running");
+
+    let client = create_orchestration_client(&bench_config.orchestration_url)
+        .expect("Failed to create client");
 
     let mut group = c.benchmark_group("e2e_tier2_complexity");
     group.sample_size(50);
@@ -394,6 +474,7 @@ fn bench_tier2_complexity(c: &mut Criterion) {
 /// Benchmark Tier 3: Multi-instance cluster performance
 ///
 /// Requires cluster to be running: `cargo make cluster-start-all`
+/// Configure with `TASKER_TEST_ORCHESTRATION_URLS=http://localhost:8080,http://localhost:8081`
 ///
 /// Tests concurrent task creation and completion across multiple orchestration
 /// instances to measure coordination overhead.
@@ -402,27 +483,38 @@ fn bench_tier3_cluster(c: &mut Criterion) {
     eprintln!("📊 TIER 3: CLUSTER PERFORMANCE");
     eprintln!("{}", "═".repeat(80));
 
-    if !check_cluster_health() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let bench_config = BenchmarkConfig::default();
+
+    if !check_cluster_health(&runtime, &bench_config) {
         eprintln!("⚠️  Cluster not available - skipping Tier 3 benchmarks");
         eprintln!("   Start cluster with: cargo make cluster-start-all");
+        eprintln!(
+            "   Set TASKER_TEST_ORCHESTRATION_URLS=http://localhost:8080,http://localhost:8081"
+        );
         return;
     }
 
-    eprintln!("✅ Cluster healthy (2x orchestration instances)");
+    let urls = bench_config.orchestration_urls();
+    eprintln!(
+        "✅ Cluster healthy ({} orchestration instances)",
+        urls.len()
+    );
+    for url in &urls {
+        eprintln!("   - {}", url);
+    }
 
-    // Use round-robin across orchestration instances
-    let urls = vec![
-        "http://localhost:8080".to_string(),
-        "http://localhost:8081".to_string(),
-    ];
-
-    let runtime = tokio::runtime::Runtime::new().unwrap();
+    // Create clients for each orchestration instance
+    let clients: Vec<_> = urls
+        .iter()
+        .map(|url| create_orchestration_client(url).expect("Failed to create client"))
+        .collect();
 
     let mut group = c.benchmark_group("e2e_tier3_cluster");
     group.sample_size(50);
     group.measurement_time(Duration::from_secs(45));
 
-    // Single task through cluster (tests basic cluster routing)
+    // Single task through cluster (tests basic cluster routing via round-robin)
     group.bench_function(BenchmarkId::new("cluster", "single_task_linear"), |b| {
         let url_index = std::cell::RefCell::new(0usize);
         b.iter(|| {
@@ -430,20 +522,12 @@ fn bench_tier3_cluster(c: &mut Criterion) {
                 let idx = {
                     let mut idx = url_index.borrow_mut();
                     let current = *idx;
-                    *idx = (*idx + 1) % urls.len();
+                    *idx = (*idx + 1) % clients.len();
                     current
                 };
 
-                let config = OrchestrationApiConfig {
-                    base_url: urls[idx].clone(),
-                    timeout_ms: 30000,
-                    max_retries: 1,
-                    auth: None,
-                };
-                let client = OrchestrationApiClient::new(config).expect("Failed to create client");
-
                 execute_benchmark_scenario(
-                    &client,
+                    &clients[idx],
                     "rust_e2e_linear",
                     "mathematical_sequence",
                     json!({"even_number": 6}),
@@ -455,23 +539,17 @@ fn bench_tier3_cluster(c: &mut Criterion) {
     });
 
     // Concurrent tasks through cluster (tests work distribution)
+    let urls_for_concurrent = urls.clone();
     group.bench_function(BenchmarkId::new("cluster", "concurrent_tasks_2x"), |b| {
         b.iter(|| {
             runtime.block_on(async {
                 let mut handles = Vec::new();
 
-                for (i, url) in urls.iter().enumerate() {
+                for (i, url) in urls_for_concurrent.iter().enumerate() {
                     let url = url.clone();
                     let handle = tokio::spawn(async move {
-                        let config = OrchestrationApiConfig {
-                            base_url: url,
-                            timeout_ms: 30000,
-                            max_retries: 3, // Higher retry count for concurrent load
-                            auth: None,
-                        };
                         let client =
-                            OrchestrationApiClient::new(config).expect("Failed to create client");
-
+                            create_orchestration_client(&url).expect("Failed to create client");
                         execute_benchmark_scenario(
                             &client,
                             "rust_e2e_linear",
@@ -503,144 +581,156 @@ fn bench_tier3_cluster(c: &mut Criterion) {
 /// Benchmark Tier 4: FFI language worker comparison
 ///
 /// Compares execution performance across different language workers:
-/// - Ruby (port 8082): Magnus FFI bridge
-/// - Python (port 8083): PyO3 FFI bridge
-/// - TypeScript (port 8084): Bun/Node FFI bridge
+/// - Ruby: Magnus FFI bridge
+/// - Python: PyO3 FFI bridge
+/// - TypeScript: Bun/Node FFI bridge
 ///
 /// Each worker has different event mechanics for non-blocking handler invocation.
+///
+/// Configure with environment variables:
+/// - `TASKER_TEST_RUBY_WORKER_URL` (default: http://localhost:8082)
+/// - `TASKER_TEST_PYTHON_WORKER_URL` (default: http://localhost:8083)
+/// - `TASKER_TEST_TS_WORKER_URL` (default: http://localhost:8084)
 fn bench_tier4_languages(c: &mut Criterion) {
     eprintln!("\n{}", "═".repeat(80));
     eprintln!("📊 TIER 4: FFI LANGUAGE COMPARISON");
     eprintln!("{}", "═".repeat(80));
 
-    ensure_services_ready().expect("Orchestration must be running");
-
-    let config = OrchestrationApiConfig {
-        base_url: "http://localhost:8080".to_string(),
-        timeout_ms: 30000,
-        max_retries: 1,
-        auth: None,
-    };
-
-    let client = OrchestrationApiClient::new(config).expect("Failed to create client");
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let bench_config = BenchmarkConfig::default();
+    ensure_services_ready(&runtime, &bench_config).expect("Orchestration must be running");
+
+    let client = create_orchestration_client(&bench_config.orchestration_url)
+        .expect("Failed to create client");
 
     let mut group = c.benchmark_group("e2e_tier4_languages");
     group.sample_size(50);
     group.measurement_time(Duration::from_secs(45));
 
-    // Ruby Worker (port 8082)
-    if check_worker_health(8082) {
-        eprintln!("✅ Ruby worker available (port 8082)");
+    // Ruby Worker
+    if let Some(ref ruby_url) = bench_config.ruby_worker_url {
+        if check_worker_health(&runtime, ruby_url) {
+            eprintln!("✅ Ruby worker available ({})", ruby_url);
 
-        group.bench_function(BenchmarkId::new("ruby", "linear"), |b| {
-            b.iter(|| {
-                runtime.block_on(async {
-                    execute_benchmark_scenario(
-                        &client,
-                        "linear_workflow",
-                        "mathematical_sequence",
-                        json!({"even_number": 6}),
-                        TIMEOUT_FFI_MS,
-                    )
-                    .await
-                })
+            group.bench_function(BenchmarkId::new("ruby", "linear"), |b| {
+                b.iter(|| {
+                    runtime.block_on(async {
+                        execute_benchmark_scenario(
+                            &client,
+                            "linear_workflow",
+                            "mathematical_sequence",
+                            json!({"even_number": 6}),
+                            TIMEOUT_FFI_MS,
+                        )
+                        .await
+                    })
+                });
             });
-        });
 
-        group.bench_function(BenchmarkId::new("ruby", "diamond"), |b| {
-            b.iter(|| {
-                runtime.block_on(async {
-                    execute_benchmark_scenario(
-                        &client,
-                        "diamond_workflow",
-                        "parallel_computation",
-                        json!({"even_number": 6}),
-                        TIMEOUT_FFI_MS,
-                    )
-                    .await
-                })
+            group.bench_function(BenchmarkId::new("ruby", "diamond"), |b| {
+                b.iter(|| {
+                    runtime.block_on(async {
+                        execute_benchmark_scenario(
+                            &client,
+                            "diamond_workflow",
+                            "parallel_computation",
+                            json!({"even_number": 6}),
+                            TIMEOUT_FFI_MS,
+                        )
+                        .await
+                    })
+                });
             });
-        });
-    } else {
-        eprintln!("⚠️  Ruby worker not available - skipping Ruby benchmarks");
-        eprintln!("   Start with: cargo make run-worker-ruby");
+        } else {
+            eprintln!("⚠️  Ruby worker not available at {} - skipping", ruby_url);
+            eprintln!("   Start with: cargo make run-worker-ruby");
+        }
     }
 
-    // Python Worker (port 8083)
-    if check_worker_health(8083) {
-        eprintln!("✅ Python worker available (port 8083)");
+    // Python Worker
+    if let Some(ref python_url) = bench_config.python_worker_url {
+        if check_worker_health(&runtime, python_url) {
+            eprintln!("✅ Python worker available ({})", python_url);
 
-        group.bench_function(BenchmarkId::new("python", "linear"), |b| {
-            b.iter(|| {
-                runtime.block_on(async {
-                    execute_benchmark_scenario(
-                        &client,
-                        "linear_workflow_py",
-                        "mathematical_sequence_py",
-                        json!({"even_number": 6}),
-                        TIMEOUT_FFI_MS,
-                    )
-                    .await
-                })
+            group.bench_function(BenchmarkId::new("python", "linear"), |b| {
+                b.iter(|| {
+                    runtime.block_on(async {
+                        execute_benchmark_scenario(
+                            &client,
+                            "linear_workflow_py",
+                            "mathematical_sequence_py",
+                            json!({"even_number": 6}),
+                            TIMEOUT_FFI_MS,
+                        )
+                        .await
+                    })
+                });
             });
-        });
 
-        group.bench_function(BenchmarkId::new("python", "diamond"), |b| {
-            b.iter(|| {
-                runtime.block_on(async {
-                    execute_benchmark_scenario(
-                        &client,
-                        "diamond_workflow_py",
-                        "parallel_computation_py",
-                        json!({"even_number": 6}),
-                        TIMEOUT_FFI_MS,
-                    )
-                    .await
-                })
+            group.bench_function(BenchmarkId::new("python", "diamond"), |b| {
+                b.iter(|| {
+                    runtime.block_on(async {
+                        execute_benchmark_scenario(
+                            &client,
+                            "diamond_workflow_py",
+                            "parallel_computation_py",
+                            json!({"even_number": 6}),
+                            TIMEOUT_FFI_MS,
+                        )
+                        .await
+                    })
+                });
             });
-        });
-    } else {
-        eprintln!("⚠️  Python worker not available - skipping Python benchmarks");
-        eprintln!("   Start with: cargo make run-worker-python");
+        } else {
+            eprintln!(
+                "⚠️  Python worker not available at {} - skipping",
+                python_url
+            );
+            eprintln!("   Start with: cargo make run-worker-python");
+        }
     }
 
-    // TypeScript Worker (port 8084)
-    if check_worker_health(8084) {
-        eprintln!("✅ TypeScript worker available (port 8084)");
+    // TypeScript Worker
+    if let Some(ref ts_url) = bench_config.typescript_worker_url {
+        if check_worker_health(&runtime, ts_url) {
+            eprintln!("✅ TypeScript worker available ({})", ts_url);
 
-        group.bench_function(BenchmarkId::new("typescript", "linear"), |b| {
-            b.iter(|| {
-                runtime.block_on(async {
-                    execute_benchmark_scenario(
-                        &client,
-                        "linear_workflow_ts",
-                        "mathematical_sequence_ts",
-                        json!({"even_number": 6}),
-                        TIMEOUT_FFI_MS,
-                    )
-                    .await
-                })
+            group.bench_function(BenchmarkId::new("typescript", "linear"), |b| {
+                b.iter(|| {
+                    runtime.block_on(async {
+                        execute_benchmark_scenario(
+                            &client,
+                            "linear_workflow_ts",
+                            "mathematical_sequence_ts",
+                            json!({"even_number": 6}),
+                            TIMEOUT_FFI_MS,
+                        )
+                        .await
+                    })
+                });
             });
-        });
 
-        group.bench_function(BenchmarkId::new("typescript", "diamond"), |b| {
-            b.iter(|| {
-                runtime.block_on(async {
-                    execute_benchmark_scenario(
-                        &client,
-                        "diamond_workflow_ts",
-                        "parallel_computation_ts",
-                        json!({"even_number": 6}),
-                        TIMEOUT_FFI_MS,
-                    )
-                    .await
-                })
+            group.bench_function(BenchmarkId::new("typescript", "diamond"), |b| {
+                b.iter(|| {
+                    runtime.block_on(async {
+                        execute_benchmark_scenario(
+                            &client,
+                            "diamond_workflow_ts",
+                            "parallel_computation_ts",
+                            json!({"even_number": 6}),
+                            TIMEOUT_FFI_MS,
+                        )
+                        .await
+                    })
+                });
             });
-        });
-    } else {
-        eprintln!("⚠️  TypeScript worker not available - skipping TypeScript benchmarks");
-        eprintln!("   Start with: cargo make run-worker-typescript");
+        } else {
+            eprintln!(
+                "⚠️  TypeScript worker not available at {} - skipping",
+                ts_url
+            );
+            eprintln!("   Start with: cargo make run-worker-typescript");
+        }
     }
 
     group.finish();
@@ -661,17 +751,12 @@ fn bench_tier5_batch(c: &mut Criterion) {
     eprintln!("📊 TIER 5: BATCH PROCESSING");
     eprintln!("{}", "═".repeat(80));
 
-    ensure_services_ready().expect("Services must be running");
-
-    let config = OrchestrationApiConfig {
-        base_url: "http://localhost:8080".to_string(),
-        timeout_ms: 60000, // Longer timeout for batch operations
-        max_retries: 1,
-        auth: None,
-    };
-
-    let client = OrchestrationApiClient::new(config).expect("Failed to create client");
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let bench_config = BenchmarkConfig::default();
+    ensure_services_ready(&runtime, &bench_config).expect("Services must be running");
+
+    let client = create_orchestration_client(&bench_config.orchestration_url)
+        .expect("Failed to create client");
 
     // Get fixture path from environment
     let fixture_base =
@@ -685,27 +770,24 @@ fn bench_tier5_batch(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(60));
 
     // CSV Batch Processing: 1000 rows, 5 workers, ~200 rows each
-    group.bench_function(
-        BenchmarkId::new("batch", "csv_products_1000_rows"),
-        |b| {
-            let csv_path = csv_file_path.clone();
-            b.iter(|| {
-                runtime.block_on(async {
-                    execute_benchmark_scenario(
-                        &client,
-                        "csv_processing_rust",
-                        "csv_product_inventory_analyzer",
-                        json!({
-                            "csv_file_path": csv_path,
-                            "analysis_mode": "inventory"
-                        }),
-                        TIMEOUT_BATCH_MS,
-                    )
-                    .await
-                })
-            });
-        },
-    );
+    group.bench_function(BenchmarkId::new("batch", "csv_products_1000_rows"), |b| {
+        let csv_path = csv_file_path.clone();
+        b.iter(|| {
+            runtime.block_on(async {
+                execute_benchmark_scenario(
+                    &client,
+                    "csv_processing_rust",
+                    "csv_product_inventory_analyzer",
+                    json!({
+                        "csv_file_path": csv_path,
+                        "analysis_mode": "inventory"
+                    }),
+                    TIMEOUT_BATCH_MS,
+                )
+                .await
+            })
+        });
+    });
 
     group.finish();
 }
