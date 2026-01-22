@@ -63,7 +63,7 @@ impl TaskFinalizer {
     /// @param task_uuid The task ID to finalize
     ///
     /// TAS-65 Phase 1.4: Instrumented for distributed tracing
-    #[instrument(skip(self), fields(
+    #[instrument(skip_all, fields(
         task_uuid = %task_uuid,
         correlation_id = tracing::field::Empty
     ))]

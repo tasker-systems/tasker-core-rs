@@ -319,7 +319,7 @@ impl CommandHandler {
                 task_state,
                 resp,
             } => {
-                info!(
+                debug!(
                     task_uuid = %task_uuid,
                     namespace = %namespace,
                     priority = %priority,
@@ -372,9 +372,10 @@ impl CommandHandler {
     ///
     /// # Channel Send Failures
     ///
-    /// If the response channel is closed (receiver dropped), this is logged as an ERROR.
-    /// This typically indicates a serious issue - either the caller timed out or crashed
-    /// before receiving the response, which could lead to orphaned operations.
+    /// TAS-162: All production callers (OrchestrationEventSystem, FallbackPoller) use
+    /// fire-and-forget semantics - they create a oneshot channel but immediately drop
+    /// the receiver (`_resp_rx`). This means `resp.send()` will always fail in normal
+    /// operation. This is expected behavior, not an error condition.
     async fn execute_with_stats<T, Fut>(
         &self,
         handler: Fut,
@@ -394,11 +395,12 @@ impl CommandHandler {
                 stats.processing_errors += 1;
             }
         }
+        // TAS-162: All callers use fire-and-forget (drop receiver immediately), so
+        // a closed channel is expected. Only log at debug to avoid false alarm noise.
         if resp.send(result).is_err() {
-            error!(
+            debug!(
                 was_success = was_success,
-                "Command response channel closed - receiver dropped before response could be sent. \
-                 This may indicate caller timeout or crash, potentially leading to orphaned operations."
+                "Command response channel closed - receiver dropped (fire-and-forget caller)"
             );
         }
     }
@@ -709,7 +711,7 @@ impl CommandHandler {
 
         match &result {
             Ok(step_result) => {
-                info!(
+                debug!(
                     handle = ?message.handle,
                     step_uuid = %step_execution_result.step_uuid,
                     result = ?step_result,
@@ -724,7 +726,7 @@ impl CommandHandler {
 
                 match self.ack_message_with_handle(&message.handle).await {
                     Ok(()) => {
-                        info!(
+                        debug!(
                             handle = ?message.handle,
                             queue = %queue_name,
                             "STEP_RESULT_HANDLER: Successfully acknowledged processed message"

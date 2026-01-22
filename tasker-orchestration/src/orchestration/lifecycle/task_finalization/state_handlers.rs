@@ -3,7 +3,7 @@
 //! Handles different task execution states during finalization.
 
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
@@ -215,7 +215,7 @@ impl StateHandlers {
             }
         }
 
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             task_uuid = %task.task_uuid,
             "Handling waiting state by delegating to ready steps state"

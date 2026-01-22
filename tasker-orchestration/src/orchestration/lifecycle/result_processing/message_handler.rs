@@ -5,7 +5,7 @@
 use opentelemetry::KeyValue;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use super::metadata_processor::MetadataProcessor;
@@ -98,7 +98,7 @@ impl MessageHandler {
         // TAS-29 Phase 3.3: Start timing result processing
         let start_time = Instant::now();
 
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
@@ -158,7 +158,7 @@ impl MessageHandler {
             .await
         {
             Ok(()) => {
-                info!(
+                debug!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     status = %status,
@@ -202,7 +202,7 @@ impl MessageHandler {
         // Fetch correlation_id from task for distributed tracing
         let correlation_id = self.get_correlation_id_for_step(*step_uuid).await;
 
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
@@ -268,7 +268,7 @@ impl MessageHandler {
             .await
         {
             Ok(()) => {
-                info!(
+                debug!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     status = %status,
@@ -303,7 +303,7 @@ impl MessageHandler {
         execution_time_ms: &i64,
         correlation_id: Uuid,
     ) -> OrchestrationResult<()> {
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             status = %status,
@@ -443,7 +443,7 @@ impl MessageHandler {
             }
         };
 
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             step_uuid = %step_uuid,
             requires_creation = outcome.requires_step_creation(),
@@ -460,7 +460,7 @@ impl MessageHandler {
 
         match self.decision_point_actor.handle(msg).await {
             Ok(_result) => {
-                info!(
+                debug!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     "Decision point processing completed successfully"
@@ -552,7 +552,7 @@ impl MessageHandler {
         // Log batch processing outcome
         match &outcome {
             BatchProcessingOutcome::NoBatches => {
-                info!(
+                debug!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     "Batchable step determined no batches needed - will create placeholder worker"
@@ -563,7 +563,7 @@ impl MessageHandler {
                 total_items,
                 ..
             } => {
-                info!(
+                debug!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     worker_count = %worker_count,
@@ -582,7 +582,7 @@ impl MessageHandler {
 
         match self.batch_processing_actor.handle(msg).await {
             Ok(_result) => {
-                info!(
+                debug!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     "Batch processing completed successfully"

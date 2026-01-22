@@ -3,7 +3,7 @@
 //! Coordinates task-level finalization when steps complete.
 
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::orchestration::lifecycle::task_finalization::TaskFinalizer;
@@ -220,7 +220,7 @@ impl TaskCoordinator {
     ) -> OrchestrationResult<()> {
         match self.task_finalizer.finalize_task(task_uuid).await {
             Ok(result) => {
-                info!(
+                debug!(
                     correlation_id = %correlation_id,
                     task_uuid = %task_uuid,
                     step_uuid = %step_uuid,
