@@ -82,11 +82,16 @@ echo "  cargo make bench-e2e-all       (bea)  All tiers"
 echo "  cargo make bench-report        (br)   Generate percentile report"
 echo "  cargo make bench-analysis      (ba)   Generate analysis document"
 echo ""
-echo "Profiling (TAS-158):"
+echo "tokio-console (TAS-158):"
 echo "  cargo make build-console              Build with tokio-console"
 echo "  cargo make run-console-orchestration  Run orchestration with console"
 echo "  cargo make run-console-worker-rust    Run Rust worker with console"
 echo "  cargo make console                    Open tokio-console"
+echo ""
+echo "samply Profiling (TAS-161):"
+echo "  cargo make build-profiling      (bp)   Build with profiling profile"
+echo "  cargo make run-samply-orchestration (rso)  Run orchestration under samply"
+echo "  cargo make run-samply-worker-rust (rswr)   Run Rust worker under samply"
 echo ""
 echo "Run 'cargo make --list-all-steps' for all tasks"
 '''
@@ -1262,6 +1267,238 @@ description = "Shortcut for run-console-orchestration"
 [tasks.rcw]
 alias = "run-console-worker-rust"
 description = "Shortcut for run-console-worker-rust"
+
+# =============================================================================
+# TAS-161: samply CPU Profiling Tasks
+# =============================================================================
+# CPU profiling with samply for flamegraph analysis and hot path identification.
+#
+# Prerequisites:
+#   1. Install samply: cargo install samply
+#   2. Build with profiling symbols: cargo make build-profiling
+#   3. Start worker (normal mode): cargo make run-worker-rust-release
+#   4. Run orchestration under samply (foreground): cargo make run-samply-orchestration
+#   5. Generate load (in another terminal): cargo make bench-e2e
+#   6. Press Ctrl-C to stop samply and open Firefox Profiler
+#
+# The profiling profile includes:
+#   - Release-level optimizations (lto, codegen-units=1)
+#   - Debug symbols (debug=true, strip=false)
+#   - Stack unwinding (panic=unwind instead of abort)
+#
+# See: docs/ticket-specs/TAS-71/TAS-161-profiling.md
+
+[tasks.build-profiling]
+description = "Build with profiling profile (release + debug symbols)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "🔍 Building with profiling profile..."
+echo "   Profile: profiling (release optimizations + debug symbols)"
+echo ""
+
+cargo build --profile profiling -p tasker-orchestration -p tasker-worker-rust
+
+echo ""
+echo "✅ Build complete. Binaries at:"
+echo "   target/profiling/tasker-server"
+echo "   target/profiling/rust-worker"
+echo ""
+echo "Run with samply:"
+echo "   cargo make run-samply-orchestration   (rso)"
+echo "   cargo make run-samply-worker-rust     (rswr)"
+'''
+
+[tasks.build-profiling-orchestration]
+description = "Build orchestration with profiling profile"
+command = "cargo"
+args = ["build", "--profile", "profiling", "-p", "tasker-orchestration"]
+
+[tasks.build-profiling-worker-rust]
+description = "Build Rust worker with profiling profile"
+command = "cargo"
+args = ["build", "--profile", "profiling", "-p", "tasker-worker-rust"]
+
+[tasks.run-samply-orchestration]
+description = "Run orchestration under samply (foreground, Ctrl-C to profile)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Check samply is installed
+if ! command -v samply &> /dev/null; then
+    echo "❌ samply not found"
+    echo ""
+    echo "Install with: cargo install samply"
+    exit 1
+fi
+
+# Source environment
+set -a
+source .env 2>/dev/null || true
+set +a
+
+# TAS-78: Enable SQLX_OFFLINE in split-database mode
+if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
+    echo "🔀 Split database mode - using SQLX_OFFLINE=true"
+    export SQLX_OFFLINE=true
+fi
+
+export TASKER_ENV="${TASKER_ENV:-test}"
+export PORT="${PORT:-8080}"
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/orchestration-test.toml"
+export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates"
+
+BINARY="$(pwd)/target/profiling/tasker-server"
+
+if [ ! -f "$BINARY" ]; then
+    echo "❌ Profiling binary not found: $BINARY"
+    echo "   Run: cargo make build-profiling"
+    exit 1
+fi
+
+echo "🔬 Starting orchestration under samply..."
+echo "   Binary: $BINARY"
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+echo ""
+echo "📝 Workflow:"
+echo "   1. This runs in foreground - keep this terminal open"
+echo "   2. In another terminal: cargo make bench-e2e (or generate other load)"
+echo "   3. Press Ctrl-C here when done to stop and view profile"
+echo ""
+
+samply record -- "$BINARY"
+'''
+
+[tasks.run-samply-worker-rust]
+description = "Run Rust worker under samply (foreground, Ctrl-C to profile)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Check samply is installed
+if ! command -v samply &> /dev/null; then
+    echo "❌ samply not found"
+    echo ""
+    echo "Install with: cargo install samply"
+    exit 1
+fi
+
+# Source environment
+set -a
+source .env 2>/dev/null || true
+set +a
+
+# TAS-78: Enable SQLX_OFFLINE in split-database mode
+if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
+    echo "🔀 Split database mode - using SQLX_OFFLINE=true"
+    export SQLX_OFFLINE=true
+fi
+
+export TASKER_ENV="${TASKER_ENV:-test}"
+export PORT="${PORT:-8081}"
+# TAS-159: Rust worker uses ONLY Rust templates
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/worker-test.toml"
+export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
+export TASKER_WEB_BIND_ADDRESS="0.0.0.0:${PORT}"
+
+BINARY="$(pwd)/target/profiling/rust-worker"
+
+if [ ! -f "$BINARY" ]; then
+    echo "❌ Profiling binary not found: $BINARY"
+    echo "   Run: cargo make build-profiling"
+    exit 1
+fi
+
+echo "🔬 Starting Rust worker under samply..."
+echo "   Binary: $BINARY"
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+echo ""
+echo "📝 Workflow:"
+echo "   1. This runs in foreground - keep this terminal open"
+echo "   2. Start orchestration: cargo make run-orchestration-release"
+echo "   3. In another terminal: cargo make bench-e2e (or generate other load)"
+echo "   4. Press Ctrl-C here when done to stop and view profile"
+echo ""
+
+samply record -- "$BINARY"
+'''
+
+[tasks.profile-analyze]
+description = "Analyze Firefox Profiler JSON files from samply"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+PROFILE_DIR="docs/ticket-specs/TAS-71/profile-data"
+
+if [ ! -d "$PROFILE_DIR" ]; then
+    echo "❌ No profile data found at $PROFILE_DIR"
+    echo "   Run profiling first with: cargo make rso (then Ctrl-C)"
+    exit 1
+fi
+
+# Find profile files
+PROFILES=($(ls -1 "$PROFILE_DIR"/*.json 2>/dev/null || true))
+
+if [ ${#PROFILES[@]} -eq 0 ]; then
+    echo "❌ No .json profile files found in $PROFILE_DIR"
+    exit 1
+fi
+
+echo "Found ${#PROFILES[@]} profile(s):"
+for p in "${PROFILES[@]}"; do
+    echo "  - $(basename "$p")"
+done
+echo ""
+
+for profile in "${PROFILES[@]}"; do
+    echo ""
+    python3 cargo-make/scripts/profiling/analyze_profile.py "$profile" --top 30 "$@"
+done
+'''
+
+[tasks.profile-analyze-tasker]
+description = "Analyze profiles filtered for tasker-specific code"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+PROFILE_DIR="docs/ticket-specs/TAS-71/profile-data"
+
+for profile in "$PROFILE_DIR"/*.json; do
+    if [ -f "$profile" ]; then
+        echo ""
+        python3 cargo-make/scripts/profiling/analyze_profile.py "$profile" --top 30 --filter "tasker"
+    fi
+done
+'''
+
+# Shortcuts for samply profiling tasks
+[tasks.bp]
+alias = "build-profiling"
+description = "Shortcut for build-profiling"
+
+[tasks.rso]
+alias = "run-samply-orchestration"
+description = "Shortcut for run-samply-orchestration"
+
+[tasks.rswr]
+alias = "run-samply-worker-rust"
+description = "Shortcut for run-samply-worker-rust"
+
+[tasks.pa]
+alias = "profile-analyze"
+description = "Shortcut for profile-analyze"
+
+[tasks.pat]
+alias = "profile-analyze-tasker"
+description = "Shortcut for profile-analyze-tasker"
 
 # =============================================================================
 # TAS-159: E2E Benchmark Tasks
