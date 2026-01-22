@@ -80,10 +80,14 @@ jobs:
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
+      # NOTE: We use explicit features instead of --all-features because
+      # tokio-console requires RUSTFLAGS="--cfg tokio_unstable" which we don't
+      # set in CI. tokio-console is a local development tool.
       - name: Build core packages
         run: |
           echo "🔨 Building core packages..."
-          cargo build --all-features \
+          cargo build \
+            --features "benchmarks,test-services" \
             --package tasker-shared \
             --package tasker-orchestration \
             --package tasker-worker \

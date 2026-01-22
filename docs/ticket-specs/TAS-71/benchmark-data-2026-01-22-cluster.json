@@ -1,0 +1,128 @@
+[
+  {
+    "name": "tier1_core/workflow/diamond_rust",
+    "samples": 50,
+    "mean_ms": 127.713,
+    "median_ms": 127.263,
+    "p50_ms": 127.263,
+    "p95_ms": 129.416,
+    "p99_ms": null
+  },
+  {
+    "name": "tier1_core/workflow/linear_rust",
+    "samples": 50,
+    "mean_ms": 126.919,
+    "median_ms": 126.659,
+    "p50_ms": 126.659,
+    "p95_ms": 127.66,
+    "p99_ms": null
+  },
+  {
+    "name": "tier2_complexity/workflow/complex_dag_rust",
+    "samples": 50,
+    "mean_ms": 181.021,
+    "median_ms": 187.581,
+    "p50_ms": 187.581,
+    "p95_ms": 189.479,
+    "p99_ms": null
+  },
+  {
+    "name": "tier2_complexity/workflow/conditional_rust",
+    "samples": 50,
+    "mean_ms": 123.168,
+    "median_ms": 122.073,
+    "p50_ms": 122.073,
+    "p95_ms": 131.301,
+    "p99_ms": null
+  },
+  {
+    "name": "tier2_complexity/workflow/hierarchical_tree_rust",
+    "samples": 50,
+    "mean_ms": 190.823,
+    "median_ms": 190.266,
+    "p50_ms": 190.266,
+    "p95_ms": 193.34,
+    "p99_ms": null
+  },
+  {
+    "name": "tier3_cluster/cluster/concurrent_tasks_2x",
+    "samples": 50,
+    "mean_ms": 185.652,
+    "median_ms": 185.431,
+    "p50_ms": 185.431,
+    "p95_ms": 187.564,
+    "p99_ms": null
+  },
+  {
+    "name": "tier3_cluster/cluster/single_task_linear",
+    "samples": 50,
+    "mean_ms": 129.442,
+    "median_ms": 126.819,
+    "p50_ms": 126.819,
+    "p95_ms": 143.315,
+    "p99_ms": null
+  },
+  {
+    "name": "tier4_languages/python/diamond",
+    "samples": 50,
+    "mean_ms": 182.269,
+    "median_ms": 185.847,
+    "p50_ms": 185.847,
+    "p95_ms": 187.881,
+    "p99_ms": null
+  },
+  {
+    "name": "tier4_languages/python/linear",
+    "samples": 50,
+    "mean_ms": 186.298,
+    "median_ms": 183.871,
+    "p50_ms": 183.871,
+    "p95_ms": 196.363,
+    "p99_ms": null
+  },
+  {
+    "name": "tier4_languages/ruby/diamond",
+    "samples": 50,
+    "mean_ms": 146.032,
+    "median_ms": 144.43,
+    "p50_ms": 144.43,
+    "p95_ms": 169.531,
+    "p99_ms": null
+  },
+  {
+    "name": "tier4_languages/ruby/linear",
+    "samples": 50,
+    "mean_ms": 185.875,
+    "median_ms": 185.181,
+    "p50_ms": 185.181,
+    "p95_ms": 187.502,
+    "p99_ms": null
+  },
+  {
+    "name": "tier4_languages/typescript/diamond",
+    "samples": 50,
+    "mean_ms": 185.88,
+    "median_ms": 186.525,
+    "p50_ms": 186.525,
+    "p95_ms": 188.656,
+    "p99_ms": null
+  },
+  {
+    "name": "tier4_languages/typescript/linear",
+    "samples": 50,
+    "mean_ms": 186.315,
+    "median_ms": 183.312,
+    "p50_ms": 183.312,
+    "p95_ms": 200.606,
+    "p99_ms": null
+  },
+  {
+    "name": "tier5_batch/batch/csv_products_1000_rows",
+    "samples": 50,
+    "mean_ms": 175.343,
+    "median_ms": 173.409,
+    "p50_ms": 173.409,
+    "p95_ms": 182.259,
+    "p99_ms": null
+  }
+]

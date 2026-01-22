@@ -146,5 +146,9 @@ test-messaging = ["test-db"]
 test-services = ["test-messaging"]
 test-cluster = ["test-services"]
 
+# TAS-158: tokio-console async runtime introspection
+# Requires: RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
+tokio-console = ["tasker-shared/tokio-console"]
+
 [lints]
 workspace = true

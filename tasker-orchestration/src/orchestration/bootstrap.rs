@@ -379,8 +379,8 @@ impl OrchestrationBootstrap {
 
             let server = axum::serve(listener, app);
 
-            // Spawn web server in background
-            tokio::spawn(async move {
+            // TAS-158: Named spawn for tokio-console visibility
+            tasker_shared::spawn_named!("orchestration_web_server", async move {
                 if let Err(e) = server.await {
                     tracing::error!("Orchestration web server error: {}", e);
                 }
@@ -394,8 +394,8 @@ impl OrchestrationBootstrap {
         // Create shutdown channel
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
 
-        // Spawn background task to handle shutdown
-        tokio::spawn(async move {
+        // TAS-158: Named spawn for tokio-console visibility
+        tasker_shared::spawn_named!("orchestration_shutdown_handler", async move {
             if let Ok(()) = shutdown_receiver.await {
                 info!("Shutdown signal received");
             }

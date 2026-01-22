@@ -71,6 +71,28 @@ echo "Infrastructure:"
 echo "  cargo make db-setup      Setup database"
 echo "  cargo make sqlx-prepare  Prepare SQLX cache"
 echo ""
+echo "Benchmarks (TAS-159):"
+echo "  cargo make services-start-release    Start services (release mode)"
+echo "  cargo make bench-e2e           (be)   Tier 1: Rust core"
+echo "  cargo make bench-e2e-full      (bef)  Tier 1+2: + complexity"
+echo "  cargo make bench-e2e-cluster   (bec)  Tier 3: Multi-instance"
+echo "  cargo make bench-e2e-languages (bel)  Tier 4: FFI comparison"
+echo "  cargo make bench-e2e-batch     (beb)  Tier 5: Batch processing"
+echo "  cargo make bench-e2e-all       (bea)  All tiers"
+echo "  cargo make bench-report        (br)   Generate percentile report"
+echo "  cargo make bench-analysis      (ba)   Generate analysis document"
+echo ""
+echo "tokio-console (TAS-158):"
+echo "  cargo make build-console              Build with tokio-console"
+echo "  cargo make run-console-orchestration  Run orchestration with console"
+echo "  cargo make run-console-worker-rust    Run Rust worker with console"
+echo "  cargo make console                    Open tokio-console"
+echo ""
+echo "samply Profiling (TAS-161):"
+echo "  cargo make build-profiling      (bp)   Build with profiling profile"
+echo "  cargo make run-samply-orchestration (rso)  Run orchestration under samply"
+echo "  cargo make run-samply-worker-rust (rswr)   Run Rust worker under samply"
+echo ""
 echo "Run 'cargo make --list-all-steps' for all tasks"
 '''
 
@@ -716,6 +738,43 @@ PROJECT_ROOT="$(pwd)" ${SCRIPTS_DIR}/service-status.sh --all
 description = "Start all services (orchestration + all workers)"
 script = { file = "${SCRIPTS_DIR}/services-start-all.sh" }
 
+[tasks.services-start-release]
+description = "Start services in release mode (orchestration + Rust worker only)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "🚀 Starting Tasker services (RELEASE mode)..."
+echo "   This starts orchestration + Rust worker for benchmarking."
+echo "   For FFI workers, use run-worker-{ruby,python,typescript} separately."
+echo ""
+
+# Build release first (if not already built)
+echo "=== Building Release ==="
+cargo build --release -p tasker-orchestration -p tasker-worker-rust
+echo ""
+
+# Start orchestration
+echo "=== Starting Orchestration (Release) ==="
+cargo make run-orchestration-release
+echo ""
+
+# Start Rust worker
+echo "=== Starting Rust Worker (Release) ==="
+cargo make run-worker-rust-release
+
+echo ""
+echo "Waiting for services to initialize..."
+sleep 5
+
+echo ""
+cargo make services-status
+'''
+
+[tasks.services-stop-release]
+description = "Stop release mode services"
+alias = "services-stop"
+
 [tasks.services-logs-clear]
 description = "Clear all service log files"
 script = '''
@@ -742,6 +801,35 @@ script = { file = "${SCRIPTS_DIR}/services-health-check.sh" }
 [tasks.run-orchestration]
 description = "Run orchestration service (port 8080)"
 script = { file = "${SCRIPTS_DIR}/run-orchestration.sh" }
+
+[tasks.run-orchestration-release]
+description = "Run orchestration service in release mode (port 8080)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+# TAS-78: Enable SQLX_OFFLINE in split-database mode
+if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
+    echo "🔀 Split database mode - using SQLX_OFFLINE=true"
+    export SQLX_OFFLINE=true
+fi
+
+export TASKER_ENV="${TASKER_ENV:-test}"
+export PORT="${PORT:-8080}"
+# For benchmarking, use ALL benchmark templates (override .env if set)
+# The parent directory contains rust/, ruby/, python/, typescript/ subdirectories
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/orchestration-test.toml"
+export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates"
+
+echo "🚀 Starting orchestration service (RELEASE mode)..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+
+PROJECT_ROOT="$(pwd)" "${SCRIPTS_DIR}/service-start.sh" orchestration \
+    cargo run --release -p tasker-orchestration --bin tasker-server
+'''
 
 [tasks.stop-orchestration]
 description = "Stop orchestration service"
@@ -774,6 +862,36 @@ description = "Run Rust worker service (port 8081)"
 cwd = "workers/rust"
 command = "cargo"
 args = ["make", "run"]
+
+[tasks.run-worker-rust-release]
+description = "Run Rust worker service in release mode (port 8081)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+# TAS-78: Enable SQLX_OFFLINE in split-database mode
+if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
+    echo "🔀 Split database mode - using SQLX_OFFLINE=true"
+    export SQLX_OFFLINE=true
+fi
+
+export TASKER_ENV="${TASKER_ENV:-test}"
+export PORT="${PORT:-8081}"
+# TAS-159: Rust worker uses ONLY Rust templates (to avoid subscribing to other language queues)
+# Orchestration loads ALL templates for task creation, but workers are language-specific
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/worker-test.toml"
+export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
+export TASKER_WEB_BIND_ADDRESS="0.0.0.0:${PORT}"
+
+echo "🚀 Starting Rust worker (RELEASE mode)..."
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+
+PROJECT_ROOT="$(pwd)" "${SCRIPTS_DIR}/service-start.sh" rust-worker \
+    cargo run --release -p tasker-worker-rust
+'''
 
 [tasks.stop-worker-rust]
 description = "Stop Rust worker service"
@@ -1027,3 +1145,561 @@ else
     echo "No orchestration logs found. Start cluster first with: cargo make cluster-start-orchestration"
 fi
 '''
+
+# =============================================================================
+# TAS-158: tokio-console Profiling Tasks
+# =============================================================================
+# Runtime introspection with tokio-console for debugging async behavior.
+#
+# Prerequisites:
+#   1. Install tokio-console: cargo install tokio-console
+#   2. Build with console support: cargo make build-console
+#   3. Run the service (in one terminal): cargo make run-console-orchestration
+#   4. Connect tokio-console (in another terminal): tokio-console
+#
+# Note: These builds use RUSTFLAGS="--cfg tokio_unstable" which requires
+# recompilation of tokio and dependencies. Build times will be longer than
+# standard builds. This is opt-in rather than default to avoid impacting
+# normal development workflows.
+#
+# See: docs/ticket-specs/TAS-71/tokio-analysis.md
+
+[tasks.build-console]
+description = "Build all crates with tokio-console support (TAS-158)"
+env = { RUSTFLAGS = "--cfg tokio_unstable" }
+script = '''
+#!/bin/bash
+set -euo pipefail
+echo "🔍 Building with tokio-console support..."
+echo "   RUSTFLAGS=$RUSTFLAGS"
+echo "   Features: tokio-console"
+echo ""
+echo "⚠️  This requires recompilation of tokio with unstable features."
+echo "   Build will take longer than normal."
+echo ""
+
+# Build orchestration and Rust worker with tokio-console feature
+# Note: tasker-worker is a library crate (embedded by language workers), not standalone
+cargo build --package tasker-orchestration --features tokio-console
+cargo build --package tasker-worker-rust --features tokio-console
+
+echo ""
+echo "✅ Build complete. Run services with:"
+echo "   cargo make run-console-orchestration   (rco)"
+echo "   cargo make run-console-worker-rust     (rcwr)"
+echo ""
+echo "Then connect tokio-console in another terminal:"
+echo "   cargo make console"
+'''
+
+[tasks.build-console-release]
+description = "Build release with tokio-console support"
+env = { RUSTFLAGS = "--cfg tokio_unstable" }
+script = '''
+#!/bin/bash
+set -euo pipefail
+cargo build --package tasker-orchestration --features tokio-console --release
+cargo build --package tasker-worker --features tokio-console --release
+'''
+
+[tasks.run-console-orchestration]
+description = "Run orchestration with tokio-console (port 8080)"
+env = { RUSTFLAGS = "--cfg tokio_unstable" }
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "🔍 Starting orchestration with tokio-console support..."
+echo "   Connect with: tokio-console (in another terminal)"
+echo ""
+
+# Run with tokio-console feature enabled
+RUSTFLAGS="--cfg tokio_unstable" cargo run \
+    --package tasker-orchestration \
+    --features tokio-console \
+    --bin tasker-server
+'''
+
+[tasks.run-console-worker-rust]
+description = "Run Rust worker with tokio-console (port 8081)"
+env = { RUSTFLAGS = "--cfg tokio_unstable" }
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "🔍 Starting Rust worker with tokio-console support..."
+echo "   Connect with: tokio-console (in another terminal)"
+echo ""
+
+# Build and run the Rust worker with tokio-console feature
+cd workers/rust
+RUSTFLAGS="--cfg tokio_unstable" cargo run --features tokio-console
+'''
+
+[tasks.console]
+description = "Open tokio-console (must have service running with console support)"
+script = '''
+#!/bin/bash
+if ! command -v tokio-console &> /dev/null; then
+    echo "❌ tokio-console not found"
+    echo ""
+    echo "Install with: cargo install tokio-console"
+    exit 1
+fi
+
+echo "🔍 Connecting to tokio-console..."
+echo "   Make sure a service is running with: cargo make run-console-orchestration"
+echo ""
+tokio-console
+'''
+
+# Shortcuts for console tasks
+[tasks.bc]
+alias = "build-console"
+description = "Shortcut for build-console"
+
+[tasks.rco]
+alias = "run-console-orchestration"
+description = "Shortcut for run-console-orchestration"
+
+[tasks.rcw]
+alias = "run-console-worker-rust"
+description = "Shortcut for run-console-worker-rust"
+
+# =============================================================================
+# TAS-161: samply CPU Profiling Tasks
+# =============================================================================
+# CPU profiling with samply for flamegraph analysis and hot path identification.
+#
+# Prerequisites:
+#   1. Install samply: cargo install samply
+#   2. Build with profiling symbols: cargo make build-profiling
+#   3. Start worker (normal mode): cargo make run-worker-rust-release
+#   4. Run orchestration under samply (foreground): cargo make run-samply-orchestration
+#   5. Generate load (in another terminal): cargo make bench-e2e
+#   6. Press Ctrl-C to stop samply and open Firefox Profiler
+#
+# The profiling profile includes:
+#   - Release-level optimizations (lto, codegen-units=1)
+#   - Debug symbols (debug=true, strip=false)
+#   - Stack unwinding (panic=unwind instead of abort)
+#
+# See: docs/ticket-specs/TAS-71/TAS-161-profiling.md
+
+[tasks.build-profiling]
+description = "Build with profiling profile (release + debug symbols)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "🔍 Building with profiling profile..."
+echo "   Profile: profiling (release optimizations + debug symbols)"
+echo ""
+
+cargo build --profile profiling -p tasker-orchestration -p tasker-worker-rust
+
+echo ""
+echo "✅ Build complete. Binaries at:"
+echo "   target/profiling/tasker-server"
+echo "   target/profiling/rust-worker"
+echo ""
+echo "Run with samply:"
+echo "   cargo make run-samply-orchestration   (rso)"
+echo "   cargo make run-samply-worker-rust     (rswr)"
+'''
+
+[tasks.build-profiling-orchestration]
+description = "Build orchestration with profiling profile"
+command = "cargo"
+args = ["build", "--profile", "profiling", "-p", "tasker-orchestration"]
+
+[tasks.build-profiling-worker-rust]
+description = "Build Rust worker with profiling profile"
+command = "cargo"
+args = ["build", "--profile", "profiling", "-p", "tasker-worker-rust"]
+
+[tasks.run-samply-orchestration]
+description = "Run orchestration under samply (foreground, Ctrl-C to profile)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Check samply is installed
+if ! command -v samply &> /dev/null; then
+    echo "❌ samply not found"
+    echo ""
+    echo "Install with: cargo install samply"
+    exit 1
+fi
+
+# Source environment
+set -a
+source .env 2>/dev/null || true
+set +a
+
+# TAS-78: Enable SQLX_OFFLINE in split-database mode
+if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
+    echo "🔀 Split database mode - using SQLX_OFFLINE=true"
+    export SQLX_OFFLINE=true
+fi
+
+export TASKER_ENV="${TASKER_ENV:-test}"
+export PORT="${PORT:-8080}"
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/orchestration-test.toml"
+export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates"
+
+BINARY="$(pwd)/target/profiling/tasker-server"
+
+if [ ! -f "$BINARY" ]; then
+    echo "❌ Profiling binary not found: $BINARY"
+    echo "   Run: cargo make build-profiling"
+    exit 1
+fi
+
+echo "🔬 Starting orchestration under samply..."
+echo "   Binary: $BINARY"
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+echo ""
+echo "📝 Workflow:"
+echo "   1. This runs in foreground - keep this terminal open"
+echo "   2. In another terminal: cargo make bench-e2e (or generate other load)"
+echo "   3. Press Ctrl-C here when done to stop and view profile"
+echo ""
+
+samply record -- "$BINARY"
+'''
+
+[tasks.run-samply-worker-rust]
+description = "Run Rust worker under samply (foreground, Ctrl-C to profile)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Check samply is installed
+if ! command -v samply &> /dev/null; then
+    echo "❌ samply not found"
+    echo ""
+    echo "Install with: cargo install samply"
+    exit 1
+fi
+
+# Source environment
+set -a
+source .env 2>/dev/null || true
+set +a
+
+# TAS-78: Enable SQLX_OFFLINE in split-database mode
+if [ -n "${PGMQ_DATABASE_URL:-}" ] && [ "${PGMQ_DATABASE_URL}" != "${DATABASE_URL:-}" ]; then
+    echo "🔀 Split database mode - using SQLX_OFFLINE=true"
+    export SQLX_OFFLINE=true
+fi
+
+export TASKER_ENV="${TASKER_ENV:-test}"
+export PORT="${PORT:-8081}"
+# TAS-159: Rust worker uses ONLY Rust templates
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/worker-test.toml"
+export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
+export TASKER_WEB_BIND_ADDRESS="0.0.0.0:${PORT}"
+
+BINARY="$(pwd)/target/profiling/rust-worker"
+
+if [ ! -f "$BINARY" ]; then
+    echo "❌ Profiling binary not found: $BINARY"
+    echo "   Run: cargo make build-profiling"
+    exit 1
+fi
+
+echo "🔬 Starting Rust worker under samply..."
+echo "   Binary: $BINARY"
+echo "   Port: ${PORT}"
+echo "   Config: ${TASKER_CONFIG_PATH}"
+echo "   Templates: ${TASKER_TEMPLATE_PATH}"
+echo ""
+echo "📝 Workflow:"
+echo "   1. This runs in foreground - keep this terminal open"
+echo "   2. Start orchestration: cargo make run-orchestration-release"
+echo "   3. In another terminal: cargo make bench-e2e (or generate other load)"
+echo "   4. Press Ctrl-C here when done to stop and view profile"
+echo ""
+
+samply record -- "$BINARY"
+'''
+
+[tasks.profile-analyze]
+description = "Analyze Firefox Profiler JSON files from samply"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+PROFILE_DIR="docs/ticket-specs/TAS-71/profile-data"
+
+if [ ! -d "$PROFILE_DIR" ]; then
+    echo "❌ No profile data found at $PROFILE_DIR"
+    echo "   Run profiling first with: cargo make rso (then Ctrl-C)"
+    exit 1
+fi
+
+# Find profile files
+PROFILES=($(ls -1 "$PROFILE_DIR"/*.json 2>/dev/null || true))
+
+if [ ${#PROFILES[@]} -eq 0 ]; then
+    echo "❌ No .json profile files found in $PROFILE_DIR"
+    exit 1
+fi
+
+echo "Found ${#PROFILES[@]} profile(s):"
+for p in "${PROFILES[@]}"; do
+    echo "  - $(basename "$p")"
+done
+echo ""
+
+for profile in "${PROFILES[@]}"; do
+    echo ""
+    python3 cargo-make/scripts/profiling/analyze_profile.py "$profile" --top 30 "$@"
+done
+'''
+
+[tasks.profile-analyze-tasker]
+description = "Analyze profiles filtered for tasker-specific code"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+PROFILE_DIR="docs/ticket-specs/TAS-71/profile-data"
+
+for profile in "$PROFILE_DIR"/*.json; do
+    if [ -f "$profile" ]; then
+        echo ""
+        python3 cargo-make/scripts/profiling/analyze_profile.py "$profile" --top 30 --filter "tasker"
+    fi
+done
+'''
+
+# Shortcuts for samply profiling tasks
+[tasks.bp]
+alias = "build-profiling"
+description = "Shortcut for build-profiling"
+
+[tasks.rso]
+alias = "run-samply-orchestration"
+description = "Shortcut for run-samply-orchestration"
+
+[tasks.rswr]
+alias = "run-samply-worker-rust"
+description = "Shortcut for run-samply-worker-rust"
+
+[tasks.pa]
+alias = "profile-analyze"
+description = "Shortcut for profile-analyze"
+
+[tasks.pat]
+alias = "profile-analyze-tasker"
+description = "Shortcut for profile-analyze-tasker"
+
+# =============================================================================
+# TAS-159: E2E Benchmark Tasks
+# =============================================================================
+# Comprehensive end-to-end latency benchmarks across multiple tiers.
+#
+# Tier Overview:
+#   Tier 1 (Core):       Rust native linear/diamond workflows
+#   Tier 2 (Complexity): Complex DAG, hierarchical tree, conditional routing
+#   Tier 3 (Cluster):    Multi-instance coordination (requires cluster running)
+#   Tier 4 (Languages):  FFI comparison (Ruby, Python, TypeScript)
+#   Tier 5 (Batch):      CSV batch processing with parallel workers
+#
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ BENCHMARK BASELINE WORKFLOW                                                 │
+# ├─────────────────────────────────────────────────────────────────────────────┤
+# │                                                                             │
+# │ 1. TIER 1 + 2 + 5 (Single-instance, Release Mode):                         │
+# │    cargo make services-start-release   # Orchestration + Rust worker       │
+# │    cargo make bench-e2e-full           # Tier 1 + 2                         │
+# │    cargo make bench-e2e-batch          # Tier 5                             │
+# │    cargo make services-stop                                                 │
+# │                                                                             │
+# │ 2. TIER 3 (Cluster, Already Release Mode):                                  │
+# │    cargo make cluster-start-all        # 2x orchestration + all workers    │
+# │    cargo make bench-e2e-cluster        # Tier 3                             │
+# │    cargo make cluster-stop                                                  │
+# │                                                                             │
+# │ 3. TIER 4 (FFI Languages):                                                  │
+# │    cargo make services-start-release   # Orchestration + Rust worker       │
+# │    cargo make run-worker-ruby &        # Port 8082                          │
+# │    cargo make run-worker-python &      # Port 8083                          │
+# │    cargo make run-worker-typescript &  # Port 8085                          │
+# │    cargo make bench-e2e-languages      # Tier 4                             │
+# │    cargo make services-stop                                                 │
+# │                                                                             │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# NOTE: All benchmarks are local-only (not in CI) due to resource constraints.
+#
+# See: tests/benches/e2e_latency.rs for implementation details.
+
+[tasks.bench-e2e]
+description = "Run Tier 1 E2E benchmarks (Rust linear/diamond)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 1: Core Performance Benchmarks"
+echo "   Requires: cargo make services-start-release"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier1_core"
+'''
+
+[tasks.bench-e2e-full]
+description = "Run Tier 1 + Tier 2 benchmarks (core + complexity)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 1 + Tier 2: Core + Complexity Benchmarks"
+echo "   Requires: cargo make services-start-release"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier1_core|tier2_complexity"
+'''
+
+[tasks.bench-e2e-cluster]
+description = "Run Tier 3 cluster benchmarks (multi-instance)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 3: Cluster Performance Benchmarks"
+echo "   Requires: cargo make cluster-start-all"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier3_cluster"
+'''
+
+[tasks.bench-e2e-languages]
+description = "Run Tier 4 language comparison benchmarks (Ruby, Python, TS)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 4: FFI Language Comparison Benchmarks"
+echo "   Requires: cargo make services-start-release"
+echo "   Optional: cargo make run-worker-ruby"
+echo "   Optional: cargo make run-worker-python"
+echo "   Optional: cargo make run-worker-typescript"
+echo ""
+echo "   Note: Unavailable workers will be skipped gracefully"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier4_languages"
+'''
+
+[tasks.bench-e2e-batch]
+description = "Run Tier 5 batch processing benchmarks"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running Tier 5: Batch Processing Benchmarks"
+echo "   Requires: cargo make services-start-release"
+echo "   Uses: tests/fixtures/products.csv (1000 rows, 5 workers)"
+echo ""
+
+cargo bench --bench e2e_latency -- "tier5_batch"
+'''
+
+[tasks.bench-e2e-all]
+description = "Run ALL E2E benchmarks (all 5 tiers)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+source .env 2>/dev/null || true
+
+echo "📊 Running ALL E2E Benchmarks (Tiers 1-5)"
+echo ""
+echo "Prerequisites:"
+echo "   - cargo make services-start-release"
+echo "   - cargo make cluster-start-all (for Tier 3)"
+echo "   - Language workers optional (Tier 4 skips unavailable)"
+echo ""
+
+cargo bench --bench e2e_latency
+'''
+
+# Benchmark shortcuts
+[tasks.be]
+alias = "bench-e2e"
+description = "Shortcut for bench-e2e (Tier 1)"
+
+[tasks.bef]
+alias = "bench-e2e-full"
+description = "Shortcut for bench-e2e-full (Tier 1+2)"
+
+[tasks.bec]
+alias = "bench-e2e-cluster"
+description = "Shortcut for bench-e2e-cluster (Tier 3)"
+
+[tasks.bel]
+alias = "bench-e2e-languages"
+description = "Shortcut for bench-e2e-languages (Tier 4)"
+
+[tasks.beb]
+alias = "bench-e2e-batch"
+description = "Shortcut for bench-e2e-batch (Tier 5)"
+
+[tasks.bea]
+alias = "bench-e2e-all"
+description = "Shortcut for bench-e2e-all (All tiers)"
+
+[tasks.bench-report]
+description = "Generate percentile report from benchmark results"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "📊 Generating Benchmark Percentile Report"
+echo ""
+
+if [ ! -d "target/criterion" ]; then
+    echo "❌ No benchmark results found in target/criterion"
+    echo "   Run benchmarks first: cargo make bench-e2e-all"
+    exit 1
+fi
+
+python3 cargo-make/scripts/bench-percentiles.py target/criterion
+'''
+
+[tasks.br]
+alias = "bench-report"
+description = "Shortcut for bench-report"
+
+[tasks.bench-analysis]
+description = "Generate benchmark analysis document in ticket-specs"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "📊 Generating Benchmark Analysis Document"
+echo ""
+
+if [ ! -f "target/criterion/percentile_report.json" ]; then
+    echo "❌ No percentile report found"
+    echo "   Run: cargo make bench-report first"
+    exit 1
+fi
+
+bash cargo-make/scripts/bench-analysis.sh
+'''
+
+[tasks.ba]
+alias = "bench-analysis"
+description = "Shortcut for bench-analysis"

@@ -202,7 +202,7 @@ for i in $(seq 1 "$COUNT"); do
         case "$SERVICE_TYPE" in
             orchestration)
                 CONFIG_PATH="${PROJECT_ROOT}/config/tasker/orchestration-test.toml"
-                TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates/rust"
+                TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates"
                 ;;
             worker-rust)
                 CONFIG_PATH="${PROJECT_ROOT}/config/tasker/worker-test.toml"
@@ -211,7 +211,7 @@ for i in $(seq 1 "$COUNT"); do
             *)
                 # Default to complete-test for any other rust service
                 CONFIG_PATH="${PROJECT_ROOT}/config/tasker/complete-test.toml"
-                TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates/rust"
+                TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates"
                 ;;
         esac
 
