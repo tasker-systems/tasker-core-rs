@@ -618,6 +618,79 @@ fn get_log_level(environment: &str) -> String {
     }
 }
 
+// =============================================================================
+// TAS-162: Hot Path Logging Optimization Macros
+// =============================================================================
+
+/// Conditionally execute a logging block based on config AND tracing level.
+///
+/// This macro guards both I/O AND string interpolation/allocation by only
+/// executing the block when logging is enabled. Use this for expensive
+/// debug logging in hot paths.
+///
+/// # Arguments
+///
+/// * `$config` - An expression that evaluates to a config with `enable_detailed_logging: bool`
+/// * `$level` - A `tracing::Level` constant (e.g., `Level::DEBUG`, `Level::TRACE`)
+/// * `$body` - The code block to execute when logging is enabled
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use tasker_shared::maybe_log;
+/// use tracing::Level;
+///
+/// maybe_log!(self.config, Level::DEBUG, {
+///     let context = build_expensive_debug_context();
+///     tracing::debug!(step_uuid = %uuid, context = %context, "Processing step");
+/// });
+/// ```
+#[macro_export]
+macro_rules! maybe_log {
+    ($config:expr, $level:expr, { $($body:tt)* }) => {
+        if $config.enable_detailed_logging && ::tracing::enabled!($level) {
+            $($body)*
+        }
+    };
+}
+
+/// Config-gated tracing macro for single-line logging statements.
+///
+/// This is an ergonomic wrapper that only emits the log when
+/// `enable_detailed_logging` is true in the config. Unlike `maybe_log!`,
+/// this doesn't check `tracing::enabled!()` since the tracing macros
+/// already short-circuit when the level is disabled at the subscriber.
+///
+/// # Arguments
+///
+/// * `$config` - An expression that evaluates to a config with `enable_detailed_logging: bool`
+/// * `$level` - A tracing level identifier (debug, trace, info, warn, error)
+/// * `$($arg)*` - Arguments passed directly to the tracing macro
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use tasker_shared::detail_log;
+///
+/// // Simple message
+/// detail_log!(self.config, debug, "Processing step");
+///
+/// // With structured fields
+/// detail_log!(self.config, debug, step_uuid = %uuid, status = %status, "Step enqueued");
+/// ```
+#[macro_export]
+macro_rules! detail_log {
+    ($config:expr, $level:ident, $($arg:tt)*) => {
+        if $config.enable_detailed_logging {
+            ::tracing::$level!($($arg)*);
+        }
+    };
+}
+
+// =============================================================================
+// Domain-Specific Logging Macros (Ruby-compatible patterns)
+// =============================================================================
+
 /// Unified logging macros that match Ruby TaskerCore::Logging::Logger patterns
 ///
 /// These macros provide structured logging with the same emoji + component format

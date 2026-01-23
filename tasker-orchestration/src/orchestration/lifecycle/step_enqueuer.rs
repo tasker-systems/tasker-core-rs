@@ -124,9 +124,8 @@ impl StepEnqueuer {
     ///
     /// This discovers viable steps using the existing SQL-based logic, then enqueues each
     /// step individually to its namespace-specific queue for autonomous worker processing.
-    #[instrument(skip(self), fields(
-        task_uuid = %task_info.task_uuid,
-        namespace = %task_info.namespace_name
+    #[instrument(skip_all, fields(
+        task_uuid = %task_info.task_uuid
     ))]
     pub async fn enqueue_ready_steps(
         &self,
@@ -432,7 +431,7 @@ impl StepEnqueuer {
                     // The viable_step came from the SQL function which already checked backoff
                     // If it's in the viable steps list and in WaitingForRetry state, backoff has expired
                     // Transition WaitingForRetry → Pending via Retry event
-                    info!(
+                    debug!(
                         correlation_id = %correlation_id,
                         step_uuid = %viable_step.step_uuid,
                         step_name = %viable_step.name,
@@ -492,7 +491,7 @@ impl StepEnqueuer {
         task_info: &ReadyTaskInfo,
         viable_step: &ViableStep,
     ) -> TaskerResult<String> {
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             task_uuid = %task_info.task_uuid,
             step_uuid = %viable_step.step_uuid,
@@ -507,7 +506,7 @@ impl StepEnqueuer {
         // Enqueue to namespace-specific queue
         let queue_name = format!("worker_{}_queue", task_info.namespace_name);
 
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             step_uuid = %step_message.step_uuid,
             queue_name = %queue_name,
@@ -535,7 +534,7 @@ impl StepEnqueuer {
                 ))
             })?;
 
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             step_uuid = %viable_step.step_uuid,
             "Successfully marked step as enqueued - now sending to PGMQ"
@@ -562,7 +561,7 @@ impl StepEnqueuer {
                 ))
             })?;
 
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             step_uuid = %viable_step.step_uuid,
             queue_name = %queue_name,
@@ -570,7 +569,7 @@ impl StepEnqueuer {
             "Successfully sent step to pgmq queue (state transition completed first)"
         );
 
-        info!(
+        debug!(
             correlation_id = %correlation_id,
             step_uuid = %viable_step.step_uuid,
             task_uuid = %task_info.task_uuid,

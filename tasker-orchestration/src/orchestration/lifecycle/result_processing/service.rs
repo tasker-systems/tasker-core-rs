@@ -90,8 +90,7 @@ impl OrchestrationResultProcessor {
     /// - Orchestration-level retry decisions
     ///
     /// TAS-65 Phase 1.4: Instrumented for distributed tracing
-    #[instrument(skip(self), fields(
-        task_uuid = %step_result.task_uuid,
+    #[instrument(skip_all, fields(
         step_uuid = %step_result.step_uuid,
         correlation_id = %step_result.correlation_id
     ))]
@@ -99,7 +98,7 @@ impl OrchestrationResultProcessor {
         &self,
         step_result: StepResultMessage,
     ) -> OrchestrationResult<()> {
-        event!(Level::INFO, "step_result.processing_started");
+        event!(Level::DEBUG, "step_result.processing_started");
 
         let result = self
             .message_handler
@@ -107,7 +106,7 @@ impl OrchestrationResultProcessor {
             .await;
 
         if result.is_ok() {
-            event!(Level::INFO, "step_result.processing_completed");
+            event!(Level::DEBUG, "step_result.processing_completed");
         } else {
             event!(Level::ERROR, "step_result.processing_failed");
         }
@@ -118,15 +117,14 @@ impl OrchestrationResultProcessor {
     /// Handle StepExecutionResult message type
     ///
     /// TAS-65 Phase 1.4: Instrumented for distributed tracing
-    #[instrument(skip(self), fields(
-        step_uuid = %step_result.step_uuid,
-        success = %step_result.success
+    #[instrument(skip_all, fields(
+        step_uuid = %step_result.step_uuid
     ))]
     pub async fn handle_step_execution_result(
         &self,
         step_result: &StepExecutionResult,
     ) -> OrchestrationResult<()> {
-        event!(Level::INFO, "step_execution_result.processing_started");
+        event!(Level::DEBUG, "step_execution_result.processing_started");
 
         let result = self
             .message_handler
@@ -134,7 +132,7 @@ impl OrchestrationResultProcessor {
             .await;
 
         if result.is_ok() {
-            event!(Level::INFO, "step_execution_result.processing_completed");
+            event!(Level::DEBUG, "step_execution_result.processing_completed");
         } else {
             event!(Level::ERROR, "step_execution_result.processing_failed");
         }

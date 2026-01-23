@@ -4,7 +4,7 @@
 
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use tasker_shared::errors::OrchestrationResult;
@@ -79,7 +79,7 @@ impl StateTransitionHandler {
                 WorkflowStepState::EnqueuedForOrchestration
                     | WorkflowStepState::EnqueuedAsErrorForOrchestration
             ) {
-                info!(
+                debug!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     original_status = %original_status,
@@ -112,7 +112,7 @@ impl StateTransitionHandler {
                     }
                 })?;
 
-                info!(
+                debug!(
                     correlation_id = %correlation_id,
                     step_uuid = %step_uuid,
                     final_state = %final_state,
@@ -193,7 +193,7 @@ impl StateTransitionHandler {
 
         if should_retry {
             // Transition to WaitingForRetry (backoff already calculated)
-            info!(
+            debug!(
                 correlation_id = %correlation_id,
                 step_uuid = %step.workflow_step_uuid,
                 "Transitioning to WaitingForRetry state"
@@ -202,7 +202,7 @@ impl StateTransitionHandler {
             StepEvent::WaitForRetry(format!("{} - retryable", error_message))
         } else {
             // Transition to Error (permanent failure or max retries)
-            info!(
+            debug!(
                 correlation_id = %correlation_id,
                 step_uuid = %step.workflow_step_uuid,
                 "Transitioning to Error state (permanent or max retries)"
@@ -221,7 +221,7 @@ impl StateTransitionHandler {
                     let retryable_from_metadata = step_execution_result.metadata.retryable;
 
                     if !retryable_from_metadata {
-                        info!(
+                        debug!(
                             correlation_id = %correlation_id,
                             step_uuid = %step.workflow_step_uuid,
                             "Error marked as non-retryable by worker"
@@ -234,7 +234,7 @@ impl StateTransitionHandler {
                     let current_attempts = step.attempts.unwrap_or(0);
 
                     if current_attempts >= max_attempts {
-                        info!(
+                        debug!(
                             correlation_id = %correlation_id,
                             step_uuid = %step.workflow_step_uuid,
                             current_attempts = current_attempts,
@@ -243,7 +243,7 @@ impl StateTransitionHandler {
                         );
                         false
                     } else {
-                        info!(
+                        debug!(
                             correlation_id = %correlation_id,
                             step_uuid = %step.workflow_step_uuid,
                             current_attempts = current_attempts,
