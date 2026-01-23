@@ -1,11 +1,11 @@
 # Tasker Core Benchmarks
 
-**Last Updated**: 2025-10-10
+**Last Updated**: 2026-01-23
 **Audience**: Architects, Developers
-**Status**: Active - Phase 5.4 Complete
+**Status**: Active
 **Related Docs**: [Documentation Hub](../README.md) | [Observability](../observability/README.md) | [Deployment Patterns](../deployment-patterns.md)
 
-← Back to [Documentation Hub](../README.md)
+<- Back to [Documentation Hub](../README.md)
 
 ---
 
@@ -16,275 +16,113 @@ This directory contains documentation for all performance benchmarks in the task
 ## Quick Reference
 
 ```bash
-# Complete benchmark suite (requires Docker services running)
+# E2E benchmarks (cluster mode, all tiers)
+cargo make setup-env-all-cluster
+cargo make cluster-start-all
+set -a && source .env && set +a && cargo bench --bench e2e_latency
+cargo make bench-report     # Percentile JSON
+cargo make bench-analysis   # Markdown analysis
+cargo make cluster-stop
+
+# Component benchmarks (requires Docker services)
 docker-compose -f docker/docker-compose.test.yml up -d
 export DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
-
-# Run all benchmarks
-cargo bench --all-features
-
-# Individual categories
-cargo bench --package tasker-client --features benchmarks        # API benchmarks
-cargo bench --package tasker-shared --features benchmarks         # SQL + Event benchmarks
-cargo bench --bench e2e_latency                                   # E2E latency (Rust + Ruby)
+cargo bench --package tasker-client --features benchmarks   # API benchmarks
+cargo bench --package tasker-shared --features benchmarks   # SQL + Event benchmarks
 ```
 
 ---
 
 ## Benchmark Categories
 
-### 1. **API Performance** (`tasker-client`)
-**Location**: `tasker-client/benches/task_initialization.rs`
-**Status**: ✅ Complete
-**Documentation**: [api-benchmarks.md](./api-benchmarks.md)
+### 1. End-to-End Latency (`tests/benches`)
 
-Measures orchestration API response times for task creation operations.
+**Location**: `tests/benches/e2e_latency.rs`
+**Documentation**: [e2e-benchmarks.md](./e2e-benchmarks.md)
+
+Measures complete workflow execution from API call through orchestration, message queue, worker execution, result processing, and dependency resolution — across all distributed components in a 10-instance cluster.
+
+| Tier | Benchmark | Steps | Parallelism | P50 | Target (p99) |
+|------|-----------|-------|-------------|-----|--------------|
+| 1 | Linear Rust | 4 sequential | none | 255-258ms | < 500ms |
+| 1 | Diamond Rust | 4 (2 parallel) | 2-way | 200-259ms | < 500ms |
+| 2 | Complex DAG | 7 (mixed) | 2+3-way | 382ms | < 800ms |
+| 2 | Hierarchical Tree | 8 (4 parallel) | 4-way | 389-426ms | < 800ms |
+| 2 | Conditional | 5 (3 executed) | dynamic | 251-262ms | < 500ms |
+| 3 | Cluster single task | 4 sequential | none | 261ms | < 500ms |
+| 3 | Cluster concurrent 2x | 4+4 | distributed | 332-384ms | < 800ms |
+| 4 | FFI linear (Ruby/Python/TS) | 4 sequential | none | 312-316ms | < 800ms |
+| 4 | FFI diamond (Ruby/Python/TS) | 4 (2 parallel) | 2-way | 260-275ms | < 800ms |
+| 5 | Batch 1000 rows | 7 (5 parallel) | 5-way | 358-368ms | < 1000ms |
+
+Each step involves ~19 database operations, 2 message queue round-trips, 4+ state transitions, and dependency graph evaluation. See [e2e-benchmarks.md](./e2e-benchmarks.md) for the detailed per-step lifecycle.
+
+**Key Characteristics**:
+- FFI overhead: ~23% vs native Rust (all languages within 3ms of each other)
+- Linear patterns: highly reproducible (<2% variance between runs)
+- Parallel patterns: environment-sensitive (I/O contention affects parallelism)
+- Batch processing: 2,700-2,800 rows/second with tight P95/P50 ratios
+
+**Run Commands**:
+```bash
+cargo make bench-e2e           # Tier 1: Rust core
+cargo make bench-e2e-full      # Tier 1+2: + complexity
+cargo make bench-e2e-cluster   # Tier 3: Multi-instance
+cargo make bench-e2e-languages # Tier 4: FFI comparison
+cargo make bench-e2e-batch     # Tier 5: Batch processing
+cargo make bench-e2e-all       # All tiers
+```
+
+---
+
+### 2. API Performance (`tasker-client`)
+
+**Location**: `tasker-client/benches/task_initialization.rs`
+
+Measures orchestration API response times for task creation (HTTP round-trip + DB insert + step initialization).
 
 | Benchmark | Target | Current | Status |
 |-----------|--------|---------|--------|
-| Linear task init | < 50ms | 17.7ms | ✅ 2.8x better |
-| Diamond task init | < 75ms | 20.8ms | ✅ 3.6x better |
+| Linear task init | < 50ms | 17.7ms | 2.8x better |
+| Diamond task init | < 75ms | 20.8ms | 3.6x better |
 
-**Run Command**:
 ```bash
 cargo bench --package tasker-client --features benchmarks
 ```
 
 ---
 
-### 2. **SQL Function Performance** (`tasker-shared`)
-**Location**: `tasker-shared/benches/sql_functions.rs`
-**Status**: ✅ Complete
-**Documentation**: [sql-benchmarks.md](./sql-benchmarks.md)
+### 3. SQL Function Performance (`tasker-shared`)
 
-Measures critical PostgreSQL function performance for orchestration operations.
+**Location**: `tasker-shared/benches/sql_functions.rs`
+
+Measures critical PostgreSQL function performance for orchestration polling.
 
 | Function | Target | Current (5K tasks) | Status |
 |----------|--------|-------------------|--------|
-| get_next_ready_tasks | < 3ms | 1.75-2.93ms | ✅ Pass |
-| get_step_readiness_status | < 1ms | 440-603µs | ✅ Pass |
-| get_task_execution_context | < 1ms | 380-460µs | ✅ Pass |
+| get_next_ready_tasks | < 3ms | 1.75-2.93ms | Pass |
+| get_step_readiness_status | < 1ms | 440-603us | Pass |
+| get_task_execution_context | < 1ms | 380-460us | Pass |
 
-**Run Command**:
 ```bash
-DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test" \
-cargo bench --package tasker-shared --features benchmarks sql_functions
+DATABASE_URL="..." cargo bench --package tasker-shared --features benchmarks sql_functions
 ```
-
-**Features**:
-- Query plan analysis with EXPLAIN ANALYZE
-- Buffer hit ratio tracking
-- Scaling tests with large datasets (5K+ tasks, 21K+ steps)
 
 ---
 
-### 3. **Event Propagation** (`tasker-shared`)
+### 4. Event Propagation (`tasker-shared`)
+
 **Location**: `tasker-shared/benches/event_propagation.rs`
-**Status**: ✅ Complete
-**Documentation**: [event-benchmarks.md](./event-benchmarks.md)
 
 Measures PostgreSQL LISTEN/NOTIFY round-trip latency for real-time coordination.
 
 | Metric | Target (p95) | Current | Status |
 |--------|-------------|---------|--------|
-| Notify round-trip | < 10ms | 14.1ms | ⚠️ Slightly above, p99 < 20ms |
+| Notify round-trip | < 10ms | 14.1ms | Slightly above, p99 < 20ms |
 
-**Run Command**:
 ```bash
-DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test" \
-cargo bench --package tasker-shared --features benchmarks event_propagation
+DATABASE_URL="..." cargo bench --package tasker-shared --features benchmarks event_propagation
 ```
-
-**Note**: PGMQ notifications are fast enough to expose microsecond-level transaction timing (see TAS-29-high-concurrency-bug.md).
-
----
-
-### 4. **End-to-End Latency** (`tests/benches`)
-**Location**: `tests/benches/e2e_latency.rs`
-**Status**: ✅ Complete (TAS-29 Phase 5.4)
-**Documentation**: [e2e-benchmarks.md](./e2e-benchmarks.md)
-
-Measures complete workflow execution from API call to task completion across all distributed components.
-
-| Workflow | Worker | Target (p99) | Current (mean) | Status |
-|----------|--------|--------------|----------------|--------|
-| Linear (4 steps) | Rust | < 500ms | 133.5ms | ✅ 3.7x better |
-| Diamond (4 steps) | Rust | < 800ms | 140.1ms | ✅ 5.7x better |
-| Linear (4 steps) | Ruby FFI | < 800ms | TBD | 🚧 Re-enabled |
-| Diamond (4 steps) | Ruby FFI | < 1000ms | TBD | 🚧 Re-enabled |
-
-**Run Command**:
-```bash
-# Requires all Docker services (orchestration + workers)
-docker-compose -f docker/docker-compose.test.yml up -d
-
-# Verify services healthy
-curl http://localhost:8080/health  # Orchestration
-curl http://localhost:8081/health  # Rust worker
-curl http://localhost:8082/health  # Ruby worker
-
-# Run benchmark
-DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test" \
-cargo bench --bench e2e_latency
-```
-
-**Features**:
-- Measures complete user-facing latency
-- Tests both Rust native and Ruby FFI handlers
-- Includes all system overhead (API, DB, queue, worker, events)
-- Worker breakdown available via OpenTelemetry traces
-
-**Important Notes**:
-- Slow by design (measures actual workflow execution)
-- Sample size: 10 (vs 50 default) due to duration
-- Higher variance expected (network, scheduling, DB state)
-- Race conditions fixed in TAS-29 Phase 5.4 (see [TAS-29](https://linear.app/tasker-systems/issue/TAS-29))
-
----
-
-## Benchmark Design Principles
-
-### 1. **Natural Measurement**
-Benchmarks measure real system behavior without artificial test harnesses:
-- API benchmarks hit actual HTTP endpoints
-- SQL benchmarks use real database with realistic data volumes
-- E2E benchmarks execute complete workflows through all components
-
-### 2. **Distributed System Focus**
-All benchmarks account for distributed system characteristics:
-- Network latency included
-- Database transaction timing considered
-- Message queue overhead measured
-- Worker coordination included
-
-### 3. **Load-Based Validation**
-Benchmarks serve dual purpose:
-- **Performance measurement**: Track regression and improvements
-- **Load testing**: Expose race conditions and timing bugs
-
-Example: E2E benchmark warmup discovered two critical race conditions that manual testing never revealed.
-
-### 4. **Realistic Data Volumes**
-SQL benchmarks run against realistic dataset sizes:
-- **Current**: 5,244 tasks, 20,999 steps, 61,482 transitions
-- **Target**: 100K+ tasks for production simulation
-
----
-
-## Prerequisites
-
-### Docker Services
-```bash
-# Start all required services
-docker-compose -f docker/docker-compose.test.yml up -d
-
-# Verify all services healthy
-docker-compose -f docker/docker-compose.test.yml ps
-
-# Services required:
-# - postgres (with PGMQ extension)
-# - orchestration (API server on :8080)
-# - worker (Rust worker on :8081)
-# - ruby-worker (Ruby FFI worker on :8082)
-```
-
-### Environment Variables
-```bash
-# Required for SQL and E2E benchmarks
-export DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
-
-# Optional: Skip health checks in CI
-export TASKER_TEST_SKIP_HEALTH_CHECK="true"
-
-# Optional: Save query plans
-export SAVE_QUERY_PLANS="1"
-```
-
-### Build Requirements
-```bash
-# Ensure all features enabled for consistency
-cargo build --all-features
-
-# Benchmark-specific features
-cargo bench --all-features  # Includes criterion dependency
-```
-
----
-
-## Running Benchmarks
-
-### Individual Benchmarks
-```bash
-# API benchmarks only
-cargo bench --package tasker-client --features benchmarks
-
-# SQL benchmarks only
-DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test" \
-cargo bench --package tasker-shared --features benchmarks sql_functions
-
-# Event propagation only
-DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test" \
-cargo bench --package tasker-shared --features benchmarks event_propagation
-
-# E2E latency only
-DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test" \
-cargo bench --bench e2e_latency
-```
-
-### Complete Benchmark Suite
-```bash
-# Run ALL benchmarks (takes ~5-10 minutes)
-DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test" \
-cargo bench --all-features
-```
-
-### Baseline Comparison
-```bash
-# Save current performance as baseline
-cargo bench --all-features -- --save-baseline main
-
-# After making changes, compare to baseline
-cargo bench --all-features -- --baseline main
-
-# Show comparison results
-open target/criterion/report/index.html
-```
-
----
-
-## Output and Results
-
-### Criterion Reports
-```bash
-# HTML reports (most detailed)
-open target/criterion/report/index.html
-
-# Individual benchmark data
-ls target/criterion/
-
-# Example structure:
-# target/criterion/
-#   ├── api_task_creation/
-#   ├── sql_get_next_ready_tasks/
-#   ├── event_notify_round_trip/
-#   └── e2e_task_completion/
-```
-
-### Console Output
-Benchmarks provide structured console output:
-- Header with benchmark description
-- Real-time progress during warmup/measurement
-- Statistical summaries (mean, median, std dev)
-- Comparison to baselines (if available)
-
-### Query Plan Analysis (SQL Benchmarks)
-When running SQL benchmarks, query plans are analyzed and displayed:
-- Execution time
-- Planning time
-- Buffer hit ratio
-- Cost estimates
-
-Enable JSON export with `SAVE_QUERY_PLANS=1`.
 
 ---
 
@@ -297,22 +135,182 @@ Enable JSON export with `SAVE_QUERY_PLANS=1`.
 | API Latency | p99 | < 100ms | User-facing responsiveness |
 | SQL Functions | mean | < 3ms | Orchestration polling efficiency |
 | Event Propagation | p95 | < 10ms | Real-time coordination overhead |
-| E2E Complete (4 steps) | p99 | < 500ms | End-user task completion |
+| E2E Linear (4 steps) | p99 | < 500ms | End-user task completion |
+| E2E Complex (7-8 steps) | p99 | < 800ms | Complex workflow completion |
+| E2E Batch (1000 rows) | p99 | < 1000ms | Bulk operation completion |
 
 ### Scaling Targets
 
 | Dataset Size | get_next_ready_tasks | Notes |
 |--------------|---------------------|-------|
 | 1K tasks | < 2ms | Initial implementation |
-| 5K tasks | < 3ms | Current verified ✅ |
+| 5K tasks | < 3ms | Current verified |
 | 10K tasks | < 5ms | Target |
 | 100K tasks | < 10ms | Production scale |
 
 ---
 
+## Cluster Topology (E2E Benchmarks)
+
+| Service | Instances | Ports | Build |
+|---------|-----------|-------|-------|
+| Orchestration | 2 | 8080, 8081 | Release |
+| Rust Worker | 2 | 8100, 8101 | Release |
+| Ruby Worker | 2 | 8200, 8201 | Release extension |
+| Python Worker | 2 | 8300, 8301 | Maturin develop |
+| TypeScript Worker | 2 | 8400, 8401 | Bun FFI |
+
+**Deployment Mode**: Hybrid (event-driven with polling fallback)
+**Database**: PostgreSQL (with PGMQ extension available)
+**Messaging**: RabbitMQ (via MessagingService provider abstraction; PGMQ also supported)
+**Sample Size**: 50 per benchmark
+
+---
+
+## Running Benchmarks
+
+### E2E Benchmarks (Full Suite)
+
+```bash
+# 1. Setup cluster environment
+cargo make setup-env-all-cluster
+
+# 2. Start 10-instance cluster
+cargo make cluster-start-all
+
+# 3. Verify cluster health
+cargo make cluster-status
+
+# 4. Run benchmarks
+set -a && source .env && set +a && cargo bench --bench e2e_latency
+
+# 5. Generate reports
+cargo make bench-report    # → target/criterion/percentile_report.json
+cargo make bench-analysis  # → tmp/benchmark-results/benchmark-results.md
+
+# 6. Stop cluster
+cargo make cluster-stop
+```
+
+### Component Benchmarks
+
+```bash
+# Start database
+docker-compose -f docker/docker-compose.test.yml up -d
+export DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
+
+# Run individual suites
+cargo bench --package tasker-client --features benchmarks     # API
+cargo bench --package tasker-shared --features benchmarks     # SQL + Events
+
+# Run all at once
+cargo bench --all-features
+```
+
+### Baseline Comparison
+
+```bash
+# Save current performance as baseline
+cargo bench --all-features -- --save-baseline main
+
+# After changes, compare
+cargo bench --all-features -- --baseline main
+
+# View report
+open target/criterion/report/index.html
+```
+
+---
+
+## Interpreting Results
+
+### Stable Metrics (Reliable for Regression Detection)
+
+These metrics show <2% variance between runs:
+- **Linear pattern P50** (sequential execution baseline)
+- **FFI linear P50** (framework overhead measurement)
+- **Single task in cluster** (cluster overhead measurement)
+- **Batch P50** (parallel I/O throughput)
+
+### Environment-Sensitive Metrics
+
+These metrics vary 10-30% depending on system load:
+- **Diamond pattern P50** (parallelism benefit depends on I/O capacity)
+- **Concurrent 2x** (scheduling contention varies)
+- **Hierarchical tree** (deep dependency chains amplify I/O latency)
+
+### Key Ratios (Always Valid)
+
+- **FFI overhead %**: ~23% for all languages (framework-dominated)
+- **P95/P50 ratio**: 1.01-1.12 (execution stability indicator)
+- **Cluster vs single overhead**: <3ms (negligible cluster tax)
+- **FFI language spread**: <3ms (language runtime is not the bottleneck)
+
+---
+
+## Design Principles
+
+### Natural Measurement
+Benchmarks measure real system behavior without artificial test harnesses:
+- API benchmarks hit actual HTTP endpoints
+- SQL benchmarks use real database with realistic data volumes
+- E2E benchmarks execute complete workflows through all distributed components
+
+### Distributed System Focus
+All benchmarks account for distributed system characteristics:
+- Network latency included (HTTP, PostgreSQL, message queues)
+- Database transaction timing considered
+- Message queue delivery overhead measured
+- Worker coordination and scheduling included
+
+### Load-Based Validation
+Benchmarks serve dual purpose:
+- **Performance measurement**: Track regressions and improvements
+- **Load testing**: Expose race conditions and timing bugs
+
+E2E benchmark warmup has historically discovered critical race conditions that manual testing never revealed.
+
+### Statistical Rigor
+- 50 samples per benchmark for P50/P95 validity
+- Criterion framework with statistical regression detection
+- Multiple independent runs recommended for absolute comparisons
+- Relative metrics (ratios, overhead %) preferred over absolute milliseconds
+
+---
+
+## Troubleshooting
+
+### "Services must be running"
+```bash
+cargo make cluster-status          # Check cluster health
+cargo make cluster-start-all       # Restart cluster
+```
+
+### Tier 3/4 benchmarks skipped
+```bash
+# Ensure cluster env is configured (not single-service)
+cargo make setup-env-all-cluster   # Generates .env with cluster URLs
+```
+
+### High variance between runs
+- Close resource-intensive applications (browsers, IDEs)
+- Ensure machine is plugged in (not throttling)
+- Focus on stable metrics (linear P50, FFI overhead %) for comparisons
+- Run benchmarks twice and compare for reproducibility
+
+### Benchmark takes too long
+```bash
+# Reduce sample size (default: 50)
+cargo bench -- --sample-size 10
+
+# Run single tier
+cargo make bench-e2e               # Only Tier 1
+```
+
+---
+
 ## CI Integration
 
-### GitHub Actions Workflow
 ```yaml
 # Example: .github/workflows/benchmarks.yml
 name: Performance Benchmarks
@@ -343,107 +341,7 @@ jobs:
           output-file-path: target/criterion/report/index.html
 ```
 
-### Regression Detection
-Criterion automatically detects performance regressions:
-- Statistical comparison to baseline
-- Alerts on significant slowdowns (>5% with statistical confidence)
-- Color-coded output (green = improved, red = regressed)
-
----
-
-## Troubleshooting
-
-### "Services must be running"
-```bash
-# Ensure Docker services are healthy
-docker-compose -f docker/docker-compose.test.yml ps
-curl http://localhost:8080/health
-
-# Restart if needed
-docker-compose -f docker/docker-compose.test.yml restart
-```
-
-### "DATABASE_URL must be set"
-```bash
-# Check environment variable
-echo $DATABASE_URL
-
-# Set if missing
-export DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
-```
-
-### "Task template not found" (E2E benchmarks)
-```bash
-# Worker services register templates on startup
-docker-compose -f docker/docker-compose.test.yml restart worker ruby-worker
-
-# Verify templates registered
-curl -s http://localhost:8080/v1/handlers | jq
-```
-
-### High Variance in E2E Benchmarks
-E2E benchmarks naturally have higher variance than micro-benchmarks:
-- **Expected**: 5-15% standard deviation
-- **Acceptable**: 20% std dev
-- **Concerning**: >30% std dev (check for resource contention)
-
-Factors affecting variance:
-- Network latency fluctuations
-- Worker scheduling
-- Database cache state
-- Background system activity
-
-### Benchmark Takes Too Long
-```bash
-# Reduce sample size (default: 50, E2E uses 10)
-cargo bench -- --sample-size 5
-
-# Reduce measurement time (default: 5s for micro, 30s for E2E)
-cargo bench -- --measurement-time 10
-```
-
----
-
-## Related Documentation
-
-- **Architecture**: [TAS-29](https://linear.app/tasker-systems/issue/TAS-29)
-- **Race Conditions**: [TAS-29](https://linear.app/tasker-systems/issue/TAS-29)
-- **Observability**: [../observability/](../observability/)
-- **SQL Functions**: [../task-and-step-readiness-and-execution.md](../task-and-step-readiness-and-execution.md)
-
----
-
-## Future Enhancements
-
-### Planned Benchmarks
-
-1. **Worker Execution Overhead** (TAS-29 Phase 6)
-   - Measure worker claim → execute → submit cycle
-   - Compare Rust vs Ruby FFI overhead
-   - Target: < 60ms total worker overhead
-
-2. **Step Enqueueing** (TAS-29 Phase 6)
-   - Measure orchestration step discovery → enqueue latency
-   - Test with varying step counts (1, 3, 10 steps)
-   - Target: < 50ms for 3 steps
-
-3. **Memory Benchmarks**
-   - Track memory usage under sustained load
-   - Detect memory leaks
-   - Target: < 100MB for orchestration, < 50MB per worker
-
-4. **Throughput Benchmarks**
-   - Measure tasks/second at saturation
-   - Test with multiple workers
-   - Target: > 100 tasks/second
-
-### OpenTelemetry Integration
-
-Future enhancement: Export benchmark results to OpenTelemetry for:
-- Distributed tracing of benchmark runs
-- Historical trend analysis
-- Correlation with system metrics
-- Production comparison
+Criterion automatically detects performance regressions with statistical comparison to baselines and alerts on >5% slowdowns.
 
 ---
 
@@ -451,24 +349,31 @@ Future enhancement: Export benchmark results to OpenTelemetry for:
 
 When adding new benchmarks:
 
-1. **Follow naming convention**: `<category>_<operation>`
-2. **Include targets**: Document expected performance
-3. **Add to this README**: Keep centralized documentation updated
-4. **Test under load**: Ensure benchmarks don't expose race conditions
+1. **Follow naming convention**: `<tier>_<category>/<group>/<scenario>`
+2. **Include targets**: Document expected performance in this README
+3. **Add fixture**: Create workflow template YAML in `tests/fixtures/task_templates/`
+4. **Document shape**: Update [e2e-benchmarks.md](./e2e-benchmarks.md) with topology
 5. **Consider variance**: Account for distributed system characteristics
+6. **Use 50 samples**: Minimum for P50/P95 statistical validity
 
 ### Benchmark Template
 ```rust
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use std::time::Duration;
 
-fn bench_my_operation(c: &mut Criterion) {
-    c.bench_function("my_operation", |b| {
+fn bench_my_scenario(c: &mut Criterion) {
+    let mut group = c.benchmark_group("e2e_my_tier");
+    group.sample_size(50);
+    group.measurement_time(Duration::from_secs(30));
+
+    group.bench_function(BenchmarkId::new("workflow", "my_scenario"), |b| {
         b.iter(|| {
-            // Operation to measure
+            runtime.block_on(async {
+                execute_benchmark_scenario(&client, namespace, handler, context, timeout).await
+            })
         });
     });
-}
 
-criterion_group!(benches, bench_my_operation);
-criterion_main!(benches);
+    group.finish();
+}
 ```

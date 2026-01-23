@@ -349,10 +349,9 @@ samply record --output=baseline-result-processor-pre-refactor.json \
   lifecycle::result_processor::tests --all-features
 ```
 
-**Deliverables**:
-- 5 baseline profile files in `profiles/pre-refactor/`
-- Screenshots of flamegraphs showing current hot paths
-- Summary document of identified inefficiencies
+**Deliverables** (completed, profiles removed in TAS-166 — superseded by cluster benchmarks):
+- ~~Baseline profile files in `profiles/pre-refactor/`~~ (removed)
+- Performance baselines now in `docs/benchmarks/README.md`
 
 ### Phase 2: Identify Optimization Opportunities (Day 1)
 
@@ -367,11 +366,9 @@ samply record --output=baseline-result-processor-pre-refactor.json \
 6. ✅ Recursive call depth
 
 **Document Findings**:
-Create `docs/observability/lifecycle-performance-baseline.md` with:
-- Current hot paths (sorted by time)
-- Expected performance ranges for each operation
-- Known inefficiencies that refactor should address
-- Performance targets for post-refactor validation
+Performance baselines are now documented in `docs/benchmarks/README.md` (TAS-166).
+The original `lifecycle-performance-baseline.md` was removed — its measurements had
+data quality issues and the refactor it targeted is complete.
 
 ### Phase 3: Post-Refactor Validation (After Refactor)
 
@@ -565,11 +562,7 @@ jobs:
    - Running instructions
    - Performance expectations
 
-3. **To Create**: `docs/observability/lifecycle-performance-baseline.md`
-   - Pre-refactor performance characteristics
-   - Hot path analysis
-   - Optimization opportunities
-   - Post-refactor comparison targets
+3. ~~`docs/observability/lifecycle-performance-baseline.md`~~ (Removed — superseded by `docs/benchmarks/README.md`)
 
 ---
 
@@ -587,10 +580,7 @@ jobs:
    - Run profiling plan Phase 1
    - Generate flamegraphs
    - Document hot paths
-4. ⏳ **Create Baseline Document**:
-   - `docs/observability/lifecycle-performance-baseline.md`
-   - Include flamegraph screenshots
-   - List known inefficiencies
+4. ✅ **Baseline Document**: Superseded by `docs/benchmarks/README.md` (TAS-166)
 
 ### During Actor/Services Refactor
 
