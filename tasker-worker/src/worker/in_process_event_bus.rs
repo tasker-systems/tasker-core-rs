@@ -57,7 +57,7 @@
 //! }
 //! ```
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::sync::broadcast;
 use tracing::{debug, info, instrument, warn};
@@ -66,6 +66,78 @@ use tasker_shared::events::domain_events::DomainEvent;
 use tasker_shared::events::registry::{EventHandler, EventRegistry, RegistryError};
 use tasker_shared::metrics::worker::InProcessEventBusStats;
 use tasker_shared::monitoring::ChannelMonitor;
+
+/// Lock-free atomic counters for InProcessEventBus statistics.
+///
+/// Only tracks counter fields atomically. Live counts (subscriber_patterns,
+/// handler_count, ffi_subscriber_count) are queried at snapshot time.
+#[derive(Debug)]
+struct AtomicInProcessEventBusStats {
+    total_events_dispatched: AtomicU64,
+    rust_handler_dispatches: AtomicU64,
+    rust_handler_errors: AtomicU64,
+    ffi_channel_dispatches: AtomicU64,
+    ffi_channel_drops: AtomicU64,
+}
+
+impl Default for AtomicInProcessEventBusStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AtomicInProcessEventBusStats {
+    fn new() -> Self {
+        Self {
+            total_events_dispatched: AtomicU64::new(0),
+            rust_handler_dispatches: AtomicU64::new(0),
+            rust_handler_errors: AtomicU64::new(0),
+            ffi_channel_dispatches: AtomicU64::new(0),
+            ffi_channel_drops: AtomicU64::new(0),
+        }
+    }
+
+    #[inline]
+    fn record_dispatch(&self) {
+        self.total_events_dispatched.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn record_rust_dispatch(&self, error_count: u64) {
+        self.rust_handler_dispatches.fetch_add(1, Ordering::Relaxed);
+        if error_count > 0 {
+            self.rust_handler_errors
+                .fetch_add(error_count, Ordering::Relaxed);
+        }
+    }
+
+    #[inline]
+    fn record_ffi_dispatch(&self) {
+        self.ffi_channel_dispatches.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn record_ffi_drop(&self) {
+        self.ffi_channel_drops.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(
+        &self,
+        registry: &EventRegistry,
+        ffi_sender: &broadcast::Sender<DomainEvent>,
+    ) -> InProcessEventBusStats {
+        InProcessEventBusStats {
+            total_events_dispatched: self.total_events_dispatched.load(Ordering::Relaxed),
+            rust_handler_dispatches: self.rust_handler_dispatches.load(Ordering::Relaxed),
+            rust_handler_errors: self.rust_handler_errors.load(Ordering::Relaxed),
+            ffi_channel_dispatches: self.ffi_channel_dispatches.load(Ordering::Relaxed),
+            ffi_channel_drops: self.ffi_channel_drops.load(Ordering::Relaxed),
+            rust_subscriber_patterns: registry.pattern_count(),
+            rust_handler_count: registry.handler_count(),
+            ffi_subscriber_count: ffi_sender.receiver_count(),
+        }
+    }
+}
 
 /// Configuration for the in-process event bus
 #[derive(Debug, Clone)]
@@ -116,8 +188,8 @@ pub struct InProcessEventBus {
     channel_monitor: ChannelMonitor,
     /// Configuration
     config: InProcessEventBusConfig,
-    /// Statistics (wrapped for interior mutability)
-    stats: Arc<std::sync::Mutex<InProcessEventBusStats>>,
+    /// Lock-free atomic statistics
+    stats: AtomicInProcessEventBusStats,
 }
 
 // Manual Debug implementation because EventRegistry contains closures
@@ -151,7 +223,7 @@ impl InProcessEventBus {
             ffi_sender,
             channel_monitor,
             config,
-            stats: Arc::new(std::sync::Mutex::new(InProcessEventBusStats::default())),
+            stats: AtomicInProcessEventBusStats::new(),
         }
     }
 
@@ -199,11 +271,7 @@ impl InProcessEventBus {
             "Publishing in-process domain event"
         );
 
-        // Update total events stat
-        {
-            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-            stats.total_events_dispatched += 1;
-        }
+        self.stats.record_dispatch();
 
         // Dispatch to Rust handlers
         self.dispatch_to_rust_handlers(&event).await;
@@ -232,12 +300,7 @@ impl InProcessEventBus {
         // Dispatch returns errors from failed handlers
         let errors = self.registry.dispatch(event).await;
 
-        // Update stats
-        {
-            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-            stats.rust_handler_dispatches += 1;
-            stats.rust_handler_errors += errors.len() as u64;
-        }
+        self.stats.record_rust_dispatch(errors.len() as u64);
 
         // Log errors (fire-and-forget - never fail the workflow)
         if !errors.is_empty() {
@@ -271,9 +334,7 @@ impl InProcessEventBus {
                 "No FFI subscribers - skipping FFI broadcast"
             );
 
-            // Update stats
-            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-            stats.ffi_channel_drops += 1;
+            self.stats.record_ffi_drop();
             return;
         }
 
@@ -291,9 +352,7 @@ impl InProcessEventBus {
                     "Event broadcast to FFI subscribers"
                 );
 
-                // Update stats
-                let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-                stats.ffi_channel_dispatches += 1;
+                self.stats.record_ffi_dispatch();
 
                 // TAS-51: Record send for channel monitoring
                 if self.channel_monitor.record_send_success() {
@@ -310,22 +369,14 @@ impl InProcessEventBus {
                     "FFI broadcast failed - all subscribers dropped"
                 );
 
-                let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-                stats.ffi_channel_drops += 1;
+                self.stats.record_ffi_drop();
             }
         }
     }
 
     /// Get bus statistics for monitoring
     pub fn get_statistics(&self) -> InProcessEventBusStats {
-        let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner()).clone();
-
-        // Add current counts
-        stats.rust_subscriber_patterns = self.registry.pattern_count();
-        stats.rust_handler_count = self.registry.handler_count();
-        stats.ffi_subscriber_count = self.ffi_sender.receiver_count();
-
-        stats
+        self.stats.snapshot(&self.registry, &self.ffi_sender)
     }
 
     /// Clear all Rust subscriptions
@@ -384,6 +435,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use chrono::Utc;
     use serde_json::json;

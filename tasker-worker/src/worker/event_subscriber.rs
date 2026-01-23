@@ -57,6 +57,7 @@
 //! ```
 
 use dashmap::DashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tasker_shared::events::{WorkerEventSubscriber as SharedEventSubscriber, WorkerEventSystem};
 use tasker_shared::messaging::StepExecutionResult;
@@ -65,6 +66,65 @@ use tasker_shared::types::StepExecutionCompletionEvent;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, event, info, span, warn, Level};
 use uuid::Uuid;
+
+/// Lock-free atomic counters for WorkerEventSubscriber statistics.
+///
+/// Replaces `Arc<Mutex<WorkerEventSubscriberStats>>` to eliminate lock
+/// contention in the completion event listener hot path.
+#[derive(Debug)]
+struct AtomicWorkerEventSubscriberStats {
+    worker_id: String,
+    completions_received: AtomicU64,
+    successful_completions: AtomicU64,
+    failed_completions: AtomicU64,
+    conversion_errors: AtomicU64,
+    unmatched_correlations: AtomicU64,
+}
+
+impl AtomicWorkerEventSubscriberStats {
+    fn new(worker_id: String) -> Self {
+        Self {
+            worker_id,
+            completions_received: AtomicU64::new(0),
+            successful_completions: AtomicU64::new(0),
+            failed_completions: AtomicU64::new(0),
+            conversion_errors: AtomicU64::new(0),
+            unmatched_correlations: AtomicU64::new(0),
+        }
+    }
+
+    #[inline]
+    fn record_completion(&self, success: bool) {
+        self.completions_received.fetch_add(1, Ordering::Relaxed);
+        if success {
+            self.successful_completions.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.failed_completions.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[inline]
+    fn record_conversion_error(&self) {
+        self.conversion_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    #[expect(dead_code, reason = "Available for future correlation tracking")]
+    fn record_unmatched_correlation(&self) {
+        self.unmatched_correlations.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> WorkerEventSubscriberStats {
+        WorkerEventSubscriberStats {
+            worker_id: self.worker_id.clone(),
+            completions_received: self.completions_received.load(Ordering::Relaxed),
+            successful_completions: self.successful_completions.load(Ordering::Relaxed),
+            failed_completions: self.failed_completions.load(Ordering::Relaxed),
+            conversion_errors: self.conversion_errors.load(Ordering::Relaxed),
+            unmatched_correlations: self.unmatched_correlations.load(Ordering::Relaxed),
+        }
+    }
+}
 
 /// Worker-specific event subscriber for handling FFI completion events
 #[derive(Debug, Clone)]
@@ -75,8 +135,8 @@ pub struct WorkerEventSubscriber {
     shared_subscriber: SharedEventSubscriber,
     /// Event system for direct access if needed
     event_system: Arc<WorkerEventSystem>,
-    /// Statistics tracking
-    stats: Arc<std::sync::Mutex<WorkerEventSubscriberStats>>,
+    /// Lock-free atomic statistics (Arc needed for spawned task)
+    stats: Arc<AtomicWorkerEventSubscriberStats>,
 }
 
 /// Statistics for worker event subscriber monitoring
@@ -117,10 +177,7 @@ impl WorkerEventSubscriber {
             "Creating WorkerEventSubscriber for FFI completion events"
         );
 
-        let stats = Arc::new(std::sync::Mutex::new(WorkerEventSubscriberStats {
-            worker_id: worker_id.clone(),
-            ..Default::default()
-        }));
+        let stats = Arc::new(AtomicWorkerEventSubscriberStats::new(worker_id.clone()));
 
         Self {
             worker_id,
@@ -134,10 +191,7 @@ impl WorkerEventSubscriber {
     pub fn with_event_system(worker_id: String, event_system: Arc<WorkerEventSystem>) -> Self {
         let shared_subscriber = event_system.create_subscriber();
 
-        let stats = Arc::new(std::sync::Mutex::new(WorkerEventSubscriberStats {
-            worker_id: worker_id.clone(),
-            ..Default::default()
-        }));
+        let stats = Arc::new(AtomicWorkerEventSubscriberStats::new(worker_id.clone()));
 
         Self {
             worker_id,
@@ -221,16 +275,7 @@ impl WorkerEventSubscriber {
 
                 event!(Level::INFO, "step.ffi_execution_completed");
 
-                // Update statistics
-                {
-                    let mut stats = stats.lock().unwrap_or_else(|p| p.into_inner());
-                    stats.completions_received += 1;
-                    if completion_event.success {
-                        stats.successful_completions += 1;
-                    } else {
-                        stats.failed_completions += 1;
-                    }
-                }
+                stats.record_completion(completion_event.success);
 
                 // Convert completion event to StepExecutionResult
                 match Self::convert_completion_to_result(completion_event) {
@@ -260,9 +305,7 @@ impl WorkerEventSubscriber {
                             "Failed to convert completion event to step result"
                         );
 
-                        // Update error statistics
-                        let mut stats = stats.lock().unwrap_or_else(|p| p.into_inner());
-                        stats.conversion_errors += 1;
+                        stats.record_conversion_error();
                     }
                 }
             }
@@ -290,20 +333,7 @@ impl WorkerEventSubscriber {
 
     /// Get event subscriber statistics
     pub fn get_statistics(&self) -> WorkerEventSubscriberStats {
-        let stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-
-        // Access shared event system data (available for future enhancement)
-        let _system_stats = self.event_system.get_statistics();
-
-        // Return current statistics (can be enhanced with system_stats data later)
-        WorkerEventSubscriberStats {
-            worker_id: stats.worker_id.clone(),
-            completions_received: stats.completions_received,
-            successful_completions: stats.successful_completions,
-            failed_completions: stats.failed_completions,
-            conversion_errors: stats.conversion_errors,
-            unmatched_correlations: stats.unmatched_correlations,
-        }
+        self.stats.snapshot()
     }
 
     /// Convert StepExecutionCompletionEvent to StepExecutionResult

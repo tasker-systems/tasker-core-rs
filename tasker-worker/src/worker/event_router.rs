@@ -63,6 +63,7 @@
 //! }
 //! ```
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
@@ -75,6 +76,80 @@ use tasker_shared::metrics::worker::EventRouterStats;
 use tasker_shared::models::core::task_template::EventDeliveryMode;
 
 use super::in_process_event_bus::InProcessEventBus;
+
+/// Lock-free atomic counters for EventRouter statistics.
+///
+/// Replaces `Arc<Mutex<EventRouterStats>>` to eliminate lock contention
+/// on the hot path (every event route operation).
+#[derive(Debug)]
+struct AtomicEventRouterStats {
+    total_routed: AtomicU64,
+    durable_routed: AtomicU64,
+    fast_routed: AtomicU64,
+    broadcast_routed: AtomicU64,
+    fast_delivery_errors: AtomicU64,
+    routing_errors: AtomicU64,
+}
+
+impl Default for AtomicEventRouterStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AtomicEventRouterStats {
+    fn new() -> Self {
+        Self {
+            total_routed: AtomicU64::new(0),
+            durable_routed: AtomicU64::new(0),
+            fast_routed: AtomicU64::new(0),
+            broadcast_routed: AtomicU64::new(0),
+            fast_delivery_errors: AtomicU64::new(0),
+            routing_errors: AtomicU64::new(0),
+        }
+    }
+
+    #[inline]
+    fn record_route(&self) {
+        self.total_routed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn record_durable(&self) {
+        self.durable_routed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn record_fast(&self) {
+        self.fast_routed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn record_broadcast(&self) {
+        self.broadcast_routed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn record_fast_error(&self) {
+        self.fast_delivery_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn record_routing_error(&self) {
+        self.routing_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> EventRouterStats {
+        EventRouterStats {
+            total_routed: self.total_routed.load(Ordering::Relaxed),
+            durable_routed: self.durable_routed.load(Ordering::Relaxed),
+            fast_routed: self.fast_routed.load(Ordering::Relaxed),
+            broadcast_routed: self.broadcast_routed.load(Ordering::Relaxed),
+            fast_delivery_errors: self.fast_delivery_errors.load(Ordering::Relaxed),
+            routing_errors: self.routing_errors.load(Ordering::Relaxed),
+        }
+    }
+}
 
 /// Result type for event routing operations
 pub type RouteResult = Result<EventRouteOutcome, EventRouterError>;
@@ -176,8 +251,8 @@ pub struct EventRouter {
     domain_publisher: Arc<DomainEventPublisher>,
     /// Bus for fast events (in-memory)
     in_process_bus: Arc<RwLock<InProcessEventBus>>,
-    /// Statistics
-    stats: Arc<std::sync::Mutex<EventRouterStats>>,
+    /// Lock-free atomic statistics
+    stats: AtomicEventRouterStats,
 }
 
 // Manual Debug since DomainEventPublisher doesn't implement Debug
@@ -206,7 +281,7 @@ impl EventRouter {
         Self {
             domain_publisher,
             in_process_bus,
-            stats: Arc::new(std::sync::Mutex::new(EventRouterStats::default())),
+            stats: AtomicEventRouterStats::new(),
         }
     }
 
@@ -242,11 +317,7 @@ impl EventRouter {
             "Routing domain event"
         );
 
-        // Update total routed stat
-        {
-            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-            stats.total_routed += 1;
-        }
+        self.stats.record_route();
 
         match delivery_mode {
             EventDeliveryMode::Durable => self.route_durable(event_name, payload, metadata).await,
@@ -285,11 +356,7 @@ impl EventRouter {
                     "Event published to durable path"
                 );
 
-                // Update stats
-                {
-                    let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-                    stats.durable_routed += 1;
-                }
+                self.stats.record_durable();
 
                 Ok(EventRouteOutcome::PublishedDurable {
                     event_id,
@@ -303,11 +370,7 @@ impl EventRouter {
                     "Failed to publish to durable path"
                 );
 
-                // Update stats
-                {
-                    let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-                    stats.routing_errors += 1;
-                }
+                self.stats.record_routing_error();
 
                 Err(EventRouterError::DurablePublishFailed {
                     event_name: event_name.to_string(),
@@ -353,11 +416,7 @@ impl EventRouter {
             "Event dispatched to fast path"
         );
 
-        // Update stats
-        {
-            let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-            stats.fast_routed += 1;
-        }
+        self.stats.record_fast();
 
         Ok(EventRouteOutcome::DispatchedFast { event_id })
     }
@@ -419,13 +478,9 @@ impl EventRouter {
                     "Broadcast: durable delivery complete"
                 );
 
-                // Update stats
-                {
-                    let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-                    stats.broadcast_routed += 1;
-                    if fast_error.is_some() {
-                        stats.fast_delivery_errors += 1;
-                    }
+                self.stats.record_broadcast();
+                if fast_error.is_some() {
+                    self.stats.record_fast_error();
                 }
 
                 Ok(EventRouteOutcome::Broadcast {
@@ -443,13 +498,9 @@ impl EventRouter {
                     "Broadcast: durable delivery failed"
                 );
 
-                // Update stats
-                {
-                    let mut stats = self.stats.lock().unwrap_or_else(|p| p.into_inner());
-                    stats.routing_errors += 1;
-                    if fast_error.is_some() {
-                        stats.fast_delivery_errors += 1;
-                    }
+                self.stats.record_routing_error();
+                if fast_error.is_some() {
+                    self.stats.record_fast_error();
                 }
 
                 // Durable failure is a routing error
@@ -463,7 +514,7 @@ impl EventRouter {
 
     /// Get router statistics
     pub fn get_statistics(&self) -> EventRouterStats {
-        self.stats.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        self.stats.snapshot()
     }
 
     /// Get reference to the domain publisher

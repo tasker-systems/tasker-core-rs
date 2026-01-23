@@ -98,7 +98,7 @@ impl From<tasker_shared::config::tasker::FfiCompletionSendCircuitBreakerConfig>
 /// let breaker = FfiCompletionCircuitBreaker::new(config);
 ///
 /// // Before attempting send
-/// if !breaker.should_allow().await {
+/// if !breaker.should_allow() {
 ///     // Fail fast - circuit is open
 ///     return false;
 /// }
@@ -109,7 +109,7 @@ impl From<tasker_shared::config::tasker::FfiCompletionSendCircuitBreakerConfig>
 /// let elapsed = start.elapsed();
 ///
 /// // Record result based on latency
-/// breaker.record_send_result(elapsed, success).await;
+/// breaker.record_send_result(elapsed, success);
 /// ```
 pub struct FfiCompletionCircuitBreaker {
     /// Underlying circuit breaker
@@ -162,8 +162,8 @@ impl FfiCompletionCircuitBreaker {
     ///
     /// Returns `true` if the circuit is closed or has transitioned to half-open.
     /// Returns `false` if the circuit is open and calls should fail fast.
-    pub async fn should_allow(&self) -> bool {
-        let allowed = self.breaker.should_allow().await;
+    pub fn should_allow(&self) -> bool {
+        let allowed = self.breaker.should_allow();
         if !allowed {
             self.circuit_open_rejections.fetch_add(1, Ordering::Relaxed);
             warn!(
@@ -185,7 +185,7 @@ impl FfiCompletionCircuitBreaker {
     ///
     /// * `elapsed` - Duration of the send operation
     /// * `success` - Whether the send operation succeeded
-    pub async fn record_send_result(&self, elapsed: Duration, success: bool) {
+    pub fn record_send_result(&self, elapsed: Duration, success: bool) {
         let is_slow = elapsed.as_millis() as u64 >= self.slow_send_threshold_ms;
 
         if is_slow {
@@ -201,7 +201,7 @@ impl FfiCompletionCircuitBreaker {
 
         if !success || is_slow {
             // Treat both errors and slow sends as failures
-            self.breaker.record_failure_manual(elapsed).await;
+            self.breaker.record_failure_manual(elapsed);
             debug!(
                 elapsed_ms = elapsed.as_millis(),
                 success = success,
@@ -210,7 +210,7 @@ impl FfiCompletionCircuitBreaker {
                 "FFI completion circuit breaker: recorded failure"
             );
         } else {
-            self.breaker.record_success_manual(elapsed).await;
+            self.breaker.record_success_manual(elapsed);
             debug!(
                 elapsed_ms = elapsed.as_millis(),
                 state = ?self.state(),
@@ -245,8 +245,8 @@ impl FfiCompletionCircuitBreaker {
     }
 
     /// Get circuit breaker metrics
-    pub async fn metrics(&self) -> FfiCompletionCircuitBreakerMetrics {
-        let breaker_metrics = self.breaker.metrics().await;
+    pub fn metrics(&self) -> FfiCompletionCircuitBreakerMetrics {
+        let breaker_metrics = self.breaker.metrics();
         FfiCompletionCircuitBreakerMetrics {
             state: self.state(),
             failure_count: breaker_metrics.failure_count,
@@ -260,15 +260,15 @@ impl FfiCompletionCircuitBreaker {
     }
 
     /// Force the circuit open (for emergency situations)
-    pub async fn force_open(&self) {
+    pub fn force_open(&self) {
         warn!("FFI completion circuit breaker: forced open");
-        self.breaker.force_open().await;
+        self.breaker.force_open();
     }
 
     /// Force the circuit closed (for emergency recovery)
-    pub async fn force_closed(&self) {
+    pub fn force_closed(&self) {
         warn!("FFI completion circuit breaker: forced closed");
-        self.breaker.force_closed().await;
+        self.breaker.force_closed();
     }
 }
 
@@ -318,14 +318,12 @@ mod tests {
         let breaker = FfiCompletionCircuitBreaker::new(config);
 
         // Fast successful send
-        breaker
-            .record_send_result(Duration::from_millis(5), true)
-            .await;
+        breaker.record_send_result(Duration::from_millis(5), true);
 
         assert_eq!(breaker.state(), CircuitState::Closed);
         assert_eq!(breaker.slow_send_count(), 0);
 
-        let metrics = breaker.metrics().await;
+        let metrics = breaker.metrics();
         assert_eq!(metrics.success_count, 1);
         assert_eq!(metrics.failure_count, 0);
     }
@@ -340,13 +338,11 @@ mod tests {
         let breaker = FfiCompletionCircuitBreaker::new(config);
 
         // Slow but successful send - should be treated as failure
-        breaker
-            .record_send_result(Duration::from_millis(150), true)
-            .await;
+        breaker.record_send_result(Duration::from_millis(150), true);
 
         assert_eq!(breaker.slow_send_count(), 1);
 
-        let metrics = breaker.metrics().await;
+        let metrics = breaker.metrics();
         assert_eq!(metrics.failure_count, 1);
         assert_eq!(metrics.success_count, 0);
     }
@@ -362,15 +358,11 @@ mod tests {
         let breaker = FfiCompletionCircuitBreaker::new(config);
 
         // First slow send
-        breaker
-            .record_send_result(Duration::from_millis(100), true)
-            .await;
+        breaker.record_send_result(Duration::from_millis(100), true);
         assert_eq!(breaker.state(), CircuitState::Closed);
 
         // Second slow send - should open circuit
-        breaker
-            .record_send_result(Duration::from_millis(100), true)
-            .await;
+        breaker.record_send_result(Duration::from_millis(100), true);
         assert_eq!(breaker.state(), CircuitState::Open);
         assert_eq!(breaker.slow_send_count(), 2);
     }
@@ -385,17 +377,15 @@ mod tests {
         let breaker = FfiCompletionCircuitBreaker::new(config);
 
         // Open the circuit
-        breaker
-            .record_send_result(Duration::from_millis(1), false)
-            .await;
+        breaker.record_send_result(Duration::from_millis(1), false);
         assert_eq!(breaker.state(), CircuitState::Open);
 
         // Try to send - should be rejected
-        assert!(!breaker.should_allow().await);
+        assert!(!breaker.should_allow());
         assert_eq!(breaker.circuit_open_rejections(), 1);
 
         // Another attempt
-        assert!(!breaker.should_allow().await);
+        assert!(!breaker.should_allow());
         assert_eq!(breaker.circuit_open_rejections(), 2);
     }
 
@@ -410,21 +400,17 @@ mod tests {
         let breaker = FfiCompletionCircuitBreaker::new(config);
 
         // Open the circuit
-        breaker
-            .record_send_result(Duration::from_millis(1), false)
-            .await;
+        breaker.record_send_result(Duration::from_millis(1), false);
         assert_eq!(breaker.state(), CircuitState::Open);
 
         // Wait for timeout
         sleep(Duration::from_millis(1100)).await;
 
         // Should allow (transitioning to half-open)
-        assert!(breaker.should_allow().await);
+        assert!(breaker.should_allow());
 
         // Fast successful send should close circuit
-        breaker
-            .record_send_result(Duration::from_millis(5), true)
-            .await;
+        breaker.record_send_result(Duration::from_millis(5), true);
         assert_eq!(breaker.state(), CircuitState::Closed);
     }
 
@@ -433,10 +419,10 @@ mod tests {
         let config = FfiCompletionCircuitBreakerConfig::default();
         let breaker = FfiCompletionCircuitBreaker::new(config);
 
-        breaker.force_open().await;
+        breaker.force_open();
         assert_eq!(breaker.state(), CircuitState::Open);
 
-        breaker.force_closed().await;
+        breaker.force_closed();
         assert_eq!(breaker.state(), CircuitState::Closed);
     }
 
@@ -449,17 +435,11 @@ mod tests {
         let breaker = FfiCompletionCircuitBreaker::new(config);
 
         // Mix of fast and slow sends
-        breaker
-            .record_send_result(Duration::from_millis(10), true)
-            .await; // fast success
-        breaker
-            .record_send_result(Duration::from_millis(100), true)
-            .await; // slow (failure)
-        breaker
-            .record_send_result(Duration::from_millis(5), false)
-            .await; // fast error
+        breaker.record_send_result(Duration::from_millis(10), true); // fast success
+        breaker.record_send_result(Duration::from_millis(100), true); // slow (failure)
+        breaker.record_send_result(Duration::from_millis(5), false); // fast error
 
-        let metrics = breaker.metrics().await;
+        let metrics = breaker.metrics();
         assert_eq!(metrics.success_count, 1);
         assert_eq!(metrics.failure_count, 2);
         assert_eq!(metrics.slow_send_count, 1);
