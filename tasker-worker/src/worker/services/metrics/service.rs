@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Utc;
-use sqlx::PgPool;
 use tokio::sync::RwLock as TokioRwLock;
 use tracing::debug;
 
@@ -40,14 +39,14 @@ use tasker_shared::types::web::{
 /// use tasker_worker::worker::event_router::EventRouter;
 /// use tasker_worker::worker::in_process_event_bus::InProcessEventBus;
 /// use tasker_shared::messaging::client::MessageClient;
-/// use sqlx::PgPool;
+/// use tasker_shared::database::DatabasePools;
 /// use std::sync::Arc;
 /// use std::time::Instant;
 /// use tokio::sync::RwLock;
 ///
 /// async fn example(
 ///     worker_id: String,
-///     database_pool: Arc<PgPool>,
+///     database_pools: DatabasePools,
 ///     message_client: Arc<MessageClient>,
 ///     task_template_manager: Arc<TaskTemplateManager>,
 ///     event_router: Option<Arc<EventRouter>>,
@@ -57,7 +56,7 @@ use tasker_shared::types::web::{
 ///
 ///     let service = MetricsService::new(
 ///         worker_id,
-///         database_pool,
+///         database_pools,
 ///         message_client,
 ///         task_template_manager,
 ///         event_router,
@@ -79,8 +78,8 @@ pub struct MetricsService {
     /// Worker identification
     worker_id: String,
 
-    /// Database connection pool for pool size metrics
-    database_pool: Arc<PgPool>,
+    /// TAS-164: Database pools for pool size and utilization metrics
+    database_pools: tasker_shared::database::DatabasePools,
 
     /// TAS-133e: Message client for queue metrics (provider-agnostic)
     message_client: Arc<MessageClient>,
@@ -112,7 +111,7 @@ impl MetricsService {
     /// Create a new MetricsService
     pub fn new(
         worker_id: String,
-        database_pool: Arc<PgPool>,
+        database_pools: tasker_shared::database::DatabasePools,
         message_client: Arc<MessageClient>,
         task_template_manager: Arc<TaskTemplateManager>,
         event_router: Option<Arc<EventRouter>>,
@@ -121,7 +120,7 @@ impl MetricsService {
     ) -> Self {
         Self {
             worker_id,
-            database_pool,
+            database_pools,
             message_client,
             task_template_manager,
             event_router,
@@ -179,7 +178,7 @@ impl MetricsService {
         // Database connection pool metrics
         metrics.push(format!(
             "# HELP tasker_worker_db_pool_size Database connection pool size\n# TYPE tasker_worker_db_pool_size gauge\ntasker_worker_db_pool_size {{}} {}",
-            self.database_pool.size()
+            self.database_pools.tasker().size()
         ));
 
         // Queue depth metrics for each supported namespace
@@ -255,7 +254,7 @@ impl MetricsService {
         metrics.insert(
             "database_pool_size".to_string(),
             MetricValue {
-                value: self.database_pool.size() as f64,
+                value: self.database_pools.tasker().size() as f64,
                 metric_type: "gauge".to_string(),
                 labels: HashMap::new(),
                 help: "Database connection pool size".to_string(),

@@ -106,6 +106,9 @@ pub struct WorkerSystemInfo {
     pub database_pool_size: u32,
     pub command_processor_active: bool,
     pub supported_namespaces: Vec<String>,
+    /// Connection pool utilization details (TAS-164)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pool_utilization: Option<super::health::PoolUtilizationInfo>,
 }
 
 // =============================================================================

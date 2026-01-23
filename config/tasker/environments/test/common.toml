@@ -23,6 +23,7 @@ min_connections = 2
 acquire_timeout_seconds = 30
 idle_timeout_seconds = 60
 max_lifetime_seconds = 3600
+slow_acquire_threshold_ms = 500
 
 [common.database.variables]
 statement_timeout = 5000
@@ -39,6 +40,7 @@ min_connections = 1
 acquire_timeout_seconds = 5
 idle_timeout_seconds = 60
 max_lifetime_seconds = 3600
+slow_acquire_threshold_ms = 500
 
 [common.queues]
 default_batch_size = 5

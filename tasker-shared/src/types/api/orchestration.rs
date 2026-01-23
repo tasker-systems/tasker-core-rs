@@ -390,6 +390,9 @@ pub struct HealthCheck {
     pub duration_ms: u64,
 }
 
+// TAS-164: Pool utilization types are shared with worker health endpoints
+pub use super::health::{PoolDetail, PoolUtilizationInfo};
+
 /// System information for detailed health
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
@@ -400,6 +403,9 @@ pub struct HealthInfo {
     pub web_database_pool_size: u32,
     pub orchestration_database_pool_size: u32,
     pub circuit_breaker_state: String,
+    /// Connection pool utilization details (TAS-164)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pool_utilization: Option<PoolUtilizationInfo>,
 }
 
 /// Query parameters for performance metrics

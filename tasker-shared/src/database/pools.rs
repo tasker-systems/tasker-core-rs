@@ -15,8 +15,11 @@
 //! PGMQ operations use the main database pool.
 
 use crate::config::tasker::{PoolConfig, TaskerConfig};
+use crate::database::pool_stats::AtomicPoolStats;
 use crate::{TaskerError, TaskerResult};
+use serde::Serialize;
 use sqlx::PgPool;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
 
@@ -35,6 +38,15 @@ pub struct DatabasePools {
 
     /// Whether PGMQ is on a separate database
     pgmq_is_separate: bool,
+
+    /// Atomic stats for the tasker pool (TAS-164)
+    tasker_stats: Arc<AtomicPoolStats>,
+
+    /// Atomic stats for the pgmq pool (TAS-164)
+    pgmq_stats: Arc<AtomicPoolStats>,
+
+    /// Slow acquire threshold in microseconds (TAS-164)
+    slow_threshold_us: u64,
 }
 
 impl std::fmt::Debug for DatabasePools {
@@ -43,6 +55,9 @@ impl std::fmt::Debug for DatabasePools {
             .field("tasker_pool_size", &self.tasker.size())
             .field("pgmq_pool_size", &self.pgmq.size())
             .field("pgmq_is_separate", &self.pgmq_is_separate)
+            .field("slow_threshold_us", &self.slow_threshold_us)
+            .field("tasker_stats", &self.tasker_stats.snapshot())
+            .field("pgmq_stats", &self.pgmq_stats.snapshot())
             .finish()
     }
 }
@@ -60,11 +75,13 @@ impl DatabasePools {
             tasker_url.chars().take(30).collect::<String>()
         );
 
-        let tasker = Self::create_pool(&config.common.database.pool, &tasker_url).await?;
+        let tasker_pool_config = &config.common.database.pool;
+        let tasker = Self::create_pool(tasker_pool_config, &tasker_url).await?;
         info!("Tasker database pool created successfully");
 
         let pgmq_is_separate = config.common.pgmq_is_separate();
 
+        let pgmq_pool_config = config.common.pgmq_pool_config();
         let pgmq = if pgmq_is_separate {
             let pgmq_url = config.common.pgmq_database_url();
             info!(
@@ -72,7 +89,6 @@ impl DatabasePools {
                 pgmq_url.chars().take(30).collect::<String>()
             );
 
-            let pgmq_pool_config = config.common.pgmq_pool_config();
             let pool = Self::create_pool(pgmq_pool_config, &pgmq_url).await?;
             info!("PGMQ database pool created successfully (separate database)");
             pool
@@ -81,10 +97,23 @@ impl DatabasePools {
             tasker.clone()
         };
 
+        let slow_threshold_us = u64::from(tasker_pool_config.slow_acquire_threshold_ms) * 1000;
+        let tasker_stats = Arc::new(AtomicPoolStats::new(
+            "tasker".to_string(),
+            tasker_pool_config.max_connections,
+        ));
+        let pgmq_stats = Arc::new(AtomicPoolStats::new(
+            "pgmq".to_string(),
+            pgmq_pool_config.max_connections,
+        ));
+
         Ok(Self {
             tasker,
             pgmq,
             pgmq_is_separate,
+            tasker_stats,
+            pgmq_stats,
+            slow_threshold_us,
         })
     }
 
@@ -94,6 +123,8 @@ impl DatabasePools {
     /// If PGMQ is configured for a separate database, a new pool is created for it.
     pub async fn with_tasker_pool(config: &TaskerConfig, tasker: PgPool) -> TaskerResult<Self> {
         let pgmq_is_separate = config.common.pgmq_is_separate();
+        let tasker_pool_config = &config.common.database.pool;
+        let pgmq_pool_config = config.common.pgmq_pool_config();
 
         let pgmq = if pgmq_is_separate {
             let pgmq_url = config.common.pgmq_database_url();
@@ -102,7 +133,6 @@ impl DatabasePools {
                 pgmq_url.chars().take(30).collect::<String>()
             );
 
-            let pgmq_pool_config = config.common.pgmq_pool_config();
             let pool = Self::create_pool(pgmq_pool_config, &pgmq_url).await?;
             info!("PGMQ database pool created successfully (separate database)");
             pool
@@ -111,10 +141,23 @@ impl DatabasePools {
             tasker.clone()
         };
 
+        let slow_threshold_us = u64::from(tasker_pool_config.slow_acquire_threshold_ms) * 1000;
+        let tasker_stats = Arc::new(AtomicPoolStats::new(
+            "tasker".to_string(),
+            tasker_pool_config.max_connections,
+        ));
+        let pgmq_stats = Arc::new(AtomicPoolStats::new(
+            "pgmq".to_string(),
+            pgmq_pool_config.max_connections,
+        ));
+
         Ok(Self {
             tasker,
             pgmq,
             pgmq_is_separate,
+            tasker_stats,
+            pgmq_stats,
+            slow_threshold_us,
         })
     }
 
@@ -176,6 +219,69 @@ impl DatabasePools {
             | DatabaseOperation::QueueCreate => &self.pgmq,
         }
     }
+
+    /// Get current pool utilization (active/idle connection counts).
+    pub fn utilization(&self) -> PoolUtilization {
+        let tasker_stats = self.tasker_stats.snapshot();
+        let pgmq_stats = self.pgmq_stats.snapshot();
+        PoolUtilization {
+            tasker_size: self.tasker.size(),
+            tasker_idle: self.tasker.num_idle() as u32,
+            tasker_max: tasker_stats.max_connections,
+            pgmq_size: self.pgmq.size(),
+            pgmq_idle: self.pgmq.num_idle() as u32,
+            pgmq_max: pgmq_stats.max_connections,
+            pgmq_is_separate: self.pgmq_is_separate,
+        }
+    }
+
+    /// Get stats snapshots for both pools.
+    pub fn stats_snapshots(
+        &self,
+    ) -> (
+        crate::database::pool_stats::PoolStatsSnapshot,
+        crate::database::pool_stats::PoolStatsSnapshot,
+    ) {
+        (self.tasker_stats.snapshot(), self.pgmq_stats.snapshot())
+    }
+
+    /// Record a tasker pool acquire duration.
+    #[inline]
+    pub fn record_tasker_acquire(&self, duration_us: u64) {
+        self.tasker_stats
+            .record_acquire(duration_us, self.slow_threshold_us);
+    }
+
+    /// Record a pgmq pool acquire duration.
+    #[inline]
+    pub fn record_pgmq_acquire(&self, duration_us: u64) {
+        self.pgmq_stats
+            .record_acquire(duration_us, self.slow_threshold_us);
+    }
+
+    /// Record a tasker pool acquire error.
+    #[inline]
+    pub fn record_tasker_error(&self) {
+        self.tasker_stats.record_error();
+    }
+
+    /// Record a pgmq pool acquire error.
+    #[inline]
+    pub fn record_pgmq_error(&self) {
+        self.pgmq_stats.record_error();
+    }
+}
+
+/// Current pool utilization snapshot (TAS-164).
+#[derive(Debug, Clone, Serialize)]
+pub struct PoolUtilization {
+    pub tasker_size: u32,
+    pub tasker_idle: u32,
+    pub tasker_max: u32,
+    pub pgmq_size: u32,
+    pub pgmq_idle: u32,
+    pub pgmq_max: u32,
+    pub pgmq_is_separate: bool,
 }
 
 /// Categories of database operations for pool routing

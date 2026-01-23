@@ -375,6 +375,16 @@ pub struct PoolConfig {
     #[validate(range(min = 60, max = 86400))]
     #[builder(default = 1800)]
     pub max_lifetime_seconds: u32,
+
+    /// Threshold in milliseconds for slow acquire warnings (TAS-164)
+    #[validate(range(min = 10, max = 60000))]
+    #[builder(default = 100)]
+    #[serde(default = "default_slow_acquire_threshold_ms")]
+    pub slow_acquire_threshold_ms: u32,
+}
+
+fn default_slow_acquire_threshold_ms() -> u32 {
+    100
 }
 
 impl_builder_default!(PoolConfig);
@@ -2540,6 +2550,7 @@ mod tests {
                     acquire_timeout_seconds: 30,
                     idle_timeout_seconds: 600,
                     max_lifetime_seconds: 1800,
+                    slow_acquire_threshold_ms: 100,
                 },
                 variables: DatabaseVariablesConfig {
                     statement_timeout: 5000,

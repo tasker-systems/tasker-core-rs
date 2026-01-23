@@ -12,6 +12,7 @@ use crate::health::QueueDepthTier;
 use crate::orchestration::core::OrchestrationCoreStatus;
 use crate::web::state::AppState;
 use tasker_shared::metrics::channels::global_registry;
+use tasker_shared::types::api::health::build_pool_utilization;
 use tasker_shared::types::api::orchestration::{
     DetailedHealthResponse, HealthCheck, HealthInfo, HealthResponse,
 };
@@ -163,6 +164,11 @@ pub async fn detailed_health(State(state): State<AppState>) -> Json<DetailedHeal
         "command_processor".to_string(),
         check_command_processor_health(&state).await,
     );
+    // TAS-164: Add pool utilization health check
+    checks.insert(
+        "pool_utilization".to_string(),
+        check_pool_utilization_health(&state),
+    );
     // TAS-75 Phase 3: Add queue depth health check
     checks.insert(
         "queue_depth".to_string(),
@@ -224,10 +230,21 @@ pub async fn prometheus_metrics(State(state): State<AppState>) -> Html<String> {
         if status.running { 1 } else { 0 }
     ));
 
-    // Database pool metrics
+    // Database pool metrics (legacy)
     custom_metrics.push(format!(
         "# HELP tasker_orchestration_db_pool_size Database connection pool size\n# TYPE tasker_orchestration_db_pool_size gauge\ntasker_orchestration_db_pool_size {{}} {}",
         state.orchestration_db_pool.size()
+    ));
+
+    // TAS-164: Detailed pool utilization gauges
+    let pools = state.orchestration_core.context.database_pools();
+    let utilization = pools.utilization();
+    custom_metrics.push(format!(
+        "# HELP tasker_db_pool_connections Current database connection pool connections\n# TYPE tasker_db_pool_connections gauge\ntasker_db_pool_connections{{pool=\"tasker\",state=\"active\"}} {}\ntasker_db_pool_connections{{pool=\"tasker\",state=\"idle\"}} {}\ntasker_db_pool_connections{{pool=\"pgmq\",state=\"active\"}} {}\ntasker_db_pool_connections{{pool=\"pgmq\",state=\"idle\"}} {}",
+        utilization.tasker_size.saturating_sub(utilization.tasker_idle),
+        utilization.tasker_idle,
+        utilization.pgmq_size.saturating_sub(utilization.pgmq_idle),
+        utilization.pgmq_idle,
     ));
 
     // Circuit breaker metrics
@@ -386,6 +403,10 @@ async fn create_health_info(state: &AppState) -> HealthInfo {
         OrchestrationCoreStatus::Created => "Startup",
     };
 
+    // TAS-164: Build pool utilization info using shared helper
+    let pools = state.orchestration_core.context.database_pools();
+    let pool_utilization = Some(build_pool_utilization(pools));
+
     HealthInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
         environment: cached_status.environment.clone(),
@@ -393,6 +414,68 @@ async fn create_health_info(state: &AppState) -> HealthInfo {
         web_database_pool_size: state.web_db_pool.size(),
         orchestration_database_pool_size: cached_status.database_pool_size,
         circuit_breaker_state: format!("{:?}", state.web_db_circuit_breaker.current_state()),
+        pool_utilization,
+    }
+}
+
+/// TAS-164: Check pool utilization health.
+///
+/// Reports healthy (<80%), degraded (80-95%), or unhealthy (>95%) based on
+/// the highest utilization across tasker and pgmq pools.
+fn check_pool_utilization_health(state: &AppState) -> HealthCheck {
+    let start = std::time::Instant::now();
+
+    let pools = state.orchestration_core.context.database_pools();
+    let utilization = pools.utilization();
+
+    let tasker_active = utilization
+        .tasker_size
+        .saturating_sub(utilization.tasker_idle);
+    let pgmq_active = utilization.pgmq_size.saturating_sub(utilization.pgmq_idle);
+
+    let tasker_pct = if utilization.tasker_max > 0 {
+        f64::from(tasker_active) / f64::from(utilization.tasker_max) * 100.0
+    } else {
+        0.0
+    };
+    let pgmq_pct = if utilization.pgmq_max > 0 {
+        f64::from(pgmq_active) / f64::from(utilization.pgmq_max) * 100.0
+    } else {
+        0.0
+    };
+
+    let max_pct = tasker_pct.max(pgmq_pct);
+
+    let (status, message) = if max_pct > 95.0 {
+        (
+            "unhealthy",
+            format!(
+                "Pool utilization critical: tasker={tasker_active}/{} ({tasker_pct:.1}%), pgmq={pgmq_active}/{} ({pgmq_pct:.1}%)",
+                utilization.tasker_max, utilization.pgmq_max,
+            ),
+        )
+    } else if max_pct > 80.0 {
+        (
+            "degraded",
+            format!(
+                "Pool utilization elevated: tasker={tasker_active}/{} ({tasker_pct:.1}%), pgmq={pgmq_active}/{} ({pgmq_pct:.1}%)",
+                utilization.tasker_max, utilization.pgmq_max,
+            ),
+        )
+    } else {
+        (
+            "healthy",
+            format!(
+                "Pool utilization normal: tasker={tasker_active}/{} ({tasker_pct:.1}%), pgmq={pgmq_active}/{} ({pgmq_pct:.1}%)",
+                utilization.tasker_max, utilization.pgmq_max,
+            ),
+        )
+    };
+
+    HealthCheck {
+        status: status.to_string(),
+        message: Some(message),
+        duration_ms: start.elapsed().as_millis() as u64,
     }
 }
 
