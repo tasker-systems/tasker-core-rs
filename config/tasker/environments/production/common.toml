@@ -3,6 +3,12 @@
 [common.database.pool]
 max_connections = 50
 min_connections = 10
+slow_acquire_threshold_ms = 50
+
+[common.pgmq_database.pool]
+max_connections = 25
+min_connections = 5
+slow_acquire_threshold_ms = 50
 
 [common.execution]
 max_concurrent_tasks = 200

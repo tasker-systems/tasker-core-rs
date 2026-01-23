@@ -11,10 +11,10 @@ use crate::worker::services::{
 };
 use crate::worker::task_template_manager::TaskTemplateManager;
 use serde::Serialize;
-use sqlx::PgPool;
 use std::{sync::Arc, time::Instant};
 use tasker_shared::{
     config::tasker::TaskerConfig,
+    database::DatabasePools,
     errors::TaskerResult,
     messaging::client::MessageClient,
     messaging::service::MessagingProvider,
@@ -85,14 +85,8 @@ pub struct WorkerWebState {
     /// Wrapped in Arc<Mutex<>> for thread-safe shared access
     pub worker_core: Arc<tokio::sync::Mutex<crate::worker::core::WorkerCore>>,
 
-    /// Database connection pool for Tasker tables
-    pub database_pool: Arc<PgPool>,
-
-    /// TAS-78: PGMQ pool for queue metrics
-    ///
-    /// Separate pool for PGMQ operations to support split-database deployments
-    /// where PGMQ runs on a dedicated database.
-    pub pgmq_pool: Arc<PgPool>,
+    /// TAS-164: Database pools for Tasker and PGMQ operations
+    pub database_pools: DatabasePools,
 
     /// TAS-133e: Message client for queue metrics and monitoring (provider-agnostic)
     pub message_client: Arc<MessageClient>,
@@ -154,14 +148,12 @@ impl WorkerWebState {
     /// # Arguments
     /// * `config` - Web API configuration
     /// * `worker_core` - Worker core for processing stats
-    /// * `database_pool` - Tasker database pool for table operations
-    /// * `pgmq_pool` - TAS-78: PGMQ pool for queue metrics (may be same as database_pool)
+    /// * `database_pools` - TAS-164: Database pools (Tasker + PGMQ)
     /// * `system_config` - System configuration
     pub async fn new(
         config: WorkerWebConfig,
         worker_core: Arc<tokio::sync::Mutex<crate::worker::core::WorkerCore>>,
-        database_pool: Arc<PgPool>,
-        pgmq_pool: Arc<PgPool>,
+        database_pools: DatabasePools,
         system_config: TaskerConfig,
     ) -> TaskerResult<Self> {
         info!(
@@ -180,7 +172,7 @@ impl WorkerWebState {
 
         // TAS-133e: Create message client using the new provider-agnostic API
         let messaging_provider =
-            Arc::new(MessagingProvider::new_pgmq_with_pool((*pgmq_pool).clone()).await);
+            Arc::new(MessagingProvider::new_pgmq_with_pool(database_pools.pgmq().clone()).await);
         let message_client = Arc::new(MessageClient::new(
             messaging_provider,
             tasker_shared::messaging::service::MessageRouterKind::default(),
@@ -212,11 +204,10 @@ impl WorkerWebState {
             Arc::new(TokioRwLock::new(None));
 
         // TAS-77: Create service instances for handler delegation
-        // TAS-78: Pass PGMQ pool for queue metrics (supports split-database deployments)
+        // TAS-164: Pass DatabasePools for pool utilization and connectivity checks
         let health_service = Arc::new(HealthService::new(
             worker_id.clone(),
-            database_pool.clone(),
-            pgmq_pool.clone(),
+            database_pools.clone(),
             worker_core.clone(),
             circuit_breaker_health_provider.clone(), // Shared reference
             start_time,
@@ -224,7 +215,7 @@ impl WorkerWebState {
 
         let metrics_service = Arc::new(MetricsService::new(
             worker_id.clone(),
-            database_pool.clone(),
+            database_pools.clone(),
             message_client.clone(),
             task_template_manager.clone(),
             event_router.clone(),
@@ -241,8 +232,7 @@ impl WorkerWebState {
 
         Ok(Self {
             worker_core,
-            database_pool,
-            pgmq_pool,
+            database_pools,
             message_client,
             task_template_manager,
             event_router,

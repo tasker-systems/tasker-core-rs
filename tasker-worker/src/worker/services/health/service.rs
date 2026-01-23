@@ -9,12 +9,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Utc;
-use sqlx::{PgPool, Row};
+use sqlx::Row;
 use tokio::sync::RwLock as TokioRwLock;
 use tracing::{debug, error, warn};
 
 use crate::web::state::CircuitBreakerHealthProvider;
 use crate::worker::core::{WorkerCore, WorkerCoreStatus};
+use tasker_shared::database::DatabasePools;
+use tasker_shared::types::api::health::build_pool_utilization;
 use tasker_shared::types::api::worker::{
     BasicHealthResponse, CircuitBreakerState, CircuitBreakersHealth, DetailedHealthResponse,
     HealthCheck, WorkerSystemInfo,
@@ -41,15 +43,14 @@ pub type SharedCircuitBreakerProvider =
 /// ```rust,no_run
 /// use tasker_worker::worker::services::health::{HealthService, SharedCircuitBreakerProvider};
 /// use tasker_worker::worker::core::WorkerCore;
-/// use sqlx::PgPool;
+/// use tasker_shared::database::DatabasePools;
 /// use std::sync::Arc;
 /// use std::time::Instant;
 /// use tokio::sync::{Mutex, RwLock};
 ///
 /// async fn example(
 ///     worker_id: String,
-///     database_pool: Arc<PgPool>,
-///     pgmq_pool: Arc<PgPool>,  // TAS-78: Separate PGMQ pool
+///     database_pools: DatabasePools,
 ///     worker_core: Arc<Mutex<WorkerCore>>,
 /// ) {
 ///     let circuit_breaker_provider: SharedCircuitBreakerProvider =
@@ -58,8 +59,7 @@ pub type SharedCircuitBreakerProvider =
 ///
 ///     let service = HealthService::new(
 ///         worker_id,
-///         database_pool,
-///         pgmq_pool,
+///         database_pools,
 ///         worker_core,
 ///         circuit_breaker_provider,
 ///         start_time,
@@ -76,14 +76,8 @@ pub struct HealthService {
     /// Worker identification
     worker_id: String,
 
-    /// Database connection pool for Tasker table connectivity checks
-    database_pool: Arc<PgPool>,
-
-    /// TAS-78: PGMQ pool for queue metrics
-    ///
-    /// Separate pool for PGMQ operations to support split-database deployments
-    /// where PGMQ runs on a dedicated database.
-    pgmq_pool: Arc<PgPool>,
+    /// TAS-164: Database pools for connectivity checks and utilization reporting
+    database_pools: DatabasePools,
 
     /// Worker core for processor and step execution stats
     worker_core: Arc<tokio::sync::Mutex<WorkerCore>>,
@@ -100,6 +94,7 @@ impl std::fmt::Debug for HealthService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HealthService")
             .field("worker_id", &self.worker_id)
+            .field("database_pools", &self.database_pools)
             .field("uptime_seconds", &self.start_time.elapsed().as_secs())
             .field("circuit_breaker_provider", &"<shared>")
             .finish()
@@ -111,24 +106,21 @@ impl HealthService {
     ///
     /// # Arguments
     /// * `worker_id` - Unique worker identifier
-    /// * `database_pool` - Tasker database pool for connectivity checks
-    /// * `pgmq_pool` - TAS-78: PGMQ pool for queue metrics (may be same as database_pool)
+    /// * `database_pools` - TAS-164: Database pools for connectivity checks and utilization
     /// * `worker_core` - Worker core for processing stats
     /// * `circuit_breaker_provider` - Shared reference to circuit breaker provider.
     ///   This is shared with `WorkerWebState` so updates are visible to both.
     /// * `start_time` - Service start time for uptime calculation
     pub fn new(
         worker_id: String,
-        database_pool: Arc<PgPool>,
-        pgmq_pool: Arc<PgPool>,
+        database_pools: DatabasePools,
         worker_core: Arc<tokio::sync::Mutex<WorkerCore>>,
         circuit_breaker_provider: SharedCircuitBreakerProvider,
         start_time: std::time::Instant,
     ) -> Self {
         Self {
             worker_id,
-            database_pool,
-            pgmq_pool,
+            database_pools,
             worker_core,
             circuit_breaker_provider,
             start_time,
@@ -276,7 +268,7 @@ impl HealthService {
         let start = std::time::Instant::now();
 
         match sqlx::query("SELECT 1")
-            .fetch_one(self.database_pool.as_ref())
+            .fetch_one(self.database_pools.tasker())
             .await
         {
             Ok(_) => HealthCheck {
@@ -343,7 +335,7 @@ impl HealthService {
         match sqlx::query(
             "SELECT queue_name, queue_length FROM pgmq.metrics_all() WHERE queue_name LIKE '%_queue'",
         )
-        .fetch_all(self.pgmq_pool.as_ref())
+        .fetch_all(self.database_pools.pgmq())
         .await
         {
             Ok(rows) => {
@@ -607,9 +599,10 @@ impl HealthService {
             environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
             uptime_seconds: self.uptime_seconds(),
             worker_type: "command_processor".to_string(),
-            database_pool_size: self.database_pool.size(),
+            database_pool_size: self.database_pools.tasker().size(),
             command_processor_active: matches!(worker_core.status(), WorkerCoreStatus::Running),
             supported_namespaces: worker_core.supported_namespaces().await,
+            pool_utilization: Some(build_pool_utilization(&self.database_pools)),
         }
     }
 }

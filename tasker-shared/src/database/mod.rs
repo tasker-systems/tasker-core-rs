@@ -47,11 +47,13 @@
 
 pub mod error_codes;
 pub mod migrator;
+pub mod pool_stats;
 pub mod pools;
 pub mod sql_functions;
 
 pub use error_codes::PgErrorCode;
-pub use pools::{DatabaseOperation, DatabasePools};
+pub use pool_stats::{AtomicPoolStats, PoolStatsSnapshot};
+pub use pools::{DatabaseOperation, DatabasePools, PoolUtilization};
 pub use sql_functions::{
     AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
