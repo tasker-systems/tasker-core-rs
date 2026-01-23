@@ -105,8 +105,8 @@ brew "yq"
 # watch - Execute a program periodically
 brew "watch"
 
-# htop - Interactive process viewer
-brew "htop"
+# bottom - process monitoring
+brew "bottom"
 
 # -----------------------------------------------------------------------------
 # Performance & Profiling Tools (TAS-71)

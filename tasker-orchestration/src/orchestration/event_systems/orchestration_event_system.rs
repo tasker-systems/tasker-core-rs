@@ -92,8 +92,8 @@ pub struct OrchestrationStatistics {
     events_failed: AtomicU64,
     /// Operations coordinated counter (system-level)
     operations_coordinated: AtomicU64,
-    /// Last processing timestamp (system-level)
-    last_processing_time: std::sync::Mutex<Option<Instant>>,
+    /// Last processing timestamp as epoch nanos (0 = never processed)
+    last_processing_time_epoch_nanos: AtomicU64,
     /// Processing latencies for rate calculation (system-level)
     processing_latencies: std::sync::Mutex<VecDeque<Duration>>,
 }
@@ -106,11 +106,9 @@ impl Clone for OrchestrationStatistics {
             operations_coordinated: AtomicU64::new(
                 self.operations_coordinated.load(Ordering::Relaxed),
             ),
-            last_processing_time: std::sync::Mutex::new(
-                *self
-                    .last_processing_time
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner()),
+            last_processing_time_epoch_nanos: AtomicU64::new(
+                self.last_processing_time_epoch_nanos
+                    .load(Ordering::Relaxed),
             ),
             processing_latencies: std::sync::Mutex::new(
                 self.processing_latencies
@@ -1349,10 +1347,13 @@ impl OrchestrationEventSystem {
             }
         }
 
-        // Update processing timestamp
-        *statistics
-            .last_processing_time
-            .lock()
-            .unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
+        // Update processing timestamp (lock-free)
+        statistics.last_processing_time_epoch_nanos.store(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_nanos() as u64,
+            Ordering::Relaxed,
+        );
     }
 }

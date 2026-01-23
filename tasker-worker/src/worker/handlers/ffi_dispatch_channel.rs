@@ -506,10 +506,7 @@ impl FfiDispatchChannel {
             // TAS-75: Check circuit breaker BEFORE attempting send
             // If circuit is open, fail fast - step will return to queue via visibility timeout
             if let Some(ref cb) = self.circuit_breaker {
-                let allowed = self
-                    .config
-                    .runtime_handle
-                    .block_on(async { cb.should_allow().await });
+                let allowed = cb.should_allow();
                 if !allowed {
                     warn!(
                         service_id = %self.config.service_id,
@@ -570,9 +567,7 @@ impl FfiDispatchChannel {
             let send_success = send_result.is_ok();
             let send_elapsed = send_result.unwrap_or(send_start.elapsed());
             if let Some(ref cb) = self.circuit_breaker {
-                self.config.runtime_handle.block_on(async {
-                    cb.record_send_result(send_elapsed, send_success).await;
-                });
+                cb.record_send_result(send_elapsed, send_success);
             }
 
             if send_success {

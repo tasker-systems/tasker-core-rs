@@ -94,11 +94,9 @@ impl CircuitBreakerManager {
         component_name: &str,
     ) -> Option<CircuitBreakerMetrics> {
         let breakers = self.circuit_breakers.read().await;
-        if let Some(breaker) = breakers.get(component_name) {
-            Some(breaker.metrics().await)
-        } else {
-            None
-        }
+        breakers
+            .get(component_name)
+            .map(|breaker| breaker.metrics())
     }
 
     /// Get system-wide circuit breaker metrics
@@ -107,7 +105,7 @@ impl CircuitBreakerManager {
 
         let breakers = self.circuit_breakers.read().await;
         for (name, breaker) in breakers.iter() {
-            let metrics = breaker.metrics().await;
+            let metrics = breaker.metrics();
             system_metrics.add_circuit_breaker(name.clone(), metrics);
         }
 
@@ -120,8 +118,8 @@ impl CircuitBreakerManager {
 
         let breakers = self.circuit_breakers.read().await;
         for (name, breaker) in breakers.iter() {
-            breaker.force_open().await;
-            warn!(component = name, "🚨 Circuit breaker forced open");
+            breaker.force_open();
+            warn!(component = name, "Circuit breaker forced open");
         }
     }
 
@@ -131,8 +129,8 @@ impl CircuitBreakerManager {
 
         let breakers = self.circuit_breakers.read().await;
         for (name, breaker) in breakers.iter() {
-            breaker.force_closed().await;
-            warn!(component = name, "🚨 Circuit breaker forced closed");
+            breaker.force_closed();
+            warn!(component = name, "Circuit breaker forced closed");
         }
     }
 

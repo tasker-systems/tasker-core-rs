@@ -7,11 +7,115 @@
 use crate::resilience::{CircuitBreakerConfig, CircuitBreakerMetrics};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, warn};
+
+/// Lock-free atomic counters for circuit breaker metrics.
+///
+/// Eliminates tokio::Mutex contention on every `record_success`/`record_failure`
+/// call in the hot path.
+#[derive(Debug)]
+struct AtomicCircuitBreakerMetrics {
+    total_calls: AtomicU64,
+    success_count: AtomicU64,
+    failure_count: AtomicU64,
+    consecutive_failures: AtomicU64,
+    half_open_calls: AtomicU64,
+    total_duration_nanos: AtomicU64,
+}
+
+impl AtomicCircuitBreakerMetrics {
+    fn new() -> Self {
+        Self {
+            total_calls: AtomicU64::new(0),
+            success_count: AtomicU64::new(0),
+            failure_count: AtomicU64::new(0),
+            consecutive_failures: AtomicU64::new(0),
+            half_open_calls: AtomicU64::new(0),
+            total_duration_nanos: AtomicU64::new(0),
+        }
+    }
+
+    #[inline]
+    fn record_success(&self, duration: Duration) {
+        self.total_calls.fetch_add(1, Ordering::Relaxed);
+        self.success_count.fetch_add(1, Ordering::Relaxed);
+        self.total_duration_nanos
+            .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn record_failure(&self, duration: Duration) {
+        self.total_calls.fetch_add(1, Ordering::Relaxed);
+        self.failure_count.fetch_add(1, Ordering::Relaxed);
+        self.total_duration_nanos
+            .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn increment_consecutive_failures(&self) -> u64 {
+        self.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    #[inline]
+    fn reset_consecutive_failures(&self) {
+        self.consecutive_failures.store(0, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn increment_half_open_calls(&self) -> u64 {
+        self.half_open_calls.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    #[inline]
+    fn reset_half_open(&self) {
+        self.half_open_calls.store(0, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self, state: CircuitState) -> CircuitBreakerMetrics {
+        let total_calls = self.total_calls.load(Ordering::Relaxed);
+        let success_count = self.success_count.load(Ordering::Relaxed);
+        let failure_count = self.failure_count.load(Ordering::Relaxed);
+        let total_duration_nanos = self.total_duration_nanos.load(Ordering::Relaxed);
+        let total_duration = Duration::from_nanos(total_duration_nanos);
+
+        let (failure_rate, success_rate, average_duration) = if total_calls > 0 {
+            let fr = failure_count as f64 / total_calls as f64;
+            let sr = success_count as f64 / total_calls as f64;
+            let avg = if success_count > 0 {
+                Duration::from_nanos(total_duration_nanos / success_count)
+            } else {
+                Duration::ZERO
+            };
+            (fr, sr, avg)
+        } else {
+            (0.0, 0.0, Duration::ZERO)
+        };
+
+        CircuitBreakerMetrics {
+            total_calls,
+            success_count,
+            failure_count,
+            consecutive_failures: self.consecutive_failures.load(Ordering::Relaxed),
+            half_open_calls: self.half_open_calls.load(Ordering::Relaxed),
+            total_duration,
+            current_state: state,
+            failure_rate,
+            success_rate,
+            average_duration,
+        }
+    }
+}
+
+/// Get current epoch nanos from SystemTime
+#[inline]
+fn epoch_nanos_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_nanos() as u64
+}
 
 /// Circuit breaker states representing the current operational mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -63,11 +167,12 @@ pub struct CircuitBreaker {
     /// Configuration parameters
     config: CircuitBreakerConfig,
 
-    /// Metrics tracking protected by mutex
-    metrics: Arc<Mutex<CircuitBreakerMetrics>>,
+    /// Lock-free atomic metrics
+    metrics: AtomicCircuitBreakerMetrics,
 
-    /// Time when circuit was opened (for timeout calculations)
-    opened_at: Arc<Mutex<Option<Instant>>>,
+    /// Epoch nanos when circuit was opened (0 = not open).
+    /// Uses Release/Acquire ordering paired with state transitions.
+    opened_at_epoch_nanos: AtomicU64,
 }
 
 impl CircuitBreaker {
@@ -85,8 +190,8 @@ impl CircuitBreaker {
             name,
             state: AtomicU8::new(CircuitState::Closed as u8),
             config,
-            metrics: Arc::new(Mutex::new(CircuitBreakerMetrics::new())),
-            opened_at: Arc::new(Mutex::new(None)),
+            metrics: AtomicCircuitBreakerMetrics::new(),
+            opened_at_epoch_nanos: AtomicU64::new(0),
         }
     }
 
@@ -102,24 +207,24 @@ impl CircuitBreaker {
         Fut: Future<Output = Result<T, E>>,
     {
         // Check if circuit should allow the call
-        if !self.should_allow_call().await? {
+        if !self.should_allow_call() {
             return Err(CircuitBreakerError::CircuitOpen {
                 component: self.name.clone(),
             });
         }
 
         // Execute the operation
-        let start_time = Instant::now();
+        let start_time = std::time::Instant::now();
         let result = operation().await;
         let duration = start_time.elapsed();
 
         // Record the result
         match &result {
             Ok(_) => {
-                self.record_success(duration).await;
+                self.record_success(duration);
             }
             Err(_) => {
-                self.record_failure(duration).await;
+                self.record_failure(duration);
             }
         }
 
@@ -128,58 +233,57 @@ impl CircuitBreaker {
     }
 
     /// Check if a call should be allowed based on current state
-    async fn should_allow_call<E>(&self) -> Result<bool, CircuitBreakerError<E>> {
+    fn should_allow_call(&self) -> bool {
         match self.state() {
-            CircuitState::Closed => Ok(true),
+            CircuitState::Closed => true,
             CircuitState::Open => {
                 // Check if timeout has elapsed
-                let opened_at = self.opened_at.lock().await;
-                if let Some(opened_time) = *opened_at {
-                    if opened_time.elapsed() >= self.config.timeout {
-                        drop(opened_at);
-                        self.transition_to_half_open().await;
-                        Ok(true)
-                    } else {
-                        Ok(false)
-                    }
-                } else {
+                let opened_nanos = self.opened_at_epoch_nanos.load(Ordering::Acquire);
+                if opened_nanos == 0 {
                     // Circuit is open but no timestamp - shouldn't happen, but allow call
                     warn!(component = %self.name, "Circuit open but no timestamp recorded");
-                    Ok(true)
+                    return true;
+                }
+
+                let now_nanos = epoch_nanos_now();
+                let elapsed_nanos = now_nanos.saturating_sub(opened_nanos);
+                let timeout_nanos = self.config.timeout.as_nanos() as u64;
+
+                if elapsed_nanos >= timeout_nanos {
+                    self.transition_to_half_open();
+                    true
+                } else {
+                    false
                 }
             }
             CircuitState::HalfOpen => {
                 // Allow limited calls to test recovery
-                let metrics = self.metrics.lock().await;
-                Ok(metrics.half_open_calls < self.config.success_threshold as u64)
+                let half_open_calls = self.metrics.half_open_calls.load(Ordering::Relaxed);
+                half_open_calls < self.config.success_threshold as u64
             }
         }
     }
 
-    /// Record a successful operation
-    async fn record_success(&self, duration: Duration) {
-        let mut metrics = self.metrics.lock().await;
-        metrics.total_calls += 1;
-        metrics.success_count += 1;
-        metrics.total_duration += duration;
+    /// Record a successful operation (lock-free)
+    fn record_success(&self, duration: Duration) {
+        self.metrics.record_success(duration);
 
         debug!(
             component = %self.name,
             duration_ms = duration.as_millis(),
-            "🟢 Operation succeeded"
+            "Operation succeeded"
         );
 
         match self.state() {
             CircuitState::HalfOpen => {
-                metrics.half_open_calls += 1;
-                if metrics.half_open_calls >= self.config.success_threshold as u64 {
-                    drop(metrics);
-                    self.transition_to_closed().await;
+                let calls = self.metrics.increment_half_open_calls();
+                if calls >= self.config.success_threshold as u64 {
+                    self.transition_to_closed();
                 }
             }
             CircuitState::Closed => {
                 // Reset failure count on success
-                metrics.consecutive_failures = 0;
+                self.metrics.reset_consecutive_failures();
             }
             CircuitState::Open => {
                 // Shouldn't happen, but log it
@@ -188,31 +292,26 @@ impl CircuitBreaker {
         }
     }
 
-    /// Record a failed operation
-    async fn record_failure(&self, duration: Duration) {
-        let mut metrics = self.metrics.lock().await;
-        metrics.total_calls += 1;
-        metrics.failure_count += 1;
-        metrics.total_duration += duration;
+    /// Record a failed operation (lock-free)
+    fn record_failure(&self, duration: Duration) {
+        self.metrics.record_failure(duration);
 
         error!(
             component = %self.name,
             duration_ms = duration.as_millis(),
-            "🔴 Operation failed"
+            "Operation failed"
         );
 
         match self.state() {
             CircuitState::Closed => {
-                metrics.consecutive_failures += 1;
-                if metrics.consecutive_failures >= self.config.failure_threshold as u64 {
-                    drop(metrics);
-                    self.transition_to_open().await;
+                let failures = self.metrics.increment_consecutive_failures();
+                if failures >= self.config.failure_threshold as u64 {
+                    self.transition_to_open();
                 }
             }
             CircuitState::HalfOpen => {
                 // Any failure in half-open state immediately opens circuit
-                drop(metrics);
-                self.transition_to_open().await;
+                self.transition_to_open();
             }
             CircuitState::Open => {
                 // Already open, just record the failure
@@ -221,95 +320,81 @@ impl CircuitBreaker {
     }
 
     /// Transition to closed state (normal operation)
-    async fn transition_to_closed(&self) {
+    fn transition_to_closed(&self) {
+        let total_calls = self.metrics.total_calls.load(Ordering::Relaxed);
+
+        // Reset metrics for new cycle
+        self.metrics.reset_consecutive_failures();
+        self.metrics.reset_half_open();
+
+        // Clear opened timestamp
+        self.opened_at_epoch_nanos.store(0, Ordering::Release);
+
+        // Store state last (after metrics reset)
         self.state
             .store(CircuitState::Closed as u8, Ordering::Release);
 
-        // Reset metrics for new cycle
-        let mut metrics = self.metrics.lock().await;
-        metrics.consecutive_failures = 0;
-        metrics.half_open_calls = 0;
-
-        // Clear opened timestamp
-        let mut opened_at = self.opened_at.lock().await;
-        *opened_at = None;
-
         info!(
             component = %self.name,
-            total_calls = metrics.total_calls,
-            "🟢 Circuit breaker closed (recovered)"
+            total_calls = total_calls,
+            "Circuit breaker closed (recovered)"
         );
     }
 
     /// Transition to open state (failing fast)
-    async fn transition_to_open(&self) {
+    fn transition_to_open(&self) {
+        // Record when circuit was opened
+        self.opened_at_epoch_nanos
+            .store(epoch_nanos_now(), Ordering::Release);
+
+        // Reset half-open call count
+        self.metrics.reset_half_open();
+
+        // Store state last
         self.state
             .store(CircuitState::Open as u8, Ordering::Release);
 
-        // Record when circuit was opened
-        let mut opened_at = self.opened_at.lock().await;
-        *opened_at = Some(Instant::now());
-
-        // Reset half-open call count
-        let mut metrics = self.metrics.lock().await;
-        metrics.half_open_calls = 0;
-
+        let consecutive_failures = self.metrics.consecutive_failures.load(Ordering::Relaxed);
         error!(
             component = %self.name,
-            consecutive_failures = metrics.consecutive_failures,
+            consecutive_failures = consecutive_failures,
             failure_threshold = self.config.failure_threshold,
             timeout_seconds = self.config.timeout.as_secs(),
-            "🔴 Circuit breaker opened (failing fast)"
+            "Circuit breaker opened (failing fast)"
         );
     }
 
     /// Transition to half-open state (testing recovery)
-    async fn transition_to_half_open(&self) {
+    fn transition_to_half_open(&self) {
+        // Reset half-open call count
+        self.metrics.reset_half_open();
+
+        // Store state
         self.state
             .store(CircuitState::HalfOpen as u8, Ordering::Release);
-
-        // Reset half-open call count
-        let mut metrics = self.metrics.lock().await;
-        metrics.half_open_calls = 0;
 
         info!(
             component = %self.name,
             success_threshold = self.config.success_threshold,
-            "🟡 Circuit breaker half-open (testing recovery)"
+            "Circuit breaker half-open (testing recovery)"
         );
     }
 
     /// Force circuit to open state (for emergency situations)
-    pub async fn force_open(&self) {
-        warn!(component = %self.name, "🚨 Circuit breaker forced open");
-        self.transition_to_open().await;
+    pub fn force_open(&self) {
+        warn!(component = %self.name, "Circuit breaker forced open");
+        self.transition_to_open();
     }
 
     /// Force circuit to closed state (for emergency recovery)
-    pub async fn force_closed(&self) {
-        warn!(component = %self.name, "🚨 Circuit breaker forced closed");
-        self.transition_to_closed().await;
+    pub fn force_closed(&self) {
+        warn!(component = %self.name, "Circuit breaker forced closed");
+        self.transition_to_closed();
     }
 
     /// Get current metrics snapshot
-    pub async fn metrics(&self) -> CircuitBreakerMetrics {
-        let metrics = self.metrics.lock().await;
-        let mut snapshot = metrics.clone();
-
-        // Add current state information
-        snapshot.current_state = self.state();
-
-        // Calculate derived metrics
-        if metrics.total_calls > 0 {
-            snapshot.failure_rate = metrics.failure_count as f64 / metrics.total_calls as f64;
-            snapshot.success_rate = metrics.success_count as f64 / metrics.total_calls as f64;
-
-            if metrics.success_count > 0 {
-                snapshot.average_duration = metrics.total_duration / metrics.success_count as u32;
-            }
-        }
-
-        snapshot
+    pub fn metrics(&self) -> CircuitBreakerMetrics {
+        self.metrics.snapshot(self.state())
     }
 
     /// Get component name
@@ -318,20 +403,20 @@ impl CircuitBreaker {
     }
 
     /// Check if circuit is healthy (closed state with low failure rate)
-    pub async fn is_healthy(&self) -> bool {
+    pub fn is_healthy(&self) -> bool {
         let state = self.state();
         if state != CircuitState::Closed {
             return false;
         }
 
-        let metrics = self.metrics.lock().await;
-        if metrics.total_calls < 10 {
+        let total_calls = self.metrics.total_calls.load(Ordering::Relaxed);
+        if total_calls < 10 {
             // Too few calls to determine health
             return true;
         }
 
-        // Consider healthy if failure rate is below 10%
-        let failure_rate = metrics.failure_count as f64 / metrics.total_calls as f64;
+        let failure_count = self.metrics.failure_count.load(Ordering::Relaxed);
+        let failure_rate = failure_count as f64 / total_calls as f64;
         failure_rate < 0.1
     }
 
@@ -340,12 +425,8 @@ impl CircuitBreaker {
     /// Use this when you need fine-grained control over success/failure recording,
     /// such as when implementing latency-based circuit breaking where a slow success
     /// should be treated as a failure.
-    ///
-    /// # Arguments
-    ///
-    /// * `duration` - The duration of the operation
-    pub async fn record_success_manual(&self, duration: Duration) {
-        self.record_success(duration).await;
+    pub fn record_success_manual(&self, duration: Duration) {
+        self.record_success(duration);
     }
 
     /// Manually record a failed operation
@@ -353,20 +434,16 @@ impl CircuitBreaker {
     /// Use this when you need fine-grained control over success/failure recording,
     /// such as when implementing latency-based circuit breaking where a slow success
     /// should be treated as a failure.
-    ///
-    /// # Arguments
-    ///
-    /// * `duration` - The duration of the operation
-    pub async fn record_failure_manual(&self, duration: Duration) {
-        self.record_failure(duration).await;
+    pub fn record_failure_manual(&self, duration: Duration) {
+        self.record_failure(duration);
     }
 
     /// Check if the circuit is allowing calls (not in Open state or timeout elapsed)
     ///
     /// Use this for pre-flight checks before attempting an operation when using
     /// manual recording. Returns true if calls should be allowed.
-    pub async fn should_allow(&self) -> bool {
-        self.should_allow_call::<()>().await.unwrap_or_default()
+    pub fn should_allow(&self) -> bool {
+        self.should_allow_call()
     }
 }
 
@@ -392,7 +469,7 @@ mod tests {
         let result = circuit.call(|| async { Ok::<_, String>("success") }).await;
         assert!(result.is_ok());
 
-        let metrics = circuit.metrics().await;
+        let metrics = circuit.metrics();
         assert_eq!(metrics.total_calls, 1);
         assert_eq!(metrics.success_count, 1);
         assert_eq!(metrics.failure_count, 0);
@@ -460,11 +537,11 @@ mod tests {
         let circuit = CircuitBreaker::new("test".to_string(), config);
 
         // Force open
-        circuit.force_open().await;
+        circuit.force_open();
         assert_eq!(circuit.state(), CircuitState::Open);
 
         // Force closed
-        circuit.force_closed().await;
+        circuit.force_closed();
         assert_eq!(circuit.state(), CircuitState::Closed);
     }
 }
