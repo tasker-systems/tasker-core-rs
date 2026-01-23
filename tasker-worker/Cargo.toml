@@ -68,7 +68,7 @@ chrono = { workspace = true }
 config = { workspace = true }
 # Development and testing
 criterion = { workspace = true, optional = true }
-# dashmap = { workspace = true }
+dashmap = { workspace = true }
 crossbeam = { workspace = true }
 dotenvy = { workspace = true }  # For loading .env files
 # Random number generation

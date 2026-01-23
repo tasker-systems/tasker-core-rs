@@ -37,6 +37,7 @@
 //! ```
 
 use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
@@ -48,7 +49,6 @@ use tasker_shared::state_machine::states::{TaskState, WorkflowStepState};
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::state_machine::task_state_machine::TaskStateMachine;
 use tasker_shared::system_context::SystemContext;
-use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
@@ -94,8 +94,8 @@ pub struct StateManager {
     sql_executor: Arc<SqlFunctionExecutor>,
     event_publisher: Arc<EventPublisher>,
     /// Cache of active state machines to avoid recreation
-    task_state_machines: Arc<Mutex<HashMap<Uuid, TaskStateMachine>>>,
-    step_state_machines: Arc<Mutex<HashMap<Uuid, StepStateMachine>>>,
+    task_state_machines: Arc<DashMap<Uuid, TaskStateMachine>>,
+    step_state_machines: Arc<DashMap<Uuid, StepStateMachine>>,
 }
 
 impl StateManager {
@@ -110,8 +110,8 @@ impl StateManager {
             system_context,
             sql_executor,
             event_publisher,
-            task_state_machines: Arc::new(Mutex::new(HashMap::new())),
-            step_state_machines: Arc::new(Mutex::new(HashMap::new())),
+            task_state_machines: Arc::new(DashMap::new()),
+            step_state_machines: Arc::new(DashMap::new()),
         }
     }
 
@@ -526,34 +526,30 @@ impl StateManager {
         &self,
         task_uuid: Uuid,
     ) -> OrchestrationResult<TaskStateMachine> {
-        let mut task_machines = self.task_state_machines.lock().await;
-
-        if let Some(machine) = task_machines.get(&task_uuid) {
-            // Return cloned cached instance for efficiency
-            Ok(machine.clone())
-        } else {
-            // Need to get task from database to create state machine
-            let task = tasker_shared::models::core::task::Task::find_by_id(
-                self.database_pool(),
-                task_uuid,
-            )
-            .await
-            .map_err(|e| OrchestrationError::DatabaseError {
-                operation: "find_task_by_id".to_string(),
-                reason: e.to_string(),
-            })?
-            .ok_or_else(|| OrchestrationError::InvalidTaskState {
-                task_uuid,
-                current_state: "not_found".to_string(),
-                expected_states: vec!["pending".to_string(), "in_progress".to_string()],
-            })?;
-
-            let machine = TaskStateMachine::new(task, self.system_context.clone());
-
-            // Store in cache for future use
-            task_machines.insert(task_uuid, machine.clone());
-            Ok(machine)
+        // Check cache first (shard-level read, no global lock)
+        if let Some(entry) = self.task_state_machines.get(&task_uuid) {
+            return Ok(entry.value().clone());
         }
+
+        // Cache miss - fetch from database with no lock held
+        let task =
+            tasker_shared::models::core::task::Task::find_by_id(self.database_pool(), task_uuid)
+                .await
+                .map_err(|e| OrchestrationError::DatabaseError {
+                    operation: "find_task_by_id".to_string(),
+                    reason: e.to_string(),
+                })?
+                .ok_or_else(|| OrchestrationError::InvalidTaskState {
+                    task_uuid,
+                    current_state: "not_found".to_string(),
+                    expected_states: vec!["pending".to_string(), "in_progress".to_string()],
+                })?;
+
+        let machine = TaskStateMachine::new(task, self.system_context.clone());
+
+        // Store in cache (shard-level write, no global lock)
+        self.task_state_machines.insert(task_uuid, machine.clone());
+        Ok(machine)
     }
 
     /// Get or create step state machine
@@ -561,34 +557,32 @@ impl StateManager {
         &self,
         step_uuid: Uuid,
     ) -> OrchestrationResult<StepStateMachine> {
-        let mut step_machines = self.step_state_machines.lock().await;
-
-        if let Some(machine) = step_machines.get(&step_uuid) {
-            // Return cloned cached instance for efficiency
-            Ok(machine.clone())
-        } else {
-            // Need to get step from database to create state machine
-            let step = tasker_shared::models::core::workflow_step::WorkflowStep::find_by_id(
-                self.database_pool(),
-                step_uuid,
-            )
-            .await
-            .map_err(|e| OrchestrationError::DatabaseError {
-                operation: "find_workflow_step_by_id".to_string(),
-                reason: e.to_string(),
-            })?
-            .ok_or_else(|| OrchestrationError::InvalidStepState {
-                step_uuid,
-                current_state: "not_found".to_string(),
-                expected_states: vec!["pending".to_string(), "in_progress".to_string()],
-            })?;
-
-            let machine = StepStateMachine::new(step, self.system_context.clone());
-
-            // Store in cache for future use
-            step_machines.insert(step_uuid, machine.clone());
-            Ok(machine)
+        // Check cache first (shard-level read, no global lock)
+        if let Some(entry) = self.step_state_machines.get(&step_uuid) {
+            return Ok(entry.value().clone());
         }
+
+        // Cache miss - fetch from database with no lock held
+        let step = tasker_shared::models::core::workflow_step::WorkflowStep::find_by_id(
+            self.database_pool(),
+            step_uuid,
+        )
+        .await
+        .map_err(|e| OrchestrationError::DatabaseError {
+            operation: "find_workflow_step_by_id".to_string(),
+            reason: e.to_string(),
+        })?
+        .ok_or_else(|| OrchestrationError::InvalidStepState {
+            step_uuid,
+            current_state: "not_found".to_string(),
+            expected_states: vec!["pending".to_string(), "in_progress".to_string()],
+        })?;
+
+        let machine = StepStateMachine::new(step, self.system_context.clone());
+
+        // Store in cache (shard-level write, no global lock)
+        self.step_state_machines.insert(step_uuid, machine.clone());
+        Ok(machine)
     }
 
     /// Transition task state

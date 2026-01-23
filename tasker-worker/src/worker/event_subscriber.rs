@@ -56,7 +56,7 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::sync::Arc;
 use tasker_shared::events::{WorkerEventSubscriber as SharedEventSubscriber, WorkerEventSystem};
 use tasker_shared::messaging::StepExecutionResult;
@@ -380,7 +380,7 @@ impl WorkerEventSubscriber {
 #[derive(Debug)]
 pub struct CorrelatedCompletionListener {
     subscriber: WorkerEventSubscriber,
-    correlation_tracker: Arc<std::sync::Mutex<HashMap<Uuid, PendingExecution>>>,
+    correlation_tracker: Arc<DashMap<Uuid, PendingExecution>>,
 }
 
 /// Information about a pending step execution waiting for completion
@@ -396,7 +396,7 @@ impl CorrelatedCompletionListener {
     /// Create a new correlated completion listener
     pub fn new(worker_id: String) -> Self {
         let subscriber = WorkerEventSubscriber::new(worker_id);
-        let correlation_tracker = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let correlation_tracker = Arc::new(DashMap::new());
 
         Self {
             subscriber,
@@ -419,11 +419,7 @@ impl CorrelatedCompletionListener {
             started_at: chrono::Utc::now(),
         };
 
-        let mut tracker = self
-            .correlation_tracker
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        tracker.insert(correlation_id, pending);
+        self.correlation_tracker.insert(correlation_id, pending);
 
         debug!(
             correlation_id = %correlation_id,
@@ -463,12 +459,7 @@ impl CorrelatedCompletionListener {
                 let event_id = completion_event.event_id;
 
                 // Check if we have a pending execution for this correlation ID
-                let pending = {
-                    let mut tracker = correlation_tracker
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner());
-                    tracker.remove(&event_id)
-                };
+                let pending = correlation_tracker.remove(&event_id).map(|(_, v)| v);
 
                 let correlated_result = match pending {
                     Some(pending_execution) => {
@@ -536,18 +527,15 @@ impl CorrelatedCompletionListener {
                 let cutoff_time =
                     chrono::Utc::now() - chrono::Duration::seconds(timeout_seconds as i64);
 
-                let mut tracker = correlation_tracker_cleanup
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner());
-                let initial_count = tracker.len();
+                let initial_count = correlation_tracker_cleanup.len();
 
-                tracker.retain(|_, pending| pending.started_at > cutoff_time);
+                correlation_tracker_cleanup.retain(|_, pending| pending.started_at > cutoff_time);
 
-                let removed_count = initial_count - tracker.len();
+                let removed_count = initial_count - correlation_tracker_cleanup.len();
                 if removed_count > 0 {
                     warn!(
                         removed_count = removed_count,
-                        remaining_count = tracker.len(),
+                        remaining_count = correlation_tracker_cleanup.len(),
                         "Cleaned up timed-out pending executions"
                     );
                 }
@@ -643,9 +631,16 @@ mod tests {
         );
 
         // Verify tracking
-        let tracker = listener.correlation_tracker.lock().unwrap();
-        assert!(tracker.contains_key(&correlation_id));
-        assert_eq!(tracker.get(&correlation_id).unwrap().task_uuid, task_uuid);
+        assert!(listener.correlation_tracker.contains_key(&correlation_id));
+        assert_eq!(
+            listener
+                .correlation_tracker
+                .get(&correlation_id)
+                .unwrap()
+                .value()
+                .task_uuid,
+            task_uuid
+        );
     }
 
     #[tokio::test]
