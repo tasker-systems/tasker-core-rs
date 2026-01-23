@@ -54,7 +54,7 @@ clap = { version = "4.5", features = ["derive"] }
 # Configuration
 config = "0.15"
 criterion = { version = "0.8.1" }
-# dashmap = "6.1"
+dashmap = "6.1"
 crossbeam = "0.8"
 # Derive macros for common traits (Display, Default, From, etc.)
 derive_more = { version = "2.0.1", default-features = false, features = [

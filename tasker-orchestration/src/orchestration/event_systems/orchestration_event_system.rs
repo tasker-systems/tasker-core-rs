@@ -8,6 +8,7 @@
 //! integration with the EventSystemManager.
 
 use async_trait::async_trait;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -94,7 +95,7 @@ pub struct OrchestrationStatistics {
     /// Last processing timestamp (system-level)
     last_processing_time: std::sync::Mutex<Option<Instant>>,
     /// Processing latencies for rate calculation (system-level)
-    processing_latencies: std::sync::Mutex<Vec<Duration>>,
+    processing_latencies: std::sync::Mutex<VecDeque<Duration>>,
 }
 
 impl Clone for OrchestrationStatistics {
@@ -315,11 +316,11 @@ impl OrchestrationEventSystem {
             .processing_latencies
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        latencies.push(latency);
+        latencies.push_back(latency);
 
         // Keep only recent latencies (last 1000)
         if latencies.len() > 1000 {
-            latencies.drain(0..500); // Remove oldest half
+            latencies.drain(..500); // Remove oldest half (O(1) with VecDeque)
         }
     }
 

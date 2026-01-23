@@ -48,9 +48,10 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
+
+use dashmap::DashMap;
 
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
@@ -252,7 +253,7 @@ pub struct FfiDispatchChannel {
     /// Receiver for dispatch messages (from WorkerCore via DispatchHandles)
     dispatch_receiver: Arc<Mutex<mpsc::Receiver<DispatchHandlerMessage>>>,
     /// Pending events waiting for completion
-    pending_events: Arc<RwLock<HashMap<Uuid, PendingEvent>>>,
+    pending_events: Arc<DashMap<Uuid, PendingEvent>>,
     /// Completion sender for sending results back (from DispatchHandles)
     completion_sender: mpsc::Sender<StepExecutionResult>,
     /// Configuration
@@ -299,7 +300,7 @@ impl FfiDispatchChannel {
     ) -> Self {
         Self {
             dispatch_receiver: Arc::new(Mutex::new(dispatch_receiver)),
-            pending_events: Arc::new(RwLock::new(HashMap::new())),
+            pending_events: Arc::new(DashMap::new()),
             completion_sender,
             config,
             post_handler_callback: callback,
@@ -331,7 +332,7 @@ impl FfiDispatchChannel {
     ) -> Self {
         Self {
             dispatch_receiver: Arc::new(Mutex::new(dispatch_receiver)),
-            pending_events: Arc::new(RwLock::new(HashMap::new())),
+            pending_events: Arc::new(DashMap::new()),
             completion_sender,
             config,
             post_handler_callback: callback,
@@ -406,19 +407,13 @@ impl FfiDispatchChannel {
                 );
 
                 // Track pending event for completion
-                {
-                    let mut pending = self
-                        .pending_events
-                        .write()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    pending.insert(
-                        event_id,
-                        PendingEvent {
-                            event: event.clone(),
-                            dispatched_at: std::time::Instant::now(),
-                        },
-                    );
-                }
+                self.pending_events.insert(
+                    event_id,
+                    PendingEvent {
+                        event: event.clone(),
+                        dispatched_at: std::time::Instant::now(),
+                    },
+                );
 
                 Some(event)
             }
@@ -452,19 +447,13 @@ impl FfiDispatchChannel {
                 );
 
                 // Track pending event
-                {
-                    let mut pending = self
-                        .pending_events
-                        .write()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    pending.insert(
-                        event_id,
-                        PendingEvent {
-                            event: event.clone(),
-                            dispatched_at: std::time::Instant::now(),
-                        },
-                    );
-                }
+                self.pending_events.insert(
+                    event_id,
+                    PendingEvent {
+                        event: event.clone(),
+                        dispatched_at: std::time::Instant::now(),
+                    },
+                );
 
                 Some(event)
             }
@@ -500,13 +489,7 @@ impl FfiDispatchChannel {
     /// `true` if the completion was successfully submitted, `false` otherwise.
     pub fn complete(&self, event_id: Uuid, result: StepExecutionResult) -> bool {
         // Remove from pending
-        let pending_event = {
-            let mut pending = self
-                .pending_events
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            pending.remove(&event_id)
-        };
+        let pending_event = self.pending_events.remove(&event_id).map(|(_, v)| v);
 
         if let Some(pending) = pending_event {
             let elapsed = pending.dispatched_at.elapsed();
@@ -675,13 +658,7 @@ impl FfiDispatchChannel {
     /// AFTER successfully sending the result to the completion channel.
     pub async fn complete_async(&self, event_id: Uuid, result: StepExecutionResult) -> bool {
         // Remove from pending
-        let pending_event = {
-            let mut pending = self
-                .pending_events
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            pending.remove(&event_id)
-        };
+        let pending_event = self.pending_events.remove(&event_id).map(|(_, v)| v);
 
         if let Some(pending) = pending_event {
             let elapsed = pending.dispatched_at.elapsed();
@@ -751,10 +728,7 @@ impl FfiDispatchChannel {
 
     /// Get the number of pending events
     pub fn pending_count(&self) -> usize {
-        self.pending_events
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .len()
+        self.pending_events.len()
     }
 
     /// Get current metrics about pending events
@@ -762,23 +736,19 @@ impl FfiDispatchChannel {
     /// TAS-67 Phase 2: Provides comprehensive observability for FFI dispatch health.
     /// Returns metrics including pending count, event ages, and starvation detection.
     pub fn metrics(&self) -> FfiDispatchMetrics {
-        let pending = self
-            .pending_events
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        if pending.is_empty() {
+        if self.pending_events.is_empty() {
             return FfiDispatchMetrics::default();
         }
 
         let now = std::time::Instant::now();
         let threshold = Duration::from_millis(self.config.starvation_warning_threshold_ms);
 
-        let mut ages: Vec<(Uuid, u64)> = pending
+        let mut ages: Vec<(Uuid, u64)> = self
+            .pending_events
             .iter()
-            .map(|(id, p)| {
-                let age = now.duration_since(p.dispatched_at).as_millis() as u64;
-                (*id, age)
+            .map(|entry| {
+                let age = now.duration_since(entry.value().dispatched_at).as_millis() as u64;
+                (*entry.key(), age)
             })
             .collect();
 
@@ -791,7 +761,7 @@ impl FfiDispatchChannel {
             .count();
 
         FfiDispatchMetrics {
-            pending_count: pending.len(),
+            pending_count: self.pending_events.len(),
             oldest_pending_age_ms: ages.last().map(|(_, age)| *age),
             newest_pending_age_ms: ages.first().map(|(_, age)| *age),
             oldest_event_id: ages.last().map(|(id, _)| *id),
@@ -805,25 +775,20 @@ impl FfiDispatchChannel {
     /// TAS-67 Phase 2: Call this periodically (e.g., during poll()) to detect
     /// and log warnings about events that are approaching timeout.
     pub fn check_starvation_warnings(&self) {
-        let pending = self
-            .pending_events
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        if pending.is_empty() {
+        if self.pending_events.is_empty() {
             return;
         }
 
         let now = std::time::Instant::now();
         let threshold = Duration::from_millis(self.config.starvation_warning_threshold_ms);
 
-        for (event_id, pending_event) in pending.iter() {
-            let age = now.duration_since(pending_event.dispatched_at);
+        for entry in self.pending_events.iter() {
+            let age = now.duration_since(entry.value().dispatched_at);
             if age > threshold {
                 warn!(
                     service_id = %self.config.service_id,
-                    event_id = %event_id,
-                    step_uuid = %pending_event.event.step_uuid,
+                    event_id = %entry.key(),
+                    step_uuid = %entry.value().event.step_uuid,
                     age_ms = age.as_millis(),
                     threshold_ms = self.config.starvation_warning_threshold_ms,
                     "FFI dispatch: pending event aging - slow polling detected"
@@ -837,21 +802,18 @@ impl FfiDispatchChannel {
     /// Call this periodically to detect handlers that never completed.
     /// Returns the number of events that timed out.
     pub fn cleanup_timeouts(&self) -> usize {
-        let mut pending = self
-            .pending_events
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let timeout = self.config.completion_timeout;
         let now = std::time::Instant::now();
 
-        let timed_out: Vec<Uuid> = pending
+        let timed_out: Vec<Uuid> = self
+            .pending_events
             .iter()
-            .filter(|(_, p)| now.duration_since(p.dispatched_at) > timeout)
-            .map(|(id, _)| *id)
+            .filter(|entry| now.duration_since(entry.value().dispatched_at) > timeout)
+            .map(|entry| *entry.key())
             .collect();
 
         for event_id in &timed_out {
-            if let Some(pending_event) = pending.remove(event_id) {
+            if let Some((_, pending_event)) = self.pending_events.remove(event_id) {
                 error!(
                     service_id = %self.config.service_id,
                     event_id = %event_id,
@@ -925,13 +887,10 @@ impl FfiDispatchChannel {
         };
 
         // Get pending event (clone for processing - we'll remove after successful checkpoint)
-        let pending_event = {
-            let pending = self
-                .pending_events
-                .read()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            pending.get(&event_id).cloned()
-        };
+        let pending_event = self
+            .pending_events
+            .get(&event_id)
+            .map(|entry| entry.value().clone());
 
         if let Some(pending) = pending_event {
             let elapsed = pending.dispatched_at.elapsed();
@@ -961,13 +920,7 @@ impl FfiDispatchChannel {
                 Ok(()) => {
                     // Remove the old pending event - a new continuation with a new event_id
                     // has been dispatched and will create its own pending entry
-                    {
-                        let mut pending_map = self
-                            .pending_events
-                            .write()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        pending_map.remove(&event_id);
-                    }
+                    self.pending_events.remove(&event_id);
 
                     info!(
                         service_id = %self.config.service_id,
@@ -989,13 +942,7 @@ impl FfiDispatchChannel {
 
                     // Remove the pending event - we're sending a failure result
                     // which will trigger a retry with a new event
-                    {
-                        let mut pending_map = self
-                            .pending_events
-                            .write()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        pending_map.remove(&event_id);
-                    }
+                    self.pending_events.remove(&event_id);
 
                     // Send a failure result so the step can be retried
                     self.send_checkpoint_failure(event_id, &pending.event, e);
