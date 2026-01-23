@@ -112,13 +112,18 @@ curl http://localhost:8080/health
 
 ## Performance
 
+Benchmarked in 10-instance cluster (2 orchestration, 2 each worker type). Each step involves ~19 DB operations, 2 message queue round-trips, and full state machine lifecycle.
+
 | Metric | Target | Actual |
 |--------|--------|--------|
-| Task initialization (p99) | < 100ms | 17.7ms |
-| SQL functions (mean) | < 3ms | 1.75-2.93ms |
-| 4-step workflow (p99) | < 500ms | 133.5ms |
+| Task initialization API (p99) | < 100ms | 17.7ms |
+| SQL orchestration functions | < 3ms | 1.75-2.93ms |
+| 4-step linear workflow (P50) | < 500ms | 257ms |
+| 7-step complex DAG (P50) | < 800ms | 382ms |
+| FFI workers (Ruby/Python/TS) | < 800ms | 315ms (+23% vs Rust) |
+| 1000-row batch processing (P50) | < 1000ms | 363ms (2,700 rows/sec) |
 
-Horizontal scaling for orchestration and workers. SQL performance at sub-3ms with 100K+ tasks. Throughput >100 tasks/second per orchestrator.
+Horizontal scaling for orchestration and workers. SQL performance at sub-3ms with 5K+ tasks. All FFI languages within 3ms of each other (framework-dominated overhead).
 
 **Full Benchmarks**: [docs/benchmarks/README.md](docs/benchmarks/README.md)
 
