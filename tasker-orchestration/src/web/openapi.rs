@@ -8,6 +8,9 @@ use utoipa::OpenApi;
 // Re-export ApiError from the errors module so OpenAPI annotations can find it
 pub use tasker_shared::types::web::ApiError;
 
+// Shared security scheme modifier
+use tasker_shared::types::openapi_security::SecurityAddon;
+
 // Import all the actual types used in handlers
 use tasker_shared::database::sql_functions::{StepReadinessStatus, TaskExecutionContext};
 use tasker_shared::models::core::task::PaginationInfo;
@@ -19,13 +22,14 @@ use crate::web::handlers;
 use tasker_shared::types::api::orchestration::{
     BottleneckAnalysis, ConfigMetadata, DetailedHealthResponse, HandlerInfo, HealthCheck,
     HealthInfo, HealthResponse, ManualCompletionData, NamespaceInfo, OrchestrationConfigResponse,
-    PerformanceMetrics, ResourceUtilization, SlowStepInfo, SlowTaskInfo, StepManualAction,
-    StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
+    PerformanceMetrics, ResourceUtilization, SlowStepInfo, SlowTaskInfo, StepAuditResponse,
+    StepManualAction, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
 };
 
 /// Main OpenAPI specification for the Tasker Web API
 #[derive(OpenApi)]
 #[openapi(
+    modifiers(&SecurityAddon),
     paths(
         // Tasks API paths
         handlers::tasks::create_task,
@@ -47,6 +51,7 @@ use tasker_shared::types::api::orchestration::{
         handlers::steps::list_task_steps,
         handlers::steps::get_step,
         handlers::steps::resolve_step_manually,
+        handlers::steps::get_step_audit,
 
         // Handlers Registry API paths
         handlers::registry::list_namespaces,
@@ -70,6 +75,7 @@ use tasker_shared::types::api::orchestration::{
 
         // Workflow Step schemas
         StepResponse,
+        StepAuditResponse,
         StepManualAction,
         ManualCompletionData,
 

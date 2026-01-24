@@ -1507,22 +1507,67 @@ pub struct AuthConfig {
     #[builder(default = 24)]
     pub jwt_token_expiry_hours: u32,
 
-    /// JWT private key
+    /// JWT private key (inline PEM)
     #[builder(default = String::new())]
     pub jwt_private_key: String,
 
-    /// JWT public key
+    /// JWT public key (inline PEM)
     #[builder(default = String::new())]
     pub jwt_public_key: String,
 
-    /// API key
+    /// JWT verification method: "public_key" or "jwks"
+    #[serde(default = "default_jwt_verification_method")]
+    #[builder(default = "public_key".to_string())]
+    pub jwt_verification_method: String,
+
+    /// Path to JWT public key file (alternative to inline key)
+    #[serde(default)]
+    #[builder(default = String::new())]
+    pub jwt_public_key_path: String,
+
+    /// JWKS endpoint URL for dynamic key rotation
+    #[serde(default)]
+    #[builder(default = String::new())]
+    pub jwks_url: String,
+
+    /// JWKS refresh interval in seconds
+    #[serde(default = "default_jwks_refresh_interval")]
+    #[builder(default = 3600)]
+    pub jwks_refresh_interval_seconds: u32,
+
+    /// JWT claim name containing permissions
+    #[serde(default = "default_permissions_claim")]
+    #[builder(default = "permissions".to_string())]
+    pub permissions_claim: String,
+
+    /// Reject tokens with unknown permissions
+    #[serde(default = "default_true")]
+    #[builder(default = true)]
+    pub strict_validation: bool,
+
+    /// Log unknown permissions (even if not rejecting)
+    #[serde(default = "default_true")]
+    #[builder(default = true)]
+    pub log_unknown_permissions: bool,
+
+    /// Legacy single API key (backward compatibility)
     #[builder(default = String::new())]
     pub api_key: String,
 
-    /// API key header
+    /// API key header name
     #[validate(length(min = 1))]
     #[builder(default = "X-API-Key".to_string())]
     pub api_key_header: String,
+
+    /// Enable multiple API key support
+    #[serde(default)]
+    #[builder(default = false)]
+    pub api_keys_enabled: bool,
+
+    /// Multiple API keys with per-key permissions
+    #[serde(default)]
+    #[builder(default = vec![])]
+    pub api_keys: Vec<ApiKeyConfig>,
 
     /// Route-specific authentication configuration
     ///
@@ -1533,7 +1578,34 @@ pub struct AuthConfig {
     pub protected_routes: Vec<ProtectedRouteConfig>,
 }
 
+fn default_jwt_verification_method() -> String {
+    "public_key".to_string()
+}
+fn default_jwks_refresh_interval() -> u32 {
+    3600
+}
+fn default_permissions_claim() -> String {
+    "permissions".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+
 impl_builder_default!(AuthConfig);
+
+/// API key configuration with per-key permissions
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ApiKeyConfig {
+    /// The API key value
+    pub key: String,
+    /// Permissions granted to this key
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    /// Human-readable description
+    #[serde(default)]
+    pub description: String,
+}
 
 impl AuthConfig {
     /// Convert protected routes list to HashMap for efficient runtime lookups

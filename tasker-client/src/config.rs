@@ -56,6 +56,7 @@ pub struct ClientConfig {
 ///     timeout_ms: 60000,
 ///     max_retries: 5,
 ///     auth_token: Some("secret-token".to_string()),
+///     auth: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,8 +67,83 @@ pub struct ApiEndpointConfig {
     pub timeout_ms: u64,
     /// Maximum retry attempts for failed requests
     pub max_retries: u32,
-    /// API authentication token (if required)
+    /// API authentication token (legacy field, prefer `auth`)
+    #[serde(default)]
     pub auth_token: Option<String>,
+    /// Authentication configuration (TAS-150)
+    #[serde(default)]
+    pub auth: Option<ClientAuthConfig>,
+}
+
+/// Client-side authentication configuration (TAS-150)
+///
+/// Specifies how the client should authenticate when making API requests.
+/// Supports Bearer token and API key authentication methods.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientAuthConfig {
+    /// The authentication method and credentials
+    pub method: ClientAuthMethod,
+}
+
+/// Authentication method for client API requests
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value")]
+pub enum ClientAuthMethod {
+    /// Bearer token authentication (JWT or opaque token)
+    BearerToken(String),
+    /// API key authentication with custom header
+    ApiKey {
+        /// The API key value
+        key: String,
+        /// The header name to use (default: X-API-Key)
+        #[serde(default = "default_api_key_header")]
+        header_name: String,
+    },
+}
+
+fn default_api_key_header() -> String {
+    "X-API-Key".to_string()
+}
+
+impl ApiEndpointConfig {
+    /// Resolve the effective authentication configuration as a `WebAuthConfig`.
+    ///
+    /// Prefers the structured `auth` field over the legacy `auth_token` field.
+    /// Returns `None` if no authentication is configured.
+    pub fn resolve_web_auth_config(&self) -> Option<tasker_shared::config::WebAuthConfig> {
+        if let Some(ref auth) = self.auth {
+            Some(auth.to_web_auth_config())
+        } else {
+            self.auth_token.as_ref().map(|token| {
+                tasker_shared::config::WebAuthConfig {
+                    enabled: true,
+                    bearer_token: token.clone(),
+                    ..Default::default()
+                }
+            })
+        }
+    }
+}
+
+impl ClientAuthConfig {
+    /// Convert to a `WebAuthConfig` for use with API clients.
+    pub fn to_web_auth_config(&self) -> tasker_shared::config::WebAuthConfig {
+        match &self.method {
+            ClientAuthMethod::BearerToken(token) => tasker_shared::config::WebAuthConfig {
+                enabled: true,
+                bearer_token: token.clone(),
+                ..Default::default()
+            },
+            ClientAuthMethod::ApiKey { key, header_name } => {
+                tasker_shared::config::WebAuthConfig {
+                    enabled: true,
+                    api_key: key.clone(),
+                    api_key_header: header_name.clone(),
+                    ..Default::default()
+                }
+            }
+        }
+    }
 }
 
 /// CLI-specific configuration
@@ -89,12 +165,14 @@ impl Default for ClientConfig {
                 timeout_ms: 30000,
                 max_retries: 3,
                 auth_token: None,
+                auth: None,
             },
             worker: ApiEndpointConfig {
                 base_url: "http://localhost:8081".to_string(),
                 timeout_ms: 30000,
                 max_retries: 3,
                 auth_token: None,
+                auth: None,
             },
             cli: CliConfig {
                 default_format: "table".to_string(),
@@ -167,6 +245,12 @@ impl ClientConfig {
     }
 
     /// Apply environment variable overrides
+    ///
+    /// Auth resolution priority (highest to lowest):
+    /// 1. Endpoint-specific token: `TASKER_ORCHESTRATION_AUTH_TOKEN` / `TASKER_WORKER_AUTH_TOKEN`
+    /// 2. Global token: `TASKER_AUTH_TOKEN`
+    /// 3. API key: `TASKER_API_KEY` (with optional `TASKER_API_KEY_HEADER`)
+    /// 4. Config file values
     fn apply_env_overrides(&mut self) {
         // Orchestration API overrides
         if let Ok(url) = std::env::var("TASKER_ORCHESTRATION_URL") {
@@ -176,9 +260,6 @@ impl ClientConfig {
             if let Ok(timeout_ms) = timeout.parse() {
                 self.orchestration.timeout_ms = timeout_ms;
             }
-        }
-        if let Ok(token) = std::env::var("TASKER_ORCHESTRATION_AUTH_TOKEN") {
-            self.orchestration.auth_token = Some(token);
         }
 
         // Worker API overrides
@@ -190,8 +271,43 @@ impl ClientConfig {
                 self.worker.timeout_ms = timeout_ms;
             }
         }
-        if let Ok(token) = std::env::var("TASKER_WORKER_AUTH_TOKEN") {
-            self.worker.auth_token = Some(token);
+
+        // Auth resolution: endpoint-specific token > global token > API key
+        let global_token = std::env::var("TASKER_AUTH_TOKEN").ok();
+        let api_key = std::env::var("TASKER_API_KEY").ok();
+        let api_key_header = std::env::var("TASKER_API_KEY_HEADER")
+            .unwrap_or_else(|_| "X-API-Key".to_string());
+
+        // Orchestration auth
+        let orch_token = std::env::var("TASKER_ORCHESTRATION_AUTH_TOKEN").ok();
+        if let Some(token) = orch_token.or_else(|| global_token.clone()) {
+            self.orchestration.auth_token = Some(token.clone());
+            self.orchestration.auth = Some(ClientAuthConfig {
+                method: ClientAuthMethod::BearerToken(token),
+            });
+        } else if let Some(ref key) = api_key {
+            self.orchestration.auth = Some(ClientAuthConfig {
+                method: ClientAuthMethod::ApiKey {
+                    key: key.clone(),
+                    header_name: api_key_header.clone(),
+                },
+            });
+        }
+
+        // Worker auth
+        let worker_token = std::env::var("TASKER_WORKER_AUTH_TOKEN").ok();
+        if let Some(token) = worker_token.or(global_token) {
+            self.worker.auth_token = Some(token.clone());
+            self.worker.auth = Some(ClientAuthConfig {
+                method: ClientAuthMethod::BearerToken(token),
+            });
+        } else if let Some(ref key) = api_key {
+            self.worker.auth = Some(ClientAuthConfig {
+                method: ClientAuthMethod::ApiKey {
+                    key: key.clone(),
+                    header_name: api_key_header,
+                },
+            });
         }
 
         // CLI overrides
@@ -241,6 +357,8 @@ mod tests {
         assert_eq!(config.orchestration.base_url, "http://localhost:8080");
         assert_eq!(config.worker.base_url, "http://localhost:8081");
         assert_eq!(config.cli.default_format, "table");
+        assert!(config.orchestration.auth.is_none());
+        assert!(config.worker.auth.is_none());
     }
 
     #[test]
@@ -254,6 +372,130 @@ mod tests {
             deserialized.orchestration.base_url
         );
         assert_eq!(config.worker.base_url, deserialized.worker.base_url);
+    }
+
+    #[test]
+    fn test_config_serialization_with_bearer_auth() {
+        let mut config = ClientConfig::default();
+        config.orchestration.auth = Some(ClientAuthConfig {
+            method: ClientAuthMethod::BearerToken("test-token-123".to_string()),
+        });
+
+        let toml_str = toml::to_string(&config).unwrap();
+        let deserialized: ClientConfig = toml::from_str(&toml_str).unwrap();
+
+        let auth = deserialized.orchestration.auth.unwrap();
+        match auth.method {
+            ClientAuthMethod::BearerToken(token) => assert_eq!(token, "test-token-123"),
+            _ => panic!("Expected BearerToken"),
+        }
+    }
+
+    #[test]
+    fn test_config_serialization_with_api_key_auth() {
+        let mut config = ClientConfig::default();
+        config.worker.auth = Some(ClientAuthConfig {
+            method: ClientAuthMethod::ApiKey {
+                key: "my-api-key".to_string(),
+                header_name: "X-Custom-Key".to_string(),
+            },
+        });
+
+        let toml_str = toml::to_string(&config).unwrap();
+        let deserialized: ClientConfig = toml::from_str(&toml_str).unwrap();
+
+        let auth = deserialized.worker.auth.unwrap();
+        match auth.method {
+            ClientAuthMethod::ApiKey { key, header_name } => {
+                assert_eq!(key, "my-api-key");
+                assert_eq!(header_name, "X-Custom-Key");
+            }
+            _ => panic!("Expected ApiKey"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_web_auth_config_bearer_token() {
+        let endpoint = ApiEndpointConfig {
+            base_url: "http://localhost:8080".to_string(),
+            timeout_ms: 30000,
+            max_retries: 3,
+            auth_token: None,
+            auth: Some(ClientAuthConfig {
+                method: ClientAuthMethod::BearerToken("jwt-token".to_string()),
+            }),
+        };
+
+        let web_auth = endpoint.resolve_web_auth_config().unwrap();
+        assert!(web_auth.enabled);
+        assert_eq!(web_auth.bearer_token, "jwt-token");
+        assert!(web_auth.api_key.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_web_auth_config_api_key() {
+        let endpoint = ApiEndpointConfig {
+            base_url: "http://localhost:8080".to_string(),
+            timeout_ms: 30000,
+            max_retries: 3,
+            auth_token: None,
+            auth: Some(ClientAuthConfig {
+                method: ClientAuthMethod::ApiKey {
+                    key: "secret-key".to_string(),
+                    header_name: "X-API-Key".to_string(),
+                },
+            }),
+        };
+
+        let web_auth = endpoint.resolve_web_auth_config().unwrap();
+        assert!(web_auth.enabled);
+        assert_eq!(web_auth.api_key, "secret-key");
+        assert_eq!(web_auth.api_key_header, "X-API-Key");
+        assert!(web_auth.bearer_token.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_web_auth_config_legacy_auth_token() {
+        let endpoint = ApiEndpointConfig {
+            base_url: "http://localhost:8080".to_string(),
+            timeout_ms: 30000,
+            max_retries: 3,
+            auth_token: Some("legacy-token".to_string()),
+            auth: None,
+        };
+
+        let web_auth = endpoint.resolve_web_auth_config().unwrap();
+        assert!(web_auth.enabled);
+        assert_eq!(web_auth.bearer_token, "legacy-token");
+    }
+
+    #[test]
+    fn test_resolve_web_auth_config_none() {
+        let endpoint = ApiEndpointConfig {
+            base_url: "http://localhost:8080".to_string(),
+            timeout_ms: 30000,
+            max_retries: 3,
+            auth_token: None,
+            auth: None,
+        };
+
+        assert!(endpoint.resolve_web_auth_config().is_none());
+    }
+
+    #[test]
+    fn test_resolve_web_auth_config_prefers_auth_over_legacy() {
+        let endpoint = ApiEndpointConfig {
+            base_url: "http://localhost:8080".to_string(),
+            timeout_ms: 30000,
+            max_retries: 3,
+            auth_token: Some("legacy-token".to_string()),
+            auth: Some(ClientAuthConfig {
+                method: ClientAuthMethod::BearerToken("new-token".to_string()),
+            }),
+        };
+
+        let web_auth = endpoint.resolve_web_auth_config().unwrap();
+        assert_eq!(web_auth.bearer_token, "new-token");
     }
 
     #[test]

@@ -103,6 +103,19 @@ fn get_env_var_allowlist() -> Vec<EnvVarRule> {
             // Alphanumeric with hyphens, 1-64 chars
             pattern: r"^[a-zA-Z0-9][a-zA-Z0-9\-]{0,63}$",
         },
+        // TAS-150: JWT authentication support
+        EnvVarRule {
+            name: "TASKER_JWT_PUBLIC_KEY",
+            description: "JWT public key for token verification (PEM format, RSA)",
+            // PEM format: begins with -----BEGIN, ends with -----END, base64 content
+            pattern: r"(?s)^-----BEGIN [A-Z ]+KEY-----.*-----END [A-Z ]+KEY-----\s*$",
+        },
+        EnvVarRule {
+            name: "TASKER_JWT_PUBLIC_KEY_PATH",
+            description: "Path to JWT public key file (PEM format)",
+            // Unix/Windows file path
+            pattern: r"^[/\\]?[a-zA-Z0-9._/ \\-]+\.pem$",
+        },
     ]
 }
 

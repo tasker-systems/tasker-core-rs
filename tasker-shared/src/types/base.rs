@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 /// Statistics about the task template cache
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct CacheStats {
     pub total_cached: usize,
     pub cache_hits: u64,
@@ -30,6 +31,7 @@ pub use crate::events::types::ViableStep;
 
 /// Handler metadata for registry
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct HandlerMetadata {
     pub namespace: String,
     pub name: String,

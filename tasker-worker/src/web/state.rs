@@ -131,6 +131,9 @@ pub struct WorkerWebState {
 
     /// Config query service for configuration operations
     config_query_service: Arc<ConfigQueryService>,
+
+    /// TAS-150: Unified security service for JWT + API key authentication
+    pub security_service: Option<Arc<tasker_shared::types::SecurityService>>,
 }
 
 /// TAS-75: Trait for providing circuit breaker health information
@@ -230,6 +233,24 @@ impl WorkerWebState {
 
         info!("TAS-77: Service instances created for web handlers");
 
+        // TAS-150: Build SecurityService from worker auth config
+        let security_service = if let Some(auth_config) = system_config
+            .worker
+            .as_ref()
+            .and_then(|w| w.web.as_ref())
+            .and_then(|web| web.auth.as_ref())
+        {
+            match tasker_shared::types::SecurityService::from_config(auth_config).await {
+                Ok(svc) => Some(Arc::new(svc)),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Worker SecurityService init failed, auth disabled");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             worker_core,
             database_pools,
@@ -246,6 +267,7 @@ impl WorkerWebState {
             metrics_service,
             template_query_service,
             config_query_service,
+            security_service,
         })
     }
 

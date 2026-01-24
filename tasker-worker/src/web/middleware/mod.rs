@@ -4,6 +4,7 @@
 //! tracing, and CORS handling. Simplified compared to orchestration since
 //! workers typically don't need authentication or complex operational state.
 
+pub mod auth;
 pub mod request_id;
 
 use axum::http::StatusCode;

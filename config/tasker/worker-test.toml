@@ -285,6 +285,7 @@ jwt_audience = "worker-api"
 jwt_issuer = "tasker-worker"
 jwt_private_key = ""
 jwt_public_key = ""
+jwt_public_key_path = ""
 jwt_token_expiry_hours = 24
 
 [[worker.web.auth.protected_routes]]

@@ -20,7 +20,7 @@ pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -
                     base_url: config.orchestration.base_url.clone(),
                     timeout_ms: config.orchestration.timeout_ms,
                     max_retries: config.orchestration.max_retries,
-                    auth: None,
+                    auth: config.orchestration.resolve_web_auth_config(),
                 };
 
                 let orch_client = OrchestrationApiClient::new(orchestration_config)?;
@@ -87,7 +87,7 @@ pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -
                     base_url: config.worker.base_url.clone(),
                     timeout_ms: config.worker.timeout_ms,
                     max_retries: config.worker.max_retries,
-                    auth: None,
+                    auth: config.worker.resolve_web_auth_config(),
                 };
 
                 let worker_client = WorkerApiClient::new(worker_config)?;
@@ -174,7 +174,7 @@ pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -
                 base_url: config.orchestration.base_url.clone(),
                 timeout_ms: config.orchestration.timeout_ms,
                 max_retries: config.orchestration.max_retries,
-                auth: None,
+                auth: config.orchestration.resolve_web_auth_config(),
             };
 
             if let Ok(orch_client) = OrchestrationApiClient::new(orchestration_config) {
@@ -204,7 +204,7 @@ pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -
                 base_url: config.worker.base_url.clone(),
                 timeout_ms: config.worker.timeout_ms,
                 max_retries: config.worker.max_retries,
-                auth: None,
+                auth: config.worker.resolve_web_auth_config(),
             };
 
             if let Ok(worker_client) = WorkerApiClient::new(worker_config) {

@@ -5,6 +5,7 @@
 
 pub mod auth;
 pub mod operational_state;
+pub mod permission;
 pub mod request_id;
 
 use axum::http::StatusCode;

@@ -7,9 +7,12 @@ use axum::Json;
 use tracing::info;
 
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
+use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::models::{NamedTask, TaskNamespace};
 use tasker_shared::types::api::orchestration::{HandlerInfo, NamespaceInfo};
+use tasker_shared::types::permissions::Permission;
+use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// List available namespaces: GET /v1/handlers
@@ -18,11 +21,19 @@ use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
     path = "/v1/handlers",
     responses(
         (status = 200, description = "List of available namespaces", body = Vec<NamespaceInfo>),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "handlers"
 ))]
-pub async fn list_namespaces(State(state): State<AppState>) -> ApiResult<Json<Vec<NamespaceInfo>>> {
+pub async fn list_namespaces(
+    State(state): State<AppState>,
+    security: SecurityContext,
+) -> ApiResult<Json<Vec<NamespaceInfo>>> {
+    require_permission(&security, Permission::HandlersRead)?;
+
     info!("Listing available handler namespaces");
 
     execute_with_circuit_breaker(&state, || async {
@@ -53,14 +64,20 @@ pub async fn list_namespaces(State(state): State<AppState>) -> ApiResult<Json<Ve
     ),
     responses(
         (status = 200, description = "List of handlers in namespace", body = Vec<HandlerInfo>),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "handlers"
 ))]
 pub async fn list_namespace_handlers(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path(namespace): Path<String>,
 ) -> ApiResult<Json<Vec<HandlerInfo>>> {
+    require_permission(&security, Permission::HandlersRead)?;
+
     info!(namespace = %namespace, "Listing handlers in namespace");
 
     execute_with_circuit_breaker(&state, || async {
@@ -94,15 +111,21 @@ pub async fn list_namespace_handlers(
     ),
     responses(
         (status = 200, description = "Handler information", body = HandlerInfo),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 404, description = "Handler not found", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "handlers"
 ))]
 pub async fn get_handler_info(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path((namespace, name)): Path<(String, String)>,
 ) -> ApiResult<Json<HandlerInfo>> {
+    require_permission(&security, Permission::HandlersRead)?;
+
     info!(namespace = %namespace, name = %name, "Getting handler information");
 
     execute_with_circuit_breaker(&state, || async {

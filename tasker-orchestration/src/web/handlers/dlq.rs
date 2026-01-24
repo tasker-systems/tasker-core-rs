@@ -31,11 +31,14 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
+use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::models::orchestration::dlq::{
     DlqEntry, DlqInvestigationQueueEntry, DlqInvestigationUpdate,
     DlqListParams as ModelDlqListParams, DlqResolutionStatus, DlqStats, StalenessMonitoring,
 };
+use tasker_shared::types::permissions::Permission;
+use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 // ============================================================================
@@ -144,14 +147,20 @@ pub struct UpdateInvestigationResponse {
     params(DlqListQueryParams),
     responses(
         (status = 200, description = "List of DLQ entries", body = Vec<DlqEntry>),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 500, description = "Database error", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "dlq"
 ))]
 pub async fn list_dlq_entries(
     State(state): State<AppState>,
+    security: SecurityContext,
     Query(params): Query<DlqListQueryParams>,
 ) -> ApiResult<Json<Vec<DlqEntry>>> {
+    require_permission(&security, Permission::DlqRead)?;
+
     debug!(
         resolution_status = ?params.resolution_status,
         limit = params.limit,
@@ -193,15 +202,21 @@ pub async fn list_dlq_entries(
     ),
     responses(
         (status = 200, description = "DLQ entry with full snapshot", body = DlqEntry),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 404, description = "DLQ entry not found", body = ApiError),
         (status = 500, description = "Database error", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "dlq"
 ))]
 pub async fn get_dlq_entry(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path(task_uuid): Path<Uuid>,
 ) -> ApiResult<Json<DlqEntry>> {
+    require_permission(&security, Permission::DlqRead)?;
+
     debug!(task_uuid = %task_uuid, "Fetching DLQ entry with task snapshot");
 
     // Delegate to model layer
@@ -256,16 +271,22 @@ pub async fn get_dlq_entry(
     request_body = UpdateInvestigationRequest,
     responses(
         (status = 200, description = "Investigation updated successfully", body = UpdateInvestigationResponse),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 404, description = "DLQ entry not found", body = ApiError),
         (status = 500, description = "Database error", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "dlq"
 ))]
 pub async fn update_dlq_investigation(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path(dlq_entry_uuid): Path<Uuid>,
     Json(payload): Json<UpdateInvestigationRequest>,
 ) -> ApiResult<Json<UpdateInvestigationResponse>> {
+    require_permission(&security, Permission::DlqUpdate)?;
+
     debug!(
         dlq_entry_uuid = %dlq_entry_uuid,
         resolution_status = ?payload.resolution_status,
@@ -326,11 +347,19 @@ pub async fn update_dlq_investigation(
     path = "/v1/dlq/stats",
     responses(
         (status = 200, description = "DLQ statistics", body = Vec<DlqStats>),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 500, description = "Database error", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "dlq"
 ))]
-pub async fn get_dlq_stats(State(state): State<AppState>) -> ApiResult<Json<Vec<DlqStats>>> {
+pub async fn get_dlq_stats(
+    State(state): State<AppState>,
+    security: SecurityContext,
+) -> ApiResult<Json<Vec<DlqStats>>> {
+    require_permission(&security, Permission::DlqStats)?;
+
     debug!("Fetching DLQ statistics");
 
     // Delegate to model layer
@@ -380,14 +409,20 @@ pub async fn get_dlq_stats(State(state): State<AppState>) -> ApiResult<Json<Vec<
     ),
     responses(
         (status = 200, description = "Prioritized investigation queue", body = Vec<DlqInvestigationQueueEntry>),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 500, description = "Database error", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "dlq"
 ))]
 pub async fn get_investigation_queue(
     State(state): State<AppState>,
+    security: SecurityContext,
     Query(params): Query<InvestigationQueueParams>,
 ) -> ApiResult<Json<Vec<DlqInvestigationQueueEntry>>> {
+    require_permission(&security, Permission::DlqRead)?;
+
     debug!(limit = params.limit, "Fetching DLQ investigation queue");
 
     // Delegate to model layer
@@ -444,14 +479,20 @@ pub async fn get_investigation_queue(
     ),
     responses(
         (status = 200, description = "Task staleness monitoring data", body = Vec<StalenessMonitoring>),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 500, description = "Database error", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "dlq"
 ))]
 pub async fn get_staleness_monitoring(
     State(state): State<AppState>,
+    security: SecurityContext,
     Query(params): Query<StalenessMonitoringParams>,
 ) -> ApiResult<Json<Vec<StalenessMonitoring>>> {
+    require_permission(&security, Permission::DlqRead)?;
+
     debug!(limit = params.limit, "Fetching staleness monitoring data");
 
     // Delegate to model layer

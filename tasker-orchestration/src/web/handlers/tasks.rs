@@ -12,7 +12,10 @@ use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::web::circuit_breaker::{execute_with_circuit_breaker, record_backpressure_rejection};
+use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
+use tasker_shared::types::permissions::Permission;
+use tasker_shared::types::security::SecurityContext;
 use tasker_shared::database::sql_functions::{
     SqlFunctionExecutor, StepReadinessStatus, TaskExecutionContext,
 };
@@ -35,15 +38,20 @@ use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
     responses(
         (status = 201, description = "Task created successfully", body = TaskCreationResponse),
         (status = 400, description = "Invalid request", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "tasks"
 ))]
 pub async fn create_task(
     State(state): State<AppState>,
-    // Note: Authentication should be added via middleware when auth is enabled
+    security: SecurityContext,
     Json(request): Json<TaskRequest>,
 ) -> ApiResult<Json<TaskCreationResponse>> {
+    require_permission(&security, Permission::TasksCreate)?;
+
     info!(
         namespace = %request.namespace,
         task_name = %request.name,
@@ -196,15 +204,21 @@ pub async fn create_task(
     ),
     responses(
         (status = 200, description = "Task details", body = TaskResponse),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 404, description = "Task not found", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "tasks"
 ))]
 pub async fn get_task(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path(task_uuid): Path<String>,
 ) -> ApiResult<Json<TaskResponse>> {
+    require_permission(&security, Permission::TasksRead)?;
+
     debug!(task_uuid = %task_uuid, "Retrieving task details with execution context");
 
     // Parse and validate UUID
@@ -340,14 +354,20 @@ pub async fn get_task(
     responses(
         (status = 200, description = "List of tasks", body = TaskListResponse),
         (status = 400, description = "Invalid query parameters", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "tasks"
 ))]
 pub async fn list_tasks(
     State(state): State<AppState>,
+    security: SecurityContext,
     Query(query): Query<TaskListQuery>,
 ) -> ApiResult<Json<TaskListResponse>> {
+    require_permission(&security, Permission::TasksList)?;
+
     debug!(?query, "Listing tasks with execution context and filters");
 
     // Validate pagination parameters
@@ -522,16 +542,21 @@ pub async fn list_tasks(
     responses(
         (status = 200, description = "Task cancelled successfully", body = TaskResponse),
         (status = 400, description = "Task cannot be cancelled", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 404, description = "Task not found", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "tasks"
 ))]
 pub async fn cancel_task(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path(task_uuid): Path<String>,
-    // Note: Authentication should be added via middleware when auth is enabled
 ) -> ApiResult<Json<TaskResponse>> {
+    require_permission(&security, Permission::TasksCancel)?;
+
     info!(task_uuid = %task_uuid, "Cancelling task via web API");
 
     // Parse and validate UUID

@@ -9,10 +9,13 @@ use axum::Json;
 use chrono::Utc;
 use tracing::debug;
 
+use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::types::api::orchestration::{
     redact_secrets, ConfigMetadata, OrchestrationConfigResponse,
 };
+use tasker_shared::types::permissions::Permission;
+use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::ApiError;
 
 /// Get complete orchestration configuration: GET /config
@@ -35,13 +38,19 @@ use tasker_shared::types::web::ApiError;
     path = "/config",
     responses(
         (status = 200, description = "Complete orchestration configuration (secrets redacted)", body = OrchestrationConfigResponse),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 500, description = "Failed to retrieve configuration", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "config"
 ))]
 pub async fn get_config(
     State(state): State<AppState>,
+    security: SecurityContext,
 ) -> Result<Json<OrchestrationConfigResponse>, ApiError> {
+    require_permission(&security, Permission::SystemConfigRead)?;
+
     debug!("Retrieving complete orchestration configuration");
 
     let tasker_config = &state.orchestration_core.context.tasker_config;

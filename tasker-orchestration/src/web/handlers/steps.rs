@@ -18,7 +18,10 @@ use tasker_shared::models::core::workflow_step::WorkflowStep;
 
 // StepReadinessStatus is used through SqlFunctionExecutor, removing unused direct import
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
+use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
+use tasker_shared::types::permissions::Permission;
+use tasker_shared::types::security::SecurityContext;
 use tasker_shared::models::core::workflow_step_result_audit::WorkflowStepResultAudit;
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
@@ -36,14 +39,20 @@ use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
     responses(
         (status = 200, description = "List of workflow steps", body = Vec<StepResponse>),
         (status = 400, description = "Invalid task UUID", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "workflow_steps"
 ))]
 pub async fn list_task_steps(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path(task_uuid): Path<String>,
 ) -> ApiResult<Json<Vec<StepResponse>>> {
+    require_permission(&security, Permission::StepsRead)?;
+
     info!(task_uuid = %task_uuid, "Listing workflow steps for task");
 
     let task_uuid = Uuid::parse_str(&task_uuid)
@@ -158,15 +167,21 @@ pub async fn list_task_steps(
     responses(
         (status = 200, description = "Workflow step details", body = StepResponse),
         (status = 400, description = "Invalid UUID", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 404, description = "Step not found", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "workflow_steps"
 ))]
 pub async fn get_step(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path((task_uuid, step_uuid)): Path<(String, String)>,
 ) -> ApiResult<Json<StepResponse>> {
+    require_permission(&security, Permission::StepsRead)?;
+
     info!(task_uuid = %task_uuid, step_uuid = %step_uuid, "Getting workflow step details");
 
     let task_uuid = Uuid::parse_str(&task_uuid)
@@ -302,16 +317,22 @@ pub async fn get_step(
     responses(
         (status = 200, description = "Step resolved successfully. The response indicates whether the step was marked as 'resolved_manually' (simple resolution) or 'complete' (with execution results).", body = StepResponse),
         (status = 400, description = "Invalid request or step cannot be resolved", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 404, description = "Step not found", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "workflow_steps"
 ))]
 pub async fn resolve_step_manually(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path((task_uuid, step_uuid)): Path<(String, String)>,
     Json(action): Json<StepManualAction>,
 ) -> ApiResult<Json<StepResponse>> {
+    require_permission(&security, Permission::StepsResolve)?;
+
     // Log the action with operator details
     match &action {
         StepManualAction::ResetForRetry { reset_by, reason } => {
@@ -598,15 +619,21 @@ pub async fn resolve_step_manually(
     responses(
         (status = 200, description = "Audit history for the step", body = Vec<StepAuditResponse>),
         (status = 400, description = "Invalid UUID format", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 404, description = "Step not found or does not belong to task", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "workflow_steps"
 ))]
 pub async fn get_step_audit(
     State(state): State<AppState>,
+    security: SecurityContext,
     Path((task_uuid, step_uuid)): Path<(String, String)>,
 ) -> ApiResult<Json<Vec<StepAuditResponse>>> {
+    require_permission(&security, Permission::StepsRead)?;
+
     info!(
         task_uuid = %task_uuid,
         step_uuid = %step_uuid,

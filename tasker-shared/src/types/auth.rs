@@ -45,12 +45,15 @@ pub enum AuthError {
     InsufficientPermissions,
 }
 
-/// JWT claims for worker authentication
+/// JWT claims for authenticated requests.
+///
+/// Used for both worker and general API authentication.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct WorkerClaims {
-    /// Subject (worker identifier)
+pub struct TokenClaims {
+    /// Subject (user/service identifier)
     pub sub: String,
-    /// Worker authorized namespaces
+    /// Worker authorized namespaces (optional for non-worker tokens)
+    #[serde(default)]
     pub worker_namespaces: Vec<String>,
     /// Token issuer
     pub iss: String,
@@ -60,9 +63,13 @@ pub struct WorkerClaims {
     pub exp: i64,
     /// Issued at time (Unix timestamp)
     pub iat: i64,
-    /// Worker permissions
+    /// Permissions granted by this token
+    #[serde(default)]
     pub permissions: Vec<String>,
 }
+
+/// Backward-compatible alias for `TokenClaims`.
+pub type WorkerClaims = TokenClaims;
 
 /// JWT authenticator for worker systems
 #[derive(Clone)]
@@ -165,8 +172,13 @@ impl JwtAuthenticator {
         ))
     }
 
+    /// Validate a JWT token and extract claims.
+    pub fn validate_token(&self, token: &str) -> Result<TokenClaims, AuthError> {
+        self.validate_worker_token(token)
+    }
+
     /// Validate a worker JWT token
-    pub fn validate_worker_token(&self, token: &str) -> Result<WorkerClaims, AuthError> {
+    pub fn validate_worker_token(&self, token: &str) -> Result<TokenClaims, AuthError> {
         if !self.config.enabled {
             // Return a default claims object when auth is disabled
             return Ok(WorkerClaims {
@@ -205,6 +217,15 @@ impl JwtAuthenticator {
         );
 
         Ok(token_data.claims)
+    }
+
+    /// Generate a JWT token with the given subject, namespaces, and permissions.
+    pub fn generate_token(
+        &self,
+        subject: &str,
+        permissions: Vec<String>,
+    ) -> Result<String, AuthError> {
+        self.generate_worker_token(subject, vec![], permissions)
     }
 
     /// Generate a JWT token for a worker

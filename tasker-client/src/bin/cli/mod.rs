@@ -6,6 +6,6 @@
 pub mod commands;
 
 pub use commands::{
-    handle_config_command, handle_dlq_command, handle_system_command, handle_task_command,
-    handle_worker_command,
+    handle_auth_command, handle_config_command, handle_dlq_command, handle_system_command,
+    handle_task_command, handle_worker_command,
 };

@@ -14,7 +14,7 @@ pub async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Cl
         base_url: config.orchestration.base_url.clone(),
         timeout_ms: config.orchestration.timeout_ms,
         max_retries: config.orchestration.max_retries,
-        auth: None, // TODO: Convert auth_token to WebAuthConfig when needed
+        auth: config.orchestration.resolve_web_auth_config(),
     };
 
     let client = OrchestrationApiClient::new(orchestration_config)?;

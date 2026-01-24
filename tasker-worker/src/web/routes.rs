@@ -68,3 +68,22 @@ pub fn template_routes() -> Router<Arc<WorkerWebState>> {
 pub fn config_routes() -> Router<Arc<WorkerWebState>> {
     Router::new().route("/config", get(handlers::config::get_config))
 }
+
+/// API documentation routes (OpenAPI spec + Swagger UI)
+#[cfg(feature = "web-api")]
+pub fn docs_routes() -> Router<Arc<WorkerWebState>> {
+    use utoipa::OpenApi;
+    use utoipa_swagger_ui::SwaggerUi;
+
+    use crate::web::openapi::ApiDoc;
+
+    SwaggerUi::new("/api-docs/ui")
+        .url("/api-docs/openapi.json", ApiDoc::openapi())
+        .into()
+}
+
+/// No-op docs routes when web-api feature is disabled
+#[cfg(not(feature = "web-api"))]
+pub fn docs_routes() -> Router<Arc<WorkerWebState>> {
+    Router::new()
+}

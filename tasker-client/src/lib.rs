@@ -133,5 +133,5 @@ pub mod error;
 pub use api_clients::{
     OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig,
 };
-pub use config::ClientConfig;
+pub use config::{ClientAuthConfig, ClientAuthMethod, ClientConfig};
 pub use error::{ClientError, ClientResult};

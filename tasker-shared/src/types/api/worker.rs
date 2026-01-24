@@ -31,7 +31,9 @@ pub struct TemplatePathParams {
 
 /// Response for template retrieval
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct TemplateResponse {
+    #[cfg_attr(feature = "web-api", schema(value_type = Object))]
     pub template: ResolvedTaskTemplate,
     pub handler_metadata: HandlerMetadata,
     pub cached: bool,
@@ -41,6 +43,7 @@ pub struct TemplateResponse {
 
 /// Response for template listing
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct TemplateListResponse {
     pub supported_namespaces: Vec<String>,
     pub template_count: usize,
@@ -50,6 +53,7 @@ pub struct TemplateListResponse {
 
 /// Response for cache operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct CacheOperationResponse {
     pub operation: String,
     pub success: bool,
@@ -58,6 +62,7 @@ pub struct CacheOperationResponse {
 
 /// Response for template validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct TemplateValidationResponse {
     pub valid: bool,
     pub errors: Vec<String>,
@@ -71,6 +76,7 @@ pub struct TemplateValidationResponse {
 
 /// Basic health check response
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct BasicHealthResponse {
     pub status: String,
     pub timestamp: DateTime<Utc>,
@@ -79,16 +85,19 @@ pub struct BasicHealthResponse {
 
 /// Detailed health check response with subsystem checks
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct DetailedHealthResponse {
     pub status: String,
     pub timestamp: DateTime<Utc>,
     pub worker_id: String,
+    #[cfg_attr(feature = "web-api", schema(value_type = Object))]
     pub checks: HashMap<String, HealthCheck>,
     pub system_info: WorkerSystemInfo,
 }
 
 /// Individual health check result
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct HealthCheck {
     pub status: String,
     pub message: Option<String>,
@@ -98,6 +107,7 @@ pub struct HealthCheck {
 
 /// Worker system information
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct WorkerSystemInfo {
     pub version: String,
     pub environment: String,

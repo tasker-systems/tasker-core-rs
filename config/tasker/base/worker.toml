@@ -159,7 +159,8 @@ jwt_issuer = "tasker-worker"
 jwt_audience = "worker-api"
 jwt_token_expiry_hours = 24
 jwt_private_key = ""
-jwt_public_key = ""
+jwt_public_key = "${TASKER_JWT_PUBLIC_KEY:-}"
+jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
 api_key = ""
 api_key_header = "X-API-Key"
 

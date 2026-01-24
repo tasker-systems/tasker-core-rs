@@ -10,8 +10,8 @@ use tasker_client::ClientConfig;
 use tracing::info;
 
 use cli::{
-    handle_config_command, handle_dlq_command, handle_system_command, handle_task_command,
-    handle_worker_command,
+    handle_auth_command, handle_config_command, handle_dlq_command, handle_system_command,
+    handle_task_command, handle_worker_command,
 };
 
 #[derive(Parser, Debug)]
@@ -57,6 +57,10 @@ pub enum Commands {
     /// Dead Letter Queue (DLQ) investigation operations (TAS-49)
     #[command(subcommand)]
     Dlq(DlqCommands),
+
+    /// Authentication and security operations (TAS-150)
+    #[command(subcommand)]
+    Auth(AuthCommands),
 }
 
 #[derive(Debug, Subcommand)]
@@ -359,6 +363,51 @@ pub enum ConfigCommands {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum AuthCommands {
+    /// Generate RSA key pair for JWT signing
+    GenerateKeys {
+        /// Output directory for key files
+        #[arg(short, long, default_value = "./keys")]
+        output_dir: String,
+        /// RSA key size in bits
+        #[arg(short, long, default_value = "2048")]
+        key_size: usize,
+    },
+    /// Generate a JWT token with specified permissions
+    GenerateToken {
+        /// Comma-separated list of permissions (e.g., tasks:create,tasks:read)
+        #[arg(short, long)]
+        permissions: String,
+        /// Token subject (service/user identifier)
+        #[arg(short, long, default_value = "tasker-client")]
+        subject: String,
+        /// Path to private key PEM file
+        #[arg(long, default_value = "./keys/jwt-private-key.pem")]
+        private_key: String,
+        /// Token expiry in hours
+        #[arg(short, long, default_value = "24")]
+        expiry_hours: u64,
+        /// JWT issuer
+        #[arg(long, default_value = "tasker-core")]
+        issuer: String,
+        /// JWT audience
+        #[arg(long, default_value = "tasker-api")]
+        audience: String,
+    },
+    /// Show all known permissions
+    ShowPermissions,
+    /// Validate a JWT token
+    ValidateToken {
+        /// The JWT token to validate
+        #[arg(short, long)]
+        token: String,
+        /// Path to public key PEM file
+        #[arg(long, default_value = "./keys/jwt-public-key.pem")]
+        public_key: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum DlqCommands {
     /// List DLQ entries
     List {
@@ -430,5 +479,6 @@ async fn main() -> tasker_client::ClientResult<()> {
         Commands::System(system_cmd) => handle_system_command(system_cmd, &config).await,
         Commands::Config(config_cmd) => handle_config_command(config_cmd, &config).await,
         Commands::Dlq(dlq_cmd) => handle_dlq_command(dlq_cmd, &config).await,
+        Commands::Auth(auth_cmd) => handle_auth_command(auth_cmd).await,
     }
 }

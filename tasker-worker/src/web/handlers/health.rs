@@ -20,6 +20,14 @@ use tasker_shared::types::web::*;
 ///
 /// Simple health check that returns OK if the worker service is running.
 /// Always available, even during graceful shutdown.
+#[cfg_attr(feature = "web-api", utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "Worker is running", body = BasicHealthResponse)
+    ),
+    tag = "health"
+))]
 pub async fn health_check(State(state): State<Arc<WorkerWebState>>) -> Json<BasicHealthResponse> {
     Json(state.health_service().basic_health())
 }
@@ -28,6 +36,15 @@ pub async fn health_check(State(state): State<Arc<WorkerWebState>>) -> Json<Basi
 ///
 /// Indicates whether the worker is ready to process steps.
 /// Checks database connectivity, command processor status, and queue health.
+#[cfg_attr(feature = "web-api", utoipa::path(
+    get,
+    path = "/health/ready",
+    responses(
+        (status = 200, description = "Worker is ready", body = DetailedHealthResponse),
+        (status = 503, description = "Worker is not ready")
+    ),
+    tag = "health"
+))]
 pub async fn readiness_check(
     State(state): State<Arc<WorkerWebState>>,
 ) -> Result<Json<DetailedHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -49,6 +66,14 @@ pub async fn readiness_check(
 ///
 /// Indicates whether the worker is alive and should not be restarted.
 /// Simple check focusing on basic process responsiveness.
+#[cfg_attr(feature = "web-api", utoipa::path(
+    get,
+    path = "/health/live",
+    responses(
+        (status = 200, description = "Worker is alive", body = BasicHealthResponse)
+    ),
+    tag = "health"
+))]
 pub async fn liveness_check(State(state): State<Arc<WorkerWebState>>) -> Json<BasicHealthResponse> {
     Json(state.health_service().liveness())
 }
@@ -57,6 +82,14 @@ pub async fn liveness_check(State(state): State<Arc<WorkerWebState>>) -> Json<Ba
 ///
 /// Detailed health information about all worker subsystems.
 /// Includes performance metrics and diagnostic information.
+#[cfg_attr(feature = "web-api", utoipa::path(
+    get,
+    path = "/health/detailed",
+    responses(
+        (status = 200, description = "Detailed health information", body = DetailedHealthResponse)
+    ),
+    tag = "health"
+))]
 pub async fn detailed_health_check(
     State(state): State<Arc<WorkerWebState>>,
 ) -> Json<DetailedHealthResponse> {
