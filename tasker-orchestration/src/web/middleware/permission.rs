@@ -29,9 +29,8 @@ pub fn require_permission(ctx: &SecurityContext, perm: Permission) -> Result<(),
             required = %perm,
             "Permission denied"
         );
-        security_metrics::permission_denials_total().add(1, &[
-            KeyValue::new("permission", perm.as_str().to_string()),
-        ]);
+        security_metrics::permission_denials_total()
+            .add(1, &[KeyValue::new("permission", perm.as_str().to_string())]);
         Err(ApiError::authorization_error(format!(
             "Missing required permission: {}",
             perm

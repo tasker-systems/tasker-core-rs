@@ -64,37 +64,40 @@ pub async fn authenticate_request(
 
         security_metrics::jwt_verification_duration().record(
             duration_ms,
-            &[KeyValue::new("result", if result.is_ok() { "success" } else { "failure" })],
+            &[KeyValue::new(
+                "result",
+                if result.is_ok() { "success" } else { "failure" },
+            )],
         );
 
         result.map_err(|e| {
             warn!(error = %e, "Bearer token authentication failed");
-            security_metrics::auth_requests_total().add(1, &[
-                KeyValue::new("method", "jwt"),
-                KeyValue::new("result", "failure"),
-            ]);
-            security_metrics::auth_failures_total().add(1, &[
-                KeyValue::new("reason", "invalid"),
-            ]);
+            security_metrics::auth_requests_total().add(
+                1,
+                &[
+                    KeyValue::new("method", "jwt"),
+                    KeyValue::new("result", "failure"),
+                ],
+            );
+            security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
             ApiError::auth_error("Invalid or expired token")
         })?
     } else if let Some(key) = api_key {
         security_service.authenticate_api_key(&key).map_err(|e| {
             warn!(error = %e, "API key authentication failed");
-            security_metrics::auth_requests_total().add(1, &[
-                KeyValue::new("method", "api_key"),
-                KeyValue::new("result", "failure"),
-            ]);
-            security_metrics::auth_failures_total().add(1, &[
-                KeyValue::new("reason", "invalid"),
-            ]);
+            security_metrics::auth_requests_total().add(
+                1,
+                &[
+                    KeyValue::new("method", "api_key"),
+                    KeyValue::new("result", "failure"),
+                ],
+            );
+            security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
             ApiError::auth_error("Invalid API key")
         })?
     } else {
         warn!("Request missing authentication credentials");
-        security_metrics::auth_failures_total().add(1, &[
-            KeyValue::new("reason", "missing"),
-        ]);
+        security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "missing")]);
         return Err(ApiError::auth_error("Missing authentication credentials"));
     };
 
@@ -104,10 +107,13 @@ pub async fn authenticate_request(
         tasker_shared::types::security::AuthMethod::Disabled => "disabled",
     };
 
-    security_metrics::auth_requests_total().add(1, &[
-        KeyValue::new("method", method_label),
-        KeyValue::new("result", "success"),
-    ]);
+    security_metrics::auth_requests_total().add(
+        1,
+        &[
+            KeyValue::new("method", method_label),
+            KeyValue::new("result", "success"),
+        ],
+    );
 
     info!(
         subject = %ctx.subject,

@@ -14,7 +14,7 @@ use crate::types::jwks::JwksKeyStore;
 use crate::types::permissions::validate_permissions;
 use crate::types::security::{AuthMethod, SecurityContext};
 
-use super::api_key_auth::ApiKeyRegistry;
+use crate::types::api_key_auth::ApiKeyRegistry;
 
 /// Unified authentication service.
 ///
@@ -51,9 +51,9 @@ impl SecurityService {
             let mut resolved_config = config.clone();
             Self::resolve_public_key(&mut resolved_config)?;
 
-            match JwtAuthenticator::from_config(
-                &crate::config::web::WebAuthConfig::from(resolved_config),
-            ) {
+            match JwtAuthenticator::from_config(&crate::config::web::WebAuthConfig::from(
+                resolved_config,
+            )) {
                 Ok(auth) => Some(auth),
                 Err(e) => {
                     warn!(error = %e, "JWT authenticator init failed (may be OK if using JWKS)");

@@ -33,6 +33,8 @@ pub fn metrics_routes() -> Router<Arc<WorkerWebState>> {
         )
 }
 
+// TODO: Template routes should be nested under /v1 for API versioning consistency.
+// All non-infrastructure endpoints (health, metrics, docs) should have version prefixes.
 /// Task template management routes
 pub fn template_routes() -> Router<Arc<WorkerWebState>> {
     Router::new()
@@ -64,6 +66,8 @@ pub fn template_routes() -> Router<Arc<WorkerWebState>> {
         )
 }
 
+// TODO: Review redact_secrets() coverage after auth config changes to ensure
+// API keys and JWT key material are never leaked via this endpoint.
 /// Configuration observability routes - unified endpoint
 pub fn config_routes() -> Router<Arc<WorkerWebState>> {
     Router::new().route("/config", get(handlers::config::get_config))

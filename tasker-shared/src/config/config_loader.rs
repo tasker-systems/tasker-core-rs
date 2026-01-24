@@ -286,24 +286,28 @@ impl ConfigLoader {
     /// This is intentional - we want to fail fast during config loading.
     fn substitute_env_vars(content: &str) -> String {
         let mut result = content.to_string();
+        let mut search_from = 0;
 
         // Simple regex-free approach: find ${...} patterns
         // Supports both ${VAR} and ${VAR:-default} syntax
-        while let Some(start) = result.find("${") {
+        while let Some(rel_start) = result[search_from..].find("${") {
+            let start = search_from + rel_start;
             if let Some(end) = result[start..].find('}') {
-                let full_expr = &result[start + 2..start + end];
+                let full_expr = result[start + 2..start + end].to_string();
 
                 // Check for ${VAR:-default} syntax
                 let (var_name, default_value) = if let Some(sep_pos) = full_expr.find(":-") {
-                    (&full_expr[..sep_pos], Some(&full_expr[sep_pos + 2..]))
+                    (
+                        full_expr[..sep_pos].to_string(),
+                        Some(full_expr[sep_pos + 2..].to_string()),
+                    )
                 } else {
-                    (full_expr, None)
+                    (full_expr.clone(), None)
                 };
 
                 // Try to get the environment variable
-                let replacement = match std::env::var(var_name) {
+                let replacement = match std::env::var(&var_name) {
                     Ok(var_value) => {
-                        // Debug: Log environment variable substitution
                         tracing::info!(
                             "Config loader: Substituting {}={} (found in environment)",
                             var_name,
@@ -311,16 +315,15 @@ impl ConfigLoader {
                         );
 
                         // Security: Validate against allowlist and format rules
-                        Self::validate_env_var(var_name, &var_value).unwrap_or_else(|e| {
+                        Self::validate_env_var(&var_name, &var_value).unwrap_or_else(|e| {
                             panic!("Environment variable validation failed: {}", e);
                         });
 
                         // Security: Escape TOML special characters to prevent injection
-                        Self::escape_toml_string(&var_value)
+                        Some(Self::escape_toml_string(&var_value))
                     }
                     Err(_) => {
-                        if let Some(default) = default_value {
-                            // Debug: Log default value usage
+                        if let Some(ref default) = default_value {
                             tracing::info!(
                                 "Config loader: Using default for {}={} (not in environment)",
                                 var_name,
@@ -329,22 +332,29 @@ impl ConfigLoader {
 
                             // Security: Default values from config are trusted, don't escape
                             // (they're part of the config file, not user input)
-                            default.to_string()
+                            Some(default.clone())
                         } else {
-                            // No default, warn and leave placeholder
+                            // No default - skip this placeholder and continue
                             tracing::warn!(
                                 "Environment variable {} not found, leaving placeholder",
                                 var_name
                             );
-                            break; // Avoid infinite loop
+                            None
                         }
                     }
                 };
 
-                let pattern = format!("${{{}}}", full_expr);
-                result = result.replace(&pattern, &replacement);
+                if let Some(replacement) = replacement {
+                    let pattern = format!("${{{}}}", full_expr);
+                    result = result.replacen(&pattern, &replacement, 1);
+                    // Continue searching from current position (replacement may be shorter)
+                    search_from = start;
+                } else {
+                    // Skip past this unresolved placeholder
+                    search_from = start + end + 1;
+                }
             } else {
-                break; // Malformed ${...}
+                break; // Malformed ${...} - no closing brace found
             }
         }
 

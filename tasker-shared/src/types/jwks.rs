@@ -114,15 +114,10 @@ impl JwksKeyStore {
     async fn refresh_keys(&self) -> Result<(), AuthError> {
         debug!(url = %self.jwks_url, "Fetching JWKS keys");
 
-        let response = self
-            .client
-            .get(&self.jwks_url)
-            .send()
-            .await
-            .map_err(|e| {
-                error!(url = %self.jwks_url, error = %e, "JWKS fetch failed");
-                AuthError::ConfigurationError(format!("JWKS fetch failed: {e}"))
-            })?;
+        let response = self.client.get(&self.jwks_url).send().await.map_err(|e| {
+            error!(url = %self.jwks_url, error = %e, "JWKS fetch failed");
+            AuthError::ConfigurationError(format!("JWKS fetch failed: {e}"))
+        })?;
 
         if !response.status().is_success() {
             let status = response.status();

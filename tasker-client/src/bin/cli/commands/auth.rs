@@ -24,7 +24,14 @@ pub async fn handle_auth_command(cmd: AuthCommands) -> ClientResult<()> {
             expiry_hours,
             issuer,
             audience,
-        } => generate_token(&permissions, &subject, &private_key, expiry_hours, &issuer, &audience),
+        } => generate_token(
+            &permissions,
+            &subject,
+            &private_key,
+            expiry_hours,
+            &issuer,
+            &audience,
+        ),
         AuthCommands::ShowPermissions => show_permissions(),
         AuthCommands::ValidateToken { token, public_key } => validate_token(&token, &public_key),
     }
@@ -59,19 +66,17 @@ fn generate_keys(output_dir: &str, key_size: usize) -> ClientResult<()> {
     let public_key = private_key.to_public_key();
 
     // Export as PEM (PKCS#1 format, compatible with jsonwebtoken)
-    let private_pem = private_key.to_pkcs1_pem(rsa::pkcs1::LineEnding::LF).map_err(|e| {
-        tasker_client::ClientError::config_error(format!(
-            "Failed to encode private key: {}",
-            e
-        ))
-    })?;
+    let private_pem = private_key
+        .to_pkcs1_pem(rsa::pkcs1::LineEnding::LF)
+        .map_err(|e| {
+            tasker_client::ClientError::config_error(format!("Failed to encode private key: {}", e))
+        })?;
 
-    let public_pem = public_key.to_pkcs1_pem(rsa::pkcs1::LineEnding::LF).map_err(|e| {
-        tasker_client::ClientError::config_error(format!(
-            "Failed to encode public key: {}",
-            e
-        ))
-    })?;
+    let public_pem = public_key
+        .to_pkcs1_pem(rsa::pkcs1::LineEnding::LF)
+        .map_err(|e| {
+            tasker_client::ClientError::config_error(format!("Failed to encode public key: {}", e))
+        })?;
 
     let private_key_path = output_path.join("jwt-private-key.pem");
     let public_key_path = output_path.join("jwt-public-key.pem");
@@ -92,7 +97,10 @@ fn generate_keys(output_dir: &str, key_size: usize) -> ClientResult<()> {
     println!("  jwt_public_key_path = \"{}\"", public_key_path.display());
     println!();
     println!("Or set environment variable:");
-    println!("  export TASKER_JWT_PUBLIC_KEY_PATH={}", public_key_path.display());
+    println!(
+        "  export TASKER_JWT_PUBLIC_KEY_PATH={}",
+        public_key_path.display()
+    );
 
     Ok(())
 }
@@ -203,7 +211,12 @@ fn show_permissions() -> ClientResult<()> {
     ];
 
     for (perm, description) in &all_permissions {
-        println!("{:<25} {:<15} {}", perm.as_str(), perm.resource(), description);
+        println!(
+            "{:<25} {:<15} {}",
+            perm.as_str(),
+            perm.resource(),
+            description
+        );
     }
 
     println!();
@@ -271,7 +284,10 @@ fn validate_token(token: &str, public_key_path: &str) -> ClientResult<()> {
             }
 
             if !claims.worker_namespaces.is_empty() {
-                println!("  Worker namespaces: {}", claims.worker_namespaces.join(", "));
+                println!(
+                    "  Worker namespaces: {}",
+                    claims.worker_namespaces.join(", ")
+                );
             }
 
             // Check expiry

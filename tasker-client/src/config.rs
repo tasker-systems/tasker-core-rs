@@ -114,13 +114,13 @@ impl ApiEndpointConfig {
         if let Some(ref auth) = self.auth {
             Some(auth.to_web_auth_config())
         } else {
-            self.auth_token.as_ref().map(|token| {
-                tasker_shared::config::WebAuthConfig {
+            self.auth_token
+                .as_ref()
+                .map(|token| tasker_shared::config::WebAuthConfig {
                     enabled: true,
                     bearer_token: token.clone(),
                     ..Default::default()
-                }
-            })
+                })
         }
     }
 }
@@ -134,14 +134,12 @@ impl ClientAuthConfig {
                 bearer_token: token.clone(),
                 ..Default::default()
             },
-            ClientAuthMethod::ApiKey { key, header_name } => {
-                tasker_shared::config::WebAuthConfig {
-                    enabled: true,
-                    api_key: key.clone(),
-                    api_key_header: header_name.clone(),
-                    ..Default::default()
-                }
-            }
+            ClientAuthMethod::ApiKey { key, header_name } => tasker_shared::config::WebAuthConfig {
+                enabled: true,
+                api_key: key.clone(),
+                api_key_header: header_name.clone(),
+                ..Default::default()
+            },
         }
     }
 }
@@ -275,8 +273,8 @@ impl ClientConfig {
         // Auth resolution: endpoint-specific token > global token > API key
         let global_token = std::env::var("TASKER_AUTH_TOKEN").ok();
         let api_key = std::env::var("TASKER_API_KEY").ok();
-        let api_key_header = std::env::var("TASKER_API_KEY_HEADER")
-            .unwrap_or_else(|_| "X-API-Key".to_string());
+        let api_key_header =
+            std::env::var("TASKER_API_KEY_HEADER").unwrap_or_else(|_| "X-API-Key".to_string());
 
         // Orchestration auth
         let orch_token = std::env::var("TASKER_ORCHESTRATION_AUTH_TOKEN").ok();

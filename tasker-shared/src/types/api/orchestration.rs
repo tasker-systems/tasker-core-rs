@@ -708,17 +708,22 @@ fn redact_recursive(value: JsonValue, redacted: &mut Vec<String>, path: &str) ->
                 };
 
                 if sensitive_keys.iter().any(|&s| key_lower.contains(s)) {
-                    // Check if the value is empty - don't redact empty values
-                    let should_redact = match &val {
-                        JsonValue::String(s) => !s.is_empty(),
-                        JsonValue::Number(_) => true,
-                        JsonValue::Bool(_) => false, // Don't redact booleans
-                        _ => false,
-                    };
-
-                    if should_redact {
-                        *val = JsonValue::String("***REDACTED***".to_string());
-                        redacted.push(field_path);
+                    // Redact scalar values directly; recurse into containers
+                    match &val {
+                        JsonValue::String(s) if !s.is_empty() => {
+                            *val = JsonValue::String("***REDACTED***".to_string());
+                            redacted.push(field_path);
+                        }
+                        JsonValue::Number(_) => {
+                            *val = JsonValue::String("***REDACTED***".to_string());
+                            redacted.push(field_path);
+                        }
+                        // Arrays and Objects with sensitive key names still need
+                        // recursion to redact nested sensitive fields within them
+                        JsonValue::Array(_) | JsonValue::Object(_) => {
+                            *val = redact_recursive(val.clone(), redacted, &field_path);
+                        }
+                        _ => {} // Booleans, Null, empty strings: leave as-is
                     }
                 } else {
                     *val = redact_recursive(val.clone(), redacted, &field_path);

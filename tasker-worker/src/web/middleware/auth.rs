@@ -59,37 +59,40 @@ pub async fn authenticate_request(
 
         security_metrics::jwt_verification_duration().record(
             duration_ms,
-            &[KeyValue::new("result", if result.is_ok() { "success" } else { "failure" })],
+            &[KeyValue::new(
+                "result",
+                if result.is_ok() { "success" } else { "failure" },
+            )],
         );
 
         result.map_err(|e| {
             warn!(error = %e, "Worker: Bearer token authentication failed");
-            security_metrics::auth_requests_total().add(1, &[
-                KeyValue::new("method", "jwt"),
-                KeyValue::new("result", "failure"),
-            ]);
-            security_metrics::auth_failures_total().add(1, &[
-                KeyValue::new("reason", "invalid"),
-            ]);
+            security_metrics::auth_requests_total().add(
+                1,
+                &[
+                    KeyValue::new("method", "jwt"),
+                    KeyValue::new("result", "failure"),
+                ],
+            );
+            security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
             ApiError::auth_error("Invalid or expired token")
         })?
     } else if let Some(key) = api_key {
         security_service.authenticate_api_key(&key).map_err(|e| {
             warn!(error = %e, "Worker: API key authentication failed");
-            security_metrics::auth_requests_total().add(1, &[
-                KeyValue::new("method", "api_key"),
-                KeyValue::new("result", "failure"),
-            ]);
-            security_metrics::auth_failures_total().add(1, &[
-                KeyValue::new("reason", "invalid"),
-            ]);
+            security_metrics::auth_requests_total().add(
+                1,
+                &[
+                    KeyValue::new("method", "api_key"),
+                    KeyValue::new("result", "failure"),
+                ],
+            );
+            security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
             ApiError::auth_error("Invalid API key")
         })?
     } else {
         warn!("Worker: Request missing authentication credentials");
-        security_metrics::auth_failures_total().add(1, &[
-            KeyValue::new("reason", "missing"),
-        ]);
+        security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "missing")]);
         return Err(ApiError::auth_error("Missing authentication credentials"));
     };
 
@@ -99,10 +102,13 @@ pub async fn authenticate_request(
         AuthMethod::Disabled => "disabled",
     };
 
-    security_metrics::auth_requests_total().add(1, &[
-        KeyValue::new("method", method_label),
-        KeyValue::new("result", "success"),
-    ]);
+    security_metrics::auth_requests_total().add(
+        1,
+        &[
+            KeyValue::new("method", method_label),
+            KeyValue::new("result", "success"),
+        ],
+    );
 
     info!(
         subject = %ctx.subject,
@@ -127,9 +133,8 @@ pub fn require_permission(ctx: &SecurityContext, perm: Permission) -> Result<(),
             required = %perm,
             "Worker: Permission denied"
         );
-        security_metrics::permission_denials_total().add(1, &[
-            KeyValue::new("permission", perm.as_str().to_string()),
-        ]);
+        security_metrics::permission_denials_total()
+            .add(1, &[KeyValue::new("permission", perm.as_str().to_string())]);
         Err(ApiError::authorization_error(format!(
             "Missing required permission: {}",
             perm

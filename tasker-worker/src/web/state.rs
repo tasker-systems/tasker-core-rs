@@ -38,6 +38,7 @@ pub struct WorkerWebConfig {
     pub cors_enabled: bool,
     pub metrics_enabled: bool,
     pub health_check_interval_seconds: u64,
+    pub config_endpoint_enabled: bool,
 }
 
 impl Default for WorkerWebConfig {
@@ -50,6 +51,7 @@ impl Default for WorkerWebConfig {
             cors_enabled: true,
             metrics_enabled: true,
             health_check_interval_seconds: 30,
+            config_endpoint_enabled: false,
         }
     }
 }
@@ -74,6 +76,7 @@ impl From<&tasker_shared::config::tasker::WorkerConfig> for WorkerWebConfig {
             cors_enabled: true,
             metrics_enabled: health.performance_monitoring_enabled,
             health_check_interval_seconds: health.health_check_interval_seconds as u64,
+            config_endpoint_enabled: web.config_endpoint_enabled,
         }
     }
 }

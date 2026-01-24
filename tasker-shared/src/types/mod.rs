@@ -8,7 +8,6 @@ pub mod jwks;
 pub mod openapi_security;
 pub mod permissions;
 pub mod security;
-pub mod security_service;
 pub mod web;
 
 pub use base::{
@@ -17,4 +16,4 @@ pub use base::{
 };
 pub use permissions::Permission;
 pub use security::{AuthMethod, SecurityContext};
-pub use security_service::SecurityService;
+pub use crate::services::SecurityService;

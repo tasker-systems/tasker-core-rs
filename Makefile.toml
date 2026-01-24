@@ -1703,3 +1703,40 @@ bash cargo-make/scripts/bench-analysis.sh
 [tasks.ba]
 alias = "bench-analysis"
 description = "Shortcut for bench-analysis"
+
+# =============================================================================
+# TAS-150: Auth E2E Testing
+# =============================================================================
+
+[tasks.test-auth-e2e]
+description = "Run auth-enabled E2E tests (requires DB running)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+set -a
+source .env 2>/dev/null || true
+set +a
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/auth-test.toml"
+export TASKER_JWT_PUBLIC_KEY_PATH="$(pwd)/tests/fixtures/auth/jwt-public-key-test.pem"
+echo "🔐 Running auth enforcement E2E tests"
+echo "   Config: $TASKER_CONFIG_PATH"
+echo "   Public key: $TASKER_JWT_PUBLIC_KEY_PATH"
+cargo nextest run --features test-services \
+  -E 'test(auth::)' \
+  --package tasker-orchestration
+'''
+
+[tasks.tae]
+alias = "test-auth-e2e"
+description = "Shortcut for test-auth-e2e"
+
+[tasks.auth-generate-test-keys]
+description = "Regenerate test RSA key fixtures (optional, keys are committed)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+mkdir -p tests/fixtures/auth
+openssl genpkey -algorithm RSA -out tests/fixtures/auth/jwt-private-key-test.pem -pkeyopt rsa_keygen_bits:2048 2>/dev/null
+openssl rsa -in tests/fixtures/auth/jwt-private-key-test.pem -pubout -out tests/fixtures/auth/jwt-public-key-test.pem 2>/dev/null
+echo "Test keys regenerated at tests/fixtures/auth/"
+'''

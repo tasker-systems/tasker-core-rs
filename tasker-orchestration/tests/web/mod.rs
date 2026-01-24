@@ -7,6 +7,8 @@
 //! - Database pool resource coordination validation
 //! - Health monitoring integration testing
 
+pub mod auth;
+pub mod auth_test_helpers;
 pub mod authenticated_tests;
 pub mod resource_coordination_tests;
 pub mod test_analytics_endpoints;

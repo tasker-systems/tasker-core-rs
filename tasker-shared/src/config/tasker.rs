@@ -1440,6 +1440,13 @@ pub struct OrchestrationWebConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub resilience: Option<ResilienceConfig>,
+
+    /// Enable the /config endpoint for runtime configuration observability.
+    /// Disabled by default for security — even with auth enabled, exposing runtime
+    /// config is sensitive. When false, the route is not registered (404).
+    #[builder(default = false)]
+    #[serde(default)]
+    pub config_endpoint_enabled: bool,
 }
 
 impl_builder_default!(OrchestrationWebConfig);
@@ -2484,6 +2491,13 @@ pub struct WorkerWebConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub resilience: Option<ResilienceConfig>,
+
+    /// Enable the /config endpoint for runtime configuration observability.
+    /// Disabled by default for security — even with auth enabled, exposing runtime
+    /// config is sensitive. When false, the route is not registered (404).
+    #[builder(default = false)]
+    #[serde(default)]
+    pub config_endpoint_enabled: bool,
 }
 
 impl_builder_default!(WorkerWebConfig);

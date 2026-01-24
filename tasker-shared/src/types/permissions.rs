@@ -237,7 +237,10 @@ mod tests {
         assert!(!permission_matches("tasks:*", &Permission::StepsRead));
         assert!(!permission_matches("tasks:*", &Permission::DlqRead));
 
-        assert!(permission_matches("system:*", &Permission::SystemConfigRead));
+        assert!(permission_matches(
+            "system:*",
+            &Permission::SystemConfigRead
+        ));
         assert!(permission_matches("system:*", &Permission::HandlersRead));
         assert!(permission_matches("system:*", &Permission::AnalyticsRead));
         assert!(!permission_matches("system:*", &Permission::TasksCreate));

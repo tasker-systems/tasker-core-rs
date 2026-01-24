@@ -102,19 +102,18 @@ impl JwtAuthenticator {
             });
         }
 
-        if config.jwt_private_key.is_empty() {
-            return Err(AuthError::ConfigurationError(
-                "JWT private key not configured".to_string(),
-            ));
-        }
         if config.jwt_public_key.is_empty() {
             return Err(AuthError::ConfigurationError(
                 "JWT public key not configured".to_string(),
             ));
         }
 
-        // Parse RSA keys
-        let encoding_key = Some(Self::parse_private_key(&config.jwt_private_key)?);
+        // Parse RSA keys (private key is optional - only needed for token generation)
+        let encoding_key = if config.jwt_private_key.is_empty() {
+            None
+        } else {
+            Some(Self::parse_private_key(&config.jwt_private_key)?)
+        };
         let decoding_key = Some(Self::parse_public_key(&config.jwt_public_key)?);
 
         debug!("JWT authenticator configured with RSA keys");
