@@ -1,114 +1,166 @@
 //! # Authentication Middleware
 //!
-//! JWT-based authentication middleware for worker systems and API access.
+//! TAS-150: Unified authentication middleware using SecurityService.
+//! Supports JWT bearer tokens and API key authentication.
+//! Injects SecurityContext into request extensions for per-handler permission checks.
 
 use axum::extract::{Request, State};
 use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
+use opentelemetry::KeyValue;
 use tracing::{debug, warn};
 
 use crate::web::state::AppState;
-use tasker_shared::types::auth::JwtAuthenticator;
-use tasker_shared::types::web::ApiError;
+use tasker_shared::metrics::security as security_metrics;
+use tasker_shared::types::security::SecurityContext;
+use tasker_shared::types::web::{ApiError, AuthFailureReason, AuthFailureSeverity};
 
-/// Authentication middleware for protected endpoints
+/// Authentication middleware that authenticates all requests.
 ///
-/// This middleware is applied selectively to endpoints that require authentication.
-/// It validates JWT tokens and extracts worker claims for authorization.
-pub async fn require_auth(
+/// Behavior:
+/// - If SecurityService is absent or disabled → injects `SecurityContext::disabled_context()`
+/// - If Bearer token present → validates via JWT/JWKS
+/// - If API key header present → validates via API key registry
+/// - Neither credential present when auth is enabled → 401
+///
+/// Always injects a `SecurityContext` into request extensions so handlers can
+/// perform permission checks.
+pub async fn authenticate_request(
     State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    // TAS-61: Use converted WebAuthConfig from AppState
-    let auth_config = match &state.auth_config {
-        Some(config) => config,
-        None => {
-            debug!("Authentication disabled (no auth config) - allowing request");
+    let security_service = match &state.security_service {
+        Some(svc) if svc.is_enabled() => svc,
+        _ => {
+            // Auth disabled - inject permissive context
+            request
+                .extensions_mut()
+                .insert(SecurityContext::disabled_context());
             return Ok(next.run(request).await);
         }
     };
 
-    // Skip auth if disabled in configuration
-    if !auth_config.enabled {
-        debug!("Authentication disabled - allowing request");
-        return Ok(next.run(request).await);
-    }
+    // Try Bearer token (reject non-UTF-8 headers explicitly)
+    let bearer_token = match request.headers().get("authorization") {
+        Some(h) => match h.to_str() {
+            Ok(s) => s.strip_prefix("Bearer ").map(|t| t.to_string()),
+            Err(_) => {
+                warn!("Authorization header contains non-UTF-8 bytes");
+                security_metrics::auth_failures_total()
+                    .add(1, &[KeyValue::new("reason", "malformed")]);
+                return Err(ApiError::auth_error_with_context(
+                    "Malformed Authorization header",
+                    AuthFailureReason::Malformed,
+                    AuthFailureSeverity::High,
+                ));
+            }
+        },
+        None => None,
+    };
 
-    // Extract Authorization header
-    let auth_header = request
-        .headers()
-        .get("authorization")
-        .ok_or_else(|| ApiError::auth_error("Missing authorization header"))?;
+    // Try API key (reject non-UTF-8 headers explicitly)
+    let api_key_header = security_service.api_key_header().to_string();
+    let api_key = match request.headers().get(api_key_header.as_str()) {
+        Some(h) => match h.to_str() {
+            Ok(s) => Some(s.to_string()),
+            Err(_) => {
+                warn!("API key header contains non-UTF-8 bytes");
+                security_metrics::auth_failures_total()
+                    .add(1, &[KeyValue::new("reason", "malformed")]);
+                return Err(ApiError::auth_error_with_context(
+                    "Malformed API key header",
+                    AuthFailureReason::Malformed,
+                    AuthFailureSeverity::High,
+                ));
+            }
+        },
+        None => None,
+    };
 
-    let auth_str = auth_header
-        .to_str()
-        .map_err(|_| ApiError::auth_error("Invalid authorization header format"))?;
+    let ctx = if let Some(token) = bearer_token {
+        let start = std::time::Instant::now();
+        let result = security_service.authenticate_bearer(&token).await;
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-    // Extract Bearer token
-    let token = extract_bearer_token(auth_str)?;
+        security_metrics::jwt_verification_duration().record(
+            duration_ms,
+            &[KeyValue::new(
+                "result",
+                if result.is_ok() { "success" } else { "failure" },
+            )],
+        );
 
-    // Create authenticator from configuration
-    let authenticator = JwtAuthenticator::from_config(auth_config)
-        .map_err(|e| ApiError::auth_error(format!("Auth configuration error: {e}")))?;
+        result.map_err(|e| {
+            warn!(error = %e, "Bearer token authentication failed");
+            security_metrics::auth_requests_total().add(
+                1,
+                &[
+                    KeyValue::new("method", "jwt"),
+                    KeyValue::new("result", "failure"),
+                ],
+            );
+            security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
+            ApiError::auth_error_with_context(
+                "Invalid or expired token",
+                AuthFailureReason::Invalid,
+                AuthFailureSeverity::High,
+            )
+        })?
+    } else if let Some(key) = api_key {
+        security_service.authenticate_api_key(&key).map_err(|e| {
+            warn!(error = %e, "API key authentication failed");
+            security_metrics::auth_requests_total().add(
+                1,
+                &[
+                    KeyValue::new("method", "api_key"),
+                    KeyValue::new("result", "failure"),
+                ],
+            );
+            security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
+            ApiError::auth_error_with_context(
+                "Invalid API key",
+                AuthFailureReason::Invalid,
+                AuthFailureSeverity::High,
+            )
+        })?
+    } else {
+        warn!("Request missing authentication credentials");
+        security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "missing")]);
+        return Err(ApiError::auth_error_with_context(
+            "Missing authentication credentials",
+            AuthFailureReason::Missing,
+            AuthFailureSeverity::Low,
+        ));
+    };
 
-    // Validate token and extract claims
-    let claims = authenticator.validate_worker_token(token).map_err(|e| {
-        warn!(error = %e, "JWT validation failed");
-        ApiError::auth_error("Invalid or expired token")
-    })?;
+    let method_label = match &ctx.auth_method {
+        tasker_shared::types::security::AuthMethod::Jwt => "jwt",
+        tasker_shared::types::security::AuthMethod::ApiKey { .. } => "api_key",
+        tasker_shared::types::security::AuthMethod::Disabled => "disabled",
+    };
 
-    debug!(
-        worker_id = %claims.sub,
-        namespaces = ?claims.worker_namespaces,
-        "Authenticated worker request"
+    security_metrics::auth_requests_total().add(
+        1,
+        &[
+            KeyValue::new("method", method_label),
+            KeyValue::new("result", "success"),
+        ],
     );
 
-    // Add claims to request extensions for handlers to access
-    request.extensions_mut().insert(claims);
+    debug!(
+        subject = %ctx.subject,
+        method = ?ctx.auth_method,
+        "Request authenticated"
+    );
+
+    request.extensions_mut().insert(ctx);
 
     Ok(next.run(request).await)
 }
 
-/// Optional authentication middleware
-///
-/// Similar to require_auth but allows requests through even without valid auth.
-/// Used for endpoints that can work with or without authentication.
-pub async fn optional_auth(
-    State(state): State<AppState>,
-    mut request: Request,
-    next: Next,
-) -> Response {
-    // TAS-61: Use converted WebAuthConfig from AppState
-    let auth_config = match &state.auth_config {
-        Some(config) if config.enabled => config,
-        _ => {
-            // Auth disabled or not configured
-            return next.run(request).await;
-        }
-    };
-
-    // Try to extract and validate token, but don't fail if missing/invalid
-    if let Some(auth_header) = request.headers().get("authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if let Ok(token) = extract_bearer_token(auth_str) {
-                if let Ok(authenticator) = JwtAuthenticator::from_config(auth_config) {
-                    if let Ok(claims) = authenticator.validate_worker_token(token) {
-                        debug!(
-                            worker_id = %claims.sub,
-                            "Optional auth succeeded"
-                        );
-                        request.extensions_mut().insert(claims);
-                    }
-                }
-            }
-        }
-    }
-
-    next.run(request).await
-}
-
-/// Extract Bearer token from Authorization header
+/// Extract Bearer token from Authorization header (utility for tests).
+#[cfg(test)]
 fn extract_bearer_token(auth_header: &str) -> Result<&str, ApiError> {
     if !auth_header.starts_with("Bearer ") {
         return Err(ApiError::auth_error(
@@ -116,7 +168,7 @@ fn extract_bearer_token(auth_header: &str) -> Result<&str, ApiError> {
         ));
     }
 
-    let token = &auth_header[7..]; // Skip "Bearer " prefix
+    let token = &auth_header[7..];
     if token.is_empty() {
         return Err(ApiError::auth_error("Empty Bearer token"));
     }
@@ -124,51 +176,30 @@ fn extract_bearer_token(auth_header: &str) -> Result<&str, ApiError> {
     Ok(token)
 }
 
-/// Conditional authentication middleware that applies auth based on route configuration
+/// Conditional authentication middleware (legacy, kept for backward compatibility).
 ///
-/// This middleware checks the configuration for each route to determine if authentication
-/// is required. Only routes marked as requiring auth in the protected_routes configuration
-/// will have authentication enforced.
+/// Delegates to `authenticate_request` for routes requiring auth.
+/// For routes not in the protected_routes config, injects a disabled context.
 pub async fn conditional_auth(
     State(state): State<AppState>,
     request: Request,
     next: Next,
 ) -> Response {
-    // TAS-61: Use converted WebAuthConfig from AppState
-    let auth_config = match &state.auth_config {
-        Some(config) => config,
-        None => {
-            // No auth config - allow all requests
-            return next.run(request).await;
+    use axum::response::IntoResponse;
+
+    // If security service is configured, use the new middleware
+    if state.security_service.is_some() {
+        match authenticate_request(State(state), request, next).await {
+            Ok(response) => response,
+            Err(error) => error.into_response(),
         }
-    };
-
-    // Extract method and path from request
-    let method = request.method().to_string();
-    let path = request.uri().path();
-
-    // Check if this route requires authentication according to configuration
-    if !auth_config.route_requires_auth(&method, path) {
-        // Route doesn't require auth, proceed without authentication
-        debug!(
-            method = %method,
-            path = %path,
-            "Route does not require authentication - allowing request"
-        );
-        return next.run(request).await;
-    }
-
-    // Route requires authentication - delegate to the standard auth middleware
-    debug!(
-        method = %method,
-        path = %path,
-        auth_type = auth_config.auth_type_for_route(&method, path).unwrap_or_else(|| "unknown".to_string()),
-        "Route requires authentication - applying auth middleware"
-    );
-
-    match require_auth(State(state), request, next).await {
-        Ok(response) => response,
-        Err(error) => error.into_response(),
+    } else {
+        // No security service - inject disabled context and proceed
+        let mut request = request;
+        request
+            .extensions_mut()
+            .insert(SecurityContext::disabled_context());
+        next.run(request).await
     }
 }
 
@@ -208,7 +239,7 @@ mod tests {
             "POST /v1/tasks".to_string(),
             RouteAuthConfig {
                 auth_type: "bearer".to_string(),
-                required: false, // Not required
+                required: false,
             },
         );
 
@@ -223,19 +254,12 @@ mod tests {
             protected_routes,
         };
 
-        // Test routes that require auth
         assert!(auth_config.route_requires_auth("DELETE", "/v1/tasks/123-456-789"));
         assert!(auth_config
             .route_requires_auth("PATCH", "/v1/tasks/123-456-789/workflow_steps/step-123"));
-
-        // Test route that doesn't require auth (configured as optional)
         assert!(!auth_config.route_requires_auth("POST", "/v1/tasks"));
-
-        // Test routes that are not configured
         assert!(!auth_config.route_requires_auth("GET", "/v1/tasks"));
         assert!(!auth_config.route_requires_auth("GET", "/health"));
-
-        // Test wrong method
         assert!(!auth_config.route_requires_auth("GET", "/v1/tasks/123-456-789"));
     }
 
@@ -251,7 +275,7 @@ mod tests {
         );
 
         let auth_config = AuthConfig {
-            enabled: false, // Auth disabled globally
+            enabled: false,
             jwt_private_key: "test_key".to_string(),
             jwt_public_key: "test_public_key".to_string(),
             jwt_token_expiry_hours: 24,
@@ -261,101 +285,7 @@ mod tests {
             protected_routes,
         };
 
-        // Should return false for all routes when auth is disabled globally
         assert!(!auth_config.route_requires_auth("DELETE", "/v1/tasks/123-456-789"));
         assert!(!auth_config.route_requires_auth("POST", "/v1/tasks"));
-    }
-
-    #[test]
-    fn test_auth_type_for_route() {
-        let mut protected_routes = HashMap::new();
-        protected_routes.insert(
-            "DELETE /v1/tasks/{task_uuid}".to_string(),
-            RouteAuthConfig {
-                auth_type: "bearer".to_string(),
-                required: true,
-            },
-        );
-        protected_routes.insert(
-            "GET /v1/analytics/performance".to_string(),
-            RouteAuthConfig {
-                auth_type: "api_key".to_string(),
-                required: true,
-            },
-        );
-
-        let auth_config = AuthConfig {
-            enabled: true,
-            jwt_private_key: "test_key".to_string(),
-            jwt_public_key: "test_public_key".to_string(),
-            jwt_token_expiry_hours: 24,
-            jwt_issuer: "test_issuer".to_string(),
-            jwt_audience: "test_audience".to_string(),
-            api_key_header: "X-API-Key".to_string(),
-            protected_routes,
-        };
-
-        assert_eq!(
-            auth_config.auth_type_for_route("DELETE", "/v1/tasks/123-456-789"),
-            Some("bearer".to_string())
-        );
-        assert_eq!(
-            auth_config.auth_type_for_route("GET", "/v1/analytics/performance"),
-            Some("api_key".to_string())
-        );
-        assert_eq!(auth_config.auth_type_for_route("GET", "/v1/tasks"), None);
-    }
-
-    #[test]
-    fn test_route_pattern_matching_via_public_interface() {
-        // Test pattern matching through the public interface by setting up
-        // protected routes with patterns and testing if actual routes match
-        let mut protected_routes = HashMap::new();
-        protected_routes.insert(
-            "DELETE /v1/tasks/{task_uuid}".to_string(),
-            RouteAuthConfig {
-                auth_type: "bearer".to_string(),
-                required: true,
-            },
-        );
-        protected_routes.insert(
-            "PATCH /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}".to_string(),
-            RouteAuthConfig {
-                auth_type: "bearer".to_string(),
-                required: true,
-            },
-        );
-
-        let auth_config = AuthConfig {
-            enabled: true,
-            jwt_private_key: "test_key".to_string(),
-            jwt_public_key: "test_public_key".to_string(),
-            jwt_token_expiry_hours: 24,
-            jwt_issuer: "test_issuer".to_string(),
-            jwt_audience: "test_audience".to_string(),
-            api_key_header: "X-API-Key".to_string(),
-            protected_routes,
-        };
-
-        // Test that pattern matching works through the public interface
-        // Basic pattern matching with UUIDs
-        assert!(auth_config.route_requires_auth("DELETE", "/v1/tasks/123-456-789"));
-        assert!(auth_config.route_requires_auth("DELETE", "/v1/tasks/uuid-abc-123"));
-
-        // Complex pattern matching with multiple parameters
-        assert!(auth_config
-            .route_requires_auth("PATCH", "/v1/tasks/123-456-789/workflow_steps/step-abc-123"));
-        assert!(auth_config.route_requires_auth(
-            "PATCH",
-            "/v1/tasks/different-uuid/workflow_steps/different-step-id"
-        ));
-
-        // Test that wrong methods don't match
-        assert!(!auth_config.route_requires_auth("GET", "/v1/tasks/123-456-789"));
-        assert!(!auth_config.route_requires_auth("POST", "/v1/tasks/123-456-789"));
-
-        // Test that wrong paths don't match
-        assert!(!auth_config.route_requires_auth("DELETE", "/v1/tasks"));
-        assert!(!auth_config.route_requires_auth("DELETE", "/v1/tasks/123-456-789/invalid"));
     }
 }

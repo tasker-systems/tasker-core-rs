@@ -100,7 +100,7 @@ pub fn health_routes() -> Router<AppState> {
 /// Create configuration routes
 ///
 /// Configuration observability routes at root level (system endpoints, not REST API):
-/// - `/config` - Complete system configuration (common + orchestration-specific, secrets redacted)
+/// - `/config` - Operational configuration (whitelist-only, no secrets)
 pub fn config_routes() -> Router<AppState> {
     Router::new().route("/config", get(handlers::config::get_config))
 }

@@ -33,6 +33,8 @@ pub fn metrics_routes() -> Router<Arc<WorkerWebState>> {
         )
 }
 
+// TODO(TAS-169): Template routes should be nested under /v1 for API versioning consistency.
+// All non-infrastructure endpoints (health, metrics, docs) should have version prefixes.
 /// Task template management routes
 pub fn template_routes() -> Router<Arc<WorkerWebState>> {
     Router::new()
@@ -64,7 +66,26 @@ pub fn template_routes() -> Router<Arc<WorkerWebState>> {
         )
 }
 
-/// Configuration observability routes - unified endpoint
+/// Configuration observability routes (whitelist-only, no secrets)
 pub fn config_routes() -> Router<Arc<WorkerWebState>> {
     Router::new().route("/config", get(handlers::config::get_config))
+}
+
+/// API documentation routes (OpenAPI spec + Swagger UI)
+#[cfg(feature = "web-api")]
+pub fn docs_routes() -> Router<Arc<WorkerWebState>> {
+    use utoipa::OpenApi;
+    use utoipa_swagger_ui::SwaggerUi;
+
+    use crate::web::openapi::ApiDoc;
+
+    SwaggerUi::new("/api-docs/ui")
+        .url("/api-docs/openapi.json", ApiDoc::openapi())
+        .into()
+}
+
+/// No-op docs routes when web-api feature is disabled
+#[cfg(not(feature = "web-api"))]
+pub fn docs_routes() -> Router<Arc<WorkerWebState>> {
+    Router::new()
 }

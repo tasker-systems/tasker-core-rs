@@ -3,7 +3,6 @@ use crate::models::core::task::PaginationInfo;
 use crate::models::orchestration::execution_status::ExecutionStatus;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -632,105 +631,94 @@ mod tests {
     }
 }
 
-/// Unified orchestration configuration response with both common and orchestration-specific config
+// ============================================================================
+// SAFE CONFIG RESPONSE TYPES (TAS-150: Whitelist-only config exposure)
+// ============================================================================
+
+/// Orchestration configuration response (whitelist-only).
 ///
-/// This provides a complete view of the orchestration system's configuration in a single response,
-/// making it easier for operators to understand the full deployment without multiple API calls.
+/// Only exposes operational metadata that is safe for external consumption.
+/// No secrets, credentials, keys, or database URLs are included.
+/// Adding new fields requires a conscious decision about sensitivity.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct OrchestrationConfigResponse {
-    pub environment: String,
-    /// Common (shared) configuration components
-    pub common: JsonValue,
-    /// Orchestration-specific configuration
-    pub orchestration: JsonValue,
     pub metadata: ConfigMetadata,
+    pub auth: SafeAuthConfig,
+    pub circuit_breakers: SafeCircuitBreakerConfig,
+    pub database_pools: SafeDatabasePoolConfig,
+    pub deployment_mode: String,
+    pub messaging: SafeMessagingConfig,
 }
 
-/// Unified worker configuration response with both common and worker-specific config
+/// Worker configuration response (whitelist-only).
 ///
-/// This provides a complete view of the worker system's configuration in a single response,
-/// making it easier for operators to understand the full deployment without multiple API calls.
+/// Same whitelist principle as orchestration — only safe operational fields.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct WorkerConfigResponse {
-    pub environment: String,
-    /// Common (shared) configuration components
-    pub common: JsonValue,
-    /// Worker-specific configuration
-    pub worker: JsonValue,
     pub metadata: ConfigMetadata,
+    pub worker_id: String,
+    pub worker_type: String,
+    pub auth: SafeAuthConfig,
+    pub messaging: SafeMessagingConfig,
 }
 
-/// Metadata about the configuration response
+/// Response metadata (non-sensitive system info).
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct ConfigMetadata {
     pub timestamp: DateTime<Utc>,
-    pub source: String,
-    pub redacted_fields: Vec<String>,
+    pub environment: String,
+    pub version: String,
 }
 
-/// Redact sensitive fields from a JSON configuration value
+/// Non-sensitive auth configuration summary.
 ///
-/// This function recursively walks through a JSON structure and redacts
-/// values for keys that commonly contain secrets or sensitive information.
-pub fn redact_secrets(value: JsonValue) -> (JsonValue, Vec<String>) {
-    let mut redacted_fields = Vec::new();
-    let redacted = redact_recursive(value, &mut redacted_fields, "");
-    (redacted, redacted_fields)
+/// Exposes whether auth is enabled and how it's configured,
+/// without revealing keys, secrets, or credential values.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct SafeAuthConfig {
+    pub enabled: bool,
+    /// Verification method: "public_key", "jwks", or "none"
+    pub verification_method: String,
+    pub jwt_issuer: String,
+    pub jwt_audience: String,
+    pub api_key_header: String,
+    /// Number of configured API keys (not their values)
+    pub api_key_count: usize,
+    pub strict_validation: bool,
+    pub allowed_algorithms: Vec<String>,
 }
 
-fn redact_recursive(value: JsonValue, redacted: &mut Vec<String>, path: &str) -> JsonValue {
-    match value {
-        JsonValue::Object(mut map) => {
-            let sensitive_keys = [
-                "password",
-                "secret",
-                "token",
-                "key",
-                "api_key",
-                "private_key",
-                "jwt_private_key",
-                "jwt_public_key",
-                "auth_token",
-                "credentials",
-                "database_url",
-                "url", // Database URLs often contain passwords
-            ];
+/// Non-sensitive circuit breaker configuration.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct SafeCircuitBreakerConfig {
+    pub enabled: bool,
+    pub failure_threshold: u32,
+    pub timeout_seconds: u32,
+    pub success_threshold: u32,
+}
 
-            for (key, val) in map.iter_mut() {
-                let key_lower = key.to_lowercase();
-                let field_path = if path.is_empty() {
-                    key.clone()
-                } else {
-                    format!("{}.{}", path, key)
-                };
+/// Non-sensitive database pool configuration.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct SafeDatabasePoolConfig {
+    pub web_api_pool_size: u32,
+    pub web_api_max_connections: u32,
+}
 
-                if sensitive_keys.iter().any(|&s| key_lower.contains(s)) {
-                    // Check if the value is empty - don't redact empty values
-                    let should_redact = match &val {
-                        JsonValue::String(s) => !s.is_empty(),
-                        JsonValue::Number(_) => true,
-                        JsonValue::Bool(_) => false, // Don't redact booleans
-                        _ => false,
-                    };
-
-                    if should_redact {
-                        *val = JsonValue::String("***REDACTED***".to_string());
-                        redacted.push(field_path);
-                    }
-                } else {
-                    *val = redact_recursive(val.clone(), redacted, &field_path);
-                }
-            }
-            JsonValue::Object(map)
-        }
-        JsonValue::Array(arr) => JsonValue::Array(
-            arr.into_iter()
-                .map(|v| redact_recursive(v, redacted, path))
-                .collect(),
-        ),
-        _ => value,
-    }
+/// Non-sensitive messaging configuration.
+///
+/// Exposes backend type and queue names — these are operational
+/// metadata useful for debugging, not secrets.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct SafeMessagingConfig {
+    /// Backend type: "pgmq" or "rabbitmq"
+    pub backend: String,
+    /// Queue names owned by this component
+    pub queues: Vec<String>,
 }

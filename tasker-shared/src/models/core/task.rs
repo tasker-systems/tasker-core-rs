@@ -140,6 +140,7 @@ pub struct TaskForOrchestration {
 
 /// Query parameters for task listing with pagination and filtering
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TaskListQuery {
     pub page: u32,
     pub per_page: u32,

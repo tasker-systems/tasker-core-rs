@@ -16,6 +16,77 @@ use std::collections::HashMap;
 #[cfg(feature = "web-api")]
 use utoipa::ToSchema;
 
+/// Auth failure context for gateway signaling.
+///
+/// Included in 401/403 response headers so upstream gateways (ALB, NLB, API Gateway)
+/// can make informed rate-limiting decisions based on failure severity.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct AuthFailureContext {
+    /// Machine-readable failure category
+    pub reason: AuthFailureReason,
+    /// Suggested severity for gateway action
+    pub severity: AuthFailureSeverity,
+}
+
+/// Machine-readable auth failure reasons.
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub enum AuthFailureReason {
+    /// No credentials provided
+    Missing,
+    /// Token has expired
+    Expired,
+    /// Credentials are invalid (wrong key, bad signature)
+    Invalid,
+    /// Header contains non-UTF-8 bytes
+    Malformed,
+    /// Valid auth but insufficient permissions
+    Forbidden,
+}
+
+/// Severity levels for auth failures (signals gateway rate-limiting behavior).
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub enum AuthFailureSeverity {
+    /// Likely misconfiguration, not an attack (e.g., missing credentials, expired token)
+    Low,
+    /// Valid auth but wrong permissions
+    Medium,
+    /// Possible brute-force or fuzzing attempt (e.g., invalid credentials, malformed headers)
+    High,
+}
+
+impl AuthFailureReason {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Expired => "expired",
+            Self::Invalid => "invalid",
+            Self::Malformed => "malformed",
+            Self::Forbidden => "forbidden",
+        }
+    }
+}
+
+impl AuthFailureSeverity {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+
+    fn retry_after_seconds(&self) -> Option<u64> {
+        match self {
+            Self::Low => None,
+            Self::Medium => Some(5),
+            Self::High => Some(60),
+        }
+    }
+}
+
 /// Web API specific errors with HTTP status code mappings
 #[derive(Error, Debug)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
@@ -56,10 +127,18 @@ pub enum ApiError {
     DatabaseError { operation: String },
 
     #[error("JWT authentication failed: {reason}")]
-    AuthenticationError { reason: String },
+    AuthenticationError {
+        reason: String,
+        /// Machine-readable failure context for gateway signaling headers
+        failure_context: Option<AuthFailureContext>,
+    },
 
     #[error("Authorization failed: {reason}")]
-    AuthorizationError { reason: String },
+    AuthorizationError {
+        reason: String,
+        /// Machine-readable failure context for gateway signaling headers
+        failure_context: Option<AuthFailureContext>,
+    },
 
     #[error("Invalid UUID format: {uuid}")]
     InvalidUuid { uuid: String },
@@ -100,17 +179,50 @@ impl ApiError {
         }
     }
 
-    /// Create an AuthenticationError with reason
+    /// Create an AuthenticationError with reason (no gateway signaling context).
     pub fn auth_error(reason: impl Into<String>) -> Self {
         Self::AuthenticationError {
             reason: reason.into(),
+            failure_context: None,
         }
     }
 
-    /// Create an AuthorizationError with reason
+    /// Create an AuthenticationError with gateway signaling context.
+    ///
+    /// Includes response headers that upstream gateways can use for rate-limiting.
+    pub fn auth_error_with_context(
+        reason: impl Into<String>,
+        failure_reason: AuthFailureReason,
+        severity: AuthFailureSeverity,
+    ) -> Self {
+        Self::AuthenticationError {
+            reason: reason.into(),
+            failure_context: Some(AuthFailureContext {
+                reason: failure_reason,
+                severity,
+            }),
+        }
+    }
+
+    /// Create an AuthorizationError with reason (no gateway signaling context).
     pub fn authorization_error(reason: impl Into<String>) -> Self {
         Self::AuthorizationError {
             reason: reason.into(),
+            failure_context: None,
+        }
+    }
+
+    /// Create an AuthorizationError with gateway signaling context.
+    pub fn authorization_error_with_context(
+        reason: impl Into<String>,
+        severity: AuthFailureSeverity,
+    ) -> Self {
+        Self::AuthorizationError {
+            reason: reason.into(),
+            failure_context: Some(AuthFailureContext {
+                reason: AuthFailureReason::Forbidden,
+                severity,
+            }),
         }
     }
 
@@ -240,17 +352,67 @@ impl IntoResponse for ApiError {
                 operation.as_str(),
             ),
 
-            ApiError::AuthenticationError { reason } => (
-                StatusCode::UNAUTHORIZED,
-                "AUTHENTICATION_FAILED",
-                reason.as_str(),
-            ),
+            ApiError::AuthenticationError {
+                reason,
+                failure_context,
+            } => {
+                let error_response = json!({
+                    "error": {
+                        "code": "AUTHENTICATION_FAILED",
+                        "message": reason
+                    }
+                });
+                let mut response = (StatusCode::UNAUTHORIZED, Json(error_response)).into_response();
+                if let Some(ctx) = failure_context {
+                    let headers = response.headers_mut();
+                    headers.insert(
+                        "x-auth-failure-reason",
+                        ctx.reason.as_str().parse().unwrap(),
+                    );
+                    headers.insert(
+                        "x-auth-failure-severity",
+                        ctx.severity.as_str().parse().unwrap(),
+                    );
+                    if let Some(retry_after) = ctx.severity.retry_after_seconds() {
+                        headers.insert(
+                            axum::http::header::RETRY_AFTER,
+                            retry_after.to_string().parse().unwrap(),
+                        );
+                    }
+                }
+                return response;
+            }
 
-            ApiError::AuthorizationError { reason } => (
-                StatusCode::FORBIDDEN,
-                "AUTHORIZATION_FAILED",
-                reason.as_str(),
-            ),
+            ApiError::AuthorizationError {
+                reason,
+                failure_context,
+            } => {
+                let error_response = json!({
+                    "error": {
+                        "code": "AUTHORIZATION_FAILED",
+                        "message": reason
+                    }
+                });
+                let mut response = (StatusCode::FORBIDDEN, Json(error_response)).into_response();
+                if let Some(ctx) = failure_context {
+                    let headers = response.headers_mut();
+                    headers.insert(
+                        "x-auth-failure-reason",
+                        ctx.reason.as_str().parse().unwrap(),
+                    );
+                    headers.insert(
+                        "x-auth-failure-severity",
+                        ctx.severity.as_str().parse().unwrap(),
+                    );
+                    if let Some(retry_after) = ctx.severity.retry_after_seconds() {
+                        headers.insert(
+                            axum::http::header::RETRY_AFTER,
+                            retry_after.to_string().parse().unwrap(),
+                        );
+                    }
+                }
+                return response;
+            }
 
             ApiError::InvalidUuid { uuid } => {
                 (StatusCode::BAD_REQUEST, "INVALID_UUID", uuid.as_str())

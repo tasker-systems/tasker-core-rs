@@ -15,7 +15,7 @@ use std::{sync::Arc, time::Instant};
 use tasker_shared::{
     config::tasker::TaskerConfig,
     database::DatabasePools,
-    errors::TaskerResult,
+    errors::{TaskerError, TaskerResult},
     messaging::client::MessageClient,
     messaging::service::MessagingProvider,
     types::api::worker::CircuitBreakersHealth,
@@ -38,6 +38,7 @@ pub struct WorkerWebConfig {
     pub cors_enabled: bool,
     pub metrics_enabled: bool,
     pub health_check_interval_seconds: u64,
+    pub config_endpoint_enabled: bool,
 }
 
 impl Default for WorkerWebConfig {
@@ -50,6 +51,7 @@ impl Default for WorkerWebConfig {
             cors_enabled: true,
             metrics_enabled: true,
             health_check_interval_seconds: 30,
+            config_endpoint_enabled: false,
         }
     }
 }
@@ -74,6 +76,7 @@ impl From<&tasker_shared::config::tasker::WorkerConfig> for WorkerWebConfig {
             cors_enabled: true,
             metrics_enabled: health.performance_monitoring_enabled,
             health_check_interval_seconds: health.health_check_interval_seconds as u64,
+            config_endpoint_enabled: web.config_endpoint_enabled,
         }
     }
 }
@@ -131,6 +134,9 @@ pub struct WorkerWebState {
 
     /// Config query service for configuration operations
     config_query_service: Arc<ConfigQueryService>,
+
+    /// TAS-150: Unified security service for JWT + API key authentication
+    pub security_service: Option<Arc<tasker_shared::types::SecurityService>>,
 }
 
 /// TAS-75: Trait for providing circuit breaker health information
@@ -230,6 +236,35 @@ impl WorkerWebState {
 
         info!("TAS-77: Service instances created for web handlers");
 
+        // TAS-150: Build SecurityService from worker auth config
+        // Fail-fast: if auth is explicitly enabled but init fails, refuse to start.
+        let security_service = if let Some(auth_config) = system_config
+            .worker
+            .as_ref()
+            .and_then(|w| w.web.as_ref())
+            .and_then(|web| web.auth.as_ref())
+        {
+            match tasker_shared::types::SecurityService::from_config(auth_config).await {
+                Ok(svc) => Some(Arc::new(svc)),
+                Err(e) => {
+                    if auth_config.enabled {
+                        tracing::error!(
+                            error = %e,
+                            "Worker SecurityService initialization failed with auth enabled. \
+                             Refusing to start without authentication."
+                        );
+                        return Err(TaskerError::ConfigurationError(format!(
+                            "Security initialization failed: {e}"
+                        )));
+                    }
+                    tracing::debug!(error = %e, "Worker SecurityService init skipped (auth disabled)");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             worker_core,
             database_pools,
@@ -246,6 +281,7 @@ impl WorkerWebState {
             metrics_service,
             template_query_service,
             config_query_service,
+            security_service,
         })
     }
 

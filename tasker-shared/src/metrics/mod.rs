@@ -52,6 +52,7 @@ pub mod database;
 pub mod health;
 pub mod messaging;
 pub mod orchestration;
+pub mod security;
 pub mod worker;
 
 /// Global metrics initialization state

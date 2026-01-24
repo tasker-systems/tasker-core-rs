@@ -143,7 +143,20 @@ impl WorkerApiClient {
             if auth_config.enabled {
                 let mut default_headers = reqwest::header::HeaderMap::new();
 
-                if !auth_config.api_key.is_empty() {
+                if !auth_config.bearer_token.is_empty() {
+                    // Use pre-existing Bearer token
+                    default_headers.insert(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", auth_config.bearer_token)
+                            .parse()
+                            .map_err(|e| {
+                                TaskerError::ConfigurationError(format!(
+                                    "Invalid bearer token: {}",
+                                    e
+                                ))
+                            })?,
+                    );
+                } else if !auth_config.api_key.is_empty() {
                     // Use API key authentication
                     let header_name = if auth_config.api_key_header.is_empty() {
                         "X-API-Key"

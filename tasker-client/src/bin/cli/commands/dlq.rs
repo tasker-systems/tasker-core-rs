@@ -10,7 +10,7 @@ pub async fn handle_dlq_command(cmd: DlqCommands, config: &ClientConfig) -> Clie
         base_url: config.orchestration.base_url.clone(),
         timeout_ms: config.orchestration.timeout_ms,
         max_retries: config.orchestration.max_retries,
-        auth: None,
+        auth: config.orchestration.resolve_web_auth_config(),
     };
 
     let client = OrchestrationApiClient::new(orchestration_config)?;

@@ -1,6 +1,10 @@
 //! # Analytics Handlers
 //!
 //! Read-only endpoints for performance metrics and bottleneck analysis.
+//!
+//! TODO(TAS-168): Add response caching for analytics endpoints. The underlying queries are
+//! non-trivial (aggregations, joins) and results don't change frequently. Consider
+//! a time-based cache (e.g., 30-60s TTL) with Redis backend for multi-instance support.
 
 use axum::extract::{Query, State};
 use axum::Json;
@@ -9,13 +13,15 @@ use chrono::{Duration, Utc};
 use tracing::info;
 
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
+use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::types::api::orchestration::{
     BottleneckAnalysis, BottleneckQuery, MetricsQuery, PerformanceMetrics, ResourceUtilization,
     SlowStepInfo, SlowTaskInfo,
 };
-#[allow(unused_imports)]
+use tasker_shared::types::permissions::Permission;
+use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// Get performance metrics: GET /v1/analytics/performance
@@ -27,14 +33,20 @@ use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
     ),
     responses(
         (status = 200, description = "Performance metrics", body = PerformanceMetrics),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "analytics"
 ))]
 pub async fn get_performance_metrics(
     State(state): State<AppState>,
+    security: SecurityContext,
     Query(params): Query<MetricsQuery>,
 ) -> ApiResult<Json<PerformanceMetrics>> {
+    require_permission(&security, Permission::AnalyticsRead)?;
+
     info!("Retrieving performance metrics");
 
     execute_with_circuit_breaker(&state, || async {
@@ -87,14 +99,20 @@ pub async fn get_performance_metrics(
     ),
     responses(
         (status = 200, description = "Bottleneck analysis", body = BottleneckAnalysis),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Insufficient permissions", body = ApiError),
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
+    security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "analytics"
 ))]
 pub async fn get_bottlenecks(
     State(state): State<AppState>,
+    security: SecurityContext,
     Query(params): Query<BottleneckQuery>,
 ) -> ApiResult<Json<BottleneckAnalysis>> {
+    require_permission(&security, Permission::AnalyticsRead)?;
+
     info!("Performing bottleneck analysis");
 
     execute_with_circuit_breaker(&state, || async {

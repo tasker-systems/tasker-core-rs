@@ -97,6 +97,7 @@ pub mod monitoring;
 pub mod registry;
 pub mod resilience;
 pub mod scopes;
+pub mod services;
 pub mod sql_functions;
 pub mod state_machine;
 pub mod system_context;

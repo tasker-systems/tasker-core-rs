@@ -9,7 +9,7 @@ pub async fn handle_worker_command(cmd: WorkerCommands, config: &ClientConfig) -
         base_url: config.worker.base_url.clone(),
         timeout_ms: config.worker.timeout_ms,
         max_retries: config.worker.max_retries,
-        auth: None, // TODO: Convert auth_token to WebAuthConfig when needed
+        auth: config.worker.resolve_web_auth_config(),
     };
 
     let client = WorkerApiClient::new(worker_config)?;

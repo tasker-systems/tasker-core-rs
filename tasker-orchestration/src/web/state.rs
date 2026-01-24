@@ -12,6 +12,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use std::time::Duration;
 use tasker_shared::config::web::WebConfig;
+use tasker_shared::types::SecurityService;
 // TAS-75: Import ApiError for backpressure status checking
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType, SystemOperationalState};
 use tasker_shared::TaskerResult;
@@ -53,6 +54,9 @@ pub struct AppState {
     /// Authentication configuration (converted from V2's `Option<AuthConfig>` to WebAuthConfig adapter)
     /// This provides route matching methods needed by the auth middleware
     pub auth_config: Option<Arc<tasker_shared::config::WebAuthConfig>>,
+
+    /// TAS-150: Unified security service for JWT + API key authentication
+    pub security_service: Option<Arc<SecurityService>>,
 
     /// Dedicated database pool for web API operations
     pub web_db_pool: PgPool,
@@ -206,9 +210,34 @@ impl AppState {
             .as_ref()
             .map(|auth| Arc::new(tasker_shared::config::WebAuthConfig::from(auth.clone())));
 
+        // TAS-150: Build SecurityService from auth config
+        // Fail-fast: if auth is explicitly enabled but init fails, refuse to start.
+        let security_service = if let Some(auth) = &web_config.auth {
+            match SecurityService::from_config(auth).await {
+                Ok(svc) => Some(Arc::new(svc)),
+                Err(e) => {
+                    if auth.enabled {
+                        tracing::error!(
+                            error = %e,
+                            "SecurityService initialization failed with auth enabled. \
+                             Refusing to start without authentication."
+                        );
+                        return Err(ApiError::internal_server_error(format!(
+                            "Security initialization failed: {e}"
+                        )));
+                    }
+                    tracing::debug!(error = %e, "SecurityService init skipped (auth disabled)");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             config: Arc::new(web_config),
             auth_config,
+            security_service,
             web_db_pool: web_db_pool.clone(),
             orchestration_db_pool: orchestration_core.context.database_pool().clone(),
             web_db_circuit_breaker: circuit_breaker,

@@ -1703,3 +1703,95 @@ bash cargo-make/scripts/bench-analysis.sh
 [tasks.ba]
 alias = "bench-analysis"
 description = "Shortcut for bench-analysis"
+
+# =============================================================================
+# TAS-150: Auth E2E Testing
+# =============================================================================
+
+[tasks.test-auth-e2e]
+description = "Run auth-enabled E2E tests (requires DB running)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+set -a
+source .env 2>/dev/null || true
+set +a
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/auth-test.toml"
+export TASKER_JWT_PUBLIC_KEY_PATH="$(pwd)/tests/fixtures/auth/jwt-public-key-test.pem"
+echo "🔐 Running auth enforcement E2E tests"
+echo "   Config: $TASKER_CONFIG_PATH"
+echo "   Public key: $TASKER_JWT_PUBLIC_KEY_PATH"
+cargo nextest run --features test-services \
+  -E 'test(auth::)' \
+  --package tasker-orchestration
+'''
+
+[tasks.tae]
+alias = "test-auth-e2e"
+description = "Shortcut for test-auth-e2e"
+
+[tasks.auth-generate-test-keys]
+description = "Regenerate test RSA key fixtures (optional, keys are committed)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+mkdir -p tests/fixtures/auth
+openssl genpkey -algorithm RSA -out tests/fixtures/auth/jwt-private-key-test.pem -pkeyopt rsa_keygen_bits:2048 2>/dev/null
+openssl rsa -in tests/fixtures/auth/jwt-private-key-test.pem -pubout -out tests/fixtures/auth/jwt-public-key-test.pem 2>/dev/null
+echo "Test keys regenerated at tests/fixtures/auth/"
+'''
+
+# =============================================================================
+# Schema Generation
+# =============================================================================
+
+[tasks.generate-schemas]
+description = "Generate OpenAPI specs from utoipa annotations"
+script = '''
+#!/bin/bash
+set -euo pipefail
+mkdir -p schemas/generated
+
+echo "Generating orchestration OpenAPI spec..."
+cargo run --package tasker-orchestration --bin generate-orchestration-openapi --features web-api \
+  > schemas/generated/orchestration-openapi.json
+
+echo "Generating worker OpenAPI spec..."
+cargo run --package tasker-worker --bin generate-worker-openapi --features web-api \
+  > schemas/generated/worker-openapi.json
+
+echo "Schemas generated:"
+ls -la schemas/generated/
+'''
+
+[tasks.gs]
+alias = "generate-schemas"
+description = "Shortcut for generate-schemas"
+
+[tasks.check-schemas]
+description = "Verify generated schemas are up-to-date (for CI)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+TMPDIR=$(mktemp -d)
+trap "rm -rf $TMPDIR" EXIT
+
+echo "Generating fresh schemas..."
+cargo run --package tasker-orchestration --bin generate-orchestration-openapi --features web-api \
+  > "$TMPDIR/orchestration-openapi.json" 2>/dev/null
+cargo run --package tasker-worker --bin generate-worker-openapi --features web-api \
+  > "$TMPDIR/worker-openapi.json" 2>/dev/null
+
+DIRTY=0
+for f in orchestration-openapi.json worker-openapi.json; do
+  if ! diff -q "schemas/generated/$f" "$TMPDIR/$f" > /dev/null 2>&1; then
+    echo "ERROR: schemas/generated/$f is out of date. Run: cargo make generate-schemas"
+    DIRTY=1
+  fi
+done
+
+if [ $DIRTY -eq 1 ]; then
+  exit 1
+fi
+echo "All generated schemas are up-to-date."
+'''

@@ -239,6 +239,16 @@ Dual-channel system: dispatch channel + completion channel
 | MPSC Channels | `docs/development/mpsc-channel-guidelines.md` |
 | Observability | `docs/observability/README.md` |
 
+### Authentication & Security
+| Topic | Document |
+|-------|----------|
+| Auth Overview | `docs/auth/README.md` |
+| Permissions & Routes | `docs/auth/permissions.md` |
+| Configuration Reference | `docs/auth/configuration.md` |
+| Auth Testing | `docs/auth/testing.md` |
+| API Security Guide | `docs/guides/api-security.md` |
+| External Providers (JWKS) | `docs/guides/auth-integration.md` |
+
 ### Development Tooling
 | Topic | Document |
 |-------|----------|

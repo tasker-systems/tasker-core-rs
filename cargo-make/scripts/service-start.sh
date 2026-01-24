@@ -11,8 +11,8 @@
 #   SERVICE_LOG_DIR - Log directory (defaults to $PROJECT_ROOT/.logs)
 #
 # Example:
-#   service-start.sh orchestration cargo run -p tasker-orchestration
-#   service-start.sh python-worker cargo run -p tasker-worker --features python
+#   service-start.sh orchestration cargo run -p tasker-orchestration --bin tasker-server
+#   service-start.sh worker cargo run -p tasker-worker --bin tasker-worker
 # =============================================================================
 
 set -e

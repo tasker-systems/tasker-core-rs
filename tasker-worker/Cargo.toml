@@ -2,6 +2,7 @@
 name = "tasker-worker"
 version = "0.1.0"
 edition = "2021"
+default-run = "tasker-worker"
 description = "Worker foundation system for multi-language step execution"
 readme = "README.md"
 repository = "https://github.com/tasker-systems/tasker-core"
@@ -50,6 +51,11 @@ name = "tasker_worker"
 [[bin]]
 name = "tasker-worker"
 path = "src/bin/server.rs"
+required-features = ["web-api"]
+
+[[bin]]
+name = "generate-worker-openapi"
+path = "src/bin/generate_openapi.rs"
 required-features = ["web-api"]
 
 # Note: Benchmark placeholders removed - use E2E benchmarks and OpenTelemetry traces

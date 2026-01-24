@@ -16,6 +16,8 @@ use tracing::info;
 
 pub mod handlers;
 pub mod middleware;
+#[cfg(feature = "web-api")]
+pub mod openapi;
 pub mod routes;
 pub mod state;
 
@@ -28,20 +30,36 @@ pub fn create_app(state: Arc<WorkerWebState>) -> Router {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let middleware = ServiceBuilder::new()
+    let common_middleware = ServiceBuilder::new()
         .layer(TraceLayer::new_for_http())
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             Duration::from_millis(30000),
-        )) // 30 second timeout
+        ))
         .layer(cors);
 
-    let app = Router::new()
+    // Public routes - never require auth (Kubernetes probes, metrics, docs)
+    let public_routes = Router::new()
         .merge(routes::health_routes())
         .merge(routes::metrics_routes())
-        .merge(routes::template_routes())
-        .merge(routes::config_routes())
-        .layer(middleware)
+        .merge(routes::docs_routes());
+
+    // Protected routes - auth middleware applied
+    let mut protected_routes = Router::new().merge(routes::template_routes());
+
+    if state.config.config_endpoint_enabled {
+        protected_routes = protected_routes.merge(routes::config_routes());
+    }
+
+    let protected_routes = protected_routes.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        middleware::auth::authenticate_request,
+    ));
+
+    let app = Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
+        .layer(common_middleware)
         .with_state(state);
 
     info!("Worker web application created with all routes and middleware");

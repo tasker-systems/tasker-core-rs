@@ -48,16 +48,26 @@ pub fn create_app(app_state: AppState) -> Router {
     let request_timeout =
         std::time::Duration::from_millis(app_state.config.request_timeout_ms as u64);
 
-    let router = Router::new()
-        // API v1 routes - versioned endpoints
-        .nest("/v1", routes::api_v1_routes())
-        // System endpoints at root level (Kubernetes standard)
+    // Public routes - never require auth (Kubernetes probes, monitoring, docs)
+    let public_routes = Router::new()
         .merge(routes::health_routes())
-        .merge(routes::config_routes())
         .merge(routes::docs_routes());
 
-    router
-        // Apply production middleware stack which includes CORS, auth, timeouts, etc.
+    // Protected routes - auth middleware applied
+    let mut protected_routes = Router::new().nest("/v1", routes::api_v1_routes());
+
+    if app_state.config.config_endpoint_enabled {
+        protected_routes = protected_routes.merge(routes::config_routes());
+    }
+
+    let protected_routes = protected_routes.layer(axum::middleware::from_fn_with_state(
+        app_state.clone(),
+        middleware::auth::conditional_auth,
+    ));
+
+    Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
         .layer(axum::middleware::from_fn(
             middleware::request_id::add_request_id,
         ))
@@ -72,11 +82,6 @@ pub fn create_app(app_state: AppState) -> Router {
                 .allow_headers(tower_http::cors::Any),
         )
         .layer(tower_http::trace::TraceLayer::new_for_http())
-        // Apply conditional authentication middleware based on route configuration
-        .layer(axum::middleware::from_fn_with_state(
-            app_state.clone(),
-            middleware::auth::conditional_auth,
-        ))
         .with_state(app_state)
 }
 
@@ -94,19 +99,29 @@ pub fn create_test_app(app_state: AppState) -> Router {
     let test_timeout = std::time::Duration::from_millis(app_state.config.request_timeout_ms as u64)
         + std::time::Duration::from_secs(90);
 
-    let mut router = Router::new()
-        .nest("/v1", routes::api_v1_routes())
-        .merge(routes::health_routes())
-        .merge(routes::config_routes());
+    // Public routes - never require auth (health probes, docs)
+    let mut public_routes = Router::new().merge(routes::health_routes());
 
-    // API documentation routes (conditionally included)
     #[cfg(feature = "web-api")]
     {
-        router = router.merge(routes::docs_routes());
+        public_routes = public_routes.merge(routes::docs_routes());
     }
 
-    router
-        // Apply test middleware stack which includes CORS with relaxed settings
+    // Protected routes - auth middleware applied
+    let mut protected_routes = Router::new().nest("/v1", routes::api_v1_routes());
+
+    if app_state.config.config_endpoint_enabled {
+        protected_routes = protected_routes.merge(routes::config_routes());
+    }
+
+    let protected_routes = protected_routes.layer(axum::middleware::from_fn_with_state(
+        app_state.clone(),
+        middleware::auth::conditional_auth,
+    ));
+
+    Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
         .layer(axum::middleware::from_fn(
             middleware::request_id::add_request_id,
         ))
@@ -121,10 +136,5 @@ pub fn create_test_app(app_state: AppState) -> Router {
                 .allow_headers(tower_http::cors::Any),
         )
         .layer(tower_http::trace::TraceLayer::new_for_http())
-        // Apply conditional authentication middleware (typically disabled in test config)
-        .layer(axum::middleware::from_fn_with_state(
-            app_state.clone(),
-            middleware::auth::conditional_auth,
-        ))
         .with_state(app_state)
 }
