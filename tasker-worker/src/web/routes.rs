@@ -66,9 +66,7 @@ pub fn template_routes() -> Router<Arc<WorkerWebState>> {
         )
 }
 
-// TODO(TAS-169): Review redact_secrets() coverage after auth config changes to ensure
-// API keys and JWT key material are never leaked via this endpoint.
-/// Configuration observability routes - unified endpoint
+/// Configuration observability routes (whitelist-only, no secrets)
 pub fn config_routes() -> Router<Arc<WorkerWebState>> {
     Router::new().route("/config", get(handlers::config::get_config))
 }

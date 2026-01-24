@@ -94,44 +94,45 @@ async fn test_orchestration_health_endpoints() -> Result<()> {
 /// Test orchestration config endpoint
 ///
 /// Validates:
-/// - GET /config returns OrchestrationConfigResponse with redacted secrets
-/// - Response includes common and orchestration-specific configuration
-/// - Metadata includes redacted fields list
+/// - GET /config returns OrchestrationConfigResponse with safe (whitelist-only) fields
+/// - Response includes auth, circuit breaker, and messaging configuration
 #[tokio::test]
 async fn test_orchestration_config_endpoint() -> Result<()> {
-    println!("⚙️  Testing Orchestration Config Endpoint (TAS-70)");
+    println!("⚙️  Testing Orchestration Config Endpoint (TAS-70/TAS-150)");
 
     let manager = IntegrationTestManager::setup_orchestration_only().await?;
 
     println!("\n  📋 GET /config");
     let config = manager.orchestration_client.get_config().await?;
 
-    // Verify response structure
+    // Verify metadata
     assert!(
-        !config.environment.is_empty(),
+        !config.metadata.environment.is_empty(),
         "Environment should not be empty"
     );
-    println!("     ✅ environment: {}", config.environment);
-
-    // Common config should be present (as JSON value)
     assert!(
-        config.common.is_object(),
-        "Common config should be an object"
+        !config.metadata.version.is_empty(),
+        "Version should not be empty"
     );
-    println!("     ✅ common config present");
+    println!("     ✅ environment: {}", config.metadata.environment);
+    println!("     ✅ version: {}", config.metadata.version);
 
-    // Orchestration config should be present
+    // Deployment mode
     assert!(
-        config.orchestration.is_object(),
-        "Orchestration config should be an object"
+        !config.deployment_mode.is_empty(),
+        "Deployment mode should not be empty"
     );
-    println!("     ✅ orchestration config present");
+    println!("     ✅ deployment_mode: {}", config.deployment_mode);
 
-    // Metadata should include timestamp and source
-    println!("     ✅ metadata.source: {}", config.metadata.source);
+    // Messaging config
+    assert!(
+        !config.messaging.backend.is_empty(),
+        "Messaging backend should not be empty"
+    );
+    println!("     ✅ messaging.backend: {}", config.messaging.backend);
     println!(
-        "     ✅ metadata.redacted_fields: {} fields",
-        config.metadata.redacted_fields.len()
+        "     ✅ messaging.queues: {} queues",
+        config.messaging.queues.len()
     );
 
     println!("\n🎉 Orchestration config endpoint test passed!");
@@ -256,11 +257,11 @@ async fn test_worker_health_endpoints() -> Result<()> {
 /// Test worker config endpoint
 ///
 /// Validates:
-/// - GET /config returns WorkerConfigResponse with redacted secrets
-/// - Response includes common and worker-specific configuration
+/// - GET /config returns WorkerConfigResponse with safe (whitelist-only) fields
+/// - Response includes worker identity and messaging configuration
 #[tokio::test]
 async fn test_worker_config_endpoint() -> Result<()> {
-    println!("⚙️  Testing Worker Config Endpoint (TAS-70)");
+    println!("⚙️  Testing Worker Config Endpoint (TAS-70/TAS-150)");
 
     let manager = IntegrationTestManager::setup().await?;
     let worker_client = manager.worker_client.as_ref().ok_or_else(|| {
@@ -270,32 +271,35 @@ async fn test_worker_config_endpoint() -> Result<()> {
     println!("\n  📋 GET /config");
     let config = worker_client.get_config().await?;
 
-    // Verify response structure
+    // Verify metadata
     assert!(
-        !config.environment.is_empty(),
+        !config.metadata.environment.is_empty(),
         "Environment should not be empty"
     );
-    println!("     ✅ environment: {}", config.environment);
-
-    // Common config should be present
     assert!(
-        config.common.is_object(),
-        "Common config should be an object"
+        !config.metadata.version.is_empty(),
+        "Version should not be empty"
     );
-    println!("     ✅ common config present");
+    println!("     ✅ environment: {}", config.metadata.environment);
+    println!("     ✅ version: {}", config.metadata.version);
 
-    // Worker config should be present
+    // Worker identity
     assert!(
-        config.worker.is_object(),
-        "Worker config should be an object"
+        !config.worker_id.is_empty(),
+        "Worker ID should not be empty"
     );
-    println!("     ✅ worker config present");
+    println!("     ✅ worker_id: {}", config.worker_id);
+    println!("     ✅ worker_type: {}", config.worker_type);
 
-    // Metadata should include timestamp
-    println!("     ✅ metadata.source: {}", config.metadata.source);
+    // Messaging config
+    assert!(
+        !config.messaging.backend.is_empty(),
+        "Messaging backend should not be empty"
+    );
+    println!("     ✅ messaging.backend: {}", config.messaging.backend);
     println!(
-        "     ✅ metadata.redacted_fields: {} fields",
-        config.metadata.redacted_fields.len()
+        "     ✅ messaging.queues: {} queues",
+        config.messaging.queues.len()
     );
 
     println!("\n🎉 Worker config endpoint test passed!");

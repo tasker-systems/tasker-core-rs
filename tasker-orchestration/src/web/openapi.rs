@@ -22,7 +22,8 @@ use crate::web::handlers;
 use tasker_shared::types::api::orchestration::{
     BottleneckAnalysis, ConfigMetadata, DetailedHealthResponse, HandlerInfo, HealthCheck,
     HealthInfo, HealthResponse, ManualCompletionData, NamespaceInfo, OrchestrationConfigResponse,
-    PerformanceMetrics, ResourceUtilization, SlowStepInfo, SlowTaskInfo, StepAuditResponse,
+    PerformanceMetrics, ResourceUtilization, SafeAuthConfig, SafeCircuitBreakerConfig,
+    SafeDatabasePoolConfig, SafeMessagingConfig, SlowStepInfo, SlowTaskInfo, StepAuditResponse,
     StepManualAction, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
 };
 
@@ -96,9 +97,13 @@ use tasker_shared::types::api::orchestration::{
         NamespaceInfo,
         HandlerInfo,
 
-        // Config schemas - unified response types
+        // Config schemas (TAS-150: whitelist-only safe response types)
         OrchestrationConfigResponse,
         ConfigMetadata,
+        SafeAuthConfig,
+        SafeCircuitBreakerConfig,
+        SafeDatabasePoolConfig,
+        SafeMessagingConfig,
 
         // Error schemas (re-exported from errors module)
         ApiError,
@@ -109,7 +114,7 @@ use tasker_shared::types::api::orchestration::{
         (name = "health", description = "Health check and monitoring"),
         (name = "analytics", description = "Performance analytics and metrics"),
         (name = "handlers", description = "Handler registry and discovery"),
-        (name = "config", description = "Runtime configuration observability (secrets redacted)"),
+        (name = "config", description = "Runtime configuration observability (safe fields only)"),
     ),
     info(
         title = "Tasker Web API",

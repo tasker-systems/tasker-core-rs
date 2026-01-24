@@ -97,12 +97,10 @@ pub fn health_routes() -> Router<AppState> {
         .route("/metrics", get(handlers::health::prometheus_metrics))
 }
 
-// TODO(TAS-169): Review redact_secrets() coverage after auth config changes to ensure
-// API keys and JWT key material are never leaked via this endpoint.
 /// Create configuration routes
 ///
 /// Configuration observability routes at root level (system endpoints, not REST API):
-/// - `/config` - Complete system configuration (common + orchestration-specific, secrets redacted)
+/// - `/config` - Operational configuration (whitelist-only, no secrets)
 pub fn config_routes() -> Router<AppState> {
     Router::new().route("/config", get(handlers::config::get_config))
 }

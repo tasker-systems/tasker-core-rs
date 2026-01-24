@@ -10,7 +10,7 @@ use tracing::{debug, warn};
 
 use crate::config::tasker::AuthConfig;
 use crate::types::auth::{AuthError, JwtAuthenticator, TokenClaims};
-use crate::types::jwks::JwksKeyStore;
+use crate::types::jwks::{JwksConfig, JwksKeyStore};
 use crate::types::permissions::validate_permissions;
 use crate::types::security::{AuthMethod, SecurityContext};
 
@@ -64,11 +64,17 @@ impl SecurityService {
             None
         };
 
-        // Resolve JWKS store
+        // Resolve JWKS store with hardening config
         let jwks_store = if config.jwt_verification_method == "jwks" && !config.jwks_url.is_empty()
         {
-            let refresh = Duration::from_secs(config.jwks_refresh_interval_seconds as u64);
-            match JwksKeyStore::new(config.jwks_url.clone(), refresh).await {
+            let jwks_config = JwksConfig {
+                url: config.jwks_url.clone(),
+                refresh_interval: Duration::from_secs(config.jwks_refresh_interval_seconds as u64),
+                max_stale: Duration::from_secs(config.jwks_max_stale_seconds as u64),
+                allow_http: config.jwks_url_allow_http,
+                allowed_algorithms: config.jwt_allowed_algorithms.clone(),
+            };
+            match JwksKeyStore::with_config(jwks_config).await {
                 Ok(store) => Some(Arc::new(store)),
                 Err(e) => {
                     warn!(error = %e, "JWKS store init failed");
@@ -210,6 +216,9 @@ impl SecurityService {
     }
 
     /// Validate a JWT using JWKS key resolution.
+    ///
+    /// Uses the configured algorithm allowlist rather than trusting the token's
+    /// `alg` header, preventing algorithm confusion attacks.
     async fn validate_with_jwks(
         &self,
         jwks: &JwksKeyStore,
@@ -225,7 +234,22 @@ impl SecurityService {
 
         let decoding_key = jwks.get_key(&kid).await?;
 
-        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
+        // Use algorithm allowlist from config (not the token's alg header)
+        let allowed_algs: Vec<jsonwebtoken::Algorithm> = self
+            .config
+            .jwt_allowed_algorithms
+            .iter()
+            .filter_map(|a| Self::parse_algorithm(a))
+            .collect();
+
+        if allowed_algs.is_empty() {
+            return Err(AuthError::ConfigurationError(
+                "No valid algorithms configured in jwt_allowed_algorithms".to_string(),
+            ));
+        }
+
+        let mut validation = jsonwebtoken::Validation::new(allowed_algs[0]);
+        validation.algorithms = allowed_algs;
         validation.set_issuer(&[&self.config.jwt_issuer]);
         validation.set_audience(&[&self.config.jwt_audience]);
         validation.validate_exp = true;
@@ -237,6 +261,24 @@ impl SecurityService {
             })?;
 
         Ok(Self::claims_to_context(token_data.claims))
+    }
+
+    /// Parse an algorithm string into a jsonwebtoken Algorithm enum.
+    fn parse_algorithm(alg: &str) -> Option<jsonwebtoken::Algorithm> {
+        match alg {
+            "RS256" => Some(jsonwebtoken::Algorithm::RS256),
+            "RS384" => Some(jsonwebtoken::Algorithm::RS384),
+            "RS512" => Some(jsonwebtoken::Algorithm::RS512),
+            "PS256" => Some(jsonwebtoken::Algorithm::PS256),
+            "PS384" => Some(jsonwebtoken::Algorithm::PS384),
+            "PS512" => Some(jsonwebtoken::Algorithm::PS512),
+            "ES256" => Some(jsonwebtoken::Algorithm::ES256),
+            "ES384" => Some(jsonwebtoken::Algorithm::ES384),
+            _ => {
+                warn!(algorithm = %alg, "Unknown JWT algorithm in config, skipping");
+                None
+            }
+        }
     }
 
     /// Convert validated token claims to a SecurityContext.

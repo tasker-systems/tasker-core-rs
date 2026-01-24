@@ -8,12 +8,12 @@ use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::Response;
 use opentelemetry::KeyValue;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 use crate::web::state::AppState;
 use tasker_shared::metrics::security as security_metrics;
 use tasker_shared::types::security::SecurityContext;
-use tasker_shared::types::web::ApiError;
+use tasker_shared::types::web::{ApiError, AuthFailureReason, AuthFailureSeverity};
 
 /// Authentication middleware that authenticates all requests.
 ///
@@ -41,21 +41,42 @@ pub async fn authenticate_request(
         }
     };
 
-    // Try Bearer token
-    let bearer_token = request
-        .headers()
-        .get("authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|t| t.to_string());
+    // Try Bearer token (reject non-UTF-8 headers explicitly)
+    let bearer_token = match request.headers().get("authorization") {
+        Some(h) => match h.to_str() {
+            Ok(s) => s.strip_prefix("Bearer ").map(|t| t.to_string()),
+            Err(_) => {
+                warn!("Authorization header contains non-UTF-8 bytes");
+                security_metrics::auth_failures_total()
+                    .add(1, &[KeyValue::new("reason", "malformed")]);
+                return Err(ApiError::auth_error_with_context(
+                    "Malformed Authorization header",
+                    AuthFailureReason::Malformed,
+                    AuthFailureSeverity::High,
+                ));
+            }
+        },
+        None => None,
+    };
 
-    // Try API key
+    // Try API key (reject non-UTF-8 headers explicitly)
     let api_key_header = security_service.api_key_header().to_string();
-    let api_key = request
-        .headers()
-        .get(api_key_header.as_str())
-        .and_then(|h| h.to_str().ok())
-        .map(|k| k.to_string());
+    let api_key = match request.headers().get(api_key_header.as_str()) {
+        Some(h) => match h.to_str() {
+            Ok(s) => Some(s.to_string()),
+            Err(_) => {
+                warn!("API key header contains non-UTF-8 bytes");
+                security_metrics::auth_failures_total()
+                    .add(1, &[KeyValue::new("reason", "malformed")]);
+                return Err(ApiError::auth_error_with_context(
+                    "Malformed API key header",
+                    AuthFailureReason::Malformed,
+                    AuthFailureSeverity::High,
+                ));
+            }
+        },
+        None => None,
+    };
 
     let ctx = if let Some(token) = bearer_token {
         let start = std::time::Instant::now();
@@ -80,7 +101,11 @@ pub async fn authenticate_request(
                 ],
             );
             security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
-            ApiError::auth_error("Invalid or expired token")
+            ApiError::auth_error_with_context(
+                "Invalid or expired token",
+                AuthFailureReason::Invalid,
+                AuthFailureSeverity::High,
+            )
         })?
     } else if let Some(key) = api_key {
         security_service.authenticate_api_key(&key).map_err(|e| {
@@ -93,12 +118,20 @@ pub async fn authenticate_request(
                 ],
             );
             security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
-            ApiError::auth_error("Invalid API key")
+            ApiError::auth_error_with_context(
+                "Invalid API key",
+                AuthFailureReason::Invalid,
+                AuthFailureSeverity::High,
+            )
         })?
     } else {
         warn!("Request missing authentication credentials");
         security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "missing")]);
-        return Err(ApiError::auth_error("Missing authentication credentials"));
+        return Err(ApiError::auth_error_with_context(
+            "Missing authentication credentials",
+            AuthFailureReason::Missing,
+            AuthFailureSeverity::Low,
+        ));
     };
 
     let method_label = match &ctx.auth_method {
@@ -115,23 +148,12 @@ pub async fn authenticate_request(
         ],
     );
 
-    info!(
+    debug!(
         subject = %ctx.subject,
         method = ?ctx.auth_method,
         "Request authenticated"
     );
 
-    // Also insert legacy WorkerClaims for backward compat with existing extractors
-    let legacy_claims = tasker_shared::types::auth::TokenClaims {
-        sub: ctx.subject.clone(),
-        worker_namespaces: vec!["*".to_string()],
-        iss: ctx.issuer.clone().unwrap_or_default(),
-        aud: String::new(),
-        exp: ctx.expires_at.unwrap_or(0),
-        iat: chrono::Utc::now().timestamp(),
-        permissions: ctx.permissions.clone(),
-    };
-    request.extensions_mut().insert(legacy_claims);
     request.extensions_mut().insert(ctx);
 
     Ok(next.run(request).await)

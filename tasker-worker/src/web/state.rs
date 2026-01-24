@@ -15,7 +15,7 @@ use std::{sync::Arc, time::Instant};
 use tasker_shared::{
     config::tasker::TaskerConfig,
     database::DatabasePools,
-    errors::TaskerResult,
+    errors::{TaskerError, TaskerResult},
     messaging::client::MessageClient,
     messaging::service::MessagingProvider,
     types::api::worker::CircuitBreakersHealth,
@@ -237,6 +237,7 @@ impl WorkerWebState {
         info!("TAS-77: Service instances created for web handlers");
 
         // TAS-150: Build SecurityService from worker auth config
+        // Fail-fast: if auth is explicitly enabled but init fails, refuse to start.
         let security_service = if let Some(auth_config) = system_config
             .worker
             .as_ref()
@@ -246,7 +247,17 @@ impl WorkerWebState {
             match tasker_shared::types::SecurityService::from_config(auth_config).await {
                 Ok(svc) => Some(Arc::new(svc)),
                 Err(e) => {
-                    tracing::warn!(error = %e, "Worker SecurityService init failed, auth disabled");
+                    if auth_config.enabled {
+                        tracing::error!(
+                            error = %e,
+                            "Worker SecurityService initialization failed with auth enabled. \
+                             Refusing to start without authentication."
+                        );
+                        return Err(TaskerError::ConfigurationError(format!(
+                            "Security initialization failed: {e}"
+                        )));
+                    }
+                    tracing::debug!(error = %e, "Worker SecurityService init skipped (auth disabled)");
                     None
                 }
             }

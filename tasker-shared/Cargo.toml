@@ -93,6 +93,9 @@ rust_decimal = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+# Cryptographic primitives for constant-time API key comparison
+sha2 = "0.10"
+subtle = "2"
 # Database and ORM
 sqlx = { workspace = true }
 # System information

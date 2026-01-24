@@ -312,7 +312,7 @@ pub fn template_refresh(namespace: String, name: String, version: String) -> Res
 // Config Query Service FFI Functions
 // =============================================================================
 
-/// Get runtime configuration as JSON (with secrets redacted)
+/// Get runtime configuration as JSON (safe fields only, no secrets)
 pub fn config_runtime() -> Result<String, Error> {
     debug!("FFI: config_runtime called");
 

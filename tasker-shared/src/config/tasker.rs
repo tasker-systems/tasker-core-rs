@@ -1542,6 +1542,23 @@ pub struct AuthConfig {
     #[builder(default = 3600)]
     pub jwks_refresh_interval_seconds: u32,
 
+    /// Maximum staleness (seconds) for JWKS cache on refresh failure.
+    /// If a refresh fails but the cache is within this window past its refresh interval,
+    /// the stale cache is used with a warning. 0 = no stale cache fallback.
+    #[serde(default = "default_jwks_max_stale_seconds")]
+    #[builder(default = 300)]
+    pub jwks_max_stale_seconds: u32,
+
+    /// Allow HTTP (non-TLS) JWKS URLs. Only enable for local testing.
+    #[serde(default)]
+    #[builder(default = false)]
+    pub jwks_url_allow_http: bool,
+
+    /// Allowed JWT signing algorithms. Tokens using other algorithms are rejected.
+    #[serde(default = "default_jwt_allowed_algorithms")]
+    #[builder(default = vec!["RS256".to_string()])]
+    pub jwt_allowed_algorithms: Vec<String>,
+
     /// JWT claim name containing permissions
     #[serde(default = "default_permissions_claim")]
     #[builder(default = "permissions".to_string())]
@@ -1590,6 +1607,12 @@ fn default_jwt_verification_method() -> String {
 }
 fn default_jwks_refresh_interval() -> u32 {
     3600
+}
+fn default_jwks_max_stale_seconds() -> u32 {
+    300
+}
+fn default_jwt_allowed_algorithms() -> Vec<String> {
+    vec!["RS256".to_string()]
 }
 fn default_permissions_claim() -> String {
     "permissions".to_string()

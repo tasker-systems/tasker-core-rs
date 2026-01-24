@@ -1,9 +1,8 @@
 //! # Config Query Service
 //!
-//! TAS-77: Configuration query logic extracted from web/handlers/config.rs.
-//!
-//! This service encapsulates all configuration query functionality, making it available
-//! to both the HTTP API and FFI consumers without code duplication.
+//! TAS-77/TAS-150: Configuration query logic with whitelist-only exposure.
+//! Only explicitly chosen operational metadata is returned — no secrets,
+//! keys, credentials, or database URLs can leak through this service.
 
 use chrono::Utc;
 use thiserror::Error;
@@ -11,7 +10,7 @@ use tracing::debug;
 
 use tasker_shared::config::tasker::TaskerConfig;
 use tasker_shared::types::api::orchestration::{
-    redact_secrets, ConfigMetadata, WorkerConfigResponse,
+    ConfigMetadata, SafeAuthConfig, SafeMessagingConfig, WorkerConfigResponse,
 };
 
 /// Errors that can occur during config query operations
@@ -34,24 +33,6 @@ pub enum ConfigQueryError {
 /// - Web API handlers (via `WorkerWebState`)
 /// - FFI consumers (Ruby, Python, etc.)
 /// - Internal systems
-///
-/// ## Example
-///
-/// ```rust,no_run
-/// use tasker_worker::worker::services::config_query::ConfigQueryService;
-/// use tasker_shared::config::tasker::TaskerConfig;
-///
-/// fn example(system_config: TaskerConfig) -> Result<(), Box<dyn std::error::Error>> {
-///     let service = ConfigQueryService::new(system_config);
-///
-///     // Get runtime configuration (with sensitive fields redacted)
-///     let config = service.runtime_config()?;
-///
-///     // Access configuration components
-///     println!("Environment: {}", config.environment);
-///     Ok(())
-/// }
-/// ```
 pub struct ConfigQueryService {
     /// System configuration reference
     system_config: TaskerConfig,
@@ -91,85 +72,64 @@ impl ConfigQueryService {
     // Configuration Query Methods
     // =========================================================================
 
-    /// Get complete worker configuration: GET /config
+    /// Get worker configuration (safe fields only): GET /config
     ///
-    /// Returns the complete worker configuration including both common (shared) and
-    /// worker-specific settings with sensitive values redacted.
-    ///
-    /// The response includes:
-    /// - `common`: Shared configuration (database, circuit breakers, telemetry, etc.)
-    /// - `worker`: Worker-specific configuration (template paths, handler discovery, etc.)
-    /// - `metadata`: Response metadata including which fields were redacted
+    /// Returns only whitelisted operational metadata. No secrets, keys,
+    /// credentials, or database URLs are included.
     pub fn runtime_config(&self) -> Result<WorkerConfigResponse, ConfigQueryError> {
-        debug!("Retrieving complete worker configuration");
+        debug!("Retrieving worker configuration (safe fields only)");
 
-        // Build common config JSON (TAS-61 Phase 6D: V2 config structure)
-        let common_json = serde_json::json!({
-            "database": self.system_config.common.database,
-            "circuit_breakers": self.system_config.common.circuit_breakers,
-            "telemetry": self.system_config.common.telemetry,
-            "system": self.system_config.common.system,
-            "backoff": self.system_config.common.backoff,
-            "task_templates": self.system_config.common.task_templates,
-        });
-
-        // Get worker-specific configuration
         let worker_config = self
             .system_config
             .worker
             .as_ref()
             .ok_or(ConfigQueryError::WorkerConfigNotFound)?;
 
-        let worker_json = serde_json::to_value(worker_config)
-            .map_err(|e| ConfigQueryError::SerializationError(e.to_string()))?;
+        let auth = worker_config.web.as_ref().and_then(|w| w.auth.as_ref());
+        let queues = &self.system_config.common.queues;
 
-        // Redact sensitive fields from both
-        let (redacted_common, mut redacted_fields) = redact_secrets(common_json);
-        let (redacted_worker, worker_fields) = redact_secrets(worker_json);
-        redacted_fields.extend(worker_fields);
+        // Worker namespace queues use the naming pattern
+        let worker_namespace = &queues.worker_namespace;
+        let worker_queues = vec![
+            queues
+                .naming_pattern
+                .replace("{namespace}", worker_namespace)
+                .replace("{name}", "dispatch"),
+            queues
+                .naming_pattern
+                .replace("{namespace}", worker_namespace)
+                .replace("{name}", "completion"),
+        ];
 
         Ok(WorkerConfigResponse {
-            environment: self.system_config.common.execution.environment.clone(),
-            common: redacted_common,
-            worker: redacted_worker,
             metadata: ConfigMetadata {
                 timestamp: Utc::now(),
-                source: "runtime".to_string(),
-                redacted_fields,
+                environment: self.system_config.common.execution.environment.clone(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            },
+            worker_id: worker_config.worker_id.clone(),
+            worker_type: worker_config.worker_type.clone(),
+            auth: SafeAuthConfig {
+                enabled: auth.map(|a| a.enabled).unwrap_or(false),
+                verification_method: auth
+                    .map(|a| a.jwt_verification_method.clone())
+                    .unwrap_or_else(|| "none".to_string()),
+                jwt_issuer: auth.map(|a| a.jwt_issuer.clone()).unwrap_or_default(),
+                jwt_audience: auth.map(|a| a.jwt_audience.clone()).unwrap_or_default(),
+                api_key_header: auth
+                    .map(|a| a.api_key_header.clone())
+                    .unwrap_or_else(|| "X-API-Key".to_string()),
+                api_key_count: auth.map(|a| a.api_keys.len()).unwrap_or(0),
+                strict_validation: auth.map(|a| a.strict_validation).unwrap_or(true),
+                allowed_algorithms: auth
+                    .map(|a| a.jwt_allowed_algorithms.clone())
+                    .unwrap_or_else(|| vec!["RS256".to_string()]),
+            },
+            messaging: SafeMessagingConfig {
+                backend: queues.backend.clone(),
+                queues: worker_queues,
             },
         })
-    }
-
-    /// Get common configuration only (redacted)
-    ///
-    /// Returns only the common (shared) configuration with sensitive fields redacted.
-    pub fn common_config(&self) -> (serde_json::Value, Vec<String>) {
-        let common_json = serde_json::json!({
-            "database": self.system_config.common.database,
-            "circuit_breakers": self.system_config.common.circuit_breakers,
-            "telemetry": self.system_config.common.telemetry,
-            "system": self.system_config.common.system,
-            "backoff": self.system_config.common.backoff,
-            "task_templates": self.system_config.common.task_templates,
-        });
-
-        redact_secrets(common_json)
-    }
-
-    /// Get worker configuration only (redacted)
-    ///
-    /// Returns only the worker-specific configuration with sensitive fields redacted.
-    pub fn worker_config(&self) -> Result<(serde_json::Value, Vec<String>), ConfigQueryError> {
-        let worker_config = self
-            .system_config
-            .worker
-            .as_ref()
-            .ok_or(ConfigQueryError::WorkerConfigNotFound)?;
-
-        let worker_json = serde_json::to_value(worker_config)
-            .map_err(|e| ConfigQueryError::SerializationError(e.to_string()))?;
-
-        Ok(redact_secrets(worker_json))
     }
 }
 

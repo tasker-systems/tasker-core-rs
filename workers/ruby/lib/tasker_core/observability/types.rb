@@ -117,22 +117,41 @@ module TaskerCore
       end
 
       # ==========================================================================
-      # Config Types
+      # Config Types (TAS-150: whitelist-only safe config exposure)
       # ==========================================================================
 
-      # Configuration metadata
+      # Configuration metadata (non-sensitive system info)
       class ConfigMetadata < Dry::Struct
         attribute :timestamp, Types::Strict::String
-        attribute :source, Types::Strict::String
-        attribute :redacted_fields, Types::Strict::Array.of(Types::Strict::String)
+        attribute :environment, Types::Strict::String
+        attribute :version, Types::Strict::String
       end
 
-      # Complete worker configuration response
+      # Non-sensitive auth configuration summary
+      class SafeAuthConfig < Dry::Struct
+        attribute :enabled, Types::Strict::Bool
+        attribute :verification_method, Types::Strict::String
+        attribute :jwt_issuer, Types::Strict::String
+        attribute :jwt_audience, Types::Strict::String
+        attribute :api_key_header, Types::Strict::String
+        attribute :api_key_count, Types::Strict::Integer
+        attribute :strict_validation, Types::Strict::Bool
+        attribute :allowed_algorithms, Types::Strict::Array.of(Types::Strict::String)
+      end
+
+      # Non-sensitive messaging configuration
+      class SafeMessagingConfig < Dry::Struct
+        attribute :backend, Types::Strict::String
+        attribute :queues, Types::Strict::Array.of(Types::Strict::String)
+      end
+
+      # Worker configuration response (safe fields only)
       class RuntimeConfig < Dry::Struct
-        attribute :environment, Types::Strict::String
-        attribute :common, Types::Strict::Hash
-        attribute :worker, Types::Strict::Hash
         attribute :metadata, ConfigMetadata
+        attribute :worker_id, Types::Strict::String
+        attribute :worker_type, Types::Strict::String
+        attribute :auth, SafeAuthConfig
+        attribute :messaging, SafeMessagingConfig
       end
     end
   end

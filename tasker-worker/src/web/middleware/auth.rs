@@ -12,8 +12,8 @@ use opentelemetry::KeyValue;
 use tasker_shared::metrics::security as security_metrics;
 use tasker_shared::types::permissions::Permission;
 use tasker_shared::types::security::{AuthMethod, SecurityContext};
-use tasker_shared::types::web::ApiError;
-use tracing::{info, warn};
+use tasker_shared::types::web::{ApiError, AuthFailureReason, AuthFailureSeverity};
+use tracing::{debug, warn};
 
 use crate::web::state::WorkerWebState;
 
@@ -36,21 +36,42 @@ pub async fn authenticate_request(
         }
     };
 
-    // Try Bearer token
-    let bearer_token = request
-        .headers()
-        .get("authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|t| t.to_string());
+    // Try Bearer token (reject non-UTF-8 headers explicitly)
+    let bearer_token = match request.headers().get("authorization") {
+        Some(h) => match h.to_str() {
+            Ok(s) => s.strip_prefix("Bearer ").map(|t| t.to_string()),
+            Err(_) => {
+                warn!("Worker: Authorization header contains non-UTF-8 bytes");
+                security_metrics::auth_failures_total()
+                    .add(1, &[KeyValue::new("reason", "malformed")]);
+                return Err(ApiError::auth_error_with_context(
+                    "Malformed Authorization header",
+                    AuthFailureReason::Malformed,
+                    AuthFailureSeverity::High,
+                ));
+            }
+        },
+        None => None,
+    };
 
-    // Try API key
+    // Try API key (reject non-UTF-8 headers explicitly)
     let api_key_header = security_service.api_key_header().to_string();
-    let api_key = request
-        .headers()
-        .get(api_key_header.as_str())
-        .and_then(|h| h.to_str().ok())
-        .map(|k| k.to_string());
+    let api_key = match request.headers().get(api_key_header.as_str()) {
+        Some(h) => match h.to_str() {
+            Ok(s) => Some(s.to_string()),
+            Err(_) => {
+                warn!("Worker: API key header contains non-UTF-8 bytes");
+                security_metrics::auth_failures_total()
+                    .add(1, &[KeyValue::new("reason", "malformed")]);
+                return Err(ApiError::auth_error_with_context(
+                    "Malformed API key header",
+                    AuthFailureReason::Malformed,
+                    AuthFailureSeverity::High,
+                ));
+            }
+        },
+        None => None,
+    };
 
     let ctx = if let Some(token) = bearer_token {
         let start = std::time::Instant::now();
@@ -75,7 +96,11 @@ pub async fn authenticate_request(
                 ],
             );
             security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
-            ApiError::auth_error("Invalid or expired token")
+            ApiError::auth_error_with_context(
+                "Invalid or expired token",
+                AuthFailureReason::Invalid,
+                AuthFailureSeverity::High,
+            )
         })?
     } else if let Some(key) = api_key {
         security_service.authenticate_api_key(&key).map_err(|e| {
@@ -88,12 +113,20 @@ pub async fn authenticate_request(
                 ],
             );
             security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "invalid")]);
-            ApiError::auth_error("Invalid API key")
+            ApiError::auth_error_with_context(
+                "Invalid API key",
+                AuthFailureReason::Invalid,
+                AuthFailureSeverity::High,
+            )
         })?
     } else {
         warn!("Worker: Request missing authentication credentials");
         security_metrics::auth_failures_total().add(1, &[KeyValue::new("reason", "missing")]);
-        return Err(ApiError::auth_error("Missing authentication credentials"));
+        return Err(ApiError::auth_error_with_context(
+            "Missing authentication credentials",
+            AuthFailureReason::Missing,
+            AuthFailureSeverity::Low,
+        ));
     };
 
     let method_label = match &ctx.auth_method {
@@ -110,7 +143,7 @@ pub async fn authenticate_request(
         ],
     );
 
-    info!(
+    debug!(
         subject = %ctx.subject,
         method = ?ctx.auth_method,
         "Worker request authenticated"
@@ -135,9 +168,9 @@ pub fn require_permission(ctx: &SecurityContext, perm: Permission) -> Result<(),
         );
         security_metrics::permission_denials_total()
             .add(1, &[KeyValue::new("permission", perm.as_str().to_string())]);
-        Err(ApiError::authorization_error(format!(
-            "Missing required permission: {}",
-            perm
-        )))
+        Err(ApiError::authorization_error_with_context(
+            format!("Missing required permission: {}", perm),
+            AuthFailureSeverity::Medium,
+        ))
     }
 }

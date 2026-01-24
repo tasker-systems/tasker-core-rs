@@ -7,7 +7,7 @@ use opentelemetry::KeyValue;
 use tasker_shared::metrics::security as security_metrics;
 use tasker_shared::types::permissions::Permission;
 use tasker_shared::types::security::{AuthMethod, SecurityContext};
-use tasker_shared::types::web::ApiError;
+use tasker_shared::types::web::{ApiError, AuthFailureSeverity};
 use tracing::warn;
 
 /// Check that the security context has the required permission.
@@ -31,10 +31,10 @@ pub fn require_permission(ctx: &SecurityContext, perm: Permission) -> Result<(),
         );
         security_metrics::permission_denials_total()
             .add(1, &[KeyValue::new("permission", perm.as_str().to_string())]);
-        Err(ApiError::authorization_error(format!(
-            "Missing required permission: {}",
-            perm
-        )))
+        Err(ApiError::authorization_error_with_context(
+            format!("Missing required permission: {}", perm),
+            AuthFailureSeverity::Medium,
+        ))
     }
 }
 

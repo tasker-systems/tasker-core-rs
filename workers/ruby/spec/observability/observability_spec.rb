@@ -404,17 +404,26 @@ RSpec.describe TaskerCore::Observability do
       expect(config).to be_a(TaskerCore::Observability::Types::RuntimeConfig)
     end
 
-    it 'has environment field' do
-      expect(config.environment).to be_a(String)
-      expect(config.environment).not_to be_empty
+    it 'has worker_id field' do
+      expect(config.worker_id).to be_a(String)
+      expect(config.worker_id).not_to be_empty
     end
 
-    it 'has common config hash' do
-      expect(config.common).to be_a(Hash)
+    it 'has worker_type field' do
+      expect(config.worker_type).to be_a(String)
+      expect(config.worker_type).not_to be_empty
     end
 
-    it 'has worker config hash' do
-      expect(config.worker).to be_a(Hash)
+    it 'has auth config' do
+      expect(config.auth).to be_a(TaskerCore::Observability::Types::SafeAuthConfig)
+      expect(config.auth.api_key_header).to be_a(String)
+      expect(config.auth.allowed_algorithms).to be_an(Array)
+    end
+
+    it 'has messaging config' do
+      expect(config.messaging).to be_a(TaskerCore::Observability::Types::SafeMessagingConfig)
+      expect(config.messaging.backend).to be_a(String)
+      expect(config.messaging.queues).to be_an(Array)
     end
 
     describe 'metadata' do
@@ -428,12 +437,13 @@ RSpec.describe TaskerCore::Observability do
         expect(metadata.timestamp).to be_a(String)
       end
 
-      it 'has source field' do
-        expect(metadata.source).to be_a(String)
+      it 'has environment field' do
+        expect(metadata.environment).to be_a(String)
+        expect(metadata.environment).not_to be_empty
       end
 
-      it 'has redacted_fields array' do
-        expect(metadata.redacted_fields).to be_an(Array)
+      it 'has version field' do
+        expect(metadata.version).to be_a(String)
       end
     end
   end

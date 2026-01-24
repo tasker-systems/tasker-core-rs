@@ -4,7 +4,9 @@
 
 use utoipa::OpenApi;
 
-use tasker_shared::types::api::orchestration::WorkerConfigResponse;
+use tasker_shared::types::api::orchestration::{
+    ConfigMetadata, SafeAuthConfig, SafeMessagingConfig, WorkerConfigResponse,
+};
 use tasker_shared::types::api::worker::{
     BasicHealthResponse, CacheOperationResponse, DetailedHealthResponse, TemplateListResponse,
     TemplateResponse, TemplateValidationResponse,
@@ -50,8 +52,11 @@ use crate::web::handlers;
         CacheOperationResponse,
         CacheStats,
 
-        // Config schemas
+        // Config schemas (TAS-150: whitelist-only safe response types)
         WorkerConfigResponse,
+        ConfigMetadata,
+        SafeAuthConfig,
+        SafeMessagingConfig,
 
         // Error schemas
         ApiError,
@@ -59,7 +64,7 @@ use crate::web::handlers;
     tags(
         (name = "health", description = "Health check and monitoring"),
         (name = "templates", description = "Task template management and cache operations"),
-        (name = "config", description = "Runtime configuration observability (secrets redacted)"),
+        (name = "config", description = "Runtime configuration observability (safe fields only)"),
     ),
     info(
         title = "Tasker Worker API",

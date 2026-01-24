@@ -1,8 +1,8 @@
 //! # Configuration Endpoint Handlers
 //!
-//! Runtime configuration observability endpoints for monitoring and debugging.
-//! Provides a unified view of orchestration configuration (common + orchestration-specific)
-//! with sensitive data redacted.
+//! TAS-150: Runtime configuration observability with whitelist-only exposure.
+//! Only explicitly chosen operational metadata is returned — no secrets, keys,
+//! credentials, or database URLs can leak through this endpoint.
 
 use axum::extract::State;
 use axum::Json;
@@ -12,35 +12,24 @@ use tracing::debug;
 use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::types::api::orchestration::{
-    redact_secrets, ConfigMetadata, OrchestrationConfigResponse,
+    ConfigMetadata, OrchestrationConfigResponse, SafeAuthConfig, SafeCircuitBreakerConfig,
+    SafeDatabasePoolConfig, SafeMessagingConfig,
 };
 use tasker_shared::types::permissions::Permission;
 use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::ApiError;
 
-/// Get complete orchestration configuration: GET /config
+/// Get orchestration configuration: GET /config
 ///
-/// Returns the complete orchestration configuration including both common (shared) and
-/// orchestration-specific settings with sensitive values redacted. This provides a unified
-/// view of the deployed system configuration in a single response.
-///
-/// The response includes:
-/// - `common`: Shared configuration (database, circuit breakers, telemetry, etc.)
-/// - `orchestration`: Orchestration-specific configuration (web API, MPSC channels, etc.)
-/// - `metadata`: Response metadata including which fields were redacted for transparency
-///
-/// This design makes it easy to compare configurations across systems and debug
-/// deployment issues with a single curl command.
-///
-/// This is a system endpoint (like /health) and is at the root level, not under /v1/.
+/// Returns operational configuration metadata safe for external consumption.
+/// Only whitelisted fields are included — no secrets, keys, or credentials.
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/config",
     responses(
-        (status = 200, description = "Complete orchestration configuration (secrets redacted)", body = OrchestrationConfigResponse),
+        (status = 200, description = "Orchestration configuration (safe fields only)", body = OrchestrationConfigResponse),
         (status = 401, description = "Authentication required", body = ApiError),
         (status = 403, description = "Insufficient permissions", body = ApiError),
-        (status = 500, description = "Failed to retrieve configuration", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
     tag = "config"
@@ -51,46 +40,71 @@ pub async fn get_config(
 ) -> Result<Json<OrchestrationConfigResponse>, ApiError> {
     require_permission(&security, Permission::SystemConfigRead)?;
 
-    debug!("Retrieving complete orchestration configuration");
+    debug!("Retrieving orchestration configuration (safe fields only)");
 
     let tasker_config = &state.orchestration_core.context.tasker_config;
+    let web_config = tasker_config
+        .orchestration
+        .as_ref()
+        .and_then(|o| o.web.as_ref());
+    let auth = web_config.and_then(|w| w.auth.as_ref());
+    let queues = &tasker_config.common.queues;
+    let cb = &tasker_config.common.circuit_breakers;
 
-    // TAS-61 Phase 6C/6D: V2 configuration field access
-    // Build common config JSON with all CommonConfig fields
-    let common_json = serde_json::json!({
-        "database": tasker_config.common.database,
-        "circuit_breakers": tasker_config.common.circuit_breakers,
-        "telemetry": tasker_config.common.telemetry,
-        "system": tasker_config.common.system,
-        "backoff": tasker_config.common.backoff,
-        "task_templates": tasker_config.common.task_templates,
-        "queues": tasker_config.common.queues,
-        "mpsc_channels": tasker_config.common.mpsc_channels,
-        "execution": tasker_config.common.execution,
-    });
+    let deployment_mode = tasker_config
+        .orchestration
+        .as_ref()
+        .map(|o| format!("{:?}", o.event_systems.orchestration.deployment_mode))
+        .unwrap_or_else(|| "Unknown".to_string());
 
-    // Get orchestration-specific config
-    let orchestration_json = serde_json::to_value(&tasker_config.orchestration).map_err(|e| {
-        ApiError::internal_server_error(format!(
-            "Failed to serialize orchestration configuration: {}",
-            e
-        ))
-    })?;
-
-    // Redact sensitive fields from both
-    let (redacted_common, mut redacted_fields) = redact_secrets(common_json);
-    let (redacted_orchestration, orchestration_fields) = redact_secrets(orchestration_json);
-    redacted_fields.extend(orchestration_fields);
+    let db_pools = web_config
+        .map(|w| &w.database_pools)
+        .map(|p| SafeDatabasePoolConfig {
+            web_api_pool_size: p.web_api_pool_size,
+            web_api_max_connections: p.web_api_max_connections,
+        })
+        .unwrap_or(SafeDatabasePoolConfig {
+            web_api_pool_size: 0,
+            web_api_max_connections: 0,
+        });
 
     let response = OrchestrationConfigResponse {
-        // TAS-61 Phase 6C/6D: Environment from common.execution
-        environment: tasker_config.common.execution.environment.clone(),
-        common: redacted_common,
-        orchestration: redacted_orchestration,
         metadata: ConfigMetadata {
             timestamp: Utc::now(),
-            source: "runtime".to_string(),
-            redacted_fields,
+            environment: tasker_config.common.execution.environment.clone(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        },
+        auth: SafeAuthConfig {
+            enabled: auth.map(|a| a.enabled).unwrap_or(false),
+            verification_method: auth
+                .map(|a| a.jwt_verification_method.clone())
+                .unwrap_or_else(|| "none".to_string()),
+            jwt_issuer: auth.map(|a| a.jwt_issuer.clone()).unwrap_or_default(),
+            jwt_audience: auth.map(|a| a.jwt_audience.clone()).unwrap_or_default(),
+            api_key_header: auth
+                .map(|a| a.api_key_header.clone())
+                .unwrap_or_else(|| "X-API-Key".to_string()),
+            api_key_count: auth.map(|a| a.api_keys.len()).unwrap_or(0),
+            strict_validation: auth.map(|a| a.strict_validation).unwrap_or(true),
+            allowed_algorithms: auth
+                .map(|a| a.jwt_allowed_algorithms.clone())
+                .unwrap_or_else(|| vec!["RS256".to_string()]),
+        },
+        circuit_breakers: SafeCircuitBreakerConfig {
+            enabled: cb.enabled,
+            failure_threshold: cb.default_config.failure_threshold,
+            timeout_seconds: cb.default_config.timeout_seconds,
+            success_threshold: cb.default_config.success_threshold,
+        },
+        database_pools: db_pools,
+        deployment_mode,
+        messaging: SafeMessagingConfig {
+            backend: queues.backend.clone(),
+            queues: vec![
+                queues.orchestration_queues.task_requests.clone(),
+                queues.orchestration_queues.task_finalizations.clone(),
+                queues.orchestration_queues.step_results.clone(),
+            ],
         },
     };
 

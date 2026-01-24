@@ -211,11 +211,22 @@ impl AppState {
             .map(|auth| Arc::new(tasker_shared::config::WebAuthConfig::from(auth.clone())));
 
         // TAS-150: Build SecurityService from auth config
+        // Fail-fast: if auth is explicitly enabled but init fails, refuse to start.
         let security_service = if let Some(auth) = &web_config.auth {
             match SecurityService::from_config(auth).await {
                 Ok(svc) => Some(Arc::new(svc)),
                 Err(e) => {
-                    tracing::warn!(error = %e, "Failed to initialize SecurityService, auth disabled");
+                    if auth.enabled {
+                        tracing::error!(
+                            error = %e,
+                            "SecurityService initialization failed with auth enabled. \
+                             Refusing to start without authentication."
+                        );
+                        return Err(ApiError::internal_server_error(format!(
+                            "Security initialization failed: {e}"
+                        )));
+                    }
+                    tracing::debug!(error = %e, "SecurityService init skipped (auth disabled)");
                     None
                 }
             }

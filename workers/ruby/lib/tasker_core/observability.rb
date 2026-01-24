@@ -25,7 +25,7 @@ module TaskerCore
   #
   # @example Query configuration
   #   config = TaskerCore::Observability.config
-  #   puts "Environment: #{config.environment}"
+  #   puts "Environment: #{config.metadata.environment}"
   #
   # @example List templates
   #   templates_json = TaskerCore::Observability.templates_list
@@ -250,7 +250,7 @@ module TaskerCore
       # Config Methods
       # ========================================================================
 
-      # Get runtime configuration with secrets redacted
+      # Get runtime configuration (safe fields only, no secrets)
       #
       # @return [Types::RuntimeConfig] Configuration data
       def config
@@ -258,13 +258,26 @@ module TaskerCore
         data = JSON.parse(json)
 
         Types::RuntimeConfig.new(
-          environment: data['environment'],
-          common: data['common'],
-          worker: data['worker'],
           metadata: Types::ConfigMetadata.new(
             timestamp: data['metadata']['timestamp'],
-            source: data['metadata']['source'],
-            redacted_fields: data['metadata']['redacted_fields']
+            environment: data['metadata']['environment'],
+            version: data['metadata']['version']
+          ),
+          worker_id: data['worker_id'],
+          worker_type: data['worker_type'],
+          auth: Types::SafeAuthConfig.new(
+            enabled: data['auth']['enabled'],
+            verification_method: data['auth']['verification_method'],
+            jwt_issuer: data['auth']['jwt_issuer'],
+            jwt_audience: data['auth']['jwt_audience'],
+            api_key_header: data['auth']['api_key_header'],
+            api_key_count: data['auth']['api_key_count'],
+            strict_validation: data['auth']['strict_validation'],
+            allowed_algorithms: data['auth']['allowed_algorithms']
+          ),
+          messaging: Types::SafeMessagingConfig.new(
+            backend: data['messaging']['backend'],
+            queues: data['messaging']['queues']
           )
         )
       end

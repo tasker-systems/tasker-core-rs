@@ -206,7 +206,11 @@ impl ClientConfig {
         // Override with environment variables
         config.apply_env_overrides();
 
-        debug!("Loaded client configuration: {:?}", config);
+        debug!(
+            orchestration_url = %config.orchestration.base_url,
+            worker_url = %config.worker.base_url,
+            "Client configuration loaded"
+        );
         Ok(config)
     }
 
