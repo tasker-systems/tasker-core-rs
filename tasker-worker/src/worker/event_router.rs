@@ -609,7 +609,7 @@ impl EventRouterBuilder {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
 
     use chrono::Utc;
     use serde_json::json;

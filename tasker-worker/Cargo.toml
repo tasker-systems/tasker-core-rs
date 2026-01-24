@@ -2,6 +2,7 @@
 name = "tasker-worker"
 version = "0.1.0"
 edition = "2021"
+default-run = "tasker-worker"
 description = "Worker foundation system for multi-language step execution"
 readme = "README.md"
 repository = "https://github.com/tasker-systems/tasker-core"
@@ -53,7 +54,7 @@ path = "src/bin/server.rs"
 required-features = ["web-api"]
 
 [[bin]]
-name = "generate-openapi"
+name = "generate-worker-openapi"
 path = "src/bin/generate_openapi.rs"
 required-features = ["web-api"]
 

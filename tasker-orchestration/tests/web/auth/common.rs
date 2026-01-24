@@ -29,8 +29,7 @@ async fn health_public_without_credentials() {
     // Readiness endpoint is public (no 401/403) but may return 503 if DB isn't fully ready
     let response = client.get("/health/ready").await.expect("request failed");
     assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::SERVICE_UNAVAILABLE,
+        response.status() == StatusCode::OK || response.status() == StatusCode::SERVICE_UNAVAILABLE,
         "/health/ready should be public (got {} - expected 200 or 503)",
         response.status()
     );

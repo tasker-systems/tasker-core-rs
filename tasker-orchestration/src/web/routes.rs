@@ -97,7 +97,7 @@ pub fn health_routes() -> Router<AppState> {
         .route("/metrics", get(handlers::health::prometheus_metrics))
 }
 
-// TODO: Review redact_secrets() coverage after auth config changes to ensure
+// TODO(TAS-169): Review redact_secrets() coverage after auth config changes to ensure
 // API keys and JWT key material are never leaked via this endpoint.
 /// Create configuration routes
 ///

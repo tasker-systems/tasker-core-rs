@@ -271,6 +271,7 @@ event_channel_buffer_size = 100
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
 enabled = true
 request_timeout_ms = 30000
+config_endpoint_enabled = true
 
 [orchestration.web.auth]
 api_key = ""

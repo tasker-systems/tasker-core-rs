@@ -47,4 +47,4 @@ echo "   Database: ${DATABASE_URL}"
 
 # Use service-start.sh for process management
 PROJECT_ROOT="${PROJECT_ROOT}" "${SCRIPTS_DIR}/service-start.sh" orchestration \
-    cargo run -p tasker-orchestration
+    cargo run -p tasker-orchestration --bin tasker-server

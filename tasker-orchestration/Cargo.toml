@@ -2,6 +2,7 @@
 name = "tasker-orchestration"
 version = "0.1.0"
 edition = "2021"
+default-run = "tasker-server"
 description = "Orchestration system for tasker workflow coordination"
 readme = "README.md"
 repository = "https://github.com/tasker-systems/tasker-core"
@@ -48,7 +49,7 @@ path = "src/bin/server.rs"
 required-features = ["web-api"]
 
 [[bin]]
-name = "generate-openapi"
+name = "generate-orchestration-openapi"
 path = "src/bin/generate_openapi.rs"
 required-features = ["web-api"]
 

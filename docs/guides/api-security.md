@@ -4,6 +4,8 @@ API-level security for orchestration (8080) and worker (8081) endpoints using JW
 
 **Security is disabled by default** for backward compatibility. Enable it explicitly in configuration.
 
+> See also: [Auth Documentation Hub](../auth/README.md) for architecture overview, [Permissions](../auth/permissions.md) for route mapping, [Configuration](../auth/configuration.md) for full reference, [Testing](../auth/testing.md) for E2E test patterns.
+
 ---
 
 ## Quick Start

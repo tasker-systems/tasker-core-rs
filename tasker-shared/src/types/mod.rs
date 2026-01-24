@@ -10,10 +10,10 @@ pub mod permissions;
 pub mod security;
 pub mod web;
 
+pub use crate::services::SecurityService;
 pub use base::{
     HandlerMetadata, StepEventPayload, StepExecutionCompletionEvent, StepExecutionEvent,
     TaskSequenceStep, ViableStep,
 };
 pub use permissions::Permission;
 pub use security::{AuthMethod, SecurityContext};
-pub use crate::services::SecurityService;

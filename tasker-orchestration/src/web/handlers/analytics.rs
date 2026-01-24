@@ -1,6 +1,10 @@
 //! # Analytics Handlers
 //!
 //! Read-only endpoints for performance metrics and bottleneck analysis.
+//!
+//! TODO(TAS-168): Add response caching for analytics endpoints. The underlying queries are
+//! non-trivial (aggregations, joins) and results don't change frequently. Consider
+//! a time-based cache (e.g., 30-60s TTL) with Redis backend for multi-instance support.
 
 use axum::extract::{Query, State};
 use axum::Json;

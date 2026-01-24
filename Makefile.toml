@@ -1753,11 +1753,11 @@ set -euo pipefail
 mkdir -p schemas/generated
 
 echo "Generating orchestration OpenAPI spec..."
-cargo run --package tasker-orchestration --bin generate-openapi --features web-api \
+cargo run --package tasker-orchestration --bin generate-orchestration-openapi --features web-api \
   > schemas/generated/orchestration-openapi.json
 
 echo "Generating worker OpenAPI spec..."
-cargo run --package tasker-worker --bin generate-openapi --features web-api \
+cargo run --package tasker-worker --bin generate-worker-openapi --features web-api \
   > schemas/generated/worker-openapi.json
 
 echo "Schemas generated:"
@@ -1777,9 +1777,9 @@ TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 
 echo "Generating fresh schemas..."
-cargo run --package tasker-orchestration --bin generate-openapi --features web-api \
+cargo run --package tasker-orchestration --bin generate-orchestration-openapi --features web-api \
   > "$TMPDIR/orchestration-openapi.json" 2>/dev/null
-cargo run --package tasker-worker --bin generate-openapi --features web-api \
+cargo run --package tasker-worker --bin generate-worker-openapi --features web-api \
   > "$TMPDIR/worker-openapi.json" 2>/dev/null
 
 DIRTY=0
