@@ -47,6 +47,11 @@ name = "tasker-server"
 path = "src/bin/server.rs"
 required-features = ["web-api"]
 
+[[bin]]
+name = "generate-openapi"
+path = "src/bin/generate_openapi.rs"
+required-features = ["web-api"]
+
 # Note: Benchmark placeholders removed - use E2E benchmarks and OpenTelemetry traces
 # for orchestration performance measurement (see TAS-29 Phase 5.4 decision)
 

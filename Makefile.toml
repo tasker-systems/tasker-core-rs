@@ -1740,3 +1740,58 @@ openssl genpkey -algorithm RSA -out tests/fixtures/auth/jwt-private-key-test.pem
 openssl rsa -in tests/fixtures/auth/jwt-private-key-test.pem -pubout -out tests/fixtures/auth/jwt-public-key-test.pem 2>/dev/null
 echo "Test keys regenerated at tests/fixtures/auth/"
 '''
+
+# =============================================================================
+# Schema Generation
+# =============================================================================
+
+[tasks.generate-schemas]
+description = "Generate OpenAPI specs from utoipa annotations"
+script = '''
+#!/bin/bash
+set -euo pipefail
+mkdir -p schemas/generated
+
+echo "Generating orchestration OpenAPI spec..."
+cargo run --package tasker-orchestration --bin generate-openapi --features web-api \
+  > schemas/generated/orchestration-openapi.json
+
+echo "Generating worker OpenAPI spec..."
+cargo run --package tasker-worker --bin generate-openapi --features web-api \
+  > schemas/generated/worker-openapi.json
+
+echo "Schemas generated:"
+ls -la schemas/generated/
+'''
+
+[tasks.gs]
+alias = "generate-schemas"
+description = "Shortcut for generate-schemas"
+
+[tasks.check-schemas]
+description = "Verify generated schemas are up-to-date (for CI)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+TMPDIR=$(mktemp -d)
+trap "rm -rf $TMPDIR" EXIT
+
+echo "Generating fresh schemas..."
+cargo run --package tasker-orchestration --bin generate-openapi --features web-api \
+  > "$TMPDIR/orchestration-openapi.json" 2>/dev/null
+cargo run --package tasker-worker --bin generate-openapi --features web-api \
+  > "$TMPDIR/worker-openapi.json" 2>/dev/null
+
+DIRTY=0
+for f in orchestration-openapi.json worker-openapi.json; do
+  if ! diff -q "schemas/generated/$f" "$TMPDIR/$f" > /dev/null 2>&1; then
+    echo "ERROR: schemas/generated/$f is out of date. Run: cargo make generate-schemas"
+    DIRTY=1
+  fi
+done
+
+if [ $DIRTY -eq 1 ]; then
+  exit 1
+fi
+echo "All generated schemas are up-to-date."
+'''
