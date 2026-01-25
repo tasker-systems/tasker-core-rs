@@ -5,11 +5,12 @@
 //! ## Architecture
 //!
 //! ```text
-//! CircuitBreakerCache             <- Circuit breaker protection (TAS-171)
-//!   └── CacheProvider (enum)      <- Zero-cost dispatch, no vtable
-//!         ├── Redis(RedisCacheService)  <- Distributed (Redis/Dragonfly)
-//!         ├── Moka(MokaCacheService)    <- In-process, TTL-based
-//!         └── NoOp(NoOpCacheService)    <- Always-miss fallback
+//! CacheProvider (struct)          <- Unified interface with integrated circuit breaker
+//!   └── CacheBackend (internal)   <- Zero-cost dispatch, no vtable
+//!         ├── Redis               <- Distributed (Redis/Dragonfly)
+//!         ├── Memcached           <- Distributed (Memcached protocol)
+//!         ├── Moka                <- In-process, TTL-based
+//!         └── NoOp                <- Always-miss fallback
 //! ```
 //!
 //! ## Backend Selection
@@ -18,12 +19,13 @@
 //! |-------------|-------------|----------|
 //! | Redis       | Yes         | Multi-instance production deployments |
 //! | Dragonfly   | Yes         | Redis-compatible with better performance |
+//! | Memcached   | Yes         | Memcached protocol support (TAS-171) |
 //! | Moka        | No          | Single-instance, analytics caching, DoS protection |
 //! | NoOp        | N/A         | Caching disabled or fallback |
 //!
 //! ## Design Decisions
 //!
-//! - **Enum dispatch** (like MessagingProvider): zero vtable overhead
+//! - **Struct with internal enum**: Circuit breaker is an implementation detail
 //! - **Graceful degradation**: Backend failure → NoOp fallback, never blocks startup
 //! - **Circuit breaker protection**: Fail-fast when Redis/Dragonfly is down (TAS-171)
 //! - **Best-effort writes**: Cache errors logged but never propagated
@@ -35,14 +37,12 @@
 //! The cache is used by `TaskHandlerRegistry` for template resolution and
 //! `AnalyticsService` for analytics response caching.
 
-pub mod circuit_breaker;
 pub mod constraints;
 pub mod errors;
 pub mod provider;
 pub mod providers;
 pub mod traits;
 
-pub use circuit_breaker::CircuitBreakerCache;
 pub use constraints::{CacheUsageContext, ConstrainedCacheProvider, ConstraintViolation};
 pub use errors::{CacheError, CacheResult};
 pub use provider::CacheProvider;

@@ -224,37 +224,46 @@ mod tests {
     }
 
     #[cfg(feature = "cache-moka")]
-    #[test]
-    fn test_moka_is_not_valid_for_templates() {
-        use crate::cache::MokaCacheService;
-        use std::time::Duration;
+    #[tokio::test]
+    async fn test_moka_is_not_valid_for_templates() {
+        use crate::config::tasker::CacheConfig;
 
-        let moka = MokaCacheService::new(100, Duration::from_secs(60));
-        let provider = Arc::new(CacheProvider::Moka(Box::new(moka)));
+        let config = CacheConfig {
+            enabled: true,
+            backend: "moka".to_string(),
+            ..CacheConfig::default()
+        };
+        let provider = Arc::new(CacheProvider::from_config_graceful(&config, None).await);
 
         assert!(!CacheUsageContext::Templates.is_valid_provider(&provider));
     }
 
     #[cfg(feature = "cache-moka")]
-    #[test]
-    fn test_moka_is_valid_for_analytics() {
-        use crate::cache::MokaCacheService;
-        use std::time::Duration;
+    #[tokio::test]
+    async fn test_moka_is_valid_for_analytics() {
+        use crate::config::tasker::CacheConfig;
 
-        let moka = MokaCacheService::new(100, Duration::from_secs(60));
-        let provider = Arc::new(CacheProvider::Moka(Box::new(moka)));
+        let config = CacheConfig {
+            enabled: true,
+            backend: "moka".to_string(),
+            ..CacheConfig::default()
+        };
+        let provider = Arc::new(CacheProvider::from_config_graceful(&config, None).await);
 
         assert!(CacheUsageContext::Analytics.is_valid_provider(&provider));
     }
 
     #[cfg(feature = "cache-moka")]
-    #[test]
-    fn test_moka_is_valid_for_generic() {
-        use crate::cache::MokaCacheService;
-        use std::time::Duration;
+    #[tokio::test]
+    async fn test_moka_is_valid_for_generic() {
+        use crate::config::tasker::CacheConfig;
 
-        let moka = MokaCacheService::new(100, Duration::from_secs(60));
-        let provider = Arc::new(CacheProvider::Moka(Box::new(moka)));
+        let config = CacheConfig {
+            enabled: true,
+            backend: "moka".to_string(),
+            ..CacheConfig::default()
+        };
+        let provider = Arc::new(CacheProvider::from_config_graceful(&config, None).await);
 
         assert!(CacheUsageContext::Generic.is_valid_provider(&provider));
     }
@@ -267,39 +276,48 @@ mod tests {
     }
 
     #[cfg(feature = "cache-moka")]
-    #[test]
-    fn test_constrained_provider_rejects_moka_for_templates() {
-        use crate::cache::MokaCacheService;
-        use std::time::Duration;
+    #[tokio::test]
+    async fn test_constrained_provider_rejects_moka_for_templates() {
+        use crate::config::tasker::CacheConfig;
 
-        let moka = MokaCacheService::new(100, Duration::from_secs(60));
-        let provider = Arc::new(CacheProvider::Moka(Box::new(moka)));
+        let config = CacheConfig {
+            enabled: true,
+            backend: "moka".to_string(),
+            ..CacheConfig::default()
+        };
+        let provider = Arc::new(CacheProvider::from_config_graceful(&config, None).await);
 
         let constrained = ConstrainedCacheProvider::new(provider, CacheUsageContext::Templates);
         assert!(constrained.is_none());
     }
 
     #[cfg(feature = "cache-moka")]
-    #[test]
-    fn test_constrained_provider_accepts_moka_for_analytics() {
-        use crate::cache::MokaCacheService;
-        use std::time::Duration;
+    #[tokio::test]
+    async fn test_constrained_provider_accepts_moka_for_analytics() {
+        use crate::config::tasker::CacheConfig;
 
-        let moka = MokaCacheService::new(100, Duration::from_secs(60));
-        let provider = Arc::new(CacheProvider::Moka(Box::new(moka)));
+        let config = CacheConfig {
+            enabled: true,
+            backend: "moka".to_string(),
+            ..CacheConfig::default()
+        };
+        let provider = Arc::new(CacheProvider::from_config_graceful(&config, None).await);
 
         let constrained = ConstrainedCacheProvider::new(provider, CacheUsageContext::Analytics);
         assert!(constrained.is_some());
     }
 
     #[cfg(feature = "cache-moka")]
-    #[test]
-    fn test_try_new_returns_error_for_moka_templates() {
-        use crate::cache::MokaCacheService;
-        use std::time::Duration;
+    #[tokio::test]
+    async fn test_try_new_returns_error_for_moka_templates() {
+        use crate::config::tasker::CacheConfig;
 
-        let moka = MokaCacheService::new(100, Duration::from_secs(60));
-        let provider = Arc::new(CacheProvider::Moka(Box::new(moka)));
+        let config = CacheConfig {
+            enabled: true,
+            backend: "moka".to_string(),
+            ..CacheConfig::default()
+        };
+        let provider = Arc::new(CacheProvider::from_config_graceful(&config, None).await);
 
         let result = ConstrainedCacheProvider::try_new(provider, CacheUsageContext::Templates);
         assert!(result.is_err());
