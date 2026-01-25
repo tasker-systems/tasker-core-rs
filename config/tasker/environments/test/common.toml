@@ -98,6 +98,15 @@ waiting_for_dependencies = 45
 waiting_for_retry = 30
 blocked_by_failures = 60
 
+# Redis cache enabled for integration/E2E tests (TAS-156)
+[common.cache]
+enabled = true
+template_ttl_seconds = 300
+analytics_ttl_seconds = 30
+
+[common.cache.redis]
+url = "${REDIS_URL:-redis://localhost:6379}"
+
 [common.task_templates]
 search_paths = ["config/task_templates/*.{yml,yaml}"]
 

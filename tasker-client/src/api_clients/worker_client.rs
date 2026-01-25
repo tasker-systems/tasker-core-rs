@@ -2,6 +2,9 @@
 //!
 //! HTTP client for communicating with tasker-worker web APIs.
 //! Provides methods for worker health checks, metrics, templates, and configuration.
+//!
+//! TAS-169: Template routes moved to /v1/templates. Cache operations removed
+//! (use include_cache_stats query param on list_templates instead).
 
 use reqwest::{Client, Url};
 use std::time::Duration;
@@ -13,12 +16,10 @@ use tasker_shared::{
     types::api::{
         orchestration::WorkerConfigResponse,
         worker::{
-            BasicHealthResponse, CacheOperationResponse, DetailedHealthResponse,
-            TemplateListResponse, TemplateQueryParams, TemplateResponse,
-            TemplateValidationResponse,
+            BasicHealthResponse, DetailedHealthResponse, TemplateListResponse, TemplateQueryParams,
+            TemplateResponse, TemplateValidationResponse,
         },
     },
-    types::base::CacheStats,
     types::web::{DomainEventStats, MetricsResponse},
 };
 
@@ -369,19 +370,21 @@ impl WorkerApiClient {
     }
 
     // =========================================================================
-    // TEMPLATE API METHODS
+    // TEMPLATE API METHODS (TAS-169: /v1/templates)
     // =========================================================================
 
     /// List supported templates and namespaces
     ///
-    /// GET /templates
+    /// GET /v1/templates
+    ///
+    /// Use `include_cache_stats=true` in query params to include cache statistics.
     pub async fn list_templates(
         &self,
         params: Option<&TemplateQueryParams>,
     ) -> TaskerResult<TemplateListResponse> {
         let mut url = self
             .base_url
-            .join("/templates")
+            .join("/v1/templates")
             .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
 
         // Add query parameters if provided
@@ -407,7 +410,7 @@ impl WorkerApiClient {
 
     /// Get a specific task template
     ///
-    /// GET /templates/{namespace}/{name}/{version}
+    /// GET /v1/templates/{namespace}/{name}/{version}
     pub async fn get_template(
         &self,
         namespace: &str,
@@ -416,7 +419,7 @@ impl WorkerApiClient {
     ) -> TaskerResult<TemplateResponse> {
         let url = self
             .base_url
-            .join(&format!("/templates/{}/{}/{}", namespace, name, version))
+            .join(&format!("/v1/templates/{}/{}/{}", namespace, name, version))
             .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
 
         debug!("Getting template: {}", url);
@@ -431,7 +434,7 @@ impl WorkerApiClient {
 
     /// Validate a template for worker execution
     ///
-    /// POST /templates/{namespace}/{name}/{version}/validate
+    /// POST /v1/templates/{namespace}/{name}/{version}/validate
     pub async fn validate_template(
         &self,
         namespace: &str,
@@ -441,7 +444,7 @@ impl WorkerApiClient {
         let url = self
             .base_url
             .join(&format!(
-                "/templates/{}/{}/{}/validate",
+                "/v1/templates/{}/{}/{}/validate",
                 namespace, name, version
             ))
             .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
@@ -453,89 +456,6 @@ impl WorkerApiClient {
         })?;
 
         self.handle_response(response, "validate template").await
-    }
-
-    /// Refresh a specific template in cache
-    ///
-    /// POST /templates/{namespace}/{name}/{version}/refresh
-    pub async fn refresh_template(
-        &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-    ) -> TaskerResult<CacheOperationResponse> {
-        let url = self
-            .base_url
-            .join(&format!(
-                "/templates/{}/{}/{}/refresh",
-                namespace, name, version
-            ))
-            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
-
-        debug!("Refreshing template: {}", url);
-
-        let response = self.client.post(url).send().await.map_err(|e| {
-            TaskerError::WorkerError(format!("Refresh template request failed: {}", e))
-        })?;
-
-        self.handle_response(response, "refresh template").await
-    }
-
-    /// Clear template cache
-    ///
-    /// DELETE /templates/cache
-    pub async fn clear_template_cache(&self) -> TaskerResult<CacheOperationResponse> {
-        let url = self
-            .base_url
-            .join("/templates/cache")
-            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
-
-        debug!("Clearing template cache: {}", url);
-
-        let response =
-            self.client.delete(url).send().await.map_err(|e| {
-                TaskerError::WorkerError(format!("Clear cache request failed: {}", e))
-            })?;
-
-        self.handle_response(response, "clear template cache").await
-    }
-
-    /// Get template cache statistics
-    ///
-    /// GET /templates/cache/stats
-    pub async fn get_cache_stats(&self) -> TaskerResult<CacheStats> {
-        let url = self
-            .base_url
-            .join("/templates/cache/stats")
-            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
-
-        debug!("Getting cache stats: {}", url);
-
-        let response =
-            self.client.get(url).send().await.map_err(|e| {
-                TaskerError::WorkerError(format!("Cache stats request failed: {}", e))
-            })?;
-
-        self.handle_response(response, "cache stats").await
-    }
-
-    /// Perform template cache maintenance
-    ///
-    /// POST /templates/cache/maintain
-    pub async fn maintain_template_cache(&self) -> TaskerResult<CacheOperationResponse> {
-        let url = self
-            .base_url
-            .join("/templates/cache/maintain")
-            .map_err(|e| TaskerError::WorkerError(format!("Invalid URL: {}", e)))?;
-
-        debug!("Maintaining template cache: {}", url);
-
-        let response = self.client.post(url).send().await.map_err(|e| {
-            TaskerError::WorkerError(format!("Cache maintain request failed: {}", e))
-        })?;
-
-        self.handle_response(response, "maintain template cache")
-            .await
     }
 
     // =========================================================================

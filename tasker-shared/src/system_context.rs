@@ -1,6 +1,8 @@
 // TAS-61 Phase 6C/6D: V2 config is now canonical
 // TAS-78: Added DatabasePools for separate PGMQ database support
 // TAS-133e: Updated to use MessagingProvider and MessageClient
+// TAS-156: Added CacheProvider for distributed template caching
+use crate::cache::CacheProvider;
 use crate::config::tasker::TaskerConfig;
 use crate::config::ConfigManager;
 use crate::database::DatabasePools;
@@ -71,6 +73,9 @@ pub struct SystemContext {
     /// Task handler registry
     pub task_handler_registry: Arc<TaskHandlerRegistry>,
 
+    /// TAS-156: Distributed cache provider
+    pub cache_provider: Arc<CacheProvider>,
+
     /// Circuit breaker manager (optional)
     pub circuit_breaker_manager: Option<Arc<CircuitBreakerManager>>,
 
@@ -93,6 +98,13 @@ impl std::fmt::Debug for SystemContext {
             .field("message_client", &"Arc<MessageClient>")
             .field("database_pools", &self.database_pools)
             .field("task_handler_registry", &"Arc<TaskHandlerRegistry>")
+            .field(
+                "cache_provider",
+                &format!(
+                    "Arc<CacheProvider::{}>",
+                    self.cache_provider.provider_name()
+                ),
+            )
             .field(
                 "circuit_breaker_manager",
                 &self
@@ -326,9 +338,21 @@ impl SystemContext {
         // Circuit breaker manager (optional, separated from messaging in TAS-133e)
         let circuit_breaker_manager = Self::create_circuit_breaker_manager(&tasker_config);
 
-        // Create task handler registry with Tasker pool
-        let task_handler_registry =
-            Arc::new(TaskHandlerRegistry::new(database_pools.tasker().clone()));
+        // TAS-156: Create cache provider (graceful degradation if Redis unavailable)
+        let cache_provider = Arc::new(Self::create_cache_provider(&tasker_config).await);
+
+        // Create task handler registry with Tasker pool and cache
+        let task_handler_registry = Arc::new(
+            if let Some(cache_config) = tasker_config.common.cache.clone() {
+                TaskHandlerRegistry::with_cache(
+                    database_pools.tasker().clone(),
+                    cache_provider.clone(),
+                    cache_config,
+                )
+            } else {
+                TaskHandlerRegistry::new(database_pools.tasker().clone())
+            },
+        );
 
         // Create system instance ID
         let system_id = Uuid::now_v7();
@@ -353,9 +377,24 @@ impl SystemContext {
             message_client,
             database_pools,
             task_handler_registry,
+            cache_provider,
             circuit_breaker_manager,
             event_publisher,
         })
+    }
+
+    /// Create cache provider from configuration (TAS-156)
+    ///
+    /// Uses graceful degradation: if Redis is unavailable, returns NoOp provider.
+    /// The system never fails to start due to cache issues.
+    async fn create_cache_provider(config: &TaskerConfig) -> CacheProvider {
+        match &config.common.cache {
+            Some(cache_config) => CacheProvider::from_config_graceful(cache_config).await,
+            None => {
+                info!("No cache configuration found, using NoOp cache provider");
+                CacheProvider::noop()
+            }
+        }
     }
 
     /// Initialize standard namespace queues
@@ -475,6 +514,11 @@ impl SystemContext {
         self.circuit_breaker_manager.is_some()
     }
 
+    /// Get cache provider reference (TAS-156)
+    pub fn cache_provider(&self) -> &Arc<CacheProvider> {
+        &self.cache_provider
+    }
+
     pub fn processor_uuid(&self) -> Uuid {
         self.processor_uuid
     }
@@ -514,9 +558,21 @@ impl SystemContext {
         let (messaging_provider, message_client) =
             Self::create_messaging(&tasker_config, database_pools.pgmq().clone()).await?;
 
-        // Create task handler registry with Tasker pool
-        let task_handler_registry =
-            Arc::new(TaskHandlerRegistry::new(database_pools.tasker().clone()));
+        // TAS-156: Create cache provider (graceful degradation for tests)
+        let cache_provider = Arc::new(Self::create_cache_provider(&tasker_config).await);
+
+        // Create task handler registry with Tasker pool and cache
+        let task_handler_registry = Arc::new(
+            if let Some(cache_config) = tasker_config.common.cache.clone() {
+                TaskHandlerRegistry::with_cache(
+                    database_pools.tasker().clone(),
+                    cache_provider.clone(),
+                    cache_config,
+                )
+            } else {
+                TaskHandlerRegistry::new(database_pools.tasker().clone())
+            },
+        );
 
         // Create event publisher with bounded channel (TAS-51)
         let event_publisher_buffer_size = tasker_config
@@ -533,6 +589,7 @@ impl SystemContext {
             message_client,
             database_pools,
             task_handler_registry,
+            cache_provider,
             circuit_breaker_manager: None, // Disabled for testing
             event_publisher,
         })

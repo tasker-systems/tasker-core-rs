@@ -207,44 +207,9 @@ module TaskerCore
         )
       end
 
-      # Clear the template cache
-      #
-      # @return [Types::CacheOperationResult] Operation result
-      def cache_clear
-        json = TaskerCore::FFI.templates_cache_clear
-        data = JSON.parse(json)
-
-        # Rust API returns { operation, success, cache_stats }
-        Types::CacheOperationResult.new(
-          success: data['success'] || false,
-          message: data['operation'] || 'clear',
-          timestamp: Time.now.utc.iso8601
-        )
-      end
-
-      # Refresh a specific template in the cache
-      #
-      # @param namespace [String] Template namespace
-      # @param name [String] Template name
-      # @param version [String] Template version
-      # @return [Types::CacheOperationResult] Operation result
-      def template_refresh(namespace:, name:, version:)
-        json = TaskerCore::FFI.template_refresh(namespace, name, version)
-        data = JSON.parse(json)
-
-        Types::CacheOperationResult.new(
-          success: data['success'] || false,
-          message: data['message'] || data['operation'] || 'refresh',
-          timestamp: data['timestamp'] || Time.now.utc.iso8601
-        )
-      rescue RuntimeError => e
-        # Return a structured error response instead of raising
-        Types::CacheOperationResult.new(
-          success: false,
-          message: e.message,
-          timestamp: Time.now.utc.iso8601
-        )
-      end
+      # TAS-169: Removed cache_clear and template_refresh methods.
+      # Cache operations are now internal-only. Restart worker to refresh templates.
+      # Distributed cache status is available via health_detailed.
 
       # ========================================================================
       # Config Methods

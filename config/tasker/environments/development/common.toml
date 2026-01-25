@@ -3,6 +3,10 @@
 [common.database.pool]
 slow_acquire_threshold_ms = 200
 
+# TAS-156: Distributed cache enabled for development
+[common.cache]
+enabled = true
+
 [common.execution]
 environment = "development"
 

@@ -1,6 +1,7 @@
 //! # Worker OpenAPI Documentation
 //!
 //! OpenAPI specification for the Worker Web API with security scheme definitions.
+//! TAS-169: Simplified template API under /v1/templates.
 
 use utoipa::OpenApi;
 
@@ -8,7 +9,7 @@ use tasker_shared::types::api::orchestration::{
     ConfigMetadata, SafeAuthConfig, SafeMessagingConfig, WorkerConfigResponse,
 };
 use tasker_shared::types::api::worker::{
-    BasicHealthResponse, CacheOperationResponse, DetailedHealthResponse, TemplateListResponse,
+    BasicHealthResponse, DetailedHealthResponse, DistributedCacheInfo, TemplateListResponse,
     TemplateResponse, TemplateValidationResponse,
 };
 use tasker_shared::types::base::CacheStats;
@@ -28,14 +29,10 @@ use crate::web::handlers;
         handlers::health::liveness_check,
         handlers::health::detailed_health_check,
 
-        // Template API paths (auth required)
+        // Template API paths (auth required) - TAS-169: moved to /v1/templates
         handlers::templates::list_templates,
         handlers::templates::get_template,
         handlers::templates::validate_template,
-        handlers::templates::clear_cache,
-        handlers::templates::get_cache_stats,
-        handlers::templates::maintain_cache,
-        handlers::templates::refresh_template,
 
         // Config API paths (auth required)
         handlers::config::get_config,
@@ -44,12 +41,12 @@ use crate::web::handlers;
         // Health schemas
         BasicHealthResponse,
         DetailedHealthResponse,
+        DistributedCacheInfo,
 
         // Template schemas
         TemplateResponse,
         TemplateListResponse,
         TemplateValidationResponse,
-        CacheOperationResponse,
         CacheStats,
 
         // Config schemas (TAS-150: whitelist-only safe response types)
@@ -62,14 +59,14 @@ use crate::web::handlers;
         ApiError,
     )),
     tags(
-        (name = "health", description = "Health check and monitoring"),
-        (name = "templates", description = "Task template management and cache operations"),
+        (name = "health", description = "Health check and monitoring (includes distributed cache status)"),
+        (name = "templates", description = "Task template retrieval and validation"),
         (name = "config", description = "Runtime configuration observability (safe fields only)"),
     ),
     info(
         title = "Tasker Worker API",
         version = "1.0.0",
-        description = "REST API for the Tasker worker process",
+        description = "REST API for the Tasker worker process. TAS-169: Template routes under /v1/templates, cache operations removed (restart worker to refresh).",
         contact(
             name = "Tasker Systems",
             email = "support@tasker-systems.com"

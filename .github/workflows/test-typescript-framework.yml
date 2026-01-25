@@ -31,6 +31,17 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      # TAS-156: Redis for distributed template cache
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     defaults:
       run:
         working-directory: workers/typescript
@@ -142,6 +153,7 @@ jobs:
         env:
           TASKER_ENV: test
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          REDIS_URL: redis://localhost:6379
           FFI_BOOTSTRAP_TESTS: "true"
 
       - name: Run FFI integration tests (Node.js)
@@ -158,6 +170,7 @@ jobs:
         env:
           TASKER_ENV: test
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          REDIS_URL: redis://localhost:6379
           FFI_BOOTSTRAP_TESTS: "true"
         continue-on-error: true  # Node.js FFI is optional (requires ffi-napi)
 
@@ -175,6 +188,7 @@ jobs:
         env:
           TASKER_ENV: test
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          REDIS_URL: redis://localhost:6379
           FFI_BOOTSTRAP_TESTS: "true"
         continue-on-error: true  # Deno FFI may have compatibility issues
 

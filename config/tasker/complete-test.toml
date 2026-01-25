@@ -32,6 +32,20 @@ steps_in_process = 10
 waiting_for_dependencies = 45
 waiting_for_retry = 30
 
+[common.cache]
+analytics_ttl_seconds = 30
+backend = "redis"
+default_ttl_seconds = 3600
+enabled = true
+key_prefix = "tasker"
+template_ttl_seconds = 300
+
+[common.cache.redis]
+connection_timeout_seconds = 5
+database = 0
+max_connections = 10
+url = "${REDIS_URL:-redis://localhost:6379}"
+
 [common.circuit_breakers]
 enabled = true
 
@@ -473,23 +487,9 @@ method = "GET"
 path = "/handlers"
 required = false
 
-[[worker.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "DELETE"
-path = "/templates/cache"
-required = true
-
-[[worker.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "POST"
-path = "/templates/cache/maintain"
-required = true
-
-[[worker.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "POST"
-path = "/templates/{namespace}/{name}/{version}/refresh"
-required = true
+# TAS-169: Template routes moved to /v1/templates, cache operations removed
+# Old routes removed: DELETE /templates/cache, POST /templates/cache/maintain,
+# POST /templates/{namespace}/{name}/{version}/refresh
 
 [worker.web.database_pools]
 max_total_connections_hint = 15

@@ -84,6 +84,13 @@ fn get_env_var_allowlist() -> Vec<EnvVarRule> {
             // TAS-133: Valid backends for messaging provider selection
             pattern: r"^(pgmq|rabbitmq)$",
         },
+        // TAS-156: Redis cache connection
+        EnvVarRule {
+            name: "REDIS_URL",
+            description: "Redis connection URL for distributed cache",
+            // Redis URL: redis://[user:password@]host[:port][/db]
+            pattern: r"^redis://([a-zA-Z0-9_-]+:[^@]+@)?[a-zA-Z0-9._-]+(:[0-9]+)?(/[0-9]+)?$",
+        },
         // TAS-73: Multi-instance deployment support
         EnvVarRule {
             name: "TASKER_INSTANCE_ID",

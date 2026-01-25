@@ -214,6 +214,12 @@ pub struct CommonConfig {
     #[validate(nested)]
     pub task_templates: TaskTemplatesConfig,
 
+    /// Distributed cache configuration (TAS-156)
+    /// When not present or enabled=false, system uses direct DB queries only
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub cache: Option<CacheConfig>,
+
     /// PGMQ separate database configuration (optional)
     /// When not configured or url is empty, PGMQ uses main database
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1024,6 +1030,83 @@ pub struct TelemetryConfig {
     #[builder(default = 1.0)]
     pub sample_rate: f64,
 }
+
+// ============================================================================
+// CACHE CONFIGURATION (TAS-156: Distributed Template Cache)
+// ============================================================================
+
+/// Distributed cache configuration
+///
+/// Provides opt-in distributed caching for task template resolution.
+/// When enabled with Redis backend, templates are cached across instances
+/// for faster resolution. When disabled or Redis unavailable, falls back
+/// to direct database queries transparently.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct CacheConfig {
+    /// Enable distributed caching
+    #[builder(default = false)]
+    pub enabled: bool,
+
+    /// Cache backend ("redis" is the only supported backend)
+    #[validate(length(min = 1))]
+    #[builder(default = "redis".to_string())]
+    pub backend: String,
+
+    /// Default TTL for cache entries in seconds
+    #[validate(range(min = 1, max = 86400))]
+    #[builder(default = 3600)]
+    pub default_ttl_seconds: u32,
+
+    /// TTL for task template cache entries in seconds
+    #[validate(range(min = 1, max = 86400))]
+    #[builder(default = 3600)]
+    pub template_ttl_seconds: u32,
+
+    /// TTL for analytics cache entries in seconds
+    #[validate(range(min = 1, max = 86400))]
+    #[builder(default = 60)]
+    pub analytics_ttl_seconds: u32,
+
+    /// Key prefix for all cache entries
+    #[validate(length(min = 1))]
+    #[builder(default = "tasker".to_string())]
+    pub key_prefix: String,
+
+    /// Redis backend configuration
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub redis: Option<RedisConfig>,
+}
+
+impl_builder_default!(CacheConfig);
+
+/// Redis connection configuration
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct RedisConfig {
+    /// Redis connection URL
+    #[validate(length(min = 1))]
+    #[builder(default = "redis://localhost:6379".to_string())]
+    pub url: String,
+
+    /// Maximum number of connections in the pool
+    #[validate(range(min = 1, max = 100))]
+    #[builder(default = 10)]
+    pub max_connections: u32,
+
+    /// Connection timeout in seconds
+    #[validate(range(min = 1, max = 60))]
+    #[builder(default = 5)]
+    pub connection_timeout_seconds: u32,
+
+    /// Redis database number
+    #[validate(range(min = 0, max = 15))]
+    #[builder(default = 0)]
+    pub database: u32,
+}
+
+impl_builder_default!(RedisConfig);
 
 // ============================================================================
 // ORCHESTRATION CONFIGURATION (Orchestration-specific)
@@ -2676,6 +2759,7 @@ mod tests {
             },
             pgmq_database: None,
             telemetry: None,
+            cache: None,
         };
 
         // Orchestration only
@@ -3054,6 +3138,7 @@ mod tests {
                 assert_eq!(worker.worker_type, "general");
 
                 // Verify worker auth with protected routes
+                // TAS-169: Template cache routes removed, only 2 worker routes remain
                 if let Some(web) = &worker.web {
                     if let Some(auth) = &web.auth {
                         assert!(
@@ -3062,31 +3147,31 @@ mod tests {
                         );
                         assert_eq!(
                             auth.protected_routes.len(),
-                            5,
-                            "Should have 5 worker routes"
+                            2,
+                            "Should have 2 worker routes (TAS-169: cache routes removed)"
                         );
 
                         // Verify specific route using Vec structure
-                        let delete_cache_route = auth
+                        let get_handlers_route = auth
                             .protected_routes
                             .iter()
-                            .find(|r| r.method == "DELETE" && r.path == "/templates/cache");
+                            .find(|r| r.method == "GET" && r.path == "/handlers");
                         assert!(
-                            delete_cache_route.is_some(),
-                            "Should have DELETE /templates/cache route"
+                            get_handlers_route.is_some(),
+                            "Should have GET /handlers route"
                         );
-                        if let Some(r) = delete_cache_route {
+                        if let Some(r) = get_handlers_route {
                             assert_eq!(r.auth_type, "bearer");
-                            assert!(r.required);
+                            assert!(!r.required); // GET /handlers is optional auth
                         }
 
                         // Verify routes_map() conversion works
                         let routes_map = auth.routes_map();
-                        assert_eq!(routes_map.len(), 5, "Routes map should have 5 entries");
-                        let key = "DELETE /templates/cache";
+                        assert_eq!(routes_map.len(), 2, "Routes map should have 2 entries");
+                        let key = "GET /handlers";
                         assert!(
                             routes_map.contains_key(key),
-                            "Routes map should contain DELETE route"
+                            "Routes map should contain GET /handlers route"
                         );
                     }
                 }

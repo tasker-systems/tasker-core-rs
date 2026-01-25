@@ -176,23 +176,9 @@ path = "/handlers"
 auth_type = "bearer"
 required = false
 
-[[worker.web.auth.protected_routes]]
-method = "DELETE"
-path = "/templates/cache"
-auth_type = "bearer"
-required = true
-
-[[worker.web.auth.protected_routes]]
-method = "POST"
-path = "/templates/cache/maintain"
-auth_type = "bearer"
-required = true
-
-[[worker.web.auth.protected_routes]]
-method = "POST"
-path = "/templates/{namespace}/{name}/{version}/refresh"
-auth_type = "bearer"
-required = true
+# TAS-169: Template routes moved to /v1/templates, cache operations removed
+# Old routes removed: DELETE /templates/cache, POST /templates/cache/maintain,
+# POST /templates/{namespace}/{name}/{version}/refresh
 
 # TAS-61: Removed [worker.web.rate_limiting] - no rate limiting middleware implemented
 

@@ -10,6 +10,12 @@ max_connections = 25
 min_connections = 5
 slow_acquire_threshold_ms = 50
 
+# TAS-156: Distributed cache enabled for production
+[common.cache]
+enabled = true
+template_ttl_seconds = 3600
+analytics_ttl_seconds = 120
+
 [common.execution]
 max_concurrent_tasks = 200
 max_concurrent_steps = 2000

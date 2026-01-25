@@ -12,14 +12,19 @@
 //!
 //! ### Worker Service
 //! - Health: `/health`, `/health/ready`, `/health/live`, `/health/detailed`
+//!   - TAS-169: `/health/detailed` now includes `distributed_cache` field
 //! - Config: `/config`
 //! - Metrics: `/metrics`, `/metrics/worker`, `/metrics/events`
-//! - Templates: `/templates`, `/templates/cache/stats`
+//! - Templates (TAS-169: moved to `/v1/`):
+//!   - `/v1/templates` - list templates (supports `?include_cache_stats=true`)
+//!   - `/v1/templates/{namespace}/{name}/{version}` - get template
+//!   - `/v1/templates/{namespace}/{name}/{version}/validate` - validate template
 //!
 //! Prerequisites:
 //! Run `docker-compose -f docker/docker-compose.test.yml up --build -d` before running tests
 
 use anyhow::Result;
+use tasker_shared::types::api::worker::TemplateQueryParams;
 
 use crate::common::integration_test_manager::IntegrationTestManager;
 
@@ -374,14 +379,14 @@ async fn test_worker_metrics_endpoints() -> Result<()> {
     Ok(())
 }
 
-/// Test worker template endpoints
+/// Test worker template endpoints (TAS-169: /v1/templates)
 ///
 /// Validates:
-/// - GET /templates returns TemplateListResponse with supported namespaces
-/// - GET /templates/cache/stats returns CacheStats
+/// - GET /v1/templates returns TemplateListResponse with supported namespaces
+/// - GET /v1/templates?include_cache_stats=true returns cache statistics
 #[tokio::test]
 async fn test_worker_template_endpoints() -> Result<()> {
-    println!("📄 Testing Worker Template Endpoints (TAS-70)");
+    println!("📄 Testing Worker Template Endpoints (TAS-169: /v1/templates)");
 
     let manager = IntegrationTestManager::setup().await?;
     let worker_client = manager.worker_client.as_ref().ok_or_else(|| {
@@ -389,7 +394,7 @@ async fn test_worker_template_endpoints() -> Result<()> {
     })?;
 
     // Test template listing
-    println!("\n  📋 GET /templates");
+    println!("\n  📋 GET /v1/templates");
     let templates = worker_client.list_templates(None).await?;
     println!(
         "     ✅ supported_namespaces: {:?}",
@@ -401,12 +406,22 @@ async fn test_worker_template_endpoints() -> Result<()> {
         templates.worker_capabilities
     );
 
-    // Test cache stats
-    println!("\n  📋 GET /templates/cache/stats");
-    let cache_stats = worker_client.get_cache_stats().await?;
-    println!("     ✅ total_cached: {}", cache_stats.total_cached);
-    println!("     ✅ cache_hits: {}", cache_stats.cache_hits);
-    println!("     ✅ cache_misses: {}", cache_stats.cache_misses);
+    // Test cache stats via list_templates with include_cache_stats=true (TAS-169)
+    println!("\n  📋 GET /v1/templates?include_cache_stats=true");
+    let params_with_stats = TemplateQueryParams {
+        namespace: None,
+        include_cache_stats: Some(true),
+    };
+    let templates_with_stats = worker_client
+        .list_templates(Some(&params_with_stats))
+        .await?;
+    if let Some(cache_stats) = &templates_with_stats.cache_stats {
+        println!("     ✅ total_cached: {}", cache_stats.total_cached);
+        println!("     ✅ cache_hits: {}", cache_stats.cache_hits);
+        println!("     ✅ cache_misses: {}", cache_stats.cache_misses);
+    } else {
+        println!("     ⚠️ cache_stats not included in response");
+    }
 
     println!("\n🎉 Worker template endpoints test passed!");
     Ok(())

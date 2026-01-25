@@ -1,6 +1,7 @@
 //! # Worker Health Service
 //!
 //! TAS-77: Health check logic extracted from web/handlers/health.rs.
+//! TAS-169: Includes distributed cache status in detailed health.
 //!
 //! This service encapsulates all health check functionality, making it available
 //! to both the HTTP API and FFI consumers without code duplication.
@@ -15,11 +16,12 @@ use tracing::{debug, error, warn};
 
 use crate::web::state::CircuitBreakerHealthProvider;
 use crate::worker::core::{WorkerCore, WorkerCoreStatus};
+use crate::worker::task_template_manager::TaskTemplateManager;
 use tasker_shared::database::DatabasePools;
 use tasker_shared::types::api::health::build_pool_utilization;
 use tasker_shared::types::api::worker::{
     BasicHealthResponse, CircuitBreakerState, CircuitBreakersHealth, DetailedHealthResponse,
-    HealthCheck, WorkerSystemInfo,
+    DistributedCacheInfo, HealthCheck, WorkerSystemInfo,
 };
 
 /// Shared circuit breaker provider reference
@@ -32,6 +34,7 @@ pub type SharedCircuitBreakerProvider =
 /// Health Service
 ///
 /// TAS-77: Provides health check functionality independent of the HTTP layer.
+/// TAS-169: Includes distributed cache status in detailed health.
 ///
 /// This service can be used by:
 /// - Web API handlers (via `WorkerWebState`)
@@ -43,6 +46,7 @@ pub type SharedCircuitBreakerProvider =
 /// ```rust,no_run
 /// use tasker_worker::worker::services::health::{HealthService, SharedCircuitBreakerProvider};
 /// use tasker_worker::worker::core::WorkerCore;
+/// use tasker_worker::worker::task_template_manager::TaskTemplateManager;
 /// use tasker_shared::database::DatabasePools;
 /// use std::sync::Arc;
 /// use std::time::Instant;
@@ -52,6 +56,7 @@ pub type SharedCircuitBreakerProvider =
 ///     worker_id: String,
 ///     database_pools: DatabasePools,
 ///     worker_core: Arc<Mutex<WorkerCore>>,
+///     task_template_manager: Arc<TaskTemplateManager>,
 /// ) {
 ///     let circuit_breaker_provider: SharedCircuitBreakerProvider =
 ///         Arc::new(RwLock::new(None));
@@ -61,6 +66,7 @@ pub type SharedCircuitBreakerProvider =
 ///         worker_id,
 ///         database_pools,
 ///         worker_core,
+///         task_template_manager,
 ///         circuit_breaker_provider,
 ///         start_time,
 ///     );
@@ -68,7 +74,7 @@ pub type SharedCircuitBreakerProvider =
 ///     // Get basic health (always succeeds)
 ///     let basic = service.basic_health();
 ///
-///     // Get detailed health with all checks
+///     // Get detailed health with all checks (includes distributed cache status)
 ///     let detailed = service.detailed_health().await;
 /// }
 /// ```
@@ -81,6 +87,9 @@ pub struct HealthService {
 
     /// Worker core for processor and step execution stats
     worker_core: Arc<tokio::sync::Mutex<WorkerCore>>,
+
+    /// TAS-169: Task template manager for distributed cache status
+    task_template_manager: Arc<TaskTemplateManager>,
 
     /// Circuit breaker health provider (TAS-75)
     /// Shared reference so WorkerWebState can update it after construction
@@ -96,6 +105,7 @@ impl std::fmt::Debug for HealthService {
             .field("worker_id", &self.worker_id)
             .field("database_pools", &self.database_pools)
             .field("uptime_seconds", &self.start_time.elapsed().as_secs())
+            .field("task_template_manager", &"<TaskTemplateManager>")
             .field("circuit_breaker_provider", &"<shared>")
             .finish()
     }
@@ -108,6 +118,7 @@ impl HealthService {
     /// * `worker_id` - Unique worker identifier
     /// * `database_pools` - TAS-164: Database pools for connectivity checks and utilization
     /// * `worker_core` - Worker core for processing stats
+    /// * `task_template_manager` - TAS-169: Task template manager for distributed cache status
     /// * `circuit_breaker_provider` - Shared reference to circuit breaker provider.
     ///   This is shared with `WorkerWebState` so updates are visible to both.
     /// * `start_time` - Service start time for uptime calculation
@@ -115,6 +126,7 @@ impl HealthService {
         worker_id: String,
         database_pools: DatabasePools,
         worker_core: Arc<tokio::sync::Mutex<WorkerCore>>,
+        task_template_manager: Arc<TaskTemplateManager>,
         circuit_breaker_provider: SharedCircuitBreakerProvider,
         start_time: std::time::Instant,
     ) -> Self {
@@ -122,6 +134,7 @@ impl HealthService {
             worker_id,
             database_pools,
             worker_core,
+            task_template_manager,
             circuit_breaker_provider,
             start_time,
         }
@@ -206,6 +219,7 @@ impl HealthService {
             worker_id: self.worker_id.clone(),
             checks,
             system_info: self.create_system_info().await,
+            distributed_cache: None, // Not included in readiness checks
         };
 
         if overall_healthy {
@@ -219,7 +233,8 @@ impl HealthService {
     /// Comprehensive health check: GET /health/detailed
     ///
     /// Detailed health information about all worker subsystems.
-    /// Includes performance metrics and diagnostic information.
+    /// Includes performance metrics, diagnostic information, and distributed cache status.
+    /// TAS-169: Distributed cache status moved here from /templates/cache/distributed.
     pub async fn detailed_health(&self) -> DetailedHealthResponse {
         debug!("Performing detailed worker health check");
 
@@ -245,6 +260,9 @@ impl HealthService {
         // Determine overall status
         let overall_healthy = checks.values().all(|check| check.status == "healthy");
 
+        // TAS-169: Get distributed cache status
+        let distributed_cache = Some(self.get_distributed_cache_status().await);
+
         DetailedHealthResponse {
             status: if overall_healthy {
                 "healthy"
@@ -256,6 +274,7 @@ impl HealthService {
             worker_id: self.worker_id.clone(),
             checks,
             system_info: self.create_system_info().await,
+            distributed_cache,
         }
     }
 
@@ -587,6 +606,36 @@ impl HealthService {
     /// Check if a circuit breaker provider is configured
     async fn has_circuit_breaker_provider(&self) -> bool {
         self.circuit_breaker_provider.read().await.is_some()
+    }
+
+    /// TAS-169: Get distributed cache status
+    ///
+    /// Reports the status of the distributed template cache (Redis or NoOp).
+    /// Moved from /templates/cache/distributed to /health/detailed.
+    async fn get_distributed_cache_status(&self) -> DistributedCacheInfo {
+        let registry = self.task_template_manager.registry();
+        let enabled = registry.cache_enabled();
+        let provider_name = registry
+            .cache_provider()
+            .map(|p| p.provider_name())
+            .unwrap_or("none");
+
+        let healthy = if enabled {
+            if let Some(provider) = registry.cache_provider() {
+                provider.health_check().await.unwrap_or(false)
+            } else {
+                false
+            }
+        } else {
+            // When distributed cache is disabled, report as healthy (not applicable)
+            true
+        };
+
+        DistributedCacheInfo {
+            enabled,
+            provider: provider_name.to_string(),
+            healthy,
+        }
     }
 
     /// Create system information summary
