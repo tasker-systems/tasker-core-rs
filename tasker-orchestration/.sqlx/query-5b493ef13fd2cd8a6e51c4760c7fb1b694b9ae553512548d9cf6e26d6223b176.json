@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT nt.named_task_uuid, nt.name, nt.version, nt.description,\n                   nt.task_namespace_uuid, nt.configuration,\n                   nt.identity_strategy as \"identity_strategy: IdentityStrategy\",\n                   nt.created_at, nt.updated_at\n            FROM tasker.named_tasks nt\n            JOIN tasker.task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid\n            WHERE tn.name = $1 AND nt.name = $2\n            ORDER BY nt.created_at DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "named_task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "task_namespace_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "configuration",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "identity_strategy: IdentityStrategy",
+        "type_info": {
+          "Custom": {
+            "name": "identity_strategy",
+            "kind": {
+              "Enum": [
+                "strict",
+                "caller_provided",
+                "always_unique"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5b493ef13fd2cd8a6e51c4760c7fb1b694b9ae553512548d9cf6e26d6223b176"
+}

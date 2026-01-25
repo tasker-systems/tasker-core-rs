@@ -1077,6 +1077,11 @@ pub struct CacheConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub redis: Option<RedisConfig>,
+
+    /// Moka (in-memory) backend configuration (TAS-168)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub moka: Option<MokaConfig>,
 }
 
 impl_builder_default!(CacheConfig);
@@ -1107,6 +1112,24 @@ pub struct RedisConfig {
 }
 
 impl_builder_default!(RedisConfig);
+
+/// Moka (in-memory) cache configuration (TAS-168)
+///
+/// Configures the in-process cache backend for single-instance deployments.
+/// Suitable for analytics caching where brief staleness is acceptable.
+///
+/// **Warning**: NOT suitable for template caching in multi-instance deployments
+/// where workers may invalidate templates independently.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct MokaConfig {
+    /// Maximum number of entries in the cache
+    #[validate(range(min = 1, max = 1000000))]
+    #[builder(default = 10000)]
+    pub max_capacity: u64,
+}
+
+impl_builder_default!(MokaConfig);
 
 // ============================================================================
 // ORCHESTRATION CONFIGURATION (Orchestration-specific)

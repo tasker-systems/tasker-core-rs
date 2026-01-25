@@ -90,6 +90,8 @@ pub mod actors;
 pub mod health;
 pub mod orchestration;
 #[cfg(feature = "web-api")]
+pub mod services;
+#[cfg(feature = "web-api")]
 pub mod web;
 
 // Re-export commonly used types from tasker-shared

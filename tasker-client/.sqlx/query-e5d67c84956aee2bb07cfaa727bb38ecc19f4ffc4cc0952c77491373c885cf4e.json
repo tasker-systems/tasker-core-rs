@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, max_attempts,\n                               in_process, processed, processed_at, attempts, last_attempted_at,\n                               backoff_request_seconds, inputs, results, checkpoint, created_at, updated_at\n                        FROM tasker.workflow_steps\n                        WHERE task_uuid = $1::uuid AND named_step_uuid = $2::uuid\n                        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workflow_step_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "named_step_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "retryable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "in_process",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "processed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "processed_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_attempted_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 10,
+        "name": "backoff_request_seconds",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "inputs",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "results",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 13,
+        "name": "checkpoint",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "e5d67c84956aee2bb07cfaa727bb38ecc19f4ffc4cc0952c77491373c885cf4e"
+}

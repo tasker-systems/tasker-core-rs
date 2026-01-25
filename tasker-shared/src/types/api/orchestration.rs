@@ -453,28 +453,45 @@ pub struct BottleneckAnalysis {
 }
 
 /// Information about slow-performing steps
+///
+/// Steps are identified by (namespace, task_name, version, step_name) since
+/// step names are only unique within a task template context.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct SlowStepInfo {
+    /// Namespace containing the task template
+    pub namespace_name: String,
+    /// Task template name
+    pub task_name: String,
+    /// Task template version
+    pub version: String,
+    /// Step name (unique within template)
     pub step_name: String,
     pub average_duration_seconds: f64,
     pub max_duration_seconds: f64,
-    pub execution_count: i32,
-    pub error_count: i32,
+    pub execution_count: i64,
+    pub error_count: i64,
     pub error_rate: f64,
     pub last_executed_at: Option<String>,
 }
 
 /// Information about slow-performing tasks
+///
+/// Tasks are identified by (namespace, task_name, version) - the template identity.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct SlowTaskInfo {
+    /// Namespace containing the task template
+    pub namespace_name: String,
+    /// Task template name
     pub task_name: String,
+    /// Task template version
+    pub version: String,
     pub average_duration_seconds: f64,
     pub max_duration_seconds: f64,
-    pub execution_count: i32,
+    pub execution_count: i64,
     pub average_step_count: f64,
-    pub error_count: i32,
+    pub error_count: i64,
     pub error_rate: f64,
     pub last_executed_at: Option<String>,
 }
