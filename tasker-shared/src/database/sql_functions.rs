@@ -664,6 +664,82 @@ impl SqlFunctionExecutor {
 }
 
 // ============================================================================
+// 6b. AGGREGATED PERFORMANCE ANALYTICS (TAS-168)
+// ============================================================================
+
+/// Pre-aggregated step performance by template + step name
+///
+/// Groups by (namespace_name, task_name, version, step_name) since step names
+/// are only unique within a task template context, not globally.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AggregatedStepAnalysis {
+    pub namespace_name: String,
+    pub task_name: String,
+    pub version: String,
+    pub step_name: String,
+    pub average_duration_seconds: BigDecimal,
+    pub max_duration_seconds: BigDecimal,
+    pub execution_count: i64,
+    pub error_count: i64,
+    pub error_rate: BigDecimal,
+    pub last_executed_at: Option<chrono::NaiveDateTime>,
+}
+
+/// Pre-aggregated task performance by template identity
+///
+/// Groups by (namespace_name, task_name, version) - the unique template identity.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AggregatedTaskAnalysis {
+    pub namespace_name: String,
+    pub task_name: String,
+    pub version: String,
+    pub average_duration_seconds: BigDecimal,
+    pub max_duration_seconds: BigDecimal,
+    pub execution_count: i64,
+    pub average_step_count: BigDecimal,
+    pub total_error_steps: i64,
+    pub error_rate: BigDecimal,
+    pub last_executed_at: Option<chrono::NaiveDateTime>,
+}
+
+impl SqlFunctionExecutor {
+    /// Get pre-aggregated slowest steps by template + step name (TAS-168)
+    ///
+    /// Returns step performance aggregated by (namespace, task_name, version, step_name).
+    /// This eliminates the need for Rust-side aggregation and properly disambiguates
+    /// step names that may be reused across different task templates.
+    pub async fn get_slowest_steps_aggregated(
+        &self,
+        limit: Option<i32>,
+        min_executions: Option<i32>,
+    ) -> Result<Vec<AggregatedStepAnalysis>, sqlx::Error> {
+        let sql = "SELECT * FROM get_slowest_steps_aggregated(NULL::timestamp with time zone, $1, $2, NULL, NULL, NULL)";
+        sqlx::query_as::<_, AggregatedStepAnalysis>(sql)
+            .bind(limit.unwrap_or(10))
+            .bind(min_executions.unwrap_or(5))
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    /// Get pre-aggregated slowest tasks by template identity (TAS-168)
+    ///
+    /// Returns task performance aggregated by (namespace, task_name, version).
+    /// This eliminates the need for Rust-side aggregation.
+    pub async fn get_slowest_tasks_aggregated(
+        &self,
+        limit: Option<i32>,
+        min_executions: Option<i32>,
+    ) -> Result<Vec<AggregatedTaskAnalysis>, sqlx::Error> {
+        let sql = "SELECT * FROM get_slowest_tasks_aggregated(NULL::timestamp with time zone, $1, $2, NULL, NULL, NULL)";
+        sqlx::query_as::<_, AggregatedTaskAnalysis>(sql)
+            .bind(limit.unwrap_or(10))
+            .bind(min_executions.unwrap_or(5))
+            .fetch_all(&self.pool)
+            .await
+    }
+}
+
+// ============================================================================
 // REGISTRY PATTERN FOR FUNCTION ACCESS
 // ============================================================================
 

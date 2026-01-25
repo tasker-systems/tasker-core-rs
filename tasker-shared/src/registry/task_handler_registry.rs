@@ -32,7 +32,7 @@
 //! # }
 //! ```
 
-use crate::cache::CacheProvider;
+use crate::cache::{CacheProvider, CacheUsageContext};
 use crate::config::tasker::CacheConfig;
 use crate::errors::{TaskerError, TaskerResult};
 use crate::events::EventPublisher;
@@ -167,6 +167,21 @@ impl TaskHandlerRegistry {
     }
 
     pub fn with_system_context(context: Arc<SystemContext>) -> Self {
+        // TAS-168: Validate cache provider is distributed (safe for template caching)
+        // In-memory caches would drift from worker invalidations, causing stale templates
+        let cache_provider =
+            if CacheUsageContext::Templates.is_valid_provider(&context.cache_provider) {
+                Some(context.cache_provider.clone())
+            } else {
+                warn!(
+                    provider = context.cache_provider.provider_name(),
+                    "Cache provider '{}' is not safe for template caching (in-memory cache \
+                 would drift from worker invalidations). Template caching disabled.",
+                    context.cache_provider.provider_name()
+                );
+                None
+            };
+
         Self {
             db_pool: context.database_pool().clone(),
             event_publisher: Some(context.event_publisher.clone()),
@@ -179,8 +194,8 @@ impl TaskHandlerRegistry {
                     .search_paths
                     .clone(),
             ),
-            // TAS-156: Use cache provider from system context
-            cache_provider: Some(context.cache_provider.clone()),
+            // TAS-156/TAS-168: Use validated cache provider
+            cache_provider,
             cache_config: context.tasker_config.common.cache.clone(),
         }
     }

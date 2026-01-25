@@ -46,6 +46,9 @@ database = 0
 max_connections = 10
 url = "${REDIS_URL:-redis://localhost:6379}"
 
+[common.cache.moka]
+max_capacity = 10000
+
 [common.circuit_breakers]
 enabled = true
 

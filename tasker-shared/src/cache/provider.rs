@@ -1,4 +1,4 @@
-//! Cache provider enum dispatch (TAS-156)
+//! Cache provider enum dispatch (TAS-156, TAS-168)
 //!
 //! Uses enum dispatch (like MessagingProvider) for zero-cost abstraction.
 //! No vtable overhead - the compiler can inline provider methods.
@@ -13,16 +13,29 @@ use tracing::{info, warn};
 #[cfg(feature = "cache-redis")]
 use super::providers::RedisCacheService;
 
+#[cfg(feature = "cache-moka")]
+use super::providers::MokaCacheService;
+
 /// Cache provider enum for zero-cost dispatch
 ///
 /// Matches the pattern used by `MessagingProvider` in the messaging module.
-/// The NoOp variant is used when caching is disabled or when the Redis
-/// connection fails (graceful degradation).
+/// The NoOp variant is used when caching is disabled or when backend
+/// initialization fails (graceful degradation).
+///
+/// ## Variants
+///
+/// - **Redis**: Distributed cache for multi-instance deployments
+/// - **Moka**: In-process cache for single-instance or DoS protection
+/// - **NoOp**: Always-miss fallback when caching is disabled
 #[derive(Debug, Clone)]
 pub enum CacheProvider {
     /// Redis cache provider (boxed to reduce enum size)
     #[cfg(feature = "cache-redis")]
     Redis(Box<RedisCacheService>),
+
+    /// Moka in-memory cache provider (TAS-168)
+    #[cfg(feature = "cache-moka")]
+    Moka(Box<MokaCacheService>),
 
     /// No-op cache provider (always miss, always succeed)
     NoOp(NoOpCacheService),
@@ -42,6 +55,7 @@ impl CacheProvider {
 
         match config.backend.as_str() {
             "redis" => Self::create_redis_provider(config).await,
+            "moka" | "memory" | "in-memory" => Self::create_moka_provider(config),
             other => {
                 warn!(
                     backend = other,
@@ -90,6 +104,29 @@ impl CacheProvider {
         Self::NoOp(NoOpCacheService::new())
     }
 
+    /// Create a Moka in-memory cache provider (TAS-168)
+    #[cfg(feature = "cache-moka")]
+    fn create_moka_provider(config: &CacheConfig) -> Self {
+        let moka_config = config.moka.clone().unwrap_or_default();
+        let default_ttl = Duration::from_secs(config.default_ttl_seconds as u64);
+
+        let service = MokaCacheService::from_config(&moka_config, default_ttl);
+        info!(
+            backend = "moka",
+            max_capacity = moka_config.max_capacity,
+            ttl_seconds = config.default_ttl_seconds,
+            "In-memory cache provider initialized successfully"
+        );
+        Self::Moka(Box::new(service))
+    }
+
+    /// Fallback when cache-moka feature is not enabled
+    #[cfg(not(feature = "cache-moka"))]
+    fn create_moka_provider(_config: &CacheConfig) -> Self {
+        warn!("Moka cache backend requested but 'cache-moka' feature not enabled, using NoOp");
+        Self::NoOp(NoOpCacheService::new())
+    }
+
     /// Create a NoOp provider (for explicit opt-out or testing)
     pub fn noop() -> Self {
         Self::NoOp(NoOpCacheService::new())
@@ -100,11 +137,30 @@ impl CacheProvider {
         !matches!(self, Self::NoOp(_))
     }
 
+    /// Check if this provider is distributed (safe for multi-instance deployments)
+    ///
+    /// Returns `true` for Redis (shared state) and NoOp (no state).
+    /// Returns `false` for Moka (in-process only).
+    ///
+    /// Use this to determine if the cache is safe for template caching
+    /// in multi-instance deployments where workers may invalidate templates.
+    pub fn is_distributed(&self) -> bool {
+        match self {
+            #[cfg(feature = "cache-redis")]
+            Self::Redis(_) => true,
+            #[cfg(feature = "cache-moka")]
+            Self::Moka(_) => false, // In-process only
+            Self::NoOp(_) => true, // No state = safe
+        }
+    }
+
     /// Get the provider name
     pub fn provider_name(&self) -> &'static str {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.provider_name(),
+            #[cfg(feature = "cache-moka")]
+            Self::Moka(s) => s.provider_name(),
             Self::NoOp(s) => s.provider_name(),
         }
     }
@@ -114,6 +170,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.get(key).await,
+            #[cfg(feature = "cache-moka")]
+            Self::Moka(s) => s.get(key).await,
             Self::NoOp(s) => s.get(key).await,
         }
     }
@@ -123,6 +181,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.set(key, value, ttl).await,
+            #[cfg(feature = "cache-moka")]
+            Self::Moka(s) => s.set(key, value, ttl).await,
             Self::NoOp(s) => s.set(key, value, ttl).await,
         }
     }
@@ -132,6 +192,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.delete(key).await,
+            #[cfg(feature = "cache-moka")]
+            Self::Moka(s) => s.delete(key).await,
             Self::NoOp(s) => s.delete(key).await,
         }
     }
@@ -141,6 +203,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.delete_pattern(pattern).await,
+            #[cfg(feature = "cache-moka")]
+            Self::Moka(s) => s.delete_pattern(pattern).await,
             Self::NoOp(s) => s.delete_pattern(pattern).await,
         }
     }
@@ -150,6 +214,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.health_check().await,
+            #[cfg(feature = "cache-moka")]
+            Self::Moka(s) => s.health_check().await,
             Self::NoOp(s) => s.health_check().await,
         }
     }
@@ -205,5 +271,51 @@ mod tests {
         let provider = CacheProvider::from_config_graceful(&config).await;
         // Falls back to NoOp when redis config is missing
         assert!(!provider.is_enabled());
+    }
+
+    #[cfg(feature = "cache-moka")]
+    #[tokio::test]
+    async fn test_from_config_moka() {
+        let config = CacheConfig {
+            enabled: true,
+            backend: "moka".to_string(),
+            ..CacheConfig::default()
+        };
+        let provider = CacheProvider::from_config_graceful(&config).await;
+        assert!(provider.is_enabled());
+        assert_eq!(provider.provider_name(), "moka");
+        assert!(!provider.is_distributed()); // Moka is not distributed
+    }
+
+    #[cfg(feature = "cache-moka")]
+    #[tokio::test]
+    async fn test_from_config_memory_alias() {
+        let config = CacheConfig {
+            enabled: true,
+            backend: "memory".to_string(),
+            ..CacheConfig::default()
+        };
+        let provider = CacheProvider::from_config_graceful(&config).await;
+        assert!(provider.is_enabled());
+        assert_eq!(provider.provider_name(), "moka");
+    }
+
+    #[cfg(feature = "cache-moka")]
+    #[tokio::test]
+    async fn test_from_config_in_memory_alias() {
+        let config = CacheConfig {
+            enabled: true,
+            backend: "in-memory".to_string(),
+            ..CacheConfig::default()
+        };
+        let provider = CacheProvider::from_config_graceful(&config).await;
+        assert!(provider.is_enabled());
+        assert_eq!(provider.provider_name(), "moka");
+    }
+
+    #[tokio::test]
+    async fn test_noop_is_distributed() {
+        let provider = CacheProvider::noop();
+        assert!(provider.is_distributed()); // NoOp is "safe" (no state)
     }
 }

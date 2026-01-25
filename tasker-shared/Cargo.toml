@@ -85,6 +85,7 @@ pgmq = { workspace = true }
 pgmq-notify = { workspace = true }
 rand = { workspace = true }
 redis = { workspace = true, optional = true }
+moka = { workspace = true, optional = true }
 regex = { workspace = true }
 # Web API testing and API Integration
 reqwest = { workspace = true }
@@ -132,9 +133,10 @@ tokio-test = { workspace = true }
 url = { workspace = true }
 
 [features]
-default = ["cache-redis", "postgres", "test-utils", "web-api"]
+default = ["cache-redis", "cache-moka", "postgres", "test-utils", "web-api"]
 benchmarks = ["criterion"]
 cache-redis = ["redis"]
+cache-moka = ["moka"]
 postgres = ["sqlx/postgres"]
 test-utils = []
 # TAS-158: tokio-console async runtime introspection

@@ -7,6 +7,7 @@ use crate::health::{BackpressureChecker, BackpressureMetrics, QueueDepthStatus};
 use crate::orchestration::core::{OrchestrationCore, OrchestrationCoreStatus};
 use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
+use crate::services::AnalyticsService;
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
@@ -74,6 +75,9 @@ pub struct AppState {
     pub orchestration_status: Arc<RwLock<OrchestrationStatus>>,
 
     pub orchestration_core: Arc<OrchestrationCore>,
+
+    /// TAS-168: Analytics service with response caching
+    pub analytics_service: Arc<AnalyticsService>,
 }
 
 impl AppState {
@@ -234,6 +238,18 @@ impl AppState {
             None
         };
 
+        // TAS-168: Create analytics service with caching
+        let analytics_service = Arc::new(AnalyticsService::new(
+            orchestration_core.context.database_pool().clone(),
+            orchestration_core.context.cache_provider.clone(),
+            orchestration_core
+                .context
+                .tasker_config
+                .common
+                .cache
+                .clone(),
+        ));
+
         Ok(Self {
             config: Arc::new(web_config),
             auth_config,
@@ -244,6 +260,7 @@ impl AppState {
             task_initializer,
             orchestration_status,
             orchestration_core,
+            analytics_service,
         })
     }
 

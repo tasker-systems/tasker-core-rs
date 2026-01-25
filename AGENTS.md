@@ -162,6 +162,7 @@ config/tasker/environments/{test,development,production}/
 - **Never use SQLX_OFFLINE=true** - always export DATABASE_URL from `.env`
 - **Always use --all-features** for consistency
 - E2E tests use `TASKER_FIXTURE_PATH` for fixture locations
+- **Never remove assertions to fix compilation or test failures** - this hides problems rather than solving them. If a test assertion requires a dependency (e.g., `bigdecimal`), add the dependency. If an assertion is failing, fix the underlying issue. Removing test coverage to make things "pass" is unacceptable.
 
 ### Linting Standards (TAS-58)
 - Microsoft Universal Guidelines + Rust API Guidelines enforced
@@ -233,6 +234,7 @@ Dual-channel system: dispatch channel + completion channel
 ### Infrastructure
 | Topic | Document |
 |-------|----------|
+| Caching | `docs/guides/caching.md` |
 | Configuration | `docs/guides/configuration-management.md` |
 | Circuit Breakers | `docs/architecture/circuit-breakers.md` |
 | Backpressure | `docs/architecture/backpressure-architecture.md` |

@@ -158,6 +158,11 @@ max_connections = 10
 connection_timeout_seconds = 5
 database = 0
 
+# In-memory cache (Moka) for single-instance deployments or DoS protection layer
+# Note: Templates MUST use Redis (distributed) to avoid stale data across instances
+[common.cache.moka]
+max_capacity = 10000
+
 [common.task_templates]
 search_paths = ["config/tasks/**/*.{yml,yaml}"]
 
