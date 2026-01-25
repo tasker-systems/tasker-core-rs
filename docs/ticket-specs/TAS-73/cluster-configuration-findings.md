@@ -12,13 +12,13 @@ The cluster start scripts (`start-cluster.sh`) inherit environment from the root
 
 **Root `.env` has:**
 ```bash
-TASKER_CONFIG_PATH=/Users/.../config/tasker/complete-test.toml
+TASKER_CONFIG_PATH=/Users/.../config/tasker/generated/complete-test.toml
 TASKER_TEMPLATE_PATH=/Users/.../config/tasks
 ```
 
 **But rust workers need:**
 ```bash
-TASKER_CONFIG_PATH=/Users/.../config/tasker/worker-test.toml
+TASKER_CONFIG_PATH=/Users/.../config/tasker/generated/worker-test.toml
 TASKER_TEMPLATE_PATH=/Users/.../tests/fixtures/task_templates/rust
 ```
 
@@ -72,7 +72,7 @@ Update `start-cluster.sh` to export service-specific environment:
 ```bash
 case "$SERVICE_TYPE" in
     worker-rust)
-        export TASKER_CONFIG_PATH="${PROJECT_ROOT}/config/tasker/worker-test.toml"
+        export TASKER_CONFIG_PATH="${PROJECT_ROOT}/config/tasker/generated/worker-test.toml"
         export TASKER_TEMPLATE_PATH="${PROJECT_ROOT}/tests/fixtures/task_templates/rust"
         ;;
 esac

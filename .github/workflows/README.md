@@ -168,7 +168,7 @@ cargo test --doc \
 cargo run --package tasker-client --bin tasker-cli -- config generate \
   --context orchestration --environment test \
   --source-dir config/tasker \
-  --output config/tasker/orchestration-test.toml
+  --output config/tasker/generated/orchestration-test.toml
 
 # Start native services
 .github/scripts/start-native-services.sh
@@ -413,11 +413,11 @@ mkdir -p config/v2
 cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
   --context orchestration --environment test \
   --source-dir config/v2 \
-  --output config/v2/orchestration-test.toml
+  --output config/tasker/generated/orchestration-test.toml
 cargo run --quiet --package tasker-client --bin tasker-cli -- config generate \
   --context worker --environment test \
   --source-dir config/v2 \
-  --output config/v2/worker-test.toml
+  --output config/tasker/generated/worker-test.toml
 
 # Build all binaries
 cargo build --all-features --all-targets

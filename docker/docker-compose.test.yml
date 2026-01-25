@@ -168,17 +168,22 @@ services:
       - tasker-test
 
   # ==========================================================================
-  # Redis Cache (TAS-156: Distributed Template Cache)
+  # Dragonfly Cache (TAS-171: Redis + Memcached compatible)
   # ==========================================================================
-  redis:
-    image: redis:7-alpine
-    container_name: tasker-test-redis
+  # Dragonfly is a Redis-compatible in-memory data store with better
+  # multi-threaded performance. Supports both Redis (6379) and Memcached (11211)
+  # protocols, allowing us to test both cache backends with a single service.
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: tasker-test-dragonfly
+    command: ["--memcached_port", "11211"]
     ports:
-      - "6379:6379"
+      - "6379:6379"   # Redis protocol
+      - "11211:11211" # Memcached protocol
     volumes:
-      - redis_data:/data
+      - dragonfly_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -191,7 +196,7 @@ volumes:
   tempo_data:
   loki_data:
   rabbitmq_data:
-  redis_data:
+  dragonfly_data:
 
 networks:
   tasker-test:

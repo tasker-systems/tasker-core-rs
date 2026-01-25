@@ -165,9 +165,9 @@ The system uses a two-tier configuration loading strategy with clear precedence:
    - When `TASKER_CONFIG_PATH` is not set, system looks for config using convention
    - Convention: `{TASKER_CONFIG_ROOT}/tasker/{context}-{environment}.toml`
    - Examples:
-     - Orchestration: `/config/tasker/orchestration-test.toml`
+     - Orchestration: `/config/tasker/generated/orchestration-test.toml`
      - Worker: `/config/tasker/worker-production.toml`
-   - **Source logging**: `"📋 Loading orchestration configuration from: /config/tasker/orchestration-test.toml (source: TASKER_CONFIG_ROOT (convention))"`
+   - **Source logging**: `"📋 Loading orchestration configuration from: /config/tasker/generated/orchestration-test.toml (source: TASKER_CONFIG_ROOT (convention))"`
 
 **Logging and Transparency**:
 
@@ -178,8 +178,8 @@ The system clearly logs which approach was taken at startup:
 INFO tasker_shared::system_context: 📋 Loading orchestration configuration from: /app/config/tasker/orchestration-production.toml (source: TASKER_CONFIG_PATH)
 
 # Convention-based approach (TASKER_CONFIG_ROOT set)
-INFO tasker_shared::system_context: Using convention-based config path: /config/tasker/orchestration-test.toml (environment=test)
-INFO tasker_shared::system_context: 📋 Loading orchestration configuration from: /config/tasker/orchestration-test.toml (source: TASKER_CONFIG_ROOT (convention))
+INFO tasker_shared::system_context: Using convention-based config path: /config/tasker/generated/orchestration-test.toml (environment=test)
+INFO tasker_shared::system_context: 📋 Loading orchestration configuration from: /config/tasker/generated/orchestration-test.toml (source: TASKER_CONFIG_ROOT (convention))
 ```
 
 **When to Use Each**:
@@ -648,10 +648,10 @@ cargo test --all-features
 ```bash
 # Generate test configs first
 tasker-cli config generate --context orchestration --environment test \
-  --output config/tasker/orchestration-test.toml
+  --output config/tasker/generated/orchestration-test.toml
 
 tasker-cli config generate --context worker --environment test \
-  --output config/tasker/worker-test.toml
+  --output config/tasker/generated/worker-test.toml
 
 # Start services with generated configs
 docker-compose -f docker/docker-compose.test.yml up
@@ -663,7 +663,7 @@ services:
   orchestration:
     environment:
       # REQUIRED: Path to single merged file
-      TASKER_CONFIG_PATH: /app/config/tasker/orchestration-test.toml
+      TASKER_CONFIG_PATH: /app/config/tasker/generated/orchestration-test.toml
     volumes:
       # Mount config directory (contains generated files)
       - ./config/tasker:/app/config/tasker:ro

@@ -403,7 +403,7 @@ If tests fail with "pool timed out" errors, the issue was likely fixed in TAS-73
 If issues persist, verify pool configuration:
 ```bash
 # Check test config
-cat config/tasker/orchestration-test.toml | grep -A5 "pool"
+cat config/tasker/generated/orchestration-test.toml | grep -A5 "pool"
 ```
 
 ### Environment Variables Not Set

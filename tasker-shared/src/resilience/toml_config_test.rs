@@ -23,6 +23,11 @@ mod tests {
                 timeout_seconds: 10,
                 success_threshold: 1,
             },
+            cache: CircuitBreakerComponentConfig {
+                failure_threshold: 5,
+                timeout_seconds: 15,
+                success_threshold: 2,
+            },
         };
 
         let toml_config = CircuitBreakerConfig {
@@ -76,6 +81,11 @@ mod tests {
                 success_threshold: 1,
             },
             pgmq: CircuitBreakerComponentConfig {
+                failure_threshold: 1,
+                timeout_seconds: 1,
+                success_threshold: 1,
+            },
+            cache: CircuitBreakerComponentConfig {
                 failure_threshold: 1,
                 timeout_seconds: 1,
                 success_threshold: 1,

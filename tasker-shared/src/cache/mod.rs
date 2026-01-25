@@ -1,28 +1,33 @@
-//! # Distributed Cache Module (TAS-156, TAS-168)
+//! # Distributed Cache Module (TAS-156, TAS-168, TAS-171)
 //!
 //! Provides opt-in caching for task templates and analytics responses.
 //!
 //! ## Architecture
 //!
 //! ```text
-//! CacheProvider (enum)            <- Zero-cost dispatch, no vtable
-//!   ├── Redis(RedisCacheService)  <- Distributed, ConnectionManager-based async
-//!   ├── Moka(MokaCacheService)    <- In-process, TTL-based (TAS-168)
-//!   └── NoOp(NoOpCacheService)    <- Always-miss, always-succeed fallback
+//! CacheProvider (struct)          <- Unified interface with integrated circuit breaker
+//!   └── CacheBackend (internal)   <- Zero-cost dispatch, no vtable
+//!         ├── Redis               <- Distributed (Redis/Dragonfly)
+//!         ├── Memcached           <- Distributed (Memcached protocol)
+//!         ├── Moka                <- In-process, TTL-based
+//!         └── NoOp                <- Always-miss fallback
 //! ```
 //!
 //! ## Backend Selection
 //!
-//! | Backend | Distributed | Use Case |
-//! |---------|-------------|----------|
-//! | Redis   | Yes         | Multi-instance production deployments |
-//! | Moka    | No          | Single-instance, analytics caching, DoS protection |
-//! | NoOp    | N/A         | Caching disabled or fallback |
+//! | Backend     | Distributed | Use Case |
+//! |-------------|-------------|----------|
+//! | Redis       | Yes         | Multi-instance production deployments |
+//! | Dragonfly   | Yes         | Redis-compatible with better performance |
+//! | Memcached   | Yes         | Memcached protocol support (TAS-171) |
+//! | Moka        | No          | Single-instance, analytics caching, DoS protection |
+//! | NoOp        | N/A         | Caching disabled or fallback |
 //!
 //! ## Design Decisions
 //!
-//! - **Enum dispatch** (like MessagingProvider): zero vtable overhead
+//! - **Struct with internal enum**: Circuit breaker is an implementation detail
 //! - **Graceful degradation**: Backend failure → NoOp fallback, never blocks startup
+//! - **Circuit breaker protection**: Fail-fast when Redis/Dragonfly is down (TAS-171)
 //! - **Best-effort writes**: Cache errors logged but never propagated
 //! - **SCAN for patterns**: Non-blocking key iteration (never uses KEYS)
 //! - **Type constraints**: Templates require distributed cache (TAS-168)
@@ -43,6 +48,9 @@ pub use errors::{CacheError, CacheResult};
 pub use provider::CacheProvider;
 pub use providers::NoOpCacheService;
 pub use traits::CacheService;
+
+// Re-export CircuitState for health endpoint visibility
+pub use crate::resilience::CircuitState;
 
 #[cfg(feature = "cache-redis")]
 pub use providers::RedisCacheService;

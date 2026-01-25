@@ -100,6 +100,12 @@ failure_threshold = 5
 timeout_seconds = 30
 success_threshold = 2
 
+# TAS-171: Cache circuit breaker (protects Redis/Dragonfly operations)
+[common.circuit_breakers.component_configs.cache]
+failure_threshold = 5
+timeout_seconds = 15   # Shorter than default - cache is non-critical
+success_threshold = 2
+
 [common.mpsc_channels.event_publisher]
 event_queue_buffer_size = 5000
 
@@ -162,6 +168,12 @@ database = 0
 # Note: Templates MUST use Redis (distributed) to avoid stale data across instances
 [common.cache.moka]
 max_capacity = 10000
+
+# TAS-171: Memcached configuration (optional, requires cache-memcached feature)
+# Uncomment to use memcached as distributed cache instead of Redis
+# [common.cache.memcached]
+# url = "${MEMCACHED_URL:-tcp://localhost:11211}"
+# connection_timeout_seconds = 5
 
 [common.task_templates]
 search_paths = ["config/tasks/**/*.{yml,yaml}"]

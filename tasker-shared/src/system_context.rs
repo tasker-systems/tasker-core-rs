@@ -124,7 +124,7 @@ impl SystemContext {
     /// specified by the TASKER_CONFIG_PATH environment variable.
     ///
     /// The configuration uses a context-based structure with \[common\] and \[orchestration\] sections.
-    /// See config/tasker/orchestration-test.toml for reference.
+    /// See config/tasker/generated/orchestration-test.toml for reference.
     ///
     /// # Returns
     /// Fully configured SystemContext for orchestration with validated configuration
@@ -167,7 +167,7 @@ impl SystemContext {
     /// specified by the TASKER_CONFIG_PATH environment variable.
     ///
     /// The configuration uses a context-based structure with \[common\] and \[worker\] sections.
-    /// See config/tasker/worker-test.toml for reference.
+    /// See config/tasker/generated/worker-test.toml for reference.
     ///
     /// # Returns
     /// Fully configured SystemContext for worker with validated configuration
@@ -383,13 +383,24 @@ impl SystemContext {
         })
     }
 
-    /// Create cache provider from configuration (TAS-156)
+    /// Create cache provider from configuration (TAS-156, TAS-171)
     ///
     /// Uses graceful degradation: if Redis is unavailable, returns NoOp provider.
     /// The system never fails to start due to cache issues.
+    ///
+    /// TAS-171: Passes circuit breaker config for distributed cache protection.
     async fn create_cache_provider(config: &TaskerConfig) -> CacheProvider {
+        // TAS-171: Pass circuit breaker config if enabled
+        let cb_config = if config.common.circuit_breakers.enabled {
+            Some(&config.common.circuit_breakers)
+        } else {
+            None
+        };
+
         match &config.common.cache {
-            Some(cache_config) => CacheProvider::from_config_graceful(cache_config).await,
+            Some(cache_config) => {
+                CacheProvider::from_config_graceful(cache_config, cb_config).await
+            }
             None => {
                 info!("No cache configuration found, using NoOp cache provider");
                 CacheProvider::noop()

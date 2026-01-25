@@ -1,14 +1,15 @@
-# Tasker Configuration - complete Context
+# Tasker Configuration - Memcached Integration Test
 # Environment: test
-# Generated: 2026-01-15T13:18:11.975254+00:00
-# Source: config/tasker
+# Generated: 2026-01-25
+# Source: Based on complete-test.toml with memcached backend
 #
-# This file is a MERGED configuration (base + environment overrides).
-# DO NOT EDIT manually - regenerate using: tasker-cli config generate
+# TAS-171: This configuration uses memcached as the cache backend.
+# Dragonfly supports both Redis (6379) and Memcached (11211) protocols,
+# allowing us to test both backends with a single service.
 #
 # Environment Variable Overrides (applied at runtime):
 # - DATABASE_URL: Override database.url (K8s secrets rotation)
-# - TASKER_TEMPLATE_PATH: Override worker.template_path (testing)
+# - MEMCACHED_URL: Override cache.memcached.url
 # - TASKER_WEB_BIND_ADDRESS: Override web bind address (CI/testing port isolation)
 #
 
@@ -34,17 +35,15 @@ waiting_for_retry = 30
 
 [common.cache]
 analytics_ttl_seconds = 30
-backend = "redis"
+backend = "memcached"
 default_ttl_seconds = 3600
 enabled = true
 key_prefix = "tasker"
 template_ttl_seconds = 300
 
-[common.cache.redis]
+[common.cache.memcached]
+url = "${MEMCACHED_URL:-tcp://localhost:11211}"
 connection_timeout_seconds = 5
-database = 0
-max_connections = 10
-url = "${REDIS_URL:-redis://localhost:6379}"
 
 [common.cache.moka]
 max_capacity = 10000
@@ -61,6 +60,11 @@ timeout_seconds = 30
 failure_threshold = 10
 success_threshold = 3
 timeout_seconds = 60
+
+[common.circuit_breakers.component_configs.cache]
+failure_threshold = 5
+success_threshold = 2
+timeout_seconds = 15
 
 [common.circuit_breakers.default_config]
 failure_threshold = 5

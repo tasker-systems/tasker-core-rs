@@ -143,6 +143,13 @@ impl CacheService for RedisCacheService {
     fn provider_name(&self) -> &'static str {
         "redis"
     }
+
+    fn is_distributed(&self) -> bool {
+        // Redis/Dragonfly is distributed - state is shared across all instances
+        // This means cache invalidations propagate correctly, but also that
+        // network calls are involved (circuit breaker protection recommended)
+        true
+    }
 }
 
 /// Redact credentials from a Redis URL for logging
@@ -185,6 +192,9 @@ mod tests {
             "redis://user:***@localhost:6379/0"
         );
     }
+
+    // Note: is_distributed() test requires a running Redis instance
+    // See integration tests below for full coverage
 
     // Integration tests require a running Redis instance (behind test-services feature)
     #[cfg(feature = "test-services")]
