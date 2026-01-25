@@ -38,7 +38,7 @@ fi
 
 export TASKER_ENV="${TASKER_ENV:-test}"
 export PORT="${PORT:-8080}"
-export TASKER_CONFIG_PATH="${TASKER_CONFIG_PATH:-${PROJECT_ROOT}/config/tasker/complete-test.toml}"
+export TASKER_CONFIG_PATH="${TASKER_CONFIG_PATH:-${PROJECT_ROOT}/config/tasker/generated/complete-test.toml}"
 
 echo "Starting orchestration service..."
 echo "   Port: ${PORT}"

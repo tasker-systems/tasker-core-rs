@@ -47,11 +47,15 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-      # TAS-156: Redis for distributed template cache
-      redis:
-        image: redis:7-alpine
+      # TAS-171: Dragonfly (Redis + Memcached compatible) for distributed cache
+      # Exposes both Redis (6379) and Memcached (11211) protocols
+      dragonfly:
+        image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
         ports:
           - "6379:6379"
+          - "11211:11211"
+        env:
+          DFLY_memcached_port: 11211
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -177,11 +181,15 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-      # TAS-156: Redis for distributed template cache
-      redis:
-        image: redis:7-alpine
+      # TAS-171: Dragonfly (Redis + Memcached compatible) for distributed cache
+      # Exposes both Redis (6379) and Memcached (11211) protocols
+      dragonfly:
+        image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
         ports:
           - "6379:6379"
+          - "11211:11211"
+        env:
+          DFLY_memcached_port: 11211
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -345,13 +353,13 @@ jobs:
             --context orchestration \
             --environment test \
             --source-dir config/tasker \
-            --output config/tasker/orchestration-test.toml
+            --output config/tasker/generated/orchestration-test.toml
           echo "🔧 Generating worker configuration..."
           cargo run --package tasker-client --bin tasker-cli -- config generate \
             --context worker \
             --environment test \
             --source-dir config/tasker \
-            --output config/tasker/worker-test.toml
+            --output config/tasker/generated/worker-test.toml
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 

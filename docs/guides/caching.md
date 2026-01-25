@@ -1,7 +1,7 @@
 # Caching Guide
 
 This guide covers Tasker's distributed caching system, including configuration,
-backend selection, and operational considerations.
+backend selection, circuit breaker protection, and operational considerations.
 
 ## Overview
 
@@ -19,7 +19,7 @@ Caching is disabled by default and must be explicitly enabled in configuration.
 ```toml
 [common.cache]
 enabled = true
-backend = "redis"              # or "moka" / "memory" / "in-memory"
+backend = "redis"              # or "dragonfly" / "moka" / "memory" / "in-memory"
 default_ttl_seconds = 3600     # 1 hour default
 template_ttl_seconds = 3600    # 1 hour for templates
 analytics_ttl_seconds = 60     # 1 minute for analytics
@@ -40,6 +40,8 @@ max_capacity = 10000           # Maximum entries in cache
 | Backend | Config Value | Use Case |
 |---------|--------------|----------|
 | Redis | `"redis"` | Multi-instance deployments (production) |
+| Dragonfly | `"dragonfly"` | Redis-compatible with better multi-threaded performance |
+| Memcached | `"memcached"` | Simple distributed cache (requires `cache-memcached` feature) |
 | Moka | `"moka"`, `"memory"`, `"in-memory"` | Single-instance, development, DoS protection |
 | NoOp | (enabled = false) | Disabled, always-miss |
 
@@ -61,6 +63,50 @@ backend = "redis"
 [common.cache.redis]
 url = "redis://redis.internal:6379"
 ```
+
+### Dragonfly (Distributed)
+
+Dragonfly is a Redis-compatible in-memory data store with better multi-threaded
+performance. It uses the same port (6379) and protocol as Redis, so no code
+changes are required.
+
+- **Redis compatible**: Drop-in replacement for Redis
+- **Better performance**: Multi-threaded architecture for higher throughput
+- **Shared state**: Same distributed semantics as Redis
+
+```toml
+[common.cache]
+enabled = true
+backend = "dragonfly"  # Uses Redis provider internally
+
+[common.cache.redis]
+url = "redis://dragonfly.internal:6379"
+```
+
+**Note**: Dragonfly is used in Tasker's test and CI environments for improved
+performance. For production, either Redis or Dragonfly works.
+
+### Memcached (Distributed)
+
+Memcached is a simple, high-performance distributed cache. It requires the
+`cache-memcached` feature flag (not enabled by default).
+
+- **Simple protocol**: Lightweight key-value store
+- **Distributed**: State is shared across instances
+- **No pattern deletion**: Relies on TTL expiry (like Moka)
+
+```toml
+[common.cache]
+enabled = true
+backend = "memcached"
+
+[common.cache.memcached]
+url = "tcp://memcached.internal:11211"
+connection_timeout_seconds = 5
+```
+
+**Note**: Enable with `cargo build --features cache-memcached`. Not enabled
+by default to reduce dependency footprint.
 
 ### Moka (In-Memory)
 
@@ -95,6 +141,56 @@ enabled = false
 
 The NoOp provider always returns cache misses and succeeds on writes (no-op).
 This is also used as a graceful fallback when Redis connection fails.
+
+## Circuit Breaker Protection
+
+The cache circuit breaker (TAS-171) prevents repeated timeout penalties when
+Redis/Dragonfly is unavailable. Instead of waiting for connection timeouts on
+every request, the circuit breaker fails fast after detecting failures.
+
+### Configuration
+
+```toml
+[common.circuit_breakers.component_configs.cache]
+failure_threshold = 5    # Open after 5 consecutive failures
+timeout_seconds = 15     # Test recovery after 15 seconds
+success_threshold = 2    # Close after 2 successful calls
+```
+
+### Behavior When Circuit is Open
+
+When the circuit breaker is open (cache unavailable):
+
+| Operation | Behavior |
+|-----------|----------|
+| `get()` | Returns `None` (cache miss) |
+| `set()` | Returns `Ok(())` (no-op) |
+| `delete()` | Returns `Ok(())` (no-op) |
+| `health_check()` | Returns `false` (unhealthy) |
+
+This fail-fast behavior ensures:
+
+1. Requests don't wait for connection timeouts
+2. Database queries still work (cache miss → DB fallback)
+3. Recovery is automatic when Redis/Dragonfly becomes available
+
+### Circuit States
+
+| State | Description |
+|-------|-------------|
+| **Closed** | Normal operation, all calls go through |
+| **Open** | Failing fast, calls return fallback values |
+| **Half-Open** | Testing recovery, limited calls allowed |
+
+### Monitoring
+
+Circuit state is logged at state transitions:
+
+```
+INFO  Circuit breaker half-open (testing recovery)
+INFO  Circuit breaker closed (recovered)
+ERROR Circuit breaker opened (failing fast)
+```
 
 ## Usage Context Constraints
 

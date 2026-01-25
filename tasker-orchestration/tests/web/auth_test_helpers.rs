@@ -216,7 +216,7 @@ impl AuthTestServer {
             .parent()
             .unwrap_or(std::path::Path::new("."));
 
-        let config_path = workspace_root.join("config/tasker/auth-test.toml");
+        let config_path = workspace_root.join("config/tasker/generated/auth-test.toml");
         let public_key_path = workspace_root.join("tests/fixtures/auth/jwt-public-key-test.pem");
 
         std::env::set_var("TASKER_CONFIG_PATH", config_path.to_str().unwrap());

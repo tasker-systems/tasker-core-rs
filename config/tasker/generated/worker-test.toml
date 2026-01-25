@@ -1,14 +1,16 @@
-# Tasker Configuration - Auth-Enabled Test
-# Environment: test (with authentication enabled)
+# Tasker Configuration - worker Context
+# Environment: test
+# Generated: 2026-01-20T01:44:41.102660+00:00
+# Source: config/tasker
 #
-# This file mirrors complete-test.toml with auth enabled and API keys configured.
-# Used by: cargo make test-auth-e2e
+# This file is a MERGED configuration (base + environment overrides).
+# DO NOT EDIT manually - regenerate using: tasker-cli config generate
 #
-# Key differences from complete-test.toml:
-# - orchestration.web.auth.enabled = true
-# - worker.web.auth.enabled = true
-# - API keys configured with varying permissions
-# - JWT configured to use public_key_path (set via TASKER_JWT_PUBLIC_KEY_PATH env var)
+# Environment Variable Overrides (applied at runtime):
+# - DATABASE_URL: Override database.url (K8s secrets rotation)
+# - TASKER_TEMPLATE_PATH: Override worker.template_path (testing)
+# - TASKER_WEB_BIND_ADDRESS: Override web bind address (CI/testing port isolation)
+#
 
 [common.backoff]
 backoff_multiplier = 2.0
@@ -60,6 +62,11 @@ failure_threshold = 10
 success_threshold = 3
 timeout_seconds = 60
 
+[common.circuit_breakers.component_configs.cache]
+failure_threshold = 5
+success_threshold = 2
+timeout_seconds = 15
+
 [common.circuit_breakers.default_config]
 failure_threshold = 5
 success_threshold = 2
@@ -76,11 +83,11 @@ skip_migration_check = false
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 
 [common.database.pool]
-acquire_timeout_seconds = 10
+acquire_timeout_seconds = 30
 idle_timeout_seconds = 60
-max_connections = 20
+max_connections = 30
 max_lifetime_seconds = 3600
-min_connections = 1
+min_connections = 2
 
 [common.database.variables]
 statement_timeout = 5000
@@ -166,205 +173,6 @@ search_paths = ["config/task_templates/*.{yml,yaml}"]
 enabled = false
 sample_rate = 0.1
 service_name = "tasker-core"
-
-[orchestration]
-enable_performance_logging = false
-mode = "standalone"
-
-[orchestration.batch_processing]
-checkpoint_stall_minutes = 2
-default_batch_size = 100
-enabled = true
-max_parallel_batches = 10
-
-[orchestration.decision_points]
-enable_detailed_logging = false
-enable_metrics = true
-enabled = true
-max_decision_depth = 20
-max_steps_per_decision = 100
-warn_threshold_depth = 10
-warn_threshold_steps = 50
-
-[orchestration.dlq]
-auto_dlq_on_staleness = true
-enabled = true
-include_full_task_snapshot = true
-max_pending_age_hours = 168
-
-[orchestration.dlq.reasons]
-dependency_cycle_detected = true
-manual_dlq = true
-max_retries_exceeded = true
-staleness_timeout = true
-worker_unavailable = true
-
-[orchestration.dlq.staleness_detection]
-batch_size = 10
-detection_interval_seconds = 60
-dry_run = false
-enabled = true
-
-[orchestration.dlq.staleness_detection.actions]
-auto_move_to_dlq = true
-auto_transition_to_error = true
-emit_events = true
-event_channel = "task_staleness_detected"
-
-[orchestration.dlq.staleness_detection.thresholds]
-steps_in_process_minutes = 5
-task_max_lifetime_hours = 1
-waiting_for_dependencies_minutes = 5
-waiting_for_retry_minutes = 2
-
-[orchestration.event_systems.orchestration]
-deployment_mode = "Hybrid"
-system_id = "orchestration-event-system"
-
-[orchestration.event_systems.orchestration.health]
-enabled = true
-error_rate_threshold_per_minute = 20
-max_consecutive_errors = 10
-performance_monitoring_enabled = true
-
-[orchestration.event_systems.orchestration.processing]
-batch_size = 20
-max_concurrent_operations = 50
-max_retries = 3
-
-[orchestration.event_systems.orchestration.processing.backoff]
-initial_delay_ms = 50
-jitter_percent = 0.1
-max_delay_ms = 500
-multiplier = 1.5
-
-[orchestration.event_systems.orchestration.timing]
-claim_timeout_seconds = 300
-fallback_polling_interval_seconds = 1
-health_check_interval_seconds = 30
-processing_timeout_seconds = 60
-visibility_timeout_seconds = 30
-
-[orchestration.event_systems.task_readiness]
-deployment_mode = "Hybrid"
-system_id = "task-readiness-event-system"
-
-[orchestration.event_systems.task_readiness.health]
-enabled = true
-error_rate_threshold_per_minute = 20
-max_consecutive_errors = 10
-performance_monitoring_enabled = true
-
-[orchestration.event_systems.task_readiness.processing]
-batch_size = 50
-max_concurrent_operations = 100
-max_retries = 3
-
-[orchestration.event_systems.task_readiness.processing.backoff]
-initial_delay_ms = 100
-jitter_percent = 0.1
-max_delay_ms = 10000
-multiplier = 2.0
-
-[orchestration.event_systems.task_readiness.timing]
-claim_timeout_seconds = 300
-fallback_polling_interval_seconds = 1
-health_check_interval_seconds = 30
-processing_timeout_seconds = 60
-visibility_timeout_seconds = 30
-
-[orchestration.mpsc_channels.command_processor]
-command_buffer_size = 100
-
-[orchestration.mpsc_channels.event_listeners]
-pgmq_event_buffer_size = 100
-
-[orchestration.mpsc_channels.event_systems]
-event_channel_buffer_size = 100
-
-[orchestration.web]
-bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
-enabled = true
-request_timeout_ms = 30000
-config_endpoint_enabled = true
-
-[orchestration.web.auth]
-enabled = true
-jwt_issuer = "tasker-core-test"
-jwt_audience = "tasker-api-test"
-jwt_verification_method = "public_key"
-jwt_public_key = ""
-jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
-jwt_private_key = ""
-jwt_token_expiry_hours = 1
-api_key = ""
-api_key_header = "X-API-Key"
-api_keys_enabled = true
-strict_validation = false
-log_unknown_permissions = true
-permissions_claim = "permissions"
-jwks_url = ""
-jwks_refresh_interval_seconds = 3600
-
-[[orchestration.web.auth.api_keys]]
-key = "test-api-key-full-access"
-permissions = ["*"]
-description = "Full access test API key"
-
-[[orchestration.web.auth.api_keys]]
-key = "test-api-key-read-only"
-permissions = ["tasks:read", "tasks:list", "steps:read", "dlq:read", "dlq:stats", "system:handlers_read", "system:analytics_read", "system:config_read"]
-description = "Read-only test API key"
-
-[[orchestration.web.auth.api_keys]]
-key = "test-api-key-tasks-only"
-permissions = ["tasks:*"]
-description = "Tasks-only test API key"
-
-[[orchestration.web.auth.api_keys]]
-key = "test-api-key-no-permissions"
-permissions = []
-description = "No permissions test API key"
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "POST"
-path = "/v1/tasks"
-required = false
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "DELETE"
-path = "/v1/tasks/{task_uuid}"
-required = true
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "PATCH"
-path = "/v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"
-required = true
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "GET"
-path = "/v1/analytics/performance"
-required = false
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "GET"
-path = "/v1/analytics/bottlenecks"
-required = false
-
-[orchestration.web.database_pools]
-max_total_connections_hint = 30
-web_api_connection_timeout_seconds = 30
-web_api_idle_timeout_seconds = 600
-web_api_max_connections = 15
-web_api_pool_size = 10
-
-[orchestration.web.resilience]
-circuit_breaker_enabled = true
 
 [worker]
 worker_id = "test-worker-001"
@@ -493,37 +301,15 @@ request_timeout_ms = 30000
 config_endpoint_enabled = true
 
 [worker.web.auth]
-enabled = true
-jwt_issuer = "tasker-core-test"
-jwt_audience = "tasker-api-test"
-jwt_verification_method = "public_key"
-jwt_public_key = ""
-jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
-jwt_private_key = ""
-jwt_token_expiry_hours = 1
 api_key = ""
 api_key_header = "X-API-Key"
-api_keys_enabled = true
-strict_validation = false
-log_unknown_permissions = true
-permissions_claim = "permissions"
-jwks_url = ""
-jwks_refresh_interval_seconds = 3600
-
-[[worker.web.auth.api_keys]]
-key = "test-api-key-full-access"
-permissions = ["*"]
-description = "Full access test API key"
-
-[[worker.web.auth.api_keys]]
-key = "test-api-key-worker-read"
-permissions = ["worker:config_read", "worker:templates_read"]
-description = "Worker read-only test API key"
-
-[[worker.web.auth.api_keys]]
-key = "test-api-key-no-permissions"
-permissions = []
-description = "No permissions test API key"
+enabled = false
+jwt_audience = "worker-api"
+jwt_issuer = "tasker-worker"
+jwt_private_key = ""
+jwt_public_key = ""
+jwt_public_key_path = ""
+jwt_token_expiry_hours = 24
 
 [[worker.web.auth.protected_routes]]
 auth_type = "bearer"

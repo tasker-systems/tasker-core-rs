@@ -204,6 +204,11 @@ mod tests {
                     timeout_seconds: 30,
                     success_threshold: 2,
                 },
+                cache: CircuitBreakerComponentConfig {
+                    failure_threshold: 5,
+                    timeout_seconds: 15,
+                    success_threshold: 2,
+                },
             },
         }
     }

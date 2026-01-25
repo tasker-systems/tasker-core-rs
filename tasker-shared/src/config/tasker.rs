@@ -668,6 +668,7 @@ impl CircuitBreakerConfig {
         match component_name {
             "task_readiness" => self.component_configs.task_readiness.clone(),
             "pgmq" => self.component_configs.pgmq.clone(),
+            "cache" => self.component_configs.cache.clone(),
             _ => CircuitBreakerComponentConfig {
                 failure_threshold: self.default_config.failure_threshold,
                 timeout_seconds: self.default_config.timeout_seconds,
@@ -736,6 +737,11 @@ pub struct ComponentCircuitBreakerConfigs {
     #[validate(nested)]
     #[builder(default)]
     pub pgmq: CircuitBreakerComponentConfig,
+
+    /// Cache circuit breaker (TAS-171)
+    #[validate(nested)]
+    #[builder(default)]
+    pub cache: CircuitBreakerComponentConfig,
 }
 
 impl_builder_default!(ComponentCircuitBreakerConfigs);
@@ -1082,6 +1088,11 @@ pub struct CacheConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub moka: Option<MokaConfig>,
+
+    /// Memcached backend configuration (TAS-171)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub memcached: Option<MemcachedConfig>,
 }
 
 impl_builder_default!(CacheConfig);
@@ -1130,6 +1141,29 @@ pub struct MokaConfig {
 }
 
 impl_builder_default!(MokaConfig);
+
+/// Memcached connection configuration (TAS-171)
+///
+/// Configures the memcached backend for distributed caching.
+/// Memcached is a simple, high-performance distributed cache that's
+/// suitable for multi-instance deployments.
+///
+/// Uses TCP protocol with format: `tcp://<host>:<port>`
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct MemcachedConfig {
+    /// Memcached connection URL (tcp://host:port or unix:///path/to/socket)
+    #[validate(length(min = 1))]
+    #[builder(default = "tcp://localhost:11211".to_string())]
+    pub url: String,
+
+    /// Connection timeout in seconds
+    #[validate(range(min = 1, max = 60))]
+    #[builder(default = 5)]
+    pub connection_timeout_seconds: u32,
+}
+
+impl_builder_default!(MemcachedConfig);
 
 // ============================================================================
 // ORCHESTRATION CONFIGURATION (Orchestration-specific)
@@ -2869,6 +2903,11 @@ mod tests {
                     timeout_seconds: 15,
                     success_threshold: 2,
                 },
+                cache: CircuitBreakerComponentConfig {
+                    failure_threshold: 5,
+                    timeout_seconds: 15,
+                    success_threshold: 2,
+                },
             },
         }
     }
@@ -3088,7 +3127,7 @@ mod tests {
         let toml_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
-            .join("config/v2/complete-test.toml");
+            .join("config/tasker/generated/complete-test.toml");
 
         if !toml_path.exists() {
             eprintln!("Warning: complete-test.toml not found at {:?}", toml_path);
@@ -3110,7 +3149,11 @@ mod tests {
                 // Verify common config
                 assert_eq!(cfg.common.system.version, "0.1.0");
                 assert_eq!(cfg.common.database.database, "tasker_rust_test");
-                assert_eq!(cfg.common.queues.backend, "pgmq");
+                // Note: Raw TOML has env var placeholder, not resolved value
+                assert!(
+                    cfg.common.queues.backend.contains("pgmq"),
+                    "Backend should contain 'pgmq'"
+                );
 
                 // Verify orchestration config
                 let orch = cfg.orchestration.as_ref().unwrap();

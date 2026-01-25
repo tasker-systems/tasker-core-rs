@@ -61,7 +61,7 @@ async fn test_example() {
 ```
 
 `AuthWebTestClient::new()` does:
-1. Loads `config/tasker/auth-test.toml` (auth enabled, test keys)
+1. Loads `config/tasker/generated/auth-test.toml` (auth enabled, test keys)
 2. Resolves `jwt-public-key-test.pem` via `CARGO_MANIFEST_DIR`
 3. Creates `SystemContext` + `OrchestrationCore` + `AppState`
 4. Starts Axum on a dynamically-allocated port (`127.0.0.1:0`)
@@ -96,13 +96,13 @@ use crate::web::auth::common::{
 };
 ```
 
-These match the keys configured in `config/tasker/auth-test.toml`.
+These match the keys configured in `config/tasker/generated/auth-test.toml`.
 
 ---
 
 ## Test Configuration
 
-### `config/tasker/auth-test.toml`
+### `config/tasker/generated/auth-test.toml`
 
 A copy of `complete-test.toml` with auth overrides:
 
@@ -257,4 +257,4 @@ Auth tests are compatible with CI without special environment setup:
 
 - [Permissions](permissions.md) — Full permission vocabulary and endpoint mapping
 - [Configuration](configuration.md) — Auth config reference
-- [`config/tasker/auth-test.toml`](../../config/tasker/auth-test.toml) — Test auth configuration
+- [`config/tasker/generated/auth-test.toml`](../../config/tasker/generated/auth-test.toml) — Test auth configuration

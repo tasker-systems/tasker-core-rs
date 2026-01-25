@@ -819,7 +819,7 @@ export TASKER_ENV="${TASKER_ENV:-test}"
 export PORT="${PORT:-8080}"
 # For benchmarking, use ALL benchmark templates (override .env if set)
 # The parent directory contains rust/, ruby/, python/, typescript/ subdirectories
-export TASKER_CONFIG_PATH="$(pwd)/config/tasker/orchestration-test.toml"
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/generated/orchestration-test.toml"
 export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates"
 
 echo "🚀 Starting orchestration service (RELEASE mode)..."
@@ -880,7 +880,7 @@ export TASKER_ENV="${TASKER_ENV:-test}"
 export PORT="${PORT:-8081}"
 # TAS-159: Rust worker uses ONLY Rust templates (to avoid subscribing to other language queues)
 # Orchestration loads ALL templates for task creation, but workers are language-specific
-export TASKER_CONFIG_PATH="$(pwd)/config/tasker/worker-test.toml"
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/generated/worker-test.toml"
 export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
 export TASKER_WEB_BIND_ADDRESS="0.0.0.0:${PORT}"
 
@@ -1347,7 +1347,7 @@ fi
 
 export TASKER_ENV="${TASKER_ENV:-test}"
 export PORT="${PORT:-8080}"
-export TASKER_CONFIG_PATH="$(pwd)/config/tasker/orchestration-test.toml"
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/generated/orchestration-test.toml"
 export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates"
 
 BINARY="$(pwd)/target/profiling/tasker-server"
@@ -1401,7 +1401,7 @@ fi
 export TASKER_ENV="${TASKER_ENV:-test}"
 export PORT="${PORT:-8081}"
 # TAS-159: Rust worker uses ONLY Rust templates
-export TASKER_CONFIG_PATH="$(pwd)/config/tasker/worker-test.toml"
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/generated/worker-test.toml"
 export TASKER_TEMPLATE_PATH="$(pwd)/tests/fixtures/task_templates/rust"
 export TASKER_WEB_BIND_ADDRESS="0.0.0.0:${PORT}"
 
@@ -1716,7 +1716,7 @@ set -euo pipefail
 set -a
 source .env 2>/dev/null || true
 set +a
-export TASKER_CONFIG_PATH="$(pwd)/config/tasker/auth-test.toml"
+export TASKER_CONFIG_PATH="$(pwd)/config/tasker/generated/auth-test.toml"
 export TASKER_JWT_PUBLIC_KEY_PATH="$(pwd)/tests/fixtures/auth/jwt-public-key-test.pem"
 echo "🔐 Running auth enforcement E2E tests"
 echo "   Config: $TASKER_CONFIG_PATH"

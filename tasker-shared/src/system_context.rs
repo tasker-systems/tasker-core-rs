@@ -124,7 +124,7 @@ impl SystemContext {
     /// specified by the TASKER_CONFIG_PATH environment variable.
     ///
     /// The configuration uses a context-based structure with \[common\] and \[orchestration\] sections.
-    /// See config/tasker/orchestration-test.toml for reference.
+    /// See config/tasker/generated/orchestration-test.toml for reference.
     ///
     /// # Returns
     /// Fully configured SystemContext for orchestration with validated configuration
@@ -167,7 +167,7 @@ impl SystemContext {
     /// specified by the TASKER_CONFIG_PATH environment variable.
     ///
     /// The configuration uses a context-based structure with \[common\] and \[worker\] sections.
-    /// See config/tasker/worker-test.toml for reference.
+    /// See config/tasker/generated/worker-test.toml for reference.
     ///
     /// # Returns
     /// Fully configured SystemContext for worker with validated configuration

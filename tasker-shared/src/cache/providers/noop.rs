@@ -45,6 +45,12 @@ impl CacheService for NoOpCacheService {
     fn provider_name(&self) -> &'static str {
         "noop"
     }
+
+    fn is_distributed(&self) -> bool {
+        // NoOp has no state, so it's "safe" for multi-instance deployments
+        // (every call is a cache miss, which is correct behavior)
+        true
+    }
 }
 
 #[cfg(test)]
@@ -87,5 +93,13 @@ mod tests {
     async fn test_noop_provider_name() {
         let svc = NoOpCacheService::new();
         assert_eq!(svc.provider_name(), "noop");
+    }
+
+    #[tokio::test]
+    async fn test_noop_is_distributed() {
+        let svc = NoOpCacheService::new();
+        // NoOp is considered "distributed" because it has no state
+        // (safe for multi-instance deployments - every call is a miss)
+        assert!(svc.is_distributed());
     }
 }

@@ -1,12 +1,15 @@
-//! Cache provider enum dispatch (TAS-156, TAS-168)
+//! Cache provider enum dispatch (TAS-156, TAS-168, TAS-171)
 //!
 //! Uses enum dispatch (like MessagingProvider) for zero-cost abstraction.
 //! No vtable overhead - the compiler can inline provider methods.
 
+use super::circuit_breaker::CircuitBreakerCache;
 use super::errors::{CacheError, CacheResult};
 use super::providers::NoOpCacheService;
 use super::traits::CacheService;
-use crate::config::tasker::CacheConfig;
+use crate::config::tasker::{CacheConfig, CircuitBreakerConfig};
+use crate::resilience::CircuitBreaker;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
 
@@ -16,6 +19,9 @@ use super::providers::RedisCacheService;
 #[cfg(feature = "cache-moka")]
 use super::providers::MokaCacheService;
 
+#[cfg(feature = "cache-memcached")]
+use super::providers::MemcachedCacheService;
+
 /// Cache provider enum for zero-cost dispatch
 ///
 /// Matches the pattern used by `MessagingProvider` in the messaging module.
@@ -24,7 +30,8 @@ use super::providers::MokaCacheService;
 ///
 /// ## Variants
 ///
-/// - **Redis**: Distributed cache for multi-instance deployments
+/// - **Redis**: Distributed cache for multi-instance deployments (Redis/Dragonfly)
+/// - **Memcached**: Distributed cache using memcached protocol (TAS-171)
 /// - **Moka**: In-process cache for single-instance or DoS protection
 /// - **NoOp**: Always-miss fallback when caching is disabled
 #[derive(Debug, Clone)]
@@ -32,6 +39,10 @@ pub enum CacheProvider {
     /// Redis cache provider (boxed to reduce enum size)
     #[cfg(feature = "cache-redis")]
     Redis(Box<RedisCacheService>),
+
+    /// Memcached cache provider (TAS-171)
+    #[cfg(feature = "cache-memcached")]
+    Memcached(Box<MemcachedCacheService>),
 
     /// Moka in-memory cache provider (TAS-168)
     #[cfg(feature = "cache-moka")]
@@ -54,7 +65,10 @@ impl CacheProvider {
         }
 
         match config.backend.as_str() {
-            "redis" => Self::create_redis_provider(config).await,
+            // TAS-171: "dragonfly" is an alias for Redis (same protocol)
+            "redis" | "dragonfly" => Self::create_redis_provider(config).await,
+            // TAS-171: Memcached support
+            "memcached" => Self::create_memcached_provider(config).await,
             "moka" | "memory" | "in-memory" => Self::create_moka_provider(config),
             other => {
                 warn!(
@@ -127,9 +141,92 @@ impl CacheProvider {
         Self::NoOp(NoOpCacheService::new())
     }
 
+    /// Create a Memcached provider (TAS-171)
+    #[cfg(feature = "cache-memcached")]
+    async fn create_memcached_provider(config: &CacheConfig) -> Self {
+        let memcached_config = match &config.memcached {
+            Some(mc) => mc,
+            None => {
+                warn!(
+                    "Memcached cache enabled but no [cache.memcached] config found, falling back to NoOp"
+                );
+                return Self::NoOp(NoOpCacheService::new());
+            }
+        };
+
+        match MemcachedCacheService::from_config(memcached_config).await {
+            Ok(service) => {
+                info!(
+                    backend = "memcached",
+                    "Distributed cache provider (memcached) initialized successfully"
+                );
+                Self::Memcached(Box::new(service))
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Failed to connect to Memcached, falling back to NoOp cache (graceful degradation)"
+                );
+                Self::NoOp(NoOpCacheService::new())
+            }
+        }
+    }
+
+    /// Fallback when cache-memcached feature is not enabled
+    #[cfg(not(feature = "cache-memcached"))]
+    async fn create_memcached_provider(_config: &CacheConfig) -> Self {
+        warn!("Memcached cache backend requested but 'cache-memcached' feature not enabled, using NoOp");
+        Self::NoOp(NoOpCacheService::new())
+    }
+
     /// Create a NoOp provider (for explicit opt-out or testing)
     pub fn noop() -> Self {
         Self::NoOp(NoOpCacheService::new())
+    }
+
+    /// Create a cache provider with circuit breaker protection (TAS-171)
+    ///
+    /// The circuit breaker only applies to distributed (Redis/Dragonfly) providers.
+    /// When the circuit is open, cache operations fail fast with graceful fallback:
+    /// - `get()` returns `Ok(None)` (cache miss)
+    /// - `set()`/`delete()` return `Ok(())` (no-op)
+    ///
+    /// ## Arguments
+    ///
+    /// * `cache_config` - Cache configuration (backend, TTL, etc.)
+    /// * `cb_config` - Circuit breaker configuration (thresholds, timeouts)
+    ///
+    /// ## Example
+    ///
+    /// ```rust,ignore
+    /// let cache = CacheProvider::from_config_with_circuit_breaker(
+    ///     &cache_config,
+    ///     &circuit_breaker_config,
+    /// ).await;
+    /// ```
+    pub async fn from_config_with_circuit_breaker(
+        cache_config: &CacheConfig,
+        cb_config: &CircuitBreakerConfig,
+    ) -> CircuitBreakerCache {
+        let provider = Self::from_config_graceful(cache_config).await;
+
+        // Only create circuit breaker for distributed + enabled providers
+        // (i.e., those that make network calls and can fail)
+        let circuit_breaker = if provider.is_distributed() && provider.is_enabled() {
+            let component_config = cb_config.config_for_component("cache");
+            let cb =
+                CircuitBreaker::new("cache".to_string(), component_config.to_resilience_config());
+            info!(
+                failure_threshold = component_config.failure_threshold,
+                timeout_seconds = component_config.timeout_seconds,
+                "Cache circuit breaker initialized"
+            );
+            Some(Arc::new(cb))
+        } else {
+            None
+        };
+
+        CircuitBreakerCache::new(provider, circuit_breaker)
     }
 
     /// Check if caching is actually enabled (not NoOp)
@@ -139,7 +236,10 @@ impl CacheProvider {
 
     /// Check if this provider is distributed (safe for multi-instance deployments)
     ///
-    /// Returns `true` for Redis (shared state) and NoOp (no state).
+    /// Delegates to the underlying provider's `is_distributed()` method.
+    /// This allows each provider to declare its own characteristics.
+    ///
+    /// Returns `true` for Redis/Dragonfly (shared state) and NoOp (no state).
     /// Returns `false` for Moka (in-process only).
     ///
     /// Use this to determine if the cache is safe for template caching
@@ -147,10 +247,12 @@ impl CacheProvider {
     pub fn is_distributed(&self) -> bool {
         match self {
             #[cfg(feature = "cache-redis")]
-            Self::Redis(_) => true,
+            Self::Redis(s) => s.is_distributed(),
+            #[cfg(feature = "cache-memcached")]
+            Self::Memcached(s) => s.is_distributed(),
             #[cfg(feature = "cache-moka")]
-            Self::Moka(_) => false, // In-process only
-            Self::NoOp(_) => true, // No state = safe
+            Self::Moka(s) => s.is_distributed(),
+            Self::NoOp(s) => s.is_distributed(),
         }
     }
 
@@ -159,6 +261,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.provider_name(),
+            #[cfg(feature = "cache-memcached")]
+            Self::Memcached(s) => s.provider_name(),
             #[cfg(feature = "cache-moka")]
             Self::Moka(s) => s.provider_name(),
             Self::NoOp(s) => s.provider_name(),
@@ -170,6 +274,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.get(key).await,
+            #[cfg(feature = "cache-memcached")]
+            Self::Memcached(s) => s.get(key).await,
             #[cfg(feature = "cache-moka")]
             Self::Moka(s) => s.get(key).await,
             Self::NoOp(s) => s.get(key).await,
@@ -181,6 +287,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.set(key, value, ttl).await,
+            #[cfg(feature = "cache-memcached")]
+            Self::Memcached(s) => s.set(key, value, ttl).await,
             #[cfg(feature = "cache-moka")]
             Self::Moka(s) => s.set(key, value, ttl).await,
             Self::NoOp(s) => s.set(key, value, ttl).await,
@@ -192,6 +300,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.delete(key).await,
+            #[cfg(feature = "cache-memcached")]
+            Self::Memcached(s) => s.delete(key).await,
             #[cfg(feature = "cache-moka")]
             Self::Moka(s) => s.delete(key).await,
             Self::NoOp(s) => s.delete(key).await,
@@ -203,6 +313,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.delete_pattern(pattern).await,
+            #[cfg(feature = "cache-memcached")]
+            Self::Memcached(s) => s.delete_pattern(pattern).await,
             #[cfg(feature = "cache-moka")]
             Self::Moka(s) => s.delete_pattern(pattern).await,
             Self::NoOp(s) => s.delete_pattern(pattern).await,
@@ -214,6 +326,8 @@ impl CacheProvider {
         match self {
             #[cfg(feature = "cache-redis")]
             Self::Redis(s) => s.health_check().await,
+            #[cfg(feature = "cache-memcached")]
+            Self::Memcached(s) => s.health_check().await,
             #[cfg(feature = "cache-moka")]
             Self::Moka(s) => s.health_check().await,
             Self::NoOp(s) => s.health_check().await,
@@ -252,7 +366,7 @@ mod tests {
     async fn test_from_config_unknown_backend() {
         let config = CacheConfig {
             enabled: true,
-            backend: "memcached".to_string(),
+            backend: "unknown_backend".to_string(),
             ..CacheConfig::default()
         };
         let provider = CacheProvider::from_config_graceful(&config).await;
@@ -317,5 +431,34 @@ mod tests {
     async fn test_noop_is_distributed() {
         let provider = CacheProvider::noop();
         assert!(provider.is_distributed()); // NoOp is "safe" (no state)
+    }
+
+    /// TAS-171: Test dragonfly alias resolves to Redis provider
+    #[cfg(feature = "cache-redis")]
+    #[tokio::test]
+    async fn test_from_config_dragonfly_alias() {
+        let config = CacheConfig {
+            enabled: true,
+            backend: "dragonfly".to_string(),
+            redis: None, // No redis config = falls back to NoOp
+            ..CacheConfig::default()
+        };
+        let provider = CacheProvider::from_config_graceful(&config).await;
+        // Falls back to NoOp when redis config is missing (same behavior as "redis")
+        assert!(!provider.is_enabled());
+    }
+
+    /// TAS-171: Test memcached backend without config falls back to NoOp
+    #[cfg(feature = "cache-memcached")]
+    #[tokio::test]
+    async fn test_from_config_memcached_no_config() {
+        let config = CacheConfig {
+            enabled: true,
+            backend: "memcached".to_string(),
+            memcached: None, // No memcached config = falls back to NoOp
+            ..CacheConfig::default()
+        };
+        let provider = CacheProvider::from_config_graceful(&config).await;
+        assert!(!provider.is_enabled());
     }
 }

@@ -91,6 +91,13 @@ fn get_env_var_allowlist() -> Vec<EnvVarRule> {
             // Redis URL: redis://[user:password@]host[:port][/db]
             pattern: r"^redis://([a-zA-Z0-9_-]+:[^@]+@)?[a-zA-Z0-9._-]+(:[0-9]+)?(/[0-9]+)?$",
         },
+        // TAS-171: Memcached cache connection
+        EnvVarRule {
+            name: "MEMCACHED_URL",
+            description: "Memcached connection URL for distributed cache",
+            // Memcached URL: tcp://host[:port] or unix:///path/to/socket
+            pattern: r"^(tcp://[a-zA-Z0-9._-]+(:[0-9]+)?|unix:///.+)$",
+        },
         // TAS-73: Multi-instance deployment support
         EnvVarRule {
             name: "TASKER_INSTANCE_ID",

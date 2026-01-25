@@ -108,6 +108,13 @@ impl CacheService for MokaCacheService {
     fn provider_name(&self) -> &'static str {
         "moka"
     }
+
+    fn is_distributed(&self) -> bool {
+        // Moka is in-process only - each instance has its own cache state
+        // This means cache invalidations don't propagate across instances
+        // Not safe for template caching in multi-instance deployments
+        false
+    }
 }
 
 #[cfg(test)]
@@ -215,5 +222,12 @@ mod tests {
         let debug_str = format!("{:?}", svc);
         assert!(debug_str.contains("MokaCacheService"));
         assert!(debug_str.contains("max_capacity"));
+    }
+
+    #[tokio::test]
+    async fn test_moka_is_not_distributed() {
+        let svc = MokaCacheService::new(100, Duration::from_secs(60));
+        // Moka is in-process only, not distributed
+        assert!(!svc.is_distributed());
     }
 }
