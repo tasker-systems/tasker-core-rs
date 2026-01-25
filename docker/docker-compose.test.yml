@@ -167,12 +167,31 @@ services:
     networks:
       - tasker-test
 
+  # ==========================================================================
+  # Redis Cache (TAS-156: Distributed Template Cache)
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: tasker-test-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - tasker-test
+
 volumes:
   postgres_data:
   grafana_data:
   tempo_data:
   loki_data:
   rabbitmq_data:
+  redis_data:
 
 networks:
   tasker-test:

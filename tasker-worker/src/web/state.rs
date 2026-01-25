@@ -211,10 +211,12 @@ impl WorkerWebState {
 
         // TAS-77: Create service instances for handler delegation
         // TAS-164: Pass DatabasePools for pool utilization and connectivity checks
+        // TAS-169: Pass TaskTemplateManager for distributed cache status in detailed health
         let health_service = Arc::new(HealthService::new(
             worker_id.clone(),
             database_pools.clone(),
             worker_core.clone(),
+            task_template_manager.clone(),
             circuit_breaker_health_provider.clone(), // Shared reference
             start_time,
         ));

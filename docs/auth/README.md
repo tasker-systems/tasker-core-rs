@@ -55,7 +55,7 @@ Routes are split into **public** (never require auth) and **protected** (auth mi
 
 **Worker (port 8081):**
 - Public: `/health/*`, `/metrics`, `/api-docs/*`
-- Protected: `/templates/*`, `/config` (opt-in)
+- Protected: `/v1/templates/*`, `/config` (opt-in)
 
 ---
 

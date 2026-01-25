@@ -84,6 +84,7 @@ opentelemetry-semantic-conventions = { workspace = true }
 pgmq = { workspace = true }
 pgmq-notify = { workspace = true }
 rand = { workspace = true }
+redis = { workspace = true, optional = true }
 regex = { workspace = true }
 # Web API testing and API Integration
 reqwest = { workspace = true }
@@ -131,8 +132,9 @@ tokio-test = { workspace = true }
 url = { workspace = true }
 
 [features]
-default = ["postgres", "test-utils", "web-api"]
+default = ["cache-redis", "postgres", "test-utils", "web-api"]
 benchmarks = ["criterion"]
+cache-redis = ["redis"]
 postgres = ["sqlx/postgres"]
 test-utils = []
 # TAS-158: tokio-console async runtime introspection
@@ -155,7 +157,7 @@ web-api = [
 # Crate-level tests require at minimum test-messaging (DB + queue)
 test-db = []
 test-messaging = ["test-db"]
-test-services = ["test-messaging"]
+test-services = ["test-messaging", "cache-redis"]
 test-cluster = ["test-services"]
 
 [lints]

@@ -144,6 +144,11 @@ impl TaskTemplateManager {
         }
     }
 
+    /// Get a reference to the underlying task handler registry (TAS-156)
+    pub fn registry(&self) -> &Arc<TaskHandlerRegistry> {
+        &self.registry
+    }
+
     /// Update supported namespaces dynamically (thread-safe with interior mutability)
     pub async fn set_supported_namespaces(&self, namespaces: Vec<String>) {
         let mut config = self.config.write().await;
@@ -419,17 +424,40 @@ impl TaskTemplateManager {
         ))
     }
 
-    /// Clear entire cache
+    /// Clear entire local cache and invalidate corresponding distributed cache entries
+    ///
+    /// TAS-156: Workers only invalidate distributed cache entries for templates
+    /// they have loaded, not all templates globally.
     pub async fn clear_cache(&self) {
         let mut cache = self.cache.write().await;
+
+        // Collect keys before clearing so we can invalidate distributed cache
+        let keys: Vec<HandlerKey> = cache.keys().cloned().collect();
+        let cache_size = keys.len();
+
+        // Clear local cache
         cache.clear();
 
-        // Reset stats
+        // Update stats
         let mut stats = self.stats.write().await;
         stats.total_cached = 0;
-        stats.cache_evictions += cache.len() as u64;
+        stats.cache_evictions += cache_size as u64;
 
-        info!("Task template cache cleared");
+        // Release locks before async operations
+        drop(cache);
+        drop(stats);
+
+        // TAS-156: Invalidate distributed cache entries for templates we had cached
+        for key in &keys {
+            self.registry
+                .invalidate_cache(&key.namespace, &key.name, &key.version)
+                .await;
+        }
+
+        info!(
+            templates_cleared = cache_size,
+            "Task template cache cleared (local + distributed)"
+        );
     }
 
     /// Get cache statistics

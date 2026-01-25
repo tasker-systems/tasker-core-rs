@@ -142,6 +142,22 @@ waiting_for_dependencies = 60
 waiting_for_retry = 30
 blocked_by_failures = 120
 
+# Distributed Cache Configuration (TAS-156)
+# When enabled=false or section missing, system uses direct DB queries only
+[common.cache]
+enabled = false
+backend = "redis"
+default_ttl_seconds = 3600
+template_ttl_seconds = 3600
+analytics_ttl_seconds = 60
+key_prefix = "tasker"
+
+[common.cache.redis]
+url = "${REDIS_URL:-redis://localhost:6379}"
+max_connections = 10
+connection_timeout_seconds = 5
+database = 0
+
 [common.task_templates]
 search_paths = ["config/tasks/**/*.{yml,yaml}"]
 

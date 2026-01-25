@@ -47,6 +47,17 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      # TAS-156: Redis for distributed template cache
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -96,6 +107,7 @@ jobs:
             --no-fail-fast
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          REDIS_URL: redis://localhost:6379
 
       - name: Run doctests
         run: |
@@ -108,6 +120,7 @@ jobs:
             --package tasker-client
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          REDIS_URL: redis://localhost:6379
 
       - name: Upload unit test results
         uses: actions/upload-artifact@v6
@@ -160,6 +173,17 @@ jobs:
           RABBITMQ_DEFAULT_VHOST: /
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # TAS-156: Redis for distributed template cache
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -343,6 +367,8 @@ jobs:
           # TAS-133: Messaging backend from matrix
           TASKER_MESSAGING_BACKEND: ${{ matrix.messaging_backend }}
           RABBITMQ_URL: amqp://tasker:tasker@localhost:5672/%2F
+          # TAS-156: Redis for distributed template cache
+          REDIS_URL: redis://localhost:6379
 
       - name: Run integration tests
         run: |
@@ -361,6 +387,8 @@ jobs:
           TASKER_TEST_TYPESCRIPT_WORKER_URL: http://localhost:8085
           TASKER_FIXTURE_PATH: ${{ github.workspace }}/tests/fixtures
           RUST_LOG: info
+          # TAS-156: Redis for distributed template cache
+          REDIS_URL: redis://localhost:6379
 
       - name: Upload integration test results
         uses: actions/upload-artifact@v6

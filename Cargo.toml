@@ -92,6 +92,7 @@ opentelemetry-semantic-conventions = "0.31"
 pgmq = "0.31.2"
 pgmq-notify = { path = "pgmq-notify" }
 rand = "0.9.1"
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 regex = "1.0"
 reqwest = { version = "0.12", default-features = false, features = [
   "json",

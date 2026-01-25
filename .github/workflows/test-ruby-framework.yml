@@ -30,6 +30,17 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      # TAS-156: Redis for distributed template cache
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     defaults:
       run:
         working-directory: workers/ruby
@@ -118,6 +129,8 @@ jobs:
           TASKER_CONFIG_PATH: ../../config/tasker/worker-test-embedded.toml
           TASKER_TEMPLATE_PATH: ./spec/fixtures/templates
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          # TAS-156: Redis for distributed template cache
+          REDIS_URL: redis://localhost:6379
 
       - name: Upload test results
         uses: actions/upload-artifact@v6

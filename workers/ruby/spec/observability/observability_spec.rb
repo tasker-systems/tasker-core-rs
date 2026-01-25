@@ -351,47 +351,8 @@ RSpec.describe TaskerCore::Observability do
     end
   end
 
-  describe '.cache_clear' do
-    subject(:result) { described_class.cache_clear }
-
-    it 'returns a CacheOperationResult struct' do
-      expect(result).to be_a(TaskerCore::Observability::Types::CacheOperationResult)
-    end
-
-    it 'indicates success' do
-      expect(result.success).to be true
-    end
-
-    it 'has message field' do
-      expect(result.message).to be_a(String)
-    end
-
-    it 'has timestamp field' do
-      expect(result.timestamp).to be_a(String)
-    end
-  end
-
-  describe '.template_refresh' do
-    subject(:result) do
-      described_class.template_refresh(
-        namespace: 'test',
-        name: 'nonexistent',
-        version: '1.0.0'
-      )
-    end
-
-    it 'returns a CacheOperationResult struct' do
-      expect(result).to be_a(TaskerCore::Observability::Types::CacheOperationResult)
-    end
-
-    it 'has success field' do
-      expect([true, false]).to include(result.success)
-    end
-
-    it 'has message field' do
-      expect(result.message).to be_a(String)
-    end
-  end
+  # TAS-169: Removed .cache_clear and .template_refresh tests
+  # Cache operations are now internal-only. Restart worker to refresh templates.
 
   # ==========================================================================
   # Config Methods

@@ -32,6 +32,8 @@
 //! # }
 //! ```
 
+use crate::cache::CacheProvider;
+use crate::config::tasker::CacheConfig;
 use crate::errors::{TaskerError, TaskerResult};
 use crate::events::EventPublisher;
 use crate::models::core::{
@@ -43,7 +45,8 @@ use crate::types::HandlerMetadata;
 use chrono::Utc;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use std::time::Duration;
+use tracing::{debug, error, info, warn};
 
 /// Key for handler lookup in the registry
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -112,12 +115,17 @@ pub struct TaskHandlerRegistry {
     event_publisher: Option<Arc<EventPublisher>>,
     /// Search paths from TaskTemplateConfig
     search_paths: Option<Vec<String>>,
+    /// TAS-156: Optional distributed cache provider
+    cache_provider: Option<Arc<CacheProvider>>,
+    /// TAS-156: Cache configuration (for TTL values)
+    cache_config: Option<CacheConfig>,
 }
 
 crate::debug_with_pgpool!(TaskHandlerRegistry {
     db_pool: PgPool,
     event_publisher,
-    search_paths
+    search_paths,
+    cache_config
 });
 
 impl TaskHandlerRegistry {
@@ -127,6 +135,8 @@ impl TaskHandlerRegistry {
             db_pool,
             event_publisher: None,
             search_paths: None,
+            cache_provider: None,
+            cache_config: None,
         }
     }
 
@@ -136,6 +146,23 @@ impl TaskHandlerRegistry {
             db_pool,
             event_publisher: Some(event_publisher),
             search_paths: None,
+            cache_provider: None,
+            cache_config: None,
+        }
+    }
+
+    /// Create a new registry with explicit cache provider (TAS-156)
+    pub fn with_cache(
+        db_pool: PgPool,
+        cache_provider: Arc<CacheProvider>,
+        cache_config: CacheConfig,
+    ) -> Self {
+        Self {
+            db_pool,
+            event_publisher: None,
+            search_paths: None,
+            cache_provider: Some(cache_provider),
+            cache_config: Some(cache_config),
         }
     }
 
@@ -152,6 +179,9 @@ impl TaskHandlerRegistry {
                     .search_paths
                     .clone(),
             ),
+            // TAS-156: Use cache provider from system context
+            cache_provider: Some(context.cache_provider.clone()),
+            cache_config: context.tasker_config.common.cache.clone(),
         }
     }
 
@@ -282,6 +312,10 @@ impl TaskHandlerRegistry {
             version = &template.version,
             "TaskTemplate registered to database successfully"
         );
+
+        // TAS-156: Invalidate cache entry for this template (best-effort)
+        self.invalidate_cache(&template.namespace_name, &template.name, &template.version)
+            .await;
 
         Ok(())
     }
@@ -530,7 +564,38 @@ impl TaskHandlerRegistry {
             namespace = namespace,
             name = name,
             version = version,
-            "Starting database lookup for TaskTemplate"
+            "Starting lookup for TaskTemplate"
+        );
+
+        // TAS-156: Try cache first (cache-aside pattern)
+        if let Some(metadata) = self.try_cache_get(namespace, name, version).await {
+            return Ok(metadata);
+        }
+
+        // Cache miss or cache unavailable - proceed with DB lookup
+        let handler_metadata = self
+            .get_task_template_from_db(namespace, name, version)
+            .await?;
+
+        // TAS-156: Populate cache on successful DB fetch (best-effort)
+        self.try_cache_set(namespace, name, version, &handler_metadata)
+            .await;
+
+        Ok(handler_metadata)
+    }
+
+    /// Database lookup for task template (extracted for cache-aside pattern)
+    async fn get_task_template_from_db(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> TaskerResult<HandlerMetadata> {
+        debug!(
+            namespace = namespace,
+            name = name,
+            version = version,
+            "DATABASE: Looking up TaskTemplate"
         );
 
         // 1. Find the task namespace
@@ -638,6 +703,212 @@ impl TaskHandlerRegistry {
 
         Ok(handler_metadata)
     }
+
+    // =========================================================================
+    // TAS-156: Cache helper methods
+    // =========================================================================
+
+    /// Build the cache key for a task template
+    fn cache_key(&self, namespace: &str, name: &str, version: &str) -> String {
+        let prefix = self
+            .cache_config
+            .as_ref()
+            .map(|c| c.key_prefix.as_str())
+            .unwrap_or("tasker");
+        format!(
+            "{}:task_template:{}:{}:{}",
+            prefix, namespace, name, version
+        )
+    }
+
+    /// Get the template TTL from cache config
+    fn template_ttl(&self) -> Duration {
+        Duration::from_secs(
+            self.cache_config
+                .as_ref()
+                .map(|c| u64::from(c.template_ttl_seconds))
+                .unwrap_or(3600),
+        )
+    }
+
+    /// Try to get a cached HandlerMetadata (returns None on miss or error)
+    async fn try_cache_get(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> Option<HandlerMetadata> {
+        let provider = self.cache_provider.as_ref()?;
+        if !provider.is_enabled() {
+            return None;
+        }
+
+        let key = self.cache_key(namespace, name, version);
+        match provider.get(&key).await {
+            Ok(Some(cached)) => match serde_json::from_str::<HandlerMetadata>(&cached) {
+                Ok(metadata) => {
+                    debug!(
+                        namespace = namespace,
+                        name = name,
+                        version = version,
+                        "CACHE HIT: Resolved template from distributed cache"
+                    );
+                    Some(metadata)
+                }
+                Err(e) => {
+                    warn!(
+                        key = key.as_str(),
+                        error = %e,
+                        "Cache deserialization failed, falling through to DB"
+                    );
+                    None
+                }
+            },
+            Ok(None) => None,
+            Err(e) => {
+                warn!(
+                    key = key.as_str(),
+                    error = %e,
+                    "Cache get failed, falling through to DB"
+                );
+                None
+            }
+        }
+    }
+
+    /// Try to set a HandlerMetadata in cache (best-effort, never fails)
+    async fn try_cache_set(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+        metadata: &HandlerMetadata,
+    ) {
+        let provider = match self.cache_provider.as_ref() {
+            Some(p) if p.is_enabled() => p,
+            _ => return,
+        };
+
+        let key = self.cache_key(namespace, name, version);
+        let ttl = self.template_ttl();
+
+        match serde_json::to_string(metadata) {
+            Ok(serialized) => {
+                if let Err(e) = provider.set(&key, &serialized, ttl).await {
+                    warn!(
+                        key = key.as_str(),
+                        error = %e,
+                        "Cache set failed (best-effort, DB is source of truth)"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Failed to serialize HandlerMetadata for cache"
+                );
+            }
+        }
+    }
+
+    /// Invalidate a single template cache entry (best-effort)
+    ///
+    /// This is the primary invalidation method for workers to use when
+    /// refreshing or removing specific templates from the distributed cache.
+    pub async fn invalidate_cache(&self, namespace: &str, name: &str, version: &str) {
+        let provider = match self.cache_provider.as_ref() {
+            Some(p) if p.is_enabled() => p,
+            _ => return,
+        };
+
+        let key = self.cache_key(namespace, name, version);
+        if let Err(e) = provider.delete(&key).await {
+            warn!(
+                key = key.as_str(),
+                error = %e,
+                "Cache invalidation failed (best-effort)"
+            );
+        } else {
+            debug!(key = key.as_str(), "Cache entry invalidated");
+        }
+    }
+
+    /// Invalidate all template cache entries (pattern delete)
+    pub async fn invalidate_all_templates(&self) {
+        let provider = match self.cache_provider.as_ref() {
+            Some(p) if p.is_enabled() => p,
+            _ => return,
+        };
+
+        let prefix = self
+            .cache_config
+            .as_ref()
+            .map(|c| c.key_prefix.as_str())
+            .unwrap_or("tasker");
+        let pattern = format!("{}:task_template:*", prefix);
+
+        match provider.delete_pattern(&pattern).await {
+            Ok(count) => {
+                info!(
+                    pattern = pattern.as_str(),
+                    deleted = count,
+                    "Invalidated all template cache entries"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    pattern = pattern.as_str(),
+                    error = %e,
+                    "Failed to invalidate all template cache entries (best-effort)"
+                );
+            }
+        }
+    }
+
+    /// Invalidate all templates in a namespace
+    pub async fn invalidate_namespace_templates(&self, namespace: &str) {
+        let provider = match self.cache_provider.as_ref() {
+            Some(p) if p.is_enabled() => p,
+            _ => return,
+        };
+
+        let prefix = self
+            .cache_config
+            .as_ref()
+            .map(|c| c.key_prefix.as_str())
+            .unwrap_or("tasker");
+        let pattern = format!("{}:task_template:{}:*", prefix, namespace);
+
+        match provider.delete_pattern(&pattern).await {
+            Ok(count) => {
+                info!(
+                    namespace = namespace,
+                    deleted = count,
+                    "Invalidated namespace template cache entries"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    namespace = namespace,
+                    error = %e,
+                    "Failed to invalidate namespace cache entries (best-effort)"
+                );
+            }
+        }
+    }
+
+    /// Check if distributed cache is available and enabled
+    pub fn cache_enabled(&self) -> bool {
+        self.cache_provider
+            .as_ref()
+            .map(|p| p.is_enabled())
+            .unwrap_or(false)
+    }
+
+    /// Get a reference to the cache provider (for health checks, etc.)
+    pub fn cache_provider(&self) -> Option<&Arc<CacheProvider>> {
+        self.cache_provider.as_ref()
+    }
 }
 
 // Note: Default implementation removed - TaskHandlerRegistry now requires database pool
@@ -648,6 +919,170 @@ impl Clone for TaskHandlerRegistry {
             db_pool: self.db_pool.clone(),
             event_publisher: self.event_publisher.clone(),
             search_paths: self.search_paths.clone(),
+            cache_provider: self.cache_provider.clone(),
+            cache_config: self.cache_config.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Create a registry with a lazy (non-connecting) pool for unit tests
+    fn test_registry_no_cache() -> TaskHandlerRegistry {
+        let pool = sqlx::PgPool::connect_lazy("postgresql://test").unwrap();
+        TaskHandlerRegistry::new(pool)
+    }
+
+    /// Create a registry with NoOp cache for unit tests
+    fn test_registry_with_noop_cache(config: Option<CacheConfig>) -> TaskHandlerRegistry {
+        let pool = sqlx::PgPool::connect_lazy("postgresql://test").unwrap();
+        let provider = Arc::new(CacheProvider::noop());
+        let cache_config = config.unwrap_or_default();
+        TaskHandlerRegistry::with_cache(pool, provider, cache_config)
+    }
+
+    #[tokio::test]
+    async fn test_cache_key_default_prefix() {
+        let registry = test_registry_no_cache();
+        let key = registry.cache_key("payments", "process_order", "1.0.0");
+        assert_eq!(key, "tasker:task_template:payments:process_order:1.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_cache_key_custom_prefix() {
+        let config = CacheConfig {
+            key_prefix: "myapp".to_string(),
+            ..CacheConfig::default()
+        };
+        let registry = test_registry_with_noop_cache(Some(config));
+        let key = registry.cache_key("billing", "invoice", "2.0.0");
+        assert_eq!(key, "myapp:task_template:billing:invoice:2.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_template_ttl_default() {
+        let registry = test_registry_no_cache();
+        assert_eq!(registry.template_ttl(), Duration::from_secs(3600));
+    }
+
+    #[tokio::test]
+    async fn test_template_ttl_from_config() {
+        let config = CacheConfig {
+            template_ttl_seconds: 7200,
+            ..CacheConfig::default()
+        };
+        let registry = test_registry_with_noop_cache(Some(config));
+        assert_eq!(registry.template_ttl(), Duration::from_secs(7200));
+    }
+
+    #[tokio::test]
+    async fn test_cache_enabled_no_provider() {
+        let registry = test_registry_no_cache();
+        assert!(!registry.cache_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_cache_enabled_noop_provider() {
+        let registry = test_registry_with_noop_cache(None);
+        // NoOp provider reports as not enabled
+        assert!(!registry.cache_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_cache_provider_accessor_none() {
+        let registry = test_registry_no_cache();
+        assert!(registry.cache_provider().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cache_provider_accessor_present() {
+        let registry = test_registry_with_noop_cache(None);
+        assert!(registry.cache_provider().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_try_cache_get_no_provider_returns_none() {
+        let registry = test_registry_no_cache();
+        let result = registry.try_cache_get("ns", "name", "1.0").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_try_cache_get_noop_returns_none() {
+        let registry = test_registry_with_noop_cache(None);
+        let result = registry.try_cache_get("ns", "name", "1.0").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_try_cache_set_no_provider_succeeds() {
+        let registry = test_registry_no_cache();
+        let metadata = HandlerMetadata {
+            namespace: "payments".to_string(),
+            name: "process_order".to_string(),
+            version: "1.0.0".to_string(),
+            handler_class: "TestHandler".to_string(),
+            config_schema: None,
+            default_dependent_system: None,
+            registered_at: Utc::now(),
+        };
+        // Should not panic
+        registry.try_cache_set("ns", "name", "1.0", &metadata).await;
+    }
+
+    #[tokio::test]
+    async fn test_try_cache_set_noop_succeeds() {
+        let registry = test_registry_with_noop_cache(None);
+        let metadata = HandlerMetadata {
+            namespace: "billing".to_string(),
+            name: "invoice".to_string(),
+            version: "2.0.0".to_string(),
+            handler_class: "MyHandler".to_string(),
+            config_schema: Some(serde_json::json!({"type": "object"})),
+            default_dependent_system: Some("billing_system".to_string()),
+            registered_at: Utc::now(),
+        };
+        // Should not panic (NoOp silently discards)
+        registry.try_cache_set("ns", "name", "1.0", &metadata).await;
+    }
+
+    #[tokio::test]
+    async fn test_invalidate_cache_no_provider() {
+        let registry = test_registry_no_cache();
+        // Should not panic when no cache provider
+        registry.invalidate_cache("ns", "name", "1.0").await;
+    }
+
+    #[tokio::test]
+    async fn test_invalidate_cache_noop_provider() {
+        let registry = test_registry_with_noop_cache(None);
+        // NoOp is not enabled, so invalidate should return early
+        registry.invalidate_cache("ns", "name", "1.0").await;
+    }
+
+    #[tokio::test]
+    async fn test_invalidate_all_templates_no_provider() {
+        let registry = test_registry_no_cache();
+        registry.invalidate_all_templates().await;
+    }
+
+    #[tokio::test]
+    async fn test_invalidate_all_templates_noop() {
+        let registry = test_registry_with_noop_cache(None);
+        registry.invalidate_all_templates().await;
+    }
+
+    #[tokio::test]
+    async fn test_invalidate_namespace_templates_no_provider() {
+        let registry = test_registry_no_cache();
+        registry.invalidate_namespace_templates("payments").await;
+    }
+
+    #[tokio::test]
+    async fn test_invalidate_namespace_templates_noop() {
+        let registry = test_registry_with_noop_cache(None);
+        registry.invalidate_namespace_templates("payments").await;
     }
 }

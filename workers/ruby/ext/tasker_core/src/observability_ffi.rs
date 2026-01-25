@@ -273,40 +273,9 @@ pub fn templates_cache_stats() -> Result<String, Error> {
     })
 }
 
-/// Clear the template cache, returns JSON with operation result
-pub fn templates_cache_clear() -> Result<String, Error> {
-    debug!("FFI: templates_cache_clear called");
-
-    with_web_state(|handle, web_state| {
-        let response = handle
-            .runtime
-            .block_on(async { web_state.template_query_service().clear_cache().await });
-
-        to_json(&response)
-    })
-}
-
-/// Refresh a specific template in the cache, returns JSON with operation result
-pub fn template_refresh(namespace: String, name: String, version: String) -> Result<String, Error> {
-    debug!(
-        "FFI: template_refresh called for {}/{}/{}",
-        namespace, name, version
-    );
-
-    with_web_state(|handle, web_state| {
-        let response = handle.runtime.block_on(async {
-            web_state
-                .template_query_service()
-                .refresh_template(&namespace, &name, &version)
-                .await
-        });
-
-        match response {
-            Ok(op) => to_json(&op),
-            Err(e) => Err(Error::new(runtime_error_class(), e.to_string())),
-        }
-    })
-}
+// TAS-169: Removed templates_cache_clear and template_refresh FFI functions.
+// Cache operations are now internal-only. Restart worker to refresh templates.
+// Distributed cache status is available via health_detailed().
 
 // =============================================================================
 // Config Query Service FFI Functions
@@ -355,12 +324,11 @@ pub fn init_observability_ffi(module: &RModule) -> Result<(), Error> {
     module.define_singleton_method("metrics_prometheus", function!(metrics_prometheus, 0))?;
 
     // Template endpoints
+    // TAS-169: Removed templates_cache_clear and template_refresh (cache ops are internal-only)
     module.define_singleton_method("templates_list", function!(templates_list, 1))?;
     module.define_singleton_method("template_get", function!(template_get, 3))?;
     module.define_singleton_method("template_validate", function!(template_validate, 3))?;
     module.define_singleton_method("templates_cache_stats", function!(templates_cache_stats, 0))?;
-    module.define_singleton_method("templates_cache_clear", function!(templates_cache_clear, 0))?;
-    module.define_singleton_method("template_refresh", function!(template_refresh, 3))?;
 
     // Config endpoints
     module.define_singleton_method("config_runtime", function!(config_runtime, 0))?;

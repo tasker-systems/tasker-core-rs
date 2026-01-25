@@ -3,7 +3,7 @@
 //! Route definitions for all worker web endpoints organized by functionality.
 
 use axum::{
-    routing::{delete, get, post},
+    routing::{get, post},
     Router,
 };
 use std::sync::Arc;
@@ -33,36 +33,26 @@ pub fn metrics_routes() -> Router<Arc<WorkerWebState>> {
         )
 }
 
-// TODO(TAS-169): Template routes should be nested under /v1 for API versioning consistency.
-// All non-infrastructure endpoints (health, metrics, docs) should have version prefixes.
-/// Task template management routes
+/// Task template management routes (TAS-169: API versioning)
+///
+/// Templates are loaded from YAML → DB on worker bootstrap and are effectively
+/// immutable until reboot. Only essential endpoints are exposed:
+/// - List templates
+/// - Get specific template
+/// - Validate template for execution
+///
+/// Cache operations moved to internal-only (restart worker to clear cache).
+/// Distributed cache status available via /health/detailed.
 pub fn template_routes() -> Router<Arc<WorkerWebState>> {
     Router::new()
-        // Template retrieval and listing
-        .route("/templates", get(handlers::templates::list_templates))
+        .route("/v1/templates", get(handlers::templates::list_templates))
         .route(
-            "/templates/{namespace}/{name}/{version}",
+            "/v1/templates/{namespace}/{name}/{version}",
             get(handlers::templates::get_template),
         )
-        // Template validation
         .route(
-            "/templates/{namespace}/{name}/{version}/validate",
+            "/v1/templates/{namespace}/{name}/{version}/validate",
             post(handlers::templates::validate_template),
-        )
-        // Cache management
-        .route("/templates/cache", delete(handlers::templates::clear_cache))
-        .route(
-            "/templates/cache/stats",
-            get(handlers::templates::get_cache_stats),
-        )
-        .route(
-            "/templates/cache/maintain",
-            post(handlers::templates::maintain_cache),
-        )
-        // Template refresh
-        .route(
-            "/templates/{namespace}/{name}/{version}/refresh",
-            post(handlers::templates::refresh_template),
         )
 }
 

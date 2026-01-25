@@ -93,6 +93,24 @@ pub struct DetailedHealthResponse {
     #[cfg_attr(feature = "web-api", schema(value_type = Object))]
     pub checks: HashMap<String, HealthCheck>,
     pub system_info: WorkerSystemInfo,
+    /// TAS-169: Distributed cache status (moved from /templates/cache/distributed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distributed_cache: Option<DistributedCacheInfo>,
+}
+
+/// TAS-169: Distributed cache information for health response
+///
+/// Moved from /templates/cache/distributed to /health/detailed.
+/// Reports the status of the distributed template cache (Redis).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
+pub struct DistributedCacheInfo {
+    /// Whether distributed caching is enabled
+    pub enabled: bool,
+    /// Cache provider name ("redis" or "noop")
+    pub provider: String,
+    /// Whether the cache backend is healthy
+    pub healthy: bool,
 }
 
 /// Individual health check result

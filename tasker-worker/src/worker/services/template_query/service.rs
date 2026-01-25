@@ -1,9 +1,14 @@
 //! # Template Query Service
 //!
 //! TAS-77: Template query logic extracted from web/handlers/templates.rs.
+//! TAS-169: Simplified API - templates are immutable after worker bootstrap.
 //!
-//! This service encapsulates all template query functionality, making it available
+//! This service encapsulates template query functionality, making it available
 //! to both the HTTP API and FFI consumers without code duplication.
+//!
+//! Cache operations (clear, maintain, refresh) remain internal to TaskTemplateManager
+//! and are not exposed via the API. Restart worker to refresh templates.
+//! Distributed cache status is now available via /health/detailed.
 
 use std::sync::Arc;
 
@@ -12,7 +17,7 @@ use tracing::{debug, error, warn};
 
 use crate::worker::task_template_manager::{TaskTemplateManager, WorkerTaskTemplateOperations};
 use tasker_shared::types::api::worker::{
-    CacheOperationResponse, TemplateListResponse, TemplateResponse, TemplateValidationResponse,
+    TemplateListResponse, TemplateResponse, TemplateValidationResponse,
 };
 use tasker_shared::types::base::CacheStats;
 
@@ -35,10 +40,6 @@ pub enum TemplateQueryError {
         version: String,
     },
 
-    /// Template refresh failed
-    #[error("Template refresh failed: {message}")]
-    RefreshFailed { message: String },
-
     /// Internal error
     #[error("Internal error: {0}")]
     Internal(String),
@@ -47,6 +48,7 @@ pub enum TemplateQueryError {
 /// Template Query Service
 ///
 /// TAS-77: Provides template query functionality independent of the HTTP layer.
+/// TAS-169: Simplified API - cache operations are internal-only.
 ///
 /// This service can be used by:
 /// - Web API handlers (via `WorkerWebState`)
@@ -66,10 +68,10 @@ pub enum TemplateQueryError {
 ///     // Get a specific template
 ///     let template = service.get_template("payments", "process_order", "1.0.0").await?;
 ///
-///     // List all templates
+///     // List all templates (with cache stats)
 ///     let list = service.list_templates(true).await;
 ///
-///     // Validate a template
+///     // Validate a template for worker execution
 ///     let validation = service.validate_template("payments", "process_order", "1.0.0").await?;
 ///     Ok(())
 /// }
@@ -266,88 +268,16 @@ impl TemplateQueryService {
     }
 
     // =========================================================================
-    // Cache Management Methods
+    // Internal Cache Access (for list_templates with include_cache_stats)
     // =========================================================================
 
-    /// Get cache statistics
+    /// Get cache statistics (internal use)
     ///
-    /// GET /templates/cache/stats
+    /// Used by list_templates when include_cache_stats=true.
+    /// TAS-169: Cache operations are no longer exposed via API.
     pub async fn cache_stats(&self) -> CacheStats {
         debug!("Getting template cache statistics");
         self.task_template_manager.cache_stats().await
-    }
-
-    /// Clear template cache
-    ///
-    /// DELETE /templates/cache
-    pub async fn clear_cache(&self) -> CacheOperationResponse {
-        debug!("Clearing template cache");
-
-        self.task_template_manager.clear_cache().await;
-        let cache_stats = self.task_template_manager.cache_stats().await;
-
-        CacheOperationResponse {
-            operation: "clear".to_string(),
-            success: true,
-            cache_stats,
-        }
-    }
-
-    /// Perform cache maintenance
-    ///
-    /// POST /templates/cache/maintain
-    pub async fn maintain_cache(&self) -> CacheOperationResponse {
-        debug!("Performing template cache maintenance");
-
-        self.task_template_manager.maintain_cache().await;
-        let cache_stats = self.task_template_manager.cache_stats().await;
-
-        CacheOperationResponse {
-            operation: "maintain".to_string(),
-            success: true,
-            cache_stats,
-        }
-    }
-
-    /// Refresh specific template in cache
-    ///
-    /// POST /templates/{namespace}/{name}/{version}/refresh
-    pub async fn refresh_template(
-        &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-    ) -> Result<CacheOperationResponse, TemplateQueryError> {
-        debug!(
-            namespace = %namespace,
-            name = %name,
-            version = %version,
-            "Refreshing template in cache"
-        );
-
-        self.task_template_manager
-            .refresh_template(namespace, name, version)
-            .await
-            .map_err(|e| {
-                error!(
-                    namespace = %namespace,
-                    name = %name,
-                    version = %version,
-                    error = %e,
-                    "Failed to refresh template"
-                );
-                TemplateQueryError::RefreshFailed {
-                    message: e.to_string(),
-                }
-            })?;
-
-        let cache_stats = self.task_template_manager.cache_stats().await;
-
-        Ok(CacheOperationResponse {
-            operation: "refresh".to_string(),
-            success: true,
-            cache_stats,
-        })
     }
 
     /// Get supported namespaces
@@ -384,15 +314,5 @@ mod tests {
 
         let display = format!("{}", error);
         assert!(display.contains("Handler metadata not found"));
-    }
-
-    #[test]
-    fn test_refresh_failed_error() {
-        let error = TemplateQueryError::RefreshFailed {
-            message: "connection timeout".to_string(),
-        };
-
-        let display = format!("{}", error);
-        assert!(display.contains("connection timeout"));
     }
 }
