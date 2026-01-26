@@ -141,6 +141,8 @@ pub struct UpdateInvestigationResponse {
 /// ```text
 /// GET /v1/dlq?resolution_status=pending&limit=20
 /// ```
+///
+/// **Required Permission:** `dlq:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/dlq",
@@ -152,6 +154,9 @@ pub struct UpdateInvestigationResponse {
         (status = 500, description = "Database error", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("dlq:read"))
+    ),
     tag = "dlq"
 ))]
 pub async fn list_dlq_entries(
@@ -194,6 +199,8 @@ pub async fn list_dlq_entries(
 /// ```text
 /// GET /v1/dlq/task/550e8400-e29b-41d4-a716-446655440000
 /// ```
+///
+/// **Required Permission:** `dlq:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/dlq/task/{task_uuid}",
@@ -208,6 +215,9 @@ pub async fn list_dlq_entries(
         (status = 500, description = "Database error", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("dlq:read"))
+    ),
     tag = "dlq"
 ))]
 pub async fn get_dlq_entry(
@@ -262,6 +272,8 @@ pub async fn get_dlq_entry(
 ///   "resolved_by": "operator@example.com"
 /// }
 /// ```
+///
+/// **Required Permission:** `dlq:update`
 #[cfg_attr(feature = "web-api", utoipa::path(
     patch,
     path = "/v1/dlq/entry/{dlq_entry_uuid}",
@@ -277,6 +289,9 @@ pub async fn get_dlq_entry(
         (status = 500, description = "Database error", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("dlq:update"))
+    ),
     tag = "dlq"
 ))]
 pub async fn update_dlq_investigation(
@@ -342,6 +357,8 @@ pub async fn update_dlq_investigation(
 /// ```text
 /// GET /v1/dlq/stats
 /// ```
+///
+/// **Required Permission:** `dlq:stats`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/dlq/stats",
@@ -352,6 +369,9 @@ pub async fn update_dlq_investigation(
         (status = 500, description = "Database error", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("dlq:stats"))
+    ),
     tag = "dlq"
 ))]
 pub async fn get_dlq_stats(
@@ -401,6 +421,8 @@ pub async fn get_dlq_stats(
 /// ```text
 /// GET /v1/dlq/investigation-queue?limit=50
 /// ```
+///
+/// **Required Permission:** `dlq:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/dlq/investigation-queue",
@@ -414,6 +436,9 @@ pub async fn get_dlq_stats(
         (status = 500, description = "Database error", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("dlq:read"))
+    ),
     tag = "dlq"
 ))]
 pub async fn get_investigation_queue(
@@ -471,6 +496,8 @@ pub async fn get_investigation_queue(
 /// ```text
 /// GET /v1/dlq/staleness?limit=50
 /// ```
+///
+/// **Required Permission:** `dlq:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/dlq/staleness",
@@ -484,6 +511,9 @@ pub async fn get_investigation_queue(
         (status = 500, description = "Database error", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("dlq:read"))
+    ),
     tag = "dlq"
 ))]
 pub async fn get_staleness_monitoring(

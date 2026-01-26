@@ -23,6 +23,8 @@ use tasker_shared::types::web::ApiError;
 ///
 /// Returns operational configuration metadata safe for external consumption.
 /// Only whitelisted fields are included — no secrets, keys, or credentials.
+///
+/// **Required Permission:** `system:config_read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/config",
@@ -32,6 +34,9 @@ use tasker_shared::types::web::ApiError;
         (status = 403, description = "Insufficient permissions", body = ApiError),
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("system:config_read"))
+    ),
     tag = "config"
 ))]
 pub async fn get_config(

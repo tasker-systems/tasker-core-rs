@@ -31,6 +31,8 @@ fn config_error_to_api_error(error: ConfigQueryError) -> ApiError {
 ///
 /// Returns operational configuration metadata safe for external consumption.
 /// Only whitelisted fields are included — no secrets, keys, or credentials.
+///
+/// **Required Permission:** `worker:config_read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/config",
@@ -41,6 +43,9 @@ fn config_error_to_api_error(error: ConfigQueryError) -> ApiError {
         (status = 500, description = "Failed to retrieve configuration", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("worker:config_read"))
+    ),
     tag = "config"
 ))]
 pub async fn get_config(

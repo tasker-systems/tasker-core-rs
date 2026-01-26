@@ -19,12 +19,20 @@ Request ──►  Middleware  │  SecurityService              │
                            (injected into request extensions)
                                      │
                                      ▼
-                             Handler body
-                         require_permission(ctx, Permission::*)
+                         ┌───────────────────────┐
+                         │  authorize() wrapper  │ (TAS-176)
+                         │  Resource + Action    │
+                         └───────────┬───────────┘
                                      │
                            ┌─────────┴─────────┐
                            ▼                   ▼
-                     200 (allowed)       403 (denied)
+                     Body parsing        403 (denied)
+                         │
+                         ▼
+                    Handler body
+                         │
+                         ▼
+                   200 (success)
 ```
 
 ### Key Components
@@ -34,8 +42,10 @@ Request ──►  Middleware  │  SecurityService              │
 | `SecurityService` | `tasker-shared/src/services/security_service.rs` | Unified auth backend: validates JWTs (static key or JWKS) and API keys |
 | `SecurityContext` | `tasker-shared/src/types/security.rs` | Per-request identity + permissions, extracted by handlers |
 | `Permission` enum | `tasker-shared/src/types/permissions.rs` | Compile-time permission vocabulary (`resource:action`) |
+| `Resource`, `Action` | `tasker-shared/src/types/resources.rs` | TAS-176: Resource-based authorization types |
+| `authorize()` wrapper | `tasker-shared/src/web/authorize.rs` | TAS-176: Handler wrapper for declarative permission checks |
 | Auth middleware | `*/src/web/middleware/auth.rs` | Axum middleware injecting `SecurityContext` |
-| `require_permission()` | `*/src/web/middleware/permission.rs` | Per-handler permission gate |
+| `require_permission()` | `*/src/web/middleware/permission.rs` | Legacy per-handler permission gate (still available) |
 
 ### Request Flow
 
@@ -43,7 +53,8 @@ Request ──►  Middleware  │  SecurityService              │
 2. If auth disabled → injects `SecurityContext::disabled_context()` (all permissions)
 3. If auth enabled → extracts Bearer token or API key from headers
 4. **`SecurityService`** validates credentials, returns `SecurityContext`
-5. **Handler** calls `require_permission(ctx, Permission::Xxx)` → 403 if denied
+5. **`authorize()` wrapper** (TAS-176) checks permission BEFORE body deserialization → 403 if denied
+6. Body deserialization and handler execution proceed if authorized
 
 ### Route Layers
 
@@ -110,12 +121,21 @@ Security is opt-in (`enabled = false` default). Existing deployments are unaffec
 
 The `/config` endpoint exposes runtime configuration (secrets redacted). It is controlled by a separate toggle (`config_endpoint_enabled`, default `false`). When disabled, the route is not registered (404, not 401).
 
-### Middleware vs. Extractor Authorization
+### TAS-176: Resource-Based Authorization
 
-Permission checks happen in the handler body via `require_permission()`, not in middleware. This means:
-- Body deserialization (`Json<T>`) occurs before permission checks for POST/PATCH handlers
-- This is a known tradeoff — the auth middleware still validates identity (401 for invalid credentials), so only authenticated users can trigger deserialization
-- Moving to extractor-based authorization would require Axum extractor ordering changes
+As of TAS-176, permission checks happen at the route level via `authorize()` wrappers BEFORE body deserialization:
+
+```rust
+.route("/tasks", post(authorize(Resource::Tasks, Action::Create, create_task)))
+```
+
+This approach:
+- Rejects unauthorized requests before parsing request bodies
+- Provides a declarative, visible permission model at the route level
+- Is protocol-agnostic (same `Resource`/`Action` types work for REST and gRPC)
+- Documents permissions in OpenAPI via `x-required-permission` extensions
+
+The legacy `require_permission()` function is still available for cases where permission checks need to happen inside handler logic.
 
 ### Credential Priority (Client)
 
@@ -129,7 +149,6 @@ The `tasker-client` library resolves credentials in this order:
 
 ## Known Limitations
 
-- **Worker template routes** lack a `/v1` prefix (tracked for future versioning)
-- **Body-before-permission** ordering for POST/PATCH endpoints (see Design Decisions above)
+- ~~**Body-before-permission** ordering for POST/PATCH endpoints~~ — Resolved by TAS-176
 - **No token refresh** — tokens are stateless; clients must generate new tokens before expiry
 - **API keys have no expiration** — rotate by removing from config and redeploying

@@ -18,6 +18,8 @@ use tasker_shared::models::core::task_request::TaskRequest;
 
 // Import all handler response types
 use crate::web::handlers;
+// DLQ handler types (TAS-49)
+use crate::web::handlers::dlq::{UpdateInvestigationRequest, UpdateInvestigationResponse};
 
 use tasker_shared::types::api::orchestration::{
     BottleneckAnalysis, ConfigMetadata, DetailedHealthResponse, HealthCheck, HealthInfo,
@@ -31,6 +33,12 @@ use tasker_shared::types::api::orchestration::{
 use tasker_shared::types::api::templates::{
     NamespaceSummary, StepDefinition, TemplateDetail, TemplateListResponse, TemplateSummary,
 };
+
+// TAS-49: DLQ model types
+use tasker_shared::models::orchestration::dlq::{
+    DlqEntry, DlqInvestigationQueueEntry, DlqResolutionStatus, DlqStats, StalenessMonitoring,
+};
+use tasker_shared::models::orchestration::StalenessHealthStatus;
 
 /// Main OpenAPI specification for the Tasker Web API
 #[derive(OpenApi)]
@@ -62,6 +70,14 @@ use tasker_shared::types::api::templates::{
         // TAS-76: Templates API paths (replaces legacy handlers registry)
         handlers::templates::list_templates,
         handlers::templates::get_template,
+
+        // TAS-49: DLQ API paths
+        handlers::dlq::list_dlq_entries,
+        handlers::dlq::get_dlq_entry,
+        handlers::dlq::update_dlq_investigation,
+        handlers::dlq::get_dlq_stats,
+        handlers::dlq::get_investigation_queue,
+        handlers::dlq::get_staleness_monitoring,
 
         // Config API paths - unified endpoint
         handlers::config::get_config,
@@ -112,6 +128,16 @@ use tasker_shared::types::api::templates::{
         SafeDatabasePoolConfig,
         SafeMessagingConfig,
 
+        // TAS-49: DLQ schemas
+        DlqEntry,
+        DlqStats,
+        DlqResolutionStatus,
+        DlqInvestigationQueueEntry,
+        StalenessMonitoring,
+        StalenessHealthStatus,
+        UpdateInvestigationRequest,
+        UpdateInvestigationResponse,
+
         // Error schemas (re-exported from errors module)
         ApiError,
     )),
@@ -121,6 +147,7 @@ use tasker_shared::types::api::templates::{
         (name = "health", description = "Health check and monitoring"),
         (name = "analytics", description = "Performance analytics and metrics"),
         (name = "templates", description = "Template discovery and information"),
+        (name = "dlq", description = "Dead Letter Queue investigation and monitoring"),
         (name = "config", description = "Runtime configuration observability (safe fields only)"),
     ),
     info(

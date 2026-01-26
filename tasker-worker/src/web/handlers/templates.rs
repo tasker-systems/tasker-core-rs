@@ -90,6 +90,8 @@ fn template_error_to_response(error: TemplateQueryError) -> (StatusCode, Json<Er
 /// Get a specific task template
 ///
 /// GET /v1/templates/{namespace}/{name}/{version}
+///
+/// **Required Permission:** `worker:templates_read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/templates/{namespace}/{name}/{version}",
@@ -105,6 +107,9 @@ fn template_error_to_response(error: TemplateQueryError) -> (StatusCode, Json<Er
         (status = 404, description = "Template not found")
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("worker:templates_read"))
+    ),
     tag = "templates"
 ))]
 pub async fn get_template(
@@ -125,6 +130,8 @@ pub async fn get_template(
 /// List supported templates and namespaces
 ///
 /// GET /v1/templates
+///
+/// **Required Permission:** `worker:templates_read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/templates",
@@ -138,6 +145,9 @@ pub async fn get_template(
         (status = 403, description = "Insufficient permissions")
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("worker:templates_read"))
+    ),
     tag = "templates"
 ))]
 pub async fn list_templates(
@@ -159,6 +169,8 @@ pub async fn list_templates(
 /// Validate a template for worker execution
 ///
 /// POST /v1/templates/{namespace}/{name}/{version}/validate
+///
+/// **Required Permission:** `templates:validate`
 #[cfg_attr(feature = "web-api", utoipa::path(
     post,
     path = "/v1/templates/{namespace}/{name}/{version}/validate",
@@ -174,6 +186,9 @@ pub async fn list_templates(
         (status = 404, description = "Template not found")
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("templates:validate"))
+    ),
     tag = "templates"
 ))]
 pub async fn validate_template(

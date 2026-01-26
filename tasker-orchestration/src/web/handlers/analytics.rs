@@ -25,6 +25,8 @@ use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 /// Get performance metrics: GET /v1/analytics/performance
+///
+/// **Required Permission:** `system:analytics_read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/analytics/performance",
@@ -38,6 +40,9 @@ use tasker_shared::types::web::{ApiError, ApiResult};
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("system:analytics_read"))
+    ),
     tag = "analytics"
 ))]
 pub async fn get_performance_metrics(
@@ -65,6 +70,8 @@ pub async fn get_performance_metrics(
 }
 
 /// Get bottleneck analysis: GET /v1/analytics/bottlenecks
+///
+/// **Required Permission:** `system:analytics_read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/analytics/bottlenecks",
@@ -79,6 +86,9 @@ pub async fn get_performance_metrics(
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("system:analytics_read"))
+    ),
     tag = "analytics"
 ))]
 pub async fn get_bottlenecks(

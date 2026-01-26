@@ -38,6 +38,8 @@ use tasker_shared::types::web::{ApiError, ApiResult};
 ///
 /// Returns a list of all registered task templates, optionally filtered by namespace.
 /// Includes namespace summaries and template details.
+///
+/// **Required Permission:** `templates:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/templates",
@@ -49,6 +51,9 @@ use tasker_shared::types::web::{ApiError, ApiResult};
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("templates:read"))
+    ),
     tag = "templates"
 ))]
 pub async fn list_templates(
@@ -75,6 +80,8 @@ pub async fn list_templates(
 /// GET /v1/templates/{namespace}/{name}/{version}
 ///
 /// Returns detailed information about a specific template including its step definitions.
+///
+/// **Required Permission:** `templates:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/templates/{namespace}/{name}/{version}",
@@ -91,6 +98,9 @@ pub async fn list_templates(
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("templates:read"))
+    ),
     tag = "templates"
 ))]
 pub async fn get_template(

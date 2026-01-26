@@ -105,6 +105,8 @@ pub mod system_context;
 pub mod types;
 pub mod utils;
 pub mod validation;
+#[cfg(feature = "web-api")]
+pub mod web;
 
 pub use constants::events as system_events;
 pub use constants::{
