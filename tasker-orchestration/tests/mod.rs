@@ -8,9 +8,11 @@
 //! - Web API endpoints
 //! - State management for orchestration
 //! - Task initialization and cycle detection
+//! - Service layer (TAS-76)
 //!
 
 pub mod messaging;
+pub mod services;
 pub mod state_manager;
 pub mod task_initialization_cycle_detection_test;
 pub mod web;

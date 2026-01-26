@@ -19,7 +19,8 @@ async fn full_permissions_access_granted() {
     client.with_jwt(&token);
 
     // All read endpoints should succeed (200 or 404 for missing resources, not 401/403)
-    let endpoints = ["/v1/tasks", "/v1/handlers", "/config"];
+    // TAS-76: /v1/handlers renamed to /v1/templates
+    let endpoints = ["/v1/tasks", "/v1/templates", "/config"];
 
     for path in endpoints {
         let response = client.get(path).await.expect("request failed");
@@ -201,7 +202,7 @@ async fn tasks_only_denied_on_config() {
 }
 
 #[tokio::test]
-async fn tasks_only_denied_on_handlers() {
+async fn tasks_only_denied_on_templates() {
     let server = AuthTestServer::start()
         .await
         .expect("Failed to start auth test server");
@@ -210,11 +211,12 @@ async fn tasks_only_denied_on_handlers() {
     let token = generate_jwt(&["tasks:list", "tasks:read", "tasks:create"]);
     client.with_jwt(&token);
 
-    let response = client.get("/v1/handlers").await.expect("request failed");
+    // TAS-76: Route renamed from /v1/handlers to /v1/templates
+    let response = client.get("/v1/templates").await.expect("request failed");
     assert_eq!(
         response.status(),
         StatusCode::FORBIDDEN,
-        "/v1/handlers with only tasks perms should return 403 (got {})",
+        "/v1/templates with only tasks perms should return 403 (got {})",
         response.status()
     );
 

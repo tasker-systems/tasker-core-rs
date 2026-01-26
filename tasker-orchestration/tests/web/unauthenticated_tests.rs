@@ -137,10 +137,11 @@ async fn test_protected_endpoints_require_auth() {
     // In test mode, auth is disabled, so we expect:
     // - 404 for non-existent endpoints
     // - 500 or other responses for existing but unimplemented endpoints
+    // TAS-76: /v1/handlers renamed to /v1/templates
     let test_endpoints = vec![
         ("/v1/tasks", "tasks endpoint"),
         ("/v1/analytics/performance", "analytics endpoint"),
-        ("/v1/handlers", "handlers endpoint"),
+        ("/v1/templates", "templates endpoint"),
     ];
 
     for (endpoint, description) in test_endpoints {

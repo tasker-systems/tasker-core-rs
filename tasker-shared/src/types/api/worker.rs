@@ -1,6 +1,9 @@
 //! # Worker API Types
 //!
 //! Types for worker web API endpoints including templates, health checks, and cache operations.
+//!
+//! TAS-76: Common template types moved to `types::api::templates`. Worker-specific
+//! types (with cache info, handler metadata) remain here.
 
 use crate::types::base::CacheStats;
 use crate::{models::core::task_template::ResolvedTaskTemplate, types::HandlerMetadata};
@@ -8,25 +11,22 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// Re-export shared template types for convenience
+pub use super::templates::{TemplatePathParams, TemplateQueryParams as BaseTemplateQueryParams};
+
 // =============================================================================
-// Template Types
+// Template Types (Worker-Specific)
 // =============================================================================
 
-/// Query parameters for template listing
-#[derive(Debug, Deserialize)]
+/// Query parameters for worker template listing
+///
+/// Extends base query params with worker-specific options.
+#[derive(Debug, Default, Deserialize)]
 pub struct TemplateQueryParams {
     /// Filter by namespace
     pub namespace: Option<String>,
-    /// Include cache statistics
+    /// Include cache statistics (worker-specific)
     pub include_cache_stats: Option<bool>,
-}
-
-/// Path parameters for template operations
-#[derive(Debug, Deserialize)]
-pub struct TemplatePathParams {
-    pub namespace: String,
-    pub name: String,
-    pub version: String,
 }
 
 /// Response for template retrieval
@@ -83,15 +83,71 @@ pub struct BasicHealthResponse {
     pub worker_id: String,
 }
 
-/// Detailed health check response with subsystem checks
+/// TAS-76: Typed readiness checks for worker readiness probe
+///
+/// These are the core checks required to determine if the worker can accept work.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
+pub struct WorkerReadinessChecks {
+    pub database: HealthCheck,
+    pub command_processor: HealthCheck,
+    pub queue_processing: HealthCheck,
+}
+
+impl WorkerReadinessChecks {
+    /// Check if all readiness checks passed
+    pub fn all_healthy(&self) -> bool {
+        self.database.is_healthy()
+            && self.command_processor.is_healthy()
+            && self.queue_processing.is_healthy()
+    }
+}
+
+/// TAS-76: Typed detailed checks for worker health
+///
+/// Comprehensive health checks for all worker subsystems.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
+pub struct WorkerDetailedChecks {
+    pub database: HealthCheck,
+    pub command_processor: HealthCheck,
+    pub queue_processing: HealthCheck,
+    pub event_system: HealthCheck,
+    pub step_processing: HealthCheck,
+    pub circuit_breakers: HealthCheck,
+}
+
+impl WorkerDetailedChecks {
+    /// Check if all detailed checks passed
+    pub fn all_healthy(&self) -> bool {
+        self.database.is_healthy()
+            && self.command_processor.is_healthy()
+            && self.queue_processing.is_healthy()
+            && self.event_system.is_healthy()
+            && self.step_processing.is_healthy()
+            && self.circuit_breakers.is_healthy()
+    }
+}
+
+/// Worker readiness response with typed checks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
+pub struct ReadinessResponse {
+    pub status: String,
+    pub timestamp: DateTime<Utc>,
+    pub worker_id: String,
+    pub checks: WorkerReadinessChecks,
+    pub system_info: WorkerSystemInfo,
+}
+
+/// Detailed health check response with typed subsystem checks
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(utoipa::ToSchema))]
 pub struct DetailedHealthResponse {
     pub status: String,
     pub timestamp: DateTime<Utc>,
     pub worker_id: String,
-    #[cfg_attr(feature = "web-api", schema(value_type = Object))]
-    pub checks: HashMap<String, HealthCheck>,
+    pub checks: WorkerDetailedChecks,
     pub system_info: WorkerSystemInfo,
     /// TAS-169: Distributed cache status (moved from /templates/cache/distributed)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -121,6 +177,43 @@ pub struct HealthCheck {
     pub message: Option<String>,
     pub duration_ms: u64,
     pub last_checked: DateTime<Utc>,
+}
+
+impl HealthCheck {
+    /// Create a healthy check result
+    pub fn healthy(message: impl Into<String>, duration_ms: u64) -> Self {
+        Self {
+            status: "healthy".to_string(),
+            message: Some(message.into()),
+            duration_ms,
+            last_checked: Utc::now(),
+        }
+    }
+
+    /// Create a degraded check result
+    pub fn degraded(message: impl Into<String>, duration_ms: u64) -> Self {
+        Self {
+            status: "degraded".to_string(),
+            message: Some(message.into()),
+            duration_ms,
+            last_checked: Utc::now(),
+        }
+    }
+
+    /// Create an unhealthy check result
+    pub fn unhealthy(message: impl Into<String>, duration_ms: u64) -> Self {
+        Self {
+            status: "unhealthy".to_string(),
+            message: Some(message.into()),
+            duration_ms,
+            last_checked: Utc::now(),
+        }
+    }
+
+    /// Check if this health check indicates healthy status
+    pub fn is_healthy(&self) -> bool {
+        self.status == "healthy"
+    }
 }
 
 /// Worker system information

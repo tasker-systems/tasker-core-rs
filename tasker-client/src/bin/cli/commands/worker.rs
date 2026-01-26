@@ -80,24 +80,28 @@ pub async fn handle_worker_command(cmd: WorkerCommands, config: &ClientConfig) -
                         response.system_info.supported_namespaces.join(", ")
                     );
 
-                    if !response.checks.is_empty() {
-                        println!("\n  Health checks:");
-                        for (check_name, check_result) in &response.checks {
-                            let status_icon = if check_result.status == "healthy" {
-                                "✓"
-                            } else {
-                                "✗"
-                            };
-                            println!(
-                                "    {} {}: {} ({}ms)",
-                                status_icon,
-                                check_name,
-                                check_result.status,
-                                check_result.duration_ms
-                            );
-                            if let Some(ref msg) = check_result.message {
-                                println!("      {}", msg);
-                            }
+                    // TAS-76: Typed worker health checks
+                    println!("\n  Health checks:");
+                    let checks = [
+                        ("database", &response.checks.database),
+                        ("command_processor", &response.checks.command_processor),
+                        ("queue_processing", &response.checks.queue_processing),
+                        ("event_system", &response.checks.event_system),
+                        ("step_processing", &response.checks.step_processing),
+                        ("circuit_breakers", &response.checks.circuit_breakers),
+                    ];
+                    for (check_name, check_result) in checks {
+                        let status_icon = if check_result.status == "healthy" {
+                            "✓"
+                        } else {
+                            "✗"
+                        };
+                        println!(
+                            "    {} {}: {} ({}ms)",
+                            status_icon, check_name, check_result.status, check_result.duration_ms
+                        );
+                        if let Some(ref msg) = &check_result.message {
+                            println!("      {}", msg);
                         }
                     }
                 }
@@ -154,25 +158,32 @@ pub async fn handle_worker_command(cmd: WorkerCommands, config: &ClientConfig) -
                         response.system_info.supported_namespaces.join(", ")
                     );
 
-                    if !response.checks.is_empty() {
-                        println!("\n  Health checks:");
-                        for (check_name, check_result) in response.checks {
-                            let status_icon = if check_result.status == "healthy" {
-                                "✓"
-                            } else {
-                                "✗"
-                            };
-                            println!(
-                                "    {} {}: {} ({}ms) - last checked: {}",
-                                status_icon,
-                                check_name,
-                                check_result.status,
-                                check_result.duration_ms,
-                                check_result.last_checked
-                            );
-                            if let Some(message) = check_result.message {
-                                println!("      {}", message);
-                            }
+                    // TAS-76: Typed worker health checks
+                    println!("\n  Health checks:");
+                    let checks = [
+                        ("database", &response.checks.database),
+                        ("command_processor", &response.checks.command_processor),
+                        ("queue_processing", &response.checks.queue_processing),
+                        ("event_system", &response.checks.event_system),
+                        ("step_processing", &response.checks.step_processing),
+                        ("circuit_breakers", &response.checks.circuit_breakers),
+                    ];
+                    for (check_name, check_result) in checks {
+                        let status_icon = if check_result.status == "healthy" {
+                            "✓"
+                        } else {
+                            "✗"
+                        };
+                        println!(
+                            "    {} {}: {} ({}ms) - last checked: {}",
+                            status_icon,
+                            check_name,
+                            check_result.status,
+                            check_result.duration_ms,
+                            check_result.last_checked
+                        );
+                        if let Some(ref message) = &check_result.message {
+                            println!("      {}", message);
                         }
                     }
                 }

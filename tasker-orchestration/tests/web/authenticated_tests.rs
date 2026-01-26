@@ -135,7 +135,8 @@ async fn test_authenticated_endpoints_with_valid_jwt() {
     client.with_jwt_token(token);
 
     // Test various authenticated endpoints
-    let authenticated_endpoints = vec!["/health", "/v1/handlers"];
+    // TAS-76: /v1/handlers renamed to /v1/templates
+    let authenticated_endpoints = vec!["/health", "/v1/templates"];
 
     for endpoint in authenticated_endpoints {
         let response = client

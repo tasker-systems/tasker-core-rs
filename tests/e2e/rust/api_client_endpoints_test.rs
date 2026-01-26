@@ -87,8 +87,24 @@ async fn test_orchestration_health_endpoints() -> Result<()> {
         "Detailed health should return valid status"
     );
     println!("     ✅ status: {}", detailed.status);
-    println!("     ✅ checks: {} subsystems", detailed.checks.len());
-    for (name, check) in &detailed.checks {
+    println!("     ✅ checks: 8 subsystems");
+    let checks = [
+        ("web_database", &detailed.checks.web_database),
+        (
+            "orchestration_database",
+            &detailed.checks.orchestration_database,
+        ),
+        ("circuit_breaker", &detailed.checks.circuit_breaker),
+        (
+            "orchestration_system",
+            &detailed.checks.orchestration_system,
+        ),
+        ("command_processor", &detailed.checks.command_processor),
+        ("pool_utilization", &detailed.checks.pool_utilization),
+        ("queue_depth", &detailed.checks.queue_depth),
+        ("channel_saturation", &detailed.checks.channel_saturation),
+    ];
+    for (name, check) in checks {
         println!("        - {}: {}", name, check.status);
     }
 
@@ -217,7 +233,17 @@ async fn test_worker_health_endpoints() -> Result<()> {
                 "Readiness should return valid status"
             );
             println!("     ✅ status: {}", readiness.status);
-            println!("     ✅ checks: {} subsystems", readiness.checks.len());
+            // TAS-76: Typed checks - 3 readiness checks (database, command_processor, queue_processing)
+            println!("     ✅ checks: 3 subsystems");
+            println!("        - database: {}", readiness.checks.database.status);
+            println!(
+                "        - command_processor: {}",
+                readiness.checks.command_processor.status
+            );
+            println!(
+                "        - queue_processing: {}",
+                readiness.checks.queue_processing.status
+            );
         }
         Err(e) => {
             // 503 is valid for readiness probes - service may not be fully ready

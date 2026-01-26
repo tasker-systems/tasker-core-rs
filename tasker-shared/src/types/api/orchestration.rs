@@ -376,17 +376,120 @@ pub struct HealthResponse {
 pub struct DetailedHealthResponse {
     pub status: String,
     pub timestamp: String,
-    pub checks: HashMap<String, HealthCheck>,
+    pub checks: DetailedHealthChecks,
     pub info: HealthInfo,
 }
 
-/// Individual health check result
+/// Readiness health check response (subset of detailed checks)
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct ReadinessResponse {
+    pub status: String,
+    pub timestamp: String,
+    pub checks: ReadinessChecks,
+    pub info: HealthInfo,
+}
+
+/// Core health checks for readiness probe
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct ReadinessChecks {
+    pub web_database: HealthCheck,
+    pub orchestration_database: HealthCheck,
+    pub circuit_breaker: HealthCheck,
+    pub orchestration_system: HealthCheck,
+    pub command_processor: HealthCheck,
+}
+
+impl ReadinessChecks {
+    /// Check if all readiness checks are healthy
+    pub fn all_healthy(&self) -> bool {
+        self.web_database.is_healthy()
+            && self.orchestration_database.is_healthy()
+            && self.circuit_breaker.is_healthy()
+            && self.orchestration_system.is_healthy()
+            && self.command_processor.is_healthy()
+    }
+}
+
+/// Full health checks for detailed health endpoint
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub struct DetailedHealthChecks {
+    pub web_database: HealthCheck,
+    pub orchestration_database: HealthCheck,
+    pub circuit_breaker: HealthCheck,
+    pub orchestration_system: HealthCheck,
+    pub command_processor: HealthCheck,
+    pub pool_utilization: HealthCheck,
+    pub queue_depth: HealthCheck,
+    pub channel_saturation: HealthCheck,
+}
+
+impl DetailedHealthChecks {
+    /// Check if all detailed checks are healthy
+    pub fn all_healthy(&self) -> bool {
+        self.web_database.is_healthy()
+            && self.orchestration_database.is_healthy()
+            && self.circuit_breaker.is_healthy()
+            && self.orchestration_system.is_healthy()
+            && self.command_processor.is_healthy()
+            && self.pool_utilization.is_healthy()
+            && self.queue_depth.is_healthy()
+            && self.channel_saturation.is_healthy()
+    }
+}
+
+/// Individual health check result
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct HealthCheck {
     pub status: String,
     pub message: Option<String>,
     pub duration_ms: u64,
+}
+
+impl HealthCheck {
+    /// Create a healthy check result
+    pub fn healthy(message: impl Into<String>, duration_ms: u64) -> Self {
+        Self {
+            status: "healthy".to_string(),
+            message: Some(message.into()),
+            duration_ms,
+        }
+    }
+
+    /// Create a degraded check result
+    pub fn degraded(message: impl Into<String>, duration_ms: u64) -> Self {
+        Self {
+            status: "degraded".to_string(),
+            message: Some(message.into()),
+            duration_ms,
+        }
+    }
+
+    /// Create an unhealthy check result
+    pub fn unhealthy(message: impl Into<String>, duration_ms: u64) -> Self {
+        Self {
+            status: "unhealthy".to_string(),
+            message: Some(message.into()),
+            duration_ms,
+        }
+    }
+
+    /// Create an unknown check result
+    pub fn unknown(message: impl Into<String>, duration_ms: u64) -> Self {
+        Self {
+            status: "unknown".to_string(),
+            message: Some(message.into()),
+            duration_ms,
+        }
+    }
+
+    /// Check if this check is healthy
+    pub fn is_healthy(&self) -> bool {
+        self.status == "healthy"
+    }
 }
 
 // TAS-164: Pool utilization types are shared with worker health endpoints

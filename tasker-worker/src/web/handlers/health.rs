@@ -13,7 +13,9 @@ use chrono::Utc;
 use std::sync::Arc;
 
 use crate::web::state::WorkerWebState;
-use tasker_shared::types::api::worker::{BasicHealthResponse, DetailedHealthResponse};
+use tasker_shared::types::api::worker::{
+    BasicHealthResponse, DetailedHealthResponse, ReadinessResponse,
+};
 use tasker_shared::types::web::*;
 
 /// Basic health check endpoint: GET /health
@@ -40,14 +42,14 @@ pub async fn health_check(State(state): State<Arc<WorkerWebState>>) -> Json<Basi
     get,
     path = "/health/ready",
     responses(
-        (status = 200, description = "Worker is ready", body = DetailedHealthResponse),
+        (status = 200, description = "Worker is ready", body = ReadinessResponse),
         (status = 503, description = "Worker is not ready")
     ),
     tag = "health"
 ))]
 pub async fn readiness_check(
     State(state): State<Arc<WorkerWebState>>,
-) -> Result<Json<DetailedHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<ReadinessResponse>, (StatusCode, Json<ErrorResponse>)> {
     match state.health_service().readiness().await {
         Ok(response) => Ok(Json(response)),
         Err(_response) => Err((

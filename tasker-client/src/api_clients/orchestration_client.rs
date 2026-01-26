@@ -1,8 +1,10 @@
 //! # Orchestration API Client
 //!
 //! Comprehensive HTTP client for communicating with the tasker-orchestration web API.
-//! Provides methods for all available endpoints including tasks, workflow steps, handlers,
+//! Provides methods for all available endpoints including tasks, workflow steps, templates,
 //! analytics, and health monitoring.
+//!
+//! TAS-76: Legacy /v1/handlers endpoints replaced with /v1/templates.
 
 use reqwest::{Client, Url};
 use std::time::Duration;
@@ -15,10 +17,11 @@ use tasker_shared::{
     models::core::{task::TaskListQuery, task_request::TaskRequest},
     types::{
         api::orchestration::{
-            BottleneckAnalysis, BottleneckQuery, DetailedHealthResponse, HandlerInfo,
-            HealthResponse, MetricsQuery, NamespaceInfo, PerformanceMetrics, StepAuditResponse,
-            StepManualAction, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
+            BottleneckAnalysis, BottleneckQuery, DetailedHealthResponse, HealthResponse,
+            MetricsQuery, PerformanceMetrics, StepAuditResponse, StepManualAction, StepResponse,
+            TaskCreationResponse, TaskListResponse, TaskResponse,
         },
+        api::templates::{TemplateDetail, TemplateListResponse},
         auth::JwtAuthenticator,
     },
 };
@@ -746,33 +749,50 @@ impl OrchestrationApiClient {
     }
 
     // ===================================================================================
-    // HANDLERS API METHODS
+    // TEMPLATES API METHODS (TAS-76: Replaces legacy handlers API)
     // ===================================================================================
 
-    /// List all available namespaces
+    /// List all available templates
     ///
-    /// GET /v1/handlers
-    pub async fn list_namespaces(&self) -> TaskerResult<Vec<NamespaceInfo>> {
-        let url = self.base_url.join("/v1/handlers").map_err(|e| {
+    /// GET /v1/templates
+    ///
+    /// Returns a list of all registered task templates with namespace summaries.
+    /// Optionally filter by namespace using the `namespace` query parameter.
+    pub async fn list_templates(
+        &self,
+        namespace: Option<&str>,
+    ) -> TaskerResult<TemplateListResponse> {
+        let mut url = self.base_url.join("/v1/templates").map_err(|e| {
             TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
         })?;
 
-        debug!(url = %url, "Listing namespaces via orchestration API");
+        if let Some(ns) = namespace {
+            url.query_pairs_mut().append_pair("namespace", ns);
+        }
+
+        debug!(url = %url, namespace = ?namespace, "Listing templates via orchestration API");
 
         let response = self.client.get(url.clone()).send().await.map_err(|e| {
             TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
         })?;
 
-        self.handle_response(response, "list namespaces").await
+        self.handle_response(response, "list templates").await
     }
 
-    /// List handlers in a specific namespace
+    /// Get details about a specific template
     ///
-    /// GET /v1/handlers/{namespace}
-    pub async fn list_namespace_handlers(&self, namespace: &str) -> TaskerResult<Vec<HandlerInfo>> {
+    /// GET /v1/templates/{namespace}/{name}/{version}
+    ///
+    /// Returns detailed information about a template including its step definitions.
+    pub async fn get_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> TaskerResult<TemplateDetail> {
         let url = self
             .base_url
-            .join(&format!("/v1/handlers/{}", namespace))
+            .join(&format!("/v1/templates/{}/{}/{}", namespace, name, version))
             .map_err(|e| {
                 TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
             })?;
@@ -780,40 +800,16 @@ impl OrchestrationApiClient {
         debug!(
             url = %url,
             namespace = %namespace,
-            "Listing namespace handlers via orchestration API"
+            template_name = %name,
+            version = %version,
+            "Getting template details via orchestration API"
         );
 
         let response = self.client.get(url.clone()).send().await.map_err(|e| {
             TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
         })?;
 
-        self.handle_response(response, "list namespace handlers")
-            .await
-    }
-
-    /// Get information about a specific handler
-    ///
-    /// GET /v1/handlers/{namespace}/{name}
-    pub async fn get_handler_info(&self, namespace: &str, name: &str) -> TaskerResult<HandlerInfo> {
-        let url = self
-            .base_url
-            .join(&format!("/v1/handlers/{}/{}", namespace, name))
-            .map_err(|e| {
-                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
-            })?;
-
-        debug!(
-            url = %url,
-            namespace = %namespace,
-            handler_name = %name,
-            "Getting handler info via orchestration API"
-        );
-
-        let response = self.client.get(url.clone()).send().await.map_err(|e| {
-            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
-        })?;
-
-        self.handle_response(response, "get handler info").await
+        self.handle_response(response, "get template").await
     }
 
     // ===================================================================================
@@ -1413,32 +1409,68 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handler_info_deserialization() {
+    async fn test_template_detail_deserialization() {
+        // TAS-76: Updated from legacy handler info to template detail
         let json_response = json!({
-            "name": "test_handler",
+            "name": "test_template",
             "namespace": "test",
             "version": "1.0.0",
-            "description": "Test handler",
-            "step_templates": ["step1", "step2"]
+            "description": "Test template",
+            "configuration": null,
+            "steps": [
+                {
+                    "name": "step1",
+                    "description": null,
+                    "default_retryable": true,
+                    "default_max_attempts": 3
+                },
+                {
+                    "name": "step2",
+                    "description": "Second step",
+                    "default_retryable": false,
+                    "default_max_attempts": 1
+                }
+            ]
         });
 
-        let response: HandlerInfo = serde_json::from_value(json_response).unwrap();
-        assert_eq!(response.name, "test_handler");
+        let response: TemplateDetail = serde_json::from_value(json_response).unwrap();
+        assert_eq!(response.name, "test_template");
         assert_eq!(response.namespace, "test");
-        assert_eq!(response.step_templates.len(), 2);
+        assert_eq!(response.version, "1.0.0");
+        assert_eq!(response.steps.len(), 2);
+        assert_eq!(response.steps[0].name, "step1");
+        assert!(response.steps[0].default_retryable);
     }
 
     #[tokio::test]
-    async fn test_namespace_info_deserialization() {
+    async fn test_template_list_response_deserialization() {
+        // TAS-76: Updated from legacy namespace info to template list
         let json_response = json!({
-            "name": "test",
-            "description": "Test namespace",
-            "handler_count": 5
+            "namespaces": [
+                {
+                    "name": "test",
+                    "description": "Test namespace",
+                    "template_count": 5
+                }
+            ],
+            "templates": [
+                {
+                    "name": "template1",
+                    "namespace": "test",
+                    "version": "1.0.0",
+                    "description": "First template",
+                    "step_count": 3
+                }
+            ],
+            "total_count": 5
         });
 
-        let response: NamespaceInfo = serde_json::from_value(json_response).unwrap();
-        assert_eq!(response.name, "test");
-        assert_eq!(response.handler_count, 5);
+        let response: TemplateListResponse = serde_json::from_value(json_response).unwrap();
+        assert_eq!(response.namespaces.len(), 1);
+        assert_eq!(response.namespaces[0].name, "test");
+        assert_eq!(response.namespaces[0].template_count, 5);
+        assert_eq!(response.templates.len(), 1);
+        assert_eq!(response.total_count, 5);
     }
 
     #[tokio::test]
@@ -1477,14 +1509,50 @@ mod tests {
 
     #[tokio::test]
     async fn test_detailed_health_response_deserialization() {
+        // TAS-76: Updated to use typed DetailedHealthChecks struct
         let json_response = json!({
             "status": "healthy",
             "timestamp": "2023-12-01T12:00:00Z",
             "checks": {
-                "database": {
+                "web_database": {
                     "status": "healthy",
                     "message": null,
                     "duration_ms": 5
+                },
+                "orchestration_database": {
+                    "status": "healthy",
+                    "message": null,
+                    "duration_ms": 3
+                },
+                "circuit_breaker": {
+                    "status": "healthy",
+                    "message": "closed",
+                    "duration_ms": 0
+                },
+                "orchestration_system": {
+                    "status": "healthy",
+                    "message": null,
+                    "duration_ms": 1
+                },
+                "command_processor": {
+                    "status": "healthy",
+                    "message": null,
+                    "duration_ms": 1
+                },
+                "pool_utilization": {
+                    "status": "healthy",
+                    "message": "10/20 connections in use",
+                    "duration_ms": 0
+                },
+                "queue_depth": {
+                    "status": "healthy",
+                    "message": null,
+                    "duration_ms": 0
+                },
+                "channel_saturation": {
+                    "status": "healthy",
+                    "message": null,
+                    "duration_ms": 0
                 }
             },
             "info": {
@@ -1500,7 +1568,9 @@ mod tests {
         let response: DetailedHealthResponse = serde_json::from_value(json_response).unwrap();
         assert_eq!(response.status, "healthy");
         assert_eq!(response.info.version, "1.0.0");
-        assert!(response.checks.contains_key("database"));
+        assert_eq!(response.checks.web_database.status, "healthy");
+        assert_eq!(response.checks.orchestration_database.status, "healthy");
+        assert_eq!(response.checks.circuit_breaker.status, "healthy");
     }
 
     // ===================================================================================
