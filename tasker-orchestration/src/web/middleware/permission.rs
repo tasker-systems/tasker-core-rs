@@ -64,11 +64,35 @@ mod tests {
     }
 
     #[test]
-    fn test_global_wildcard_passes_all() {
+    fn test_global_wildcard_rejected() {
+        // Global wildcard (*) is NOT supported - only resource:* patterns are allowed
         let ctx = SecurityContext {
             subject: "superadmin".to_string(),
             auth_method: AuthMethod::Jwt,
             permissions: vec!["*".to_string()],
+            issuer: None,
+            expires_at: None,
+        };
+        // All permissions should be denied with only global wildcard
+        assert!(require_permission(&ctx, Permission::TasksCreate).is_err());
+        assert!(require_permission(&ctx, Permission::DlqUpdate).is_err());
+        assert!(require_permission(&ctx, Permission::SystemConfigRead).is_err());
+    }
+
+    #[test]
+    fn test_all_resource_wildcards_grants_full_access() {
+        // Use explicit resource wildcards for full access
+        let ctx = SecurityContext {
+            subject: "admin".to_string(),
+            auth_method: AuthMethod::Jwt,
+            permissions: vec![
+                "tasks:*".to_string(),
+                "steps:*".to_string(),
+                "dlq:*".to_string(),
+                "templates:*".to_string(),
+                "system:*".to_string(),
+                "worker:*".to_string(),
+            ],
             issuer: None,
             expires_at: None,
         };
