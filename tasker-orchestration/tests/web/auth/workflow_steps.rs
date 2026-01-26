@@ -241,13 +241,14 @@ async fn resolve_step_denied_with_tasks_wildcard() {
 }
 
 #[tokio::test]
-async fn resolve_step_with_global_wildcard() {
+async fn resolve_step_with_steps_wildcard() {
     let server = AuthTestServer::start()
         .await
         .expect("Failed to start auth test server");
     let mut client = AuthWebTestClient::for_server(&server);
 
-    let token = generate_jwt(&["*"]);
+    // steps:* should grant steps:resolve
+    let token = generate_jwt(&["steps:*"]);
     client.with_jwt(&token);
 
     let body = serde_json::json!({
@@ -266,12 +267,45 @@ async fn resolve_step_with_global_wildcard() {
     assert_ne!(
         response.status(),
         StatusCode::UNAUTHORIZED,
-        "PATCH step with * should not return 401"
+        "PATCH step with steps:* should not return 401"
     );
     assert_ne!(
         response.status(),
         StatusCode::FORBIDDEN,
-        "PATCH step with * should not return 403"
+        "PATCH step with steps:* should not return 403"
+    );
+
+    server.shutdown().await.expect("shutdown failed");
+}
+
+#[tokio::test]
+async fn global_wildcard_rejected() {
+    let server = AuthTestServer::start()
+        .await
+        .expect("Failed to start auth test server");
+    let mut client = AuthWebTestClient::for_server(&server);
+
+    // Global wildcard (*) is NOT supported - should be treated as invalid permission
+    let token = generate_jwt(&["*"]);
+    client.with_jwt(&token);
+
+    let body = serde_json::json!({
+        "action_type": "resolve_manually",
+        "reason": "test resolution",
+        "resolved_by": "test-operator"
+    });
+
+    let response = client
+        .patch_json(
+            &format!("/v1/tasks/{FAKE_TASK_UUID}/workflow_steps/{FAKE_STEP_UUID}"),
+            &body,
+        )
+        .await
+        .expect("request failed");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "PATCH step with global wildcard (*) should return 403 (global wildcards not supported)"
     );
 
     server.shutdown().await.expect("shutdown failed");

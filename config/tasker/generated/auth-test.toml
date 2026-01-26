@@ -313,7 +313,7 @@ jwks_refresh_interval_seconds = 3600
 
 [[orchestration.web.auth.api_keys]]
 key = "test-api-key-full-access"
-permissions = ["*"]
+permissions = ["tasks:*", "steps:*", "dlq:*", "templates:*", "system:*", "worker:*"]
 description = "Full access test API key"
 
 [[orchestration.web.auth.api_keys]]
@@ -517,7 +517,7 @@ jwks_refresh_interval_seconds = 3600
 
 [[worker.web.auth.api_keys]]
 key = "test-api-key-full-access"
-permissions = ["*"]
+permissions = ["tasks:*", "steps:*", "dlq:*", "templates:*", "system:*", "worker:*"]
 description = "Full access test API key"
 
 [[worker.web.auth.api_keys]]

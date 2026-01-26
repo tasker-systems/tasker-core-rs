@@ -139,14 +139,12 @@ impl fmt::Display for Permission {
 /// Check if a single claimed permission string matches a required permission.
 ///
 /// Supports:
-/// - `*` (global wildcard, matches everything)
 /// - `resource:*` (resource wildcard, e.g. `tasks:*` matches `tasks:create`)
 /// - Exact match (e.g. `tasks:create` matches `tasks:create`)
+///
+/// Does NOT support global wildcards (`*`). Use explicit `resource:*` patterns
+/// for broad access (e.g., `tasks:*`, `dlq:*`).
 pub fn permission_matches(claimed: &str, required: &Permission) -> bool {
-    if claimed == "*" {
-        return true;
-    }
-
     let required_str = required.as_str();
 
     // Exact match
@@ -169,15 +167,13 @@ pub fn has_permission(claimed: &[String], required: &Permission) -> bool {
 
 /// Validate a list of permission strings and return any that are not recognized.
 ///
-/// Resource wildcards (e.g., `tasks:*`) and the global wildcard (`*`) are considered valid.
+/// Resource wildcards (e.g., `tasks:*`) are considered valid.
+/// Global wildcards (`*`) are NOT supported and will be returned as invalid.
 pub fn validate_permissions(claimed: &[String]) -> Vec<String> {
     claimed
         .iter()
         .filter(|p| {
             let s = p.as_str();
-            if s == "*" {
-                return false; // valid
-            }
             if let Some(prefix) = s.strip_suffix(":*") {
                 // Check if the resource prefix is known
                 let known_resources = ["tasks", "steps", "dlq", "templates", "system", "worker"];
@@ -222,10 +218,11 @@ mod tests {
     }
 
     #[test]
-    fn test_permission_matches_global_wildcard() {
-        assert!(permission_matches("*", &Permission::TasksCreate));
-        assert!(permission_matches("*", &Permission::DlqStats));
-        assert!(permission_matches("*", &Permission::WorkerConfigRead));
+    fn test_permission_matches_global_wildcard_rejected() {
+        // Global wildcard is NOT supported - only resource:* patterns are allowed
+        assert!(!permission_matches("*", &Permission::TasksCreate));
+        assert!(!permission_matches("*", &Permission::DlqStats));
+        assert!(!permission_matches("*", &Permission::WorkerConfigRead));
     }
 
     #[test]
@@ -263,10 +260,11 @@ mod tests {
     }
 
     #[test]
-    fn test_has_permission_global_wildcard() {
+    fn test_has_permission_global_wildcard_rejected() {
+        // Global wildcard is NOT supported - returns false for all permissions
         let claimed = vec!["*".to_string()];
         for perm in Permission::all() {
-            assert!(has_permission(&claimed, perm));
+            assert!(!has_permission(&claimed, perm));
         }
     }
 
@@ -281,10 +279,18 @@ mod tests {
         let perms = vec![
             "tasks:create".to_string(),
             "steps:read".to_string(),
-            "*".to_string(),
             "dlq:*".to_string(),
         ];
         assert!(validate_permissions(&perms).is_empty());
+    }
+
+    #[test]
+    fn test_validate_permissions_global_wildcard_invalid() {
+        // Global wildcard is NOT a valid permission - only resource:* patterns are allowed
+        let perms = vec!["*".to_string(), "tasks:create".to_string()];
+        let unknown = validate_permissions(&perms);
+        assert_eq!(unknown.len(), 1);
+        assert!(unknown.contains(&"*".to_string()));
     }
 
     #[test]

@@ -59,9 +59,10 @@ Permission-based access control using a `resource:action` vocabulary with wildca
 
 ## Wildcards
 
+Resource-level wildcards allow broad access within a resource domain:
+
 | Pattern | Matches |
 |---------|---------|
-| `*` | All permissions (superuser) |
 | `tasks:*` | All task permissions |
 | `steps:*` | All step permissions |
 | `dlq:*` | All DLQ permissions |
@@ -69,8 +70,9 @@ Permission-based access control using a `resource:action` vocabulary with wildca
 | `system:*` | All system permissions |
 | `worker:*` | All worker permissions |
 
+**Note:** Global wildcards (`*`) are NOT supported. Use explicit resource wildcards for broad access (e.g., `tasks:*`, `system:*`). This follows AWS IAM-style resource-level granularity.
+
 Wildcard matching is implemented in `permission_matches()`:
-- `*` → always true
 - `resource:*` → matches if required permission's resource component equals the prefix
 - Exact string → matches if strings are identical
 
@@ -112,13 +114,13 @@ Full operational access including step resolution, DLQ investigation, and system
 
 Worker processes that need to read their configuration and available templates.
 
-### Superuser
+### Full Access (Admin)
 
 ```json
-["*"]
+["tasks:*", "steps:*", "dlq:*", "templates:*", "system:*", "worker:*"]
 ```
 
-Full access to all resources. Use sparingly.
+Full access to all resources via resource wildcards. Use sparingly.
 
 ---
 
