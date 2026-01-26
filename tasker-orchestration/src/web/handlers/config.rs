@@ -9,20 +9,19 @@ use axum::Json;
 use chrono::Utc;
 use tracing::debug;
 
-use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::types::api::orchestration::{
     ConfigMetadata, OrchestrationConfigResponse, SafeAuthConfig, SafeCircuitBreakerConfig,
     SafeDatabasePoolConfig, SafeMessagingConfig,
 };
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::ApiError;
 
 /// Get orchestration configuration: GET /config
 ///
 /// Returns operational configuration metadata safe for external consumption.
 /// Only whitelisted fields are included — no secrets, keys, or credentials.
+///
+/// **Required Permission:** `system:config_read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/config",
@@ -32,14 +31,14 @@ use tasker_shared::types::web::ApiError;
         (status = 403, description = "Insufficient permissions", body = ApiError),
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("system:config_read"))
+    ),
     tag = "config"
 ))]
 pub async fn get_config(
     State(state): State<AppState>,
-    security: SecurityContext,
 ) -> Result<Json<OrchestrationConfigResponse>, ApiError> {
-    require_permission(&security, Permission::SystemConfigRead)?;
-
     debug!("Retrieving orchestration configuration (safe fields only)");
 
     let tasker_config = &state.orchestration_core.context.tasker_config;

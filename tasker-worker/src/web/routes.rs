@@ -1,12 +1,19 @@
 //! Worker Web API Routes
 //!
 //! Route definitions for all worker web endpoints organized by functionality.
+//!
+//! ## TAS-176: Resource-Based Authorization
+//!
+//! Protected routes use the `authorize()` wrapper for declarative permission checking.
+//! Public routes (health, metrics, docs) remain unwrapped.
 
 use axum::{
     routing::{get, post},
     Router,
 };
 use std::sync::Arc;
+use tasker_shared::types::resources::{Action, Resource};
+use tasker_shared::web::authorize;
 
 use crate::web::{handlers, state::WorkerWebState};
 
@@ -43,22 +50,51 @@ pub fn metrics_routes() -> Router<Arc<WorkerWebState>> {
 ///
 /// Cache operations moved to internal-only (restart worker to clear cache).
 /// Distributed cache status available via /health/detailed.
+///
+/// ## Authorization (TAS-176)
+///
+/// - List/Read templates: `worker:templates_read`
+/// - Validate template: `templates:validate`
 pub fn template_routes() -> Router<Arc<WorkerWebState>> {
     Router::new()
-        .route("/v1/templates", get(handlers::templates::list_templates))
+        .route(
+            "/v1/templates",
+            get(authorize(
+                Resource::Worker,
+                Action::List,
+                handlers::templates::list_templates,
+            )),
+        )
         .route(
             "/v1/templates/{namespace}/{name}/{version}",
-            get(handlers::templates::get_template),
+            get(authorize(
+                Resource::Worker,
+                Action::Read,
+                handlers::templates::get_template,
+            )),
         )
         .route(
             "/v1/templates/{namespace}/{name}/{version}/validate",
-            post(handlers::templates::validate_template),
+            post(authorize(
+                Resource::Worker,
+                Action::Validate,
+                handlers::templates::validate_template,
+            )),
         )
 }
 
 /// Configuration observability routes (whitelist-only, no secrets)
+///
+/// Requires `worker:config_read` permission.
 pub fn config_routes() -> Router<Arc<WorkerWebState>> {
-    Router::new().route("/config", get(handlers::config::get_config))
+    Router::new().route(
+        "/config",
+        get(authorize(
+            Resource::Worker,
+            Action::ConfigRead,
+            handlers::config::get_config,
+        )),
+    )
 }
 
 /// API documentation routes (OpenAPI spec + Swagger UI)

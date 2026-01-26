@@ -1,0 +1,909 @@
+openapi: 3.1.0
+info:
+  title: Tasker Worker API
+  description: 'REST API for the Tasker worker process. TAS-169: Template routes under /v1/templates, cache operations removed (restart worker to refresh).'
+  contact:
+    name: Tasker Systems
+    email: support@tasker-systems.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  version: 1.0.0
+servers:
+  - url: /
+    description: Worker API
+paths:
+  /config:
+    get:
+      tags:
+        - config
+      summary: 'Get worker configuration: GET /config'
+      description: |-
+        Returns operational configuration metadata safe for external consumption.
+        Only whitelisted fields are included — no secrets, keys, or credentials.
+
+        **Required Permission:** `worker:config_read`
+      operationId: get_config
+      responses:
+        "200":
+          description: Worker configuration (safe fields only)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerConfigResponse'
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        "403":
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        "500":
+          description: Failed to retrieve configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      security:
+        - bearer_auth: []
+        - api_key_auth: []
+      x-required-permission: worker:config_read
+  /health:
+    get:
+      tags:
+        - health
+      summary: 'Basic health check endpoint: GET /health'
+      description: |-
+        Simple health check that returns OK if the worker service is running.
+        Always available, even during graceful shutdown.
+      operationId: health_check
+      responses:
+        "200":
+          description: Worker is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicHealthResponse'
+  /health/detailed:
+    get:
+      tags:
+        - health
+      summary: 'Comprehensive health check: GET /health/detailed'
+      description: |-
+        Detailed health information about all worker subsystems.
+        Includes performance metrics and diagnostic information.
+      operationId: detailed_health_check
+      responses:
+        "200":
+          description: Detailed health information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailedHealthResponse'
+  /health/live:
+    get:
+      tags:
+        - health
+      summary: 'Kubernetes liveness probe: GET /health/live'
+      description: |-
+        Indicates whether the worker is alive and should not be restarted.
+        Simple check focusing on basic process responsiveness.
+      operationId: liveness_check
+      responses:
+        "200":
+          description: Worker is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicHealthResponse'
+  /health/ready:
+    get:
+      tags:
+        - health
+      summary: 'Kubernetes readiness probe: GET /health/ready'
+      description: |-
+        Indicates whether the worker is ready to process steps.
+        Checks database connectivity, command processor status, and queue health.
+      operationId: readiness_check
+      responses:
+        "200":
+          description: Worker is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        "503":
+          description: Worker is not ready
+  /v1/templates:
+    get:
+      tags:
+        - templates
+      summary: List supported templates and namespaces
+      description: |-
+        GET /v1/templates
+
+        **Required Permission:** `worker:templates_read`
+      operationId: list_templates
+      parameters:
+        - name: namespace
+          in: query
+          description: Filter by namespace
+          required: false
+          schema:
+            type: string
+        - name: include_cache_stats
+          in: query
+          description: Include cache statistics
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateListResponse'
+        "401":
+          description: Authentication required
+        "403":
+          description: Insufficient permissions
+      security:
+        - bearer_auth: []
+        - api_key_auth: []
+      x-required-permission: worker:templates_read
+  /v1/templates/{namespace}/{name}/{version}:
+    get:
+      tags:
+        - templates
+      summary: Get a specific task template
+      description: |-
+        GET /v1/templates/{namespace}/{name}/{version}
+
+        **Required Permission:** `worker:templates_read`
+      operationId: get_template
+      parameters:
+        - name: namespace
+          in: path
+          description: Template namespace
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          description: Template name
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          description: Template version
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Template details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        "401":
+          description: Authentication required
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: Template not found
+      security:
+        - bearer_auth: []
+        - api_key_auth: []
+      x-required-permission: worker:templates_read
+  /v1/templates/{namespace}/{name}/{version}/validate:
+    post:
+      tags:
+        - templates
+      summary: Validate a template for worker execution
+      description: |-
+        POST /v1/templates/{namespace}/{name}/{version}/validate
+
+        **Required Permission:** `templates:validate`
+      operationId: validate_template
+      parameters:
+        - name: namespace
+          in: path
+          description: Template namespace
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          description: Template name
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          description: Template version
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateValidationResponse'
+        "401":
+          description: Authentication required
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: Template not found
+      security:
+        - bearer_auth: []
+        - api_key_auth: []
+      x-required-permission: templates:validate
+components:
+  schemas:
+    ApiError:
+      oneOf:
+        - type: object
+          required:
+            - NotFound
+          properties:
+            NotFound:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+        - type: string
+          enum:
+            - Forbidden
+        - type: string
+          enum:
+            - Unauthorized
+        - type: object
+          required:
+            - BadRequest
+          properties:
+            BadRequest:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+        - type: object
+          description: 'TAS-154: Conflict - resource already exists (e.g., duplicate identity hash)'
+          required:
+            - Conflict
+          properties:
+            Conflict:
+              type: object
+              description: 'TAS-154: Conflict - resource already exists (e.g., duplicate identity hash)'
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+        - type: string
+          enum:
+            - ServiceUnavailable
+        - type: string
+          enum:
+            - Timeout
+        - type: string
+          enum:
+            - CircuitBreakerOpen
+        - type: object
+          description: 'TAS-75: System backpressure active - includes Retry-After header'
+          required:
+            - Backpressure
+          properties:
+            Backpressure:
+              type: object
+              description: 'TAS-75: System backpressure active - includes Retry-After header'
+              required:
+                - reason
+                - retry_after_seconds
+              properties:
+                reason:
+                  type: string
+                retry_after_seconds:
+                  type: integer
+                  format: int64
+                  minimum: 0
+        - type: object
+          required:
+            - DatabaseError
+          properties:
+            DatabaseError:
+              type: object
+              required:
+                - operation
+              properties:
+                operation:
+                  type: string
+        - type: object
+          required:
+            - AuthenticationError
+          properties:
+            AuthenticationError:
+              type: object
+              required:
+                - reason
+              properties:
+                failure_context:
+                  oneOf:
+                    - type: "null"
+                    - $ref: '#/components/schemas/AuthFailureContext'
+                      description: Machine-readable failure context for gateway signaling headers
+                reason:
+                  type: string
+        - type: object
+          required:
+            - AuthorizationError
+          properties:
+            AuthorizationError:
+              type: object
+              required:
+                - reason
+              properties:
+                failure_context:
+                  oneOf:
+                    - type: "null"
+                    - $ref: '#/components/schemas/AuthFailureContext'
+                      description: Machine-readable failure context for gateway signaling headers
+                reason:
+                  type: string
+        - type: object
+          required:
+            - InvalidUuid
+          properties:
+            InvalidUuid:
+              type: object
+              required:
+                - uuid
+              properties:
+                uuid:
+                  type: string
+        - type: string
+          enum:
+            - JsonError
+        - type: string
+          enum:
+            - Internal
+      description: Web API specific errors with HTTP status code mappings
+    AuthFailureContext:
+      type: object
+      description: |-
+        Auth failure context for gateway signaling.
+
+        Included in 401/403 response headers so upstream gateways (ALB, NLB, API Gateway)
+        can make informed rate-limiting decisions based on failure severity.
+      required:
+        - reason
+        - severity
+      properties:
+        reason:
+          $ref: '#/components/schemas/AuthFailureReason'
+          description: Machine-readable failure category
+        severity:
+          $ref: '#/components/schemas/AuthFailureSeverity'
+          description: Suggested severity for gateway action
+    AuthFailureReason:
+      type: string
+      description: Machine-readable auth failure reasons.
+      enum:
+        - Missing
+        - Expired
+        - Invalid
+        - Malformed
+        - Forbidden
+    AuthFailureSeverity:
+      type: string
+      description: Severity levels for auth failures (signals gateway rate-limiting behavior).
+      enum:
+        - Low
+        - Medium
+        - High
+    BasicHealthResponse:
+      type: object
+      description: Basic health check response
+      required:
+        - status
+        - timestamp
+        - worker_id
+      properties:
+        status:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        worker_id:
+          type: string
+    CacheStats:
+      type: object
+      description: Statistics about the task template cache
+      required:
+        - total_cached
+        - cache_hits
+        - cache_misses
+        - cache_evictions
+        - oldest_entry_age_seconds
+        - average_access_count
+        - supported_namespaces
+      properties:
+        average_access_count:
+          type: number
+          format: double
+        cache_evictions:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_hits:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_misses:
+          type: integer
+          format: int64
+          minimum: 0
+        oldest_entry_age_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+        supported_namespaces:
+          type: array
+          items:
+            type: string
+        total_cached:
+          type: integer
+          minimum: 0
+    ConfigMetadata:
+      type: object
+      description: Response metadata (non-sensitive system info).
+      required:
+        - timestamp
+        - environment
+        - version
+      properties:
+        environment:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+    DetailedHealthResponse:
+      type: object
+      description: Detailed health check response with typed subsystem checks
+      required:
+        - status
+        - timestamp
+        - worker_id
+        - checks
+        - system_info
+      properties:
+        checks:
+          $ref: '#/components/schemas/WorkerDetailedChecks'
+        distributed_cache:
+          oneOf:
+            - type: "null"
+            - $ref: '#/components/schemas/DistributedCacheInfo'
+              description: 'TAS-169: Distributed cache status (moved from /templates/cache/distributed)'
+        status:
+          type: string
+        system_info:
+          $ref: '#/components/schemas/WorkerSystemInfo'
+        timestamp:
+          type: string
+          format: date-time
+        worker_id:
+          type: string
+    DistributedCacheInfo:
+      type: object
+      description: |-
+        TAS-169: Distributed cache information for health response
+
+        Moved from /templates/cache/distributed to /health/detailed.
+        Reports the status of the distributed template cache (Redis).
+      required:
+        - enabled
+        - provider
+        - healthy
+      properties:
+        enabled:
+          type: boolean
+          description: Whether distributed caching is enabled
+        healthy:
+          type: boolean
+          description: Whether the cache backend is healthy
+        provider:
+          type: string
+          description: Cache provider name ("redis" or "noop")
+    HandlerMetadata:
+      type: object
+      description: Handler metadata for registry
+      required:
+        - namespace
+        - name
+        - version
+        - handler_class
+        - registered_at
+      properties:
+        config_schema: {}
+        default_dependent_system:
+          type:
+            - string
+            - "null"
+        handler_class:
+          type: string
+        name:
+          type: string
+        namespace:
+          type: string
+        registered_at:
+          type: string
+          format: date-time
+        version:
+          type: string
+    HealthCheck:
+      type: object
+      description: Individual health check result
+      required:
+        - status
+        - duration_ms
+        - last_checked
+      properties:
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        last_checked:
+          type: string
+          format: date-time
+        message:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+    PoolDetail:
+      type: object
+      description: Detailed metrics for a single connection pool (TAS-164)
+      required:
+        - active_connections
+        - idle_connections
+        - max_connections
+        - utilization_percent
+        - total_acquires
+        - slow_acquires
+        - acquire_errors
+        - average_acquire_time_ms
+        - max_acquire_time_ms
+      properties:
+        acquire_errors:
+          type: integer
+          format: int64
+          minimum: 0
+        active_connections:
+          type: integer
+          format: int32
+          minimum: 0
+        average_acquire_time_ms:
+          type: number
+          format: double
+        idle_connections:
+          type: integer
+          format: int32
+          minimum: 0
+        max_acquire_time_ms:
+          type: number
+          format: double
+        max_connections:
+          type: integer
+          format: int32
+          minimum: 0
+        slow_acquires:
+          type: integer
+          format: int64
+          minimum: 0
+        total_acquires:
+          type: integer
+          format: int64
+          minimum: 0
+        utilization_percent:
+          type: number
+          format: double
+    PoolUtilizationInfo:
+      type: object
+      description: |-
+        Connection pool utilization information (TAS-164)
+
+        Shared between orchestration and worker health responses.
+        Each service instance reports its own pool utilization.
+      required:
+        - tasker_pool
+        - pgmq_pool
+      properties:
+        pgmq_pool:
+          $ref: '#/components/schemas/PoolDetail'
+        tasker_pool:
+          $ref: '#/components/schemas/PoolDetail'
+    ReadinessResponse:
+      type: object
+      description: Worker readiness response with typed checks
+      required:
+        - status
+        - timestamp
+        - worker_id
+        - checks
+        - system_info
+      properties:
+        checks:
+          $ref: '#/components/schemas/WorkerReadinessChecks'
+        status:
+          type: string
+        system_info:
+          $ref: '#/components/schemas/WorkerSystemInfo'
+        timestamp:
+          type: string
+          format: date-time
+        worker_id:
+          type: string
+    SafeAuthConfig:
+      type: object
+      description: |-
+        Non-sensitive auth configuration summary.
+
+        Exposes whether auth is enabled and how it's configured,
+        without revealing keys, secrets, or credential values.
+      required:
+        - enabled
+        - verification_method
+        - jwt_issuer
+        - jwt_audience
+        - api_key_header
+        - api_key_count
+        - strict_validation
+        - allowed_algorithms
+      properties:
+        allowed_algorithms:
+          type: array
+          items:
+            type: string
+        api_key_count:
+          type: integer
+          description: Number of configured API keys (not their values)
+          minimum: 0
+        api_key_header:
+          type: string
+        enabled:
+          type: boolean
+        jwt_audience:
+          type: string
+        jwt_issuer:
+          type: string
+        strict_validation:
+          type: boolean
+        verification_method:
+          type: string
+          description: 'Verification method: "public_key", "jwks", or "none"'
+    SafeMessagingConfig:
+      type: object
+      description: |-
+        Non-sensitive messaging configuration.
+
+        Exposes backend type and queue names — these are operational
+        metadata useful for debugging, not secrets.
+      required:
+        - backend
+        - queues
+      properties:
+        backend:
+          type: string
+          description: 'Backend type: "pgmq" or "rabbitmq"'
+        queues:
+          type: array
+          items:
+            type: string
+          description: Queue names owned by this component
+    TemplateListResponse:
+      type: object
+      description: Response for template listing
+      required:
+        - supported_namespaces
+        - template_count
+        - worker_capabilities
+      properties:
+        cache_stats:
+          oneOf:
+            - type: "null"
+            - $ref: '#/components/schemas/CacheStats'
+        supported_namespaces:
+          type: array
+          items:
+            type: string
+        template_count:
+          type: integer
+          minimum: 0
+        worker_capabilities:
+          type: array
+          items:
+            type: string
+    TemplateResponse:
+      type: object
+      description: Response for template retrieval
+      required:
+        - template
+        - handler_metadata
+        - cached
+      properties:
+        access_count:
+          type:
+            - integer
+            - "null"
+          format: int64
+          minimum: 0
+        cache_age_seconds:
+          type:
+            - integer
+            - "null"
+          format: int64
+          minimum: 0
+        cached:
+          type: boolean
+        handler_metadata:
+          $ref: '#/components/schemas/HandlerMetadata'
+        template:
+          type: object
+    TemplateValidationResponse:
+      type: object
+      description: Response for template validation
+      required:
+        - valid
+        - errors
+        - required_capabilities
+        - step_handlers
+      properties:
+        errors:
+          type: array
+          items:
+            type: string
+        required_capabilities:
+          type: array
+          items:
+            type: string
+        step_handlers:
+          type: array
+          items:
+            type: string
+        valid:
+          type: boolean
+    WorkerConfigResponse:
+      type: object
+      description: |-
+        Worker configuration response (whitelist-only).
+
+        Same whitelist principle as orchestration — only safe operational fields.
+      required:
+        - metadata
+        - worker_id
+        - worker_type
+        - auth
+        - messaging
+      properties:
+        auth:
+          $ref: '#/components/schemas/SafeAuthConfig'
+        messaging:
+          $ref: '#/components/schemas/SafeMessagingConfig'
+        metadata:
+          $ref: '#/components/schemas/ConfigMetadata'
+        worker_id:
+          type: string
+        worker_type:
+          type: string
+    WorkerDetailedChecks:
+      type: object
+      description: |-
+        TAS-76: Typed detailed checks for worker health
+
+        Comprehensive health checks for all worker subsystems.
+      required:
+        - database
+        - command_processor
+        - queue_processing
+        - event_system
+        - step_processing
+        - circuit_breakers
+      properties:
+        circuit_breakers:
+          $ref: '#/components/schemas/HealthCheck'
+        command_processor:
+          $ref: '#/components/schemas/HealthCheck'
+        database:
+          $ref: '#/components/schemas/HealthCheck'
+        event_system:
+          $ref: '#/components/schemas/HealthCheck'
+        queue_processing:
+          $ref: '#/components/schemas/HealthCheck'
+        step_processing:
+          $ref: '#/components/schemas/HealthCheck'
+    WorkerReadinessChecks:
+      type: object
+      description: |-
+        TAS-76: Typed readiness checks for worker readiness probe
+
+        These are the core checks required to determine if the worker can accept work.
+      required:
+        - database
+        - command_processor
+        - queue_processing
+      properties:
+        command_processor:
+          $ref: '#/components/schemas/HealthCheck'
+        database:
+          $ref: '#/components/schemas/HealthCheck'
+        queue_processing:
+          $ref: '#/components/schemas/HealthCheck'
+    WorkerSystemInfo:
+      type: object
+      description: Worker system information
+      required:
+        - version
+        - environment
+        - uptime_seconds
+        - worker_type
+        - database_pool_size
+        - command_processor_active
+        - supported_namespaces
+      properties:
+        command_processor_active:
+          type: boolean
+        database_pool_size:
+          type: integer
+          format: int32
+          minimum: 0
+        environment:
+          type: string
+        pool_utilization:
+          oneOf:
+            - type: "null"
+            - $ref: '#/components/schemas/PoolUtilizationInfo'
+              description: Connection pool utilization details (TAS-164)
+        supported_namespaces:
+          type: array
+          items:
+            type: string
+        uptime_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+        version:
+          type: string
+        worker_type:
+          type: string
+  securitySchemes:
+    api_key_auth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    bearer_auth:
+      type: http
+      scheme: bearer
+tags:
+  - name: health
+    description: Health check and monitoring (includes distributed cache status)
+  - name: templates
+    description: Task template retrieval and validation
+  - name: config
+    description: Runtime configuration observability (safe fields only)

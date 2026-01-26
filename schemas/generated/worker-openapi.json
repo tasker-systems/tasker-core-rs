@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Tasker Worker API",
-    "description": "REST API for the Tasker worker process",
+    "description": "REST API for the Tasker worker process. TAS-169: Template routes under /v1/templates, cache operations removed (restart worker to refresh).",
     "contact": {
       "name": "Tasker Systems",
       "email": "support@tasker-systems.com"
@@ -25,12 +25,12 @@
         "tags": [
           "config"
         ],
-        "summary": "Get complete worker configuration: GET /config",
-        "description": "Returns the complete worker configuration including both common (shared) and\nworker-specific settings with sensitive values redacted. This provides a unified\nview of the deployed worker system configuration in a single response.\n\nThe response includes:\n- `common`: Shared configuration (database, circuit breakers, telemetry, etc.)\n- `worker`: Worker-specific configuration (template paths, handler discovery, etc.)\n- `metadata`: Response metadata including which fields were redacted for transparency\n\nThis design makes it easy to compare configurations across systems and debug\ndeployment issues with a single curl command.",
+        "summary": "Get worker configuration: GET /config",
+        "description": "Returns operational configuration metadata safe for external consumption.\nOnly whitelisted fields are included — no secrets, keys, or credentials.\n\n**Required Permission:** `worker:config_read`",
         "operationId": "get_config",
         "responses": {
           "200": {
-            "description": "Complete worker configuration (secrets redacted)",
+            "description": "Worker configuration (safe fields only)",
             "content": {
               "application/json": {
                 "schema": {
@@ -77,7 +77,8 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "worker:config_read"
       }
     },
     "/health": {
@@ -160,7 +161,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DetailedHealthResponse"
+                  "$ref": "#/components/schemas/ReadinessResponse"
                 }
               }
             }
@@ -171,13 +172,13 @@
         }
       }
     },
-    "/templates": {
+    "/v1/templates": {
       "get": {
         "tags": [
           "templates"
         ],
         "summary": "List supported templates and namespaces",
-        "description": "GET /templates",
+        "description": "GET /v1/templates\n\n**Required Permission:** `worker:templates_read`",
         "operationId": "list_templates",
         "parameters": [
           {
@@ -224,124 +225,17 @@
           {
             "api_key_auth": []
           }
-        ]
-      }
-    },
-    "/templates/cache": {
-      "delete": {
-        "tags": [
-          "templates"
         ],
-        "summary": "Clear template cache",
-        "description": "DELETE /templates/cache",
-        "operationId": "clear_cache",
-        "responses": {
-          "200": {
-            "description": "Cache cleared",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CacheOperationResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          },
-          {
-            "api_key_auth": []
-          }
-        ]
+        "x-required-permission": "worker:templates_read"
       }
     },
-    "/templates/cache/maintain": {
-      "post": {
-        "tags": [
-          "templates"
-        ],
-        "summary": "Perform cache maintenance",
-        "description": "POST /templates/cache/maintain",
-        "operationId": "maintain_cache",
-        "responses": {
-          "200": {
-            "description": "Maintenance completed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CacheOperationResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          },
-          {
-            "api_key_auth": []
-          }
-        ]
-      }
-    },
-    "/templates/cache/stats": {
-      "get": {
-        "tags": [
-          "templates"
-        ],
-        "summary": "Get cache statistics",
-        "description": "GET /templates/cache/stats",
-        "operationId": "get_cache_stats",
-        "responses": {
-          "200": {
-            "description": "Cache statistics",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CacheStats"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          },
-          {
-            "api_key_auth": []
-          }
-        ]
-      }
-    },
-    "/templates/{namespace}/{name}/{version}": {
+    "/v1/templates/{namespace}/{name}/{version}": {
       "get": {
         "tags": [
           "templates"
         ],
         "summary": "Get a specific task template",
-        "description": "GET /templates/{namespace}/{name}/{version}",
+        "description": "GET /v1/templates/{namespace}/{name}/{version}\n\n**Required Permission:** `worker:templates_read`",
         "operationId": "get_template",
         "parameters": [
           {
@@ -400,84 +294,17 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "worker:templates_read"
       }
     },
-    "/templates/{namespace}/{name}/{version}/refresh": {
-      "post": {
-        "tags": [
-          "templates"
-        ],
-        "summary": "Refresh specific template in cache",
-        "description": "POST /templates/{namespace}/{name}/{version}/refresh",
-        "operationId": "refresh_template",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "description": "Template namespace",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "name",
-            "in": "path",
-            "description": "Template name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "version",
-            "in": "path",
-            "description": "Template version",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Template refreshed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CacheOperationResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          },
-          "500": {
-            "description": "Refresh failed"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          },
-          {
-            "api_key_auth": []
-          }
-        ]
-      }
-    },
-    "/templates/{namespace}/{name}/{version}/validate": {
+    "/v1/templates/{namespace}/{name}/{version}/validate": {
       "post": {
         "tags": [
           "templates"
         ],
         "summary": "Validate a template for worker execution",
-        "description": "POST /templates/{namespace}/{name}/{version}/validate",
+        "description": "POST /v1/templates/{namespace}/{name}/{version}/validate\n\n**Required Permission:** `templates:validate`",
         "operationId": "validate_template",
         "parameters": [
           {
@@ -536,7 +363,8 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "templates:validate"
       }
     }
   },
@@ -691,6 +519,17 @@
                   "reason"
                 ],
                 "properties": {
+                  "failure_context": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthFailureContext",
+                        "description": "Machine-readable failure context for gateway signaling headers"
+                      }
+                    ]
+                  },
                   "reason": {
                     "type": "string"
                   }
@@ -710,6 +549,17 @@
                   "reason"
                 ],
                 "properties": {
+                  "failure_context": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthFailureContext",
+                        "description": "Machine-readable failure context for gateway signaling headers"
+                      }
+                    ]
+                  },
                   "reason": {
                     "type": "string"
                   }
@@ -751,6 +601,44 @@
         ],
         "description": "Web API specific errors with HTTP status code mappings"
       },
+      "AuthFailureContext": {
+        "type": "object",
+        "description": "Auth failure context for gateway signaling.\n\nIncluded in 401/403 response headers so upstream gateways (ALB, NLB, API Gateway)\ncan make informed rate-limiting decisions based on failure severity.",
+        "required": [
+          "reason",
+          "severity"
+        ],
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/AuthFailureReason",
+            "description": "Machine-readable failure category"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AuthFailureSeverity",
+            "description": "Suggested severity for gateway action"
+          }
+        }
+      },
+      "AuthFailureReason": {
+        "type": "string",
+        "description": "Machine-readable auth failure reasons.",
+        "enum": [
+          "Missing",
+          "Expired",
+          "Invalid",
+          "Malformed",
+          "Forbidden"
+        ]
+      },
+      "AuthFailureSeverity": {
+        "type": "string",
+        "description": "Severity levels for auth failures (signals gateway rate-limiting behavior).",
+        "enum": [
+          "Low",
+          "Medium",
+          "High"
+        ]
+      },
       "BasicHealthResponse": {
         "type": "object",
         "description": "Basic health check response",
@@ -769,26 +657,6 @@
           },
           "worker_id": {
             "type": "string"
-          }
-        }
-      },
-      "CacheOperationResponse": {
-        "type": "object",
-        "description": "Response for cache operations",
-        "required": [
-          "operation",
-          "success",
-          "cache_stats"
-        ],
-        "properties": {
-          "cache_stats": {
-            "$ref": "#/components/schemas/CacheStats"
-          },
-          "operation": {
-            "type": "string"
-          },
-          "success": {
-            "type": "boolean"
           }
         }
       },
@@ -843,31 +711,28 @@
       },
       "ConfigMetadata": {
         "type": "object",
-        "description": "Metadata about the configuration response",
+        "description": "Response metadata (non-sensitive system info).",
         "required": [
           "timestamp",
-          "source",
-          "redacted_fields"
+          "environment",
+          "version"
         ],
         "properties": {
-          "redacted_fields": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "source": {
+          "environment": {
             "type": "string"
           },
           "timestamp": {
             "type": "string",
             "format": "date-time"
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
       "DetailedHealthResponse": {
         "type": "object",
-        "description": "Detailed health check response with subsystem checks",
+        "description": "Detailed health check response with typed subsystem checks",
         "required": [
           "status",
           "timestamp",
@@ -877,7 +742,18 @@
         ],
         "properties": {
           "checks": {
-            "type": "object"
+            "$ref": "#/components/schemas/WorkerDetailedChecks"
+          },
+          "distributed_cache": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DistributedCacheInfo",
+                "description": "TAS-169: Distributed cache status (moved from /templates/cache/distributed)"
+              }
+            ]
           },
           "status": {
             "type": "string"
@@ -891,6 +767,29 @@
           },
           "worker_id": {
             "type": "string"
+          }
+        }
+      },
+      "DistributedCacheInfo": {
+        "type": "object",
+        "description": "TAS-169: Distributed cache information for health response\n\nMoved from /templates/cache/distributed to /health/detailed.\nReports the status of the distributed template cache (Redis).",
+        "required": [
+          "enabled",
+          "provider",
+          "healthy"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether distributed caching is enabled"
+          },
+          "healthy": {
+            "type": "boolean",
+            "description": "Whether the cache backend is healthy"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Cache provider name (\"redis\" or \"noop\")"
           }
         }
       },
@@ -926,6 +825,35 @@
             "format": "date-time"
           },
           "version": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthCheck": {
+        "type": "object",
+        "description": "Individual health check result",
+        "required": [
+          "status",
+          "duration_ms",
+          "last_checked"
+        ],
+        "properties": {
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "last_checked": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
             "type": "string"
           }
         }
@@ -1002,6 +930,102 @@
           },
           "tasker_pool": {
             "$ref": "#/components/schemas/PoolDetail"
+          }
+        }
+      },
+      "ReadinessResponse": {
+        "type": "object",
+        "description": "Worker readiness response with typed checks",
+        "required": [
+          "status",
+          "timestamp",
+          "worker_id",
+          "checks",
+          "system_info"
+        ],
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/WorkerReadinessChecks"
+          },
+          "status": {
+            "type": "string"
+          },
+          "system_info": {
+            "$ref": "#/components/schemas/WorkerSystemInfo"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SafeAuthConfig": {
+        "type": "object",
+        "description": "Non-sensitive auth configuration summary.\n\nExposes whether auth is enabled and how it's configured,\nwithout revealing keys, secrets, or credential values.",
+        "required": [
+          "enabled",
+          "verification_method",
+          "jwt_issuer",
+          "jwt_audience",
+          "api_key_header",
+          "api_key_count",
+          "strict_validation",
+          "allowed_algorithms"
+        ],
+        "properties": {
+          "allowed_algorithms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "api_key_count": {
+            "type": "integer",
+            "description": "Number of configured API keys (not their values)",
+            "minimum": 0
+          },
+          "api_key_header": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "jwt_audience": {
+            "type": "string"
+          },
+          "jwt_issuer": {
+            "type": "string"
+          },
+          "strict_validation": {
+            "type": "boolean"
+          },
+          "verification_method": {
+            "type": "string",
+            "description": "Verification method: \"public_key\", \"jwks\", or \"none\""
+          }
+        }
+      },
+      "SafeMessagingConfig": {
+        "type": "object",
+        "description": "Non-sensitive messaging configuration.\n\nExposes backend type and queue names — these are operational\nmetadata useful for debugging, not secrets.",
+        "required": [
+          "backend",
+          "queues"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string",
+            "description": "Backend type: \"pgmq\" or \"rabbitmq\""
+          },
+          "queues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Queue names owned by this component"
           }
         }
       },
@@ -1111,30 +1135,83 @@
           }
         }
       },
-      "Value": {},
       "WorkerConfigResponse": {
         "type": "object",
-        "description": "Unified worker configuration response with both common and worker-specific config\n\nThis provides a complete view of the worker system's configuration in a single response,\nmaking it easier for operators to understand the full deployment without multiple API calls.",
+        "description": "Worker configuration response (whitelist-only).\n\nSame whitelist principle as orchestration — only safe operational fields.",
         "required": [
-          "environment",
-          "common",
-          "worker",
-          "metadata"
+          "metadata",
+          "worker_id",
+          "worker_type",
+          "auth",
+          "messaging"
         ],
         "properties": {
-          "common": {
-            "$ref": "#/components/schemas/Value",
-            "description": "Common (shared) configuration components"
+          "auth": {
+            "$ref": "#/components/schemas/SafeAuthConfig"
           },
-          "environment": {
-            "type": "string"
+          "messaging": {
+            "$ref": "#/components/schemas/SafeMessagingConfig"
           },
           "metadata": {
             "$ref": "#/components/schemas/ConfigMetadata"
           },
-          "worker": {
-            "$ref": "#/components/schemas/Value",
-            "description": "Worker-specific configuration"
+          "worker_id": {
+            "type": "string"
+          },
+          "worker_type": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkerDetailedChecks": {
+        "type": "object",
+        "description": "TAS-76: Typed detailed checks for worker health\n\nComprehensive health checks for all worker subsystems.",
+        "required": [
+          "database",
+          "command_processor",
+          "queue_processing",
+          "event_system",
+          "step_processing",
+          "circuit_breakers"
+        ],
+        "properties": {
+          "circuit_breakers": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "command_processor": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "database": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "event_system": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "queue_processing": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "step_processing": {
+            "$ref": "#/components/schemas/HealthCheck"
+          }
+        }
+      },
+      "WorkerReadinessChecks": {
+        "type": "object",
+        "description": "TAS-76: Typed readiness checks for worker readiness probe\n\nThese are the core checks required to determine if the worker can accept work.",
+        "required": [
+          "database",
+          "command_processor",
+          "queue_processing"
+        ],
+        "properties": {
+          "command_processor": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "database": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "queue_processing": {
+            "$ref": "#/components/schemas/HealthCheck"
           }
         }
       },
@@ -1208,15 +1285,15 @@
   "tags": [
     {
       "name": "health",
-      "description": "Health check and monitoring"
+      "description": "Health check and monitoring (includes distributed cache status)"
     },
     {
       "name": "templates",
-      "description": "Task template management and cache operations"
+      "description": "Task template retrieval and validation"
     },
     {
       "name": "config",
-      "description": "Runtime configuration observability (secrets redacted)"
+      "description": "Runtime configuration observability (safe fields only)"
     }
   ]
 }

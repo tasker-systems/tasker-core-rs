@@ -10,21 +10,20 @@ use uuid::Uuid;
 
 use crate::services::TaskServiceError;
 use crate::web::circuit_breaker::record_backpressure_rejection;
-use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::models::core::task::TaskListQuery;
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::types::api::orchestration::{
     TaskCreationResponse, TaskListResponse, TaskResponse,
 };
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 /// Create a new task: POST /v1/tasks
 ///
 /// This is the critical endpoint for TAS-40 worker integration.
 /// Workers call this endpoint to create tasks and receive UUIDs for tracking.
+///
+/// **Required Permission:** `tasks:create`
 #[cfg_attr(feature = "web-api", utoipa::path(
     post,
     path = "/v1/tasks",
@@ -37,15 +36,15 @@ use tasker_shared::types::web::{ApiError, ApiResult};
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("tasks:create"))
+    ),
     tag = "tasks"
 ))]
 pub async fn create_task(
     State(state): State<AppState>,
-    security: SecurityContext,
     Json(request): Json<TaskRequest>,
 ) -> ApiResult<Json<TaskCreationResponse>> {
-    require_permission(&security, Permission::TasksCreate)?;
-
     info!(
         namespace = %request.namespace,
         task_name = %request.name,
@@ -83,6 +82,8 @@ pub async fn create_task(
 ///
 /// Returns comprehensive task information including execution context and step readiness.
 /// Used by workers for task correlation and status tracking.
+///
+/// **Required Permission:** `tasks:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/tasks/{uuid}",
@@ -97,15 +98,15 @@ pub async fn create_task(
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("tasks:read"))
+    ),
     tag = "tasks"
 ))]
 pub async fn get_task(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path(task_uuid): Path<String>,
 ) -> ApiResult<Json<TaskResponse>> {
-    require_permission(&security, Permission::TasksRead)?;
-
     debug!(task_uuid = %task_uuid, "Retrieving task details with execution context");
 
     let uuid = Uuid::parse_str(&task_uuid).map_err(|_| ApiError::invalid_uuid(task_uuid))?;
@@ -122,6 +123,8 @@ pub async fn get_task(
 ///
 /// Returns a paginated list of tasks with execution context using batch SQL functions.
 /// Used by workers and administrators for task monitoring and management.
+///
+/// **Required Permission:** `tasks:list`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/tasks",
@@ -141,15 +144,15 @@ pub async fn get_task(
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("tasks:list"))
+    ),
     tag = "tasks"
 ))]
 pub async fn list_tasks(
     State(state): State<AppState>,
-    security: SecurityContext,
     Query(query): Query<TaskListQuery>,
 ) -> ApiResult<Json<TaskListResponse>> {
-    require_permission(&security, Permission::TasksList)?;
-
     debug!(?query, "Listing tasks with execution context and filters");
 
     state
@@ -164,6 +167,8 @@ pub async fn list_tasks(
 ///
 /// Cancels a task if it's in a cancellable state and triggers orchestration events.
 /// Returns the updated task with execution context and step information.
+///
+/// **Required Permission:** `tasks:cancel`
 #[cfg_attr(feature = "web-api", utoipa::path(
     delete,
     path = "/v1/tasks/{uuid}",
@@ -179,15 +184,15 @@ pub async fn list_tasks(
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("tasks:cancel"))
+    ),
     tag = "tasks"
 ))]
 pub async fn cancel_task(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path(task_uuid): Path<String>,
 ) -> ApiResult<Json<TaskResponse>> {
-    require_permission(&security, Permission::TasksCancel)?;
-
     info!(task_uuid = %task_uuid, "Cancelling task via web API");
 
     let uuid = Uuid::parse_str(&task_uuid).map_err(|_| ApiError::invalid_uuid(task_uuid))?;

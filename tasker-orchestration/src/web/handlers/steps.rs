@@ -10,14 +10,13 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::services::StepServiceError;
-use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::types::api::orchestration::{StepAuditResponse, StepManualAction, StepResponse};
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 /// List workflow steps for a task: GET /v1/tasks/{uuid}/workflow_steps
+///
+/// **Required Permission:** `steps:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/tasks/{uuid}/workflow_steps",
@@ -32,15 +31,15 @@ use tasker_shared::types::web::{ApiError, ApiResult};
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("steps:read"))
+    ),
     tag = "workflow_steps"
 ))]
 pub async fn list_task_steps(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path(task_uuid): Path<String>,
 ) -> ApiResult<Json<Vec<StepResponse>>> {
-    require_permission(&security, Permission::StepsRead)?;
-
     info!(task_uuid = %task_uuid, "Listing workflow steps for task");
 
     let task_uuid = Uuid::parse_str(&task_uuid)
@@ -55,6 +54,8 @@ pub async fn list_task_steps(
 }
 
 /// Get workflow step details: GET /v1/tasks/{uuid}/workflow_steps/{step_uuid}
+///
+/// **Required Permission:** `steps:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/tasks/{uuid}/workflow_steps/{step_uuid}",
@@ -71,15 +72,15 @@ pub async fn list_task_steps(
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("steps:read"))
+    ),
     tag = "workflow_steps"
 ))]
 pub async fn get_step(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path((task_uuid, step_uuid)): Path<(String, String)>,
 ) -> ApiResult<Json<StepResponse>> {
-    require_permission(&security, Permission::StepsRead)?;
-
     info!(task_uuid = %task_uuid, step_uuid = %step_uuid, "Getting workflow step details");
 
     let task_uuid = Uuid::parse_str(&task_uuid)
@@ -109,6 +110,8 @@ pub async fn get_step(
 ///    - Dependent steps can consume the provided results, allowing workflow continuation
 ///
 /// You can optionally reset the attempt counter when resolving a step that has exceeded retry limits.
+///
+/// **Required Permission:** `steps:resolve`
 #[cfg_attr(feature = "web-api", utoipa::path(
     patch,
     path = "/v1/tasks/{uuid}/workflow_steps/{step_uuid}",
@@ -126,16 +129,16 @@ pub async fn get_step(
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("steps:resolve"))
+    ),
     tag = "workflow_steps"
 ))]
 pub async fn resolve_step_manually(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path((task_uuid, step_uuid)): Path<(String, String)>,
     Json(action): Json<StepManualAction>,
 ) -> ApiResult<Json<StepResponse>> {
-    require_permission(&security, Permission::StepsResolve)?;
-
     // Log the action with operator details
     match &action {
         StepManualAction::ResetForRetry { reset_by, reason } => {
@@ -199,6 +202,8 @@ pub async fn resolve_step_manually(
 ///
 /// Returns an array of audit records ordered by recorded_at DESC (most recent first).
 /// Each record links to the transition that captured the execution result.
+///
+/// **Required Permission:** `steps:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/tasks/{uuid}/workflow_steps/{step_uuid}/audit",
@@ -215,15 +220,15 @@ pub async fn resolve_step_manually(
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("steps:read"))
+    ),
     tag = "workflow_steps"
 ))]
 pub async fn get_step_audit(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path((task_uuid, step_uuid)): Path<(String, String)>,
 ) -> ApiResult<Json<Vec<StepAuditResponse>>> {
-    require_permission(&security, Permission::StepsRead)?;
-
     info!(
         task_uuid = %task_uuid,
         step_uuid = %step_uuid,

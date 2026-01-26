@@ -53,11 +53,13 @@ impl SecurityContext {
     /// Create a context representing disabled authentication.
     ///
     /// Used when the security configuration has auth disabled, allowing all operations.
+    /// Note: The permissions list is empty because when auth is disabled,
+    /// `has_permission()` always returns true without checking permissions.
     pub fn disabled_context() -> Self {
         Self {
             subject: "anonymous".to_string(),
             auth_method: AuthMethod::Disabled,
-            permissions: vec!["*".to_string()],
+            permissions: vec![],
             issuer: None,
             expires_at: None,
         }
@@ -146,10 +148,35 @@ mod tests {
     }
 
     #[test]
-    fn test_jwt_context_global_wildcard() {
+    fn test_jwt_context_global_wildcard_rejected() {
+        // Global wildcard (*) is NOT supported - only resource:* patterns are allowed
         let ctx = jwt_context(vec!["*"]);
         for perm in Permission::all() {
-            assert!(ctx.has_permission(perm));
+            assert!(
+                !ctx.has_permission(perm),
+                "Global wildcard should not grant {}",
+                perm
+            );
+        }
+    }
+
+    #[test]
+    fn test_jwt_context_full_access_with_resource_wildcards() {
+        // Use explicit resource wildcards for full access
+        let ctx = jwt_context(vec![
+            "tasks:*",
+            "steps:*",
+            "dlq:*",
+            "templates:*",
+            "system:*",
+            "worker:*",
+        ]);
+        for perm in Permission::all() {
+            assert!(
+                ctx.has_permission(perm),
+                "Full resource wildcards should grant {}",
+                perm
+            );
         }
     }
 

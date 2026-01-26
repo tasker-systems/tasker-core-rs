@@ -11,8 +11,6 @@ use std::sync::Arc;
 use crate::web::state::WorkerWebState;
 use crate::worker::services::ConfigQueryError;
 use tasker_shared::types::api::orchestration::WorkerConfigResponse;
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::ApiError;
 
 /// Convert ConfigQueryError to HTTP API error
@@ -31,6 +29,8 @@ fn config_error_to_api_error(error: ConfigQueryError) -> ApiError {
 ///
 /// Returns operational configuration metadata safe for external consumption.
 /// Only whitelisted fields are included — no secrets, keys, or credentials.
+///
+/// **Required Permission:** `worker:config_read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/config",
@@ -41,14 +41,14 @@ fn config_error_to_api_error(error: ConfigQueryError) -> ApiError {
         (status = 500, description = "Failed to retrieve configuration", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("worker:config_read"))
+    ),
     tag = "config"
 ))]
 pub async fn get_config(
     State(state): State<Arc<WorkerWebState>>,
-    security: SecurityContext,
 ) -> Result<Json<WorkerConfigResponse>, ApiError> {
-    crate::web::middleware::auth::require_permission(&security, Permission::WorkerConfigRead)?;
-
     state
         .config_query_service()
         .runtime_config()

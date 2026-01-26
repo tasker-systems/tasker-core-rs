@@ -25,12 +25,12 @@
         "tags": [
           "config"
         ],
-        "summary": "Get complete orchestration configuration: GET /config",
-        "description": "Returns the complete orchestration configuration including both common (shared) and\norchestration-specific settings with sensitive values redacted. This provides a unified\nview of the deployed system configuration in a single response.\n\nThe response includes:\n- `common`: Shared configuration (database, circuit breakers, telemetry, etc.)\n- `orchestration`: Orchestration-specific configuration (web API, MPSC channels, etc.)\n- `metadata`: Response metadata including which fields were redacted for transparency\n\nThis design makes it easy to compare configurations across systems and debug\ndeployment issues with a single curl command.\n\nThis is a system endpoint (like /health) and is at the root level, not under /v1/.",
+        "summary": "Get orchestration configuration: GET /config",
+        "description": "Returns operational configuration metadata safe for external consumption.\nOnly whitelisted fields are included — no secrets, keys, or credentials.\n\n**Required Permission:** `system:config_read`",
         "operationId": "get_config",
         "responses": {
           "200": {
-            "description": "Complete orchestration configuration (secrets redacted)",
+            "description": "Orchestration configuration (safe fields only)",
             "content": {
               "application/json": {
                 "schema": {
@@ -58,16 +58,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "description": "Failed to retrieve configuration",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
           }
         },
         "security": [
@@ -77,7 +67,8 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "system:config_read"
       }
     },
     "/health": {
@@ -160,7 +151,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DetailedHealthResponse"
+                  "$ref": "#/components/schemas/ReadinessResponse"
                 }
               }
             }
@@ -184,6 +175,7 @@
           "analytics"
         ],
         "summary": "Get bottleneck analysis: GET /v1/analytics/bottlenecks",
+        "description": "**Required Permission:** `system:analytics_read`",
         "operationId": "get_bottlenecks",
         "parameters": [
           {
@@ -256,7 +248,8 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "system:analytics_read"
       }
     },
     "/v1/analytics/performance": {
@@ -265,6 +258,7 @@
           "analytics"
         ],
         "summary": "Get performance metrics: GET /v1/analytics/performance",
+        "description": "**Required Permission:** `system:analytics_read`",
         "operationId": "get_performance_metrics",
         "parameters": [
           {
@@ -328,25 +322,71 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "system:analytics_read"
       }
     },
-    "/v1/handlers": {
+    "/v1/dlq": {
       "get": {
         "tags": [
-          "handlers"
+          "dlq"
         ],
-        "summary": "List available namespaces: GET /v1/handlers",
-        "operationId": "list_namespaces",
+        "summary": "List DLQ entries: GET /v1/dlq",
+        "description": "Returns a list of DLQ entries with optional filtering by resolution status.\nSupports pagination via limit/offset parameters.\n\n# Query Parameters\n\n- `resolution_status` - Filter by resolution status (optional)\n- `limit` - Maximum entries to return (default: 50)\n- `offset` - Pagination offset (default: 0)\n\n# Example\n\n```text\nGET /v1/dlq?resolution_status=pending&limit=20\n```\n\n**Required Permission:** `dlq:read`",
+        "operationId": "list_dlq_entries",
+        "parameters": [
+          {
+            "name": "resolution_status",
+            "in": "query",
+            "description": "Filter by resolution status (optional)",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/DlqResolutionStatus"
+                }
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of entries to return (default: 50)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination (default: 0)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "List of available namespaces",
+            "description": "List of DLQ entries",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/NamespaceInfo"
+                    "$ref": "#/components/schemas/DlqEntry"
                   }
                 }
               }
@@ -372,8 +412,8 @@
               }
             }
           },
-          "503": {
-            "description": "Service unavailable",
+          "500": {
+            "description": "Database error",
             "content": {
               "application/json": {
                 "schema": {
@@ -390,116 +430,47 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "dlq:read"
       }
     },
-    "/v1/handlers/{namespace}": {
-      "get": {
+    "/v1/dlq/entry/{dlq_entry_uuid}": {
+      "patch": {
         "tags": [
-          "handlers"
+          "dlq"
         ],
-        "summary": "List handlers in a namespace: GET /v1/handlers/{namespace}",
-        "operationId": "list_namespace_handlers",
+        "summary": "Update DLQ investigation status: PATCH /v1/dlq/entry/{dlq_entry_uuid}",
+        "description": "Updates the investigation status and notes for a DLQ entry.\nThis endpoint tracks the INVESTIGATION workflow, not task resolution.\n\n**Note**: Task resolution happens via step APIs:\n`PATCH /v1/tasks/{uuid}/workflow_steps/{step_uuid}`\n\n# Path Parameters\n\n- `dlq_entry_uuid` - UUID of the DLQ entry\n\n# Request Body\n\n```json\n{\n  \"resolution_status\": \"manually_resolved\",\n  \"resolution_notes\": \"Fixed blocked step by recreating upstream dependency\",\n  \"resolved_by\": \"operator@example.com\"\n}\n```\n\n**Required Permission:** `dlq:update`",
+        "operationId": "update_dlq_investigation",
         "parameters": [
           {
-            "name": "namespace",
+            "name": "dlq_entry_uuid",
             "in": "path",
-            "description": "Namespace name",
+            "description": "DLQ entry UUID",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
-        "responses": {
-          "200": {
-            "description": "List of handlers in namespace",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/HandlerInfo"
-                  }
-                }
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateInvestigationRequest"
               }
             }
           },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Insufficient permissions",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
+          "required": true
         },
-        "security": [
-          {
-            "bearer_auth": []
-          },
-          {
-            "api_key_auth": []
-          }
-        ]
-      }
-    },
-    "/v1/handlers/{namespace}/{name}": {
-      "get": {
-        "tags": [
-          "handlers"
-        ],
-        "summary": "Get handler information: GET /v1/handlers/{namespace}/{name}",
-        "operationId": "get_handler_info",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "description": "Namespace name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "name",
-            "in": "path",
-            "description": "Handler name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "responses": {
           "200": {
-            "description": "Handler information",
+            "description": "Investigation updated successfully",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HandlerInfo"
+                  "$ref": "#/components/schemas/UpdateInvestigationResponse"
                 }
               }
             }
@@ -525,7 +496,7 @@
             }
           },
           "404": {
-            "description": "Handler not found",
+            "description": "DLQ entry not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -534,8 +505,8 @@
               }
             }
           },
-          "503": {
-            "description": "Service unavailable",
+          "500": {
+            "description": "Database error",
             "content": {
               "application/json": {
                 "schema": {
@@ -552,7 +523,307 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "dlq:update"
+      }
+    },
+    "/v1/dlq/investigation-queue": {
+      "get": {
+        "tags": [
+          "dlq"
+        ],
+        "summary": "Get DLQ investigation queue: GET /v1/dlq/investigation-queue",
+        "description": "Returns a prioritized queue of pending DLQ entries for operator triage.\nEntries are ordered by priority score (higher = more urgent) combining\nbase reason priority with age factor.\n\n# Query Parameters\n\n- `limit` - Maximum entries to return (default: 100)\n\n# Response\n\nReturns investigation queue entries including:\n- DLQ entry and task UUIDs\n- Original state and DLQ reason\n- Task metadata (namespace, name, current state)\n- Time in DLQ (minutes)\n- Priority score for triage ordering\n\n# Example\n\n```text\nGET /v1/dlq/investigation-queue?limit=50\n```\n\n**Required Permission:** `dlq:read`",
+        "operationId": "get_investigation_queue",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum entries to return (default: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prioritized investigation queue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DlqInvestigationQueueEntry"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          },
+          {
+            "api_key_auth": []
+          }
+        ],
+        "x-required-permission": "dlq:read"
+      }
+    },
+    "/v1/dlq/staleness": {
+      "get": {
+        "tags": [
+          "dlq"
+        ],
+        "summary": "Get task staleness monitoring: GET /v1/dlq/staleness",
+        "description": "Returns real-time staleness monitoring for active tasks in waiting states.\nProvides proactive visibility into tasks approaching staleness thresholds,\nenabling prevention of DLQ entries through early intervention.\n\n# Query Parameters\n\n- `limit` - Maximum tasks to return (default: 100)\n\n# Response\n\nReturns staleness monitoring entries with:\n- Task UUID and metadata (namespace, name)\n- Current state and time in state\n- Staleness threshold and health status classification\n- Health status: `healthy` (< 80%), `warning` (80-99%), `stale` (≥ 100%)\n\nResults are ordered by health status (stale first) then time in state.\n\n# Use Cases\n\n- **Alerting**: Monitor tasks at 80%+ threshold (warning status)\n- **Prevention**: Investigate tasks before they hit DLQ\n- **Capacity Planning**: Identify systemic staleness patterns\n\n# Example\n\n```text\nGET /v1/dlq/staleness?limit=50\n```\n\n**Required Permission:** `dlq:read`",
+        "operationId": "get_staleness_monitoring",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum tasks to return (default: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task staleness monitoring data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StalenessMonitoring"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          },
+          {
+            "api_key_auth": []
+          }
+        ],
+        "x-required-permission": "dlq:read"
+      }
+    },
+    "/v1/dlq/stats": {
+      "get": {
+        "tags": [
+          "dlq"
+        ],
+        "summary": "Get DLQ statistics: GET /v1/dlq/stats",
+        "description": "Returns aggregated statistics for DLQ entries grouped by reason.\nUseful for identifying systemic issues and patterns.\n\n# Response\n\nReturns statistics including:\n- Total entries per reason\n- Count by resolution status (pending, resolved, failed)\n- Oldest and newest entry timestamps\n\n# Example\n\n```text\nGET /v1/dlq/stats\n```\n\n**Required Permission:** `dlq:stats`",
+        "operationId": "get_dlq_stats",
+        "responses": {
+          "200": {
+            "description": "DLQ statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DlqStats"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          },
+          {
+            "api_key_auth": []
+          }
+        ],
+        "x-required-permission": "dlq:stats"
+      }
+    },
+    "/v1/dlq/task/{task_uuid}": {
+      "get": {
+        "tags": [
+          "dlq"
+        ],
+        "summary": "Get DLQ entry with full task snapshot: GET /v1/dlq/task/{task_uuid}",
+        "description": "Returns the most recent DLQ entry for a task, including the complete\ntask snapshot (task + all steps state) for investigation.\n\n# Path Parameters\n\n- `task_uuid` - UUID of the task\n\n# Example\n\n```text\nGET /v1/dlq/task/550e8400-e29b-41d4-a716-446655440000\n```\n\n**Required Permission:** `dlq:read`",
+        "operationId": "get_dlq_entry",
+        "parameters": [
+          {
+            "name": "task_uuid",
+            "in": "path",
+            "description": "Task UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DLQ entry with full snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DlqEntry"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "DLQ entry not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          },
+          {
+            "api_key_auth": []
+          }
+        ],
+        "x-required-permission": "dlq:read"
       }
     },
     "/v1/tasks": {
@@ -561,7 +832,7 @@
           "tasks"
         ],
         "summary": "List tasks with pagination and filtering: GET /v1/tasks",
-        "description": "Returns a paginated list of tasks with execution context using batch SQL functions.\nUsed by workers and administrators for task monitoring and management.",
+        "description": "Returns a paginated list of tasks with execution context using batch SQL functions.\nUsed by workers and administrators for task monitoring and management.\n\n**Required Permission:** `tasks:list`",
         "operationId": "list_tasks",
         "parameters": [
           {
@@ -682,14 +953,15 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "tasks:list"
       },
       "post": {
         "tags": [
           "tasks"
         ],
         "summary": "Create a new task: POST /v1/tasks",
-        "description": "This is the critical endpoint for TAS-40 worker integration.\nWorkers call this endpoint to create tasks and receive UUIDs for tracking.",
+        "description": "This is the critical endpoint for TAS-40 worker integration.\nWorkers call this endpoint to create tasks and receive UUIDs for tracking.\n\n**Required Permission:** `tasks:create`",
         "operationId": "create_task",
         "requestBody": {
           "content": {
@@ -760,7 +1032,8 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "tasks:create"
       }
     },
     "/v1/tasks/{uuid}": {
@@ -769,7 +1042,7 @@
           "tasks"
         ],
         "summary": "Get task details: GET /v1/tasks/{uuid}",
-        "description": "Returns comprehensive task information including execution context and step readiness.\nUsed by workers for task correlation and status tracking.",
+        "description": "Returns comprehensive task information including execution context and step readiness.\nUsed by workers for task correlation and status tracking.\n\n**Required Permission:** `tasks:read`",
         "operationId": "get_task",
         "parameters": [
           {
@@ -841,14 +1114,15 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "tasks:read"
       },
       "delete": {
         "tags": [
           "tasks"
         ],
         "summary": "Cancel a task: DELETE /v1/tasks/{uuid}",
-        "description": "Cancels a task if it's in a cancellable state and triggers orchestration events.\nReturns the updated task with execution context and step information.",
+        "description": "Cancels a task if it's in a cancellable state and triggers orchestration events.\nReturns the updated task with execution context and step information.\n\n**Required Permission:** `tasks:cancel`",
         "operationId": "cancel_task",
         "parameters": [
           {
@@ -930,7 +1204,8 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "tasks:cancel"
       }
     },
     "/v1/tasks/{uuid}/workflow_steps": {
@@ -939,6 +1214,7 @@
           "workflow_steps"
         ],
         "summary": "List workflow steps for a task: GET /v1/tasks/{uuid}/workflow_steps",
+        "description": "**Required Permission:** `steps:read`",
         "operationId": "list_task_steps",
         "parameters": [
           {
@@ -1013,7 +1289,8 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "steps:read"
       }
     },
     "/v1/tasks/{uuid}/workflow_steps/{step_uuid}": {
@@ -1022,6 +1299,7 @@
           "workflow_steps"
         ],
         "summary": "Get workflow step details: GET /v1/tasks/{uuid}/workflow_steps/{step_uuid}",
+        "description": "**Required Permission:** `steps:read`",
         "operationId": "get_step",
         "parameters": [
           {
@@ -1112,14 +1390,15 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "steps:read"
       },
       "patch": {
         "tags": [
           "workflow_steps"
         ],
         "summary": "Manually resolve or complete a workflow step: PATCH /v1/tasks/{uuid}/workflow_steps/{step_uuid}",
-        "description": "This endpoint supports two resolution modes:\n\n1. **Simple Resolution** (`ResolveManually`): Marks the step as `resolved_manually` without providing execution results.\n   Use this when you want to acknowledge a step issue without continuing workflow execution.\n\n2. **Complete with Results** (`CompleteManually`): Provides execution results and transitions the step to `complete` state.\n   - Operators provide only `result` (business data) and optional `metadata`\n   - System automatically enforces `success: true` and `status: \"completed\"`\n   - Prevents operators from incorrectly setting `status` or `error` fields\n   - Dependent steps can consume the provided results, allowing workflow continuation\n\nYou can optionally reset the attempt counter when resolving a step that has exceeded retry limits.",
+        "description": "This endpoint supports two resolution modes:\n\n1. **Simple Resolution** (`ResolveManually`): Marks the step as `resolved_manually` without providing execution results.\n   Use this when you want to acknowledge a step issue without continuing workflow execution.\n\n2. **Complete with Results** (`CompleteManually`): Provides execution results and transitions the step to `complete` state.\n   - Operators provide only `result` (business data) and optional `metadata`\n   - System automatically enforces `success: true` and `status: \"completed\"`\n   - Prevents operators from incorrectly setting `status` or `error` fields\n   - Dependent steps can consume the provided results, allowing workflow continuation\n\nYou can optionally reset the attempt counter when resolving a step that has exceeded retry limits.\n\n**Required Permission:** `steps:resolve`",
         "operationId": "resolve_step_manually",
         "parameters": [
           {
@@ -1220,7 +1499,8 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "steps:resolve"
       }
     },
     "/v1/tasks/{uuid}/workflow_steps/{step_uuid}/audit": {
@@ -1229,7 +1509,7 @@
           "workflow_steps"
         ],
         "summary": "Get audit history for a workflow step: GET /v1/tasks/{uuid}/workflow_steps/{step_uuid}/audit",
-        "description": "Returns SOC2-compliant audit trail for step execution results (TAS-62).\nEach audit record includes:\n- Worker attribution (worker_uuid, correlation_id)\n- Execution summary (success, execution_time_ms)\n- Full execution result via JOIN to transition metadata\n\n## Response\n\nReturns an array of audit records ordered by recorded_at DESC (most recent first).\nEach record links to the transition that captured the execution result.",
+        "description": "Returns SOC2-compliant audit trail for step execution results (TAS-62).\nEach audit record includes:\n- Worker attribution (worker_uuid, correlation_id)\n- Execution summary (success, execution_time_ms)\n- Full execution result via JOIN to transition metadata\n\n## Response\n\nReturns an array of audit records ordered by recorded_at DESC (most recent first).\nEach record links to the transition that captured the execution result.\n\n**Required Permission:** `steps:read`",
         "operationId": "get_step_audit",
         "parameters": [
           {
@@ -1323,7 +1603,183 @@
           {
             "api_key_auth": []
           }
-        ]
+        ],
+        "x-required-permission": "steps:read"
+      }
+    },
+    "/v1/templates": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "List available templates",
+        "description": "GET /v1/templates\n\nReturns a list of all registered task templates, optionally filtered by namespace.\nIncludes namespace summaries and template details.\n\n**Required Permission:** `templates:read`",
+        "operationId": "list_templates",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "description": "Filter by namespace",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of available templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          },
+          {
+            "api_key_auth": []
+          }
+        ],
+        "x-required-permission": "templates:read"
+      }
+    },
+    "/v1/templates/{namespace}/{name}/{version}": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Get a specific template by namespace, name, and version",
+        "description": "GET /v1/templates/{namespace}/{name}/{version}\n\nReturns detailed information about a specific template including its step definitions.\n\n**Required Permission:** `templates:read`",
+        "operationId": "get_template",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Template namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Template name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "Template version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          },
+          {
+            "api_key_auth": []
+          }
+        ],
+        "x-required-permission": "templates:read"
       }
     }
   },
@@ -1478,6 +1934,17 @@
                   "reason"
                 ],
                 "properties": {
+                  "failure_context": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthFailureContext",
+                        "description": "Machine-readable failure context for gateway signaling headers"
+                      }
+                    ]
+                  },
                   "reason": {
                     "type": "string"
                   }
@@ -1497,6 +1964,17 @@
                   "reason"
                 ],
                 "properties": {
+                  "failure_context": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthFailureContext",
+                        "description": "Machine-readable failure context for gateway signaling headers"
+                      }
+                    ]
+                  },
                   "reason": {
                     "type": "string"
                   }
@@ -1538,6 +2016,44 @@
         ],
         "description": "Web API specific errors with HTTP status code mappings"
       },
+      "AuthFailureContext": {
+        "type": "object",
+        "description": "Auth failure context for gateway signaling.\n\nIncluded in 401/403 response headers so upstream gateways (ALB, NLB, API Gateway)\ncan make informed rate-limiting decisions based on failure severity.",
+        "required": [
+          "reason",
+          "severity"
+        ],
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/AuthFailureReason",
+            "description": "Machine-readable failure category"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AuthFailureSeverity",
+            "description": "Suggested severity for gateway action"
+          }
+        }
+      },
+      "AuthFailureReason": {
+        "type": "string",
+        "description": "Machine-readable auth failure reasons.",
+        "enum": [
+          "Missing",
+          "Expired",
+          "Invalid",
+          "Malformed",
+          "Forbidden"
+        ]
+      },
+      "AuthFailureSeverity": {
+        "type": "string",
+        "description": "Severity levels for auth failures (signals gateway rate-limiting behavior).",
+        "enum": [
+          "Low",
+          "Medium",
+          "High"
+        ]
+      },
       "BottleneckAnalysis": {
         "type": "object",
         "description": "Bottleneck analysis response",
@@ -1573,25 +2089,62 @@
       },
       "ConfigMetadata": {
         "type": "object",
-        "description": "Metadata about the configuration response",
+        "description": "Response metadata (non-sensitive system info).",
         "required": [
           "timestamp",
-          "source",
-          "redacted_fields"
+          "environment",
+          "version"
         ],
         "properties": {
-          "redacted_fields": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "source": {
+          "environment": {
             "type": "string"
           },
           "timestamp": {
             "type": "string",
             "format": "date-time"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "DetailedHealthChecks": {
+        "type": "object",
+        "description": "Full health checks for detailed health endpoint",
+        "required": [
+          "web_database",
+          "orchestration_database",
+          "circuit_breaker",
+          "orchestration_system",
+          "command_processor",
+          "pool_utilization",
+          "queue_depth",
+          "channel_saturation"
+        ],
+        "properties": {
+          "channel_saturation": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "circuit_breaker": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "command_processor": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "orchestration_database": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "orchestration_system": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "pool_utilization": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "queue_depth": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "web_database": {
+            "$ref": "#/components/schemas/HealthCheck"
           }
         }
       },
@@ -1606,13 +2159,7 @@
         ],
         "properties": {
           "checks": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/HealthCheck"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
+            "$ref": "#/components/schemas/DetailedHealthChecks"
           },
           "info": {
             "$ref": "#/components/schemas/HealthInfo"
@@ -1622,6 +2169,233 @@
           },
           "timestamp": {
             "type": "string"
+          }
+        }
+      },
+      "DlqEntry": {
+        "type": "object",
+        "description": "DLQ Entry\n\nComplete DLQ investigation record. Maps to `tasker.tasks_dlq` table.\n\nArchitecture:\n- DLQ is an INVESTIGATION TRACKER (not task manipulation layer)\n- Tasks remain in tasker.tasks table (typically in Error state)\n- DLQ entries track \"why stuck\" and \"what operator did\"\n- Multiple DLQ entries per task allowed (historical trail)\n- Only one \"pending\" investigation per task at a time",
+        "required": [
+          "dlq_entry_uuid",
+          "task_uuid",
+          "original_state",
+          "dlq_reason",
+          "dlq_timestamp",
+          "resolution_status",
+          "task_snapshot",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Entry creation timestamp"
+          },
+          "dlq_entry_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique identifier for this DLQ entry"
+          },
+          "dlq_reason": {
+            "$ref": "#/components/schemas/DlqReason",
+            "description": "Why task was sent to DLQ"
+          },
+          "dlq_timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When task was added to DLQ"
+          },
+          "metadata": {
+            "description": "Additional metadata (JSONB)\nExamples: error stack trace, detection method, related tasks"
+          },
+          "original_state": {
+            "type": "string",
+            "description": "Task state when sent to DLQ"
+          },
+          "resolution_notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Investigation notes and resolution details"
+          },
+          "resolution_status": {
+            "$ref": "#/components/schemas/DlqResolutionStatus",
+            "description": "Current investigation status"
+          },
+          "resolution_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When investigation was resolved (if resolved)"
+          },
+          "resolved_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who resolved the investigation (user or system)"
+          },
+          "task_snapshot": {
+            "description": "Complete task snapshot at DLQ time (JSONB)\nContains: task details, steps, transitions, execution context"
+          },
+          "task_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Task under investigation"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Entry last update timestamp"
+          }
+        }
+      },
+      "DlqInvestigationQueueEntry": {
+        "type": "object",
+        "description": "DLQ investigation queue entry with priority scoring\n\nSourced from `v_dlq_investigation_queue` view for operator triage dashboard.\nEntries are sorted by priority score (higher = more urgent).",
+        "required": [
+          "dlq_entry_uuid",
+          "task_uuid",
+          "original_state",
+          "dlq_reason",
+          "dlq_timestamp",
+          "minutes_in_dlq",
+          "priority_score"
+        ],
+        "properties": {
+          "current_state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dlq_entry_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dlq_reason": {
+            "$ref": "#/components/schemas/DlqReason"
+          },
+          "dlq_timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "minutes_in_dlq": {
+            "type": "number",
+            "format": "double"
+          },
+          "namespace_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "original_state": {
+            "type": "string"
+          },
+          "priority_score": {
+            "type": "number",
+            "format": "double"
+          },
+          "task_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "task_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "time_in_state_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "DlqReason": {
+        "type": "string",
+        "description": "DLQ Reason\n\nWhy was a task sent to DLQ? Determines investigation priority and remediation approach.\nThis enum maps to the PostgreSQL `dlq_reason` enum type.",
+        "enum": [
+          "StalenessTimeout",
+          "MaxRetriesExceeded",
+          "DependencyCycleDetected",
+          "WorkerUnavailable",
+          "ManualDlq"
+        ]
+      },
+      "DlqResolutionStatus": {
+        "type": "string",
+        "description": "DLQ Resolution Status\n\nTracks the lifecycle of a DLQ investigation (NOT task state).\nThis enum maps to the PostgreSQL `dlq_resolution_status` enum type.\n\nState Machine:\n- `pending` → `manually_resolved` (operator fixed problem via step APIs)\n- `pending` → `permanently_failed` (unfixable issue, task stays in Error state)\n- `pending` → `cancelled` (investigation no longer needed)\n\nA task can have multiple DLQ entries over time (investigation history),\nbut only one pending entry at a time (enforced by unique index).",
+        "enum": [
+          "Pending",
+          "ManuallyResolved",
+          "PermanentlyFailed",
+          "Cancelled"
+        ]
+      },
+      "DlqStats": {
+        "type": "object",
+        "description": "DLQ statistics by reason\n\nSourced from `v_dlq_dashboard` view for high-level DLQ monitoring.",
+        "required": [
+          "dlq_reason",
+          "total_entries",
+          "pending",
+          "manually_resolved",
+          "permanent_failures",
+          "cancelled"
+        ],
+        "properties": {
+          "avg_resolution_time_minutes": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "cancelled": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "dlq_reason": {
+            "$ref": "#/components/schemas/DlqReason"
+          },
+          "manually_resolved": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "newest_entry": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "oldest_entry": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "permanent_failures": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_entries": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -1635,39 +2409,6 @@
           "all_complete",
           "waiting_for_dependencies"
         ]
-      },
-      "HandlerInfo": {
-        "type": "object",
-        "description": "Handler information",
-        "required": [
-          "name",
-          "namespace",
-          "version",
-          "step_templates"
-        ],
-        "properties": {
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "namespace": {
-            "type": "string"
-          },
-          "step_templates": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "version": {
-            "type": "string"
-          }
-        }
       },
       "HealthCheck": {
         "type": "object",
@@ -1771,53 +2512,61 @@
           }
         }
       },
-      "NamespaceInfo": {
+      "NamespaceSummary": {
         "type": "object",
-        "description": "Namespace information",
+        "description": "Summary of a namespace with its templates",
         "required": [
           "name",
-          "handler_count"
+          "template_count"
         ],
         "properties": {
           "description": {
             "type": [
               "string",
               "null"
-            ]
-          },
-          "handler_count": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+            ],
+            "description": "Optional namespace description"
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Namespace name"
+          },
+          "template_count": {
+            "type": "integer",
+            "description": "Number of templates in this namespace",
+            "minimum": 0
           }
         }
       },
       "OrchestrationConfigResponse": {
         "type": "object",
-        "description": "Unified orchestration configuration response with both common and orchestration-specific config\n\nThis provides a complete view of the orchestration system's configuration in a single response,\nmaking it easier for operators to understand the full deployment without multiple API calls.",
+        "description": "Orchestration configuration response (whitelist-only).\n\nOnly exposes operational metadata that is safe for external consumption.\nNo secrets, credentials, keys, or database URLs are included.\nAdding new fields requires a conscious decision about sensitivity.",
         "required": [
-          "environment",
-          "common",
-          "orchestration",
-          "metadata"
+          "metadata",
+          "auth",
+          "circuit_breakers",
+          "database_pools",
+          "deployment_mode",
+          "messaging"
         ],
         "properties": {
-          "common": {
-            "$ref": "#/components/schemas/Value",
-            "description": "Common (shared) configuration components"
+          "auth": {
+            "$ref": "#/components/schemas/SafeAuthConfig"
           },
-          "environment": {
+          "circuit_breakers": {
+            "$ref": "#/components/schemas/SafeCircuitBreakerConfig"
+          },
+          "database_pools": {
+            "$ref": "#/components/schemas/SafeDatabasePoolConfig"
+          },
+          "deployment_mode": {
             "type": "string"
+          },
+          "messaging": {
+            "$ref": "#/components/schemas/SafeMessagingConfig"
           },
           "metadata": {
             "$ref": "#/components/schemas/ConfigMetadata"
-          },
-          "orchestration": {
-            "$ref": "#/components/schemas/Value",
-            "description": "Orchestration-specific configuration"
           }
         }
       },
@@ -2007,6 +2756,58 @@
           }
         }
       },
+      "ReadinessChecks": {
+        "type": "object",
+        "description": "Core health checks for readiness probe",
+        "required": [
+          "web_database",
+          "orchestration_database",
+          "circuit_breaker",
+          "orchestration_system",
+          "command_processor"
+        ],
+        "properties": {
+          "circuit_breaker": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "command_processor": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "orchestration_database": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "orchestration_system": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "web_database": {
+            "$ref": "#/components/schemas/HealthCheck"
+          }
+        }
+      },
+      "ReadinessResponse": {
+        "type": "object",
+        "description": "Readiness health check response (subset of detailed checks)",
+        "required": [
+          "status",
+          "timestamp",
+          "checks",
+          "info"
+        ],
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/ReadinessChecks"
+          },
+          "info": {
+            "$ref": "#/components/schemas/HealthInfo"
+          },
+          "status": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        }
+      },
       "RecommendedAction": {
         "type": "string",
         "description": "Recommended action returned by the SQL get_task_execution_context function\nMatches the recommended_action values from the SQL function",
@@ -2035,10 +2836,130 @@
           }
         }
       },
+      "SafeAuthConfig": {
+        "type": "object",
+        "description": "Non-sensitive auth configuration summary.\n\nExposes whether auth is enabled and how it's configured,\nwithout revealing keys, secrets, or credential values.",
+        "required": [
+          "enabled",
+          "verification_method",
+          "jwt_issuer",
+          "jwt_audience",
+          "api_key_header",
+          "api_key_count",
+          "strict_validation",
+          "allowed_algorithms"
+        ],
+        "properties": {
+          "allowed_algorithms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "api_key_count": {
+            "type": "integer",
+            "description": "Number of configured API keys (not their values)",
+            "minimum": 0
+          },
+          "api_key_header": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "jwt_audience": {
+            "type": "string"
+          },
+          "jwt_issuer": {
+            "type": "string"
+          },
+          "strict_validation": {
+            "type": "boolean"
+          },
+          "verification_method": {
+            "type": "string",
+            "description": "Verification method: \"public_key\", \"jwks\", or \"none\""
+          }
+        }
+      },
+      "SafeCircuitBreakerConfig": {
+        "type": "object",
+        "description": "Non-sensitive circuit breaker configuration.",
+        "required": [
+          "enabled",
+          "failure_threshold",
+          "timeout_seconds",
+          "success_threshold"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "failure_threshold": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "success_threshold": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "SafeDatabasePoolConfig": {
+        "type": "object",
+        "description": "Non-sensitive database pool configuration.",
+        "required": [
+          "web_api_pool_size",
+          "web_api_max_connections"
+        ],
+        "properties": {
+          "web_api_max_connections": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "web_api_pool_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "SafeMessagingConfig": {
+        "type": "object",
+        "description": "Non-sensitive messaging configuration.\n\nExposes backend type and queue names — these are operational\nmetadata useful for debugging, not secrets.",
+        "required": [
+          "backend",
+          "queues"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string",
+            "description": "Backend type: \"pgmq\" or \"rabbitmq\""
+          },
+          "queues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Queue names owned by this component"
+          }
+        }
+      },
       "SlowStepInfo": {
         "type": "object",
-        "description": "Information about slow-performing steps",
+        "description": "Information about slow-performing steps\n\nSteps are identified by (namespace, task_name, version, step_name) since\nstep names are only unique within a task template context.",
         "required": [
+          "namespace_name",
+          "task_name",
+          "version",
           "step_name",
           "average_duration_seconds",
           "max_duration_seconds",
@@ -2053,7 +2974,7 @@
           },
           "error_count": {
             "type": "integer",
-            "format": "int32"
+            "format": "int64"
           },
           "error_rate": {
             "type": "number",
@@ -2061,7 +2982,7 @@
           },
           "execution_count": {
             "type": "integer",
-            "format": "int32"
+            "format": "int64"
           },
           "last_executed_at": {
             "type": [
@@ -2073,16 +2994,31 @@
             "type": "number",
             "format": "double"
           },
+          "namespace_name": {
+            "type": "string",
+            "description": "Namespace containing the task template"
+          },
           "step_name": {
-            "type": "string"
+            "type": "string",
+            "description": "Step name (unique within template)"
+          },
+          "task_name": {
+            "type": "string",
+            "description": "Task template name"
+          },
+          "version": {
+            "type": "string",
+            "description": "Task template version"
           }
         }
       },
       "SlowTaskInfo": {
         "type": "object",
-        "description": "Information about slow-performing tasks",
+        "description": "Information about slow-performing tasks\n\nTasks are identified by (namespace, task_name, version) - the template identity.",
         "required": [
+          "namespace_name",
           "task_name",
+          "version",
           "average_duration_seconds",
           "max_duration_seconds",
           "execution_count",
@@ -2101,7 +3037,7 @@
           },
           "error_count": {
             "type": "integer",
-            "format": "int32"
+            "format": "int64"
           },
           "error_rate": {
             "type": "number",
@@ -2109,7 +3045,7 @@
           },
           "execution_count": {
             "type": "integer",
-            "format": "int32"
+            "format": "int64"
           },
           "last_executed_at": {
             "type": [
@@ -2121,8 +3057,88 @@
             "type": "number",
             "format": "double"
           },
+          "namespace_name": {
+            "type": "string",
+            "description": "Namespace containing the task template"
+          },
           "task_name": {
-            "type": "string"
+            "type": "string",
+            "description": "Task template name"
+          },
+          "version": {
+            "type": "string",
+            "description": "Task template version"
+          }
+        }
+      },
+      "StalenessHealthStatus": {
+        "type": "string",
+        "description": "Health status classification for task staleness monitoring\n\nIndicates how close a task is to exceeding its staleness threshold.",
+        "enum": [
+          "healthy",
+          "warning",
+          "stale"
+        ]
+      },
+      "StalenessMonitoring": {
+        "type": "object",
+        "description": "Staleness monitoring data for active tasks\n\nSourced from `v_task_staleness_monitoring` view for real-time health monitoring.\nProvides per-task visibility into staleness with health status classification.",
+        "required": [
+          "task_uuid",
+          "current_state",
+          "time_in_state_minutes",
+          "task_age_minutes",
+          "staleness_threshold_minutes",
+          "health_status",
+          "priority"
+        ],
+        "properties": {
+          "current_state": {
+            "type": "string",
+            "description": "Current task state"
+          },
+          "health_status": {
+            "$ref": "#/components/schemas/StalenessHealthStatus",
+            "description": "Health status classification"
+          },
+          "namespace_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Namespace name (for context)"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Task priority (from configuration)"
+          },
+          "staleness_threshold_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Staleness threshold for this state (considers template overrides)"
+          },
+          "task_age_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total task age in minutes"
+          },
+          "task_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task template name (for context)"
+          },
+          "task_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Task UUID being monitored"
+          },
+          "time_in_state_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Minutes task has been in current state"
           }
         }
       },
@@ -2203,6 +3219,37 @@
           "workflow_step_uuid": {
             "type": "string",
             "description": "The workflow step this audit record belongs to"
+          }
+        }
+      },
+      "StepDefinition": {
+        "type": "object",
+        "description": "Definition of a step within a template",
+        "required": [
+          "name",
+          "default_retryable",
+          "default_max_attempts"
+        ],
+        "properties": {
+          "default_max_attempts": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum retry attempts"
+          },
+          "default_retryable": {
+            "type": "boolean",
+            "description": "Whether the step is retryable by default"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Step description"
+          },
+          "name": {
+            "type": "string",
+            "description": "Step name/handler identifier"
           }
         }
       },
@@ -3000,7 +4047,170 @@
           }
         }
       },
-      "Value": {}
+      "TemplateDetail": {
+        "type": "object",
+        "description": "Detailed information about a single template\n\nReturned when fetching a specific template by namespace/name/version.",
+        "required": [
+          "name",
+          "namespace",
+          "version",
+          "configuration",
+          "steps"
+        ],
+        "properties": {
+          "configuration": {
+            "type": "object",
+            "description": "Template configuration (JSON)"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional description"
+          },
+          "name": {
+            "type": "string",
+            "description": "Template name"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Namespace the template belongs to"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StepDefinition"
+            },
+            "description": "Step definitions for this template"
+          },
+          "version": {
+            "type": "string",
+            "description": "Template version"
+          }
+        }
+      },
+      "TemplateListResponse": {
+        "type": "object",
+        "description": "Response for template listing endpoint\n\nProvides an overview of all available templates, optionally filtered by namespace.",
+        "required": [
+          "namespaces",
+          "templates",
+          "total_count"
+        ],
+        "properties": {
+          "namespaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NamespaceSummary"
+            },
+            "description": "Summary of available namespaces"
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateSummary"
+            },
+            "description": "List of templates (optionally filtered)"
+          },
+          "total_count": {
+            "type": "integer",
+            "description": "Total number of templates (before filtering)",
+            "minimum": 0
+          }
+        }
+      },
+      "TemplateSummary": {
+        "type": "object",
+        "description": "Summary information about a template\n\nUsed in list responses to provide an overview of available templates.",
+        "required": [
+          "name",
+          "namespace",
+          "version",
+          "step_count"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional description"
+          },
+          "name": {
+            "type": "string",
+            "description": "Template name"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Namespace the template belongs to"
+          },
+          "step_count": {
+            "type": "integer",
+            "description": "Number of steps in the template",
+            "minimum": 0
+          },
+          "version": {
+            "type": "string",
+            "description": "Template version"
+          }
+        }
+      },
+      "UpdateInvestigationRequest": {
+        "type": "object",
+        "description": "Request body for updating DLQ investigation status",
+        "properties": {
+          "metadata": {
+            "description": "Additional metadata (optional)"
+          },
+          "resolution_notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Investigation notes (optional)"
+          },
+          "resolution_status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DlqResolutionStatus",
+                "description": "New resolution status (optional)"
+              }
+            ]
+          },
+          "resolved_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who resolved the investigation (optional)"
+          }
+        }
+      },
+      "UpdateInvestigationResponse": {
+        "type": "object",
+        "description": "Response for update investigation endpoint",
+        "required": [
+          "success",
+          "message",
+          "dlq_entry_uuid"
+        ],
+        "properties": {
+          "dlq_entry_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      }
     },
     "securitySchemes": {
       "api_key_auth": {
@@ -3032,12 +4242,16 @@
       "description": "Performance analytics and metrics"
     },
     {
-      "name": "handlers",
-      "description": "Handler registry and discovery"
+      "name": "templates",
+      "description": "Template discovery and information"
+    },
+    {
+      "name": "dlq",
+      "description": "Dead Letter Queue investigation and monitoring"
     },
     {
       "name": "config",
-      "description": "Runtime configuration observability (secrets redacted)"
+      "description": "Runtime configuration observability (safe fields only)"
     }
   ]
 }

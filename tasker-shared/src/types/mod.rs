@@ -7,6 +7,7 @@ pub mod jwks;
 #[cfg(feature = "web-api")]
 pub mod openapi_security;
 pub mod permissions;
+pub mod resources;
 pub mod security;
 pub mod web;
 
@@ -16,4 +17,5 @@ pub use base::{
     TaskSequenceStep, ViableStep,
 };
 pub use permissions::Permission;
+pub use resources::{Action, Resource, ResourceAction};
 pub use security::{AuthMethod, SecurityContext};

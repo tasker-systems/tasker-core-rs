@@ -5,7 +5,7 @@ use super::super::test_infrastructure::create_test_task_request_json;
 use reqwest::StatusCode;
 
 // =============================================================================
-// JWT Full Permissions (*)
+// JWT Full Permissions (All Resource Wildcards)
 // =============================================================================
 
 #[tokio::test]
@@ -15,7 +15,15 @@ async fn full_permissions_access_granted() {
         .expect("Failed to start auth test server");
     let mut client = AuthWebTestClient::for_server(&server);
 
-    let token = generate_jwt(&["*"]);
+    // Use explicit resource wildcards for full access (global * is not supported)
+    let token = generate_jwt(&[
+        "tasks:*",
+        "steps:*",
+        "dlq:*",
+        "templates:*",
+        "system:*",
+        "worker:*",
+    ]);
     client.with_jwt(&token);
 
     // All read endpoints should succeed (200 or 404 for missing resources, not 401/403)
@@ -27,12 +35,12 @@ async fn full_permissions_access_granted() {
         assert_ne!(
             response.status(),
             StatusCode::UNAUTHORIZED,
-            "GET {path} with * perms should not return 401"
+            "GET {path} with full resource wildcards should not return 401"
         );
         assert_ne!(
             response.status(),
             StatusCode::FORBIDDEN,
-            "GET {path} with * perms should not return 403"
+            "GET {path} with full resource wildcards should not return 403"
         );
     }
 
@@ -45,12 +53,12 @@ async fn full_permissions_access_granted() {
     assert_ne!(
         response.status(),
         StatusCode::UNAUTHORIZED,
-        "POST /v1/tasks with * perms should not return 401"
+        "POST /v1/tasks with full resource wildcards should not return 401"
     );
     assert_ne!(
         response.status(),
         StatusCode::FORBIDDEN,
-        "POST /v1/tasks with * perms should not return 403"
+        "POST /v1/tasks with full resource wildcards should not return 403"
     );
 
     server.shutdown().await.expect("shutdown failed");

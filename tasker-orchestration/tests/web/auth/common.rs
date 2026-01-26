@@ -88,7 +88,7 @@ async fn expired_jwt_returns_401() {
         .expect("Failed to start auth test server");
     let mut client = AuthWebTestClient::for_server(&server);
 
-    let token = generate_expired_jwt(&["*"]);
+    let token = generate_expired_jwt(&["tasks:list"]);
     client.with_jwt(&token);
 
     let response = client.get("/v1/tasks").await.expect("request failed");
@@ -136,7 +136,7 @@ async fn wrong_issuer_returns_401() {
         .expect("Failed to start auth test server");
     let mut client = AuthWebTestClient::for_server(&server);
 
-    let token = generate_jwt_wrong_issuer(&["*"]);
+    let token = generate_jwt_wrong_issuer(&["tasks:list"]);
     client.with_jwt(&token);
 
     let response = client.get("/v1/tasks").await.expect("request failed");
@@ -157,7 +157,7 @@ async fn wrong_audience_returns_401() {
         .expect("Failed to start auth test server");
     let mut client = AuthWebTestClient::for_server(&server);
 
-    let token = generate_jwt_wrong_audience(&["*"]);
+    let token = generate_jwt_wrong_audience(&["tasks:list"]);
     client.with_jwt(&token);
 
     let response = client.get("/v1/tasks").await.expect("request failed");

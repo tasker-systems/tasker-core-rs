@@ -23,13 +23,10 @@ use axum::Json;
 use tracing::debug;
 
 use crate::services::TemplateQueryError;
-use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::types::api::templates::{
     TemplateDetail, TemplateListResponse, TemplatePathParams, TemplateQueryParams,
 };
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 /// List available templates
@@ -38,6 +35,8 @@ use tasker_shared::types::web::{ApiError, ApiResult};
 ///
 /// Returns a list of all registered task templates, optionally filtered by namespace.
 /// Includes namespace summaries and template details.
+///
+/// **Required Permission:** `templates:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/templates",
@@ -49,15 +48,15 @@ use tasker_shared::types::web::{ApiError, ApiResult};
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("templates:read"))
+    ),
     tag = "templates"
 ))]
 pub async fn list_templates(
     State(state): State<AppState>,
-    security: SecurityContext,
     Query(params): Query<TemplateQueryParams>,
 ) -> ApiResult<Json<TemplateListResponse>> {
-    require_permission(&security, Permission::TemplatesRead)?;
-
     debug!(namespace = ?params.namespace, "Listing available templates");
 
     // TAS-76: Delegate to service layer
@@ -75,6 +74,8 @@ pub async fn list_templates(
 /// GET /v1/templates/{namespace}/{name}/{version}
 ///
 /// Returns detailed information about a specific template including its step definitions.
+///
+/// **Required Permission:** `templates:read`
 #[cfg_attr(feature = "web-api", utoipa::path(
     get,
     path = "/v1/templates/{namespace}/{name}/{version}",
@@ -91,15 +92,15 @@ pub async fn list_templates(
         (status = 503, description = "Service unavailable", body = ApiError)
     ),
     security(("bearer_auth" = []), ("api_key_auth" = [])),
+    extensions(
+        ("x-required-permission" = json!("templates:read"))
+    ),
     tag = "templates"
 ))]
 pub async fn get_template(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path(params): Path<TemplatePathParams>,
 ) -> ApiResult<Json<TemplateDetail>> {
-    require_permission(&security, Permission::TemplatesRead)?;
-
     debug!(
         namespace = %params.namespace,
         name = %params.name,
