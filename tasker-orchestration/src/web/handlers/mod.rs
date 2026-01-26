@@ -3,17 +3,13 @@
 //! Contains all HTTP request handlers organized by functional area.
 //! Each module handles a specific aspect of the API.
 //!
-//! ## Authorization ordering note
+//! ## Authorization (TAS-176)
 //!
-//! Handlers that accept a request body (e.g. `Json<T>`) perform permission
-//! checks (`require_permission`) in the handler body, which runs after Axum's
-//! extractors. This means body deserialization occurs before authorization is
-//! evaluated. An authenticated user without the required permission may receive
-//! 422 (invalid body) instead of 403 (forbidden) if their payload is malformed.
-//! This is acceptable because all requests are gated behind JWT/API key
-//! authentication — the caller has a valid identity. A future improvement would
-//! introduce route-level permission middleware so authorization is evaluated
-//! before body extraction.
+//! Permission checks are performed at the route level via the `authorize()` wrapper,
+//! which runs **before** body deserialization. This ensures unauthorized requests
+//! are rejected with 403 before any request body parsing occurs.
+//!
+//! See `tasker-shared/src/web/authorize.rs` for the implementation.
 
 pub mod analytics;
 pub mod config;

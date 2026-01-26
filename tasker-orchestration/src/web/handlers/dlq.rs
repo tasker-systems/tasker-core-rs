@@ -31,14 +31,11 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
-use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::models::orchestration::dlq::{
     DlqEntry, DlqInvestigationQueueEntry, DlqInvestigationUpdate,
     DlqListParams as ModelDlqListParams, DlqResolutionStatus, DlqStats, StalenessMonitoring,
 };
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 // ============================================================================
@@ -161,11 +158,8 @@ pub struct UpdateInvestigationResponse {
 ))]
 pub async fn list_dlq_entries(
     State(state): State<AppState>,
-    security: SecurityContext,
     Query(params): Query<DlqListQueryParams>,
 ) -> ApiResult<Json<Vec<DlqEntry>>> {
-    require_permission(&security, Permission::DlqRead)?;
-
     debug!(
         resolution_status = ?params.resolution_status,
         limit = params.limit,
@@ -222,11 +216,8 @@ pub async fn list_dlq_entries(
 ))]
 pub async fn get_dlq_entry(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path(task_uuid): Path<Uuid>,
 ) -> ApiResult<Json<DlqEntry>> {
-    require_permission(&security, Permission::DlqRead)?;
-
     debug!(task_uuid = %task_uuid, "Fetching DLQ entry with task snapshot");
 
     // Delegate to model layer
@@ -296,12 +287,9 @@ pub async fn get_dlq_entry(
 ))]
 pub async fn update_dlq_investigation(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path(dlq_entry_uuid): Path<Uuid>,
     Json(payload): Json<UpdateInvestigationRequest>,
 ) -> ApiResult<Json<UpdateInvestigationResponse>> {
-    require_permission(&security, Permission::DlqUpdate)?;
-
     debug!(
         dlq_entry_uuid = %dlq_entry_uuid,
         resolution_status = ?payload.resolution_status,
@@ -374,12 +362,7 @@ pub async fn update_dlq_investigation(
     ),
     tag = "dlq"
 ))]
-pub async fn get_dlq_stats(
-    State(state): State<AppState>,
-    security: SecurityContext,
-) -> ApiResult<Json<Vec<DlqStats>>> {
-    require_permission(&security, Permission::DlqStats)?;
-
+pub async fn get_dlq_stats(State(state): State<AppState>) -> ApiResult<Json<Vec<DlqStats>>> {
     debug!("Fetching DLQ statistics");
 
     // Delegate to model layer
@@ -443,11 +426,8 @@ pub async fn get_dlq_stats(
 ))]
 pub async fn get_investigation_queue(
     State(state): State<AppState>,
-    security: SecurityContext,
     Query(params): Query<InvestigationQueueParams>,
 ) -> ApiResult<Json<Vec<DlqInvestigationQueueEntry>>> {
-    require_permission(&security, Permission::DlqRead)?;
-
     debug!(limit = params.limit, "Fetching DLQ investigation queue");
 
     // Delegate to model layer
@@ -518,11 +498,8 @@ pub async fn get_investigation_queue(
 ))]
 pub async fn get_staleness_monitoring(
     State(state): State<AppState>,
-    security: SecurityContext,
     Query(params): Query<StalenessMonitoringParams>,
 ) -> ApiResult<Json<Vec<StalenessMonitoring>>> {
-    require_permission(&security, Permission::DlqRead)?;
-
     debug!(limit = params.limit, "Fetching staleness monitoring data");
 
     // Delegate to model layer

@@ -23,13 +23,10 @@ use axum::Json;
 use tracing::debug;
 
 use crate::services::TemplateQueryError;
-use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::types::api::templates::{
     TemplateDetail, TemplateListResponse, TemplatePathParams, TemplateQueryParams,
 };
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 /// List available templates
@@ -58,11 +55,8 @@ use tasker_shared::types::web::{ApiError, ApiResult};
 ))]
 pub async fn list_templates(
     State(state): State<AppState>,
-    security: SecurityContext,
     Query(params): Query<TemplateQueryParams>,
 ) -> ApiResult<Json<TemplateListResponse>> {
-    require_permission(&security, Permission::TemplatesRead)?;
-
     debug!(namespace = ?params.namespace, "Listing available templates");
 
     // TAS-76: Delegate to service layer
@@ -105,11 +99,8 @@ pub async fn list_templates(
 ))]
 pub async fn get_template(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path(params): Path<TemplatePathParams>,
 ) -> ApiResult<Json<TemplateDetail>> {
-    require_permission(&security, Permission::TemplatesRead)?;
-
     debug!(
         namespace = %params.namespace,
         name = %params.name,

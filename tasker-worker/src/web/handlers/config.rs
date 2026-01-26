@@ -11,8 +11,6 @@ use std::sync::Arc;
 use crate::web::state::WorkerWebState;
 use crate::worker::services::ConfigQueryError;
 use tasker_shared::types::api::orchestration::WorkerConfigResponse;
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::ApiError;
 
 /// Convert ConfigQueryError to HTTP API error
@@ -50,10 +48,7 @@ fn config_error_to_api_error(error: ConfigQueryError) -> ApiError {
 ))]
 pub async fn get_config(
     State(state): State<Arc<WorkerWebState>>,
-    security: SecurityContext,
 ) -> Result<Json<WorkerConfigResponse>, ApiError> {
-    crate::web::middleware::auth::require_permission(&security, Permission::WorkerConfigRead)?;
-
     state
         .config_query_service()
         .runtime_config()

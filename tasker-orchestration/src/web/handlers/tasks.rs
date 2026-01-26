@@ -10,15 +10,12 @@ use uuid::Uuid;
 
 use crate::services::TaskServiceError;
 use crate::web::circuit_breaker::record_backpressure_rejection;
-use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::models::core::task::TaskListQuery;
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::types::api::orchestration::{
     TaskCreationResponse, TaskListResponse, TaskResponse,
 };
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 /// Create a new task: POST /v1/tasks
@@ -46,11 +43,8 @@ use tasker_shared::types::web::{ApiError, ApiResult};
 ))]
 pub async fn create_task(
     State(state): State<AppState>,
-    security: SecurityContext,
     Json(request): Json<TaskRequest>,
 ) -> ApiResult<Json<TaskCreationResponse>> {
-    require_permission(&security, Permission::TasksCreate)?;
-
     info!(
         namespace = %request.namespace,
         task_name = %request.name,
@@ -111,11 +105,8 @@ pub async fn create_task(
 ))]
 pub async fn get_task(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path(task_uuid): Path<String>,
 ) -> ApiResult<Json<TaskResponse>> {
-    require_permission(&security, Permission::TasksRead)?;
-
     debug!(task_uuid = %task_uuid, "Retrieving task details with execution context");
 
     let uuid = Uuid::parse_str(&task_uuid).map_err(|_| ApiError::invalid_uuid(task_uuid))?;
@@ -160,11 +151,8 @@ pub async fn get_task(
 ))]
 pub async fn list_tasks(
     State(state): State<AppState>,
-    security: SecurityContext,
     Query(query): Query<TaskListQuery>,
 ) -> ApiResult<Json<TaskListResponse>> {
-    require_permission(&security, Permission::TasksList)?;
-
     debug!(?query, "Listing tasks with execution context and filters");
 
     state
@@ -203,11 +191,8 @@ pub async fn list_tasks(
 ))]
 pub async fn cancel_task(
     State(state): State<AppState>,
-    security: SecurityContext,
     Path(task_uuid): Path<String>,
 ) -> ApiResult<Json<TaskResponse>> {
-    require_permission(&security, Permission::TasksCancel)?;
-
     info!(task_uuid = %task_uuid, "Cancelling task via web API");
 
     let uuid = Uuid::parse_str(&task_uuid).map_err(|_| ApiError::invalid_uuid(task_uuid))?;

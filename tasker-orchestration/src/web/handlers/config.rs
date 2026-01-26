@@ -9,14 +9,11 @@ use axum::Json;
 use chrono::Utc;
 use tracing::debug;
 
-use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::types::api::orchestration::{
     ConfigMetadata, OrchestrationConfigResponse, SafeAuthConfig, SafeCircuitBreakerConfig,
     SafeDatabasePoolConfig, SafeMessagingConfig,
 };
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::ApiError;
 
 /// Get orchestration configuration: GET /config
@@ -41,10 +38,7 @@ use tasker_shared::types::web::ApiError;
 ))]
 pub async fn get_config(
     State(state): State<AppState>,
-    security: SecurityContext,
 ) -> Result<Json<OrchestrationConfigResponse>, ApiError> {
-    require_permission(&security, Permission::SystemConfigRead)?;
-
     debug!("Retrieving orchestration configuration (safe fields only)");
 
     let tasker_config = &state.orchestration_core.context.tasker_config;

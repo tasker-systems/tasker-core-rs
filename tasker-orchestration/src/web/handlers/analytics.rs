@@ -15,13 +15,10 @@ use axum::Json;
 use tracing::info;
 
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
-use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
 use tasker_shared::types::api::orchestration::{
     BottleneckAnalysis, BottleneckQuery, MetricsQuery, PerformanceMetrics,
 };
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 /// Get performance metrics: GET /v1/analytics/performance
@@ -47,11 +44,8 @@ use tasker_shared::types::web::{ApiError, ApiResult};
 ))]
 pub async fn get_performance_metrics(
     State(state): State<AppState>,
-    security: SecurityContext,
     Query(params): Query<MetricsQuery>,
 ) -> ApiResult<Json<PerformanceMetrics>> {
-    require_permission(&security, Permission::AnalyticsRead)?;
-
     let hours = params.hours.unwrap_or(24);
 
     info!(hours = hours, "Retrieving performance metrics");
@@ -93,11 +87,8 @@ pub async fn get_performance_metrics(
 ))]
 pub async fn get_bottlenecks(
     State(state): State<AppState>,
-    security: SecurityContext,
     Query(params): Query<BottleneckQuery>,
 ) -> ApiResult<Json<BottleneckAnalysis>> {
-    require_permission(&security, Permission::AnalyticsRead)?;
-
     let limit = params.limit.unwrap_or(10);
     let min_executions = params.min_executions.unwrap_or(5);
 

@@ -22,25 +22,7 @@ use tasker_shared::types::api::worker::{
     TemplateListResponse, TemplatePathParams, TemplateQueryParams, TemplateResponse,
     TemplateValidationResponse,
 };
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::SecurityContext;
 use tasker_shared::types::web::ErrorResponse;
-
-/// Check permission and convert to handler error format.
-fn check_permission(
-    ctx: &SecurityContext,
-    perm: Permission,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    crate::web::middleware::auth::require_permission(ctx, perm).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(error_response(
-                "FORBIDDEN".to_string(),
-                format!("Missing required permission: {perm}"),
-            )),
-        )
-    })
-}
 
 /// Helper function to create standardized error responses
 fn error_response(error: String, message: String) -> ErrorResponse {
@@ -114,11 +96,8 @@ fn template_error_to_response(error: TemplateQueryError) -> (StatusCode, Json<Er
 ))]
 pub async fn get_template(
     State(state): State<Arc<WorkerWebState>>,
-    security: SecurityContext,
     Path(params): Path<TemplatePathParams>,
 ) -> Result<Json<TemplateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    check_permission(&security, Permission::WorkerTemplatesRead)?;
-
     state
         .template_query_service()
         .get_template(&params.namespace, &params.name, &params.version)
@@ -152,11 +131,8 @@ pub async fn get_template(
 ))]
 pub async fn list_templates(
     State(state): State<Arc<WorkerWebState>>,
-    security: SecurityContext,
     Query(params): Query<TemplateQueryParams>,
 ) -> Result<Json<TemplateListResponse>, (StatusCode, Json<ErrorResponse>)> {
-    check_permission(&security, Permission::WorkerTemplatesRead)?;
-
     let include_cache_stats = params.include_cache_stats.unwrap_or(false);
     Ok(Json(
         state
@@ -193,11 +169,8 @@ pub async fn list_templates(
 ))]
 pub async fn validate_template(
     State(state): State<Arc<WorkerWebState>>,
-    security: SecurityContext,
     Path(params): Path<TemplatePathParams>,
 ) -> Result<Json<TemplateValidationResponse>, (StatusCode, Json<ErrorResponse>)> {
-    check_permission(&security, Permission::TemplatesValidate)?;
-
     state
         .template_query_service()
         .validate_template(&params.namespace, &params.name, &params.version)
