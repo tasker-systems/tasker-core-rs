@@ -2,45 +2,19 @@
 //!
 //! TAS-150: Per-handler permission enforcement utilities.
 //! Used by handlers to verify the authenticated user has the required permission.
+//!
+//! TAS-76: This module re-exports the shared permission service from tasker-shared.
+//! The implementation is consolidated there to enable sharing between orchestration,
+//! worker, and future gRPC endpoints.
 
-use opentelemetry::KeyValue;
-use tasker_shared::metrics::security as security_metrics;
-use tasker_shared::types::permissions::Permission;
-use tasker_shared::types::security::{AuthMethod, SecurityContext};
-use tasker_shared::types::web::{ApiError, AuthFailureSeverity};
-use tracing::warn;
-
-/// Check that the security context has the required permission.
-///
-/// Returns `Ok(())` if:
-/// - Auth is disabled (`AuthMethod::Disabled`)
-/// - The context's permissions include the required permission (exact or wildcard)
-///
-/// Returns `Err(ApiError)` with 403 status if permission is missing.
-pub fn require_permission(ctx: &SecurityContext, perm: Permission) -> Result<(), ApiError> {
-    if ctx.auth_method == AuthMethod::Disabled {
-        return Ok(());
-    }
-    if ctx.has_permission(&perm) {
-        Ok(())
-    } else {
-        warn!(
-            subject = %ctx.subject,
-            required = %perm,
-            "Permission denied"
-        );
-        security_metrics::permission_denials_total()
-            .add(1, &[KeyValue::new("permission", perm.as_str().to_string())]);
-        Err(ApiError::authorization_error_with_context(
-            format!("Missing required permission: {}", perm),
-            AuthFailureSeverity::Medium,
-        ))
-    }
-}
+// Re-export the shared permission service
+pub use tasker_shared::services::require_permission;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tasker_shared::types::permissions::Permission;
+    use tasker_shared::types::security::{AuthMethod, SecurityContext};
 
     #[test]
     fn test_disabled_auth_always_passes() {

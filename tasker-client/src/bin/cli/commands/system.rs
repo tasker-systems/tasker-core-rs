@@ -53,24 +53,39 @@ pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -
                             detailed.info.orchestration_database_pool_size
                         );
 
-                        if !detailed.checks.is_empty() {
-                            println!("    Health checks:");
-                            for (check_name, check_result) in detailed.checks {
-                                let status_icon = if check_result.status == "healthy" {
-                                    "✓"
-                                } else {
-                                    "✗"
-                                };
-                                println!(
-                                    "      {} {}: {} ({}ms)",
-                                    status_icon,
-                                    check_name,
-                                    check_result.status,
-                                    check_result.duration_ms
-                                );
-                                if let Some(message) = check_result.message {
-                                    println!("        {}", message);
-                                }
+                        // Print all health checks from typed struct
+                        println!("    Health checks:");
+                        let checks = [
+                            ("web_database", &detailed.checks.web_database),
+                            (
+                                "orchestration_database",
+                                &detailed.checks.orchestration_database,
+                            ),
+                            ("circuit_breaker", &detailed.checks.circuit_breaker),
+                            (
+                                "orchestration_system",
+                                &detailed.checks.orchestration_system,
+                            ),
+                            ("command_processor", &detailed.checks.command_processor),
+                            ("pool_utilization", &detailed.checks.pool_utilization),
+                            ("queue_depth", &detailed.checks.queue_depth),
+                            ("channel_saturation", &detailed.checks.channel_saturation),
+                        ];
+                        for (check_name, check_result) in checks {
+                            let status_icon = if check_result.status == "healthy" {
+                                "✓"
+                            } else {
+                                "✗"
+                            };
+                            println!(
+                                "      {} {}: {} ({}ms)",
+                                status_icon,
+                                check_name,
+                                check_result.status,
+                                check_result.duration_ms
+                            );
+                            if let Some(message) = &check_result.message {
+                                println!("        {}", message);
                             }
                         }
                     }
@@ -122,22 +137,29 @@ pub async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -
                             health.system_info.supported_namespaces.join(", ")
                         );
 
-                        if !health.checks.is_empty() {
-                            println!("    Health checks:");
-                            for (check_name, check_result) in &health.checks {
-                                let status_icon = if check_result.status == "healthy" {
-                                    "✓"
-                                } else {
-                                    "✗"
-                                };
-                                println!(
-                                    "      {} {}: {} ({}ms)",
-                                    status_icon,
-                                    check_name,
-                                    check_result.status,
-                                    check_result.duration_ms
-                                );
-                            }
+                        // TAS-76: Typed worker health checks
+                        println!("    Health checks:");
+                        let checks = [
+                            ("database", &health.checks.database),
+                            ("command_processor", &health.checks.command_processor),
+                            ("queue_processing", &health.checks.queue_processing),
+                            ("event_system", &health.checks.event_system),
+                            ("step_processing", &health.checks.step_processing),
+                            ("circuit_breakers", &health.checks.circuit_breakers),
+                        ];
+                        for (check_name, check_result) in checks {
+                            let status_icon = if check_result.status == "healthy" {
+                                "✓"
+                            } else {
+                                "✗"
+                            };
+                            println!(
+                                "      {} {}: {} ({}ms)",
+                                status_icon,
+                                check_name,
+                                check_result.status,
+                                check_result.duration_ms
+                            );
                         }
                     }
                     Err(e) => {

@@ -6,7 +6,6 @@
 //! This service encapsulates all health check functionality, making it available
 //! to both the HTTP API and FFI consumers without code duplication.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -21,7 +20,8 @@ use tasker_shared::database::DatabasePools;
 use tasker_shared::types::api::health::build_pool_utilization;
 use tasker_shared::types::api::worker::{
     BasicHealthResponse, CircuitBreakerState, CircuitBreakersHealth, DetailedHealthResponse,
-    DistributedCacheInfo, HealthCheck, WorkerSystemInfo,
+    DistributedCacheInfo, HealthCheck, ReadinessResponse, WorkerDetailedChecks,
+    WorkerReadinessChecks, WorkerSystemInfo,
 };
 
 /// Shared circuit breaker provider reference
@@ -186,29 +186,20 @@ impl HealthService {
     /// Indicates whether the worker is ready to process steps.
     /// Checks database connectivity, command processor status, and queue health.
     ///
-    /// Returns `Ok(DetailedHealthResponse)` if ready, `Err(DetailedHealthResponse)` if not ready.
-    pub async fn readiness(&self) -> Result<DetailedHealthResponse, DetailedHealthResponse> {
+    /// Returns `Ok(ReadinessResponse)` if ready, `Err(ReadinessResponse)` if not ready.
+    pub async fn readiness(&self) -> Result<ReadinessResponse, ReadinessResponse> {
         debug!("Performing worker readiness probe");
 
-        let mut checks = HashMap::new();
-        let mut overall_healthy = true;
+        // TAS-76: Use typed readiness checks
+        let checks = WorkerReadinessChecks {
+            database: self.check_database().await,
+            command_processor: self.check_command_processor().await,
+            queue_processing: self.check_queue().await,
+        };
 
-        // Check database connectivity
-        let db_check = self.check_database().await;
-        overall_healthy = overall_healthy && db_check.status == "healthy";
-        checks.insert("database".to_string(), db_check);
+        let overall_healthy = checks.all_healthy();
 
-        // Check command processor health
-        let processor_check = self.check_command_processor().await;
-        overall_healthy = overall_healthy && processor_check.status == "healthy";
-        checks.insert("command_processor".to_string(), processor_check);
-
-        // Check queue processing capability
-        let queue_check = self.check_queue().await;
-        overall_healthy = overall_healthy && queue_check.status == "healthy";
-        checks.insert("queue_processing".to_string(), queue_check);
-
-        let response = DetailedHealthResponse {
+        let response = ReadinessResponse {
             status: if overall_healthy {
                 "ready"
             } else {
@@ -219,7 +210,6 @@ impl HealthService {
             worker_id: self.worker_id.clone(),
             checks,
             system_info: self.create_system_info().await,
-            distributed_cache: None, // Not included in readiness checks
         };
 
         if overall_healthy {
@@ -238,27 +228,18 @@ impl HealthService {
     pub async fn detailed_health(&self) -> DetailedHealthResponse {
         debug!("Performing detailed worker health check");
 
-        let mut checks = HashMap::new();
-
-        // Run all health checks
-        checks.insert("database".to_string(), self.check_database().await);
-        checks.insert(
-            "command_processor".to_string(),
-            self.check_command_processor().await,
-        );
-        checks.insert("queue_processing".to_string(), self.check_queue().await);
-        checks.insert("event_system".to_string(), self.check_event_system().await);
-        checks.insert(
-            "step_processing".to_string(),
-            self.check_step_processing().await,
-        );
-        checks.insert(
-            "circuit_breakers".to_string(),
-            self.check_circuit_breakers().await,
-        );
+        // TAS-76: Use typed detailed checks
+        let checks = WorkerDetailedChecks {
+            database: self.check_database().await,
+            command_processor: self.check_command_processor().await,
+            queue_processing: self.check_queue().await,
+            event_system: self.check_event_system().await,
+            step_processing: self.check_step_processing().await,
+            circuit_breakers: self.check_circuit_breakers().await,
+        };
 
         // Determine overall status
-        let overall_healthy = checks.values().all(|check| check.status == "healthy");
+        let overall_healthy = checks.all_healthy();
 
         // TAS-169: Get distributed cache status
         let distributed_cache = Some(self.get_distributed_cache_status().await);

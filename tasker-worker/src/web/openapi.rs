@@ -9,8 +9,9 @@ use tasker_shared::types::api::orchestration::{
     ConfigMetadata, SafeAuthConfig, SafeMessagingConfig, WorkerConfigResponse,
 };
 use tasker_shared::types::api::worker::{
-    BasicHealthResponse, DetailedHealthResponse, DistributedCacheInfo, TemplateListResponse,
-    TemplateResponse, TemplateValidationResponse,
+    BasicHealthResponse, DetailedHealthResponse, DistributedCacheInfo, HealthCheck,
+    ReadinessResponse, TemplateListResponse, TemplateResponse, TemplateValidationResponse,
+    WorkerDetailedChecks, WorkerReadinessChecks, WorkerSystemInfo,
 };
 use tasker_shared::types::base::CacheStats;
 use tasker_shared::types::openapi_security::SecurityAddon;
@@ -38,10 +39,15 @@ use crate::web::handlers;
         handlers::config::get_config,
     ),
     components(schemas(
-        // Health schemas
+        // Health schemas (TAS-76: typed health checks)
         BasicHealthResponse,
         DetailedHealthResponse,
+        ReadinessResponse,
         DistributedCacheInfo,
+        HealthCheck,
+        WorkerReadinessChecks,
+        WorkerDetailedChecks,
+        WorkerSystemInfo,
 
         // Template schemas
         TemplateResponse,

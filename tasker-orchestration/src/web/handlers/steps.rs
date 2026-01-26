@@ -1,33 +1,21 @@
 //! # Workflow Step Handlers
 //!
-//! HTTP handlers for workflow step operations including status retrieval
+//! TAS-76: HTTP handlers for workflow step operations including status retrieval
 //! and manual resolution for failed or stuck steps.
-//!
-//! This module follows domain-driven design principles by delegating business logic
-//! to the WorkflowStep domain model and StepStateMachine instead of using direct SQL.
+//! These handlers delegate business logic to StepService, keeping handlers thin.
 
 use axum::extract::{Path, State};
 use axum::Json;
-use std::collections::HashMap;
-use tracing::{error, info};
+use tracing::info;
 use uuid::Uuid;
 
-use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-use tasker_shared::messaging::execution_types::StepExecutionResult;
-use tasker_shared::models::core::workflow_step::WorkflowStep;
-
-// StepReadinessStatus is used through SqlFunctionExecutor, removing unused direct import
-use crate::web::circuit_breaker::execute_with_circuit_breaker;
+use crate::services::StepServiceError;
 use crate::web::middleware::permission::require_permission;
 use crate::web::state::AppState;
-use tasker_shared::models::core::workflow_step_result_audit::WorkflowStepResultAudit;
-use tasker_shared::state_machine::events::StepEvent;
-use tasker_shared::state_machine::step_state_machine::StepStateMachine;
-use tasker_shared::state_machine::StateMachineError;
 use tasker_shared::types::api::orchestration::{StepAuditResponse, StepManualAction, StepResponse};
 use tasker_shared::types::permissions::Permission;
 use tasker_shared::types::security::SecurityContext;
-use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
+use tasker_shared::types::web::{ApiError, ApiResult};
 
 /// List workflow steps for a task: GET /v1/tasks/{uuid}/workflow_steps
 #[cfg_attr(feature = "web-api", utoipa::path(
@@ -58,102 +46,12 @@ pub async fn list_task_steps(
     let task_uuid = Uuid::parse_str(&task_uuid)
         .map_err(|_| ApiError::bad_request("Invalid task UUID format"))?;
 
-    execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(DbOperationType::ReadOnly);
-
-        // Use WorkflowStep domain model to get step data
-        let workflow_steps = WorkflowStep::for_task(db_pool, task_uuid).await?;
-
-        if workflow_steps.is_empty() {
-            return Ok::<Json<Vec<StepResponse>>, sqlx::Error>(Json(vec![]));
-        }
-
-        // Get step readiness status using SQL function integration
-        let sql_executor = SqlFunctionExecutor::new(db_pool.clone());
-        let readiness_statuses = sql_executor
-            .get_step_readiness_status(task_uuid, None)
-            .await?;
-
-        // Build comprehensive response with step data and readiness information
-        let mut step_responses = Vec::new();
-
-        for step in workflow_steps {
-            // Find matching readiness status
-            let readiness = readiness_statuses
-                .iter()
-                .find(|r| r.workflow_step_uuid == step.workflow_step_uuid)
-                .cloned();
-
-            let step_response = if let Some(readiness) = readiness {
-                StepResponse {
-                    step_uuid: step.workflow_step_uuid.to_string(),
-                    task_uuid: step.task_uuid.to_string(),
-                    name: readiness.name.clone(),
-                    created_at: step.created_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                    updated_at: step.updated_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                    completed_at: step
-                        .processed_at
-                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                    results: step.results,
-
-                    // StepReadinessStatus fields
-                    current_state: readiness.current_state,
-                    dependencies_satisfied: readiness.dependencies_satisfied,
-                    retry_eligible: readiness.retry_eligible,
-                    ready_for_execution: readiness.ready_for_execution,
-                    total_parents: readiness.total_parents,
-                    completed_parents: readiness.completed_parents,
-                    attempts: readiness.attempts,
-                    max_attempts: readiness.max_attempts,
-                    last_failure_at: readiness
-                        .last_failure_at
-                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                    next_retry_at: readiness
-                        .next_retry_at
-                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                    last_attempted_at: readiness
-                        .last_attempted_at
-                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                }
-            } else {
-                // Fallback when readiness data is not available
-                StepResponse {
-                    step_uuid: step.workflow_step_uuid.to_string(),
-                    task_uuid: step.task_uuid.to_string(),
-                    name: format!("step_{}", step.workflow_step_uuid),
-                    created_at: step.created_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                    updated_at: step.updated_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                    completed_at: step
-                        .processed_at
-                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                    results: step.results,
-
-                    // Default readiness fields when status unavailable
-                    current_state: "unknown".to_string(),
-                    dependencies_satisfied: false,
-                    retry_eligible: false,
-                    ready_for_execution: false,
-                    total_parents: 0,
-                    completed_parents: 0,
-                    attempts: step.attempts.unwrap_or(0),
-                    max_attempts: step.max_attempts.unwrap_or(3),
-                    last_failure_at: None,
-                    next_retry_at: None,
-                    last_attempted_at: step
-                        .last_attempted_at
-                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                }
-            };
-
-            step_responses.push(step_response);
-        }
-
-        // Sort by creation order
-        step_responses.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-
-        Ok::<Json<Vec<StepResponse>>, sqlx::Error>(Json(step_responses))
-    })
-    .await
+    state
+        .step_service
+        .list_task_steps(task_uuid)
+        .await
+        .map(Json)
+        .map_err(step_service_error_to_api_error)
 }
 
 /// Get workflow step details: GET /v1/tasks/{uuid}/workflow_steps/{step_uuid}
@@ -189,107 +87,12 @@ pub async fn get_step(
     let step_uuid = Uuid::parse_str(&step_uuid)
         .map_err(|_| ApiError::bad_request("Invalid step UUID format"))?;
 
-    execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(DbOperationType::ReadOnly);
-
-        // Use WorkflowStep domain model to find the step
-        let workflow_step = WorkflowStep::find_by_id(db_pool, step_uuid)
-            .await
-            .map_err(ApiError::from)?;
-
-        let step = match workflow_step {
-            Some(step) => {
-                // Verify the step belongs to the specified task
-                if step.task_uuid != task_uuid {
-                    return Err(ApiError::not_found("Resource not found"));
-                }
-                step
-            }
-            None => {
-                return Err(ApiError::not_found("Resource not found"));
-            }
-        };
-
-        // Get step readiness status using SQL function integration
-        let sql_executor = SqlFunctionExecutor::new(db_pool.clone());
-        let readiness_statuses = sql_executor
-            .get_step_readiness_status(task_uuid, Some(vec![step_uuid]))
-            .await
-            .map_err(ApiError::from)?;
-
-        // Build comprehensive response with step data and readiness information
-        let step_response = if let Some(readiness) = readiness_statuses.first() {
-            StepResponse {
-                step_uuid: step.workflow_step_uuid.to_string(),
-                task_uuid: step.task_uuid.to_string(),
-                name: readiness.name.clone(),
-                created_at: step.created_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                updated_at: step.updated_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                completed_at: step
-                    .processed_at
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                results: step.results,
-
-                // StepReadinessStatus fields
-                current_state: readiness.current_state.clone(),
-                dependencies_satisfied: readiness.dependencies_satisfied,
-                retry_eligible: readiness.retry_eligible,
-                ready_for_execution: readiness.ready_for_execution,
-                total_parents: readiness.total_parents,
-                completed_parents: readiness.completed_parents,
-                attempts: readiness.attempts,
-                max_attempts: readiness.max_attempts,
-                last_failure_at: readiness
-                    .last_failure_at
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                next_retry_at: readiness
-                    .next_retry_at
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                last_attempted_at: readiness
-                    .last_attempted_at
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-            }
-        } else {
-            // Fallback when readiness data is not available
-            StepResponse {
-                step_uuid: step.workflow_step_uuid.to_string(),
-                task_uuid: step.task_uuid.to_string(),
-                name: format!("step_{}", step.workflow_step_uuid),
-                created_at: step.created_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                updated_at: step.updated_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                completed_at: step
-                    .processed_at
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                results: step.results,
-
-                // Default readiness fields when status unavailable
-                current_state: "unknown".to_string(),
-                dependencies_satisfied: false,
-                retry_eligible: false,
-                ready_for_execution: false,
-                total_parents: 0,
-                completed_parents: 0,
-                attempts: step.attempts.unwrap_or(0),
-                max_attempts: step.max_attempts.unwrap_or(3),
-                last_failure_at: None,
-                next_retry_at: None,
-                last_attempted_at: step
-                    .last_attempted_at
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-            }
-        };
-
-        Ok::<Json<StepResponse>, ApiError>(Json(step_response))
-    })
-    .await
-    .map_err(|e| {
-        let error_str = e.to_string();
-        if error_str.contains("Step not found") {
-            ApiError::not_found("Resource not found")
-        } else {
-            e
-        }
-    })
+    state
+        .step_service
+        .get_step(task_uuid, step_uuid)
+        .await
+        .map(Json)
+        .map_err(step_service_error_to_api_error)
 }
 
 /// Manually resolve or complete a workflow step: PATCH /v1/tasks/{uuid}/workflow_steps/{step_uuid}
@@ -376,225 +179,12 @@ pub async fn resolve_step_manually(
     let step_uuid = Uuid::parse_str(&step_uuid)
         .map_err(|_| ApiError::bad_request("Invalid step UUID format"))?;
 
-    execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(DbOperationType::WebWrite);
-
-        // Find the step and verify it belongs to the task
-        let workflow_step = WorkflowStep::find_by_id(db_pool, step_uuid)
-            .await
-            .map_err(ApiError::from)?;
-
-        let step = match workflow_step {
-            Some(step) if step.task_uuid == task_uuid => step,
-            Some(_) => return Err(ApiError::not_found("Resource not found")),
-            None => return Err(ApiError::not_found("Resource not found")),
-        };
-
-        // Initialize StepStateMachine for proper state transition
-        let mut step_state_machine =
-            StepStateMachine::new(step.clone(), state.orchestration_core.context.clone());
-
-        // Route to the appropriate event based on action type
-        let event = match action {
-            StepManualAction::ResetForRetry { .. } => {
-                info!(step_uuid = %step_uuid, "Using ResetForRetry event");
-                StepEvent::ResetForRetry
-            }
-            StepManualAction::ResolveManually { .. } => {
-                info!(step_uuid = %step_uuid, "Using ResolveManually event");
-                StepEvent::ResolveManually
-            }
-            StepManualAction::CompleteManually { completion_data, reason, completed_by } => {
-                info!(step_uuid = %step_uuid, "Using CompleteManually event with execution results");
-
-                // Build custom metadata from operator-provided metadata or defaults
-                let mut custom_metadata = if let Some(metadata_value) = completion_data.metadata {
-                    // If operator provided metadata as JSON object, convert to HashMap
-                    if let Some(metadata_obj) = metadata_value.as_object() {
-                        metadata_obj
-                            .iter()
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect()
-                    } else {
-                        // If metadata is not an object, create a wrapper
-                        let mut map = HashMap::new();
-                        map.insert("operator_metadata".to_string(), metadata_value);
-                        map
-                    }
-                } else {
-                    HashMap::new()
-                };
-
-                // Always add manual completion tracking
-                custom_metadata.insert(
-                    "manually_completed".to_string(),
-                    serde_json::json!(true),
-                );
-                custom_metadata.insert(
-                    "completed_by".to_string(),
-                    serde_json::json!(completed_by),
-                );
-                custom_metadata.insert(
-                    "completion_reason".to_string(),
-                    serde_json::json!(reason),
-                );
-
-                // Construct proper StepExecutionResult using typed constructor
-                // System enforces success=true and status="completed"
-                let execution_result = StepExecutionResult::success(
-                    step_uuid,
-                    completion_data.result,
-                    0, // execution_time_ms - manual completion has no measured execution time
-                    Some(custom_metadata),
-                );
-
-                // Serialize to JSON for the event
-                let execution_result_json = serde_json::to_value(&execution_result)
-                    .map_err(|e| ApiError::internal_server_error(format!("Failed to serialize execution result: {}", e)))?;
-
-                StepEvent::CompleteManually(Some(execution_result_json))
-            }
-        };
-
-        // Attempt transition using state machine
-        match step_state_machine.transition(event).await {
-            Ok(new_state) => {
-                info!(
-                    step_uuid = %step_uuid,
-                    new_state = %new_state,
-                    "Step action completed successfully"
-                );
-
-                // Get updated step data after state transition
-                let updated_step = WorkflowStep::find_by_id(db_pool, step_uuid)
-                    .await
-                    .map_err(ApiError::from)?
-                    .ok_or(ApiError::not_found("Resource not found"))?;
-
-                // Get step readiness status after resolution
-                let sql_executor = SqlFunctionExecutor::new(db_pool.clone());
-                let readiness_statuses = sql_executor
-                    .get_step_readiness_status(task_uuid, Some(vec![step_uuid]))
-                    .await
-                    .map_err(ApiError::from)?;
-
-                // Build response with updated step data
-                let step_response = if let Some(readiness) = readiness_statuses.first() {
-                    StepResponse {
-                        step_uuid: updated_step.workflow_step_uuid.to_string(),
-                        task_uuid: updated_step.task_uuid.to_string(),
-                        name: readiness.name.clone(),
-                        created_at: updated_step
-                            .created_at
-                            .format("%Y-%m-%dT%H:%M:%S%.6fZ")
-                            .to_string(),
-                        updated_at: updated_step
-                            .updated_at
-                            .format("%Y-%m-%dT%H:%M:%S%.6fZ")
-                            .to_string(),
-                        completed_at: updated_step
-                            .processed_at
-                            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                        results: updated_step.results,
-
-                        // StepReadinessStatus fields
-                        current_state: readiness.current_state.clone(),
-                        dependencies_satisfied: readiness.dependencies_satisfied,
-                        retry_eligible: readiness.retry_eligible,
-                        ready_for_execution: readiness.ready_for_execution,
-                        total_parents: readiness.total_parents,
-                        completed_parents: readiness.completed_parents,
-                        attempts: readiness.attempts,
-                        max_attempts: readiness.max_attempts,
-                        last_failure_at: readiness
-                            .last_failure_at
-                            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                        next_retry_at: readiness
-                            .next_retry_at
-                            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                        last_attempted_at: readiness
-                            .last_attempted_at
-                            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                    }
-                } else {
-                    // Fallback response
-                    StepResponse {
-                        step_uuid: updated_step.workflow_step_uuid.to_string(),
-                        task_uuid: updated_step.task_uuid.to_string(),
-                        name: format!("step_{}", updated_step.workflow_step_uuid),
-                        created_at: updated_step
-                            .created_at
-                            .format("%Y-%m-%dT%H:%M:%S%.6fZ")
-                            .to_string(),
-                        updated_at: updated_step
-                            .updated_at
-                            .format("%Y-%m-%dT%H:%M:%S%.6fZ")
-                            .to_string(),
-                        completed_at: updated_step
-                            .processed_at
-                            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                        results: updated_step.results,
-
-                        // Default readiness fields
-                        current_state: new_state.to_string(),
-                        dependencies_satisfied: true, // Manual resolution satisfies dependencies
-                        retry_eligible: false,        // Manually resolved steps don't need retry
-                        ready_for_execution: false,   // Already resolved
-                        total_parents: 0,
-                        completed_parents: 0,
-                        attempts: updated_step.attempts.unwrap_or(0),
-                        max_attempts: updated_step.max_attempts.unwrap_or(3),
-                        last_failure_at: None,
-                        next_retry_at: None,
-                        last_attempted_at: updated_step
-                            .last_attempted_at
-                            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
-                    }
-                };
-
-                Ok::<Json<StepResponse>, ApiError>(Json(step_response))
-            }
-            Err(state_machine_error) => {
-                error!(
-                    error = %state_machine_error,
-                    step_uuid = %step_uuid,
-                    "Failed to manually resolve step"
-                );
-
-                let error_message = match state_machine_error {
-                    StateMachineError::InvalidTransition { from, to } => {
-                        format!(
-                            "Cannot manually resolve step: invalid transition from {} to {to}",
-                            from.unwrap_or("unknown".to_string())
-                        )
-                    }
-                    StateMachineError::GuardFailed { reason } => {
-                        format!("Cannot manually resolve step: {reason}")
-                    }
-                    StateMachineError::Database(db_error) => {
-                        format!("Database error during manual resolution: {db_error}")
-                    }
-                    _ => format!("Manual resolution failed: {state_machine_error}"),
-                };
-
-                Err(ApiError::bad_request(error_message))
-            }
-        }
-    })
-    .await
-    .map_err(|e| {
-        let error_str = e.to_string();
-        if error_str.contains("Step not found") {
-            ApiError::not_found("Resource not found")
-        } else if error_str.contains("Cannot manually resolve")
-            || error_str.contains("Manual resolution failed")
-        {
-            ApiError::bad_request(error_str)
-        } else {
-            error!(error = %error_str, "Unexpected error during manual step resolution");
-            ApiError::internal_server_error(format!("Manual resolution failed: {error_str}"))
-        }
-    })
+    state
+        .step_service
+        .resolve_step_manually(task_uuid, step_uuid, action)
+        .await
+        .map(Json)
+        .map_err(step_service_error_to_api_error)
 }
 
 /// Get audit history for a workflow step: GET /v1/tasks/{uuid}/workflow_steps/{step_uuid}/audit
@@ -645,46 +235,24 @@ pub async fn get_step_audit(
     let step_uuid = Uuid::parse_str(&step_uuid)
         .map_err(|_| ApiError::bad_request("Invalid step UUID format"))?;
 
-    execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(DbOperationType::ReadOnly);
+    state
+        .step_service
+        .get_step_audit(task_uuid, step_uuid)
+        .await
+        .map(Json)
+        .map_err(step_service_error_to_api_error)
+}
 
-        // Verify the step exists and belongs to the task
-        let workflow_step = WorkflowStep::find_by_id(db_pool, step_uuid)
-            .await
-            .map_err(ApiError::from)?;
-
-        match workflow_step {
-            Some(step) if step.task_uuid == task_uuid => {
-                // Step exists and belongs to task, continue
-            }
-            Some(_) => {
-                return Err(ApiError::not_found(
-                    "Step does not belong to the specified task",
-                ));
-            }
-            None => {
-                return Err(ApiError::not_found("Step not found"));
-            }
+/// Convert StepServiceError to ApiError.
+fn step_service_error_to_api_error(err: StepServiceError) -> ApiError {
+    match err {
+        StepServiceError::Validation(msg) => ApiError::bad_request(msg),
+        StepServiceError::NotFound(_) => ApiError::not_found("Resource not found"),
+        StepServiceError::OwnershipMismatch => {
+            ApiError::not_found("Step does not belong to the specified task")
         }
-
-        // Get audit history with full transition details via JOIN
-        let audit_records = WorkflowStepResultAudit::get_audit_history(db_pool, step_uuid)
-            .await
-            .map_err(ApiError::from)?;
-
-        // Transform to API response format
-        let response: Vec<StepAuditResponse> = audit_records
-            .iter()
-            .map(StepAuditResponse::from_audit_with_transition)
-            .collect();
-
-        info!(
-            step_uuid = %step_uuid,
-            record_count = response.len(),
-            "Retrieved audit history for step"
-        );
-
-        Ok::<Json<Vec<StepAuditResponse>>, ApiError>(Json(response))
-    })
-    .await
+        StepServiceError::InvalidTransition(msg) => ApiError::bad_request(msg),
+        StepServiceError::Database(msg) => ApiError::database_error(msg),
+        StepServiceError::Internal(msg) => ApiError::internal_server_error(msg),
+    }
 }

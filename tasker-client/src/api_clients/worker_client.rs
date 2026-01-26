@@ -16,8 +16,8 @@ use tasker_shared::{
     types::api::{
         orchestration::WorkerConfigResponse,
         worker::{
-            BasicHealthResponse, DetailedHealthResponse, TemplateListResponse, TemplateQueryParams,
-            TemplateResponse, TemplateValidationResponse,
+            BasicHealthResponse, DetailedHealthResponse, ReadinessResponse, TemplateListResponse,
+            TemplateQueryParams, TemplateResponse, TemplateValidationResponse,
         },
     },
     types::web::{DomainEventStats, MetricsResponse},
@@ -228,7 +228,7 @@ impl WorkerApiClient {
     /// Kubernetes readiness probe
     ///
     /// GET /health/ready
-    pub async fn readiness_probe(&self) -> TaskerResult<DetailedHealthResponse> {
+    pub async fn readiness_probe(&self) -> TaskerResult<ReadinessResponse> {
         let url = self
             .base_url
             .join("/health/ready")

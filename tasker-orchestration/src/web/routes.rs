@@ -16,8 +16,9 @@ use utoipa_swagger_ui::SwaggerUi;
 /// All v1 routes are prefixed with `/v1` and include:
 /// - Tasks API - Task creation, status, and management
 /// - Workflow Steps API - Step details and manual resolution
-/// - Handlers API - Handler discovery and information
+/// - Templates API - Template discovery and information
 /// - Analytics API - Performance metrics and bottleneck analysis
+/// - DLQ API - Dead letter queue investigation
 pub fn api_v1_routes() -> Router<AppState> {
     Router::new()
         // Tasks API
@@ -43,15 +44,11 @@ pub fn api_v1_routes() -> Router<AppState> {
             "/tasks/{uuid}/workflow_steps/{step_uuid}/audit",
             get(handlers::steps::get_step_audit),
         )
-        // Handlers API (read-only)
-        .route("/handlers", get(handlers::registry::list_namespaces))
+        // TAS-76: Templates API (read-only) - replaces legacy /handlers
+        .route("/templates", get(handlers::templates::list_templates))
         .route(
-            "/handlers/{namespace}",
-            get(handlers::registry::list_namespace_handlers),
-        )
-        .route(
-            "/handlers/{namespace}/{name}",
-            get(handlers::registry::get_handler_info),
+            "/templates/{namespace}/{name}/{version}",
+            get(handlers::templates::get_template),
         )
         // Analytics API (read-only)
         .route(

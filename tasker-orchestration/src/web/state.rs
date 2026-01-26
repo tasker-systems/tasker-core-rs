@@ -7,7 +7,9 @@ use crate::health::{BackpressureChecker, BackpressureMetrics, QueueDepthStatus};
 use crate::orchestration::core::{OrchestrationCore, OrchestrationCoreStatus};
 use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
-use crate::services::AnalyticsService;
+use crate::services::{
+    AnalyticsService, HealthService, StepService, TaskService, TemplateQueryService,
+};
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
@@ -78,6 +80,18 @@ pub struct AppState {
 
     /// TAS-168: Analytics service with response caching
     pub analytics_service: Arc<AnalyticsService>,
+
+    /// TAS-76: Task service for task business logic
+    pub task_service: TaskService,
+
+    /// TAS-76: Step service for step business logic
+    pub step_service: StepService,
+
+    /// TAS-76: Health service for health check logic
+    pub health_service: HealthService,
+
+    /// TAS-76: Template query service for template discovery
+    pub template_query_service: TemplateQueryService,
 }
 
 impl AppState {
@@ -250,6 +264,33 @@ impl AppState {
                 .clone(),
         ));
 
+        // TAS-76: Create task service (uses SystemContext, not OrchestrationCore)
+        let task_service = TaskService::new(
+            orchestration_core.context.database_pool().clone(), // read pool
+            web_db_pool.clone(),                                // write pool
+            task_initializer.clone(),
+            orchestration_core.context.clone(),
+        );
+
+        // TAS-76: Create step service (uses SystemContext, not OrchestrationCore)
+        let step_service = StepService::new(
+            orchestration_core.context.database_pool().clone(), // read pool
+            web_db_pool.clone(),                                // write pool
+            orchestration_core.context.clone(),
+        );
+
+        // TAS-76: Create health service
+        let health_service = HealthService::new(
+            web_db_pool.clone(),
+            orchestration_core.context.database_pool().clone(),
+            circuit_breaker.clone(),
+            orchestration_core.clone(),
+            orchestration_status.clone(),
+        );
+
+        // TAS-76: Create template query service
+        let template_query_service = TemplateQueryService::new(orchestration_core.context.clone());
+
         Ok(Self {
             config: Arc::new(web_config),
             auth_config,
@@ -261,6 +302,10 @@ impl AppState {
             orchestration_status,
             orchestration_core,
             analytics_service,
+            task_service,
+            step_service,
+            health_service,
+            template_query_service,
         })
     }
 

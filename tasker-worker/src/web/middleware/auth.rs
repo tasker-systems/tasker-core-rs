@@ -2,6 +2,8 @@
 //!
 //! TAS-150: Authentication middleware for the worker web API.
 //! Same pattern as orchestration but adapted for worker's Arc<WorkerWebState>.
+//!
+//! TAS-76: Permission checking is now consolidated in tasker-shared and re-exported here.
 
 use std::sync::Arc;
 
@@ -10,12 +12,14 @@ use axum::middleware::Next;
 use axum::response::Response;
 use opentelemetry::KeyValue;
 use tasker_shared::metrics::security as security_metrics;
-use tasker_shared::types::permissions::Permission;
 use tasker_shared::types::security::{AuthMethod, SecurityContext};
 use tasker_shared::types::web::{ApiError, AuthFailureReason, AuthFailureSeverity};
 use tracing::{debug, warn};
 
 use crate::web::state::WorkerWebState;
+
+// TAS-76: Re-export the shared permission service for handler use
+pub use tasker_shared::services::require_permission;
 
 /// Authentication middleware for the worker web API.
 ///
@@ -153,24 +157,4 @@ pub async fn authenticate_request(
     Ok(next.run(request).await)
 }
 
-/// Check that the security context has the required permission.
-pub fn require_permission(ctx: &SecurityContext, perm: Permission) -> Result<(), ApiError> {
-    if ctx.auth_method == AuthMethod::Disabled {
-        return Ok(());
-    }
-    if ctx.has_permission(&perm) {
-        Ok(())
-    } else {
-        warn!(
-            subject = %ctx.subject,
-            required = %perm,
-            "Worker: Permission denied"
-        );
-        security_metrics::permission_denials_total()
-            .add(1, &[KeyValue::new("permission", perm.as_str().to_string())]);
-        Err(ApiError::authorization_error_with_context(
-            format!("Missing required permission: {}", perm),
-            AuthFailureSeverity::Medium,
-        ))
-    }
-}
+// TAS-76: require_permission is now re-exported from tasker_shared::services at the top of this file

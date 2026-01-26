@@ -20,11 +20,16 @@ use tasker_shared::models::core::task_request::TaskRequest;
 use crate::web::handlers;
 
 use tasker_shared::types::api::orchestration::{
-    BottleneckAnalysis, ConfigMetadata, DetailedHealthResponse, HandlerInfo, HealthCheck,
-    HealthInfo, HealthResponse, ManualCompletionData, NamespaceInfo, OrchestrationConfigResponse,
-    PerformanceMetrics, ResourceUtilization, SafeAuthConfig, SafeCircuitBreakerConfig,
-    SafeDatabasePoolConfig, SafeMessagingConfig, SlowStepInfo, SlowTaskInfo, StepAuditResponse,
-    StepManualAction, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
+    BottleneckAnalysis, ConfigMetadata, DetailedHealthResponse, HealthCheck, HealthInfo,
+    HealthResponse, ManualCompletionData, OrchestrationConfigResponse, PerformanceMetrics,
+    ResourceUtilization, SafeAuthConfig, SafeCircuitBreakerConfig, SafeDatabasePoolConfig,
+    SafeMessagingConfig, SlowStepInfo, SlowTaskInfo, StepAuditResponse, StepManualAction,
+    StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
+};
+
+// TAS-76: Template API types
+use tasker_shared::types::api::templates::{
+    NamespaceSummary, StepDefinition, TemplateDetail, TemplateListResponse, TemplateSummary,
 };
 
 /// Main OpenAPI specification for the Tasker Web API
@@ -54,10 +59,9 @@ use tasker_shared::types::api::orchestration::{
         handlers::steps::resolve_step_manually,
         handlers::steps::get_step_audit,
 
-        // Handlers Registry API paths
-        handlers::registry::list_namespaces,
-        handlers::registry::list_namespace_handlers,
-        handlers::registry::get_handler_info,
+        // TAS-76: Templates API paths (replaces legacy handlers registry)
+        handlers::templates::list_templates,
+        handlers::templates::get_template,
 
         // Config API paths - unified endpoint
         handlers::config::get_config,
@@ -93,9 +97,12 @@ use tasker_shared::types::api::orchestration::{
         SlowTaskInfo,
         ResourceUtilization,
 
-        // Handler Registry schemas
-        NamespaceInfo,
-        HandlerInfo,
+        // TAS-76: Template schemas (replaces legacy handler registry)
+        TemplateListResponse,
+        TemplateSummary,
+        TemplateDetail,
+        NamespaceSummary,
+        StepDefinition,
 
         // Config schemas (TAS-150: whitelist-only safe response types)
         OrchestrationConfigResponse,
@@ -113,7 +120,7 @@ use tasker_shared::types::api::orchestration::{
         (name = "workflow_steps", description = "Workflow step operations"),
         (name = "health", description = "Health check and monitoring"),
         (name = "analytics", description = "Performance analytics and metrics"),
-        (name = "handlers", description = "Handler registry and discovery"),
+        (name = "templates", description = "Template discovery and information"),
         (name = "config", description = "Runtime configuration observability (safe fields only)"),
     ),
     info(

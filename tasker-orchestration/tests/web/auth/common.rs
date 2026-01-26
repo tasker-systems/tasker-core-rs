@@ -49,7 +49,8 @@ async fn no_credentials_returns_401() {
     let mut client = AuthWebTestClient::for_server(&server);
     client.without_auth();
 
-    let protected_gets = ["/v1/tasks", "/v1/handlers", "/config"];
+    // TAS-76: /v1/handlers renamed to /v1/templates
+    let protected_gets = ["/v1/tasks", "/v1/templates", "/config"];
 
     for path in protected_gets {
         let response = client.get(path).await.expect("request failed");
