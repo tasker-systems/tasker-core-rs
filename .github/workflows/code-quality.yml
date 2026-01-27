@@ -58,6 +58,13 @@ jobs:
         with:
           tools: "sqlx-cli audit make"
 
+      # TAS-177: Install protobuf compiler for gRPC proto compilation
+      - name: Install protobuf compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+
       - name: Setup database
         run: sqlx migrate run
 
