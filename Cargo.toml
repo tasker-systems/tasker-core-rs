@@ -149,6 +149,15 @@ utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 uuid = { version = "1.11", features = ["serde", "v4", "v7"] }
 validator = { version = "0.20", features = ["derive"] }
 workspace_tools = { version = "0.11.0", features = ["full"] }
+# gRPC framework and Protocol Buffers (TAS-177)
+# Note: Requires protobuf to be installed (brew install protobuf)
+tonic = "0.13"
+tonic-build = "0.13"
+tonic-health = "0.13"
+tonic-reflection = "0.13"
+prost = "0.13"
+prost-types = "0.13"
+tokio-stream = { version = "0.1", features = ["net"] }
 # pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
 # wasm-bindgen = { version = "0.2", optional = true }
 # wasm-bindgen-futures = { version = "0.4", optional = true }

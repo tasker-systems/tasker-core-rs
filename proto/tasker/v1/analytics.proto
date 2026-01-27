@@ -1,0 +1,145 @@
+// Analytics service definitions for Tasker gRPC API
+// See: tasker-shared/src/types/api/orchestration.rs (PerformanceMetrics, BottleneckAnalysis)
+syntax = "proto3";
+
+package tasker.v1;
+
+option java_multiple_files = true;
+option java_package = "com.tasker.v1";
+
+// AnalyticsService provides operations for querying performance metrics
+service AnalyticsService {
+  // Get performance metrics over a time period
+  rpc GetPerformanceMetrics(GetPerformanceMetricsRequest) returns (GetPerformanceMetricsResponse);
+
+  // Get bottleneck analysis (slow steps, tasks, resource utilization)
+  rpc GetBottleneckAnalysis(GetBottleneckAnalysisRequest) returns (GetBottleneckAnalysisResponse);
+}
+
+// Request for performance metrics
+message GetPerformanceMetricsRequest {
+  // Number of hours to look back (default: 24)
+  optional int32 hours = 1;
+}
+
+// Response containing performance metrics
+// Matches PerformanceMetrics from REST API
+message GetPerformanceMetricsResponse {
+  // Total tasks in the analysis period
+  int64 total_tasks = 1;
+  // Currently active tasks
+  int64 active_tasks = 2;
+  // Completed tasks
+  int64 completed_tasks = 3;
+  // Failed tasks
+  int64 failed_tasks = 4;
+  // Completion rate (0.0-1.0)
+  double completion_rate = 5;
+  // Error rate (0.0-1.0)
+  double error_rate = 6;
+  // Average task duration in seconds
+  double average_task_duration_seconds = 7;
+  // Average step duration in seconds
+  double average_step_duration_seconds = 8;
+  // Tasks completed per hour
+  int64 tasks_per_hour = 9;
+  // Steps completed per hour
+  int64 steps_per_hour = 10;
+  // Overall system health score (0.0-1.0)
+  double system_health_score = 11;
+  // Start of analysis period (ISO 8601)
+  string analysis_period_start = 12;
+  // When metrics were calculated (ISO 8601)
+  string calculated_at = 13;
+}
+
+// Request for bottleneck analysis
+message GetBottleneckAnalysisRequest {
+  // Maximum number of slow steps to return (default: 10)
+  optional int32 limit = 1;
+  // Minimum number of executions for inclusion (default: 5)
+  optional int32 min_executions = 2;
+}
+
+// Response containing bottleneck analysis
+// Matches BottleneckAnalysis from REST API
+message GetBottleneckAnalysisResponse {
+  // Slow-performing steps
+  repeated SlowStepInfo slow_steps = 1;
+  // Slow-performing tasks
+  repeated SlowTaskInfo slow_tasks = 2;
+  // Resource utilization metrics
+  ResourceUtilization resource_utilization = 3;
+  // Recommendations for improvement
+  repeated string recommendations = 4;
+}
+
+// Information about slow-performing steps
+// Matches SlowStepInfo from REST API
+message SlowStepInfo {
+  // Namespace containing the task template
+  string namespace_name = 1;
+  // Task template name
+  string task_name = 2;
+  // Task template version
+  string version = 3;
+  // Step name (unique within template)
+  string step_name = 4;
+  // Average execution duration in seconds
+  double average_duration_seconds = 5;
+  // Maximum observed duration in seconds
+  double max_duration_seconds = 6;
+  // Total execution count
+  int64 execution_count = 7;
+  // Number of errors
+  int64 error_count = 8;
+  // Error rate (0.0-1.0)
+  double error_rate = 9;
+  // Last execution timestamp (ISO 8601, optional)
+  optional string last_executed_at = 10;
+}
+
+// Information about slow-performing tasks
+// Matches SlowTaskInfo from REST API
+message SlowTaskInfo {
+  // Namespace containing the task template
+  string namespace_name = 1;
+  // Task template name
+  string task_name = 2;
+  // Task template version
+  string version = 3;
+  // Average completion duration in seconds
+  double average_duration_seconds = 4;
+  // Maximum observed duration in seconds
+  double max_duration_seconds = 5;
+  // Total execution count
+  int64 execution_count = 6;
+  // Average number of steps per task
+  double average_step_count = 7;
+  // Number of errors
+  int64 error_count = 8;
+  // Error rate (0.0-1.0)
+  double error_rate = 9;
+  // Last execution timestamp (ISO 8601, optional)
+  optional string last_executed_at = 10;
+}
+
+// Resource utilization metrics
+// Matches ResourceUtilization from REST API
+message ResourceUtilization {
+  // Database connection pool utilization (0.0-1.0)
+  double database_pool_utilization = 1;
+  // System health counts
+  SystemHealthCounts system_health = 2;
+}
+
+// System health counts
+// Matches SystemHealthCounts from REST API
+message SystemHealthCounts {
+  int64 pending_tasks = 1;
+  int64 active_tasks = 2;
+  int64 stuck_tasks = 3;
+  int64 pending_steps = 4;
+  int64 active_steps = 5;
+  int64 stuck_steps = 6;
+}

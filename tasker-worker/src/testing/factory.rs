@@ -20,7 +20,7 @@ use tasker_client::api_clients::orchestration_client::{
 };
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::models::{NamedStep, NamedTask, TaskNamespace, WorkflowStep};
-use tasker_shared::types::api::orchestration::TaskCreationResponse;
+use tasker_shared::types::api::orchestration::TaskResponse;
 use uuid::Uuid;
 
 /// Test-specific error type for factory operations
@@ -223,10 +223,12 @@ impl WorkerTestFactory {
     }
 
     /// Initialize a task via orchestration API (if client configured)
+    ///
+    /// Returns the full `TaskResponse` (same shape as GET /v1/tasks/{uuid}).
     pub async fn initialize_task_via_api(
         &self,
         task_request: TaskRequest,
-    ) -> Result<TaskCreationResponse, TestFactoryError> {
+    ) -> Result<TaskResponse, TestFactoryError> {
         let client = self.api_client.as_ref().ok_or_else(|| {
             TestFactoryError::ConfigError("API client not configured".to_string())
         })?;

@@ -107,6 +107,8 @@ pub mod utils;
 pub mod validation;
 #[cfg(feature = "web-api")]
 pub mod web;
+#[cfg(feature = "grpc-api")]
+pub mod proto;
 
 pub use constants::events as system_events;
 pub use constants::{

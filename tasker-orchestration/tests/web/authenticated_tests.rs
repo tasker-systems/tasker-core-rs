@@ -308,7 +308,7 @@ async fn test_authenticated_task_creation() {
             .await
             .expect("Failed to parse task creation response");
 
-        // Validate the enhanced TaskCreationResponse structure
+        // Validate the TaskResponse structure (same shape as GET /v1/tasks/{uuid})
         assert!(
             task_data.get("task_uuid").is_some(),
             "Response should include task_uuid"
@@ -322,31 +322,27 @@ async fn test_authenticated_task_creation() {
             "Response should include created_at"
         );
         assert!(
-            task_data.get("step_count").is_some(),
-            "Response should include step_count"
+            task_data.get("total_steps").is_some(),
+            "Response should include total_steps"
         );
         assert!(
-            task_data.get("step_mapping").is_some(),
-            "Response should include step_mapping"
+            task_data.get("name").is_some(),
+            "Response should include name"
+        );
+        assert!(
+            task_data.get("namespace").is_some(),
+            "Response should include namespace"
         );
 
-        // Log the enhanced response structure
+        // Log the response structure
         println!(
-            "Enhanced task creation response: {}",
+            "Task creation response: {}",
             serde_json::to_string_pretty(&task_data).unwrap()
         );
 
-        // Validate step_count is a number
-        if let Some(step_count) = task_data.get("step_count").and_then(|v| v.as_u64()) {
-            println!("Task created with {step_count} workflow steps");
-        }
-
-        // Validate step_mapping is an object
-        if let Some(step_mapping) = task_data.get("step_mapping").and_then(|v| v.as_object()) {
-            println!("Step mapping contains {} entries", step_mapping.len());
-            for (step_name, step_uuid) in step_mapping {
-                println!("  Step '{step_name}' -> UUID '{step_uuid}'");
-            }
+        // Validate total_steps is a number
+        if let Some(total_steps) = task_data.get("total_steps").and_then(|v| v.as_i64()) {
+            println!("Task created with {total_steps} workflow steps");
         }
     }
 
@@ -492,22 +488,28 @@ async fn test_enhanced_task_creation_response() {
 
     println!("Enhanced response test - Status: {}", response.status());
 
-    // If the API is available and returns success, validate the enhanced structure
+    // If the API is available and returns success, validate the TaskResponse structure
     if response.status().is_success() {
         let task_data = response
             .json::<Value>()
             .await
             .expect("Failed to parse task creation response");
 
-        println!("✅ Enhanced TaskCreationResponse validation:");
+        println!("✅ TaskResponse validation (same shape as GET /v1/tasks/{{uuid}}):");
 
         // Validate all expected fields are present
         let expected_fields = [
             "task_uuid",
+            "name",
+            "namespace",
+            "version",
             "status",
             "created_at",
-            "step_count",
-            "step_mapping",
+            "updated_at",
+            "total_steps",
+            "completed_steps",
+            "failed_steps",
+            "execution_status",
         ];
         for field in &expected_fields {
             assert!(
@@ -515,38 +517,6 @@ async fn test_enhanced_task_creation_response() {
                 "Missing required field: {field}"
             );
             println!("  ✓ {field} present");
-        }
-
-        // Validate optional fields
-        if task_data.get("handler_config_name").is_some() {
-            println!("  ✓ handler_config_name present");
-        }
-        if task_data.get("estimated_completion").is_some() {
-            println!("  ✓ estimated_completion present");
-        }
-
-        if let Some(step_mapping) = task_data.get("step_mapping").and_then(|v| v.as_object()) {
-            println!(
-                "  ✓ step_mapping: {} entries (valid object)",
-                step_mapping.len()
-            );
-
-            // Validate that step mapping contains valid UUID strings
-            for (step_name, step_uuid) in step_mapping {
-                if let Some(uuid_str) = step_uuid.as_str() {
-                    // Basic UUID format validation (length and hyphens)
-                    assert!(uuid_str.len() == 36, "UUID should be 36 characters");
-                    assert!(
-                        uuid_str.chars().filter(|&c| c == '-').count() == 4,
-                        "UUID should have 4 hyphens"
-                    );
-                    println!("    ✓ '{step_name}' -> '{uuid_str}' (valid UUID format)");
-                } else {
-                    panic!("Step mapping values should be UUID strings");
-                }
-            }
-        } else {
-            panic!("step_mapping should be a valid object");
         }
 
         // Validate task_uuid format
@@ -561,7 +531,12 @@ async fn test_enhanced_task_creation_response() {
             panic!("task_uuid should be a valid UUID string");
         }
 
-        println!("🎉 Enhanced TaskCreationResponse validation complete!");
+        // Validate total_steps is a number
+        if let Some(total_steps) = task_data.get("total_steps").and_then(|v| v.as_i64()) {
+            println!("  ✓ total_steps: {total_steps}");
+        }
+
+        println!("🎉 TaskResponse validation complete!");
         println!("   All fields present with correct types and formats");
     } else {
         println!(

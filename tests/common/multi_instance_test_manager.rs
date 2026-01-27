@@ -34,7 +34,7 @@ use anyhow::{bail, Result};
 use std::time::Duration;
 use tasker_client::{WorkerApiClient, WorkerApiConfig};
 use tasker_shared::models::core::task_request::TaskRequest;
-use tasker_shared::types::api::orchestration::{TaskCreationResponse, TaskResponse};
+use tasker_shared::types::api::orchestration::TaskResponse;
 use uuid::Uuid;
 
 /// Test manager for multi-instance scenarios
@@ -140,10 +140,11 @@ impl MultiInstanceTestManager {
     /// Create N tasks concurrently across the cluster
     ///
     /// Tasks are distributed using the cluster's load balancing strategy.
+    /// Returns full `TaskResponse` for each created task (same shape as GET).
     pub async fn create_tasks_concurrent(
         &self,
         requests: Vec<TaskRequest>,
-    ) -> Result<Vec<TaskCreationResponse>> {
+    ) -> Result<Vec<TaskResponse>> {
         use futures::future::join_all;
 
         let futures: Vec<_> = requests

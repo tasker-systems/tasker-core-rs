@@ -13,9 +13,7 @@ use crate::web::circuit_breaker::record_backpressure_rejection;
 use crate::web::state::AppState;
 use tasker_shared::models::core::task::TaskListQuery;
 use tasker_shared::models::core::task_request::TaskRequest;
-use tasker_shared::types::api::orchestration::{
-    TaskCreationResponse, TaskListResponse, TaskResponse,
-};
+use tasker_shared::types::api::orchestration::{TaskListResponse, TaskResponse};
 use tasker_shared::types::web::{ApiError, ApiResult};
 
 /// Create a new task: POST /v1/tasks
@@ -23,13 +21,16 @@ use tasker_shared::types::web::{ApiError, ApiResult};
 /// This is the critical endpoint for TAS-40 worker integration.
 /// Workers call this endpoint to create tasks and receive UUIDs for tracking.
 ///
+/// Returns the same `TaskResponse` shape as GET /v1/tasks/{uuid}, following REST best
+/// practices where create operations return the same representation as read operations.
+///
 /// **Required Permission:** `tasks:create`
 #[cfg_attr(feature = "web-api", utoipa::path(
     post,
     path = "/v1/tasks",
     request_body = TaskRequest,
     responses(
-        (status = 201, description = "Task created successfully", body = TaskCreationResponse),
+        (status = 201, description = "Task created successfully", body = TaskResponse),
         (status = 400, description = "Invalid request", body = ApiError),
         (status = 401, description = "Authentication required", body = ApiError),
         (status = 403, description = "Insufficient permissions", body = ApiError),
@@ -44,7 +45,7 @@ use tasker_shared::types::web::{ApiError, ApiResult};
 pub async fn create_task(
     State(state): State<AppState>,
     Json(request): Json<TaskRequest>,
-) -> ApiResult<Json<TaskCreationResponse>> {
+) -> ApiResult<Json<TaskResponse>> {
     info!(
         namespace = %request.namespace,
         task_name = %request.name,

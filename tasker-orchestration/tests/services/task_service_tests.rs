@@ -92,13 +92,14 @@ async fn test_create_task_success(pool: PgPool) -> Result<()> {
     let response = task_service.create_task(request).await?;
 
     assert!(!response.task_uuid.is_empty(), "Task UUID should be set");
-    assert_eq!(response.status, "created");
-    assert!(response.created);
-    assert!(response.step_count > 0, "Should have at least one step");
+    // TaskService.create_task now returns full TaskResponse (same shape as GET)
+    assert!(!response.status.is_empty(), "Status should be set");
+    assert!(response.total_steps > 0, "Should have at least one step");
 
     tracing::info!(
         task_uuid = %response.task_uuid,
-        step_count = response.step_count,
+        total_steps = response.total_steps,
+        status = %response.status,
         "✅ Task created successfully via TaskService"
     );
 

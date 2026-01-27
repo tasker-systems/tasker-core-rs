@@ -122,6 +122,16 @@ utoipa-swagger-ui = { workspace = true, optional = true }
 uuid = { workspace = true }
 validator = { workspace = true }
 workspace_tools = { workspace = true }
+# gRPC framework and Protocol Buffers (TAS-177)
+tonic = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+prost-types = { workspace = true, optional = true }
+tokio-stream = { workspace = true, optional = true }
+
+[build-dependencies]
+# Proto compilation (TAS-177)
+# Note: Requires protobuf to be installed (brew install protobuf)
+tonic-build = { workspace = true }
 
 [dev-dependencies]
 # Coverage tools (used in CI)
@@ -134,7 +144,7 @@ tokio-test = { workspace = true }
 url = { workspace = true }
 
 [features]
-default = ["cache-redis", "cache-moka", "postgres", "test-utils", "web-api"]
+default = ["cache-redis", "cache-moka", "grpc-api", "postgres", "test-utils", "web-api"]
 benchmarks = ["criterion"]
 cache-redis = ["redis"]
 cache-moka = ["moka"]
@@ -156,6 +166,13 @@ web-api = [
   "tower-http",
   "utoipa",
   "utoipa-swagger-ui",
+]
+# TAS-177: gRPC API support
+grpc-api = [
+  "tonic",
+  "prost",
+  "prost-types",
+  "tokio-stream",
 ]
 
 # TAS-73: Test infrastructure levels (cumulative)

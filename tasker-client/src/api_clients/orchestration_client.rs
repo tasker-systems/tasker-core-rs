@@ -19,7 +19,7 @@ use tasker_shared::{
         api::orchestration::{
             BottleneckAnalysis, BottleneckQuery, DetailedHealthResponse, HealthResponse,
             MetricsQuery, PerformanceMetrics, StepAuditResponse, StepManualAction, StepResponse,
-            TaskCreationResponse, TaskListResponse, TaskResponse,
+            TaskListResponse, TaskResponse,
         },
         api::templates::{TemplateDetail, TemplateListResponse},
         auth::JwtAuthenticator,
@@ -338,7 +338,10 @@ impl OrchestrationApiClient {
     /// Create a new task via the orchestration API
     ///
     /// POST /v1/tasks
-    pub async fn create_task(&self, request: TaskRequest) -> TaskerResult<TaskCreationResponse> {
+    ///
+    /// Returns the same `TaskResponse` shape as `get_task`, following REST best practices
+    /// where create operations return the same representation as read operations.
+    pub async fn create_task(&self, request: TaskRequest) -> TaskerResult<TaskResponse> {
         let url = self.base_url.join("/v1/tasks").map_err(|e| {
             TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
         })?;
@@ -357,11 +360,12 @@ impl OrchestrationApiClient {
             match response {
                 Ok(resp) => {
                     if resp.status().is_success() {
-                        match resp.json::<TaskCreationResponse>().await {
+                        match resp.json::<TaskResponse>().await {
                             Ok(task_response) => {
                                 info!(
                                     task_uuid = %task_response.task_uuid,
-                                    step_count = task_response.step_count,
+                                    status = %task_response.status,
+                                    total_steps = task_response.total_steps,
                                     "Successfully created task via orchestration API"
                                 );
                                 return Ok(task_response);
@@ -1320,24 +1324,41 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_creation_response_deserialization() {
+        // Task creation now returns TaskResponse (same shape as GET /v1/tasks/{uuid})
         let json_response = json!({
             "task_uuid": "123e4567-e89b-12d3-a456-426614174000",
-            "status": "initialized",
+            "name": "test_task",
+            "namespace": "test",
+            "version": "1.0.0",
+            "status": "pending",
             "created_at": "2023-12-01T12:00:00Z",
-            "estimated_completion": null,
-            "step_count": 3,
-            "step_mapping": {
-                "step1": "uuid1",
-                "step2": "uuid2"
-            },
-            "handler_config_name": "default"
+            "updated_at": "2023-12-01T12:00:00Z",
+            "completed_at": null,
+            "context": {},
+            "initiator": "test_user",
+            "source_system": "test_system",
+            "reason": "test_reason",
+            "priority": 1,
+            "tags": ["test"],
+            "total_steps": 3,
+            "pending_steps": 3,
+            "in_progress_steps": 0,
+            "completed_steps": 0,
+            "failed_steps": 0,
+            "ready_steps": 1,
+            "correlation_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+            "execution_status": "has_ready_steps",
+            "recommended_action": "execute_ready_steps",
+            "completion_percentage": 0.0,
+            "health_status": "healthy",
+            "steps": []
         });
 
-        let response: TaskCreationResponse = serde_json::from_value(json_response).unwrap();
+        let response: TaskResponse = serde_json::from_value(json_response).unwrap();
         assert_eq!(response.task_uuid, "123e4567-e89b-12d3-a456-426614174000");
-        assert_eq!(response.status, "initialized");
-        assert_eq!(response.step_count, 3);
-        assert_eq!(response.step_mapping.len(), 2);
+        assert_eq!(response.name, "test_task");
+        assert_eq!(response.status, "pending");
+        assert_eq!(response.total_steps, 3);
     }
 
     #[tokio::test]

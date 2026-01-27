@@ -1214,9 +1214,72 @@ pub struct OrchestrationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub web: Option<OrchestrationWebConfig>,
+
+    /// gRPC API configuration (optional, TAS-177)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub grpc: Option<GrpcConfig>,
 }
 
 impl_builder_default!(OrchestrationConfig);
+
+/// gRPC API configuration (TAS-177)
+///
+/// Configuration for the gRPC server that runs alongside the REST API.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
+#[serde(rename_all = "snake_case")]
+pub struct GrpcConfig {
+    /// Enable gRPC API
+    #[builder(default = true)]
+    pub enabled: bool,
+
+    /// Bind address for gRPC server (default: 0.0.0.0:9090)
+    #[validate(length(min = 1))]
+    #[builder(default = "0.0.0.0:9090".to_string())]
+    pub bind_address: String,
+
+    /// Enable TLS for gRPC connections
+    #[builder(default = false)]
+    pub tls_enabled: bool,
+
+    /// TLS certificate path (required if tls_enabled is true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_cert_path: Option<String>,
+
+    /// TLS key path (required if tls_enabled is true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_key_path: Option<String>,
+
+    /// HTTP/2 keepalive interval (seconds)
+    #[validate(range(min = 1, max = 3600))]
+    #[builder(default = 30)]
+    pub keepalive_interval_seconds: u32,
+
+    /// HTTP/2 keepalive timeout (seconds)
+    #[validate(range(min = 1, max = 300))]
+    #[builder(default = 20)]
+    pub keepalive_timeout_seconds: u32,
+
+    /// Maximum concurrent streams per connection
+    #[validate(range(min = 1, max = 10000))]
+    #[builder(default = 200)]
+    pub max_concurrent_streams: u32,
+
+    /// Maximum frame size (bytes)
+    #[validate(range(min = 16384, max = 16777215))]
+    #[builder(default = 16384)]
+    pub max_frame_size: u32,
+
+    /// Enable gRPC reflection service (for grpcurl discovery)
+    #[builder(default = true)]
+    pub enable_reflection: bool,
+
+    /// Enable gRPC health service (grpc.health.v1)
+    #[builder(default = true)]
+    pub enable_health_service: bool,
+}
+
+impl_builder_default!(GrpcConfig);
 
 /// Orchestration event systems configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
@@ -2994,6 +3057,7 @@ mod tests {
                 },
             },
             web: None,
+            grpc: None,
             dlq: DlqOperationsConfig::default(),
             batch_processing: BatchProcessingConfig::default(),
         }

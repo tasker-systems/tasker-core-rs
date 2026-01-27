@@ -26,7 +26,7 @@ use tasker_shared::types::api::orchestration::{
     HealthResponse, ManualCompletionData, OrchestrationConfigResponse, PerformanceMetrics,
     ResourceUtilization, SafeAuthConfig, SafeCircuitBreakerConfig, SafeDatabasePoolConfig,
     SafeMessagingConfig, SlowStepInfo, SlowTaskInfo, StepAuditResponse, StepManualAction,
-    StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
+    StepResponse, TaskListResponse, TaskResponse,
 };
 
 // TAS-76: Template API types
@@ -85,7 +85,6 @@ use tasker_shared::models::orchestration::StalenessHealthStatus;
     components(schemas(
         // Task-related schemas
         TaskRequest,
-        TaskCreationResponse,
         TaskResponse,
         TaskListResponse,
         PaginationInfo,

@@ -1,0 +1,110 @@
+// Template service definitions for Tasker gRPC API
+// See: tasker-shared/src/types/api/templates.rs
+syntax = "proto3";
+
+package tasker.v1;
+
+import "google/protobuf/struct.proto";
+import "tasker/v1/common.proto";
+
+option java_multiple_files = true;
+option java_package = "com.tasker.v1";
+
+// TemplateService provides operations for discovering task templates
+// Note: Orchestration only discovers templates, it doesn't execute them
+service TemplateService {
+  // List all available templates
+  rpc ListTemplates(ListTemplatesRequest) returns (ListTemplatesResponse);
+
+  // Get a specific template by namespace/name/version
+  rpc GetTemplate(GetTemplateRequest) returns (GetTemplateResponse);
+}
+
+// Request to list templates
+message ListTemplatesRequest {
+  // Filter by namespace (optional)
+  optional string namespace = 1;
+}
+
+// Response containing list of templates
+// Matches TemplateListResponse from REST API
+message ListTemplatesResponse {
+  // Summary of available namespaces
+  repeated NamespaceSummary namespaces = 1;
+  // List of templates (optionally filtered)
+  repeated TemplateSummary templates = 2;
+  // Total number of templates (before filtering)
+  int64 total_count = 3;
+}
+
+// Summary of a namespace with its templates
+// Matches NamespaceSummary from REST API
+message NamespaceSummary {
+  // Namespace name
+  string name = 1;
+  // Optional namespace description
+  optional string description = 2;
+  // Number of templates in this namespace
+  int64 template_count = 3;
+}
+
+// Summary information about a template
+// Matches TemplateSummary from REST API
+message TemplateSummary {
+  // Template name
+  string name = 1;
+  // Namespace the template belongs to
+  string namespace = 2;
+  // Template version
+  string version = 3;
+  // Optional description
+  optional string description = 4;
+  // Number of steps in the template
+  int64 step_count = 5;
+}
+
+// Request to get a specific template
+message GetTemplateRequest {
+  // Template namespace
+  string namespace = 1;
+  // Template name
+  string name = 2;
+  // Template version
+  string version = 3;
+}
+
+// Response containing template details
+message GetTemplateResponse {
+  // The requested template
+  TemplateDetail template = 1;
+}
+
+// Detailed information about a single template
+// Matches TemplateDetail from REST API
+message TemplateDetail {
+  // Template name
+  string name = 1;
+  // Namespace the template belongs to
+  string namespace = 2;
+  // Template version
+  string version = 3;
+  // Optional description
+  optional string description = 4;
+  // Template configuration (JSON)
+  optional google.protobuf.Struct configuration = 5;
+  // Step definitions for this template
+  repeated StepDefinition steps = 6;
+}
+
+// Definition of a step within a template
+// Matches StepDefinition from REST API
+message StepDefinition {
+  // Step name/handler identifier
+  string name = 1;
+  // Step description
+  optional string description = 2;
+  // Whether the step is retryable by default
+  bool default_retryable = 3;
+  // Maximum retry attempts
+  int32 default_max_attempts = 4;
+}

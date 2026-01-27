@@ -3,44 +3,10 @@ use crate::models::core::task::PaginationInfo;
 use crate::models::orchestration::execution_status::ExecutionStatus;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 #[cfg(feature = "web-api")]
 use utoipa::ToSchema;
-
-/// Response for successful task creation
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct TaskCreationResponse {
-    pub task_uuid: String,
-    pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub estimated_completion: Option<DateTime<Utc>>,
-    /// Number of workflow steps created for this task
-    pub step_count: usize,
-    /// Mapping of step names to their workflow step UUIDs
-    pub step_mapping: HashMap<String, String>,
-    /// Handler configuration name used (if any)
-    pub handler_config_name: Option<String>,
-
-    /// TAS-154: Whether this request created a new task (true) or returned an existing one (false)
-    ///
-    /// When `false`, this indicates deduplication occurred based on the identity_hash.
-    /// Check `deduplicated_from` for the original task creation timestamp.
-    #[serde(default = "default_true")]
-    pub created: bool,
-
-    /// TAS-154: If deduplicated, the original task creation timestamp
-    ///
-    /// Only present when `created` is `false`, indicating when the original task was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deduplicated_from: Option<DateTime<Utc>>,
-}
-
-fn default_true() -> bool {
-    true
-}
 
 /// Task details response with execution context and step readiness information
 #[derive(Debug, Serialize, Deserialize, Clone)]

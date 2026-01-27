@@ -19,10 +19,8 @@
 //! Note: Circuit breaker and backpressure handling remain in the handler layer
 //! via `execute_with_circuit_breaker` / `execute_with_backpressure_check`.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::Utc;
 use sqlx::PgPool;
 use thiserror::Error;
 use tracing::{error, info};
@@ -36,9 +34,7 @@ use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::models::core::task::{Task, TaskListQuery};
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::system_context::SystemContext;
-use tasker_shared::types::api::orchestration::{
-    TaskCreationResponse, TaskListResponse, TaskResponse,
-};
+use tasker_shared::types::api::orchestration::{TaskListResponse, TaskResponse};
 
 /// Errors that can occur during task service operations.
 #[derive(Error, Debug)]
@@ -137,13 +133,14 @@ impl TaskService {
     /// Performs:
     /// 1. Input validation
     /// 2. Task initialization via TaskInitializer
-    /// 3. Error classification
+    /// 3. Fetch full task context for response
+    /// 4. Error classification
+    ///
+    /// Returns the same `TaskResponse` shape as `get_task`, following REST best practices
+    /// where POST/create returns the same representation as GET/read.
     ///
     /// Note: Backpressure and circuit breaker checks should be done at the handler layer.
-    pub async fn create_task(
-        &self,
-        request: TaskRequest,
-    ) -> TaskServiceResult<TaskCreationResponse> {
+    pub async fn create_task(&self, request: TaskRequest) -> TaskServiceResult<TaskResponse> {
         // Input validation
         if request.name.is_empty() {
             return Err(TaskServiceError::Validation(
@@ -182,13 +179,6 @@ impl TaskService {
 
         match result {
             Ok(task_result) => {
-                // Convert step mapping
-                let step_mapping: HashMap<String, String> = task_result
-                    .step_mapping
-                    .into_iter()
-                    .map(|(step_name, uuid)| (step_name, uuid.to_string()))
-                    .collect();
-
                 info!(
                     task_uuid = %task_result.task_uuid,
                     step_count = task_result.step_count,
@@ -196,17 +186,8 @@ impl TaskService {
                     "Task created successfully via TaskService"
                 );
 
-                Ok(TaskCreationResponse {
-                    task_uuid: task_result.task_uuid.to_string(),
-                    status: "created".to_string(),
-                    created_at: Utc::now(),
-                    estimated_completion: None,
-                    step_count: task_result.step_count,
-                    step_mapping,
-                    handler_config_name: task_result.handler_config_name.clone(),
-                    created: true,
-                    deduplicated_from: None,
-                })
+                // Fetch full task context for response (same shape as get_task)
+                self.get_task(task_result.task_uuid).await
             }
             Err(init_error) => {
                 // Check for duplicate task (unique constraint violation)
