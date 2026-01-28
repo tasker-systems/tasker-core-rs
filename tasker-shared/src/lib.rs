@@ -95,6 +95,8 @@ pub mod messaging;
 pub mod metrics;
 pub mod models;
 pub mod monitoring;
+#[cfg(feature = "grpc-api")]
+pub mod proto;
 pub mod registry;
 pub mod resilience;
 pub mod scopes;
@@ -107,8 +109,6 @@ pub mod utils;
 pub mod validation;
 #[cfg(feature = "web-api")]
 pub mod web;
-#[cfg(feature = "grpc-api")]
-pub mod proto;
 
 pub use constants::events as system_events;
 pub use constants::{

@@ -14,9 +14,7 @@ categories = ["asynchronous", "database", "web-programming"]
 ignored = [
   # Dev-dependencies used in tests
   "cargo-llvm-cov",  # CI coverage tool
-  "serial_test",
   "tasker-core",  # Used for test-utils re-export
-  "tempfile",
   "tokio-test",
   "url",
   # Feature-gated dependencies (web-api feature)
@@ -24,12 +22,15 @@ ignored = [
   "tower",
   "tower-http",
   "utoipa-swagger-ui",
+  # Feature-gated dependencies (grpc-api feature) - used by generated code
+  "prost",
+  "tokio-stream",
+  "tonic-build",
   # Used via macros or internal APIs
   "crossbeam",
   "is-terminal",
   "opentelemetry-semantic-conventions",
   "rand",
-  "reqwest",
   "rust_decimal",
   "sysinfo",
   "workspace_tools",

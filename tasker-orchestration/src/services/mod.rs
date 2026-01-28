@@ -20,6 +20,7 @@
 mod analytics_query_service;
 mod analytics_service;
 pub mod health;
+pub mod shared;
 pub mod step_query_service;
 pub mod step_service;
 pub mod task_query_service;
@@ -29,6 +30,7 @@ pub mod template_query_service;
 pub use analytics_query_service::AnalyticsQueryService;
 pub use analytics_service::AnalyticsService;
 pub use health::HealthService;
+pub use shared::{SharedApiServices, SharedApiServicesError};
 pub use step_query_service::{
     StepQueryError, StepQueryResult, StepQueryService, StepWithReadiness,
 };

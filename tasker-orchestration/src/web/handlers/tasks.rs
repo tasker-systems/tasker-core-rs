@@ -63,7 +63,7 @@ pub async fn create_task(
 
     // Delegate to TaskService
     state
-        .task_service
+        .task_service()
         .create_task(request)
         .await
         .map(|response| {
@@ -113,7 +113,7 @@ pub async fn get_task(
     let uuid = Uuid::parse_str(&task_uuid).map_err(|_| ApiError::invalid_uuid(task_uuid))?;
 
     state
-        .task_service
+        .task_service()
         .get_task(uuid)
         .await
         .map(Json)
@@ -157,7 +157,7 @@ pub async fn list_tasks(
     debug!(?query, "Listing tasks with execution context and filters");
 
     state
-        .task_service
+        .task_service()
         .list_tasks(query)
         .await
         .map(Json)
@@ -199,7 +199,7 @@ pub async fn cancel_task(
     let uuid = Uuid::parse_str(&task_uuid).map_err(|_| ApiError::invalid_uuid(task_uuid))?;
 
     state
-        .task_service
+        .task_service()
         .cancel_task(uuid)
         .await
         .map(Json)

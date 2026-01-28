@@ -41,7 +41,7 @@ pub async fn get_config(
 ) -> Result<Json<OrchestrationConfigResponse>, ApiError> {
     debug!("Retrieving orchestration configuration (safe fields only)");
 
-    let tasker_config = &state.orchestration_core.context.tasker_config;
+    let tasker_config = &state.orchestration_core().context.tasker_config;
     let web_config = tasker_config
         .orchestration
         .as_ref()

@@ -22,7 +22,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Find the workspace root (where proto/ directory lives)
         let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
-        let workspace_root = manifest_dir.parent().expect("tasker-shared must be in workspace");
+        let workspace_root = manifest_dir
+            .parent()
+            .expect("tasker-shared must be in workspace");
         let proto_root = workspace_root.join("proto");
 
         // Verify proto directory exists
@@ -43,6 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "tasker/v1/dlq.proto",
             "tasker/v1/health.proto",
             "tasker/v1/config.proto",
+            "tasker/v1/worker.proto", // TAS-177: Worker-specific health, config, templates
         ];
 
         // Convert to full paths and verify each exists
@@ -67,8 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build_transport(true)
             // Include file descriptor set for reflection
             .file_descriptor_set_path(
-                PathBuf::from(std::env::var("OUT_DIR")?)
-                    .join("tasker_descriptor.bin"),
+                PathBuf::from(std::env::var("OUT_DIR")?).join("tasker_descriptor.bin"),
             )
             // Emit rerun-if-changed directives
             .emit_rerun_if_changed(true)

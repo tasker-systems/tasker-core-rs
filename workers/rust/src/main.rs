@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
     }
     // Graceful shutdown
     info!("🔄 Shutting down worker...");
-    bootstrap_result.worker_handle.stop()?;
+    bootstrap_result.worker_handle.stop().await?;
     info!("✅ Worker shutdown complete");
 
     Ok(())

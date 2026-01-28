@@ -66,6 +66,19 @@ fn get_env_var_allowlist() -> Vec<EnvVarRule> {
             // IPv4:port or hostname:port
             pattern: r"^([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[a-zA-Z0-9._-]+):[0-9]{1,5}$",
         },
+        // TAS-177: gRPC server bind addresses
+        EnvVarRule {
+            name: "TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS",
+            description: "Orchestration gRPC server bind address (IP:port)",
+            // IPv4:port or hostname:port
+            pattern: r"^([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[a-zA-Z0-9._-]+):[0-9]{1,5}$",
+        },
+        EnvVarRule {
+            name: "TASKER_WORKER_GRPC_BIND_ADDRESS",
+            description: "Worker gRPC server bind address (IP:port)",
+            // IPv4:port or hostname:port
+            pattern: r"^([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[a-zA-Z0-9._-]+):[0-9]{1,5}$",
+        },
         EnvVarRule {
             name: "TASKER_TEMPLATE_PATH",
             description: "Path to task templates directory",

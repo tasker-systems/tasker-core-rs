@@ -111,6 +111,9 @@ brew "watch"
 # bottom - process monitoring
 brew "bottom"
 
+# grpcurl - gRPC client
+brew "grpcurl"
+
 # -----------------------------------------------------------------------------
 # Performance & Profiling Tools (TAS-71)
 # -----------------------------------------------------------------------------

@@ -24,7 +24,7 @@ pub struct ConfigServiceImpl {
 impl ConfigServiceImpl {
     /// Create a new config service.
     pub fn new(state: GrpcState) -> Self {
-        let auth_interceptor = AuthInterceptor::new(state.security_service.clone());
+        let auth_interceptor = AuthInterceptor::new(state.services.security_service.clone());
         Self {
             state,
             auth_interceptor,
@@ -66,7 +66,7 @@ impl ConfigServiceTrait for ConfigServiceImpl {
         debug!("gRPC get config");
 
         // Build response from tasker_config (same logic as REST handler)
-        let tasker_config = &self.state.orchestration_core.context.tasker_config;
+        let tasker_config = &self.state.services.orchestration_core.context.tasker_config;
         let web_config = tasker_config
             .orchestration
             .as_ref()

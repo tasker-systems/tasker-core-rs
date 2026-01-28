@@ -23,7 +23,7 @@ pub struct StepServiceImpl {
 impl StepServiceImpl {
     /// Create a new step service.
     pub fn new(state: GrpcState) -> Self {
-        let auth_interceptor = AuthInterceptor::new(state.security_service.clone());
+        let auth_interceptor = AuthInterceptor::new(state.services.security_service.clone());
         Self {
             state,
             auth_interceptor,
@@ -68,7 +68,12 @@ impl StepServiceTrait for StepServiceImpl {
         debug!(task_uuid = %task_uuid, step_uuid = %step_uuid, "gRPC get step");
 
         // Get step via service layer
-        let result = self.state.step_service.get_step(task_uuid, step_uuid).await;
+        let result = self
+            .state
+            .services
+            .step_service
+            .get_step(task_uuid, step_uuid)
+            .await;
 
         match result {
             Ok(response) => Ok(Response::new(proto::GetStepResponse {
@@ -93,7 +98,12 @@ impl StepServiceTrait for StepServiceImpl {
         debug!(task_uuid = %task_uuid, "gRPC list steps");
 
         // List steps via service layer
-        let result = self.state.step_service.list_task_steps(task_uuid).await;
+        let result = self
+            .state
+            .services
+            .step_service
+            .list_task_steps(task_uuid)
+            .await;
 
         match result {
             Ok(response) => {
@@ -188,6 +198,7 @@ impl StepServiceTrait for StepServiceImpl {
         // Resolve step via service layer
         let result = self
             .state
+            .services
             .step_service
             .resolve_step_manually(task_uuid, step_uuid, action)
             .await;
@@ -222,6 +233,7 @@ impl StepServiceTrait for StepServiceImpl {
         // Get audit history via service layer
         let result = self
             .state
+            .services
             .step_service
             .get_step_audit(task_uuid, step_uuid)
             .await;

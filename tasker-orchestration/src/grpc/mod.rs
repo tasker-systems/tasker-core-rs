@@ -35,5 +35,5 @@ pub mod server;
 pub mod services;
 pub mod state;
 
-pub use server::GrpcServer;
+pub use server::{GrpcServer, GrpcServerHandle};
 pub use state::GrpcState;

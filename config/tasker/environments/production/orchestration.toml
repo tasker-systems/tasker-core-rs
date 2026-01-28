@@ -31,3 +31,9 @@ enabled = true                   # Enable batch processing for production
 max_parallel_batches = 100       # Higher concurrency for production
 default_batch_size = 2000        # Larger batches for efficiency
 checkpoint_stall_minutes = 30    # More conservative stall detection for production
+
+# TAS-177: gRPC Configuration Overrides for Production Environment
+[orchestration.grpc]
+enabled = true
+max_concurrent_streams = 500     # Higher concurrency for production scale
+enable_reflection = false        # Disable reflection in production for security

@@ -35,7 +35,7 @@ impl HealthServiceTrait for HealthServiceImpl {
     ) -> Result<Response<proto::HealthResponse>, Status> {
         debug!("gRPC basic health check");
 
-        let response = self.state.health_service.basic_health();
+        let response = self.state.services.health_service.basic_health();
         Ok(Response::new(proto::HealthResponse::from(&response)))
     }
 
@@ -46,7 +46,7 @@ impl HealthServiceTrait for HealthServiceImpl {
     ) -> Result<Response<proto::HealthResponse>, Status> {
         debug!("gRPC liveness check");
 
-        let response = self.state.health_service.liveness().await;
+        let response = self.state.services.health_service.liveness().await;
         Ok(Response::new(proto::HealthResponse::from(&response)))
     }
 
@@ -58,7 +58,7 @@ impl HealthServiceTrait for HealthServiceImpl {
         debug!("gRPC readiness check");
 
         // Readiness can return error status (503 = unavailable)
-        let result = self.state.health_service.readiness().await;
+        let result = self.state.services.health_service.readiness().await;
 
         match result {
             Ok(response) => Ok(Response::new(proto::ReadinessResponse::from(&response))),
@@ -76,7 +76,7 @@ impl HealthServiceTrait for HealthServiceImpl {
     ) -> Result<Response<proto::DetailedHealthResponse>, Status> {
         debug!("gRPC detailed health check");
 
-        let response = self.state.health_service.detailed_health().await;
+        let response = self.state.services.health_service.detailed_health().await;
         Ok(Response::new(proto::DetailedHealthResponse::from(
             &response,
         )))

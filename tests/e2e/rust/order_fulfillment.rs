@@ -98,7 +98,7 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
     println!("✅ Order fulfillment workflow task created successfully!");
     println!("   Task UUID: {}", task_response.task_uuid);
     println!("   Status: {}", task_response.status);
-    println!("   Steps: {}", task_response.step_count);
+    println!("   Steps: {}", task_response.total_steps);
     println!("   Expected pattern: Validate → Reserve → Payment → Shipping");
 
     // Monitor task execution
@@ -337,12 +337,12 @@ async fn test_order_fulfillment_api_validation() -> Result<()> {
 
     // Test 3: Verify task has expected step count for business workflow pattern
     assert!(
-        task_response.step_count >= 4,
+        task_response.total_steps >= 4,
         "Order fulfillment workflow should have at least 4 steps (validate, reserve, payment, ship)"
     );
     println!(
         "✅ Order fulfillment workflow step count validation: {} steps",
-        task_response.step_count
+        task_response.total_steps
     );
 
     // Test 4: Invalid order data validation (missing required fields)

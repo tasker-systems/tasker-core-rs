@@ -63,7 +63,10 @@ pub async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Cl
                 Ok(response) => {
                     println!("✓ Task created successfully!");
                     println!("  Task UUID: {}", response.task_uuid);
-                    println!("  Name: {}/{} v{}", response.namespace, response.name, response.version);
+                    println!(
+                        "  Name: {}/{} v{}",
+                        response.namespace, response.name, response.version
+                    );
                     println!("  Status: {}", response.status);
                     println!("  Total Steps: {}", response.total_steps);
                     println!("  Created at: {}", response.created_at);

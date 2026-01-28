@@ -23,9 +23,9 @@ ignored = [
   # Feature-gated dependencies (web-api feature)
   "axum-extra",
   "tower",
-  "tower-http",
+  # Feature-gated dependencies (grpc-api feature) - used by generated code
+  "prost",
   # Used in runtime or via macros
-  "anyhow",
   "criterion",
   "crossbeam",
   "opentelemetry-otlp",
@@ -144,7 +144,11 @@ web-api = [
   "utoipa-swagger-ui",
 ]
 # TAS-177: gRPC API support
+# Note: Requires web-api because SharedApiServices depends on types from the web module
+# (WebDatabaseCircuitBreaker, OrchestrationStatus). These could be refactored to a common
+# module in the future to allow gRPC-only deployments.
 grpc-api = [
+  "web-api",
   "tonic",
   "tonic-health",
   "tonic-reflection",

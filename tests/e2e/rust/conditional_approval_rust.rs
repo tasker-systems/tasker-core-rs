@@ -372,18 +372,18 @@ async fn test_conditional_approval_api_validation() -> Result<()> {
     // and excludes it from the initial set.
     println!(
         "   Task has {} steps at initialization (expecting 2: up to decision boundary)",
-        task_response.step_count
+        task_response.total_steps
     );
     assert_eq!(
-        task_response.step_count, 2,
+        task_response.total_steps, 2,
         "Decision point workflow should have exactly 2 steps at initialization (validate_request, routing_decision). \
         Deferred convergence step and dynamic children are created at runtime when decision executes. Got: {}",
-        task_response.step_count
+        task_response.total_steps
     );
     println!(
         "✅ Conditional approval step count validation: {} steps at initialization \
         (deferred convergence and dynamic children created at runtime)",
-        task_response.step_count
+        task_response.total_steps
     );
 
     println!("\n🎉 Conditional Approval API Validation Test PASSED!");

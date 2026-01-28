@@ -48,7 +48,7 @@
 //!     // - Configuration-driven deployment modes
 //!
 //!     // Graceful shutdown
-//!     worker_handle.stop()?;
+//!     worker_handle.stop().await?;
 //!     Ok(())
 //! }
 //! ```
@@ -57,6 +57,8 @@ pub mod batch_processing;
 pub mod bootstrap;
 pub mod config;
 pub mod error;
+#[cfg(feature = "grpc-api")]
+pub mod grpc;
 pub mod handler_capabilities;
 pub mod health;
 pub mod web;

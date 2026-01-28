@@ -29,7 +29,7 @@ pub struct TaskServiceImpl {
 impl TaskServiceImpl {
     /// Create a new task service.
     pub fn new(state: GrpcState) -> Self {
-        let auth_interceptor = AuthInterceptor::new(state.security_service.clone());
+        let auth_interceptor = AuthInterceptor::new(state.services.security_service.clone());
         Self {
             state,
             auth_interceptor,
@@ -115,7 +115,12 @@ impl TaskServiceTrait for TaskServiceImpl {
             .build();
 
         // Create task via service layer - returns full TaskResponse (same as GET)
-        let result = self.state.task_service.create_task(task_request).await;
+        let result = self
+            .state
+            .services
+            .task_service
+            .create_task(task_request)
+            .await;
 
         match result {
             Ok(response) => {
@@ -145,7 +150,7 @@ impl TaskServiceTrait for TaskServiceImpl {
         debug!(task_id = %task_id, "gRPC get task");
 
         // Get task via service layer
-        let result = self.state.task_service.get_task(task_id).await;
+        let result = self.state.services.task_service.get_task(task_id).await;
 
         match result {
             Ok(response) => {
@@ -217,7 +222,7 @@ impl TaskServiceTrait for TaskServiceImpl {
         };
 
         // List tasks via service layer
-        let result = self.state.task_service.list_tasks(query).await;
+        let result = self.state.services.task_service.list_tasks(query).await;
 
         match result {
             Ok(response) => {
@@ -257,7 +262,7 @@ impl TaskServiceTrait for TaskServiceImpl {
         info!(task_id = %task_id, reason = ?req.reason, "gRPC cancel task");
 
         // Cancel task via service layer (reason is logged but not passed to service)
-        let result = self.state.task_service.cancel_task(task_id).await;
+        let result = self.state.services.task_service.cancel_task(task_id).await;
 
         match result {
             Ok(response) => Ok(Response::new(proto::CancelTaskResponse {
@@ -296,7 +301,7 @@ impl TaskServiceTrait for TaskServiceImpl {
         debug!(task_id = %task_id, "gRPC get task context");
 
         // Get task to get context
-        let result = self.state.task_service.get_task(task_id).await;
+        let result = self.state.services.task_service.get_task(task_id).await;
 
         match result {
             Ok(response) => Ok(Response::new(proto::GetTaskContextResponse {
@@ -338,7 +343,7 @@ impl TaskServiceTrait for TaskServiceImpl {
                 interval.tick().await;
 
                 // Get current task state
-                let result = state.task_service.get_task(task_id).await;
+                let result = state.services.task_service.get_task(task_id).await;
 
                 match result {
                     Ok(response) => {

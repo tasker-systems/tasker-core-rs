@@ -250,10 +250,13 @@ pub fn stop_worker_internal() -> Result<String> {
         Some(handle) => {
             let worker_id = handle.worker_id.clone();
 
-            handle.system_handle.stop().map_err(|e| {
-                error!("Failed to stop worker system: {}", e);
-                TypeScriptFfiError::RuntimeError(e.to_string())
-            })?;
+            handle
+                .runtime
+                .block_on(handle.system_handle.stop())
+                .map_err(|e| {
+                    error!("Failed to stop worker system: {}", e);
+                    TypeScriptFfiError::RuntimeError(e.to_string())
+                })?;
 
             *guard = None;
 

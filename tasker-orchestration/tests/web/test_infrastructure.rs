@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tasker_orchestration::services::SharedApiServices;
 use tasker_orchestration::web::{create_test_app, state::AppState};
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::SystemContext;
@@ -74,15 +75,30 @@ impl TestServer {
         );
 
         // Create orchestration core (required for AppState)
-        let orchestration_core =
-            tasker_orchestration::orchestration::core::OrchestrationCore::new(system_context)
-                .await
-                .map_err(|e| format!("Failed to create orchestration core: {e}"))?;
+        let orchestration_core = tasker_orchestration::orchestration::core::OrchestrationCore::new(
+            system_context.clone(),
+        )
+        .await
+        .map_err(|e| format!("Failed to create orchestration core: {e}"))?;
 
-        // Create app state from orchestration core
-        let app_state = AppState::from_orchestration_core(Arc::new(orchestration_core))
-            .await
-            .map_err(|e| format!("Failed to create app state: {e}"))?;
+        // TAS-177: Create shared services from orchestration core
+        let shared_services = Arc::new(
+            SharedApiServices::from_orchestration_core(Arc::new(orchestration_core))
+                .await
+                .map_err(|e| format!("Failed to create shared services: {e}"))?,
+        );
+
+        // Get web config from system context
+        let web_config = system_context
+            .tasker_config
+            .orchestration
+            .as_ref()
+            .and_then(|o| o.web.as_ref())
+            .cloned()
+            .ok_or("Web config not found in test configuration")?;
+
+        // Create app state from shared services
+        let app_state = AppState::new(shared_services, web_config);
 
         // Create the Axum app
         let app = create_test_app(app_state);

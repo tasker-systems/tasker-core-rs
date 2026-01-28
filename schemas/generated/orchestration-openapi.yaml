@@ -732,6 +732,9 @@ paths:
         This is the critical endpoint for TAS-40 worker integration.
         Workers call this endpoint to create tasks and receive UUIDs for tracking.
 
+        Returns the same `TaskResponse` shape as GET /v1/tasks/{uuid}, following REST best
+        practices where create operations return the same representation as read operations.
+
         **Required Permission:** `tasks:create`
       operationId: create_task
       requestBody:
@@ -746,7 +749,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TaskCreationResponse'
+                $ref: '#/components/schemas/TaskResponse'
         "400":
           description: Invalid request
           content:
@@ -2809,60 +2812,6 @@ components:
         waiting_for_retry_tasks:
           type: integer
           format: int64
-    TaskCreationResponse:
-      type: object
-      description: Response for successful task creation
-      required:
-        - task_uuid
-        - status
-        - created_at
-        - step_count
-        - step_mapping
-      properties:
-        created:
-          type: boolean
-          description: |-
-            TAS-154: Whether this request created a new task (true) or returned an existing one (false)
-
-            When `false`, this indicates deduplication occurred based on the identity_hash.
-            Check `deduplicated_from` for the original task creation timestamp.
-        created_at:
-          type: string
-          format: date-time
-        deduplicated_from:
-          type:
-            - string
-            - "null"
-          format: date-time
-          description: |-
-            TAS-154: If deduplicated, the original task creation timestamp
-
-            Only present when `created` is `false`, indicating when the original task was created.
-        estimated_completion:
-          type:
-            - string
-            - "null"
-          format: date-time
-        handler_config_name:
-          type:
-            - string
-            - "null"
-          description: Handler configuration name used (if any)
-        status:
-          type: string
-        step_count:
-          type: integer
-          description: Number of workflow steps created for this task
-          minimum: 0
-        step_mapping:
-          type: object
-          description: Mapping of step names to their workflow step UUIDs
-          additionalProperties:
-            type: string
-          propertyNames:
-            type: string
-        task_uuid:
-          type: string
     TaskExecutionContext:
       type: object
       description: |-

@@ -164,18 +164,6 @@ jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
 api_key = ""
 api_key_header = "X-API-Key"
 
-[[worker.web.auth.protected_routes]]
-method = "GET"
-path = "/status/detailed"
-auth_type = "bearer"
-required = false
-
-[[worker.web.auth.protected_routes]]
-method = "GET"
-path = "/handlers"
-auth_type = "bearer"
-required = false
-
 # TAS-169: Template routes moved to /v1/templates, cache operations removed
 # Old routes removed: DELETE /templates/cache, POST /templates/cache/maintain,
 # POST /templates/{namespace}/{name}/{version}/refresh
@@ -186,3 +174,15 @@ required = false
 circuit_breaker_enabled = true
 # TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
 # TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented
+
+# TAS-177: gRPC API Configuration
+[worker.grpc]
+enabled = true
+bind_address = "${TASKER_WORKER_GRPC_BIND_ADDRESS:-0.0.0.0:9100}"
+tls_enabled = false
+keepalive_interval_seconds = 30
+keepalive_timeout_seconds = 20
+max_concurrent_streams = 1000
+max_frame_size = 16384
+enable_reflection = true
+enable_health_service = true

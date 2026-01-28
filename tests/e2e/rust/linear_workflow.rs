@@ -58,7 +58,7 @@ async fn test_end_to_end_linear_workflow_with_rust_worker() -> Result<()> {
     println!("✅ Task created successfully!");
     println!("   Task UUID: {}", task_response.task_uuid);
     println!("   Status: {}", task_response.status);
-    println!("   Steps: {}", task_response.step_count);
+    println!("   Steps: {}", task_response.total_steps);
     println!("   Expected pattern: Step handlers from workers/rust/src/step_handlers");
 
     // Step 7: Monitor task execution

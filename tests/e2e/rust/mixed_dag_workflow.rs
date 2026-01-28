@@ -65,7 +65,7 @@ async fn test_end_to_end_mixed_dag_workflow() -> Result<()> {
     println!("✅ Mixed DAG workflow task created successfully!");
     println!("   Task UUID: {}", task_response.task_uuid);
     println!("   Status: {}", task_response.status);
-    println!("   Steps: {}", task_response.step_count);
+    println!("   Steps: {}", task_response.total_steps);
     println!("   Expected pattern: Mixed linear/parallel/convergence (input^64)");
 
     // Monitor task execution
@@ -265,12 +265,12 @@ async fn test_mixed_dag_workflow_api_validation() -> Result<()> {
 
     // Test 3: Verify task has expected step count for mixed DAG pattern
     assert!(
-        task_response.step_count >= 7,
+        task_response.total_steps >= 7,
         "Mixed DAG workflow should have at least 7 steps (init, process_left/right, validate, transform, analyze, finalize)"
     );
     println!(
         "✅ Mixed DAG workflow step count validation: {} steps",
-        task_response.step_count
+        task_response.total_steps
     );
 
     println!("\n🎉 Mixed DAG Workflow API Validation Test PASSED!");

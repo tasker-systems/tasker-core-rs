@@ -14,3 +14,7 @@ dispatch_timeout_ms = 5000
 command_buffer_size = 500
 shutdown_drain_timeout_ms = 3000
 log_dropped_events = true
+
+# TAS-177: gRPC API - development environment
+[worker.grpc]
+enabled = true

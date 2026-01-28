@@ -22,7 +22,7 @@ pub struct AnalyticsServiceImpl {
 impl AnalyticsServiceImpl {
     /// Create a new analytics service.
     pub fn new(state: GrpcState) -> Self {
-        let auth_interceptor = AuthInterceptor::new(state.security_service.clone());
+        let auth_interceptor = AuthInterceptor::new(state.services.security_service.clone());
         Self {
             state,
             auth_interceptor,
@@ -69,6 +69,7 @@ impl AnalyticsServiceTrait for AnalyticsServiceImpl {
         // Get metrics via service layer
         let result = self
             .state
+            .services
             .analytics_service
             .get_performance_metrics(hours)
             .await;
@@ -125,6 +126,7 @@ impl AnalyticsServiceTrait for AnalyticsServiceImpl {
         // Get analysis via service layer
         let result = self
             .state
+            .services
             .analytics_service
             .get_bottleneck_analysis(limit, min_executions)
             .await;

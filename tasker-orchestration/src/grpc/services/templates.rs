@@ -23,7 +23,7 @@ pub struct TemplateServiceImpl {
 impl TemplateServiceImpl {
     /// Create a new template service.
     pub fn new(state: GrpcState) -> Self {
-        let auth_interceptor = AuthInterceptor::new(state.security_service.clone());
+        let auth_interceptor = AuthInterceptor::new(state.services.security_service.clone());
         Self {
             state,
             auth_interceptor,
@@ -67,6 +67,7 @@ impl TemplateServiceTrait for TemplateServiceImpl {
         // List templates via service layer
         let result = self
             .state
+            .services
             .template_query_service
             .list_templates(req.namespace.as_deref())
             .await;
@@ -127,6 +128,7 @@ impl TemplateServiceTrait for TemplateServiceImpl {
         // Get template via service layer
         let result = self
             .state
+            .services
             .template_query_service
             .get_template(&req.namespace, &req.name, &req.version)
             .await;

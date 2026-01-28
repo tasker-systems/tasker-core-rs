@@ -24,7 +24,7 @@ pub struct DlqServiceImpl {
 impl DlqServiceImpl {
     /// Create a new DLQ service.
     pub fn new(state: GrpcState) -> Self {
-        let auth_interceptor = AuthInterceptor::new(state.security_service.clone());
+        let auth_interceptor = AuthInterceptor::new(state.services.security_service.clone());
         Self {
             state,
             auth_interceptor,
@@ -84,7 +84,7 @@ impl DlqServiceTrait for DlqServiceImpl {
         };
 
         // List DLQ entries via model layer
-        let entries = DlqEntry::list(&self.state.read_pool, params)
+        let entries = DlqEntry::list(&self.state.services.read_pool, params)
             .await
             .map_err(|e| {
                 error!("Failed to list DLQ entries: {}", e);
@@ -117,7 +117,7 @@ impl DlqServiceTrait for DlqServiceImpl {
         debug!(task_uuid = %task_uuid, "gRPC get DLQ entry by task");
 
         // Get DLQ entry via model layer
-        let entry = DlqEntry::find_by_task(&self.state.read_pool, task_uuid)
+        let entry = DlqEntry::find_by_task(&self.state.services.read_pool, task_uuid)
             .await
             .map_err(|e| {
                 error!("Failed to get DLQ entry for task {}: {}", task_uuid, e);
@@ -167,9 +167,7 @@ impl DlqServiceTrait for DlqServiceImpl {
             .and_then(|s| proto::DlqResolutionStatus::try_from(s).ok())
             .and_then(dlq_resolution_status_from_proto);
 
-        let metadata = req
-            .metadata
-            .map(crate::grpc::conversions::struct_to_json);
+        let metadata = req.metadata.map(crate::grpc::conversions::struct_to_json);
 
         let update = DlqInvestigationUpdate {
             resolution_status,
@@ -179,19 +177,16 @@ impl DlqServiceTrait for DlqServiceImpl {
         };
 
         // Update via model layer
-        let updated = DlqEntry::update_investigation(
-            &self.state.write_pool,
-            dlq_entry_uuid,
-            update,
-        )
-        .await
-        .map_err(|e| {
-            error!(
-                "Failed to update DLQ investigation {}: {}",
-                dlq_entry_uuid, e
-            );
-            Status::internal(format!("Failed to update DLQ investigation: {}", e))
-        })?;
+        let updated =
+            DlqEntry::update_investigation(&self.state.services.write_pool, dlq_entry_uuid, update)
+                .await
+                .map_err(|e| {
+                    error!(
+                        "Failed to update DLQ investigation {}: {}",
+                        dlq_entry_uuid, e
+                    );
+                    Status::internal(format!("Failed to update DLQ investigation: {}", e))
+                })?;
 
         if !updated {
             return Err(Status::not_found(format!(
@@ -225,7 +220,7 @@ impl DlqServiceTrait for DlqServiceImpl {
         debug!("gRPC get DLQ stats");
 
         // Get stats via model layer
-        let stats = DlqEntry::get_stats(&self.state.read_pool)
+        let stats = DlqEntry::get_stats(&self.state.services.read_pool)
             .await
             .map_err(|e| {
                 error!("Failed to get DLQ stats: {}", e);
@@ -261,7 +256,7 @@ impl DlqServiceTrait for DlqServiceImpl {
         debug!(limit = ?limit, "gRPC get investigation queue");
 
         // Get investigation queue via model layer
-        let queue = DlqEntry::list_investigation_queue(&self.state.read_pool, limit)
+        let queue = DlqEntry::list_investigation_queue(&self.state.services.read_pool, limit)
             .await
             .map_err(|e| {
                 error!("Failed to get investigation queue: {}", e);
@@ -300,13 +295,12 @@ impl DlqServiceTrait for DlqServiceImpl {
         debug!(limit = ?limit, "gRPC get staleness monitoring");
 
         // Get staleness monitoring via model layer
-        let monitoring =
-            DlqEntry::get_staleness_monitoring(&self.state.read_pool, limit)
-                .await
-                .map_err(|e| {
-                    error!("Failed to get staleness monitoring: {}", e);
-                    Status::internal(format!("Failed to get staleness monitoring: {}", e))
-                })?;
+        let monitoring = DlqEntry::get_staleness_monitoring(&self.state.services.read_pool, limit)
+            .await
+            .map_err(|e| {
+                error!("Failed to get staleness monitoring: {}", e);
+                Status::internal(format!("Failed to get staleness monitoring: {}", e))
+            })?;
 
         info!(
             monitoring_count = monitoring.len(),

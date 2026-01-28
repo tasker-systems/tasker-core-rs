@@ -30,7 +30,7 @@ pub async fn authenticate_request(
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let security_service = match &state.security_service {
+    let security_service = match state.security_service() {
         Some(svc) if svc.is_enabled() => svc,
         _ => {
             request

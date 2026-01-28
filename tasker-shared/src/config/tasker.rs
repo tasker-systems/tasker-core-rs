@@ -52,7 +52,6 @@ pub use crate::event_system::DeploymentMode;
 use bon::Builder;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use validator::Validate;
 
 // ============================================================================
@@ -1795,14 +1794,6 @@ pub struct AuthConfig {
     #[serde(default)]
     #[builder(default = vec![])]
     pub api_keys: Vec<ApiKeyConfig>,
-
-    /// Route-specific authentication configuration
-    ///
-    /// Uses TOML array of tables for ergonomic route declarations.
-    /// At load time, converted to HashMap for efficient runtime lookups.
-    #[serde(default)]
-    #[builder(default = vec![])]
-    pub protected_routes: Vec<ProtectedRouteConfig>,
 }
 
 fn default_jwt_verification_method() -> String {
@@ -1840,75 +1831,8 @@ pub struct ApiKeyConfig {
     pub description: String,
 }
 
-impl AuthConfig {
-    /// Convert protected routes list to HashMap for efficient runtime lookups
-    ///
-    /// Creates route keys in format "METHOD /path" for pattern matching.
-    pub fn routes_map(&self) -> HashMap<String, RouteAuthConfig> {
-        self.protected_routes
-            .iter()
-            .map(|route| {
-                let key = format!("{} {}", route.method, route.path);
-                let config = RouteAuthConfig {
-                    auth_type: route.auth_type.clone(),
-                    required: route.required,
-                };
-                (key, config)
-            })
-            .collect()
-    }
-}
-
-/// Protected route configuration (TOML-friendly format)
-///
-/// This struct is designed for ergonomic TOML declaration using array of tables:
-///
-/// ```toml
-/// [[orchestration.web.auth.protected_routes]]
-/// method = "GET"
-/// path = "/v1/tasks"
-/// auth_type = "bearer"
-/// required = false
-/// ```
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate, Builder)]
-#[serde(rename_all = "snake_case")]
-pub struct ProtectedRouteConfig {
-    /// HTTP method (GET, POST, PUT, DELETE, PATCH, etc.)
-    #[validate(length(min = 1))]
-    #[builder(default = "GET".to_string())]
-    pub method: String,
-
-    /// Route path pattern (supports parameters like /v1/tasks/{task_uuid})
-    #[validate(length(min = 1))]
-    #[builder(default = "/".to_string())]
-    pub path: String,
-
-    /// Type of authentication required ("bearer", "api_key")
-    #[validate(length(min = 1))]
-    #[builder(default = "bearer".to_string())]
-    pub auth_type: String,
-
-    /// Whether authentication is required for this route
-    #[builder(default = true)]
-    pub required: bool,
-}
-
-impl_builder_default!(ProtectedRouteConfig);
-
-/// Runtime route authentication config (for HashMap lookups)
-///
-/// This is the internal representation used by the legacy WebAuthConfig
-/// for efficient route lookups at runtime.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RouteAuthConfig {
-    /// Type of authentication required ("bearer", "api_key")
-    pub auth_type: String,
-
-    /// Whether authentication is required for this route
-    pub required: bool,
-}
-
 // TAS-61: Removed RateLimitingConfig - no rate limiting middleware implemented
+// TAS-177: Removed ProtectedRouteConfig and RouteAuthConfig - superseded by SecurityContext permissions
 // If rate limiting needed in future, consider tower-governor or similar
 // Note: ErrorCategory::RateLimit and BackoffHintType::RateLimit are different and still used
 
@@ -2185,6 +2109,11 @@ pub struct WorkerConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]
     pub web: Option<WorkerWebConfig>,
+
+    /// TAS-177: gRPC API configuration (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub grpc: Option<GrpcConfig>,
 
     /// Circuit breakers configuration
     #[validate(nested)]
@@ -3142,6 +3071,7 @@ mod tests {
             },
             circuit_breakers: WorkerCircuitBreakersConfig::default(),
             web: None,
+            grpc: None,
             orchestration_client: Some(OrchestrationClientConfig::default()),
         }
     }
@@ -3224,87 +3154,10 @@ mod tests {
                 assert_eq!(orch.mode, "standalone");
                 assert!(orch.decision_points.enabled);
 
-                // Verify orchestration auth with protected routes
-                if let Some(web) = &orch.web {
-                    if let Some(auth) = &web.auth {
-                        assert!(
-                            !auth.protected_routes.is_empty(),
-                            "Should have protected routes"
-                        );
-                        assert_eq!(
-                            auth.protected_routes.len(),
-                            5,
-                            "Should have 5 orchestration routes"
-                        );
-
-                        // Verify specific route using Vec structure
-                        let delete_task_route = auth
-                            .protected_routes
-                            .iter()
-                            .find(|r| r.method == "DELETE" && r.path == "/v1/tasks/{task_uuid}");
-                        assert!(
-                            delete_task_route.is_some(),
-                            "Should have DELETE /v1/tasks route"
-                        );
-                        if let Some(r) = delete_task_route {
-                            assert_eq!(r.auth_type, "bearer");
-                            assert!(r.required);
-                        }
-
-                        // Verify routes_map() conversion works
-                        let routes_map = auth.routes_map();
-                        assert_eq!(routes_map.len(), 5, "Routes map should have 5 entries");
-                        let key = "DELETE /v1/tasks/{task_uuid}";
-                        assert!(
-                            routes_map.contains_key(key),
-                            "Routes map should contain DELETE route"
-                        );
-                    }
-                }
-
                 // Verify worker config
                 let worker = cfg.worker.as_ref().unwrap();
                 assert_eq!(worker.worker_id, "test-worker-001");
                 assert_eq!(worker.worker_type, "general");
-
-                // Verify worker auth with protected routes
-                // TAS-169: Template cache routes removed, only 2 worker routes remain
-                if let Some(web) = &worker.web {
-                    if let Some(auth) = &web.auth {
-                        assert!(
-                            !auth.protected_routes.is_empty(),
-                            "Should have protected routes"
-                        );
-                        assert_eq!(
-                            auth.protected_routes.len(),
-                            2,
-                            "Should have 2 worker routes (TAS-169: cache routes removed)"
-                        );
-
-                        // Verify specific route using Vec structure
-                        let get_handlers_route = auth
-                            .protected_routes
-                            .iter()
-                            .find(|r| r.method == "GET" && r.path == "/handlers");
-                        assert!(
-                            get_handlers_route.is_some(),
-                            "Should have GET /handlers route"
-                        );
-                        if let Some(r) = get_handlers_route {
-                            assert_eq!(r.auth_type, "bearer");
-                            assert!(!r.required); // GET /handlers is optional auth
-                        }
-
-                        // Verify routes_map() conversion works
-                        let routes_map = auth.routes_map();
-                        assert_eq!(routes_map.len(), 2, "Routes map should have 2 entries");
-                        let key = "GET /handlers";
-                        assert!(
-                            routes_map.contains_key(key),
-                            "Routes map should contain GET /handlers route"
-                        );
-                    }
-                }
             }
             Err(e) => {
                 panic!("Failed to deserialize complete-test.toml: {}", e);

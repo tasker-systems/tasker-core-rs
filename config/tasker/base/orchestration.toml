@@ -145,39 +145,26 @@ jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
 api_key = ""
 api_key_header = "X-API-Key"
 
-[[orchestration.web.auth.protected_routes]]
-method = "POST"
-path = "/v1/tasks"
-auth_type = "bearer"
-required = false
-
-[[orchestration.web.auth.protected_routes]]
-method = "DELETE"
-path = "/v1/tasks/{task_uuid}"
-auth_type = "bearer"
-required = true
-
-[[orchestration.web.auth.protected_routes]]
-method = "PATCH"
-path = "/v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"
-auth_type = "bearer"
-required = true
-
-[[orchestration.web.auth.protected_routes]]
-method = "GET"
-path = "/v1/analytics/performance"
-auth_type = "bearer"
-required = false
-
-[[orchestration.web.auth.protected_routes]]
-method = "GET"
-path = "/v1/analytics/bottlenecks"
-auth_type = "bearer"
-required = false
-
+# TAS-177: Removed protected_routes - superseded by SecurityContext permissions
+# Route protection is now handled via SecurityContext and permission checks in handlers.
 # TAS-61: Removed [orchestration.web.rate_limiting] - no rate limiting middleware implemented
 
 [orchestration.web.resilience]
 circuit_breaker_enabled = true
 # TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
 # TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented
+
+# TAS-177: gRPC API Configuration
+# Configuration for the gRPC server that runs alongside the REST API
+[orchestration.grpc]
+enabled = true
+bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9090}"
+tls_enabled = false
+# tls_cert_path = "/path/to/cert.pem"   # Required if tls_enabled = true
+# tls_key_path = "/path/to/key.pem"     # Required if tls_enabled = true
+keepalive_interval_seconds = 30
+keepalive_timeout_seconds = 20
+max_concurrent_streams = 200
+max_frame_size = 16384
+enable_reflection = true
+enable_health_service = true

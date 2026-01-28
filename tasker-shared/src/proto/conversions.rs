@@ -58,7 +58,9 @@ impl From<TaskState> for proto::TaskState {
 impl TryFrom<proto::TaskState> for TaskState {
     type Error = ();
 
-    fn try_from(state: proto::TaskState) -> Result<Self, <Self as TryFrom<proto::TaskState>>::Error> {
+    fn try_from(
+        state: proto::TaskState,
+    ) -> Result<Self, <Self as TryFrom<proto::TaskState>>::Error> {
         match state {
             proto::TaskState::Pending => Ok(TaskState::Pending),
             proto::TaskState::Initializing => Ok(TaskState::Initializing),
@@ -87,8 +89,12 @@ impl From<WorkflowStepState> for proto::StepState {
             WorkflowStepState::Pending => proto::StepState::Pending,
             WorkflowStepState::Enqueued => proto::StepState::Enqueued,
             WorkflowStepState::InProgress => proto::StepState::InProgress,
-            WorkflowStepState::EnqueuedForOrchestration => proto::StepState::EnqueuedForOrchestration,
-            WorkflowStepState::EnqueuedAsErrorForOrchestration => proto::StepState::EnqueuedAsErrorForOrchestration,
+            WorkflowStepState::EnqueuedForOrchestration => {
+                proto::StepState::EnqueuedForOrchestration
+            }
+            WorkflowStepState::EnqueuedAsErrorForOrchestration => {
+                proto::StepState::EnqueuedAsErrorForOrchestration
+            }
             WorkflowStepState::WaitingForRetry => proto::StepState::WaitingForRetry,
             WorkflowStepState::Complete => proto::StepState::Complete,
             WorkflowStepState::Error => proto::StepState::Error,
@@ -101,13 +107,19 @@ impl From<WorkflowStepState> for proto::StepState {
 impl TryFrom<proto::StepState> for WorkflowStepState {
     type Error = ();
 
-    fn try_from(state: proto::StepState) -> Result<Self, <Self as TryFrom<proto::StepState>>::Error> {
+    fn try_from(
+        state: proto::StepState,
+    ) -> Result<Self, <Self as TryFrom<proto::StepState>>::Error> {
         match state {
             proto::StepState::Pending => Ok(WorkflowStepState::Pending),
             proto::StepState::Enqueued => Ok(WorkflowStepState::Enqueued),
             proto::StepState::InProgress => Ok(WorkflowStepState::InProgress),
-            proto::StepState::EnqueuedForOrchestration => Ok(WorkflowStepState::EnqueuedForOrchestration),
-            proto::StepState::EnqueuedAsErrorForOrchestration => Ok(WorkflowStepState::EnqueuedAsErrorForOrchestration),
+            proto::StepState::EnqueuedForOrchestration => {
+                Ok(WorkflowStepState::EnqueuedForOrchestration)
+            }
+            proto::StepState::EnqueuedAsErrorForOrchestration => {
+                Ok(WorkflowStepState::EnqueuedAsErrorForOrchestration)
+            }
             proto::StepState::WaitingForRetry => Ok(WorkflowStepState::WaitingForRetry),
             proto::StepState::Complete => Ok(WorkflowStepState::Complete),
             proto::StepState::Error => Ok(WorkflowStepState::Error),
@@ -146,15 +158,11 @@ fn json_value_to_proto_value(value: &serde_json::Value) -> Option<prost_types::V
     let kind = match value {
         serde_json::Value::Null => Kind::NullValue(0),
         serde_json::Value::Bool(b) => Kind::BoolValue(*b),
-        serde_json::Value::Number(n) => {
-            Kind::NumberValue(n.as_f64().unwrap_or(0.0))
-        }
+        serde_json::Value::Number(n) => Kind::NumberValue(n.as_f64().unwrap_or(0.0)),
         serde_json::Value::String(s) => Kind::StringValue(s.clone()),
         serde_json::Value::Array(arr) => {
-            let values: Vec<prost_types::Value> = arr
-                .iter()
-                .filter_map(json_value_to_proto_value)
-                .collect();
+            let values: Vec<prost_types::Value> =
+                arr.iter().filter_map(json_value_to_proto_value).collect();
             Kind::ListValue(prost_types::ListValue { values })
         }
         serde_json::Value::Object(map) => {
@@ -401,7 +409,10 @@ impl From<&HealthInfo> for proto::HealthInfo {
             web_database_pool_size: info.web_database_pool_size,
             orchestration_database_pool_size: info.orchestration_database_pool_size,
             circuit_breaker_state: info.circuit_breaker_state.clone(),
-            pool_utilization: info.pool_utilization.as_ref().map(proto::PoolUtilizationInfo::from),
+            pool_utilization: info
+                .pool_utilization
+                .as_ref()
+                .map(proto::PoolUtilizationInfo::from),
         }
     }
 }
@@ -427,7 +438,10 @@ impl From<&PoolUtilizationInfo> for proto::PoolUtilizationInfo {
         ];
 
         // Determine overall health from pool utilizations
-        let max_utilization = info.tasker_pool.utilization_percent.max(info.pgmq_pool.utilization_percent);
+        let max_utilization = info
+            .tasker_pool
+            .utilization_percent
+            .max(info.pgmq_pool.utilization_percent);
         let overall_health = if max_utilization >= 90.0 {
             "critical".to_string()
         } else if max_utilization >= 75.0 {
@@ -439,6 +453,301 @@ impl From<&PoolUtilizationInfo> for proto::PoolUtilizationInfo {
         proto::PoolUtilizationInfo {
             pools,
             overall_health,
+        }
+    }
+}
+
+// ============================================================================
+// Worker Type Conversions (TAS-177)
+// ============================================================================
+
+use crate::types::api::health::PoolUtilizationInfo as DomainPoolUtilizationInfo;
+use crate::types::api::orchestration::{
+    ConfigMetadata, SafeAuthConfig, SafeMessagingConfig, WorkerConfigResponse,
+};
+use crate::types::api::worker::{
+    BasicHealthResponse as WorkerBasicHealth, DetailedHealthResponse as WorkerDetailedHealth,
+    DistributedCacheInfo, HealthCheck as WorkerDomainHealthCheck,
+    ReadinessResponse as WorkerReadiness, TemplateListResponse as WorkerTemplateList,
+    TemplateResponse as WorkerTemplate, WorkerDetailedChecks, WorkerReadinessChecks,
+    WorkerSystemInfo,
+};
+use crate::types::base::{CacheStats, HandlerMetadata};
+
+// Worker Config Response Conversions
+
+impl From<&WorkerConfigResponse> for proto::WorkerGetConfigResponse {
+    fn from(response: &WorkerConfigResponse) -> Self {
+        proto::WorkerGetConfigResponse {
+            metadata: Some(proto::ConfigMetadata::from(&response.metadata)),
+            worker_id: response.worker_id.clone(),
+            worker_type: response.worker_type.clone(),
+            auth: Some(proto::SafeAuthConfig::from(&response.auth)),
+            messaging: Some(proto::SafeMessagingConfig::from(&response.messaging)),
+        }
+    }
+}
+
+impl From<WorkerConfigResponse> for proto::WorkerGetConfigResponse {
+    fn from(response: WorkerConfigResponse) -> Self {
+        proto::WorkerGetConfigResponse::from(&response)
+    }
+}
+
+impl From<&ConfigMetadata> for proto::ConfigMetadata {
+    fn from(metadata: &ConfigMetadata) -> Self {
+        proto::ConfigMetadata {
+            timestamp: Some(datetime_to_timestamp(metadata.timestamp)),
+            environment: metadata.environment.clone(),
+            version: metadata.version.clone(),
+        }
+    }
+}
+
+impl From<&SafeAuthConfig> for proto::SafeAuthConfig {
+    fn from(config: &SafeAuthConfig) -> Self {
+        proto::SafeAuthConfig {
+            enabled: config.enabled,
+            verification_method: config.verification_method.clone(),
+            jwt_issuer: config.jwt_issuer.clone(),
+            jwt_audience: config.jwt_audience.clone(),
+            api_key_header: config.api_key_header.clone(),
+            api_key_count: config.api_key_count as i32,
+            strict_validation: config.strict_validation,
+            allowed_algorithms: config.allowed_algorithms.clone(),
+        }
+    }
+}
+
+impl From<&SafeMessagingConfig> for proto::SafeMessagingConfig {
+    fn from(config: &SafeMessagingConfig) -> Self {
+        proto::SafeMessagingConfig {
+            backend: config.backend.clone(),
+            queues: config.queues.clone(),
+        }
+    }
+}
+
+// Worker Health Response Conversions
+
+impl From<&WorkerBasicHealth> for proto::WorkerBasicHealthResponse {
+    fn from(response: &WorkerBasicHealth) -> Self {
+        proto::WorkerBasicHealthResponse {
+            status: response.status.clone(),
+            timestamp: Some(datetime_to_timestamp(response.timestamp)),
+            worker_id: response.worker_id.clone(),
+        }
+    }
+}
+
+impl From<WorkerBasicHealth> for proto::WorkerBasicHealthResponse {
+    fn from(response: WorkerBasicHealth) -> Self {
+        proto::WorkerBasicHealthResponse::from(&response)
+    }
+}
+
+impl From<&WorkerReadiness> for proto::WorkerReadinessResponse {
+    fn from(response: &WorkerReadiness) -> Self {
+        proto::WorkerReadinessResponse {
+            status: response.status.clone(),
+            timestamp: Some(datetime_to_timestamp(response.timestamp)),
+            worker_id: response.worker_id.clone(),
+            checks: Some(proto::WorkerReadinessChecks::from(&response.checks)),
+            system_info: Some(proto::WorkerSystemInfo::from(&response.system_info)),
+        }
+    }
+}
+
+impl From<WorkerReadiness> for proto::WorkerReadinessResponse {
+    fn from(response: WorkerReadiness) -> Self {
+        proto::WorkerReadinessResponse::from(&response)
+    }
+}
+
+impl From<&WorkerDetailedHealth> for proto::WorkerDetailedHealthResponse {
+    fn from(response: &WorkerDetailedHealth) -> Self {
+        proto::WorkerDetailedHealthResponse {
+            status: response.status.clone(),
+            timestamp: Some(datetime_to_timestamp(response.timestamp)),
+            worker_id: response.worker_id.clone(),
+            checks: Some(proto::WorkerDetailedChecks::from(&response.checks)),
+            system_info: Some(proto::WorkerSystemInfo::from(&response.system_info)),
+            distributed_cache: response
+                .distributed_cache
+                .as_ref()
+                .map(proto::DistributedCacheInfo::from),
+        }
+    }
+}
+
+impl From<WorkerDetailedHealth> for proto::WorkerDetailedHealthResponse {
+    fn from(response: WorkerDetailedHealth) -> Self {
+        proto::WorkerDetailedHealthResponse::from(&response)
+    }
+}
+
+impl From<&WorkerReadinessChecks> for proto::WorkerReadinessChecks {
+    fn from(checks: &WorkerReadinessChecks) -> Self {
+        proto::WorkerReadinessChecks {
+            database: Some(proto::WorkerHealthCheck::from(&checks.database)),
+            command_processor: Some(proto::WorkerHealthCheck::from(&checks.command_processor)),
+            queue_processing: Some(proto::WorkerHealthCheck::from(&checks.queue_processing)),
+        }
+    }
+}
+
+impl From<&WorkerDetailedChecks> for proto::WorkerDetailedChecks {
+    fn from(checks: &WorkerDetailedChecks) -> Self {
+        proto::WorkerDetailedChecks {
+            database: Some(proto::WorkerHealthCheck::from(&checks.database)),
+            command_processor: Some(proto::WorkerHealthCheck::from(&checks.command_processor)),
+            queue_processing: Some(proto::WorkerHealthCheck::from(&checks.queue_processing)),
+            event_system: Some(proto::WorkerHealthCheck::from(&checks.event_system)),
+            step_processing: Some(proto::WorkerHealthCheck::from(&checks.step_processing)),
+            circuit_breakers: Some(proto::WorkerHealthCheck::from(&checks.circuit_breakers)),
+        }
+    }
+}
+
+impl From<&WorkerDomainHealthCheck> for proto::WorkerHealthCheck {
+    fn from(check: &WorkerDomainHealthCheck) -> Self {
+        proto::WorkerHealthCheck {
+            status: check.status.clone(),
+            message: check.message.clone(),
+            duration_ms: check.duration_ms,
+            last_checked: Some(datetime_to_timestamp(check.last_checked)),
+        }
+    }
+}
+
+impl From<&WorkerSystemInfo> for proto::WorkerSystemInfo {
+    fn from(info: &WorkerSystemInfo) -> Self {
+        proto::WorkerSystemInfo {
+            version: info.version.clone(),
+            environment: info.environment.clone(),
+            uptime_seconds: info.uptime_seconds,
+            worker_type: info.worker_type.clone(),
+            database_pool_size: info.database_pool_size,
+            command_processor_active: info.command_processor_active,
+            supported_namespaces: info.supported_namespaces.clone(),
+            pool_utilization: info
+                .pool_utilization
+                .as_ref()
+                .map(proto::WorkerPoolUtilizationInfo::from),
+        }
+    }
+}
+
+impl From<&DomainPoolUtilizationInfo> for proto::WorkerPoolUtilizationInfo {
+    fn from(info: &DomainPoolUtilizationInfo) -> Self {
+        proto::WorkerPoolUtilizationInfo {
+            tasker_pool: Some(proto::WorkerPoolDetail {
+                active_connections: info.tasker_pool.active_connections,
+                idle_connections: info.tasker_pool.idle_connections,
+                max_connections: info.tasker_pool.max_connections,
+                utilization_percent: info.tasker_pool.utilization_percent,
+            }),
+            pgmq_pool: Some(proto::WorkerPoolDetail {
+                active_connections: info.pgmq_pool.active_connections,
+                idle_connections: info.pgmq_pool.idle_connections,
+                max_connections: info.pgmq_pool.max_connections,
+                utilization_percent: info.pgmq_pool.utilization_percent,
+            }),
+        }
+    }
+}
+
+impl From<&DistributedCacheInfo> for proto::DistributedCacheInfo {
+    fn from(info: &DistributedCacheInfo) -> Self {
+        proto::DistributedCacheInfo {
+            enabled: info.enabled,
+            provider: info.provider.clone(),
+            healthy: info.healthy,
+        }
+    }
+}
+
+// Worker Template Response Conversions
+
+impl From<&WorkerTemplateList> for proto::WorkerTemplateListResponse {
+    fn from(response: &WorkerTemplateList) -> Self {
+        proto::WorkerTemplateListResponse {
+            supported_namespaces: response.supported_namespaces.clone(),
+            template_count: response.template_count as i64,
+            cache_stats: response.cache_stats.as_ref().map(proto::CacheStats::from),
+            worker_capabilities: response.worker_capabilities.clone(),
+        }
+    }
+}
+
+impl From<WorkerTemplateList> for proto::WorkerTemplateListResponse {
+    fn from(response: WorkerTemplateList) -> Self {
+        proto::WorkerTemplateListResponse::from(&response)
+    }
+}
+
+impl From<&CacheStats> for proto::CacheStats {
+    fn from(stats: &CacheStats) -> Self {
+        proto::CacheStats {
+            entries: stats.total_cached as i64,
+            hits: stats.cache_hits as i64,
+            misses: stats.cache_misses as i64,
+            hit_rate: if stats.cache_hits + stats.cache_misses > 0 {
+                stats.cache_hits as f64 / (stats.cache_hits + stats.cache_misses) as f64
+            } else {
+                0.0
+            },
+            memory_bytes: 0, // Not tracked in domain type
+        }
+    }
+}
+
+impl From<&WorkerTemplate> for proto::WorkerTemplateResponse {
+    fn from(response: &WorkerTemplate) -> Self {
+        let resolved = &response.template;
+        let template = &resolved.template;
+
+        proto::WorkerTemplateResponse {
+            template: Some(proto::WorkerResolvedTemplate {
+                name: template.name.clone(),
+                namespace: template.namespace_name.clone(),
+                version: template.version.clone(),
+                description: template.description.clone(),
+                steps: template
+                    .steps
+                    .iter()
+                    .map(|step| proto::WorkerStepDefinition {
+                        name: step.name.clone(),
+                        description: step.description.clone(),
+                        retryable: step.retry.retryable,
+                        max_attempts: step.retry.max_attempts as i32,
+                    })
+                    .collect(),
+            }),
+            handler_metadata: Some(proto::WorkerHandlerMetadata::from(
+                &response.handler_metadata,
+            )),
+            cached: response.cached,
+            cache_age_seconds: response.cache_age_seconds,
+            access_count: response.access_count,
+        }
+    }
+}
+
+impl From<WorkerTemplate> for proto::WorkerTemplateResponse {
+    fn from(response: WorkerTemplate) -> Self {
+        proto::WorkerTemplateResponse::from(&response)
+    }
+}
+
+impl From<&HandlerMetadata> for proto::WorkerHandlerMetadata {
+    fn from(metadata: &HandlerMetadata) -> Self {
+        proto::WorkerHandlerMetadata {
+            namespace: metadata.namespace.clone(),
+            handler_name: metadata.name.clone(),
+            version: metadata.version.clone(),
+            description: None,  // HandlerMetadata doesn't have description
+            step_names: vec![], // Would need to be populated from template
         }
     }
 }
@@ -515,10 +824,16 @@ mod tests {
     #[test]
     fn test_unspecified_states_return_error() {
         let task_result: Result<TaskState, ()> = proto::TaskState::Unspecified.try_into();
-        assert!(task_result.is_err(), "Unspecified TaskState should return Err");
+        assert!(
+            task_result.is_err(),
+            "Unspecified TaskState should return Err"
+        );
 
         let step_result: Result<WorkflowStepState, ()> = proto::StepState::Unspecified.try_into();
-        assert!(step_result.is_err(), "Unspecified StepState should return Err");
+        assert!(
+            step_result.is_err(),
+            "Unspecified StepState should return Err"
+        );
     }
 
     /// Verify timestamp roundtrip preserves precision

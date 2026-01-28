@@ -223,7 +223,7 @@ impl Default for WebDatabaseCircuitBreaker {
 ///
 /// async fn get_task_handler(state: &AppState, task_id: uuid::Uuid) -> ApiResult<Option<Task>> {
 ///     execute_with_circuit_breaker(state, || async {
-///         Task::find_by_id(&state.orchestration_db_pool, task_id).await
+///         Task::find_by_id(&state.orchestration_db_pool(), task_id).await
 ///     }).await
 /// }
 /// ```
