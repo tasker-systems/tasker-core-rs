@@ -151,12 +151,15 @@ validator = { version = "0.20", features = ["derive"] }
 workspace_tools = { version = "0.11.0", features = ["full"] }
 # gRPC framework and Protocol Buffers (TAS-177)
 # Note: Requires protobuf to be installed (brew install protobuf)
-tonic = "0.13"
-tonic-build = "0.13"
-tonic-health = "0.13"
-tonic-reflection = "0.13"
-prost = "0.13"
-prost-types = "0.13"
+# Version 0.14 required to match opentelemetry-otlp 0.31 dependencies
+tonic = "0.14"
+tonic-build = "0.14"
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+tonic-health = "0.14"
+tonic-reflection = "0.14"
+prost = "0.14"
+prost-types = "0.14"
 tokio-stream = { version = "0.1", features = ["net"] }
 # pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
 # wasm-bindgen = { version = "0.2", optional = true }

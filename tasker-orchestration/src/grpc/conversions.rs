@@ -114,10 +114,6 @@ fn prost_value_to_json(value: prost_types::Value) -> JsonValue {
 // ============================================================================
 
 /// Parse a UUID string, returning a Status error on failure.
-#[expect(
-    clippy::result_large_err,
-    reason = "tonic::Status is the standard gRPC error type"
-)]
 pub fn parse_uuid(s: &str) -> Result<Uuid, tonic::Status> {
     Uuid::parse_str(s).map_err(|e| tonic::Status::invalid_argument(format!("Invalid UUID: {e}")))
 }

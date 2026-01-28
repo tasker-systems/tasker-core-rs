@@ -168,19 +168,34 @@ message DistributedCacheInfo {
 }
 
 // Worker pool utilization info
-// Matches PoolUtilizationInfo from REST API (shared type)
+// Matches PoolUtilizationInfo from tasker-shared/src/types/api/health.rs
 message WorkerPoolUtilizationInfo {
   WorkerPoolDetail tasker_pool = 1;
   WorkerPoolDetail pgmq_pool = 2;
 }
 
-// Individual pool detail for worker
-// Matches PoolDetail from REST API
+// Individual pool detail for worker (TAS-164)
+// Matches PoolDetail from tasker-shared/src/types/api/health.rs
+// All 9 fields from SQLx pool statistics snapshots
 message WorkerPoolDetail {
+  // Active connections (currently in use)
   uint32 active_connections = 1;
+  // Idle connections (available in pool)
   uint32 idle_connections = 2;
+  // Maximum pool capacity
   uint32 max_connections = 3;
+  // Utilization percentage (0.0-100.0)
   double utilization_percent = 4;
+  // Total connection acquisitions since startup
+  uint64 total_acquires = 5;
+  // Acquisitions that took longer than configured threshold
+  uint64 slow_acquires = 6;
+  // Failed connection acquisitions
+  uint64 acquire_errors = 7;
+  // Average time to acquire a connection (milliseconds)
+  double average_acquire_time_ms = 8;
+  // Maximum time to acquire a connection (milliseconds)
+  double max_acquire_time_ms = 9;
 }
 
 // ============================================================================
@@ -218,18 +233,22 @@ message WorkerTemplateListResponse {
 }
 
 // Cache statistics
-// Matches CacheStats from REST API
+// Matches CacheStats from tasker-shared/src/types/base.rs
 message CacheStats {
-  // Number of cached entries
-  int64 entries = 1;
+  // Total number of cached entries
+  uint64 total_cached = 1;
   // Cache hit count
-  int64 hits = 2;
+  uint64 cache_hits = 2;
   // Cache miss count
-  int64 misses = 3;
-  // Hit rate (0.0-1.0)
-  double hit_rate = 4;
-  // Total memory usage in bytes
-  int64 memory_bytes = 5;
+  uint64 cache_misses = 3;
+  // Cache eviction count
+  uint64 cache_evictions = 4;
+  // Age of oldest entry in seconds
+  uint64 oldest_entry_age_seconds = 5;
+  // Average access count per entry
+  double average_access_count = 6;
+  // List of supported namespaces
+  repeated string supported_namespaces = 7;
 }
 
 // Request to get a specific template

@@ -56,10 +56,6 @@ impl TaskServiceImpl {
     }
 
     /// Check backpressure and return error if active.
-    #[expect(
-        clippy::result_large_err,
-        reason = "tonic::Status is the standard gRPC error type"
-    )]
     fn check_backpressure(&self) -> Result<(), Status> {
         if let Some(reason) = self.state.check_backpressure() {
             let mut status = Status::unavailable(format!("Backpressure active: {reason}"));

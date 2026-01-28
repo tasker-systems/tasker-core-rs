@@ -134,12 +134,33 @@ message ResourceUtilization {
 }
 
 // System health counts
-// Matches SystemHealthCounts from REST API
+// Matches SystemHealthCounts from tasker-shared/src/database/sql_functions.rs
 message SystemHealthCounts {
+  // Task counts by state (12 states + total)
   int64 pending_tasks = 1;
-  int64 active_tasks = 2;
-  int64 stuck_tasks = 3;
-  int64 pending_steps = 4;
-  int64 active_steps = 5;
-  int64 stuck_steps = 6;
+  int64 initializing_tasks = 2;
+  int64 enqueuing_steps_tasks = 3;
+  int64 steps_in_process_tasks = 4;
+  int64 evaluating_results_tasks = 5;
+  int64 waiting_for_dependencies_tasks = 6;
+  int64 waiting_for_retry_tasks = 7;
+  int64 blocked_by_failures_tasks = 8;
+  int64 complete_tasks = 9;
+  int64 error_tasks = 10;
+  int64 cancelled_tasks = 11;
+  int64 resolved_manually_tasks = 12;
+  int64 total_tasks = 13;
+
+  // Step counts by state (10 states + total)
+  int64 pending_steps = 14;
+  int64 enqueued_steps = 15;
+  int64 in_progress_steps = 16;
+  int64 enqueued_for_orchestration_steps = 17;
+  int64 enqueued_as_error_for_orchestration_steps = 18;
+  int64 waiting_for_retry_steps = 19;
+  int64 complete_steps = 20;
+  int64 error_steps = 21;
+  int64 cancelled_steps = 22;
+  int64 resolved_manually_steps = 23;
+  int64 total_steps = 24;
 }

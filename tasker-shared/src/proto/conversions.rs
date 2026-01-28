@@ -329,7 +329,7 @@ impl From<StepAuditResponse> for proto::StepAuditRecord {
 
 use crate::types::api::orchestration::{
     DetailedHealthChecks, DetailedHealthResponse, HealthCheck, HealthInfo, HealthResponse,
-    PoolUtilizationInfo, ReadinessChecks, ReadinessResponse,
+    PoolDetail, PoolUtilizationInfo, ReadinessChecks, ReadinessResponse,
 };
 
 impl From<&HealthResponse> for proto::HealthResponse {
@@ -419,40 +419,25 @@ impl From<&HealthInfo> for proto::HealthInfo {
 
 impl From<&PoolUtilizationInfo> for proto::PoolUtilizationInfo {
     fn from(info: &PoolUtilizationInfo) -> Self {
-        // Convert domain pools (tasker_pool, pgmq_pool) to proto repeated pools
-        let pools = vec![
-            proto::PoolDetail {
-                name: "tasker".to_string(),
-                active: info.tasker_pool.active_connections,
-                idle: info.tasker_pool.idle_connections,
-                max: info.tasker_pool.max_connections,
-                utilization: info.tasker_pool.utilization_percent / 100.0,
-            },
-            proto::PoolDetail {
-                name: "pgmq".to_string(),
-                active: info.pgmq_pool.active_connections,
-                idle: info.pgmq_pool.idle_connections,
-                max: info.pgmq_pool.max_connections,
-                utilization: info.pgmq_pool.utilization_percent / 100.0,
-            },
-        ];
-
-        // Determine overall health from pool utilizations
-        let max_utilization = info
-            .tasker_pool
-            .utilization_percent
-            .max(info.pgmq_pool.utilization_percent);
-        let overall_health = if max_utilization >= 90.0 {
-            "critical".to_string()
-        } else if max_utilization >= 75.0 {
-            "warning".to_string()
-        } else {
-            "healthy".to_string()
-        };
-
         proto::PoolUtilizationInfo {
-            pools,
-            overall_health,
+            tasker_pool: Some(proto::PoolDetail::from(&info.tasker_pool)),
+            pgmq_pool: Some(proto::PoolDetail::from(&info.pgmq_pool)),
+        }
+    }
+}
+
+impl From<&PoolDetail> for proto::PoolDetail {
+    fn from(pool: &PoolDetail) -> Self {
+        proto::PoolDetail {
+            active_connections: pool.active_connections,
+            idle_connections: pool.idle_connections,
+            max_connections: pool.max_connections,
+            utilization_percent: pool.utilization_percent,
+            total_acquires: pool.total_acquires,
+            slow_acquires: pool.slow_acquires,
+            acquire_errors: pool.acquire_errors,
+            average_acquire_time_ms: pool.average_acquire_time_ms,
+            max_acquire_time_ms: pool.max_acquire_time_ms,
         }
     }
 }
@@ -646,12 +631,22 @@ impl From<&DomainPoolUtilizationInfo> for proto::WorkerPoolUtilizationInfo {
                 idle_connections: info.tasker_pool.idle_connections,
                 max_connections: info.tasker_pool.max_connections,
                 utilization_percent: info.tasker_pool.utilization_percent,
+                total_acquires: info.tasker_pool.total_acquires,
+                slow_acquires: info.tasker_pool.slow_acquires,
+                acquire_errors: info.tasker_pool.acquire_errors,
+                average_acquire_time_ms: info.tasker_pool.average_acquire_time_ms,
+                max_acquire_time_ms: info.tasker_pool.max_acquire_time_ms,
             }),
             pgmq_pool: Some(proto::WorkerPoolDetail {
                 active_connections: info.pgmq_pool.active_connections,
                 idle_connections: info.pgmq_pool.idle_connections,
                 max_connections: info.pgmq_pool.max_connections,
                 utilization_percent: info.pgmq_pool.utilization_percent,
+                total_acquires: info.pgmq_pool.total_acquires,
+                slow_acquires: info.pgmq_pool.slow_acquires,
+                acquire_errors: info.pgmq_pool.acquire_errors,
+                average_acquire_time_ms: info.pgmq_pool.average_acquire_time_ms,
+                max_acquire_time_ms: info.pgmq_pool.max_acquire_time_ms,
             }),
         }
     }
@@ -689,15 +684,13 @@ impl From<WorkerTemplateList> for proto::WorkerTemplateListResponse {
 impl From<&CacheStats> for proto::CacheStats {
     fn from(stats: &CacheStats) -> Self {
         proto::CacheStats {
-            entries: stats.total_cached as i64,
-            hits: stats.cache_hits as i64,
-            misses: stats.cache_misses as i64,
-            hit_rate: if stats.cache_hits + stats.cache_misses > 0 {
-                stats.cache_hits as f64 / (stats.cache_hits + stats.cache_misses) as f64
-            } else {
-                0.0
-            },
-            memory_bytes: 0, // Not tracked in domain type
+            total_cached: stats.total_cached as u64,
+            cache_hits: stats.cache_hits,
+            cache_misses: stats.cache_misses,
+            cache_evictions: stats.cache_evictions,
+            oldest_entry_age_seconds: stats.oldest_entry_age_seconds,
+            average_access_count: stats.average_access_count,
+            supported_namespaces: stats.supported_namespaces.clone(),
         }
     }
 }

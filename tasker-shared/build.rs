@@ -60,8 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
 
-        // Configure tonic-build
-        tonic_build::configure()
+        // Configure tonic-prost-build (tonic 0.14 API)
+        tonic_prost_build::configure()
             // Generate server code
             .build_server(true)
             // Generate client code
@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Emit rerun-if-changed directives
             .emit_rerun_if_changed(true)
             // Compile with proto_path set to proto root
-            .compile_protos(&proto_paths, &[&proto_root])?;
+            .compile_protos(&proto_paths, std::slice::from_ref(&proto_root))?;
 
         // Emit rerun-if-changed for the proto directory
         println!("cargo:rerun-if-changed={}", proto_root.display());

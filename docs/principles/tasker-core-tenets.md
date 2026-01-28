@@ -1,10 +1,10 @@
 # Tasker Core Tenets
 
-These 10 tenets guide all architectural and design decisions in Tasker Core. Each emerged from real implementation experience, root cause analyses, or architectural migrations.
+These 11 tenets guide all architectural and design decisions in Tasker Core. Each emerged from real implementation experience, root cause analyses, or architectural migrations.
 
 ---
 
-## The 10 Tenets
+## The 11 Tenets
 
 ### 1. Defense in Depth
 
@@ -194,6 +194,44 @@ Semaphores limit concurrent handler execution. Circuit breakers protect downstre
 
 ---
 
+### 11. Fail Loudly
+
+**A system that lies is worse than one that fails. Errors are first-class citizens, not inconveniences to hide.**
+
+When data is missing, malformed, or unexpected:
+- **Return errors**, not fabricated defaults
+- **Propagate failures** up the call stack
+- **Make problems visible** immediately, not downstream
+- **Trust nothing** that hasn't been validated
+
+Silent defaults create phantom data—values that look valid but represent nothing real. A monitoring system that receives `0%` utilization cannot distinguish "system is idle" from "data was missing."
+
+**What this means in practice:**
+
+| Scenario | Wrong Approach | Right Approach |
+|----------|----------------|----------------|
+| gRPC response missing field | Return default value | Return `InvalidResponse` error |
+| Config section absent | Use empty/zero defaults | Fail with clear message |
+| Health check data missing | Fabricate "unknown" status | Error: "health data unavailable" |
+| Optional vs Required | Treat all as optional | Distinguish explicitly in types |
+
+**The trust equation:**
+
+```
+A client that returns fabricated data
+  = A client that lies to you
+  = Worse than a client that fails loudly
+  = Debugging phantom bugs in production
+```
+
+**Origin**: [TAS-177](https://linear.app/tasker-systems/issue/TAS-177) - gRPC client refactoring revealed pervasive `unwrap_or_default()` patterns that silently fabricated response data. Analysis showed consumers could receive "valid-looking" responses containing entirely phantom data, breaking the trust contract between client and caller.
+
+**Key insight**: When a gRPC server omits required fields, that's a protocol violation—not an opportunity to be "helpful" with defaults. The server is broken; pretending otherwise delays the fix and misleads operators.
+
+**Rule**: Never use `unwrap_or_default()` or `unwrap_or_else(|| fabricated_value)` for required fields. Use `ok_or_else(|| ClientError::invalid_response(...))` instead.
+
+---
+
 ## Meta-Principles
 
 These overarching themes emerge from the tenets:
@@ -207,6 +245,8 @@ These overarching themes emerge from the tenets:
 4. **Consistency Without Uniformity**: Align APIs while preserving language idioms
 
 5. **Separation of Concerns**: Orchestration handles state and coordination; workers handle execution and domain events
+
+6. **Errors Over Defaults**: When in doubt, fail with a clear error rather than proceeding with fabricated data
 
 ---
 
@@ -225,3 +265,4 @@ When reviewing code:
 2. **State machine compliance**: Do transitions use atomic database operations?
 3. **Language consistency**: Does the API align with other language workers?
 4. **Composition pattern**: Are capabilities mixed in rather than inherited?
+5. **Fail loudly**: Are missing/invalid data handled with errors, not silent defaults?

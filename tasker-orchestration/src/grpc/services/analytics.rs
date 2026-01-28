@@ -224,37 +224,39 @@ fn tasker_error_to_status(error: &tasker_shared::errors::TaskerError) -> Status 
 
 /// Convert domain SystemHealthCounts to proto SystemHealthCounts.
 ///
-/// The proto version has simplified fields that aggregate the detailed domain model:
-/// - `active_tasks`: Sum of all tasks in processing states (initializing, enqueuing, processing, evaluating)
-/// - `stuck_tasks`: Tasks blocked by failures or waiting for retry
-/// - `active_steps`: Steps currently being processed (in_progress, enqueued)
-/// - `stuck_steps`: Steps waiting for retry or in error state (non-terminal)
+/// Maps all 24 fields directly from the domain model:
+/// - 12 task state counts + total_tasks
+/// - 10 step state counts + total_steps
 fn convert_system_health_counts(
     health: &tasker_shared::database::sql_functions::SystemHealthCounts,
 ) -> proto::SystemHealthCounts {
-    // Active tasks = tasks currently being processed (non-terminal, non-waiting states)
-    let active_tasks = health.initializing_tasks
-        + health.enqueuing_steps_tasks
-        + health.steps_in_process_tasks
-        + health.evaluating_results_tasks;
-
-    // Stuck tasks = tasks that are blocked or waiting
-    let stuck_tasks = health.waiting_for_dependencies_tasks
-        + health.waiting_for_retry_tasks
-        + health.blocked_by_failures_tasks;
-
-    // Active steps = steps currently being processed
-    let active_steps = health.enqueued_steps + health.in_progress_steps;
-
-    // Stuck steps = steps waiting for retry (not yet terminal)
-    let stuck_steps = health.waiting_for_retry_steps;
-
     proto::SystemHealthCounts {
+        // Task counts by state (12 states + total)
         pending_tasks: health.pending_tasks,
-        active_tasks,
-        stuck_tasks,
+        initializing_tasks: health.initializing_tasks,
+        enqueuing_steps_tasks: health.enqueuing_steps_tasks,
+        steps_in_process_tasks: health.steps_in_process_tasks,
+        evaluating_results_tasks: health.evaluating_results_tasks,
+        waiting_for_dependencies_tasks: health.waiting_for_dependencies_tasks,
+        waiting_for_retry_tasks: health.waiting_for_retry_tasks,
+        blocked_by_failures_tasks: health.blocked_by_failures_tasks,
+        complete_tasks: health.complete_tasks,
+        error_tasks: health.error_tasks,
+        cancelled_tasks: health.cancelled_tasks,
+        resolved_manually_tasks: health.resolved_manually_tasks,
+        total_tasks: health.total_tasks,
+
+        // Step counts by state (10 states + total)
         pending_steps: health.pending_steps,
-        active_steps,
-        stuck_steps,
+        enqueued_steps: health.enqueued_steps,
+        in_progress_steps: health.in_progress_steps,
+        enqueued_for_orchestration_steps: health.enqueued_for_orchestration_steps,
+        enqueued_as_error_for_orchestration_steps: health.enqueued_as_error_for_orchestration_steps,
+        waiting_for_retry_steps: health.waiting_for_retry_steps,
+        complete_steps: health.complete_steps,
+        error_steps: health.error_steps,
+        cancelled_steps: health.cancelled_steps,
+        resolved_manually_steps: health.resolved_manually_steps,
+        total_steps: health.total_steps,
     }
 }

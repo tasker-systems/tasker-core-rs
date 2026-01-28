@@ -21,6 +21,9 @@ ignored = [
   "futures",
   "once_cell",
   "rand",
+  # Optional gRPC dependencies
+  "tonic",
+  "prost-types",
 ]
 
 [lib]
@@ -62,6 +65,9 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 # Core tasker dependencies
 tasker-shared = { path = "../tasker-shared" }
+# gRPC dependencies (optional)
+tonic = { workspace = true, optional = true }
+prost-types = { workspace = true, optional = true }
 thiserror = { workspace = true }
 # Async runtime and utilities
 tokio = { workspace = true }
@@ -84,6 +90,7 @@ tracing-subscriber = { workspace = true }
 [features]
 default = []
 benchmarks = ["criterion"]
+grpc = ["tonic", "prost-types", "tasker-shared/grpc-api"]
 
 [lints]
 workspace = true

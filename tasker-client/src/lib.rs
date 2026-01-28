@@ -129,9 +129,18 @@ pub mod api_clients;
 pub mod config;
 pub mod error;
 
+#[cfg(feature = "grpc")]
+pub mod grpc_clients;
+
 // Re-export commonly used types for convenience
 pub use api_clients::{
     OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig,
 };
 pub use config::{ClientAuthConfig, ClientAuthMethod, ClientConfig};
 pub use error::{ClientError, ClientResult};
+
+// Re-export gRPC clients when feature is enabled
+#[cfg(feature = "grpc")]
+pub use grpc_clients::{
+    AuthInterceptor, GrpcAuthConfig, GrpcClientConfig, OrchestrationGrpcClient, WorkerGrpcClient,
+};

@@ -6,8 +6,9 @@ This directory contains the core principles and design philosophy that guide Tas
 
 | Document | Description |
 |----------|-------------|
-| [Tasker Core Tenets](./tasker-core-tenets.md) | The 10 foundational principles that drive all architecture and design decisions |
+| [Tasker Core Tenets](./tasker-core-tenets.md) | The 11 foundational principles that drive all architecture and design decisions |
 | [Defense in Depth](./defense-in-depth.md) | Multi-layered protection model for idempotency and data integrity |
+| [Fail Loudly](./fail-loudly.md) | Why errors beat silent defaults, and phantom data breaks trust |
 | [Cross-Language Consistency](./cross-language-consistency.md) | The "one API" philosophy for Rust, Ruby, Python, and TypeScript workers |
 | [Composition Over Inheritance](./composition-over-inheritance.md) | Mixin-based handler composition pattern |
 | [Intentional AI Partnership](./intentional-ai-partnership.md) | Collaborative approach to AI integration |
@@ -26,11 +27,13 @@ These principles emerged from:
 2. **Cross-Language Development**: TAS-92/TAS-100/TAS-112 established patterns for consistent APIs across four languages
 3. **Architectural Migrations**: TAS-46/TAS-67/TAS-69 proved the actor pattern's effectiveness
 4. **Production Incidents**: Real bugs in parallel execution (Heisenbugs becoming Bohrbugs) shaped defensive design
+5. **Protocol Trust Analysis**: TAS-177's gRPC client refactoring exposed how silent defaults create phantom data that breaks consumer trust
 
 ## When to Consult These Documents
 
 - **Design decisions**: Read [Tasker Core Tenets](./tasker-core-tenets.md) before proposing architecture changes
 - **Adding protections**: Consult [Defense in Depth](./defense-in-depth.md) to understand existing layers
+- **Error handling**: Review [Fail Loudly](./fail-loudly.md) before adding defaults or fallbacks
 - **Worker development**: Review [Cross-Language Consistency](./cross-language-consistency.md) for API alignment
 - **Handler patterns**: Study [Composition Over Inheritance](./composition-over-inheritance.md) for proper structure
 

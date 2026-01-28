@@ -137,23 +137,34 @@ message HealthInfo {
 }
 
 // Connection pool utilization details (TAS-164)
+// Matches PoolUtilizationInfo from tasker-shared/src/types/api/health.rs
 message PoolUtilizationInfo {
-  // Pool details for each connection pool
-  repeated PoolDetail pools = 1;
-  // Overall pool health: "healthy", "warning", "critical"
-  string overall_health = 2;
+  // Tasker database pool details
+  PoolDetail tasker_pool = 1;
+  // PGMQ database pool details
+  PoolDetail pgmq_pool = 2;
 }
 
-// Individual pool utilization detail
+// Individual pool utilization detail (TAS-164)
+// Matches PoolDetail from tasker-shared/src/types/api/health.rs
+// All 9 fields from SQLx pool statistics snapshots
 message PoolDetail {
-  // Pool name
-  string name = 1;
-  // Active connections
-  uint32 active = 2;
-  // Idle connections
-  uint32 idle = 3;
-  // Maximum connections
-  uint32 max = 4;
-  // Utilization percentage (0.0-1.0)
-  double utilization = 5;
+  // Active connections (currently in use)
+  uint32 active_connections = 1;
+  // Idle connections (available in pool)
+  uint32 idle_connections = 2;
+  // Maximum pool capacity
+  uint32 max_connections = 3;
+  // Utilization percentage (0.0-100.0)
+  double utilization_percent = 4;
+  // Total connection acquisitions since startup
+  uint64 total_acquires = 5;
+  // Acquisitions that took longer than configured threshold
+  uint64 slow_acquires = 6;
+  // Failed connection acquisitions
+  uint64 acquire_errors = 7;
+  // Average time to acquire a connection (milliseconds)
+  double average_acquire_time_ms = 8;
+  // Maximum time to acquire a connection (milliseconds)
+  double max_acquire_time_ms = 9;
 }

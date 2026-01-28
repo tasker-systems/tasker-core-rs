@@ -26,6 +26,8 @@ ignored = [
   "prost",
   "tokio-stream",
   "tonic-build",
+  "tonic-prost",
+  "tonic-prost-build",
   # Used via macros or internal APIs
   "crossbeam",
   "is-terminal",
@@ -125,6 +127,7 @@ validator = { workspace = true }
 workspace_tools = { workspace = true }
 # gRPC framework and Protocol Buffers (TAS-177)
 tonic = { workspace = true, optional = true }
+tonic-prost = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 prost-types = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true }
@@ -133,6 +136,7 @@ tokio-stream = { workspace = true, optional = true }
 # Proto compilation (TAS-177)
 # Note: Requires protobuf to be installed (brew install protobuf)
 tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 # Coverage tools (used in CI)
@@ -171,6 +175,7 @@ web-api = [
 # TAS-177: gRPC API support
 grpc-api = [
   "tonic",
+  "tonic-prost",
   "prost",
   "prost-types",
   "tokio-stream",
