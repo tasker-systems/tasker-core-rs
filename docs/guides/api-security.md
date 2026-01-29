@@ -296,6 +296,73 @@ tasker-cli auth validate-token \
 
 ---
 
+## gRPC Authentication (TAS-177)
+
+gRPC endpoints support the same authentication methods as REST, using gRPC metadata instead of HTTP headers.
+
+### gRPC Ports
+
+| Service | REST Port | gRPC Port |
+|---------|-----------|-----------|
+| Orchestration | 8080 | 9190 |
+| Rust Worker | 8081 | 9191 |
+
+### Bearer Token (gRPC)
+
+```bash
+# Using grpcurl with Bearer token
+grpcurl -plaintext \
+  -H "Authorization: Bearer $TASKER_AUTH_TOKEN" \
+  localhost:9190 tasker.v1.TaskService/ListTasks
+```
+
+### API Key (gRPC)
+
+```bash
+# Using grpcurl with API key
+grpcurl -plaintext \
+  -H "X-API-Key: sk-prod-key-1" \
+  localhost:9190 tasker.v1.TaskService/ListTasks
+```
+
+### gRPC Client Configuration
+
+```rust
+use tasker_client::grpc_clients::{OrchestrationGrpcClient, GrpcAuthConfig};
+
+// With API key
+let client = OrchestrationGrpcClient::connect_with_auth(
+    "http://localhost:9190",
+    GrpcAuthConfig::ApiKey("sk-prod-key-1".to_string()),
+).await?;
+
+// With Bearer token
+let client = OrchestrationGrpcClient::connect_with_auth(
+    "http://localhost:9190",
+    GrpcAuthConfig::Bearer("eyJ...".to_string()),
+).await?;
+```
+
+### gRPC Error Codes
+
+| gRPC Status | HTTP Equivalent | Meaning |
+|-------------|-----------------|---------|
+| `UNAUTHENTICATED` | 401 | Missing or invalid credentials |
+| `PERMISSION_DENIED` | 403 | Valid credentials but insufficient permissions |
+| `NOT_FOUND` | 404 | Resource not found |
+| `UNAVAILABLE` | 503 | Service unavailable |
+
+### Public gRPC Endpoints
+
+These endpoints never require authentication:
+
+- `HealthService/CheckHealth` - Basic health check
+- `HealthService/CheckLiveness` - Kubernetes liveness probe
+- `HealthService/CheckReadiness` - Kubernetes readiness probe
+- `HealthService/CheckDetailedHealth` - Detailed health metrics
+
+---
+
 ## Security Considerations
 
 - **Key storage**: Private keys should never be committed to git. Use file paths or environment variables.

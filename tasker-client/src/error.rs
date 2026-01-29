@@ -51,6 +51,9 @@ pub enum ClientError {
     #[error("Internal error: {0}")]
     Internal(String),
 
+    #[error("Invalid response: {field} - {reason}")]
+    InvalidResponse { field: String, reason: String },
+
     #[error("Not implemented: {0}")]
     NotImplemented(String),
 
@@ -80,6 +83,18 @@ impl ClientError {
         }
     }
 
+    /// Create an invalid response error for protocol violations
+    ///
+    /// Use this when a gRPC response is missing required fields or contains
+    /// malformed data. This indicates a protocol violation that should not
+    /// be silently defaulted.
+    pub fn invalid_response(field: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::InvalidResponse {
+            field: field.into(),
+            reason: reason.into(),
+        }
+    }
+
     /// Check if error is recoverable (worth retrying)
     #[must_use]
     pub fn is_recoverable(&self) -> bool {
@@ -88,6 +103,8 @@ impl ClientError {
             ClientError::ServiceUnavailable { .. } => true,
             ClientError::Timeout { .. } => true,
             ClientError::ApiError { status, .. } => *status >= 500,
+            // Protocol violations are not recoverable - the server is broken
+            ClientError::InvalidResponse { .. } => false,
             _ => false,
         }
     }

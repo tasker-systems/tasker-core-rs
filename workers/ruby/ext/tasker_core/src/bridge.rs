@@ -76,7 +76,9 @@ impl RubyBridgeHandle {
     }
 
     pub fn stop(&mut self) -> Result<(), String> {
-        self.system_handle.stop().map_err(|e| e.to_string())
+        self.runtime
+            .block_on(self.system_handle.stop())
+            .map_err(|e| e.to_string())
     }
 
     pub fn runtime_handle(&self) -> &tokio::runtime::Handle {

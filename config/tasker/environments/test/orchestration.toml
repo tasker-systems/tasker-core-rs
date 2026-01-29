@@ -16,6 +16,8 @@ pgmq_event_buffer_size = 100
 # Increased from 5000ms to 30000ms to support complex task creation operations
 # which can involve template parsing, step creation, DB saves, and PGMQ messaging
 request_timeout_ms = 30000
+# Enable config endpoint for debugging in test environment
+config_endpoint_enabled = true
 
 [orchestration.web.database_pools]
 web_api_pool_size = 10
@@ -54,3 +56,9 @@ fallback_polling_interval_seconds = 1  # Fast polling for step readiness
 initial_delay_ms = 50    # Very short initial backoff for tests
 max_delay_ms = 500       # Cap backoff at 500ms for fast test cycles
 multiplier = 1.5         # Exponential growth factor
+
+# TAS-177: gRPC Configuration Overrides for Test Environment
+[orchestration.grpc]
+enabled = true
+enable_reflection = true         # Enable reflection for test tooling
+enable_health_service = true     # Enable health checks for test verification

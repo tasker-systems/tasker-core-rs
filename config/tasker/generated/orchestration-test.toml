@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2026-01-20T01:44:40.273246+00:00
+# Generated: 2026-01-28T23:21:16.167378+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -40,17 +40,22 @@ enabled = true
 key_prefix = "tasker"
 template_ttl_seconds = 300
 
+[common.cache.moka]
+max_capacity = 10000
+
 [common.cache.redis]
 connection_timeout_seconds = 5
 database = 0
 max_connections = 10
 url = "${REDIS_URL:-redis://localhost:6379}"
 
-[common.cache.moka]
-max_capacity = 10000
-
 [common.circuit_breakers]
 enabled = true
+
+[common.circuit_breakers.component_configs.cache]
+failure_threshold = 5
+success_threshold = 2
+timeout_seconds = 15
 
 [common.circuit_breakers.component_configs.pgmq]
 failure_threshold = 5
@@ -61,11 +66,6 @@ timeout_seconds = 30
 failure_threshold = 10
 success_threshold = 3
 timeout_seconds = 60
-
-[common.circuit_breakers.component_configs.cache]
-failure_threshold = 5
-success_threshold = 2
-timeout_seconds = 15
 
 [common.circuit_breakers.default_config]
 failure_threshold = 5
@@ -88,6 +88,7 @@ idle_timeout_seconds = 60
 max_connections = 30
 max_lifetime_seconds = 3600
 min_connections = 2
+slow_acquire_threshold_ms = 500
 
 [common.database.variables]
 statement_timeout = 5000
@@ -129,6 +130,7 @@ idle_timeout_seconds = 60
 max_connections = 10
 max_lifetime_seconds = 3600
 min_connections = 1
+slow_acquire_threshold_ms = 500
 
 [common.queues]
 backend = "${TASKER_MESSAGING_BACKEND:-pgmq}"
@@ -280,6 +282,17 @@ health_check_interval_seconds = 30
 processing_timeout_seconds = 60
 visibility_timeout_seconds = 30
 
+[orchestration.grpc]
+bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9190}"
+enable_health_service = true
+enable_reflection = true
+enabled = true
+keepalive_interval_seconds = 30
+keepalive_timeout_seconds = 20
+max_concurrent_streams = 200
+max_frame_size = 16384
+tls_enabled = false
+
 [orchestration.mpsc_channels.command_processor]
 command_buffer_size = 100
 
@@ -291,9 +304,9 @@ event_channel_buffer_size = 100
 
 [orchestration.web]
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
+config_endpoint_enabled = true
 enabled = true
 request_timeout_ms = 30000
-config_endpoint_enabled = true
 
 [orchestration.web.auth]
 api_key = ""
@@ -302,39 +315,9 @@ enabled = false
 jwt_audience = "tasker-api"
 jwt_issuer = "tasker-core"
 jwt_private_key = ""
-jwt_public_key = ""
-jwt_public_key_path = ""
+jwt_public_key = "${TASKER_JWT_PUBLIC_KEY:-}"
+jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
 jwt_token_expiry_hours = 24
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "POST"
-path = "/v1/tasks"
-required = false
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "DELETE"
-path = "/v1/tasks/{task_uuid}"
-required = true
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "PATCH"
-path = "/v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"
-required = true
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "GET"
-path = "/v1/analytics/performance"
-required = false
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "GET"
-path = "/v1/analytics/bottlenecks"
-required = false
 
 [orchestration.web.database_pools]
 max_total_connections_hint = 30

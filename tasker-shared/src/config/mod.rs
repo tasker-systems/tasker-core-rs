@@ -61,7 +61,8 @@ pub use orchestration::{
 pub use queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
 };
-pub use tasker::DecisionPointsConfig;
+// TAS-177: GrpcConfig for gRPC server configuration
+pub use tasker::{DecisionPointsConfig, GrpcConfig};
 
 pub mod queue_classification;
 pub use queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};

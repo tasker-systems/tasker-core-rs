@@ -26,8 +26,8 @@ use super::types::{
     BackpressureSource, BackpressureStatus, ChannelHealthStatus, DatabaseHealthStatus,
     HealthConfig, QueueDepthStatus, QueueDepthTier,
 };
+use crate::api_common::WebDatabaseCircuitBreaker;
 use crate::orchestration::channels::OrchestrationCommandSender;
-use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 
 /// Background health status evaluator
 ///

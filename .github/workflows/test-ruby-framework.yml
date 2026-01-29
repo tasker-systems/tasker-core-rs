@@ -62,22 +62,14 @@ jobs:
       - name: Setup Rust (for sqlx-cli)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
 
       - name: Install tools
         uses: ./.github/actions/install-tools
@@ -125,8 +117,10 @@ jobs:
           cargo make test-ci
         env:
           TASKER_ENV: test
-          # Use worker-test-embedded.toml which has web API disabled to prevent port binding conflicts
-          TASKER_CONFIG_PATH: ../../config/tasker/generated/worker-test-embedded.toml
+          # Use worker-test.toml with unique port to enable health/observability FFI
+          TASKER_CONFIG_PATH: ../../config/tasker/generated/worker-test.toml
+          TASKER_WEB_BIND_ADDRESS: "0.0.0.0:8182"
+          TASKER_WORKER_GRPC_BIND_ADDRESS: "0.0.0.0:9182"
           TASKER_TEMPLATE_PATH: ./spec/fixtures/templates
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
           # TAS-156: Redis for distributed template cache

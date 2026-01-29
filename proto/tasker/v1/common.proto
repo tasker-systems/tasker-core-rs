@@ -1,0 +1,144 @@
+// Common types shared across Tasker gRPC services
+syntax = "proto3";
+
+package tasker.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+option java_multiple_files = true;
+option java_package = "com.tasker.v1";
+
+// Pagination request parameters
+message PaginationRequest {
+  // Maximum number of items to return (1-1000, default 50)
+  optional int32 limit = 1;
+  // Offset for pagination (default 0)
+  optional int32 offset = 2;
+}
+
+// Pagination response metadata
+message PaginationResponse {
+  // Total number of items available
+  int64 total = 1;
+  // Number of items returned
+  int32 count = 2;
+  // Current offset
+  int32 offset = 3;
+  // Whether there are more items
+  bool has_more = 4;
+}
+
+// Task state enumeration - exact 1:1 mapping to domain TaskState
+// See: tasker-shared/src/state_machine/states.rs
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  // Initial states
+  TASK_STATE_PENDING = 1;
+  TASK_STATE_INITIALIZING = 2;
+  // Active processing states
+  TASK_STATE_ENQUEUING_STEPS = 3;
+  TASK_STATE_STEPS_IN_PROCESS = 4;
+  TASK_STATE_EVALUATING_RESULTS = 5;
+  // Waiting states
+  TASK_STATE_WAITING_FOR_DEPENDENCIES = 6;
+  TASK_STATE_WAITING_FOR_RETRY = 7;
+  // Problem states
+  TASK_STATE_BLOCKED_BY_FAILURES = 8;
+  // Terminal states
+  TASK_STATE_COMPLETE = 9;
+  TASK_STATE_ERROR = 10;
+  TASK_STATE_CANCELLED = 11;
+  TASK_STATE_RESOLVED_MANUALLY = 12;
+}
+
+// Step state enumeration - exact 1:1 mapping to domain WorkflowStepState
+// See: tasker-shared/src/state_machine/states.rs
+enum StepState {
+  STEP_STATE_UNSPECIFIED = 0;
+  // Initial state
+  STEP_STATE_PENDING = 1;
+  // Processing pipeline states
+  STEP_STATE_ENQUEUED = 2;
+  STEP_STATE_IN_PROGRESS = 3;
+  STEP_STATE_ENQUEUED_FOR_ORCHESTRATION = 4;
+  STEP_STATE_ENQUEUED_AS_ERROR_FOR_ORCHESTRATION = 5;
+  // Waiting state
+  STEP_STATE_WAITING_FOR_RETRY = 6;
+  // Terminal states
+  STEP_STATE_COMPLETE = 7;
+  STEP_STATE_ERROR = 8;
+  STEP_STATE_CANCELLED = 9;
+  STEP_STATE_RESOLVED_MANUALLY = 10;
+}
+
+// Resolution strategy for step completion
+enum ResolutionStrategy {
+  RESOLUTION_STRATEGY_UNSPECIFIED = 0;
+  RESOLUTION_STRATEGY_AUTO = 1;
+  RESOLUTION_STRATEGY_MANUAL = 2;
+}
+
+// Step run mode
+enum StepRunMode {
+  STEP_RUN_MODE_UNSPECIFIED = 0;
+  STEP_RUN_MODE_SYNC = 1;
+  STEP_RUN_MODE_ASYNC = 2;
+}
+
+// Backpressure status for system health
+message BackpressureStatus {
+  // Whether backpressure is currently active
+  bool active = 1;
+  // Reason for backpressure (if active)
+  optional string reason = 2;
+  // Suggested retry after seconds (if active)
+  optional int64 retry_after_seconds = 3;
+  // Current queue depth
+  optional int64 queue_depth = 4;
+  // Maximum queue depth threshold
+  optional int64 max_queue_depth = 5;
+}
+
+// Error details for API responses
+message ErrorDetail {
+  // Error code (e.g., "VALIDATION_ERROR", "NOT_FOUND")
+  string code = 1;
+  // Human-readable error message
+  string message = 2;
+  // Field that caused the error (for validation errors)
+  optional string field = 3;
+  // Additional error context
+  map<string, string> metadata = 4;
+}
+
+// UUID wrapper for type safety
+message UUID {
+  string value = 1;
+}
+
+// JSON value wrapper (uses google.protobuf.Struct for flexibility)
+message JsonValue {
+  google.protobuf.Struct value = 1;
+}
+
+// Timestamp range for filtering
+message TimestampRange {
+  optional google.protobuf.Timestamp start = 1;
+  optional google.protobuf.Timestamp end = 2;
+}
+
+// Sort direction
+enum SortDirection {
+  SORT_DIRECTION_UNSPECIFIED = 0;
+  SORT_DIRECTION_ASC = 1;
+  SORT_DIRECTION_DESC = 2;
+}
+
+// Sort specification
+message SortSpec {
+  // Field to sort by
+  string field = 1;
+  // Sort direction
+  SortDirection direction = 2;
+}

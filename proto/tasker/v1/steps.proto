@@ -1,0 +1,136 @@
+// Step service definitions for Tasker gRPC API
+syntax = "proto3";
+
+package tasker.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "tasker/v1/common.proto";
+import "tasker/v1/tasks.proto";
+
+option java_multiple_files = true;
+option java_package = "com.tasker.v1";
+
+// StepService provides operations for querying and managing steps
+service StepService {
+  // Get a step by ID
+  rpc GetStep(GetStepRequest) returns (GetStepResponse);
+
+  // List steps for a task
+  rpc ListSteps(ListStepsRequest) returns (ListStepsResponse);
+
+  // Manually resolve a step (reset for retry, resolve, or complete with results)
+  rpc ResolveStep(ResolveStepRequest) returns (ResolveStepResponse);
+
+  // Get step audit history (SOC2-compliant audit trail)
+  rpc GetStepAudit(GetStepAuditRequest) returns (GetStepAuditResponse);
+}
+
+// Request to get a specific step
+message GetStepRequest {
+  // Task ID (required for ownership validation)
+  string task_uuid = 1;
+  // Step ID (UUID)
+  string step_uuid = 2;
+}
+
+// Response containing step details
+message GetStepResponse {
+  // The requested step
+  Step step = 1;
+}
+
+// Request to list steps for a task
+message ListStepsRequest {
+  // Task ID to list steps for
+  string task_uuid = 1;
+}
+
+// Response containing list of steps
+message ListStepsResponse {
+  // List of steps
+  repeated Step steps = 1;
+  // Pagination metadata
+  PaginationResponse pagination = 2;
+}
+
+// Request to manually resolve a step
+// Matches StepManualAction from REST API
+message ResolveStepRequest {
+  // Task ID (required for ownership validation)
+  string task_uuid = 1;
+  // Step ID to resolve
+  string step_uuid = 2;
+  // Action type
+  StepManualActionType action_type = 3;
+  // Who performed this action (required)
+  string performed_by = 4;
+  // Reason for the action (required)
+  string reason = 5;
+  // Result data (only for COMPLETE_MANUALLY action)
+  optional google.protobuf.Struct result = 6;
+  // Optional metadata (only for COMPLETE_MANUALLY action)
+  optional google.protobuf.Struct metadata = 7;
+}
+
+// Manual action types for step resolution
+enum StepManualActionType {
+  STEP_MANUAL_ACTION_TYPE_UNSPECIFIED = 0;
+  // Reset attempt counter and return to pending for automatic retry
+  STEP_MANUAL_ACTION_TYPE_RESET_FOR_RETRY = 1;
+  // Mark as resolved_manually without providing results
+  STEP_MANUAL_ACTION_TYPE_RESOLVE_MANUALLY = 2;
+  // Complete with results, allowing dependent steps to proceed
+  STEP_MANUAL_ACTION_TYPE_COMPLETE_MANUALLY = 3;
+}
+
+// Response after resolving a step
+message ResolveStepResponse {
+  // The resolved step
+  Step step = 1;
+}
+
+// Request to get step audit history
+message GetStepAuditRequest {
+  // Task ID (required for ownership validation)
+  string task_uuid = 1;
+  // Step ID
+  string step_uuid = 2;
+}
+
+// Response containing step audit history
+message GetStepAuditResponse {
+  // Audit records ordered by recorded_at DESC (most recent first)
+  repeated StepAuditRecord audit_records = 1;
+}
+
+// Step audit record for SOC2-compliant audit trails (TAS-62)
+// See: tasker-shared/src/types/api/orchestration.rs StepAuditResponse
+message StepAuditRecord {
+  // Primary key of the audit record
+  string audit_uuid = 1;
+  // The workflow step this audit record belongs to
+  string step_uuid = 2;
+  // The specific transition that recorded the result
+  string transition_uuid = 3;
+  // The parent task
+  string task_uuid = 4;
+  // When the audit record was created
+  google.protobuf.Timestamp recorded_at = 5;
+  // UUID of the worker instance that processed this step
+  optional string worker_uuid = 6;
+  // Correlation ID for distributed tracing
+  optional string correlation_id = 7;
+  // Whether the step execution succeeded
+  bool success = 8;
+  // Execution time in milliseconds
+  optional int64 execution_time_ms = 9;
+  // Full execution result from the transition
+  optional google.protobuf.Struct result = 10;
+  // Name of the step
+  string step_name = 11;
+  // State before the transition
+  optional StepState from_state = 12;
+  // State after the transition
+  StepState to_state = 13;
+}

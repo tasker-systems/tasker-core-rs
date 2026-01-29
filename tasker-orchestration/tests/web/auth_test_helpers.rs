@@ -8,6 +8,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tasker_orchestration::services::SharedApiServices;
 use tasker_orchestration::web::{create_test_app, state::AppState};
 use tasker_shared::SystemContext;
 use tokio::net::TcpListener;
@@ -233,14 +234,29 @@ impl AuthTestServer {
                 .map_err(|e| format!("Failed to create system context: {e}"))?,
         );
 
-        let orchestration_core =
-            tasker_orchestration::orchestration::core::OrchestrationCore::new(system_context)
-                .await
-                .map_err(|e| format!("Failed to create orchestration core: {e}"))?;
+        let orchestration_core = tasker_orchestration::orchestration::core::OrchestrationCore::new(
+            system_context.clone(),
+        )
+        .await
+        .map_err(|e| format!("Failed to create orchestration core: {e}"))?;
 
-        let app_state = AppState::from_orchestration_core(Arc::new(orchestration_core))
-            .await
-            .map_err(|e| format!("Failed to create app state: {e}"))?;
+        // TAS-177: Create shared services from orchestration core
+        let shared_services = Arc::new(
+            SharedApiServices::from_orchestration_core(Arc::new(orchestration_core))
+                .await
+                .map_err(|e| format!("Failed to create shared services: {e}"))?,
+        );
+
+        // Get web config from system context
+        let web_config = system_context
+            .tasker_config
+            .orchestration
+            .as_ref()
+            .and_then(|o| o.web.as_ref())
+            .cloned()
+            .ok_or("Web config not found in auth test configuration")?;
+
+        let app_state = AppState::new(shared_services, web_config);
 
         let app = create_test_app(app_state);
 

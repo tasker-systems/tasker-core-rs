@@ -62,7 +62,7 @@ async fn test_end_to_end_diamond_workflow() -> Result<()> {
     println!("✅ Diamond workflow task created successfully!");
     println!("   Task UUID: {}", task_response.task_uuid);
     println!("   Status: {}", task_response.status);
-    println!("   Steps: {}", task_response.step_count);
+    println!("   Steps: {}", task_response.total_steps);
     println!("   Expected pattern: Parallel branches converging to input^16");
 
     // Monitor task execution
@@ -218,12 +218,12 @@ async fn test_diamond_workflow_api_validation() -> Result<()> {
 
     // Test 3: Verify task has expected step count for diamond pattern
     assert!(
-        task_response.step_count >= 4,
+        task_response.total_steps >= 4,
         "Diamond workflow should have at least 4 steps (start, branch_b, branch_c, end)"
     );
     println!(
         "✅ Diamond workflow step count validation: {} steps",
-        task_response.step_count
+        task_response.total_steps
     );
 
     println!("\n🎉 Diamond Workflow API Validation Test PASSED!");

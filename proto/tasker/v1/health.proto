@@ -1,0 +1,168 @@
+// Health service definitions for Tasker gRPC API
+// See: tasker-shared/src/types/api/orchestration.rs (HealthResponse, ReadinessResponse, DetailedHealthResponse)
+syntax = "proto3";
+
+package tasker.v1;
+
+option java_multiple_files = true;
+option java_package = "com.tasker.v1";
+
+// HealthService provides health check operations for Kubernetes probes and monitoring
+service HealthService {
+  // Basic health check - is the service running? (GET /health)
+  rpc CheckHealth(HealthRequest) returns (HealthResponse);
+
+  // Liveness check - should the service be restarted? (GET /live)
+  rpc CheckLiveness(LivenessRequest) returns (HealthResponse);
+
+  // Readiness check - is the service ready to accept traffic? (GET /ready)
+  rpc CheckReadiness(ReadinessRequest) returns (ReadinessResponse);
+
+  // Detailed health check with all subsystem status (GET /health/detailed)
+  rpc CheckDetailedHealth(DetailedHealthRequest) returns (DetailedHealthResponse);
+}
+
+// ============================================================================
+// Request Messages
+// ============================================================================
+
+// Request for basic health check
+message HealthRequest {}
+
+// Request for liveness check
+message LivenessRequest {}
+
+// Request for readiness check
+message ReadinessRequest {}
+
+// Request for detailed health check
+message DetailedHealthRequest {}
+
+// ============================================================================
+// Response Messages - Match REST API types exactly
+// ============================================================================
+
+// Basic health check response
+// Matches HealthResponse from REST API
+message HealthResponse {
+  // Status: "healthy", "degraded", "unhealthy"
+  string status = 1;
+  // ISO 8601 timestamp
+  string timestamp = 2;
+}
+
+// Readiness check response
+// Matches ReadinessResponse from REST API
+message ReadinessResponse {
+  // Status: "healthy", "degraded", "unhealthy"
+  string status = 1;
+  // ISO 8601 timestamp
+  string timestamp = 2;
+  // Core health checks for readiness
+  ReadinessChecks checks = 3;
+  // System information
+  HealthInfo info = 4;
+}
+
+// Detailed health check response
+// Matches DetailedHealthResponse from REST API
+message DetailedHealthResponse {
+  // Status: "healthy", "degraded", "unhealthy"
+  string status = 1;
+  // ISO 8601 timestamp
+  string timestamp = 2;
+  // Full health checks for all subsystems
+  DetailedHealthChecks checks = 3;
+  // System information
+  HealthInfo info = 4;
+}
+
+// ============================================================================
+// Health Check Types
+// ============================================================================
+
+// Individual health check result
+// Matches HealthCheck from REST API
+message HealthCheck {
+  // Status: "healthy", "degraded", "unhealthy", "unknown"
+  string status = 1;
+  // Optional message with details
+  optional string message = 2;
+  // Check duration in milliseconds
+  uint64 duration_ms = 3;
+}
+
+// Core health checks for readiness probe
+// Matches ReadinessChecks from REST API
+message ReadinessChecks {
+  HealthCheck web_database = 1;
+  HealthCheck orchestration_database = 2;
+  HealthCheck circuit_breaker = 3;
+  HealthCheck orchestration_system = 4;
+  HealthCheck command_processor = 5;
+}
+
+// Full health checks for detailed health endpoint
+// Matches DetailedHealthChecks from REST API
+message DetailedHealthChecks {
+  HealthCheck web_database = 1;
+  HealthCheck orchestration_database = 2;
+  HealthCheck circuit_breaker = 3;
+  HealthCheck orchestration_system = 4;
+  HealthCheck command_processor = 5;
+  HealthCheck pool_utilization = 6;
+  HealthCheck queue_depth = 7;
+  HealthCheck channel_saturation = 8;
+}
+
+// System information for health responses
+// Matches HealthInfo from REST API
+message HealthInfo {
+  // Service version
+  string version = 1;
+  // Environment name (test, development, production)
+  string environment = 2;
+  // Operational state: "normal", "startup", "graceful_shutdown", "stopped"
+  string operational_state = 3;
+  // Web database connection pool size
+  uint32 web_database_pool_size = 4;
+  // Orchestration database connection pool size
+  uint32 orchestration_database_pool_size = 5;
+  // Circuit breaker state
+  string circuit_breaker_state = 6;
+  // Optional pool utilization details (TAS-164)
+  optional PoolUtilizationInfo pool_utilization = 7;
+}
+
+// Connection pool utilization details (TAS-164)
+// Matches PoolUtilizationInfo from tasker-shared/src/types/api/health.rs
+message PoolUtilizationInfo {
+  // Tasker database pool details
+  PoolDetail tasker_pool = 1;
+  // PGMQ database pool details
+  PoolDetail pgmq_pool = 2;
+}
+
+// Individual pool utilization detail (TAS-164)
+// Matches PoolDetail from tasker-shared/src/types/api/health.rs
+// All 9 fields from SQLx pool statistics snapshots
+message PoolDetail {
+  // Active connections (currently in use)
+  uint32 active_connections = 1;
+  // Idle connections (available in pool)
+  uint32 idle_connections = 2;
+  // Maximum pool capacity
+  uint32 max_connections = 3;
+  // Utilization percentage (0.0-100.0)
+  double utilization_percent = 4;
+  // Total connection acquisitions since startup
+  uint64 total_acquires = 5;
+  // Acquisitions that took longer than configured threshold
+  uint64 slow_acquires = 6;
+  // Failed connection acquisitions
+  uint64 acquire_errors = 7;
+  // Average time to acquire a connection (milliseconds)
+  double average_acquire_time_ms = 8;
+  // Maximum time to acquire a connection (milliseconds)
+  double max_acquire_time_ms = 9;
+}

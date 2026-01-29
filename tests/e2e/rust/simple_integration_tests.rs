@@ -36,7 +36,7 @@ async fn demo_full_integration_test_suite() -> Result<()> {
 
     println!("✅ Task created: {}", task_response.task_uuid);
     println!("   Status: {}", task_response.status);
-    println!("   Steps: {}", task_response.step_count);
+    println!("   Steps: {}", task_response.total_steps);
 
     // Verify we can retrieve the task
     let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;

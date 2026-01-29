@@ -23,9 +23,9 @@ ignored = [
   # Feature-gated dependencies (web-api feature)
   "axum-extra",
   "tower",
-  "tower-http",
+  # Feature-gated dependencies (grpc-api feature) - used by generated code
+  "prost",
   # Used in runtime or via macros
-  "anyhow",
   "criterion",
   "crossbeam",
   "opentelemetry-otlp",
@@ -110,6 +110,13 @@ utoipa = { workspace = true, optional = true }
 utoipa-swagger-ui = { workspace = true, optional = true }
 uuid = { workspace = true }
 workspace_tools = { workspace = true }
+# gRPC framework (TAS-177)
+tonic = { workspace = true, optional = true }
+tonic-health = { workspace = true, optional = true }
+tonic-reflection = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+prost-types = { workspace = true, optional = true }
+tokio-stream = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Coverage tools (used in CI)
@@ -122,7 +129,7 @@ tokio-test = { workspace = true }
 url = { workspace = true }
 
 [features]
-default = ["postgres", "test-utils", "web-api"]
+default = ["grpc-api", "postgres", "test-utils", "web-api"]
 benchmarks = ["criterion"]
 postgres = ["sqlx/postgres"]
 test-utils = []
@@ -135,6 +142,18 @@ web-api = [
   "tower-http",
   "utoipa",
   "utoipa-swagger-ui",
+]
+# TAS-177: gRPC API support
+# Note: Types shared between REST and gRPC (WebDatabaseCircuitBreaker, OrchestrationStatus)
+# are in the api_common module, allowing gRPC-only deployments without web-api.
+grpc-api = [
+  "tonic",
+  "tonic-health",
+  "tonic-reflection",
+  "prost",
+  "prost-types",
+  "tokio-stream",
+  "tasker-shared/grpc-api",
 ]
 
 # TAS-73: Test infrastructure levels (cumulative)

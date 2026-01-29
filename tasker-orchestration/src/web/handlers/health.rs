@@ -26,7 +26,7 @@ use tasker_shared::types::web::ApiError;
     tag = "health"
 ))]
 pub async fn basic_health(State(state): State<AppState>) -> Json<HealthResponse> {
-    Json(state.health_service.basic_health())
+    Json(state.health_service().basic_health())
 }
 
 /// Kubernetes readiness probe: GET /ready
@@ -46,7 +46,7 @@ pub async fn readiness_probe(
     State(state): State<AppState>,
 ) -> Result<Json<ReadinessResponse>, ApiError> {
     state
-        .health_service
+        .health_service()
         .readiness()
         .await
         .map(Json)
@@ -66,7 +66,7 @@ pub async fn readiness_probe(
     tag = "health"
 ))]
 pub async fn liveness_probe(State(state): State<AppState>) -> Json<HealthResponse> {
-    Json(state.health_service.liveness().await)
+    Json(state.health_service().liveness().await)
 }
 
 /// Detailed health status: GET /health/detailed
@@ -82,12 +82,12 @@ pub async fn liveness_probe(State(state): State<AppState>) -> Json<HealthRespons
     tag = "health"
 ))]
 pub async fn detailed_health(State(state): State<AppState>) -> Json<DetailedHealthResponse> {
-    Json(state.health_service.detailed_health().await)
+    Json(state.health_service().detailed_health().await)
 }
 
 /// Prometheus metrics endpoint: GET /metrics
 ///
 /// Returns metrics in Prometheus format for monitoring and alerting.
 pub async fn prometheus_metrics(State(state): State<AppState>) -> Html<String> {
-    Html(state.health_service.prometheus_metrics().await)
+    Html(state.health_service().prometheus_metrics().await)
 }

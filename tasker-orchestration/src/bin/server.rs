@@ -6,11 +6,14 @@
 //! ## Usage
 //!
 //! ```bash
-//! # Run with default configuration
+//! # Run with default configuration (REST API only)
 //! cargo run --bin tasker-server --features web-api
 //!
+//! # Run with both REST and gRPC APIs
+//! cargo run --bin tasker-server --features web-api,grpc-api
+//!
 //! # Run with specific environment
-//! TASKER_ENV=production cargo run --bin tasker-server --features web-api
+//! TASKER_ENV=production cargo run --bin tasker-server --features web-api,grpc-api
 //! ```
 
 use std::env;
@@ -43,8 +46,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Orchestration Server started successfully!");
 
     if orchestration_handle.web_state.is_some() {
-        info!("   Web API: Running");
+        info!("   REST API: Running");
     }
+
+    #[cfg(feature = "grpc-api")]
+    if orchestration_handle.grpc_server_handle.is_some() {
+        info!("   gRPC API: Running");
+    }
+
     info!(
         "   Environment: {}",
         orchestration_handle
@@ -68,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Orchestration system stopped");
     }
 
-    info!("👋 Orchestration Server shutdown complete");
+    info!("Orchestration Server shutdown complete");
 
     Ok(())
 }

@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Stop worker system using handle (includes web server)
     info!("Stopping worker system...");
-    if let Err(e) = worker_handle.stop() {
+    if let Err(e) = worker_handle.stop().await {
         error!("Failed to stop worker cleanly: {}", e);
     } else {
         info!("Worker system stopped");

@@ -66,7 +66,7 @@ async fn test_end_to_end_tree_workflow() -> Result<()> {
     println!("✅ Tree workflow task created successfully!");
     println!("   Task UUID: {}", task_response.task_uuid);
     println!("   Status: {}", task_response.status);
-    println!("   Steps: {}", task_response.step_count);
+    println!("   Steps: {}", task_response.total_steps);
     println!("   Expected pattern: Root → Branches → Leaves → Convergence (input^32)");
 
     // Monitor task execution
@@ -261,12 +261,12 @@ async fn test_tree_workflow_api_validation() -> Result<()> {
 
     // Test 3: Verify task has expected step count for tree pattern
     assert!(
-        task_response.step_count >= 8,
+        task_response.total_steps >= 8,
         "Tree workflow should have at least 8 steps (root, 2 branches, 4 leaves, convergence)"
     );
     println!(
         "✅ Tree workflow step count validation: {} steps",
-        task_response.step_count
+        task_response.total_steps
     );
 
     println!("\n🎉 Tree Workflow API Validation Test PASSED!");

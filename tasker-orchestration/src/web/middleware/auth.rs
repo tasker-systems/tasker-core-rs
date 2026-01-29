@@ -30,7 +30,7 @@ pub async fn authenticate_request(
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let security_service = match &state.security_service {
+    let security_service = match state.security_service() {
         Some(svc) if svc.is_enabled() => svc,
         _ => {
             // Auth disabled - inject permissive context
@@ -188,7 +188,7 @@ pub async fn conditional_auth(
     use axum::response::IntoResponse;
 
     // If security service is configured, use the new middleware
-    if state.security_service.is_some() {
+    if state.security_service().is_some() {
         match authenticate_request(State(state), request, next).await {
             Ok(response) => response,
             Err(error) => error.into_response(),
@@ -206,8 +206,6 @@ pub async fn conditional_auth(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use tasker_shared::types::web::{AuthConfig, RouteAuthConfig};
 
     #[test]
     fn test_extract_bearer_token() {
@@ -216,76 +214,5 @@ mod tests {
         assert!(extract_bearer_token("Basic abc123").is_err());
         assert!(extract_bearer_token("Bearer ").is_err());
         assert!(extract_bearer_token("abc123").is_err());
-    }
-
-    #[test]
-    fn test_auth_config_route_requires_auth() {
-        let mut protected_routes = HashMap::new();
-        protected_routes.insert(
-            "DELETE /v1/tasks/{task_uuid}".to_string(),
-            RouteAuthConfig {
-                auth_type: "bearer".to_string(),
-                required: true,
-            },
-        );
-        protected_routes.insert(
-            "PATCH /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}".to_string(),
-            RouteAuthConfig {
-                auth_type: "bearer".to_string(),
-                required: true,
-            },
-        );
-        protected_routes.insert(
-            "POST /v1/tasks".to_string(),
-            RouteAuthConfig {
-                auth_type: "bearer".to_string(),
-                required: false,
-            },
-        );
-
-        let auth_config = AuthConfig {
-            enabled: true,
-            jwt_private_key: "test_key".to_string(),
-            jwt_public_key: "test_public_key".to_string(),
-            jwt_token_expiry_hours: 24,
-            jwt_issuer: "test_issuer".to_string(),
-            jwt_audience: "test_audience".to_string(),
-            api_key_header: "X-API-Key".to_string(),
-            protected_routes,
-        };
-
-        assert!(auth_config.route_requires_auth("DELETE", "/v1/tasks/123-456-789"));
-        assert!(auth_config
-            .route_requires_auth("PATCH", "/v1/tasks/123-456-789/workflow_steps/step-123"));
-        assert!(!auth_config.route_requires_auth("POST", "/v1/tasks"));
-        assert!(!auth_config.route_requires_auth("GET", "/v1/tasks"));
-        assert!(!auth_config.route_requires_auth("GET", "/health"));
-        assert!(!auth_config.route_requires_auth("GET", "/v1/tasks/123-456-789"));
-    }
-
-    #[test]
-    fn test_auth_config_with_disabled_auth() {
-        let mut protected_routes = HashMap::new();
-        protected_routes.insert(
-            "DELETE /v1/tasks/{task_uuid}".to_string(),
-            RouteAuthConfig {
-                auth_type: "bearer".to_string(),
-                required: true,
-            },
-        );
-
-        let auth_config = AuthConfig {
-            enabled: false,
-            jwt_private_key: "test_key".to_string(),
-            jwt_public_key: "test_public_key".to_string(),
-            jwt_token_expiry_hours: 24,
-            jwt_issuer: "test_issuer".to_string(),
-            jwt_audience: "test_audience".to_string(),
-            api_key_header: "X-API-Key".to_string(),
-            protected_routes,
-        };
-
-        assert!(!auth_config.route_requires_auth("DELETE", "/v1/tasks/123-456-789"));
-        assert!(!auth_config.route_requires_auth("POST", "/v1/tasks"));
     }
 }

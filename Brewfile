@@ -49,6 +49,9 @@ brew "libpq"
 # LLVM for coverage tools (cargo-llvm-cov)
 brew "llvm"
 
+# Protocol Buffers compiler (required for gRPC proto compilation, TAS-177)
+brew "protobuf"
+
 # -----------------------------------------------------------------------------
 # Python Tooling
 # -----------------------------------------------------------------------------
@@ -107,6 +110,9 @@ brew "watch"
 
 # bottom - process monitoring
 brew "bottom"
+
+# grpcurl - gRPC client
+brew "grpcurl"
 
 # -----------------------------------------------------------------------------
 # Performance & Profiling Tools (TAS-71)

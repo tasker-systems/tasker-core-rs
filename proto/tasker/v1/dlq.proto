@@ -1,0 +1,282 @@
+// Dead Letter Queue (DLQ) investigation tracking service definitions for Tasker gRPC API
+// See: tasker-shared/src/models/orchestration/dlq.rs
+//
+// Architecture: DLQ is an INVESTIGATION TRACKER, not a task manipulation layer:
+// - Tracks "why task is stuck" and "who investigated"
+// - Resolution happens at step level via existing step APIs
+// - No task-level "requeue" - fix the problem steps instead
+syntax = "proto3";
+
+package tasker.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+option java_multiple_files = true;
+option java_package = "com.tasker.v1";
+
+// DlqService provides operations for DLQ investigation tracking
+service DlqService {
+  // List DLQ entries with optional filtering
+  rpc ListEntries(ListDlqEntriesRequest) returns (ListDlqEntriesResponse);
+
+  // Get DLQ entry for a specific task (most recent)
+  rpc GetEntryByTask(GetDlqEntryByTaskRequest) returns (GetDlqEntryByTaskResponse);
+
+  // Update DLQ investigation status and notes
+  rpc UpdateInvestigation(UpdateDlqInvestigationRequest) returns (UpdateDlqInvestigationResponse);
+
+  // Get DLQ statistics by reason
+  rpc GetStats(GetDlqStatsRequest) returns (GetDlqStatsResponse);
+
+  // Get prioritized investigation queue for operator triage
+  rpc GetInvestigationQueue(GetDlqInvestigationQueueRequest) returns (GetDlqInvestigationQueueResponse);
+
+  // Get task staleness monitoring (proactive health check)
+  rpc GetStalenessMonitoring(GetStalenessMonitoringRequest) returns (GetStalenessMonitoringResponse);
+}
+
+// ============================================================================
+// Enums - Match PostgreSQL enum types exactly
+// ============================================================================
+
+// DLQ resolution status - tracks investigation lifecycle
+// Maps to PostgreSQL `dlq_resolution_status` enum
+enum DlqResolutionStatus {
+  DLQ_RESOLUTION_STATUS_UNSPECIFIED = 0;
+  // Investigation in progress
+  DLQ_RESOLUTION_STATUS_PENDING = 1;
+  // Operator fixed problem steps, task progressed
+  DLQ_RESOLUTION_STATUS_MANUALLY_RESOLVED = 2;
+  // Unfixable issue (e.g., bad template, data corruption)
+  DLQ_RESOLUTION_STATUS_PERMANENTLY_FAILED = 3;
+  // Investigation cancelled (duplicate, false positive, etc.)
+  DLQ_RESOLUTION_STATUS_CANCELLED = 4;
+}
+
+// DLQ reason - why was task sent to DLQ
+// Maps to PostgreSQL `dlq_reason` enum
+enum DlqReason {
+  DLQ_REASON_UNSPECIFIED = 0;
+  // Task exceeded state timeout threshold (TAS-48 staleness detection)
+  DLQ_REASON_STALENESS_TIMEOUT = 1;
+  // Retry limit hit (TAS-42)
+  DLQ_REASON_MAX_RETRIES_EXCEEDED = 2;
+  // Circular dependency discovered
+  DLQ_REASON_DEPENDENCY_CYCLE_DETECTED = 3;
+  // No worker available for extended period
+  DLQ_REASON_WORKER_UNAVAILABLE = 4;
+  // Operator manually sent to DLQ
+  DLQ_REASON_MANUAL_DLQ = 5;
+}
+
+// Staleness health status classification
+// Indicates how close a task is to exceeding its staleness threshold
+enum StalenessHealthStatus {
+  STALENESS_HEALTH_STATUS_UNSPECIFIED = 0;
+  // Task within normal operating parameters (< 80% of threshold)
+  STALENESS_HEALTH_STATUS_HEALTHY = 1;
+  // Task approaching threshold (80-100% of threshold)
+  STALENESS_HEALTH_STATUS_WARNING = 2;
+  // Task exceeded threshold, candidate for DLQ
+  STALENESS_HEALTH_STATUS_STALE = 3;
+}
+
+// ============================================================================
+// Request/Response Messages
+// ============================================================================
+
+// Request to list DLQ entries
+message ListDlqEntriesRequest {
+  // Filter by resolution status (optional)
+  optional DlqResolutionStatus resolution_status = 1;
+  // Maximum entries to return (default: 50)
+  optional int32 limit = 2;
+  // Offset for pagination (default: 0)
+  optional int32 offset = 3;
+}
+
+// Response containing DLQ entries
+message ListDlqEntriesResponse {
+  // List of DLQ entries
+  repeated DlqEntry entries = 1;
+}
+
+// Request to get DLQ entry for a task
+message GetDlqEntryByTaskRequest {
+  // Task UUID
+  string task_uuid = 1;
+}
+
+// Response containing DLQ entry with full snapshot
+message GetDlqEntryByTaskResponse {
+  // The DLQ entry (if found)
+  DlqEntry entry = 1;
+}
+
+// Request to update DLQ investigation
+message UpdateDlqInvestigationRequest {
+  // DLQ entry UUID
+  string dlq_entry_uuid = 1;
+  // New resolution status (optional)
+  optional DlqResolutionStatus resolution_status = 2;
+  // Investigation notes (optional)
+  optional string resolution_notes = 3;
+  // Who resolved the investigation (optional)
+  optional string resolved_by = 4;
+  // Additional metadata (optional)
+  optional google.protobuf.Struct metadata = 5;
+}
+
+// Response after updating investigation
+message UpdateDlqInvestigationResponse {
+  // Whether update was successful
+  bool success = 1;
+  // Status message
+  string message = 2;
+  // DLQ entry UUID that was updated
+  string dlq_entry_uuid = 3;
+}
+
+// Request for DLQ statistics
+message GetDlqStatsRequest {
+  // No parameters - returns all stats by reason
+}
+
+// Response containing DLQ statistics
+message GetDlqStatsResponse {
+  // Statistics grouped by DLQ reason
+  repeated DlqStats stats = 1;
+}
+
+// Request for investigation queue
+message GetDlqInvestigationQueueRequest {
+  // Maximum entries to return (default: 100)
+  optional int32 limit = 1;
+}
+
+// Response containing prioritized investigation queue
+message GetDlqInvestigationQueueResponse {
+  // Investigation queue entries ordered by priority
+  repeated DlqInvestigationQueueEntry entries = 1;
+}
+
+// Request for staleness monitoring
+message GetStalenessMonitoringRequest {
+  // Maximum tasks to return (default: 100)
+  optional int32 limit = 1;
+}
+
+// Response containing staleness monitoring data
+message GetStalenessMonitoringResponse {
+  // Staleness monitoring entries
+  repeated StalenessMonitoringEntry entries = 1;
+}
+
+// ============================================================================
+// Entity Messages - Match domain types exactly
+// ============================================================================
+
+// DLQ entry - complete investigation record
+// Matches DlqEntry from tasker-shared
+message DlqEntry {
+  // Unique identifier for this DLQ entry
+  string dlq_entry_uuid = 1;
+  // Task under investigation
+  string task_uuid = 2;
+  // Task state when sent to DLQ
+  string original_state = 3;
+  // Why task was sent to DLQ
+  DlqReason dlq_reason = 4;
+  // When task was added to DLQ
+  google.protobuf.Timestamp dlq_timestamp = 5;
+  // Current investigation status
+  DlqResolutionStatus resolution_status = 6;
+  // When investigation was resolved (if resolved)
+  optional google.protobuf.Timestamp resolution_timestamp = 7;
+  // Investigation notes and resolution details
+  optional string resolution_notes = 8;
+  // Who resolved the investigation (user or system)
+  optional string resolved_by = 9;
+  // Complete task snapshot at DLQ time (JSONB)
+  google.protobuf.Struct task_snapshot = 10;
+  // Additional metadata (JSONB)
+  optional google.protobuf.Struct metadata = 11;
+  // Entry creation timestamp
+  google.protobuf.Timestamp created_at = 12;
+  // Entry last update timestamp
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+// DLQ statistics by reason
+// Matches DlqStats from tasker-shared
+message DlqStats {
+  // DLQ reason
+  DlqReason dlq_reason = 1;
+  // Total entries for this reason
+  int64 total_entries = 2;
+  // Count with pending status
+  int64 pending = 3;
+  // Count with manually_resolved status
+  int64 manually_resolved = 4;
+  // Count with permanently_failed status
+  int64 permanent_failures = 5;
+  // Count with cancelled status
+  int64 cancelled = 6;
+  // Oldest entry timestamp
+  optional google.protobuf.Timestamp oldest_entry = 7;
+  // Newest entry timestamp
+  optional google.protobuf.Timestamp newest_entry = 8;
+  // Average time to resolve (minutes)
+  optional double avg_resolution_time_minutes = 9;
+}
+
+// DLQ investigation queue entry with priority scoring
+// Matches DlqInvestigationQueueEntry from tasker-shared
+message DlqInvestigationQueueEntry {
+  // DLQ entry UUID
+  string dlq_entry_uuid = 1;
+  // Task UUID
+  string task_uuid = 2;
+  // Task state when sent to DLQ
+  string original_state = 3;
+  // Why task was sent to DLQ
+  DlqReason dlq_reason = 4;
+  // When task was added to DLQ
+  google.protobuf.Timestamp dlq_timestamp = 5;
+  // Minutes task has been in DLQ
+  double minutes_in_dlq = 6;
+  // Namespace name (for context)
+  optional string namespace_name = 7;
+  // Task template name (for context)
+  optional string task_name = 8;
+  // Current task state
+  optional string current_state = 9;
+  // Minutes task has been in current state
+  optional int32 time_in_state_minutes = 10;
+  // Priority score for triage ordering (higher = more urgent)
+  double priority_score = 11;
+}
+
+// Staleness monitoring entry for active tasks
+// Matches StalenessMonitoring from tasker-shared
+message StalenessMonitoringEntry {
+  // Task UUID being monitored
+  string task_uuid = 1;
+  // Namespace name (for context)
+  optional string namespace_name = 2;
+  // Task template name (for context)
+  optional string task_name = 3;
+  // Current task state
+  string current_state = 4;
+  // Minutes task has been in current state
+  int32 time_in_state_minutes = 5;
+  // Total task age in minutes
+  int32 task_age_minutes = 6;
+  // Staleness threshold for this state (considers template overrides)
+  int32 staleness_threshold_minutes = 7;
+  // Health status classification
+  StalenessHealthStatus health_status = 8;
+  // Task priority (from configuration)
+  int32 priority = 9;
+}

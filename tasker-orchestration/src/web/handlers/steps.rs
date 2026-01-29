@@ -46,7 +46,7 @@ pub async fn list_task_steps(
         .map_err(|_| ApiError::bad_request("Invalid task UUID format"))?;
 
     state
-        .step_service
+        .step_service()
         .list_task_steps(task_uuid)
         .await
         .map(Json)
@@ -89,7 +89,7 @@ pub async fn get_step(
         .map_err(|_| ApiError::bad_request("Invalid step UUID format"))?;
 
     state
-        .step_service
+        .step_service()
         .get_step(task_uuid, step_uuid)
         .await
         .map(Json)
@@ -183,7 +183,7 @@ pub async fn resolve_step_manually(
         .map_err(|_| ApiError::bad_request("Invalid step UUID format"))?;
 
     state
-        .step_service
+        .step_service()
         .resolve_step_manually(task_uuid, step_uuid, action)
         .await
         .map(Json)
@@ -241,7 +241,7 @@ pub async fn get_step_audit(
         .map_err(|_| ApiError::bad_request("Invalid step UUID format"))?;
 
     state
-        .step_service
+        .step_service()
         .get_step_audit(task_uuid, step_uuid)
         .await
         .map(Json)

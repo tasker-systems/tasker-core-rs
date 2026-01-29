@@ -349,19 +349,19 @@ async fn test_batch_processing_api_validation() -> Result<()> {
     // steps are created at runtime when the batchable step executes.
     println!(
         "   Task has {} steps at initialization (expecting 1: analyze_dataset only)",
-        task_response.step_count
+        task_response.total_steps
     );
     assert_eq!(
-        task_response.step_count, 1,
+        task_response.total_steps, 1,
         "Batch processing workflow should have exactly 1 step at initialization \
         (analyze_dataset only). BatchWorker templates and DeferredConvergence steps are \
         created dynamically at runtime. Got: {}",
-        task_response.step_count
+        task_response.total_steps
     );
     println!(
         "✅ Batch processing step count validation: {} steps at initialization \
         (BatchWorker templates correctly excluded)",
-        task_response.step_count
+        task_response.total_steps
     );
 
     println!("\n🎉 Batch Processing API Validation Test PASSED!");

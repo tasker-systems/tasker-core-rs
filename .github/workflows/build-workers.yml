@@ -53,19 +53,8 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
@@ -74,6 +63,9 @@ jobs:
         uses: ./.github/actions/install-tools
         with:
           tools: "sqlx-cli make"
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
 
       - name: Setup database
         run: sqlx migrate run
@@ -149,22 +141,14 @@ jobs:
           bundler-cache: true
           working-directory: workers/ruby
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
 
       - name: Build Ruby FFI extension
         run: |
@@ -223,22 +207,14 @@ jobs:
         with:
           version: "latest"
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
 
       - name: Build Python FFI extension
         run: |
@@ -285,22 +261,14 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
 
       - name: Install tools
         uses: ./.github/actions/install-tools
@@ -354,22 +322,14 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
 
       - name: Build Rust worker
         run: |

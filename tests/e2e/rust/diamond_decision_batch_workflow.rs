@@ -413,19 +413,19 @@ async fn test_diamond_decision_batch_api_validation() -> Result<()> {
     // - aggregate_even_results, aggregate_odd_results (deferred convergence)
     println!(
         "   Task has {} steps at initialization (expecting 4: diamond + decision)",
-        task_response.step_count
+        task_response.total_steps
     );
     assert_eq!(
-        task_response.step_count, 4,
+        task_response.total_steps, 4,
         "Combined workflow should have exactly 4 steps at initialization \
         (ddb_diamond_start, branch_evens, branch_odds, ddb_routing_decision). \
         Batchable, batch workers, and deferred convergence are created at runtime. Got: {}",
-        task_response.step_count
+        task_response.total_steps
     );
     println!(
         "✅ Diamond-decision-batch step count validation: {} steps at initialization \
         (dynamic steps created at runtime)",
-        task_response.step_count
+        task_response.total_steps
     );
 
     println!("\n🎉 Diamond-Decision-Batch API Validation Test PASSED!");

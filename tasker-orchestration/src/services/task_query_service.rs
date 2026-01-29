@@ -116,7 +116,8 @@ impl TaskQueryService {
             task_name: task_metadata.task_name,
             namespace: task_metadata.namespace_name,
             version: task_metadata.task_version,
-            status: execution_context.execution_status.as_str().to_string(),
+            // Use the actual task state from execution_context, not the derived execution_status
+            status: execution_context.status.clone(),
             execution_context,
             steps,
         })

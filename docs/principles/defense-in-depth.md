@@ -236,9 +236,31 @@ Is better than a system that:
 
 ---
 
+---
+
+## Relationship to Fail Loudly
+
+Defense in Depth and [Fail Loudly](./fail-loudly.md) are complementary principles:
+
+| Defense in Depth | Fail Loudly |
+|------------------|-------------|
+| Multiple layers prevent corruption | Errors surface problems immediately |
+| Redundancy catches edge cases | Transparency enables diagnosis |
+| Protection happens before damage | Visibility happens at detection |
+
+Both reject the same anti-pattern: **silent failures**.
+
+- Defense in Depth rejects: silent corruption (data changed without protection)
+- Fail Loudly rejects: silent defaults (missing data hidden with fabricated values)
+
+Together they ensure: if something goes wrong, we know about it—either protection prevents it, or an error surfaces it.
+
+---
+
 ## Related Documentation
 
-- [Tasker Core Tenets](./tasker-core-tenets.md) - Tenet #1: Defense in Depth
+- [Tasker Core Tenets](./tasker-core-tenets.md) - Tenet #1: Defense in Depth, Tenet #11: Fail Loudly
+- [Fail Loudly](./fail-loudly.md) - Errors as first-class citizens
 - [Idempotency and Atomicity](../idempotency-and-atomicity.md) - Implementation details
 - [States and Lifecycles](../states-and-lifecycles.md) - State machine specifications
 - [TAS-54 ADR](../decisions/TAS-54-ownership-removal.md) - Processor UUID ownership removal decision

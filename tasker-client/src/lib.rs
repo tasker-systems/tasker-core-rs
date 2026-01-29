@@ -128,10 +128,30 @@
 pub mod api_clients;
 pub mod config;
 pub mod error;
+pub mod transport;
+
+#[cfg(feature = "grpc")]
+pub mod grpc_clients;
 
 // Re-export commonly used types for convenience
 pub use api_clients::{
     OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig,
 };
-pub use config::{ClientAuthConfig, ClientAuthMethod, ClientConfig};
+pub use config::{ClientAuthConfig, ClientAuthMethod, ClientConfig, Transport};
 pub use error::{ClientError, ClientResult};
+
+// Re-export unified transport types for orchestration
+#[cfg(feature = "grpc")]
+pub use transport::GrpcOrchestrationClient;
+pub use transport::{OrchestrationClient, RestOrchestrationClient, UnifiedOrchestrationClient};
+
+// Re-export unified transport types for worker
+#[cfg(feature = "grpc")]
+pub use transport::GrpcWorkerClient;
+pub use transport::{RestWorkerClient, UnifiedWorkerClient, WorkerClient};
+
+// Re-export gRPC clients when feature is enabled
+#[cfg(feature = "grpc")]
+pub use grpc_clients::{
+    AuthInterceptor, GrpcAuthConfig, GrpcClientConfig, OrchestrationGrpcClient, WorkerGrpcClient,
+};

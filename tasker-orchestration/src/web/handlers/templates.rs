@@ -61,7 +61,7 @@ pub async fn list_templates(
 
     // TAS-76: Delegate to service layer
     let response = state
-        .template_query_service
+        .template_query_service()
         .list_templates(params.namespace.as_deref())
         .await
         .map_err(template_error_to_api_error)?;
@@ -110,7 +110,7 @@ pub async fn get_template(
 
     // TAS-76: Delegate to service layer
     let response = state
-        .template_query_service
+        .template_query_service()
         .get_template(&params.namespace, &params.name, &params.version)
         .await
         .map_err(template_error_to_api_error)?;

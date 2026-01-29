@@ -13,14 +13,26 @@
 //! - **Lifecycle Management**: Start/stop/status operations for all deployment modes
 //! - **Graceful Shutdown**: Proper cleanup and resource management
 //! - **Consistent API**: Same bootstrap interface regardless of deployment mode
+//!
+//! ## TAS-177: Refactored Bootstrap
+//!
+//! This module has been refactored following the orchestration bootstrap pattern:
+//! - Broken down into focused helper functions
+//! - Support for all 4 deployment modes: both APIs, web only, gRPC only, neither
+//! - SharedWorkerServices pattern for service sharing between REST and gRPC
+//! - Resources only created when enabled in configuration
 
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
+#[cfg(feature = "web-api")]
+use crate::web::WorkerWebState;
+#[cfg(any(feature = "web-api", feature = "grpc-api"))]
+use crate::worker::services::SharedWorkerServices;
 use crate::{
-    web::{state::WorkerWebConfig, WorkerWebState},
+    web::state::WorkerWebConfig,
     worker::core::{DispatchHandles, WorkerCore, WorkerCoreStatus},
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
@@ -34,8 +46,15 @@ use tasker_shared::{
 pub struct WorkerSystemHandle {
     /// Core worker system
     pub worker_core: Arc<Mutex<WorkerCore>>,
-    /// Web API state (optional)
+    /// Shared services for API access (optional, requires web-api or grpc-api feature)
+    #[cfg(any(feature = "web-api", feature = "grpc-api"))]
+    pub shared_services: Option<Arc<SharedWorkerServices>>,
+    /// Web API state (optional, requires web-api feature)
+    #[cfg(feature = "web-api")]
     pub web_state: Option<Arc<WorkerWebState>>,
+    /// gRPC server handle (optional, requires grpc-api feature)
+    #[cfg(feature = "grpc-api")]
+    pub grpc_server_handle: Option<crate::grpc::GrpcServerHandle>,
     /// Shutdown signal sender (Some when running, None when stopped)
     pub shutdown_sender: Option<oneshot::Sender<()>>,
     /// Runtime handle for async operations
@@ -45,36 +64,99 @@ pub struct WorkerSystemHandle {
     /// TAS-67: Dispatch handles for language-specific handler dispatch
     /// Contains dispatch_receiver and completion_sender for spawning HandlerDispatchService
     dispatch_handles: Option<DispatchHandles>,
+    /// System configuration
+    pub tasker_config: Arc<TaskerConfig>,
 }
 
 impl std::fmt::Debug for WorkerSystemHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WorkerSystemHandle")
+        let mut debug = f.debug_struct("WorkerSystemHandle");
+        debug
             .field("running", &self.shutdown_sender.is_some())
-            .field("web_api_enabled", &self.web_state.is_some())
             .field("worker_config", &self.worker_config)
-            .field("has_dispatch_handles", &self.dispatch_handles.is_some())
-            .finish()
+            .field("has_dispatch_handles", &self.dispatch_handles.is_some());
+
+        #[cfg(any(feature = "web-api", feature = "grpc-api"))]
+        debug.field("has_shared_services", &self.shared_services.is_some());
+
+        #[cfg(feature = "web-api")]
+        debug.field("web_api_enabled", &self.web_state.is_some());
+
+        #[cfg(feature = "grpc-api")]
+        debug.field("grpc_enabled", &self.grpc_server_handle.is_some());
+
+        debug.finish()
     }
 }
 
 impl WorkerSystemHandle {
-    /// Create new worker system handle
+    /// Create new worker system handle (with grpc-api, which implies web-api)
+    #[cfg(feature = "grpc-api")]
     pub fn new(
         worker_core: Arc<Mutex<WorkerCore>>,
+        shared_services: Option<Arc<SharedWorkerServices>>,
+        web_state: Option<Arc<WorkerWebState>>,
+        grpc_server_handle: Option<crate::grpc::GrpcServerHandle>,
+        shutdown_sender: oneshot::Sender<()>,
+        runtime_handle: tokio::runtime::Handle,
+        worker_config: WorkerBootstrapConfig,
+        dispatch_handles: Option<DispatchHandles>,
+        tasker_config: Arc<TaskerConfig>,
+    ) -> Self {
+        Self {
+            worker_core,
+            shared_services,
+            web_state,
+            grpc_server_handle,
+            shutdown_sender: Some(shutdown_sender),
+            runtime_handle,
+            worker_config,
+            dispatch_handles,
+            tasker_config,
+        }
+    }
+
+    /// Create new worker system handle (web-api only, no gRPC)
+    #[cfg(all(feature = "web-api", not(feature = "grpc-api")))]
+    pub fn new(
+        worker_core: Arc<Mutex<WorkerCore>>,
+        shared_services: Option<Arc<SharedWorkerServices>>,
         web_state: Option<Arc<WorkerWebState>>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
         worker_config: WorkerBootstrapConfig,
         dispatch_handles: Option<DispatchHandles>,
+        tasker_config: Arc<TaskerConfig>,
     ) -> Self {
         Self {
             worker_core,
+            shared_services,
             web_state,
             shutdown_sender: Some(shutdown_sender),
             runtime_handle,
             worker_config,
             dispatch_handles,
+            tasker_config,
+        }
+    }
+
+    /// Create new worker system handle (no API features)
+    #[cfg(not(feature = "web-api"))]
+    pub fn new(
+        worker_core: Arc<Mutex<WorkerCore>>,
+        shutdown_sender: oneshot::Sender<()>,
+        runtime_handle: tokio::runtime::Handle,
+        worker_config: WorkerBootstrapConfig,
+        dispatch_handles: Option<DispatchHandles>,
+        tasker_config: Arc<TaskerConfig>,
+    ) -> Self {
+        Self {
+            worker_core,
+            shutdown_sender: Some(shutdown_sender),
+            runtime_handle,
+            worker_config,
+            dispatch_handles,
+            tasker_config,
         }
     }
 
@@ -102,12 +184,27 @@ impl WorkerSystemHandle {
     }
 
     /// Stop the worker system
-    pub fn stop(&mut self) -> TaskerResult<()> {
-        if let Some(sender) = self.shutdown_sender.take() {
-            sender.send(()).map_err(|_| {
-                TaskerError::WorkerError("Failed to send shutdown signal".to_string())
-            })?;
-            info!("Worker system shutdown requested");
+    pub async fn stop(&mut self) -> TaskerResult<()> {
+        if self.shutdown_sender.is_some() {
+            // Stop gRPC server if running
+            #[cfg(feature = "grpc-api")]
+            if let Some(grpc_handle) = self.grpc_server_handle.take() {
+                info!("Stopping Worker gRPC server");
+                if let Err(e) = grpc_handle.stop().await {
+                    warn!("Failed to stop Worker gRPC server cleanly: {}", e);
+                } else {
+                    info!("Worker gRPC server stopped");
+                }
+            }
+
+            // Send shutdown signal
+            if let Some(sender) = self.shutdown_sender.take() {
+                sender.send(()).map_err(|_| {
+                    TaskerError::WorkerError("Failed to send shutdown signal".to_string())
+                })?;
+            }
+
+            info!("Worker system shutdown completed");
             Ok(())
         } else {
             warn!("Worker system already stopped");
@@ -128,7 +225,7 @@ impl WorkerSystemHandle {
                 .environment
                 .clone(),
             worker_core_status: worker_core.status().clone(),
-            web_api_enabled: self.worker_config.web_config.enabled,
+            web_api_enabled: self.worker_config.enable_web_api,
             supported_namespaces: worker_core
                 .task_template_manager
                 .supported_namespaces()
@@ -267,9 +364,6 @@ impl WorkerBootstrap {
     /// This is the primary bootstrap method that auto-detects environment and loads
     /// the appropriate configuration, then initializes all worker components.
     ///
-    /// # Arguments
-    /// * `config` - Bootstrap configuration including namespaces and options
-    ///
     /// # Returns
     /// Handle for managing the worker system lifecycle
     pub async fn bootstrap() -> TaskerResult<WorkerSystemHandle> {
@@ -282,7 +376,6 @@ impl WorkerBootstrap {
     /// to ensure proper event coordination between WorkerProcessor and handlers.
     ///
     /// # Arguments
-    /// * `config` - Bootstrap configuration including namespaces and options
     /// * `event_system` - Optional external event system for cross-component coordination
     ///
     /// # Returns
@@ -294,6 +387,89 @@ impl WorkerBootstrap {
             "Starting unified worker system bootstrap with context-specific configuration (TAS-50)"
         );
 
+        // Step 1: Initialize system context and worker core
+        let (system_context, worker_core, dispatch_handles) =
+            Self::initialize_worker_core(event_system).await?;
+
+        let tasker_config = system_context.tasker_config.as_ref();
+        let config: WorkerBootstrapConfig = tasker_config.into();
+
+        // Step 2: Create shared services if any API is enabled
+        #[cfg(any(feature = "web-api", feature = "grpc-api"))]
+        let shared_services =
+            Self::create_shared_services_if_needed(&worker_core, &system_context).await?;
+
+        // Step 3: Create web API state if enabled
+        #[cfg(feature = "web-api")]
+        let web_state =
+            Self::create_web_state_if_enabled(&config, tasker_config, &shared_services)?;
+
+        // Step 4: Start web server if enabled
+        #[cfg(feature = "web-api")]
+        if let Some(ref state) = web_state {
+            Self::start_web_server(state).await?;
+        }
+
+        // Step 5: Start gRPC server if enabled
+        #[cfg(feature = "grpc-api")]
+        let grpc_server_handle =
+            Self::start_grpc_server_if_enabled(tasker_config, &shared_services)?;
+
+        // Step 6: Setup shutdown handler
+        let (shutdown_sender, runtime_handle) = Self::setup_shutdown_handler();
+
+        // Step 7: Create and return worker system handle
+        // Note: grpc-api implies web-api (see Cargo.toml), so we have exactly 3 mutually exclusive cases:
+        //   1. grpc-api enabled (web-api is automatically enabled)
+        //   2. web-api only (grpc-api disabled)
+        //   3. neither API enabled
+        #[cfg(feature = "grpc-api")]
+        let handle = Self::create_system_handle(
+            worker_core,
+            shared_services,
+            web_state,
+            grpc_server_handle,
+            shutdown_sender,
+            runtime_handle,
+            config,
+            Some(dispatch_handles),
+            system_context.tasker_config.clone(),
+        );
+
+        #[cfg(all(feature = "web-api", not(feature = "grpc-api")))]
+        let handle = Self::create_system_handle(
+            worker_core,
+            shared_services,
+            web_state,
+            shutdown_sender,
+            runtime_handle,
+            config,
+            Some(dispatch_handles),
+            system_context.tasker_config.clone(),
+        );
+
+        #[cfg(not(feature = "web-api"))]
+        let handle = Self::create_system_handle(
+            worker_core,
+            shutdown_sender,
+            runtime_handle,
+            config,
+            Some(dispatch_handles),
+            system_context.tasker_config.clone(),
+        );
+
+        info!("Unified worker system bootstrap completed successfully");
+        Ok(handle)
+    }
+
+    // =========================================================================
+    // Step 1: Initialize system context and worker core
+    // =========================================================================
+
+    /// Initialize the system context and worker core, then start the core.
+    async fn initialize_worker_core(
+        event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
+    ) -> TaskerResult<(Arc<SystemContext>, Arc<Mutex<WorkerCore>>, DispatchHandles)> {
         // TAS-50 Phase 2: Use worker-specific context loading
         // This loads only CommonConfig + WorkerConfig from context TOML files
         let system_context = Arc::new(SystemContext::new_for_worker().await?);
@@ -314,13 +490,9 @@ impl WorkerBootstrap {
         )
         .await?;
 
-        // TAS-67: Store dispatch_handles for language-specific handler dispatch.
-        // Call handle.take_dispatch_handles() to spawn HandlerDispatchService (Rust)
-        // or bridge to FfiDispatchChannel (Ruby/Python).
-
-        info!("WorkerCore initialized with WorkerEventSystem architecture",);
-        info!("   - Event-driven processing enabled with deployment modes support",);
-        info!("   - Fallback polling for reliability and hybrid deployment mode",);
+        info!("WorkerCore initialized with WorkerEventSystem architecture");
+        info!("   - Event-driven processing enabled with deployment modes support");
+        info!("   - Fallback polling for reliability and hybrid deployment mode");
 
         // Start the worker core before wrapping in Arc<Mutex<>>
         worker_core
@@ -333,67 +505,225 @@ impl WorkerBootstrap {
 
         info!("WorkerCore started successfully with background processing");
 
-        // TAS-77: Always create WorkerWebState for service access via FFI
-        // The HTTP server is optional, but the services are always needed
-        info!("Creating worker web API state (services always available for FFI)");
+        Ok((system_context, worker_core, dispatch_handles))
+    }
 
-        // Clone the Arc<Mutex<WorkerCore>> for web API
-        let web_worker_core = worker_core.clone();
+    // =========================================================================
+    // Step 2: Create shared services (conditionally)
+    // =========================================================================
 
-        // TAS-164: Get DatabasePools directly (supports pool utilization reporting)
+    /// Determine if any API (REST or gRPC) is enabled in configuration.
+    /// Also checks if the corresponding feature is compiled in.
+    #[cfg(any(feature = "web-api", feature = "grpc-api"))]
+    fn is_any_api_enabled(tasker_config: &TaskerConfig) -> bool {
+        let worker = tasker_config.worker.as_ref();
+
+        #[cfg(feature = "web-api")]
+        let web_enabled = worker
+            .and_then(|w| w.web.as_ref())
+            .map(|web| web.enabled)
+            .unwrap_or(false);
+
+        #[cfg(not(feature = "web-api"))]
+        let web_enabled = false;
+
+        #[cfg(feature = "grpc-api")]
+        let grpc_enabled = worker
+            .and_then(|w| w.grpc.as_ref())
+            .map(|grpc| grpc.enabled)
+            .unwrap_or(false);
+
+        #[cfg(not(feature = "grpc-api"))]
+        let grpc_enabled = false;
+
+        web_enabled || grpc_enabled
+    }
+
+    /// Create shared services only if at least one API (REST or gRPC) is enabled.
+    ///
+    /// TAS-177: SharedWorkerServices are only needed when REST or gRPC APIs are enabled.
+    /// The worker core has its own services, so we don't need to create shared
+    /// services if neither API is being used.
+    #[cfg(any(feature = "web-api", feature = "grpc-api"))]
+    async fn create_shared_services_if_needed(
+        worker_core: &Arc<Mutex<WorkerCore>>,
+        system_context: &Arc<SystemContext>,
+    ) -> TaskerResult<Option<Arc<SharedWorkerServices>>> {
+        if !Self::is_any_api_enabled(&system_context.tasker_config) {
+            info!("No APIs enabled, skipping SharedWorkerServices creation");
+            return Ok(None);
+        }
+
+        // Get database pools from worker core
         let database_pools = {
             let core = worker_core.lock().await;
             core.context.database_pools().clone()
         };
 
-        let web_state = Arc::new(
-            WorkerWebState::new(
-                config.web_config.clone(),
-                web_worker_core,
+        let shared_services = Arc::new(
+            SharedWorkerServices::from_worker_core(
+                worker_core.clone(),
                 database_pools,
                 (*system_context.tasker_config).clone(),
             )
             .await?,
         );
 
-        info!("Worker web API state created successfully (services available via FFI)");
+        info!("Shared worker API services created successfully");
+        Ok(Some(shared_services))
+    }
 
-        // Create runtime handle
-        let runtime_handle = tokio::runtime::Handle::current();
+    // =========================================================================
+    // Step 3: Create web API state
+    // =========================================================================
 
-        // TAS-77: Only start HTTP server if enabled
-        // Services remain accessible via FFI even without the HTTP server
-        if config.enable_web_api {
-            info!("Starting worker web server (HTTP API enabled)");
-
-            let app = crate::web::create_app(web_state.clone());
-            let bind_address = web_state.config.bind_address.clone();
-
-            // Start web server in background
-            let listener = tokio::net::TcpListener::bind(&bind_address)
-                .await
-                .map_err(|e| {
-                    TaskerError::WorkerError(format!("Failed to bind to {}: {}", bind_address, e))
-                })?;
-
-            let server = axum::serve(listener, app);
-
-            // TAS-158: Named spawn for tokio-console visibility
-            tasker_shared::spawn_named!("worker_web_server", async move {
-                if let Err(e) = server.await {
-                    tracing::error!("Worker web server error: {}", e);
-                }
-            });
-
-            info!("Worker web server started on {}", bind_address);
-        } else {
-            info!("HTTP server disabled - services accessible via FFI only");
+    /// Create web API state if the web API is enabled.
+    #[cfg(feature = "web-api")]
+    fn create_web_state_if_enabled(
+        config: &WorkerBootstrapConfig,
+        tasker_config: &TaskerConfig,
+        shared_services: &Option<Arc<SharedWorkerServices>>,
+    ) -> TaskerResult<Option<Arc<WorkerWebState>>> {
+        if !config.enable_web_api {
+            info!("Worker web API disabled in bootstrap config");
+            return Ok(None);
         }
 
-        // TAS-77: web_state is now always Some for FFI access
-        let web_state = Some(web_state);
+        info!("Creating worker web API state");
 
-        // Create shutdown channel
+        // Access web config from worker context (optional)
+        let web_config_opt = tasker_config.worker.as_ref().and_then(|w| w.web.as_ref());
+
+        let Some(web_config) = web_config_opt else {
+            info!("Worker web config not present");
+            return Ok(None);
+        };
+
+        if !web_config.enabled {
+            info!("Worker web API disabled in configuration");
+            return Ok(None);
+        }
+
+        let Some(services) = shared_services else {
+            // This shouldn't happen if is_any_api_enabled is working correctly
+            return Err(TaskerError::ConfigurationError(
+                "Web API enabled but SharedWorkerServices not created".to_string(),
+            ));
+        };
+
+        // TAS-177: Create WorkerWebState from shared services
+        let web_state = Arc::new(WorkerWebState::new(
+            services.clone(),
+            config.web_config.clone(),
+        ));
+
+        info!("Worker web API state created successfully");
+        Ok(Some(web_state))
+    }
+
+    // =========================================================================
+    // Step 4: Start web server
+    // =========================================================================
+
+    /// Start the web server for the given web state.
+    #[cfg(feature = "web-api")]
+    async fn start_web_server(web_state: &Arc<WorkerWebState>) -> TaskerResult<()> {
+        info!("Starting worker web server");
+
+        let app = crate::web::create_app(web_state.clone());
+        let bind_address = web_state.config.bind_address.clone();
+
+        // Start web server in background
+        let listener = tokio::net::TcpListener::bind(&bind_address)
+            .await
+            .map_err(|e| {
+                TaskerError::WorkerError(format!("Failed to bind to {}: {}", bind_address, e))
+            })?;
+
+        let server = axum::serve(listener, app);
+
+        // TAS-158: Named spawn for tokio-console visibility
+        tasker_shared::spawn_named!("worker_web_server", async move {
+            if let Err(e) = server.await {
+                tracing::error!("Worker web server error: {}", e);
+            }
+        });
+
+        info!("Worker web server started on {}", bind_address);
+        Ok(())
+    }
+
+    // =========================================================================
+    // Step 5: Start gRPC server (feature-gated)
+    // =========================================================================
+
+    /// Start the gRPC server if enabled in configuration.
+    #[cfg(feature = "grpc-api")]
+    fn start_grpc_server_if_enabled(
+        tasker_config: &TaskerConfig,
+        shared_services: &Option<Arc<SharedWorkerServices>>,
+    ) -> TaskerResult<Option<crate::grpc::GrpcServerHandle>> {
+        // Access gRPC config from worker context
+        let grpc_config_opt = tasker_config.worker.as_ref().and_then(|w| w.grpc.as_ref());
+
+        let Some(grpc_config) = grpc_config_opt else {
+            info!("Worker gRPC configuration not present");
+            return Ok(None);
+        };
+
+        if !grpc_config.enabled {
+            info!("Worker gRPC server disabled in configuration");
+            return Ok(None);
+        }
+
+        let Some(services) = shared_services else {
+            // This shouldn't happen if is_any_api_enabled is working correctly
+            return Err(TaskerError::ConfigurationError(
+                "gRPC API enabled but SharedWorkerServices not created".to_string(),
+            ));
+        };
+
+        info!(
+            "Starting Worker gRPC server on {}",
+            grpc_config.bind_address
+        );
+
+        // TAS-177: Create WorkerGrpcState from shared services
+        let grpc_state = crate::grpc::WorkerGrpcState::new(services.clone(), grpc_config.clone());
+
+        // Create and spawn the gRPC server
+        let grpc_server = crate::grpc::GrpcServer::new(grpc_config.clone(), grpc_state);
+        let grpc_handle = grpc_server.spawn();
+
+        let grpc_bind_address = grpc_handle.bind_address().to_string();
+        info!("Worker gRPC server started on {}", grpc_bind_address);
+        info!(
+            "   TLS: {}",
+            if grpc_config.tls_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
+        info!(
+            "   Reflection: {}",
+            if grpc_config.enable_reflection {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
+
+        Ok(Some(grpc_handle))
+    }
+
+    // =========================================================================
+    // Step 6: Setup shutdown handler
+    // =========================================================================
+
+    /// Create shutdown channel and spawn the shutdown handler.
+    fn setup_shutdown_handler() -> (oneshot::Sender<()>, tokio::runtime::Handle) {
+        let runtime_handle = tokio::runtime::Handle::current();
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
 
         // TAS-158: Named spawn for tokio-console visibility
@@ -403,21 +733,83 @@ impl WorkerBootstrap {
             }
         });
 
-        let handle = WorkerSystemHandle::new(
+        (shutdown_sender, runtime_handle)
+    }
+
+    // =========================================================================
+    // Step 7: Create system handle
+    // =========================================================================
+
+    /// Create the worker system handle (with grpc-api, which implies web-api).
+    #[cfg(feature = "grpc-api")]
+    fn create_system_handle(
+        worker_core: Arc<Mutex<WorkerCore>>,
+        shared_services: Option<Arc<SharedWorkerServices>>,
+        web_state: Option<Arc<WorkerWebState>>,
+        grpc_server_handle: Option<crate::grpc::GrpcServerHandle>,
+        shutdown_sender: oneshot::Sender<()>,
+        runtime_handle: tokio::runtime::Handle,
+        config: WorkerBootstrapConfig,
+        dispatch_handles: Option<DispatchHandles>,
+        tasker_config: Arc<TaskerConfig>,
+    ) -> WorkerSystemHandle {
+        WorkerSystemHandle::new(
             worker_core,
+            shared_services,
+            web_state,
+            grpc_server_handle,
+            shutdown_sender,
+            runtime_handle,
+            config,
+            dispatch_handles,
+            tasker_config,
+        )
+    }
+
+    /// Create the worker system handle (web-api only, no gRPC).
+    #[cfg(all(feature = "web-api", not(feature = "grpc-api")))]
+    fn create_system_handle(
+        worker_core: Arc<Mutex<WorkerCore>>,
+        shared_services: Option<Arc<SharedWorkerServices>>,
+        web_state: Option<Arc<WorkerWebState>>,
+        shutdown_sender: oneshot::Sender<()>,
+        runtime_handle: tokio::runtime::Handle,
+        config: WorkerBootstrapConfig,
+        dispatch_handles: Option<DispatchHandles>,
+        tasker_config: Arc<TaskerConfig>,
+    ) -> WorkerSystemHandle {
+        WorkerSystemHandle::new(
+            worker_core,
+            shared_services,
             web_state,
             shutdown_sender,
             runtime_handle,
             config,
-            Some(dispatch_handles), // TAS-67: Store for language-specific handler dispatch
-        );
+            dispatch_handles,
+            tasker_config,
+        )
+    }
 
-        info!("Unified worker system bootstrap completed successfully");
-        Ok(handle)
+    /// Create the worker system handle (no API features).
+    #[cfg(not(feature = "web-api"))]
+    fn create_system_handle(
+        worker_core: Arc<Mutex<WorkerCore>>,
+        shutdown_sender: oneshot::Sender<()>,
+        runtime_handle: tokio::runtime::Handle,
+        config: WorkerBootstrapConfig,
+        dispatch_handles: Option<DispatchHandles>,
+        tasker_config: Arc<TaskerConfig>,
+    ) -> WorkerSystemHandle {
+        WorkerSystemHandle::new(
+            worker_core,
+            shutdown_sender,
+            runtime_handle,
+            config,
+            dispatch_handles,
+            tasker_config,
+        )
     }
 }
-
-// Re-export WorkerSystemStatus from above for consistency
 
 #[cfg(test)]
 mod tests {

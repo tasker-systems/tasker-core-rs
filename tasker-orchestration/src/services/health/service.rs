@@ -12,10 +12,9 @@ use sqlx::PgPool;
 use tokio::sync::RwLock;
 use tracing::{debug, error};
 
+use crate::api_common::{CircuitState, OrchestrationStatus, WebDatabaseCircuitBreaker};
 use crate::health::QueueDepthTier;
 use crate::orchestration::core::{OrchestrationCore, OrchestrationCoreStatus};
-use crate::web::circuit_breaker::{CircuitState, WebDatabaseCircuitBreaker};
-use crate::web::state::OrchestrationStatus;
 use tasker_shared::metrics::channels::global_registry;
 use tasker_shared::types::api::health::build_pool_utilization;
 use tasker_shared::types::api::orchestration::{

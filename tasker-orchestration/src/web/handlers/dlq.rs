@@ -168,7 +168,7 @@ pub async fn list_dlq_entries(
     );
 
     // Delegate to model layer
-    let entries = DlqEntry::list(&state.orchestration_db_pool, params.into())
+    let entries = DlqEntry::list(state.orchestration_db_pool(), params.into())
         .await
         .map_err(|e| {
             error!("Failed to fetch DLQ entries: {}", e);
@@ -221,7 +221,7 @@ pub async fn get_dlq_entry(
     debug!(task_uuid = %task_uuid, "Fetching DLQ entry with task snapshot");
 
     // Delegate to model layer
-    let entry = DlqEntry::find_by_task(&state.orchestration_db_pool, task_uuid)
+    let entry = DlqEntry::find_by_task(state.orchestration_db_pool(), task_uuid)
         .await
         .map_err(|e| {
             error!("Failed to fetch DLQ entry for task {}: {}", task_uuid, e);
@@ -298,7 +298,7 @@ pub async fn update_dlq_investigation(
 
     // Delegate to model layer
     let updated = DlqEntry::update_investigation(
-        &state.orchestration_db_pool,
+        state.orchestration_db_pool(),
         dlq_entry_uuid,
         payload.into(),
     )
@@ -366,7 +366,7 @@ pub async fn get_dlq_stats(State(state): State<AppState>) -> ApiResult<Json<Vec<
     debug!("Fetching DLQ statistics");
 
     // Delegate to model layer
-    let stats = DlqEntry::get_stats(&state.orchestration_db_pool)
+    let stats = DlqEntry::get_stats(state.orchestration_db_pool())
         .await
         .map_err(|e| {
             error!("Failed to fetch DLQ statistics: {}", e);
@@ -431,7 +431,7 @@ pub async fn get_investigation_queue(
     debug!(limit = params.limit, "Fetching DLQ investigation queue");
 
     // Delegate to model layer
-    let queue = DlqEntry::list_investigation_queue(&state.orchestration_db_pool, params.limit)
+    let queue = DlqEntry::list_investigation_queue(state.orchestration_db_pool(), params.limit)
         .await
         .map_err(|e| {
             error!("Failed to fetch investigation queue: {}", e);
@@ -503,12 +503,13 @@ pub async fn get_staleness_monitoring(
     debug!(limit = params.limit, "Fetching staleness monitoring data");
 
     // Delegate to model layer
-    let monitoring = DlqEntry::get_staleness_monitoring(&state.orchestration_db_pool, params.limit)
-        .await
-        .map_err(|e| {
-            error!("Failed to fetch staleness monitoring: {}", e);
-            ApiError::database_error(format!("Failed to fetch staleness monitoring: {}", e))
-        })?;
+    let monitoring =
+        DlqEntry::get_staleness_monitoring(state.orchestration_db_pool(), params.limit)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch staleness monitoring: {}", e);
+                ApiError::database_error(format!("Failed to fetch staleness monitoring: {}", e))
+            })?;
 
     info!(
         monitoring_count = monitoring.len(),

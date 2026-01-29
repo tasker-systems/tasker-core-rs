@@ -1,5 +1,6 @@
 # Tasker Configuration - Auth-Enabled Test
 # Environment: test (with authentication enabled)
+# Based on: config/tasker/generated/complete-test.toml
 #
 # This file mirrors config/tasker/generated/complete-test.toml with auth enabled and API keys configured.
 # Used by: cargo make test-auth-e2e
@@ -9,6 +10,7 @@
 # - worker.web.auth.enabled = true
 # - API keys configured with varying permissions
 # - JWT configured to use public_key_path (set via TASKER_JWT_PUBLIC_KEY_PATH env var)
+#
 
 [common.backoff]
 backoff_multiplier = 2.0
@@ -38,17 +40,22 @@ enabled = true
 key_prefix = "tasker"
 template_ttl_seconds = 300
 
+[common.cache.moka]
+max_capacity = 10000
+
 [common.cache.redis]
 connection_timeout_seconds = 5
 database = 0
 max_connections = 10
 url = "${REDIS_URL:-redis://localhost:6379}"
 
-[common.cache.moka]
-max_capacity = 10000
-
 [common.circuit_breakers]
 enabled = true
+
+[common.circuit_breakers.component_configs.cache]
+failure_threshold = 5
+success_threshold = 2
+timeout_seconds = 15
 
 [common.circuit_breakers.component_configs.pgmq]
 failure_threshold = 5
@@ -59,11 +66,6 @@ timeout_seconds = 30
 failure_threshold = 10
 success_threshold = 3
 timeout_seconds = 60
-
-[common.circuit_breakers.component_configs.cache]
-failure_threshold = 5
-success_threshold = 2
-timeout_seconds = 15
 
 [common.circuit_breakers.default_config]
 failure_threshold = 5
@@ -81,11 +83,12 @@ skip_migration_check = false
 url = "${DATABASE_URL:-postgresql://tasker:tasker@localhost:5432/tasker_rust_test}"
 
 [common.database.pool]
-acquire_timeout_seconds = 10
+acquire_timeout_seconds = 30
 idle_timeout_seconds = 60
-max_connections = 20
+max_connections = 30
 max_lifetime_seconds = 3600
-min_connections = 1
+min_connections = 2
+slow_acquire_threshold_ms = 500
 
 [common.database.variables]
 statement_timeout = 5000
@@ -127,6 +130,7 @@ idle_timeout_seconds = 60
 max_connections = 10
 max_lifetime_seconds = 3600
 min_connections = 1
+slow_acquire_threshold_ms = 500
 
 [common.queues]
 backend = "${TASKER_MESSAGING_BACKEND:-pgmq}"
@@ -278,6 +282,17 @@ health_check_interval_seconds = 30
 processing_timeout_seconds = 60
 visibility_timeout_seconds = 30
 
+[orchestration.grpc]
+bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9190}"
+enable_health_service = true
+enable_reflection = true
+enabled = true
+keepalive_interval_seconds = 30
+keepalive_timeout_seconds = 20
+max_concurrent_streams = 200
+max_frame_size = 16384
+tls_enabled = false
+
 [orchestration.mpsc_channels.command_processor]
 command_buffer_size = 100
 
@@ -289,9 +304,9 @@ event_channel_buffer_size = 100
 
 [orchestration.web]
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
+config_endpoint_enabled = true
 enabled = true
 request_timeout_ms = 30000
-config_endpoint_enabled = true
 
 [orchestration.web.auth]
 enabled = true
@@ -330,36 +345,6 @@ description = "Tasks-only test API key"
 key = "test-api-key-no-permissions"
 permissions = []
 description = "No permissions test API key"
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "POST"
-path = "/v1/tasks"
-required = false
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "DELETE"
-path = "/v1/tasks/{task_uuid}"
-required = true
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "PATCH"
-path = "/v1/tasks/{task_uuid}/workflow_steps/{step_uuid}"
-required = true
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "GET"
-path = "/v1/analytics/performance"
-required = false
-
-[[orchestration.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "GET"
-path = "/v1/analytics/bottlenecks"
-required = false
 
 [orchestration.web.database_pools]
 max_total_connections_hint = 30
@@ -435,6 +420,17 @@ health_check_interval_seconds = 30
 processing_timeout_seconds = 60
 visibility_timeout_seconds = 30
 
+[worker.grpc]
+bind_address = "${TASKER_WORKER_GRPC_BIND_ADDRESS:-0.0.0.0:9191}"
+enable_health_service = true
+enable_reflection = true
+enabled = true
+keepalive_interval_seconds = 10
+keepalive_timeout_seconds = 5
+max_concurrent_streams = 1000
+max_frame_size = 16384
+tls_enabled = false
+
 [worker.health_monitoring]
 error_rate_threshold = 0.05
 health_check_interval_seconds = 10
@@ -493,9 +489,9 @@ max_retries = 3
 
 [worker.web]
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
+config_endpoint_enabled = true
 enabled = true
 request_timeout_ms = 30000
-config_endpoint_enabled = true
 
 [worker.web.auth]
 enabled = true
@@ -529,22 +525,6 @@ description = "Worker read-only test API key"
 key = "test-api-key-no-permissions"
 permissions = []
 description = "No permissions test API key"
-
-[[worker.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "GET"
-path = "/status/detailed"
-required = false
-
-[[worker.web.auth.protected_routes]]
-auth_type = "bearer"
-method = "GET"
-path = "/handlers"
-required = false
-
-# TAS-169: Template routes moved to /v1/templates, cache operations removed
-# Old routes removed: DELETE /templates/cache, POST /templates/cache/maintain,
-# POST /templates/{namespace}/{name}/{version}/refresh
 
 [worker.web.database_pools]
 max_total_connections_hint = 15

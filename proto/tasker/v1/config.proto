@@ -1,0 +1,104 @@
+// Configuration service definitions for Tasker gRPC API
+// See: tasker-shared/src/types/api/orchestration.rs (OrchestrationConfigResponse)
+//
+// NOTE: This endpoint returns SAFE configuration only - no secrets, credentials,
+// keys, or database URLs. Adding new fields requires conscious security review.
+syntax = "proto3";
+
+package tasker.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "com.tasker.v1";
+
+// ConfigService provides safe runtime configuration information
+service ConfigService {
+  // Get current configuration (safe fields only)
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+}
+
+// Request to get configuration
+message GetConfigRequest {
+  // No parameters - always returns safe configuration
+}
+
+// Response containing safe configuration
+// Matches OrchestrationConfigResponse from REST API
+message GetConfigResponse {
+  // Response metadata
+  ConfigMetadata metadata = 1;
+  // Auth configuration (safe fields only)
+  SafeAuthConfig auth = 2;
+  // Circuit breaker configuration
+  SafeCircuitBreakerConfig circuit_breakers = 3;
+  // Database pool configuration
+  SafeDatabasePoolConfig database_pools = 4;
+  // Deployment mode (e.g., "Hybrid", "EventDrivenOnly", "PollingOnly")
+  string deployment_mode = 5;
+  // Messaging configuration
+  SafeMessagingConfig messaging = 6;
+}
+
+// Response metadata
+// Matches ConfigMetadata from REST API
+message ConfigMetadata {
+  // When the configuration was retrieved
+  google.protobuf.Timestamp timestamp = 1;
+  // Environment name (test, development, production)
+  string environment = 2;
+  // Service version
+  string version = 3;
+}
+
+// Safe auth configuration (no secrets)
+// Matches SafeAuthConfig from REST API
+message SafeAuthConfig {
+  // Whether authentication is enabled
+  bool enabled = 1;
+  // Verification method: "public_key", "jwks", or "none"
+  string verification_method = 2;
+  // JWT issuer
+  string jwt_issuer = 3;
+  // JWT audience
+  string jwt_audience = 4;
+  // API key header name
+  string api_key_header = 5;
+  // Number of configured API keys (not their values)
+  int32 api_key_count = 6;
+  // Whether strict validation is enabled
+  bool strict_validation = 7;
+  // Allowed JWT algorithms
+  repeated string allowed_algorithms = 8;
+}
+
+// Safe circuit breaker configuration
+// Matches SafeCircuitBreakerConfig from REST API
+message SafeCircuitBreakerConfig {
+  // Whether circuit breakers are enabled
+  bool enabled = 1;
+  // Failure threshold before opening
+  uint32 failure_threshold = 2;
+  // Timeout in seconds before attempting recovery
+  uint32 timeout_seconds = 3;
+  // Success threshold to close circuit
+  uint32 success_threshold = 4;
+}
+
+// Safe database pool configuration
+// Matches SafeDatabasePoolConfig from REST API
+message SafeDatabasePoolConfig {
+  // Web API connection pool size
+  uint32 web_api_pool_size = 1;
+  // Web API maximum connections
+  uint32 web_api_max_connections = 2;
+}
+
+// Safe messaging configuration
+// Matches SafeMessagingConfig from REST API
+message SafeMessagingConfig {
+  // Backend type: "pgmq" or "rabbitmq"
+  string backend = 1;
+  // Queue names owned by this component
+  repeated string queues = 2;
+}

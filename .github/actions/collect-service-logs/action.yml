@@ -1,0 +1,37 @@
+name: "Collect Service Logs"
+description: "Collects service logs on failure and uploads as artifacts"
+author: "Tasker Systems"
+
+inputs:
+  artifact-name:
+    description: "Name for the uploaded artifact"
+    required: true
+  log-files:
+    description: "Space-separated list of log files to collect"
+    required: false
+    default: "orchestration.log worker.log ruby-worker.log python-worker.log typescript-worker.log"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Collect service logs
+      shell: bash
+      run: |
+        mkdir -p service-logs
+        echo "📋 Collecting service logs..."
+        for logfile in ${{ inputs.log-files }}; do
+          if [ -f "$logfile" ]; then
+            cp "$logfile" service-logs/
+            echo "  ✓ Collected: $logfile"
+          fi
+        done
+        if [ -z "$(ls -A service-logs 2>/dev/null)" ]; then
+          echo "  (no log files found)"
+        fi
+
+    - name: Upload service logs
+      uses: actions/upload-artifact@v6
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: service-logs/
+        if-no-files-found: ignore

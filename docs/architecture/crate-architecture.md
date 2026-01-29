@@ -280,6 +280,27 @@ pub mod web {
     pub async fn health_check() -> Result<HealthResponse>;
 }
 
+// gRPC API (Tonic) - TAS-177
+// Feature-gated behind `grpc-api`
+pub mod grpc {
+    pub struct GrpcServer { /* ... */ }
+    pub struct GrpcState { /* wraps Arc<SharedApiServices> */ }
+
+    pub mod services {
+        pub struct TaskServiceImpl { /* 6 RPCs */ }
+        pub struct StepServiceImpl { /* 4 RPCs */ }
+        pub struct TemplateServiceImpl { /* 2 RPCs */ }
+        pub struct HealthServiceImpl { /* 4 RPCs */ }
+        pub struct AnalyticsServiceImpl { /* 2 RPCs */ }
+        pub struct DlqServiceImpl { /* 6 RPCs */ }
+        pub struct ConfigServiceImpl { /* 1 RPC */ }
+    }
+
+    pub mod interceptors {
+        pub struct AuthInterceptor { /* Bearer token, API key */ }
+    }
+}
+
 // Event systems
 pub mod event_systems {
     pub struct OrchestrationEventSystem { /* ... */ }
@@ -311,6 +332,28 @@ See [Actor-Based Architecture](actors.md) for comprehensive documentation.
 - `tower-http` - HTTP middleware
 
 **Deployment**: Typically deployed as a server process (`tasker-server` binary)
+
+**Dual-Server Architecture (TAS-177)**:
+
+Orchestration supports both REST and gRPC APIs running simultaneously via `SharedApiServices`:
+
+```rust
+pub struct SharedApiServices {
+    pub security_service: Option<Arc<SecurityService>>,
+    pub task_service: TaskService,
+    pub step_service: StepService,
+    pub health_service: HealthService,
+    // ... other services
+}
+
+// Both APIs share the same service instances
+AppState { services: Arc<SharedApiServices>, ... }   // REST
+GrpcState { services: Arc<SharedApiServices>, ... }  // gRPC
+```
+
+**Port Allocation**:
+- REST: 8080 (configurable)
+- gRPC: 9190 (configurable)
 
 ---
 
@@ -387,16 +430,33 @@ pub mod event_systems {
 
 **Public API**:
 ```rust
-pub struct OrchestrationClient {
+// REST client
+pub struct RestOrchestrationClient {
     pub async fn new(base_url: &str) -> Result<Self>;
+    // Task, step, template, health operations
+}
 
-    // Task operations
-    pub async fn create_task(&self, request: TaskRequest) -> Result<TaskResponse>;
-    pub async fn get_task(&self, uuid: Uuid) -> Result<TaskResponse>;
-    pub async fn list_tasks(&self, filters: TaskFilters) -> Result<Vec<TaskResponse>>;
+// gRPC client (TAS-177, feature-gated)
+#[cfg(feature = "grpc")]
+pub struct GrpcOrchestrationClient {
+    pub async fn connect(endpoint: &str) -> Result<Self>;
+    pub async fn connect_with_auth(endpoint: &str, auth: GrpcAuthConfig) -> Result<Self>;
+    // Same operations as REST client
+}
 
-    // Health checks
-    pub async fn health_check(&self) -> Result<HealthResponse>;
+// Transport-agnostic client
+pub enum UnifiedOrchestrationClient {
+    Rest(Box<RestOrchestrationClient>),
+    Grpc(Box<GrpcOrchestrationClient>),
+}
+
+// Client trait for transport abstraction
+pub trait OrchestrationClient: Send + Sync {
+    async fn create_task(&self, request: TaskRequest) -> Result<TaskResponse>;
+    async fn get_task(&self, uuid: Uuid) -> Result<TaskResponse>;
+    async fn list_tasks(&self, filters: TaskFilters) -> Result<Vec<TaskResponse>>;
+    async fn health_check(&self) -> Result<HealthResponse>;
+    // ... more operations
 }
 ```
 

@@ -65,22 +65,14 @@ jobs:
       - name: Setup Rust (for maturin build)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust build artifacts
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
 
       - name: Install tools
         uses: ./.github/actions/install-tools

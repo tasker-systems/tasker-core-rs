@@ -1,0 +1,303 @@
+// Worker-specific service definitions for Tasker gRPC API
+// These messages match the worker REST API types exactly.
+// See: tasker-shared/src/types/api/worker.rs
+// See: tasker-shared/src/types/api/orchestration.rs (WorkerConfigResponse, SafeAuthConfig, etc.)
+syntax = "proto3";
+
+package tasker.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tasker/v1/config.proto";  // Reuse SafeAuthConfig, SafeMessagingConfig, ConfigMetadata
+
+option java_multiple_files = true;
+option java_package = "com.tasker.v1";
+
+// ============================================================================
+// Worker Config Service (matches WorkerConfigResponse)
+// ============================================================================
+
+// Worker-specific ConfigService with worker config response type
+service WorkerConfigService {
+  // Get worker configuration (safe fields only)
+  rpc GetConfig(WorkerGetConfigRequest) returns (WorkerGetConfigResponse);
+}
+
+// Request to get worker configuration
+message WorkerGetConfigRequest {
+  // No parameters - always returns safe configuration
+}
+
+// Worker configuration response
+// Matches WorkerConfigResponse from REST API exactly
+message WorkerGetConfigResponse {
+  // Response metadata
+  ConfigMetadata metadata = 1;
+  // Worker identifier
+  string worker_id = 2;
+  // Worker type (rust, ruby, python, typescript)
+  string worker_type = 3;
+  // Auth configuration (safe fields only)
+  SafeAuthConfig auth = 4;
+  // Messaging configuration
+  SafeMessagingConfig messaging = 5;
+}
+
+// ============================================================================
+// Worker Health Service (matches worker-specific health types)
+// ============================================================================
+
+// Worker-specific HealthService with worker health response types
+service WorkerHealthService {
+  // Basic health check (GET /health)
+  rpc CheckHealth(WorkerHealthRequest) returns (WorkerBasicHealthResponse);
+
+  // Liveness check (GET /live)
+  rpc CheckLiveness(WorkerLivenessRequest) returns (WorkerBasicHealthResponse);
+
+  // Readiness check (GET /ready)
+  rpc CheckReadiness(WorkerReadinessRequest) returns (WorkerReadinessResponse);
+
+  // Detailed health check (GET /health/detailed)
+  rpc CheckDetailedHealth(WorkerDetailedHealthRequest) returns (WorkerDetailedHealthResponse);
+}
+
+// Request messages
+message WorkerHealthRequest {}
+message WorkerLivenessRequest {}
+message WorkerReadinessRequest {}
+message WorkerDetailedHealthRequest {}
+
+// Basic health check response
+// Matches BasicHealthResponse from worker REST API
+message WorkerBasicHealthResponse {
+  // Status: "healthy", "degraded", "unhealthy"
+  string status = 1;
+  // ISO 8601 timestamp
+  google.protobuf.Timestamp timestamp = 2;
+  // Worker identifier
+  string worker_id = 3;
+}
+
+// Worker readiness response
+// Matches ReadinessResponse from worker REST API
+message WorkerReadinessResponse {
+  // Status: "healthy", "degraded", "unhealthy"
+  string status = 1;
+  // ISO 8601 timestamp
+  google.protobuf.Timestamp timestamp = 2;
+  // Worker identifier
+  string worker_id = 3;
+  // Readiness checks
+  WorkerReadinessChecks checks = 4;
+  // System information
+  WorkerSystemInfo system_info = 5;
+}
+
+// Worker detailed health response
+// Matches DetailedHealthResponse from worker REST API
+message WorkerDetailedHealthResponse {
+  // Status: "healthy", "degraded", "unhealthy"
+  string status = 1;
+  // ISO 8601 timestamp
+  google.protobuf.Timestamp timestamp = 2;
+  // Worker identifier
+  string worker_id = 3;
+  // Detailed health checks
+  WorkerDetailedChecks checks = 4;
+  // System information
+  WorkerSystemInfo system_info = 5;
+  // Distributed cache information (optional)
+  optional DistributedCacheInfo distributed_cache = 6;
+}
+
+// Worker readiness checks
+// Matches WorkerReadinessChecks from REST API
+message WorkerReadinessChecks {
+  WorkerHealthCheck database = 1;
+  WorkerHealthCheck command_processor = 2;
+  WorkerHealthCheck queue_processing = 3;
+}
+
+// Worker detailed checks
+// Matches WorkerDetailedChecks from REST API
+message WorkerDetailedChecks {
+  WorkerHealthCheck database = 1;
+  WorkerHealthCheck command_processor = 2;
+  WorkerHealthCheck queue_processing = 3;
+  WorkerHealthCheck event_system = 4;
+  WorkerHealthCheck step_processing = 5;
+  WorkerHealthCheck circuit_breakers = 6;
+}
+
+// Individual health check result for worker
+// Matches HealthCheck from worker REST API
+message WorkerHealthCheck {
+  // Status: "healthy", "degraded", "unhealthy"
+  string status = 1;
+  // Optional message with details
+  optional string message = 2;
+  // Check duration in milliseconds
+  uint64 duration_ms = 3;
+  // ISO 8601 timestamp of last check
+  google.protobuf.Timestamp last_checked = 4;
+}
+
+// Worker system information
+// Matches WorkerSystemInfo from REST API
+message WorkerSystemInfo {
+  string version = 1;
+  string environment = 2;
+  uint64 uptime_seconds = 3;
+  string worker_type = 4;
+  uint32 database_pool_size = 5;
+  bool command_processor_active = 6;
+  repeated string supported_namespaces = 7;
+  // Optional pool utilization details (TAS-164)
+  optional WorkerPoolUtilizationInfo pool_utilization = 8;
+}
+
+// Distributed cache information
+// Matches DistributedCacheInfo from worker REST API
+message DistributedCacheInfo {
+  // Whether distributed caching is enabled
+  bool enabled = 1;
+  // Cache provider name ("redis" or "noop")
+  string provider = 2;
+  // Whether the cache backend is healthy
+  bool healthy = 3;
+}
+
+// Worker pool utilization info
+// Matches PoolUtilizationInfo from tasker-shared/src/types/api/health.rs
+message WorkerPoolUtilizationInfo {
+  WorkerPoolDetail tasker_pool = 1;
+  WorkerPoolDetail pgmq_pool = 2;
+}
+
+// Individual pool detail for worker (TAS-164)
+// Matches PoolDetail from tasker-shared/src/types/api/health.rs
+// All 9 fields from SQLx pool statistics snapshots
+message WorkerPoolDetail {
+  // Active connections (currently in use)
+  uint32 active_connections = 1;
+  // Idle connections (available in pool)
+  uint32 idle_connections = 2;
+  // Maximum pool capacity
+  uint32 max_connections = 3;
+  // Utilization percentage (0.0-100.0)
+  double utilization_percent = 4;
+  // Total connection acquisitions since startup
+  uint64 total_acquires = 5;
+  // Acquisitions that took longer than configured threshold
+  uint64 slow_acquires = 6;
+  // Failed connection acquisitions
+  uint64 acquire_errors = 7;
+  // Average time to acquire a connection (milliseconds)
+  double average_acquire_time_ms = 8;
+  // Maximum time to acquire a connection (milliseconds)
+  double max_acquire_time_ms = 9;
+}
+
+// ============================================================================
+// Worker Template Service (matches worker-specific template types)
+// ============================================================================
+
+// Worker-specific TemplateService with worker template response types
+service WorkerTemplateService {
+  // List available templates
+  rpc ListTemplates(WorkerListTemplatesRequest) returns (WorkerTemplateListResponse);
+
+  // Get a specific template
+  rpc GetTemplate(WorkerGetTemplateRequest) returns (WorkerTemplateResponse);
+}
+
+// Request to list templates
+message WorkerListTemplatesRequest {
+  // Filter by namespace (optional)
+  optional string namespace = 1;
+  // Include cache statistics
+  bool include_cache_stats = 2;
+}
+
+// Worker template list response
+// Matches TemplateListResponse from worker REST API
+message WorkerTemplateListResponse {
+  // List of supported namespaces (simple strings, not summaries)
+  repeated string supported_namespaces = 1;
+  // Total template count
+  int64 template_count = 2;
+  // Cache statistics (optional)
+  optional CacheStats cache_stats = 3;
+  // Worker capabilities
+  repeated string worker_capabilities = 4;
+}
+
+// Cache statistics
+// Matches CacheStats from tasker-shared/src/types/base.rs
+message CacheStats {
+  // Total number of cached entries
+  uint64 total_cached = 1;
+  // Cache hit count
+  uint64 cache_hits = 2;
+  // Cache miss count
+  uint64 cache_misses = 3;
+  // Cache eviction count
+  uint64 cache_evictions = 4;
+  // Age of oldest entry in seconds
+  uint64 oldest_entry_age_seconds = 5;
+  // Average access count per entry
+  double average_access_count = 6;
+  // List of supported namespaces
+  repeated string supported_namespaces = 7;
+}
+
+// Request to get a specific template
+message WorkerGetTemplateRequest {
+  string namespace = 1;
+  string name = 2;
+  string version = 3;
+}
+
+// Worker template response
+// Matches TemplateResponse from worker REST API
+message WorkerTemplateResponse {
+  // The resolved template
+  WorkerResolvedTemplate template = 1;
+  // Handler metadata
+  WorkerHandlerMetadata handler_metadata = 2;
+  // Whether template was served from cache
+  bool cached = 3;
+  // Cache age in seconds (if cached)
+  optional uint64 cache_age_seconds = 4;
+  // Access count (if tracked)
+  optional uint64 access_count = 5;
+}
+
+// Resolved template for worker
+// Matches ResolvedTaskTemplate from REST API (simplified for worker use)
+message WorkerResolvedTemplate {
+  string name = 1;
+  string namespace = 2;
+  string version = 3;
+  optional string description = 4;
+  repeated WorkerStepDefinition steps = 5;
+}
+
+// Step definition for worker template
+// Matches step definition fields from TaskTemplate
+message WorkerStepDefinition {
+  string name = 1;
+  optional string description = 2;
+  bool retryable = 3;
+  int32 max_attempts = 4;
+}
+
+// Handler metadata
+// Matches HandlerMetadata from REST API
+message WorkerHandlerMetadata {
+  string namespace = 1;
+  string handler_name = 2;
+  string version = 3;
+  optional string description = 4;
+  repeated string step_names = 5;
+}

@@ -23,13 +23,13 @@ use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use crate::actors::OrchestrationCommandProcessorActor;
+use crate::api_common::WebDatabaseCircuitBreaker;
 use crate::health::{BackpressureChecker, HealthStatusCaches, StatusEvaluator};
 use crate::orchestration::channels::OrchestrationCommandSender;
 use crate::orchestration::commands::{
     OrchestrationCommand, OrchestrationProcessingStats, SystemHealth,
 };
 use crate::orchestration::staleness_detector::StalenessDetector;
-use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 
 /// TAS-40 Command Pattern OrchestrationCore
 ///

@@ -82,7 +82,9 @@ impl PythonBridgeHandle {
 
     /// Stop the worker system
     pub fn stop(&mut self) -> Result<(), String> {
-        self.system_handle.stop().map_err(|e| e.to_string())
+        self.runtime
+            .block_on(self.system_handle.stop())
+            .map_err(|e| e.to_string())
     }
 
     /// Get a reference to the tokio runtime handle

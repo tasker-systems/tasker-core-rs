@@ -57,7 +57,7 @@ async fn test_concurrent_task_creation_across_instances() -> Result<()> {
     for (i, response) in responses.iter().enumerate() {
         assert!(!response.task_uuid.is_empty(), "Task {} has empty UUID", i);
         assert!(
-            response.step_count > 0,
+            response.total_steps > 0,
             "Task {} has no steps: {}",
             i,
             response.task_uuid
@@ -66,7 +66,7 @@ async fn test_concurrent_task_creation_across_instances() -> Result<()> {
             "      Task {}: {} ({} steps)",
             i + 1,
             response.task_uuid,
-            response.step_count
+            response.total_steps
         );
     }
 

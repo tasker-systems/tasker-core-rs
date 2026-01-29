@@ -22,3 +22,8 @@ enabled = true                   # Enable batch processing for development
 max_parallel_batches = 25        # Moderate limit for dev
 default_batch_size = 500         # Moderate batch size
 checkpoint_stall_minutes = 5     # Faster stall detection for dev iteration
+
+# TAS-177: gRPC Configuration Overrides for Development Environment
+[orchestration.grpc]
+enabled = true
+enable_reflection = true         # Enable reflection for grpcurl/grpcui debugging

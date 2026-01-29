@@ -53,11 +53,13 @@ RUNTIME_TYPE="cargo"  # cargo, bundle, uv, or bun
 case "$SERVICE_TYPE" in
     orchestration)
         BASE_PORT="${BASE_PORT:-8080}"
+        GRPC_BASE_PORT="${TASKER_ORCHESTRATION_GRPC_BASE_PORT:-9090}"
         START_CMD="cargo run --release -p tasker-orchestration --bin tasker-server"
         RUNTIME_TYPE="cargo"
         ;;
     worker-rust)
         BASE_PORT="${BASE_PORT:-8100}"
+        GRPC_BASE_PORT="${TASKER_WORKER_RUST_GRPC_BASE_PORT:-9100}"
         START_CMD="cargo run --release -p tasker-worker-rust"
         RUNTIME_TYPE="cargo"
         ;;
@@ -215,11 +217,25 @@ for i in $(seq 1 "$COUNT"); do
                 ;;
         esac
 
+        # TAS-177: Calculate gRPC port for services that have gRPC enabled
+        GRPC_BIND_ENV=""
+        if [ "$SERVICE_TYPE" = "orchestration" ]; then
+            GRPC_PORT=$((GRPC_BASE_PORT + i - 1))
+            export TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS="0.0.0.0:$GRPC_PORT"
+            GRPC_BIND_ENV="TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS"
+        elif [ "$SERVICE_TYPE" = "worker-rust" ]; then
+            GRPC_PORT=$((GRPC_BASE_PORT + i - 1))
+            export TASKER_WORKER_GRPC_BIND_ADDRESS="0.0.0.0:$GRPC_PORT"
+            GRPC_BIND_ENV="TASKER_WORKER_GRPC_BIND_ADDRESS"
+        fi
+
         TASKER_CONFIG_PATH="$CONFIG_PATH" \
         TASKER_TEMPLATE_PATH="$TEMPLATE_PATH" \
         TASKER_INSTANCE_ID="$INSTANCE_ID" \
         TASKER_INSTANCE_PORT="$PORT" \
         TASKER_WEB_BIND_ADDRESS="0.0.0.0:$PORT" \
+        TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS="${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-}" \
+        TASKER_WORKER_GRPC_BIND_ADDRESS="${TASKER_WORKER_GRPC_BIND_ADDRESS:-}" \
         TASKER_WORKER_ID="$INSTANCE_ID" \
         nohup $START_CMD >> "$LOG_FILE" 2>&1 &
 
@@ -233,7 +249,11 @@ for i in $(seq 1 "$COUNT"); do
     # Brief wait to check if process started
     sleep 1
     if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-        echo "   ✅ $INSTANCE_ID: started (PID $PID, port $PORT)"
+        if [ -n "${GRPC_PORT:-}" ]; then
+            echo "   ✅ $INSTANCE_ID: started (PID $PID, REST port $PORT, gRPC port $GRPC_PORT)"
+        else
+            echo "   ✅ $INSTANCE_ID: started (PID $PID, port $PORT)"
+        fi
         echo "      Log: $LOG_FILE"
         ((STARTED++)) || true
     else

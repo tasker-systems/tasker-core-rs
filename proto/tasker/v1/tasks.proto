@@ -1,0 +1,296 @@
+// Task service definitions for Tasker gRPC API
+syntax = "proto3";
+
+package tasker.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "tasker/v1/common.proto";
+
+option java_multiple_files = true;
+option java_package = "com.tasker.v1";
+
+// TaskService provides operations for managing tasks
+service TaskService {
+  // Create a new task
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+
+  // Get a task by ID
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+
+  // List tasks with filtering and pagination
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+
+  // Cancel a running task
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+
+  // Get task execution context (inputs/outputs)
+  rpc GetTaskContext(GetTaskContextRequest) returns (GetTaskContextResponse);
+
+  // Stream task status updates
+  rpc StreamTaskStatus(StreamTaskStatusRequest) returns (stream TaskStatusUpdate);
+}
+
+// Request to create a new task
+message CreateTaskRequest {
+  // Task template name (required)
+  string name = 1;
+  // Task namespace (required)
+  string namespace = 2;
+  // Task template version (required)
+  string version = 3;
+  // Initial context/inputs for the task
+  google.protobuf.Struct context = 4;
+  // Optional correlation ID for tracing
+  optional string correlation_id = 5;
+  // Optional initiator identifier
+  optional string initiator = 6;
+  // Optional source system identifier
+  optional string source_system = 7;
+  // Optional reason for task creation
+  optional string reason = 8;
+  // Optional priority (higher = more urgent)
+  optional int32 priority = 9;
+  // Optional tags for categorization
+  repeated string tags = 10;
+  // Optional parent correlation ID for task chaining
+  optional string parent_correlation_id = 11;
+}
+
+// Response after creating a task
+message CreateTaskResponse {
+  // The created task
+  Task task = 1;
+  // Whether backpressure affected creation
+  optional BackpressureStatus backpressure = 2;
+}
+
+// Request to get a specific task
+message GetTaskRequest {
+  // Task ID (UUID)
+  string task_uuid = 1;
+  // Include step information
+  bool include_steps = 2;
+  // Include execution context
+  bool include_context = 3;
+}
+
+// Response containing task details
+message GetTaskResponse {
+  // The requested task
+  Task task = 1;
+  // Steps (if requested)
+  repeated Step steps = 2;
+  // Execution context (if requested)
+  optional TaskContext context = 3;
+}
+
+// Request to list tasks
+message ListTasksRequest {
+  // Pagination parameters
+  PaginationRequest pagination = 1;
+  // Filter by namespace
+  optional string namespace = 2;
+  // Filter by template name
+  optional string name = 3;
+  // Filter by state(s)
+  repeated TaskState states = 4;
+  // Filter by creation time range
+  optional TimestampRange created_at = 5;
+  // Filter by initiator
+  optional string initiator = 6;
+  // Filter by tags (AND logic)
+  repeated string tags = 7;
+  // Sort specification
+  optional SortSpec sort = 8;
+}
+
+// Response containing list of tasks
+message ListTasksResponse {
+  // List of tasks
+  repeated Task tasks = 1;
+  // Pagination metadata
+  PaginationResponse pagination = 2;
+}
+
+// Request to cancel a task
+message CancelTaskRequest {
+  // Task ID to cancel
+  string task_uuid = 1;
+  // Reason for cancellation
+  optional string reason = 2;
+}
+
+// Response after cancelling a task
+message CancelTaskResponse {
+  // The cancelled task
+  Task task = 1;
+  // Whether cancellation was successful
+  bool success = 2;
+  // Message if cancellation failed
+  optional string message = 3;
+}
+
+// Request to get task execution context
+message GetTaskContextRequest {
+  // Task ID
+  string task_uuid = 1;
+}
+
+// Response containing task execution context
+message GetTaskContextResponse {
+  // Task execution context
+  TaskContext context = 1;
+}
+
+// Request to stream task status updates
+message StreamTaskStatusRequest {
+  // Task ID to monitor
+  string task_uuid = 1;
+  // Include step updates
+  bool include_steps = 2;
+}
+
+// Task status update event
+message TaskStatusUpdate {
+  // Update type
+  enum UpdateType {
+    UPDATE_TYPE_UNSPECIFIED = 0;
+    UPDATE_TYPE_TASK_STATE_CHANGE = 1;
+    UPDATE_TYPE_STEP_STATE_CHANGE = 2;
+    UPDATE_TYPE_TASK_COMPLETE = 3;
+    UPDATE_TYPE_TASK_ERROR = 4;
+  }
+
+  // Type of update
+  UpdateType update_type = 1;
+  // Timestamp of update
+  google.protobuf.Timestamp timestamp = 2;
+  // Task state (for task updates)
+  optional TaskState task_state = 3;
+  // Step update (for step updates)
+  optional StepUpdate step_update = 4;
+  // Error message (for error updates)
+  optional string error_message = 5;
+}
+
+// Step update within task status stream
+message StepUpdate {
+  // Step ID
+  string step_uuid = 1;
+  // Step name
+  string name = 2;
+  // New state
+  StepState state = 3;
+  // Attempt number
+  int32 attempt = 4;
+}
+
+// Task entity - matches TaskResponse from REST API
+// See: tasker-shared/src/types/api/orchestration.rs
+message Task {
+  // Unique task identifier (UUID)
+  string task_uuid = 1;
+  // Task template name
+  string name = 2;
+  // Task namespace
+  string namespace = 3;
+  // Task template version
+  string version = 4;
+  // Current task state
+  TaskState state = 5;
+  // Task creation timestamp
+  google.protobuf.Timestamp created_at = 6;
+  // Last update timestamp
+  google.protobuf.Timestamp updated_at = 7;
+  // Completion timestamp (if complete)
+  optional google.protobuf.Timestamp completed_at = 8;
+  // Initial context/inputs for the task
+  google.protobuf.Struct context = 9;
+  // Who initiated the task
+  string initiator = 10;
+  // Source system that submitted the task
+  string source_system = 11;
+  // Reason for task creation
+  string reason = 12;
+  // Task priority (optional)
+  optional int32 priority = 13;
+  // Tags for categorization
+  repeated string tags = 14;
+  // Correlation ID for distributed tracing
+  string correlation_id = 15;
+  // Parent correlation ID for task chaining
+  optional string parent_correlation_id = 16;
+
+  // Step counts (from TaskExecutionContext)
+  int64 total_steps = 17;
+  int64 pending_steps = 18;
+  int64 in_progress_steps = 19;
+  int64 completed_steps = 20;
+  int64 failed_steps = 21;
+  int64 ready_steps = 22;
+
+  // Execution status summary
+  string execution_status = 23;
+  // Recommended action for this task state
+  string recommended_action = 24;
+  // Completion percentage (0.0 to 100.0)
+  double completion_percentage = 25;
+  // Health status of the task
+  string health_status = 26;
+}
+
+// Step entity - matches StepResponse from REST API
+// See: tasker-shared/src/types/api/orchestration.rs
+message Step {
+  // Unique step identifier (UUID)
+  string step_uuid = 1;
+  // Parent task ID
+  string task_uuid = 2;
+  // Step name
+  string name = 3;
+  // Current step state
+  StepState state = 4;
+  // Step creation timestamp
+  google.protobuf.Timestamp created_at = 5;
+  // Last update timestamp
+  google.protobuf.Timestamp updated_at = 6;
+  // Completion timestamp (if complete)
+  optional google.protobuf.Timestamp completed_at = 7;
+  // Execution results (JSON)
+  optional google.protobuf.Struct results = 8;
+
+  // Step readiness information (from StepReadinessStatus)
+  // Whether all parent dependencies are satisfied
+  bool dependencies_satisfied = 9;
+  // Whether step is eligible for retry (hasn't exceeded max attempts)
+  bool retry_eligible = 10;
+  // Whether step can be executed right now
+  bool ready_for_execution = 11;
+  // Total number of parent dependencies
+  int32 total_parents = 12;
+  // Number of completed parent dependencies
+  int32 completed_parents = 13;
+  // Current attempt number
+  int32 attempts = 14;
+  // Maximum retry attempts allowed
+  int32 max_attempts = 15;
+  // Timestamp of last failure (if any)
+  optional google.protobuf.Timestamp last_failure_at = 16;
+  // Timestamp when next retry is eligible
+  optional google.protobuf.Timestamp next_retry_at = 17;
+  // Timestamp of last execution attempt
+  optional google.protobuf.Timestamp last_attempted_at = 18;
+  // Backoff delay requested in seconds
+  optional int32 backoff_request_seconds = 19;
+}
+
+// Task execution context
+message TaskContext {
+  // Input context provided at creation
+  google.protobuf.Struct inputs = 1;
+  // Output context accumulated from steps
+  google.protobuf.Struct outputs = 2;
+  // Merged context (inputs + outputs)
+  google.protobuf.Struct merged = 3;
+}

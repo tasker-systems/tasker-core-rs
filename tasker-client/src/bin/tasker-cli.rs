@@ -23,6 +23,15 @@ pub struct Cli {
     #[arg(short, long)]
     config: Option<String>,
 
+    /// Configuration profile to use (TAS-177)
+    ///
+    /// Profiles are defined in .config/tasker-client.toml (like nextest).
+    /// Use `tasker-cli config show` to see available profiles.
+    ///
+    /// Can also be set via TASKER_CLIENT_PROFILE environment variable.
+    #[arg(short, long)]
+    profile: Option<String>,
+
     /// Verbose output level (use multiple times for more verbosity)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -463,14 +472,23 @@ async fn main() -> tasker_client::ClientResult<()> {
         .with_target(false)
         .init();
 
-    // Load configuration
+    // Load configuration with precedence: --config > --profile > TASKER_CLIENT_PROFILE > default
     let config = if let Some(config_path) = cli.config {
+        // Explicit config file takes highest priority
         ClientConfig::load_from_file(std::path::Path::new(&config_path))?
+    } else if let Some(profile_name) = cli.profile {
+        // CLI --profile flag
+        ClientConfig::load_profile(&profile_name)?
     } else {
+        // Default loading (checks TASKER_CLIENT_PROFILE env var)
         ClientConfig::load()?
     };
 
-    info!("Tasker CLI starting with configuration: {:?}", config);
+    info!(
+        transport = %config.transport,
+        orchestration_url = %config.orchestration.base_url,
+        "Tasker CLI starting"
+    );
 
     // Execute command
     match cli.command {

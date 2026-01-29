@@ -103,7 +103,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls"
 ] }
 rsa = { version = "0.9" }
-rust_decimal = { version = "1.37", features = ["serde-with-str"] }
+rust_decimal = { version = "1.40", features = ["serde-with-str"] }
 # Serialization
 # IMPORTANT: Pin to 1.0.219 - serde 1.0.220+ has breaking changes that affect pythonize/pyo3
 # See: https://github.com/swc-project/swc/issues/11092
@@ -149,6 +149,18 @@ utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 uuid = { version = "1.11", features = ["serde", "v4", "v7"] }
 validator = { version = "0.20", features = ["derive"] }
 workspace_tools = { version = "0.11.0", features = ["full"] }
+# gRPC framework and Protocol Buffers (TAS-177)
+# Note: Requires protobuf to be installed (brew install protobuf)
+# Version 0.14 required to match opentelemetry-otlp 0.31 dependencies
+tonic = "0.14"
+tonic-build = "0.14"
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+tonic-health = "0.14"
+tonic-reflection = "0.14"
+prost = "0.14"
+prost-types = "0.14"
+tokio-stream = { version = "0.1", features = ["net"] }
 # pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
 # wasm-bindgen = { version = "0.2", optional = true }
 # wasm-bindgen-futures = { version = "0.4", optional = true }
@@ -283,12 +295,16 @@ test-utils = [
 # Hierarchy:
 #   test-db       → Database available (PostgreSQL)
 #   test-messaging → + Messaging backend (PGMQ/RabbitMQ)
-#   test-services  → + Services running (orchestration + worker)
+#   test-services  → + Services running (orchestration + worker) + gRPC transport
 #   test-cluster   → + Multi-instance cluster (LOCAL ONLY - not in CI)
 test-db = []
 test-messaging = ["test-db"]
-test-services = ["test-messaging"]
+test-services = ["test-messaging", "grpc"]
 test-cluster = ["test-services"]
+
+# TAS-177: gRPC transport support
+# Enables gRPC client in tests via tasker-client
+grpc = ["tasker-client/grpc"]
 
 [lints]
 workspace = true

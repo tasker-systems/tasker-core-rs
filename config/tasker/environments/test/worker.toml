@@ -72,6 +72,8 @@ callback_timeout_ms = 2000
 [worker.web]
 # Increased from 5000ms to 30000ms to support complex operations
 request_timeout_ms = 30000
+# Enable config endpoint for debugging in test environment
+config_endpoint_enabled = true
 
 [worker.web.database_pools]
 web_api_pool_size = 5
@@ -79,3 +81,10 @@ web_api_max_connections = 10
 web_api_connection_timeout_seconds = 15
 web_api_idle_timeout_seconds = 300
 max_total_connections_hint = 15
+
+# TAS-177: gRPC API - test environment overrides
+[worker.grpc]
+enabled = true
+# Faster keepalive for testing
+keepalive_interval_seconds = 10
+keepalive_timeout_seconds = 5

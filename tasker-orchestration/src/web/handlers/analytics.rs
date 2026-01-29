@@ -53,7 +53,7 @@ pub async fn get_performance_metrics(
     execute_with_circuit_breaker(&state, || async {
         // TAS-168: Delegate to AnalyticsService (handles caching internally)
         let metrics = state
-            .analytics_service
+            .analytics_service()
             .get_performance_metrics(hours)
             .await
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
@@ -101,7 +101,7 @@ pub async fn get_bottlenecks(
     execute_with_circuit_breaker(&state, || async {
         // TAS-168: Delegate to AnalyticsService (handles caching internally)
         let analysis = state
-            .analytics_service
+            .analytics_service()
             .get_bottleneck_analysis(limit, min_executions)
             .await
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
