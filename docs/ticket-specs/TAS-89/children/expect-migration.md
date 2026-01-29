@@ -39,7 +39,7 @@ From TAS-58 linting standards:
 | `tasker-orchestration` | 16 | Core services, event systems |
 | `tasker-worker` | 10 | Worker infrastructure |
 | `tests/common` | 6 | Test manager helpers |
-| `pgmq-notify/tests` | 4 | Test helper functions |
+| `tasker-pgmq/tests` | 4 | Test helper functions |
 | `workers/{python,typescript}` | 4 | FFI bridge runtimes |
 | `workers/ruby` | 2 | FFI bridge extension |
 | **Total** | **96** | |
@@ -66,7 +66,7 @@ config: StepHandlerConfig,
 
 ### Pattern 2: Test Helpers (16 instances)
 
-**Locations**: `tests/common/`, `pgmq-notify/tests/`, `tasker-shared/tests/`
+**Locations**: `tests/common/`, `tasker-pgmq/tests/`, `tasker-shared/tests/`
 
 ```rust
 // Before
@@ -137,7 +137,7 @@ orchestration_core: Arc<OrchestrationCore>,
 
 ### Phase 2: Test Infrastructure
 - [ ] `tests/common/` (6 instances)
-- [ ] `pgmq-notify/tests/` (4 instances)
+- [ ] `tasker-pgmq/tests/` (4 instances)
 - [ ] `tasker-shared/tests/` (varies)
 
 ### Phase 3: Core Crates

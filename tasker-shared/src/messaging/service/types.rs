@@ -995,7 +995,7 @@ impl std::fmt::Display for MessageNotification {
 
 /// Provider-agnostic message event for event routing and classification
 ///
-/// This is the provider-agnostic equivalent of `pgmq_notify::MessageReadyEvent`.
+/// This is the provider-agnostic equivalent of `tasker_pgmq::MessageReadyEvent`.
 /// Used as the inner type for classified domain events (`OrchestrationQueueEvent`,
 /// `WorkerQueueEvent`) to enable provider-agnostic event processing.
 ///
@@ -1020,7 +1020,7 @@ impl std::fmt::Display for MessageNotification {
 /// - `Available { queue_name, msg_id }` → extract routing info + namespace
 /// - `Message(QueuedMessage)` → extract from handle
 ///
-/// Also convertible from `pgmq_notify::MessageReadyEvent` for backward compatibility.
+/// Also convertible from `tasker_pgmq::MessageReadyEvent` for backward compatibility.
 ///
 /// ## Example
 ///
@@ -1144,7 +1144,7 @@ impl std::fmt::Display for MessageEvent {
     }
 }
 
-/// Backward compatibility: Convert from `pgmq_notify::MessageReadyEvent`
+/// Backward compatibility: Convert from `tasker_pgmq::MessageReadyEvent`
 ///
 /// This enables gradual migration from PGMQ-specific types to provider-agnostic types.
 /// The conversion preserves all fields: `queue_name`, `namespace`, and `msg_id`.
@@ -1154,7 +1154,7 @@ impl std::fmt::Display for MessageEvent {
 /// ```rust,ignore
 /// use tasker_shared::messaging::service::MessageEvent;
 ///
-/// let pgmq_event = pgmq_notify::MessageReadyEvent {
+/// let pgmq_event = tasker_pgmq::MessageReadyEvent {
 ///     msg_id: 123,
 ///     queue_name: "orchestration_step_results".to_string(),
 ///     namespace: "orchestration".to_string(),
@@ -1164,8 +1164,8 @@ impl std::fmt::Display for MessageEvent {
 /// assert_eq!(event.queue_name, "orchestration_step_results");
 /// assert_eq!(event.namespace, "orchestration");
 /// ```
-impl From<pgmq_notify::MessageReadyEvent> for MessageEvent {
-    fn from(event: pgmq_notify::MessageReadyEvent) -> Self {
+impl From<tasker_pgmq::MessageReadyEvent> for MessageEvent {
+    fn from(event: tasker_pgmq::MessageReadyEvent) -> Self {
         Self {
             queue_name: event.queue_name,
             namespace: event.namespace,
@@ -1565,7 +1565,7 @@ mod tests {
     fn test_message_event_from_pgmq_notify() {
         use std::collections::HashMap;
 
-        let pgmq_event = pgmq_notify::MessageReadyEvent {
+        let pgmq_event = tasker_pgmq::MessageReadyEvent {
             msg_id: 999,
             queue_name: "orchestration_step_results".to_string(),
             namespace: "orchestration".to_string(),

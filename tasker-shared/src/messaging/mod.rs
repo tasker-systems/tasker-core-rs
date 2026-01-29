@@ -26,8 +26,8 @@ pub mod message;
 pub mod orchestration_messages;
 pub mod service;
 
-// Re-export PgmqClient directly from pgmq-notify for code that needs low-level access
-pub use pgmq_notify::PgmqClient;
+// Re-export PgmqClient directly from tasker-pgmq for code that needs low-level access
+pub use tasker_pgmq::PgmqClient;
 
 // Re-export error types
 pub use errors::{MessagingError, MessagingResult};

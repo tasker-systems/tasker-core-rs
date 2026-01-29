@@ -134,7 +134,7 @@ tasker-core/
 [workspace]
 members = [
   ".",
-  "pgmq-notify",
+  "tasker-pgmq",
   "tasker-client",
   "tasker-orchestration",
   "tasker-shared",

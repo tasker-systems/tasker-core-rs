@@ -21,7 +21,7 @@
 //! ## Usage
 //!
 //! ```rust
-//! use pgmq_notify::events::{PgmqNotifyEvent, MessageReadyEvent, MessageWithPayloadEvent};
+//! use tasker_pgmq::events::{PgmqNotifyEvent, MessageReadyEvent, MessageWithPayloadEvent};
 //! use chrono::Utc;
 //!
 //! // Signal-only event (large messages)
@@ -61,7 +61,7 @@ use std::collections::HashMap;
 /// # Examples
 ///
 /// ```rust
-/// use pgmq_notify::events::{PgmqNotifyEvent, QueueCreatedEvent};
+/// use tasker_pgmq::events::{PgmqNotifyEvent, QueueCreatedEvent};
 /// use chrono::Utc;
 ///
 /// let event = PgmqNotifyEvent::QueueCreated(QueueCreatedEvent {
@@ -109,7 +109,7 @@ pub enum PgmqNotifyEvent {
 /// # Examples
 ///
 /// ```rust
-/// use pgmq_notify::events::QueueCreatedEvent;
+/// use tasker_pgmq::events::QueueCreatedEvent;
 /// use chrono::Utc;
 /// use std::collections::HashMap;
 ///
@@ -145,7 +145,7 @@ pub struct QueueCreatedEvent {
 /// # Examples
 ///
 /// ```rust
-/// use pgmq_notify::events::MessageReadyEvent;
+/// use tasker_pgmq::events::MessageReadyEvent;
 /// use chrono::Utc;
 /// use std::collections::HashMap;
 ///
@@ -387,7 +387,7 @@ impl MessageReadyEvent {
 /// # Examples
 ///
 /// ```rust
-/// use pgmq_notify::events::MessageWithPayloadEvent;
+/// use tasker_pgmq::events::MessageWithPayloadEvent;
 /// use chrono::Utc;
 ///
 /// let event = MessageWithPayloadEvent {
@@ -473,7 +473,7 @@ impl MessageWithPayloadEvent {
 /// # Examples
 ///
 /// ```rust
-/// use pgmq_notify::events::BatchReadyEvent;
+/// use tasker_pgmq::events::BatchReadyEvent;
 /// use chrono::Utc;
 /// use std::collections::HashMap;
 ///

@@ -9,7 +9,7 @@
 //! 1. **Unified Management**: Single coordinator managing both queue-level and database-level events
 //! 2. **Deployment Mode Consistency**: Same deployment modes applied across different event types
 //! 3. **Pattern Reuse**: Common interface for start/stop, health checks, and statistics
-//! 4. **Context Awareness**: Respects differences between pgmq-notify vs PostgreSQL LISTEN/NOTIFY
+//! 4. **Context Awareness**: Respects differences between tasker-pgmq vs PostgreSQL LISTEN/NOTIFY
 
 use std::sync::Arc;
 use tracing::{debug, info, warn};

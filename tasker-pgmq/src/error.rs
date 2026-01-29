@@ -1,12 +1,12 @@
-//! Error types for pgmq-notify
+//! Error types for tasker-pgmq
 
 use crate::types::MessagingError;
 use thiserror::Error;
 
-/// Result type for pgmq-notify operations
+/// Result type for tasker-pgmq operations
 pub type Result<T> = std::result::Result<T, PgmqNotifyError>;
 
-/// Errors that can occur in pgmq-notify operations
+/// Errors that can occur in tasker-pgmq operations
 #[derive(Error, Debug)]
 pub enum PgmqNotifyError {
     /// Database connection or query errors

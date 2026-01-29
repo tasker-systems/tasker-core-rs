@@ -515,7 +515,7 @@ impl StepEnqueuer {
 
         // TAS-29 Phase 5.4 Fix: Mark step as enqueued BEFORE sending PGMQ notification
         // This ensures the state transition is fully committed and visible before workers
-        // receive the notification. Previously, pgmq-notify was so fast that workers would
+        // receive the notification. Previously, tasker-pgmq was so fast that workers would
         // receive notifications before the orchestration transaction committed, causing
         // duplicate key constraint violations when both tried to create transition records.
         self.state_manager

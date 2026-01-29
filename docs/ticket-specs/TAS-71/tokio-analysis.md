@@ -27,13 +27,13 @@ This analysis examines tokio runtime usage patterns in the tasker-core codebase 
 | tasker-orchestration | 11 | 5 | Actor loops, background services |
 | tasker-worker | 12 | 8 | Event processing, handlers, services |
 | tasker-shared | 6 | 0 | Metrics, event publishing, messaging |
-| pgmq-notify | 5 | 0 | Listeners, notifications (standalone crate) |
+| tasker-pgmq | 5 | 0 | Listeners, notifications (standalone crate) |
 | workers/rust | 3 | 0 | Main loop, event handlers |
 | workers/ruby | 2 | 0 | FFI event handlers |
 | **Total** | **42** | **13** | |
 
 **TAS-158 Update**: 13 long-running spawns have been named for tokio-console visibility.
-Note: pgmq-notify is a standalone crate without tasker-shared dependency, so spawns are unnamed.
+Note: tasker-pgmq is a standalone crate without tasker-shared dependency, so spawns are unnamed.
 
 ### 1.2 Spawn Categories
 
@@ -67,7 +67,7 @@ tasker-worker/src/bootstrap.rs:387, 405
 Background listeners for PGMQ/messaging events:
 
 ```
-pgmq-notify/src/listener.rs:418, 513
+tasker-pgmq/src/listener.rs:418, 513
   - PGMQ notification listeners
 
 tasker-orchestration/src/orchestration/orchestration_queues/listener.rs:233
@@ -271,7 +271,7 @@ async fn handle_initialize_task(&self, ...) -> TaskerResult<...>
 ```
 
 Found 100+ `#[instrument]` macros across:
-- `pgmq-notify/src/` - Queue operations
+- `tasker-pgmq/src/` - Queue operations
 - `tasker-orchestration/src/` - Lifecycle services
 - `tasker-worker/src/` - Handler dispatch
 - `tasker-shared/src/` - Event publishing
@@ -337,7 +337,7 @@ Found 100+ `#[instrument]` macros across:
 | worker_completion_event_listener | event_subscriber.rs | FFI completion events |
 | worker_step_dispatch_listener | event_subscriber.rs | Step dispatch correlation |
 
-**Note**: pgmq-notify spawns are unnamed as it's a standalone crate. The `spawn_named!` macro
+**Note**: tasker-pgmq spawns are unnamed as it's a standalone crate. The `spawn_named!` macro
 is defined in tasker-shared and available to dependent crates.
 
 ### 6.4 Integration Effort (Actual)
@@ -423,10 +423,10 @@ Key files analyzed for this report:
 ## Appendix A: Complete Spawn Inventory
 
 ```
-pgmq-notify/src/listener.rs:418     - PgmqListener notification handler
-pgmq-notify/src/listener.rs:513     - PgmqListener background task
-pgmq-notify/tests/common.rs:191     - Test infrastructure
-pgmq-notify/tests/comprehensive_integration_test.rs:432 - Test
+tasker-pgmq/src/listener.rs:418     - PgmqListener notification handler
+tasker-pgmq/src/listener.rs:513     - PgmqListener background task
+tasker-pgmq/tests/common.rs:191     - Test infrastructure
+tasker-pgmq/tests/comprehensive_integration_test.rs:432 - Test
 tasker-shared/src/metrics/channels.rs:350 - Periodic metrics export
 tasker-shared/src/metrics/channels.rs:513 - Channel registration
 tasker-shared/benches/event_propagation.rs:116 - Benchmark

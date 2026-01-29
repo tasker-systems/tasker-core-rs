@@ -149,7 +149,7 @@ podman compose -f docker/docker-compose.test.yml up -d
 
 ```
 [workspace.members]
-- pgmq-notify          # PGMQ wrapper with notification support
+- tasker-pgmq          # PGMQ wrapper with notification support
 - tasker-client        # Client library for external interactions
 - tasker-orchestration # Core orchestration logic (see AGENTS.md)
 - tasker-shared        # Shared types, traits, utilities

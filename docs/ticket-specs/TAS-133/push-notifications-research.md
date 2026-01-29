@@ -3,7 +3,7 @@
 **Last Updated**: 2026-01-07
 **Status**: Research Required
 
-This document explores push-based message notification capabilities across messaging providers, motivated by Tasker's exceptional throughput with `pgmq-notify` + `pg_notify`.
+This document explores push-based message notification capabilities across messaging providers, motivated by Tasker's exceptional throughput with `tasker-pgmq` + `pg_notify`.
 
 ---
 
@@ -56,7 +56,7 @@ This performance comes from eliminating polling latency on the critical path.
 **Model**: Poll-native with push enhancement via PostgreSQL NOTIFY/LISTEN
 
 ```rust
-// pgmq-notify crate provides this abstraction
+// tasker-pgmq crate provides this abstraction
 pub struct PgmqNotifyListener {
     // LISTEN on pgmq_message_ready.{namespace}
 }
@@ -311,4 +311,4 @@ impl<S: MessagingService + SupportsPushNotifications> HybridConsumer<S> {
 - [lapin documentation](https://docs.rs/lapin/latest/lapin/)
 - [RabbitMQ Consumer documentation](https://www.rabbitmq.com/consumers.html)
 - [PostgreSQL NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html)
-- Tasker's `pgmq-notify` crate (workspace)
+- Tasker's `tasker-pgmq` crate (workspace)

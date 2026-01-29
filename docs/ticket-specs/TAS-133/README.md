@@ -95,7 +95,7 @@ Tasker's messaging model is work queues (dequeue, process, ack), not event strea
 
 ### Push-Based Notifications
 
-Tasker achieves exceptional throughput via `pgmq-notify` + `pg_notify` push notifications:
+Tasker achieves exceptional throughput via `tasker-pgmq` + `pg_notify` push notifications:
 - Complex 7-step DAG completion: **< 133ms** end-to-end
 - Hundreds of concurrent tasks on resource-constrained hardware
 - Sub-millisecond latency exposed previously invisible transaction races
@@ -625,4 +625,4 @@ impl MessagingServiceFactory {
 ### External References
 
 - [lapin documentation](https://docs.rs/lapin/latest/lapin/)
-- [PGMQ documentation](https://github.com/tembo-io/pgmq)
+- [PGMQ documentation](https://github.com/pgmq/pgmq)

@@ -65,7 +65,7 @@ min_connections = 5
 
 ### Pool Initialization Analysis
 
-**pgmq-notify crate** (`pgmq-notify/src/client.rs`):
+**tasker-pgmq crate** (`tasker-pgmq/src/client.rs`):
 ```rust
 impl PgmqClient {
     pub async fn new(database_url: &str) -> Result<Self> {
@@ -261,12 +261,12 @@ pub enum DatabaseOperation {
 }
 ```
 
-### pgmq-notify Integration
+### tasker-pgmq Integration
 
 Update the `PgmqClient` to accept separate pool:
 
 ```rust
-// pgmq-notify/src/client.rs
+// tasker-pgmq/src/client.rs
 
 impl PgmqClient {
     /// Create client with dedicated PGMQ pool

@@ -456,7 +456,7 @@ These MUST remain unchanged regardless of messaging provider.
 
 ### Why Push Matters
 
-Tasker's `pgmq-notify` integration demonstrates that push-based notifications dramatically improve throughput:
+Tasker's `tasker-pgmq` integration demonstrates that push-based notifications dramatically improve throughput:
 
 | Metric | Poll-Only | Push + Fallback Poll |
 |--------|-----------|----------------------|

@@ -1,6 +1,6 @@
 //! Integration tests for the complete TAS-43 Worker Event System
 //!
-//! This test validates the complete event flow from pgmq-notify events
+//! This test validates the complete event flow from tasker-pgmq events
 //! through worker queue processing to command execution.
 
 use std::sync::Arc;

@@ -426,7 +426,7 @@ pub enum MessagingError {
 
 ## Phase 2: PGMQ Implementation
 
-**Goal**: Implement `PgmqMessagingService` that wraps existing pgmq-notify functionality
+**Goal**: Implement `PgmqMessagingService` that wraps existing tasker-pgmq functionality
 **Child Ticket**: TAS-133b
 **Validation Gate**:
 - `PgmqMessagingService` passes conformance test suite
@@ -435,7 +435,7 @@ pub enum MessagingError {
 
 ### 2.0 Prerequisite: Add `set_visibility_timeout` to PgmqClient
 
-Before implementing `PgmqMessagingService`, add a wrapper method to `pgmq-notify/src/client.rs`:
+Before implementing `PgmqMessagingService`, add a wrapper method to `tasker-pgmq/src/client.rs`:
 
 ```rust
 /// Extend visibility timeout for a message (heartbeat during long processing)
@@ -468,7 +468,7 @@ This keeps our boundary of responsibility at the `PgmqClient` level rather than 
 
 ```rust
 pub struct PgmqMessagingService {
-    client: PgmqClient,  // From pgmq-notify
+    client: PgmqClient,  // From tasker-pgmq
 }
 
 impl PgmqMessagingService {

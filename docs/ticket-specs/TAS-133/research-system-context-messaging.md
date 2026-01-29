@@ -56,7 +56,7 @@ pub struct SystemContext {
 
 ```rust
 pub struct UnifiedPgmqClient {
-    /// The underlying PGMQ client from pgmq-notify
+    /// The underlying PGMQ client from tasker-pgmq
     client: PgmqClient,
 }
 ```

@@ -29,7 +29,7 @@ The crate structure follows these principles:
 
 ```
 tasker-core/
-├── pgmq-notify/              # PGMQ wrapper with notification support
+├── tasker-pgmq/              # PGMQ wrapper with notification support
 ├── tasker-shared/            # Shared types, SQL functions, utilities
 ├── tasker-orchestration/     # Task coordination and lifecycle management
 ├── tasker-worker/            # Step execution and handler integration
@@ -49,7 +49,7 @@ tasker-core/
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────┐
-│                    pgmq-notify                          │
+│                    tasker-pgmq                          │
 │  PGMQ wrapper with PostgreSQL LISTEN/NOTIFY            │
 └─────────────────────────────────────────────────────────┘
                             │
@@ -91,11 +91,11 @@ tasker-core/
 
 ## Core Crates
 
-### pgmq-notify
+### tasker-pgmq
 
 **Purpose**: Wrapper around PostgreSQL Message Queue (PGMQ) with native PostgreSQL LISTEN/NOTIFY support
 
-**Location**: `pgmq-notify/`
+**Location**: `tasker-pgmq/`
 
 **Key Responsibilities**:
 - Wrap `pgmq` crate with notification capabilities
@@ -202,7 +202,7 @@ pub mod messaging {
 - When you need testing factories
 
 **Dependencies**:
-- `pgmq-notify` - Message queue operations
+- `tasker-pgmq` - Message queue operations
 - `sqlx` - Database operations
 - `serde` - Serialization
 - Many workspace-shared dependencies
@@ -327,7 +327,7 @@ See [Actor-Based Architecture](actors.md) for comprehensive documentation.
 
 **Dependencies**:
 - `tasker-shared` - Core types and SQL functions
-- `pgmq-notify` - Message queuing
+- `tasker-pgmq` - Message queuing
 - `axum` - REST API framework
 - `tower-http` - HTTP middleware
 
@@ -409,7 +409,7 @@ pub mod event_systems {
 
 **Dependencies**:
 - `tasker-shared` - Core types and messaging
-- `pgmq-notify` - Message queuing
+- `tasker-pgmq` - Message queuing
 - `magnus` (optional) - Ruby FFI bindings
 
 **Deployment**: Deployed as worker processes, typically one per namespace or scaled horizontally
@@ -644,7 +644,7 @@ tasker-shared::models::WorkflowStepTransition
 - FFI boundary separation
 - Multiple worker types supported
 
-**Why pgmq-notify is separate**:
+**Why tasker-pgmq is separate**:
 - Reusable in other projects
 - Focused responsibility
 - Easy to test independently

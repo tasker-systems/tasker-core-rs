@@ -1,5 +1,5 @@
 # =============================================================================
-# pgmq-notify - cargo-make Task Definitions
+# tasker-pgmq - cargo-make Task Definitions
 # =============================================================================
 #
 # PGMQ wrapper library with PostgreSQL LISTEN/NOTIFY integration.
@@ -17,7 +17,7 @@ extend = "../cargo-make/base-tasks.toml"
 default_to_workspace = false
 
 [env]
-CRATE_NAME = "pgmq-notify"
+CRATE_NAME = "tasker-pgmq"
 
 # =============================================================================
 # Main Tasks
@@ -44,7 +44,7 @@ extend = "base-rust-lint-fix"
 
 [tasks.test]
 extend = "base-rust-test"
-description = "Run pgmq-notify tests"
+description = "Run tasker-pgmq tests"
 args = ["nextest", "run", "-p", "${CRATE_NAME}", "--all-features"]
 
 [tasks.fix]

@@ -39,7 +39,7 @@ Comprehensive codebase review initiative to evaluate code quality, codify best p
 | [crates/tasker-orchestration.md](./crates/tasker-orchestration.md) | tasker-orchestration | Complete | EXCELLENT |
 | [crates/tasker-worker.md](./crates/tasker-worker.md) | tasker-worker | Complete | EXCELLENT |
 | crates/tasker-client.md | tasker-client | Pending | - |
-| crates/pgmq-notify.md | pgmq-notify | Pending | - |
+| crates/tasker-pgmq.md | tasker-pgmq | Pending | - |
 
 ### Hardcoded Stubs Analysis (Deep Dive)
 | Document | Crate | Risk Level |

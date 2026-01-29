@@ -3,7 +3,7 @@ use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-/// Test database utilities for pgmq-notify integration tests
+/// Test database utilities for tasker-pgmq integration tests
 #[derive(Debug)]
 pub struct TestDb {
     pub pool: PgPool,

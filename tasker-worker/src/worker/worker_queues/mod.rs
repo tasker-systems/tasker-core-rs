@@ -5,7 +5,7 @@
 //!
 //! ## Architecture
 //!
-//! - **listener**: pgmq-notify listener for real-time worker namespace queue events
+//! - **listener**: tasker-pgmq listener for real-time worker namespace queue events
 //! - **fallback_poller**: Polling fallback for namespace queue messages when events fail
 //! - **events**: Event type definitions for worker namespace queue messages
 //!

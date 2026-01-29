@@ -74,4 +74,4 @@ pub use super::errors::MessagingError;
 pub use super::MessagingResult;
 
 // Re-export PgmqNotifyConfig for convenient access when constructing providers
-pub use pgmq_notify::PgmqNotifyConfig;
+pub use tasker_pgmq::PgmqNotifyConfig;

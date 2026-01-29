@@ -1,6 +1,6 @@
-//! # Types for pgmq-notify client
+//! # Types for tasker-pgmq client
 //!
-//! Contains generic types and shared structures used by the pgmq-notify client.
+//! Contains generic types and shared structures used by the tasker-pgmq client.
 //! Tasker-specific types like `PgmqStepMessage` are defined in tasker-shared.
 
 use chrono::{DateTime, Utc};
@@ -23,7 +23,7 @@ pub struct QueueMetrics {
 /// Client status information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientStatus {
-    /// Type of client (e.g., "pgmq-notify")
+    /// Type of client (e.g., "tasker-pgmq")
     pub client_type: String,
     /// Whether client is connected
     pub connected: bool,

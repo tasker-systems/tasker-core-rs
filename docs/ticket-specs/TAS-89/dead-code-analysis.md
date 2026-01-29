@@ -27,7 +27,7 @@ The codebase has **excellent code hygiene** with no actual dead code detected. A
 | `tasker-orchestration` | 16 | Core services, event systems |
 | `tasker-worker` | 10 | Worker infrastructure |
 | `tests/common` | 6 | Test manager helpers |
-| `pgmq-notify/tests` | 4 | Test helper functions |
+| `tasker-pgmq/tests` | 4 | Test helper functions |
 | `workers/{python,typescript}` | 4 | FFI bridge runtimes |
 | `workers/ruby` | 2 | FFI bridge extension |
 
@@ -57,7 +57,7 @@ pub struct LinearStep1Handler {
 
 **Locations**:
 - `tests/common/lifecycle_test_manager.rs`
-- `pgmq-notify/tests/common.rs`
+- `tasker-pgmq/tests/common.rs`
 - `tasker-shared/tests/mocks/`
 
 **Examples**:

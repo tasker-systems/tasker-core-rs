@@ -4,7 +4,7 @@
 //!
 //! ## Providers
 //!
-//! - [`PgmqMessagingService`] - PostgreSQL Message Queue via pgmq-notify
+//! - [`PgmqMessagingService`] - PostgreSQL Message Queue via tasker-pgmq
 //! - [`RabbitMqMessagingService`] - RabbitMQ via lapin crate (TAS-133d)
 //! - [`InMemoryMessagingService`] - Thread-safe in-memory queues for testing
 

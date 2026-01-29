@@ -554,7 +554,7 @@ pub struct NamespaceHealth {
     pub namespace: String,
     pub queue_depth: u64,
     pub health_status: String,
-    pub queue_metrics: pgmq_notify::types::QueueMetrics,
+    pub queue_metrics: tasker_pgmq::types::QueueMetrics,
 }
 
 /// System metrics for the worker

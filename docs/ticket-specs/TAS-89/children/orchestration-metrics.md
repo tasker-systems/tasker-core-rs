@@ -151,7 +151,7 @@ pub async fn get_statistics(&self) -> TaskerResult<TaskRequestProcessorStats> {
 | `tasker-orchestration/src/orchestration/command_processor.rs` | Track active processors |
 | `tasker-orchestration/src/web/handlers/analytics.rs` | Query pool utilization |
 | `tasker-orchestration/src/orchestration/lifecycle/task_request_processor.rs` | Query queue size |
-| `pgmq-notify/src/client.rs` or equivalent | Add `queue_size()` method if not exists |
+| `tasker-pgmq/src/client.rs` or equivalent | Add `queue_size()` method if not exists |
 
 ---
 

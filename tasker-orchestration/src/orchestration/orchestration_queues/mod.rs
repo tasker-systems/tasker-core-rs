@@ -5,7 +5,7 @@
 //!
 //! ## Architecture
 //!
-//! - **listener**: pgmq-notify listener for real-time orchestration queue events
+//! - **listener**: tasker-pgmq listener for real-time orchestration queue events
 //! - **fallback_poller**: Polling fallback for queue messages when events fail
 //! - **events**: Event type definitions for orchestration queue messages
 //!

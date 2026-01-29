@@ -35,7 +35,7 @@ Makefile.toml (root)
                       └── extends → cargo-make/base-tasks.toml
 
 Crate-level Makefile.toml files:
-    pgmq-notify/Makefile.toml      → extends → cargo-make/base-tasks.toml
+    tasker-pgmq/Makefile.toml      → extends → cargo-make/base-tasks.toml
     tasker-client/Makefile.toml    → extends → cargo-make/base-tasks.toml
     tasker-shared/Makefile.toml    → extends → cargo-make/base-tasks.toml
     tasker-orchestration/Makefile.toml → extends → cargo-make/base-tasks.toml
@@ -258,7 +258,7 @@ Each Rust crate has its own `Makefile.toml` that extends the base tasks:
 
 ```bash
 # Run checks for a specific crate
-cd pgmq-notify && cargo make check
+cd tasker-pgmq && cargo make check
 
 # Run tests for a specific crate
 cd tasker-shared && cargo make test

@@ -63,7 +63,7 @@ The main orchestrator implementing a multi-stage DAG with maximum parallelism.
 - tasker-orchestration
 - tasker-shared
 - tasker-worker
-- pgmq-notify
+- tasker-pgmq
 - tasker-client
 
 **Worker Packages** (compiled in build-workers):
@@ -84,7 +84,7 @@ The main orchestrator implementing a multi-stage DAG with maximum parallelism.
 - tasker-orchestration
 - tasker-shared
 - tasker-worker
-- pgmq-notify
+- tasker-pgmq
 - tasker-client
 
 **Key Features**:
@@ -108,7 +108,7 @@ cargo nextest run --profile ci --lib \
   --package tasker-shared \
   --package tasker-orchestration \
   --package tasker-worker \
-  --package pgmq-notify \
+  --package tasker-pgmq \
   --package tasker-client
 
 # Documentation tests
@@ -116,7 +116,7 @@ cargo test --doc \
   --package tasker-shared \
   --package tasker-orchestration \
   --package tasker-worker \
-  --package pgmq-notify \
+  --package tasker-pgmq \
   --package tasker-client
 ```
 
@@ -201,7 +201,7 @@ cargo test --doc --all-features \
   --package tasker-shared \
   --package tasker-orchestration \
   --package tasker-worker \
-  --package pgmq-notify \
+  --package tasker-pgmq \
   --package tasker-client \
   --package tasker-core
 ```
@@ -430,7 +430,7 @@ cargo nextest run \
   --package tasker-shared \
   --package tasker-orchestration \
   --package tasker-worker \
-  --package pgmq-notify \
+  --package tasker-pgmq \
   --package tasker-client \
   --package tasker-core \
   --test '*' \
@@ -456,7 +456,7 @@ cargo nextest run \
   --package tasker-shared \
   --package tasker-orchestration \
   --package tasker-worker \
-  --package pgmq-notify \
+  --package tasker-pgmq \
   --package tasker-client \
   --package tasker-core \
   --test '*' \
@@ -474,7 +474,7 @@ SQLX_OFFLINE=true cargo test --doc --all-features \
   --package tasker-shared \
   --package tasker-orchestration \
   --package tasker-worker \
-  --package pgmq-notify \
+  --package tasker-pgmq \
   --package tasker-client \
   --package tasker-core
 ```
@@ -631,7 +631,7 @@ describe('MyFeature', () => {
      --package tasker-shared \
      --package tasker-orchestration \
      --package tasker-worker \
-     --package pgmq-notify \
+     --package tasker-pgmq \
      --package tasker-client \
      --package tasker-core \
      --no-fail-fast \
@@ -647,7 +647,7 @@ describe('MyFeature', () => {
      --package tasker-shared \
      --package tasker-orchestration \
      --package tasker-worker \
-     --package pgmq-notify \
+     --package tasker-pgmq \
      --package tasker-client \
      --package tasker-core \
      -- --nocapture
@@ -787,7 +787,7 @@ build-postgres → (parallel jobs below)
 ├─→ test-tasker-worker (unit + integration)
 │   └─→ On success: build + push worker:$SHA to GHCR
 │
-├─→ test-pgmq-notify (unit + integration)
+├─→ test-tasker-pgmq (unit + integration)
 │   └─→ On success: no image needed
 │
 └─→ test-ruby-worker (Ruby specs)

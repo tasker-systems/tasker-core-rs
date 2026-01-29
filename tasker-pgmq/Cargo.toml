@@ -1,8 +1,8 @@
 [package]
-name = "pgmq-notify"
+name = "tasker-pgmq"
 version = "0.1.0"
 edition = "2021"
-description = "PG Notify layer for PGMQ"
+description = "Tasker's PGMQ wrapper with PostgreSQL NOTIFY support"
 readme = "README.md"
 repository = "https://github.com/tasker-systems/tasker-core"
 license = "MIT"
@@ -22,10 +22,10 @@ ignored = [
 
 [lib]
 crate-type = ["rlib"]
-name = "pgmq_notify"
+name = "tasker_pgmq"
 
 [[bin]]
-name = "pgmq-notify-cli"
+name = "tasker-pgmq-cli"
 path = "src/bin/cli.rs"
 
 [dependencies]
