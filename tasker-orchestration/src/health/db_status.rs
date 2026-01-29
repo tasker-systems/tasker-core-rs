@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error};
 
 use super::types::{DatabaseHealthConfig, DatabaseHealthStatus};
-use crate::web::circuit_breaker::{CircuitState, WebDatabaseCircuitBreaker};
+use crate::api_common::{CircuitState, WebDatabaseCircuitBreaker};
 
 /// Evaluate database health status
 ///

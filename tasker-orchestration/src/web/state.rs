@@ -20,25 +20,8 @@ use tasker_shared::TaskerResult;
 use tokio::sync::RwLock;
 use tracing::info;
 
-/// Database pool usage statistics for monitoring (TAS-37 Web Integration)
-#[derive(Debug, Clone)]
-pub struct DatabasePoolUsageStats {
-    pub pool_name: String,
-    pub active_connections: u32,
-    pub max_connections: u32,
-    pub usage_ratio: f64,
-    pub is_healthy: bool,
-}
-
-/// Operational status tracking for web API integration
-#[derive(Debug, Clone)]
-pub struct OrchestrationStatus {
-    pub running: bool,
-    pub environment: String,
-    pub operational_state: SystemOperationalState,
-    pub database_pool_size: u32,
-    pub last_health_check: std::time::Instant,
-}
+// Re-export types from api_common for backward compatibility
+pub use crate::api_common::operational_status::{DatabasePoolUsageStats, OrchestrationStatus};
 
 /// Shared application state for the web API
 ///

@@ -6,6 +6,7 @@
 //! - Database pools are shared efficiently
 //! - Both APIs have consistent behavior
 
+use crate::api_common::{OrchestrationStatus, WebDatabaseCircuitBreaker};
 use crate::orchestration::core::OrchestrationCoreStatus;
 use crate::orchestration::lifecycle::step_enqueuer_services::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_initialization::TaskInitializer;
@@ -13,8 +14,6 @@ use crate::orchestration::OrchestrationCore;
 use crate::services::{
     AnalyticsService, HealthService, StepService, TaskService, TemplateQueryService,
 };
-use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
-use crate::web::state::OrchestrationStatus;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::sync::Arc;

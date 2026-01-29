@@ -304,8 +304,8 @@ gRPC endpoints support the same authentication methods as REST, using gRPC metad
 
 | Service | REST Port | gRPC Port |
 |---------|-----------|-----------|
-| Orchestration | 8080 | 9090 |
-| Rust Worker | 8081 | 9100 |
+| Orchestration | 8080 | 9190 |
+| Rust Worker | 8081 | 9191 |
 
 ### Bearer Token (gRPC)
 
@@ -313,7 +313,7 @@ gRPC endpoints support the same authentication methods as REST, using gRPC metad
 # Using grpcurl with Bearer token
 grpcurl -plaintext \
   -H "Authorization: Bearer $TASKER_AUTH_TOKEN" \
-  localhost:9090 tasker.v1.TaskService/ListTasks
+  localhost:9190 tasker.v1.TaskService/ListTasks
 ```
 
 ### API Key (gRPC)
@@ -322,7 +322,7 @@ grpcurl -plaintext \
 # Using grpcurl with API key
 grpcurl -plaintext \
   -H "X-API-Key: sk-prod-key-1" \
-  localhost:9090 tasker.v1.TaskService/ListTasks
+  localhost:9190 tasker.v1.TaskService/ListTasks
 ```
 
 ### gRPC Client Configuration
@@ -332,13 +332,13 @@ use tasker_client::grpc_clients::{OrchestrationGrpcClient, GrpcAuthConfig};
 
 // With API key
 let client = OrchestrationGrpcClient::connect_with_auth(
-    "http://localhost:9090",
+    "http://localhost:9190",
     GrpcAuthConfig::ApiKey("sk-prod-key-1".to_string()),
 ).await?;
 
 // With Bearer token
 let client = OrchestrationGrpcClient::connect_with_auth(
-    "http://localhost:9090",
+    "http://localhost:9190",
     GrpcAuthConfig::Bearer("eyJ...".to_string()),
 ).await?;
 ```

@@ -40,10 +40,9 @@ impl TemplateServiceImpl {
 
         // Check permission
         if !ctx.has_permission(&required_permission) {
-            return Err(Status::permission_denied(format!(
-                "Permission denied: requires {:?}",
-                required_permission
-            )));
+            return Err(Status::permission_denied(
+                "Insufficient permissions for this operation",
+            ));
         }
 
         Ok(())

@@ -87,6 +87,7 @@
 //! ```
 
 pub mod actors;
+pub mod api_common;
 #[cfg(feature = "grpc-api")]
 pub mod grpc;
 pub mod health;

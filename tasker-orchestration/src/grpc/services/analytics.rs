@@ -39,10 +39,9 @@ impl AnalyticsServiceImpl {
 
         // Check permission
         if !ctx.has_permission(&required_permission) {
-            return Err(Status::permission_denied(format!(
-                "Permission denied: requires {:?}",
-                required_permission
-            )));
+            return Err(Status::permission_denied(
+                "Insufficient permissions for this operation",
+            ));
         }
 
         Ok(ctx)
@@ -194,14 +193,19 @@ impl AnalyticsServiceTrait for AnalyticsServiceImpl {
 /// Convert a TaskerError to a gRPC Status.
 ///
 /// Maps analytics service errors (which return TaskerError) to appropriate gRPC status codes.
+/// Internal errors use generic messages to avoid leaking implementation details.
 fn tasker_error_to_status(error: &tasker_shared::errors::TaskerError) -> Status {
     use tasker_shared::errors::TaskerError;
     match error {
+        // Client-facing errors - safe to expose details
         TaskerError::ValidationError(_)
         | TaskerError::InvalidInput(_)
         | TaskerError::InvalidParameter(_) => Status::invalid_argument(error.to_string()),
-        TaskerError::CircuitBreakerOpen(_) => Status::unavailable(error.to_string()),
-        TaskerError::Timeout(_) => Status::deadline_exceeded(error.to_string()),
+        TaskerError::CircuitBreakerOpen(_) => {
+            Status::unavailable("Service temporarily unavailable")
+        }
+        TaskerError::Timeout(_) => Status::deadline_exceeded("Request timed out"),
+        // Internal errors - use generic messages, details are logged server-side
         TaskerError::DatabaseError(_)
         | TaskerError::Internal(_)
         | TaskerError::StateTransitionError(_)
@@ -218,7 +222,10 @@ fn tasker_error_to_status(error: &tasker_shared::errors::TaskerError) -> Status 
         | TaskerError::StateMachineError(_)
         | TaskerError::StateMachineActionError(_)
         | TaskerError::StateMachineGuardError(_)
-        | TaskerError::StateMachinePersistenceError(_) => Status::internal(error.to_string()),
+        | TaskerError::StateMachinePersistenceError(_) => {
+            tracing::error!(error = %error, "Analytics service error");
+            Status::internal("Internal error processing analytics request")
+        }
     }
 }
 

@@ -140,10 +140,15 @@ pub use api_clients::{
 pub use config::{ClientAuthConfig, ClientAuthMethod, ClientConfig, Transport};
 pub use error::{ClientError, ClientResult};
 
-// Re-export unified transport types
+// Re-export unified transport types for orchestration
 #[cfg(feature = "grpc")]
 pub use transport::GrpcOrchestrationClient;
 pub use transport::{OrchestrationClient, RestOrchestrationClient, UnifiedOrchestrationClient};
+
+// Re-export unified transport types for worker
+#[cfg(feature = "grpc")]
+pub use transport::GrpcWorkerClient;
+pub use transport::{RestWorkerClient, UnifiedWorkerClient, WorkerClient};
 
 // Re-export gRPC clients when feature is enabled
 #[cfg(feature = "grpc")]

@@ -80,8 +80,8 @@ impl std::fmt::Debug for OrchestrationSystemHandle {
 }
 
 impl OrchestrationSystemHandle {
-    /// Create new orchestration system handle (with grpc-api, which implies web-api)
-    #[cfg(feature = "grpc-api")]
+    /// Create new orchestration system handle (both web-api and grpc-api)
+    #[cfg(all(feature = "web-api", feature = "grpc-api"))]
     pub fn new(
         orchestration_core: Arc<OrchestrationCore>,
         unified_event_coordinator: Option<Arc<tokio::sync::Mutex<UnifiedEventCoordinator>>>,
@@ -96,6 +96,28 @@ impl OrchestrationSystemHandle {
             orchestration_core,
             unified_event_coordinator,
             web_state,
+            grpc_server_handle,
+            shutdown_sender: Some(shutdown_sender),
+            runtime_handle,
+            tasker_config,
+            bootstrap_config,
+        }
+    }
+
+    /// Create new orchestration system handle (grpc-api only, no web-api)
+    #[cfg(all(feature = "grpc-api", not(feature = "web-api")))]
+    pub fn new(
+        orchestration_core: Arc<OrchestrationCore>,
+        unified_event_coordinator: Option<Arc<tokio::sync::Mutex<UnifiedEventCoordinator>>>,
+        grpc_server_handle: Option<crate::grpc::GrpcServerHandle>,
+        shutdown_sender: oneshot::Sender<()>,
+        runtime_handle: tokio::runtime::Handle,
+        tasker_config: Arc<TaskerConfig>,
+        bootstrap_config: BootstrapConfig,
+    ) -> Self {
+        Self {
+            orchestration_core,
+            unified_event_coordinator,
             grpc_server_handle,
             shutdown_sender: Some(shutdown_sender),
             runtime_handle,
@@ -127,7 +149,7 @@ impl OrchestrationSystemHandle {
     }
 
     /// Create new orchestration system handle (no API features)
-    #[cfg(not(feature = "web-api"))]
+    #[cfg(not(any(feature = "web-api", feature = "grpc-api")))]
     pub fn new(
         orchestration_core: Arc<OrchestrationCore>,
         unified_event_coordinator: Option<Arc<tokio::sync::Mutex<UnifiedEventCoordinator>>>,
@@ -326,15 +348,27 @@ impl OrchestrationBootstrap {
         let (shutdown_sender, runtime_handle) = Self::setup_shutdown_handler();
 
         // Step 9: Create and return orchestration system handle
-        // Note: grpc-api implies web-api (see Cargo.toml), so we have exactly 3 mutually exclusive cases:
-        //   1. grpc-api enabled (web-api is automatically enabled)
-        //   2. web-api only (grpc-api disabled)
-        //   3. neither API enabled
-        #[cfg(feature = "grpc-api")]
+        // There are 4 mutually exclusive feature combinations:
+        //   1. Both grpc-api and web-api enabled
+        //   2. grpc-api only (no web-api)
+        //   3. web-api only (no grpc-api)
+        //   4. Neither API enabled
+        #[cfg(all(feature = "grpc-api", feature = "web-api"))]
         let handle = Self::create_system_handle(
             orchestration_core,
             unified_event_coordinator,
             web_state,
+            grpc_server_handle,
+            shutdown_sender,
+            runtime_handle,
+            system_context.tasker_config.clone(),
+            config,
+        );
+
+        #[cfg(all(feature = "grpc-api", not(feature = "web-api")))]
+        let handle = Self::create_system_handle(
+            orchestration_core,
+            unified_event_coordinator,
             grpc_server_handle,
             shutdown_sender,
             runtime_handle,
@@ -353,7 +387,7 @@ impl OrchestrationBootstrap {
             config,
         );
 
-        #[cfg(not(feature = "web-api"))]
+        #[cfg(not(any(feature = "web-api", feature = "grpc-api")))]
         let handle = Self::create_system_handle(
             orchestration_core,
             unified_event_coordinator,
@@ -754,8 +788,8 @@ impl OrchestrationBootstrap {
     // Step 9: Create system handle
     // =========================================================================
 
-    /// Create the orchestration system handle (with grpc-api, which implies web-api).
-    #[cfg(feature = "grpc-api")]
+    /// Create the orchestration system handle (both grpc-api and web-api).
+    #[cfg(all(feature = "grpc-api", feature = "web-api"))]
     fn create_system_handle(
         orchestration_core: Arc<OrchestrationCore>,
         unified_event_coordinator: Option<Arc<tokio::sync::Mutex<UnifiedEventCoordinator>>>,
@@ -770,6 +804,28 @@ impl OrchestrationBootstrap {
             orchestration_core,
             unified_event_coordinator,
             web_state,
+            grpc_server_handle,
+            shutdown_sender,
+            runtime_handle,
+            tasker_config,
+            config,
+        )
+    }
+
+    /// Create the orchestration system handle (grpc-api only, no web-api).
+    #[cfg(all(feature = "grpc-api", not(feature = "web-api")))]
+    fn create_system_handle(
+        orchestration_core: Arc<OrchestrationCore>,
+        unified_event_coordinator: Option<Arc<tokio::sync::Mutex<UnifiedEventCoordinator>>>,
+        grpc_server_handle: Option<crate::grpc::GrpcServerHandle>,
+        shutdown_sender: oneshot::Sender<()>,
+        runtime_handle: tokio::runtime::Handle,
+        tasker_config: Arc<TaskerConfig>,
+        config: BootstrapConfig,
+    ) -> OrchestrationSystemHandle {
+        OrchestrationSystemHandle::new(
+            orchestration_core,
+            unified_event_coordinator,
             grpc_server_handle,
             shutdown_sender,
             runtime_handle,
@@ -801,7 +857,7 @@ impl OrchestrationBootstrap {
     }
 
     /// Create the orchestration system handle (no API features).
-    #[cfg(not(feature = "web-api"))]
+    #[cfg(not(any(feature = "web-api", feature = "grpc-api")))]
     fn create_system_handle(
         orchestration_core: Arc<OrchestrationCore>,
         unified_event_coordinator: Option<Arc<tokio::sync::Mutex<UnifiedEventCoordinator>>>,

@@ -144,11 +144,9 @@ web-api = [
   "utoipa-swagger-ui",
 ]
 # TAS-177: gRPC API support
-# Note: Requires web-api because SharedApiServices depends on types from the web module
-# (WebDatabaseCircuitBreaker, OrchestrationStatus). These could be refactored to a common
-# module in the future to allow gRPC-only deployments.
+# Note: Types shared between REST and gRPC (WebDatabaseCircuitBreaker, OrchestrationStatus)
+# are in the api_common module, allowing gRPC-only deployments without web-api.
 grpc-api = [
-  "web-api",
   "tonic",
   "tonic-health",
   "tonic-reflection",

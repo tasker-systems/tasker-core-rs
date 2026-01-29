@@ -114,18 +114,18 @@ cargo make test-e2e-grpc         # tge - E2E tests with gRPC transport
 cargo make test-both-transports  # E2E with both REST and gRPC
 
 # grpcurl examples (requires services running)
-grpcurl -plaintext localhost:9090 list                           # List services
-grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckLiveness
+grpcurl -plaintext localhost:9190 list                           # List services
+grpcurl -plaintext localhost:9190 tasker.v1.HealthService/CheckLiveness
 grpcurl -plaintext -H "X-API-Key: test-api-key-full-access" \
   -d '{"name":"test","namespace":"default","version":"1.0.0"}' \
-  localhost:9090 tasker.v1.TaskService/CreateTask
+  localhost:9190 tasker.v1.TaskService/CreateTask
 ```
 
 **Port Allocation (gRPC)**:
 | Service | REST Port | gRPC Port |
 |---------|-----------|-----------|
-| Orchestration | 8080 | 9090 |
-| Rust Worker | 8081 | 9100 |
+| Orchestration | 8080 | 9190 |
+| Rust Worker | 8081 | 9191 |
 | Ruby Worker | 8082 | 9200 |
 | Python Worker | 8083 | 9300 |
 | TypeScript Worker | 8085 | 9400 |

@@ -7,14 +7,16 @@
 //! ## Usage
 //!
 //! ```rust,ignore
-//! use tasker_client::{ClientConfig, UnifiedOrchestrationClient};
+//! use tasker_client::{ClientConfig, UnifiedOrchestrationClient, UnifiedWorkerClient};
 //!
-//! // Create client based on configured transport
+//! // Create clients based on configured transport
 //! let config = ClientConfig::load()?;
-//! let client = UnifiedOrchestrationClient::from_config(&config).await?;
+//! let orch_client = UnifiedOrchestrationClient::from_config(&config).await?;
+//! let worker_client = UnifiedWorkerClient::from_config(&config).await?;
 //!
 //! // Works the same regardless of transport
-//! let health = client.health_check().await?;
+//! let health = orch_client.health_check().await?;
+//! let worker_health = worker_client.health_check().await?;
 //! ```
 
 use async_trait::async_trait;
@@ -24,17 +26,22 @@ use tasker_shared::{
     models::core::task_request::TaskRequest,
     types::api::orchestration::{
         DetailedHealthResponse, HealthResponse, StepAuditResponse, StepManualAction, StepResponse,
-        TaskListResponse, TaskResponse,
+        TaskListResponse, TaskResponse, WorkerConfigResponse,
     },
     types::api::templates::{TemplateDetail, TemplateListResponse},
+    types::api::worker::{
+        BasicHealthResponse as WorkerBasicHealthResponse,
+        DetailedHealthResponse as WorkerDetailedHealthResponse, ReadinessResponse,
+        TemplateListResponse as WorkerTemplateListResponse, TemplateQueryParams, TemplateResponse,
+    },
 };
 
 use crate::config::{ClientConfig, Transport};
 use crate::error::{ClientError, ClientResult};
-use crate::{OrchestrationApiClient, OrchestrationApiConfig};
+use crate::{OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig};
 
 #[cfg(feature = "grpc")]
-use crate::grpc_clients::{GrpcClientConfig, OrchestrationGrpcClient};
+use crate::grpc_clients::{GrpcClientConfig, OrchestrationGrpcClient, WorkerGrpcClient};
 
 /// Common interface for orchestration clients regardless of transport.
 ///
@@ -653,6 +660,406 @@ impl OrchestrationClient for UnifiedOrchestrationClient {
     }
 }
 
+// ===================================================================================
+// WORKER CLIENT TRAIT
+// ===================================================================================
+
+/// Common interface for worker clients regardless of transport.
+///
+/// This trait defines the operations that both REST and gRPC worker clients support,
+/// enabling transport-agnostic code.
+#[async_trait]
+pub trait WorkerClient: Send + Sync {
+    /// Get the transport name for debugging/logging.
+    fn transport_name(&self) -> &'static str;
+
+    /// Get the endpoint URL.
+    fn endpoint(&self) -> &str;
+
+    // ===================================================================================
+    // HEALTH OPERATIONS
+    // ===================================================================================
+
+    /// Basic health check.
+    async fn health_check(&self) -> ClientResult<WorkerBasicHealthResponse>;
+
+    /// Kubernetes liveness probe.
+    async fn liveness_probe(&self) -> ClientResult<WorkerBasicHealthResponse>;
+
+    /// Kubernetes readiness probe.
+    async fn readiness_probe(&self) -> ClientResult<ReadinessResponse>;
+
+    /// Detailed health check with subsystem status.
+    async fn get_detailed_health(&self) -> ClientResult<WorkerDetailedHealthResponse>;
+
+    // ===================================================================================
+    // TEMPLATE OPERATIONS
+    // ===================================================================================
+
+    /// List supported templates and namespaces.
+    async fn list_templates(
+        &self,
+        params: Option<&TemplateQueryParams>,
+    ) -> ClientResult<WorkerTemplateListResponse>;
+
+    /// Get a specific task template.
+    async fn get_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> ClientResult<TemplateResponse>;
+
+    // ===================================================================================
+    // CONFIG OPERATIONS
+    // ===================================================================================
+
+    /// Get worker configuration (secrets redacted).
+    async fn get_config(&self) -> ClientResult<WorkerConfigResponse>;
+}
+
+// ===================================================================================
+// WORKER REST TRANSPORT IMPLEMENTATION
+// ===================================================================================
+
+/// REST transport wrapper that implements the unified worker interface.
+#[derive(Debug)]
+pub struct RestWorkerClient {
+    inner: WorkerApiClient,
+}
+
+impl RestWorkerClient {
+    /// Create a new REST worker client.
+    pub fn new(config: WorkerApiConfig) -> ClientResult<Self> {
+        let inner = WorkerApiClient::new(config)
+            .map_err(|e| ClientError::Internal(format!("Failed to create REST client: {}", e)))?;
+        Ok(Self { inner })
+    }
+
+    /// Create from ClientConfig.
+    pub fn from_client_config(config: &ClientConfig) -> ClientResult<Self> {
+        let api_config = WorkerApiConfig {
+            base_url: config.worker.base_url.clone(),
+            timeout_ms: config.worker.timeout_ms,
+            max_retries: config.worker.max_retries,
+            auth: config.worker.resolve_web_auth_config(),
+        };
+        Self::new(api_config)
+    }
+}
+
+#[async_trait]
+impl WorkerClient for RestWorkerClient {
+    fn transport_name(&self) -> &'static str {
+        "REST"
+    }
+
+    fn endpoint(&self) -> &str {
+        self.inner.base_url()
+    }
+
+    async fn health_check(&self) -> ClientResult<WorkerBasicHealthResponse> {
+        self.inner
+            .health_check()
+            .await
+            .map_err(|e| ClientError::Internal(format!("Health check failed: {}", e)))
+    }
+
+    async fn liveness_probe(&self) -> ClientResult<WorkerBasicHealthResponse> {
+        self.inner
+            .liveness_probe()
+            .await
+            .map_err(|e| ClientError::Internal(format!("Liveness probe failed: {}", e)))
+    }
+
+    async fn readiness_probe(&self) -> ClientResult<ReadinessResponse> {
+        self.inner
+            .readiness_probe()
+            .await
+            .map_err(|e| ClientError::Internal(format!("Readiness probe failed: {}", e)))
+    }
+
+    async fn get_detailed_health(&self) -> ClientResult<WorkerDetailedHealthResponse> {
+        self.inner
+            .get_detailed_health()
+            .await
+            .map_err(|e| ClientError::Internal(format!("Get detailed health failed: {}", e)))
+    }
+
+    async fn list_templates(
+        &self,
+        params: Option<&TemplateQueryParams>,
+    ) -> ClientResult<WorkerTemplateListResponse> {
+        self.inner
+            .list_templates(params)
+            .await
+            .map_err(|e| ClientError::Internal(format!("List templates failed: {}", e)))
+    }
+
+    async fn get_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> ClientResult<TemplateResponse> {
+        self.inner
+            .get_template(namespace, name, version)
+            .await
+            .map_err(|e| ClientError::Internal(format!("Get template failed: {}", e)))
+    }
+
+    async fn get_config(&self) -> ClientResult<WorkerConfigResponse> {
+        self.inner
+            .get_config()
+            .await
+            .map_err(|e| ClientError::Internal(format!("Get config failed: {}", e)))
+    }
+}
+
+// ===================================================================================
+// WORKER GRPC TRANSPORT IMPLEMENTATION
+// ===================================================================================
+
+#[cfg(feature = "grpc")]
+/// gRPC transport wrapper that implements the unified worker interface.
+#[derive(Debug)]
+pub struct GrpcWorkerClient {
+    inner: WorkerGrpcClient,
+    endpoint: String,
+}
+
+#[cfg(feature = "grpc")]
+impl GrpcWorkerClient {
+    /// Create a new gRPC worker client.
+    pub async fn connect(endpoint: impl Into<String>) -> ClientResult<Self> {
+        let endpoint = endpoint.into();
+        let inner = WorkerGrpcClient::connect(endpoint.clone()).await?;
+        Ok(Self { inner, endpoint })
+    }
+
+    /// Create with full configuration.
+    pub async fn with_config(config: GrpcClientConfig) -> ClientResult<Self> {
+        let endpoint = config.endpoint.clone();
+        let inner = WorkerGrpcClient::with_config(config).await?;
+        Ok(Self { inner, endpoint })
+    }
+
+    /// Create from ClientConfig.
+    pub async fn from_client_config(config: &ClientConfig) -> ClientResult<Self> {
+        use crate::grpc_clients::GrpcAuthConfig;
+
+        let endpoint = config.worker.base_url.clone();
+
+        let grpc_config = if let Some(ref auth) = config.worker.auth {
+            let auth_config = match &auth.method {
+                crate::config::ClientAuthMethod::ApiKey { key, header_name } => {
+                    GrpcAuthConfig::with_api_key_header(key.clone(), header_name.clone())
+                }
+                crate::config::ClientAuthMethod::BearerToken(token) => {
+                    GrpcAuthConfig::with_bearer_token(token.clone())
+                }
+            };
+            GrpcClientConfig::new(endpoint.clone()).with_auth(auth_config)
+        } else {
+            GrpcClientConfig::new(endpoint.clone())
+        };
+
+        let inner = WorkerGrpcClient::with_config(grpc_config).await?;
+        Ok(Self { inner, endpoint })
+    }
+}
+
+#[cfg(feature = "grpc")]
+#[async_trait]
+impl WorkerClient for GrpcWorkerClient {
+    fn transport_name(&self) -> &'static str {
+        "gRPC"
+    }
+
+    fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    async fn health_check(&self) -> ClientResult<WorkerBasicHealthResponse> {
+        self.inner.health_check().await
+    }
+
+    async fn liveness_probe(&self) -> ClientResult<WorkerBasicHealthResponse> {
+        self.inner.liveness_probe().await
+    }
+
+    async fn readiness_probe(&self) -> ClientResult<ReadinessResponse> {
+        self.inner.readiness_probe().await
+    }
+
+    async fn get_detailed_health(&self) -> ClientResult<WorkerDetailedHealthResponse> {
+        self.inner.get_detailed_health().await
+    }
+
+    async fn list_templates(
+        &self,
+        params: Option<&TemplateQueryParams>,
+    ) -> ClientResult<WorkerTemplateListResponse> {
+        self.inner.list_templates(params).await
+    }
+
+    async fn get_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> ClientResult<TemplateResponse> {
+        self.inner.get_template(namespace, name, version).await
+    }
+
+    async fn get_config(&self) -> ClientResult<WorkerConfigResponse> {
+        self.inner.get_config().await
+    }
+}
+
+// ===================================================================================
+// UNIFIED WORKER CLIENT
+// ===================================================================================
+
+/// Unified worker client that selects transport based on configuration.
+///
+/// This enum wraps either a REST or gRPC client and dispatches to the appropriate
+/// implementation. Use this when you want transport-agnostic code.
+#[derive(Debug)]
+pub enum UnifiedWorkerClient {
+    /// REST transport (boxed to reduce enum size)
+    Rest(Box<RestWorkerClient>),
+    /// gRPC transport (requires `grpc` feature)
+    #[cfg(feature = "grpc")]
+    Grpc(Box<GrpcWorkerClient>),
+}
+
+impl UnifiedWorkerClient {
+    /// Create a client from configuration, selecting transport automatically.
+    pub async fn from_config(config: &ClientConfig) -> ClientResult<Self> {
+        match config.transport {
+            Transport::Rest => {
+                let client = RestWorkerClient::from_client_config(config)?;
+                Ok(UnifiedWorkerClient::Rest(Box::new(client)))
+            }
+            #[cfg(feature = "grpc")]
+            Transport::Grpc => {
+                let client = GrpcWorkerClient::from_client_config(config).await?;
+                Ok(UnifiedWorkerClient::Grpc(Box::new(client)))
+            }
+            #[cfg(not(feature = "grpc"))]
+            Transport::Grpc => Err(ClientError::Internal(
+                "gRPC transport requested but 'grpc' feature is not enabled".to_string(),
+            )),
+        }
+    }
+
+    /// Create a REST client directly.
+    pub fn rest(config: WorkerApiConfig) -> ClientResult<Self> {
+        let client = RestWorkerClient::new(config)?;
+        Ok(UnifiedWorkerClient::Rest(Box::new(client)))
+    }
+
+    /// Create a gRPC client directly.
+    #[cfg(feature = "grpc")]
+    pub async fn grpc(endpoint: impl Into<String>) -> ClientResult<Self> {
+        let client = GrpcWorkerClient::connect(endpoint).await?;
+        Ok(UnifiedWorkerClient::Grpc(Box::new(client)))
+    }
+
+    /// Get a reference to the trait object for polymorphic use.
+    pub fn as_client(&self) -> &dyn WorkerClient {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.as_ref(),
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.as_ref(),
+        }
+    }
+}
+
+#[async_trait]
+impl WorkerClient for UnifiedWorkerClient {
+    fn transport_name(&self) -> &'static str {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.transport_name(),
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.transport_name(),
+        }
+    }
+
+    fn endpoint(&self) -> &str {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.endpoint(),
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.endpoint(),
+        }
+    }
+
+    async fn health_check(&self) -> ClientResult<WorkerBasicHealthResponse> {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.health_check().await,
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.health_check().await,
+        }
+    }
+
+    async fn liveness_probe(&self) -> ClientResult<WorkerBasicHealthResponse> {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.liveness_probe().await,
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.liveness_probe().await,
+        }
+    }
+
+    async fn readiness_probe(&self) -> ClientResult<ReadinessResponse> {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.readiness_probe().await,
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.readiness_probe().await,
+        }
+    }
+
+    async fn get_detailed_health(&self) -> ClientResult<WorkerDetailedHealthResponse> {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.get_detailed_health().await,
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.get_detailed_health().await,
+        }
+    }
+
+    async fn list_templates(
+        &self,
+        params: Option<&TemplateQueryParams>,
+    ) -> ClientResult<WorkerTemplateListResponse> {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.list_templates(params).await,
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.list_templates(params).await,
+        }
+    }
+
+    async fn get_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> ClientResult<TemplateResponse> {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.get_template(namespace, name, version).await,
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.get_template(namespace, name, version).await,
+        }
+    }
+
+    async fn get_config(&self) -> ClientResult<WorkerConfigResponse> {
+        match self {
+            UnifiedWorkerClient::Rest(c) => c.get_config().await,
+            #[cfg(feature = "grpc")]
+            UnifiedWorkerClient::Grpc(c) => c.get_config().await,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,6 +1095,43 @@ mod tests {
         assert_eq!(
             std::any::type_name::<GrpcOrchestrationClient>(),
             "tasker_client::transport::GrpcOrchestrationClient"
+        );
+    }
+
+    // ==========================================================================
+    // Worker Client Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_rest_worker_client_creation() {
+        let config = WorkerApiConfig::default();
+        let client = RestWorkerClient::new(config).unwrap();
+        assert_eq!(client.transport_name(), "REST");
+        assert_eq!(client.endpoint(), "http://localhost:8081/");
+    }
+
+    #[test]
+    fn test_unified_worker_client_rest() {
+        let config = WorkerApiConfig::default();
+        let client = UnifiedWorkerClient::rest(config).unwrap();
+        assert_eq!(client.transport_name(), "REST");
+    }
+
+    #[tokio::test]
+    async fn test_unified_worker_from_config_rest() {
+        let config = ClientConfig::default();
+        let client = UnifiedWorkerClient::from_config(&config).await.unwrap();
+        assert_eq!(client.transport_name(), "REST");
+        assert_eq!(client.endpoint(), "http://localhost:8081/");
+    }
+
+    #[cfg(feature = "grpc")]
+    #[test]
+    fn test_grpc_worker_transport_name() {
+        // Can't test actual connection without a server, but we can verify types compile
+        assert_eq!(
+            std::any::type_name::<GrpcWorkerClient>(),
+            "tasker_client::transport::GrpcWorkerClient"
         );
     }
 }

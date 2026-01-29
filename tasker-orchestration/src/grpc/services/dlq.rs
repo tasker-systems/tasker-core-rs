@@ -41,10 +41,9 @@ impl DlqServiceImpl {
 
         // Check permission
         if !ctx.has_permission(&required_permission) {
-            return Err(Status::permission_denied(format!(
-                "Permission denied: requires {:?}",
-                required_permission
-            )));
+            return Err(Status::permission_denied(
+                "Insufficient permissions for this operation",
+            ));
         }
 
         Ok(ctx)
@@ -88,7 +87,7 @@ impl DlqServiceTrait for DlqServiceImpl {
             .await
             .map_err(|e| {
                 error!("Failed to list DLQ entries: {}", e);
-                Status::internal(format!("Failed to list DLQ entries: {}", e))
+                Status::internal("Failed to list DLQ entries")
             })?;
 
         info!(count = entries.len(), "Successfully listed DLQ entries");
@@ -121,7 +120,7 @@ impl DlqServiceTrait for DlqServiceImpl {
             .await
             .map_err(|e| {
                 error!("Failed to get DLQ entry for task {}: {}", task_uuid, e);
-                Status::internal(format!("Failed to get DLQ entry: {}", e))
+                Status::internal("Failed to get DLQ entry")
             })?;
 
         match entry {
@@ -185,7 +184,7 @@ impl DlqServiceTrait for DlqServiceImpl {
                         "Failed to update DLQ investigation {}: {}",
                         dlq_entry_uuid, e
                     );
-                    Status::internal(format!("Failed to update DLQ investigation: {}", e))
+                    Status::internal("Failed to update DLQ investigation")
                 })?;
 
         if !updated {
@@ -224,7 +223,7 @@ impl DlqServiceTrait for DlqServiceImpl {
             .await
             .map_err(|e| {
                 error!("Failed to get DLQ stats: {}", e);
-                Status::internal(format!("Failed to get DLQ stats: {}", e))
+                Status::internal("Failed to get DLQ stats")
             })?;
 
         info!(
@@ -260,7 +259,7 @@ impl DlqServiceTrait for DlqServiceImpl {
             .await
             .map_err(|e| {
                 error!("Failed to get investigation queue: {}", e);
-                Status::internal(format!("Failed to get investigation queue: {}", e))
+                Status::internal("Failed to get investigation queue")
             })?;
 
         info!(
@@ -299,7 +298,7 @@ impl DlqServiceTrait for DlqServiceImpl {
             .await
             .map_err(|e| {
                 error!("Failed to get staleness monitoring: {}", e);
-                Status::internal(format!("Failed to get staleness monitoring: {}", e))
+                Status::internal("Failed to get staleness monitoring")
             })?;
 
         info!(

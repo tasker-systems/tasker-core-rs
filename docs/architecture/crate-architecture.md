@@ -353,7 +353,7 @@ GrpcState { services: Arc<SharedApiServices>, ... }  // gRPC
 
 **Port Allocation**:
 - REST: 8080 (configurable)
-- gRPC: 9090 (configurable)
+- gRPC: 9190 (configurable)
 
 ---
 

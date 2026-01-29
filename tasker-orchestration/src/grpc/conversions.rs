@@ -127,10 +127,10 @@ pub fn task_service_error_to_status(error: &crate::services::TaskServiceError) -
     use crate::services::TaskServiceError;
     match error {
         TaskServiceError::NotFound(_) => tonic::Status::not_found(error.to_string()),
+        TaskServiceError::DuplicateTask(_) => tonic::Status::already_exists(error.to_string()),
         TaskServiceError::Validation(_)
         | TaskServiceError::TemplateNotFound(_)
         | TaskServiceError::InvalidConfiguration(_)
-        | TaskServiceError::DuplicateTask(_)
         | TaskServiceError::CannotCancel(_) => tonic::Status::invalid_argument(error.to_string()),
         TaskServiceError::Backpressure {
             retry_after_seconds,

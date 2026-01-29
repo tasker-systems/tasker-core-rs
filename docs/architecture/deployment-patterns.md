@@ -1153,8 +1153,8 @@ Tasker Core exposes gRPC health endpoints alongside REST for Kubernetes gRPC hea
 
 | Service | REST Port | gRPC Port |
 |---------|-----------|-----------|
-| Orchestration | 8080 | 9090 |
-| Rust Worker | 8081 | 9100 |
+| Orchestration | 8080 | 9190 |
+| Rust Worker | 8081 | 9191 |
 | Ruby Worker | 8082 | 9200 |
 | Python Worker | 8083 | 9300 |
 | TypeScript Worker | 8085 | 9400 |
@@ -1162,9 +1162,9 @@ Tasker Core exposes gRPC health endpoints alongside REST for Kubernetes gRPC hea
 **gRPC Health Endpoints**:
 ```bash
 # Using grpcurl
-grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckLiveness
-grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckReadiness
-grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckDetailedHealth
+grpcurl -plaintext localhost:9190 tasker.v1.HealthService/CheckLiveness
+grpcurl -plaintext localhost:9190 tasker.v1.HealthService/CheckReadiness
+grpcurl -plaintext localhost:9190 tasker.v1.HealthService/CheckDetailedHealth
 ```
 
 **Kubernetes gRPC Probes** (Kubernetes 1.24+):
@@ -1172,7 +1172,7 @@ grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckDetailedHealth
 # gRPC liveness probe
 livenessProbe:
   grpc:
-    port: 9090
+    port: 9190
     service: tasker.v1.HealthService
   initialDelaySeconds: 30
   periodSeconds: 10
@@ -1182,7 +1182,7 @@ livenessProbe:
 # gRPC readiness probe
 readinessProbe:
   grpc:
-    port: 9090
+    port: 9190
     service: tasker.v1.HealthService
   initialDelaySeconds: 10
   periodSeconds: 5
@@ -1194,7 +1194,7 @@ readinessProbe:
 ```toml
 [orchestration.grpc]
 enabled = true
-bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9090}"
+bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9190}"
 enable_reflection = true       # Service discovery via grpcurl
 enable_health_service = true   # gRPC health checks
 ```

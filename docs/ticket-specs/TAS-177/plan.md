@@ -1078,16 +1078,60 @@ The dotenv system uses layered files assembled in order:
 4. `orchestration.env` / `worker-*.env` - Service-specific settings
 
 For gRPC, this means:
-- `orchestration.env` sets default `TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS=0.0.0.0:9090`
-- `rust-worker.env` sets default `TASKER_WORKER_GRPC_BIND_ADDRESS=0.0.0.0:9100`
-- `cluster.env` provides `TASKER_ORCHESTRATION_GRPC_BASE_PORT=9090` and `TASKER_WORKER_RUST_GRPC_BASE_PORT=9100` for dynamic allocation
+- `orchestration.env` sets default `TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS=0.0.0.0:9190`
+- `rust-worker.env` sets default `TASKER_WORKER_GRPC_BIND_ADDRESS=0.0.0.0:9191`
+- `cluster.env` provides `TASKER_ORCHESTRATION_GRPC_BASE_PORT=9190` and `TASKER_WORKER_RUST_GRPC_BASE_PORT=9191` for dynamic allocation
 - `start-cluster.sh` calculates per-instance ports: `BASE_PORT + (instance - 1)`
 
 **Port Allocation Pattern:**
 | Protocol | Orchestration | Rust Worker | Ruby Worker | Python Worker | TS Worker |
 |----------|--------------|-------------|-------------|---------------|-----------|
 | REST     | 8080-8089    | 8100-8109   | 8200-8209   | 8300-8309     | 8400-8409 |
-| gRPC     | 9090-9099    | 9100-9109   | 9200-9209   | 9300-9309     | 9400-9409 |
+| gRPC     | 9190-9199    | 9191-9199   | 9200-9209   | 9300-9309     | 9400-9409 |
+
+---
+
+## Cross-Transport Behavioral Differences
+
+### CancelTask Response Semantics
+
+The `cancel_task` operation has intentionally different response semantics between transports:
+
+| Scenario | REST | gRPC |
+|----------|------|------|
+| **Success** | 200 OK + `TaskResponse` body | OK + `CancelTaskResponse { task, success: true, message: None }` |
+| **Cannot Cancel** | 400 Bad Request + error body | OK + `CancelTaskResponse { task: None, success: false, message: Some(reason) }` |
+
+**Rationale**: The gRPC `CancelTaskResponse` type explicitly models cancellation as an operation that may or may not succeed for business reasons:
+
+```protobuf
+message CancelTaskResponse {
+  Task task = 1;              // The task (if available)
+  bool success = 2;           // Whether cancellation succeeded
+  optional string message = 3; // Explanation if success=false
+}
+```
+
+This design choice means:
+- **gRPC clients** check `response.success` without exception handling for expected business outcomes
+- **REST clients** catch 400 errors and parse error body for the same information
+- The gRPC approach avoids exception-based control flow for non-exceptional cases
+
+**Client code pattern (gRPC)**:
+```rust
+let response = client.cancel_task(request).await?; // Only fails on transport/auth errors
+if !response.success {
+    println!("Cannot cancel: {}", response.message.unwrap_or_default());
+}
+```
+
+### DuplicateTask Error Mapping
+
+| Scenario | REST | gRPC |
+|----------|------|------|
+| **Duplicate Task** | 409 Conflict | `ALREADY_EXISTS` status |
+
+The gRPC status code `ALREADY_EXISTS` (code 6) is semantically more accurate than `INVALID_ARGUMENT` for duplicate detection. REST uses HTTP 409 Conflict, which maps conceptually to `ALREADY_EXISTS`.
 
 ---
 
@@ -1211,3 +1255,76 @@ response.checks.ok_or_else(|| ClientError::invalid_response(...))
 ```
 
 The distinction is semantic, not syntactic. The domain model defines what "required" means, not the proto schema.
+
+---
+
+## Design Decisions: CLI and Configuration
+
+### Transport Selection via Profiles (Not --transport Flag)
+
+**Decision**: Transport selection is handled via the `--profile` CLI flag and configuration files rather than a dedicated `--transport` flag.
+
+**Rationale**:
+
+1. **Servers run both transports**: Orchestration and worker services expose both REST and gRPC APIs simultaneously when configured. There's no need for a server-side transport flag.
+
+2. **Clients use profiles**: The `tasker-client` CLI uses a profile-based configuration system (inspired by nextest):
+   ```toml
+   # .config/tasker-client.toml
+   [profile.default]
+   transport = "rest"
+
+   [profile.default.orchestration]
+   base_url = "http://localhost:8080"
+
+   [profile.grpc]
+   transport = "grpc"
+
+   [profile.grpc.orchestration]
+   base_url = "http://localhost:9190"
+   ```
+
+3. **Environment variable override**: `TASKER_CLIENT_TRANSPORT` or `TASKER_TEST_TRANSPORT` can override the transport for testing:
+   ```bash
+   TASKER_TEST_TRANSPORT=grpc cargo test --features test-services
+   ```
+
+4. **Profile switching is more ergonomic**: Rather than specifying `--transport grpc --url http://... --auth-key ...` every time, users define profiles once and reference them:
+   ```bash
+   tasker --profile grpc tasks list
+   ```
+
+**Implementation**: The `UnifiedOrchestrationClient` and `UnifiedWorkerClient` types in `transport.rs` provide transport-agnostic interfaces that select the underlying transport based on `ClientConfig.transport`.
+
+### Timestamp Standardization
+
+**Decision**: Timestamps are handled at the conversion layer, not standardized at the schema level.
+
+**Current Implementation**:
+
+1. **REST API**: Returns ISO 8601 strings (`"2024-01-15T10:30:00Z"`)
+2. **gRPC API**: Returns `google.protobuf.Timestamp` (seconds + nanos)
+3. **Domain types**: Use `chrono::DateTime<Utc>`
+
+**Conversion Flow**:
+```
+REST: String → DateTime<Utc> (in API response parsing)
+gRPC: google.protobuf.Timestamp → DateTime<Utc> (in proto_xxx_to_domain())
+Domain: DateTime<Utc> is the canonical representation
+```
+
+**Rationale**:
+
+1. **Protocol-appropriate formats**: REST/JSON naturally uses strings, gRPC/protobuf uses the Timestamp well-known type. Forcing uniformity at the wire level adds complexity without benefit.
+
+2. **Conversion layer handles differences**: The `conversions.rs` module provides:
+   ```rust
+   fn proto_timestamp_to_datetime(ts: prost_types::Timestamp) -> Result<DateTime<Utc>, ClientError>;
+   fn datetime_to_proto_timestamp(dt: DateTime<Utc>) -> prost_types::Timestamp;
+   ```
+
+3. **Domain types are canonical**: Application code works with `DateTime<Utc>` regardless of transport. The conversion layer is the only place that deals with format differences.
+
+4. **Testing verifies equivalence**: The `tests/grpc_parity.rs` tests verify that REST and gRPC responses convert to identical domain types, including timestamp values.
+
+**Trade-off**: This approach requires careful conversion code, but keeps each protocol layer idiomatic and avoids inventing custom timestamp representations.

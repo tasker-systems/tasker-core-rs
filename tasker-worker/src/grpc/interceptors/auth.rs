@@ -84,20 +84,21 @@ impl AuthInterceptor {
             security_service
                 .authenticate_bearer(&token)
                 .await
-                .map_err(|e| Status::unauthenticated(e.to_string()))
+                .map_err(|e| {
+                    tracing::warn!(error = %e, "Bearer token authentication failed");
+                    Status::unauthenticated("Invalid or expired credentials")
+                })
         } else if let Some(key) = api_key {
             // authenticate_api_key is synchronous (no await needed)
-            security_service
-                .authenticate_api_key(&key)
-                .map_err(|e| Status::unauthenticated(e.to_string()))
-        } else if security_service.is_enabled() {
+            security_service.authenticate_api_key(&key).map_err(|e| {
+                tracing::warn!(error = %e, "API key authentication failed");
+                Status::unauthenticated("Invalid or expired credentials")
+            })
+        } else {
             // Auth required but no credentials provided
             Err(Status::unauthenticated(
                 "Authentication required. Provide Bearer token or API key.",
             ))
-        } else {
-            // Auth not required
-            Ok(SecurityContext::disabled_context())
         }
     }
 }
