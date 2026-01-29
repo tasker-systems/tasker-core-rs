@@ -71,6 +71,9 @@ jobs:
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
 
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
+
       - name: Install tools
         uses: ./.github/actions/install-tools
         with:
