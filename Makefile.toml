@@ -93,6 +93,16 @@ echo "  cargo make build-profiling      (bp)   Build with profiling profile"
 echo "  cargo make run-samply-orchestration (rso)  Run orchestration under samply"
 echo "  cargo make run-samply-worker-rust (rswr)   Run Rust worker under samply"
 echo ""
+echo "Coverage (TAS-63):"
+echo "  cargo make coverage            (cov)   Rust workspace coverage"
+echo "  cargo make coverage-crate              Single crate (CRATE_NAME env)"
+echo "  cargo make coverage-python     (covp)  Python worker"
+echo "  cargo make coverage-ruby       (covrb) Ruby worker"
+echo "  cargo make coverage-typescript (covts) TypeScript worker"
+echo "  cargo make coverage-all        (cova)  All languages"
+echo "  cargo make coverage-report             Aggregate report"
+echo "  cargo make coverage-check      (covc)  Check thresholds"
+echo ""
 echo "Run 'cargo make --list-all-steps' for all tasks"
 '''
 
@@ -1922,4 +1932,282 @@ if [ $DIRTY -eq 1 ]; then
   exit 1
 fi
 echo "All generated schemas are up-to-date."
+'''
+
+# =============================================================================
+# TAS-63: Coverage Tasks
+# =============================================================================
+# Code coverage collection and reporting for Rust and FFI worker languages.
+#
+# Usage:
+#   cargo make coverage           (cov)    Rust workspace coverage
+#   cargo make coverage-crate              Single Rust crate (CRATE_NAME env)
+#   cargo make coverage-python    (covp)   Python worker coverage
+#   cargo make coverage-ruby      (covrb)  Ruby worker coverage
+#   cargo make coverage-typescript (covts) TypeScript worker coverage
+#   cargo make coverage-all       (cova)   All languages
+#   cargo make coverage-report             Generate aggregate report
+#   cargo make coverage-check     (covc)   Check against thresholds
+#
+# See: docs/ticket-specs/TAS-63/ for detailed documentation
+
+[tasks.coverage-tools-setup]
+description = "Ensure coverage tooling dependencies are installed"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Ensure rustfilt is installed (Rust symbol demangling)
+if ! command -v rustfilt &>/dev/null; then
+    echo "Installing rustfilt for Rust symbol demangling..."
+    cargo install rustfilt
+fi
+
+# Sync the coverage Python project via uv
+echo "Syncing coverage Python tooling..."
+uv sync --project cargo-make/scripts/coverage --quiet
+
+echo "Coverage tools ready"
+'''
+
+[tasks.coverage]
+description = "Run coverage for entire Rust workspace"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Source environment like test tasks do
+set -a
+source .env 2>/dev/null || true
+set +a
+
+echo "Running Rust workspace coverage..."
+
+# Ensure coverage-reports directory exists
+mkdir -p coverage-reports/rust
+
+# Use nextest for test isolation (auth tests set env vars that leak in cargo test)
+cargo llvm-cov nextest --workspace --all-features \
+  --json --output-path coverage-reports/rust/workspace-raw.json
+
+# Also generate HTML report for human viewing
+cargo llvm-cov nextest --workspace --all-features \
+  --html --output-dir coverage-reports/rust/html
+
+echo "Rust coverage complete"
+echo "   JSON: coverage-reports/rust/workspace-raw.json"
+echo "   HTML: coverage-reports/rust/html/index.html"
+'''
+
+[tasks.cov]
+alias = "coverage"
+description = "Shortcut for coverage"
+
+[tasks.coverage-crate]
+description = "Run coverage for a single Rust crate (set CRATE_NAME env)"
+dependencies = ["coverage-tools-setup"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Source environment like test tasks do
+set -a
+source .env 2>/dev/null || true
+set +a
+
+if [ -z "${CRATE_NAME:-}" ]; then
+    echo "CRATE_NAME environment variable not set"
+    echo "   Usage: CRATE_NAME=tasker-shared cargo make coverage-crate"
+    exit 1
+fi
+
+echo "Running coverage for crate: ${CRATE_NAME}"
+
+# Ensure coverage-reports directory exists
+mkdir -p coverage-reports/rust
+
+# Use nextest for test isolation (auth tests set env vars that leak in cargo test)
+cargo llvm-cov nextest --package "${CRATE_NAME}" --all-features \
+  --json --output-path "coverage-reports/rust/${CRATE_NAME}-raw.json"
+
+# Normalize to standard schema
+uv run --project cargo-make/scripts/coverage python3 cargo-make/scripts/coverage/normalize-rust.py \
+  "coverage-reports/rust/${CRATE_NAME}-raw.json" \
+  "coverage-reports/rust/${CRATE_NAME}-coverage.json" \
+  --crate "${CRATE_NAME}"
+
+echo "Coverage complete for ${CRATE_NAME}"
+echo "   Raw: coverage-reports/rust/${CRATE_NAME}-raw.json"
+echo "   Normalized: coverage-reports/rust/${CRATE_NAME}-coverage.json"
+'''
+
+[tasks.coverage-foundational]
+description = "Run coverage for foundational crates (tasker-shared, tasker-pgmq)"
+dependencies = ["coverage-tools-setup"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Source environment like test tasks do
+set -a
+source .env 2>/dev/null || true
+set +a
+
+echo "Running coverage for foundational crates..."
+
+mkdir -p coverage-reports/rust
+
+for crate in tasker-shared tasker-pgmq; do
+    echo ""
+    echo "=== ${crate} ==="
+    # Use nextest for test isolation (auth tests set env vars that leak in cargo test)
+    cargo llvm-cov nextest --package "${crate}" --all-features \
+      --json --output-path "coverage-reports/rust/${crate}-raw.json"
+
+    uv run --project cargo-make/scripts/coverage python3 cargo-make/scripts/coverage/normalize-rust.py \
+      "coverage-reports/rust/${crate}-raw.json" \
+      "coverage-reports/rust/${crate}-coverage.json" \
+      --crate "${crate}"
+done
+
+echo ""
+echo "Foundational crate coverage complete"
+'''
+
+[tasks.coverage-core]
+description = "Run coverage for core crates (orchestration, worker, client)"
+dependencies = ["coverage-tools-setup"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Source environment like test tasks do
+set -a
+source .env 2>/dev/null || true
+set +a
+
+echo "Running coverage for core crates..."
+
+mkdir -p coverage-reports/rust
+
+for crate in tasker-orchestration tasker-worker tasker-client; do
+    echo ""
+    echo "=== ${crate} ==="
+    # Use nextest for test isolation (auth tests set env vars that leak in cargo test)
+    cargo llvm-cov nextest --package "${crate}" --all-features \
+      --json --output-path "coverage-reports/rust/${crate}-raw.json"
+
+    uv run --project cargo-make/scripts/coverage python3 cargo-make/scripts/coverage/normalize-rust.py \
+      "coverage-reports/rust/${crate}-raw.json" \
+      "coverage-reports/rust/${crate}-coverage.json" \
+      --crate "${crate}"
+done
+
+echo ""
+echo "Core crate coverage complete"
+'''
+
+[tasks.coverage-python]
+description = "Run Python worker coverage with normalized JSON output"
+cwd = "workers/python"
+command = "cargo"
+args = ["make", "coverage"]
+
+[tasks.covp]
+alias = "coverage-python"
+description = "Shortcut for coverage-python"
+
+[tasks.coverage-ruby]
+description = "Run Ruby worker coverage with normalized JSON output"
+cwd = "workers/ruby"
+command = "cargo"
+args = ["make", "coverage"]
+
+[tasks.covrb]
+alias = "coverage-ruby"
+description = "Shortcut for coverage-ruby"
+
+[tasks.coverage-typescript]
+description = "Run TypeScript worker coverage with normalized JSON output"
+cwd = "workers/typescript"
+command = "cargo"
+args = ["make", "coverage"]
+
+[tasks.covts]
+alias = "coverage-typescript"
+description = "Shortcut for coverage-typescript"
+
+[tasks.coverage-rust-worker]
+description = "Run coverage for Rust worker crate"
+cwd = "workers/rust"
+command = "cargo"
+args = ["make", "coverage"]
+
+[tasks.covr]
+alias = "coverage-rust-worker"
+description = "Shortcut for coverage-rust-worker"
+
+[tasks.coverage-all]
+description = "Run coverage for all languages"
+dependencies = [
+    "coverage-foundational",
+    "coverage-core",
+    "coverage-rust-worker",
+    "coverage-python",
+    "coverage-ruby",
+    "coverage-typescript"
+]
+
+[tasks.cova]
+alias = "coverage-all"
+description = "Shortcut for coverage-all"
+
+[tasks.coverage-report]
+description = "Generate aggregate coverage report from all language reports"
+dependencies = ["coverage-tools-setup"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "Generating aggregate coverage report..."
+
+uv run --project cargo-make/scripts/coverage python3 cargo-make/scripts/coverage/aggregate.py \
+  --output coverage-reports/aggregate-coverage.json
+
+echo "Aggregate report generated"
+echo "   Output: coverage-reports/aggregate-coverage.json"
+'''
+
+[tasks.coverage-check]
+description = "Check coverage against thresholds"
+dependencies = ["coverage-tools-setup"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "Checking coverage thresholds..."
+
+uv run --project cargo-make/scripts/coverage python3 cargo-make/scripts/coverage/check-thresholds.py
+'''
+
+[tasks.covc]
+alias = "coverage-check"
+description = "Shortcut for coverage-check"
+
+[tasks.coverage-clean]
+description = "Clean all coverage reports and artifacts"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "Cleaning coverage artifacts..."
+
+rm -rf coverage-reports/
+rm -f *.profraw *.profdata
+rm -rf workers/ruby/coverage/
+rm -rf workers/python/.coverage
+rm -rf workers/python/htmlcov/
+rm -rf workers/typescript/coverage/
+
+echo "Coverage artifacts cleaned"
 '''

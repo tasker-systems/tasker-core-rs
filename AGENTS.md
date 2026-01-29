@@ -281,6 +281,7 @@ Dual-channel system: dispatch channel + completion channel
 | Topic | Document |
 |-------|----------|
 | Build System (cargo-make) | `docs/development/tooling.md` |
+| Code Coverage | `docs/development/coverage-tooling.md` |
 | Development Patterns | `docs/development/development-patterns.md` |
 | FFI Callback Safety | `docs/development/ffi-callback-safety.md` |
 

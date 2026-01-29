@@ -60,7 +60,7 @@ cargo-make/
 ├── cross-cutting.toml     # Cross-language quality tasks
 ├── test-tasks.toml        # Test configuration and profiles
 ├── ci-integration.toml    # CI workflow alignment
-└── scripts/               # Shell scripts for complex operations
+└── scripts/               # Shell scripts and Python tooling
     ├── check-db.sh        # Database connectivity check
     ├── run-migrations.sh  # Run database migrations
     ├── reset-db.sh        # Reset database (drop/recreate)
@@ -68,7 +68,15 @@ cargo-make/
     ├── setup-workers.sh   # Setup all polyglot workers
     ├── clean-workers.sh   # Clean all worker artifacts
     ├── check-services.sh  # Verify required services running
-    └── setup-env.sh       # CI environment setup
+    ├── setup-env.sh       # CI environment setup
+    └── coverage/          # Coverage normalization (uv Python project)
+        ├── pyproject.toml
+        ├── normalize-rust.py
+        ├── normalize-python.py
+        ├── normalize-ruby.py
+        ├── normalize-typescript.py
+        ├── aggregate.py
+        └── check-thresholds.py
 ```
 
 ---
@@ -240,6 +248,23 @@ These tasks manage multi-instance cluster deployments for testing horizontal sca
 |------|-------------|
 | `cargo make cluster-stop-orchestration` | Stop orchestration instances only |
 | `cargo make cluster-stop-workers` | Stop all worker instances |
+
+### Coverage Tasks
+
+For full documentation, see [Code Coverage Tooling](./coverage-tooling.md).
+
+| Task | Alias | Description |
+|------|-------|-------------|
+| `cargo make coverage-all` | `cova` | Run coverage across all languages |
+| `cargo make coverage-crate` | - | Single Rust crate (`CRATE_NAME` env var) |
+| `cargo make coverage-foundational` | - | `tasker-shared` + `tasker-pgmq` |
+| `cargo make coverage-core` | - | `tasker-orchestration` + `tasker-worker` + `tasker-client` |
+| `cargo make coverage-python` | `covp` | Python worker coverage |
+| `cargo make coverage-ruby` | `covrb` | Ruby worker coverage |
+| `cargo make coverage-typescript` | `covts` | TypeScript worker coverage |
+| `cargo make coverage-report` | - | Generate aggregate JSON report |
+| `cargo make coverage-check` | `covc` | Check thresholds (exit 1 on failure) |
+| `cargo make coverage-clean` | - | Remove all coverage artifacts |
 
 ### Shortcuts
 
@@ -657,6 +682,7 @@ cargo make setup-workers
 
 ## Related Documentation
 
+- [Code Coverage Tooling](./coverage-tooling.md) - Coverage commands, JSON schema, normalizer scripts
 - [Development Patterns](./development-patterns.md) - General development patterns
 - [MPSC Channel Guidelines](./mpsc-channel-guidelines.md) - Channel configuration
 - [Cluster Testing Guide](../testing/cluster-testing-guide.md) - Multi-instance test infrastructure

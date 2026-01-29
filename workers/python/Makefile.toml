@@ -138,7 +138,43 @@ uv run pytest -v
 description = "Run tests with coverage report"
 dependencies = ["setup", "build-extension"]
 script = '''
-uv run pytest --cov=python --cov-report=term-missing
+uv run pytest --cov=python/tasker_core --cov-report=term-missing
+'''
+
+[tasks.coverage]
+description = "Run coverage and generate normalized JSON (for root delegation)"
+dependencies = ["setup", "build-extension"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "Running Python coverage..."
+mkdir -p ../../coverage-reports/python
+
+# Run pytest with coverage and JSON output
+# Override fail_under=0 so data collection always succeeds;
+# threshold enforcement happens via cargo make coverage-check
+uv run pytest --cov=python/tasker_core --cov-fail-under=0 \
+  --cov-report=json:../../coverage-reports/python/raw-coverage.json
+
+# Normalize to standard schema
+uv run --project ../../cargo-make/scripts/coverage python3 \
+  ../../cargo-make/scripts/coverage/normalize-python.py \
+  ../../coverage-reports/python/raw-coverage.json \
+  ../../coverage-reports/python/tasker-core-py-coverage.json
+
+echo "Coverage complete"
+echo "  Normalized: ../../coverage-reports/python/tasker-core-py-coverage.json"
+'''
+
+[tasks.coverage-json]
+description = "Generate coverage JSON report (for CI/integration)"
+dependencies = ["setup", "build-extension"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+mkdir -p ../../coverage-reports/python
+uv run pytest --cov=python/tasker_core --cov-report=json:../../coverage-reports/python/raw-coverage.json
 '''
 
 [tasks.test-ffi]

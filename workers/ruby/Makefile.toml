@@ -180,6 +180,40 @@ bundle exec rspec spec/ \
   --out ../../target/ruby-framework-results.xml
 '''
 
+[tasks.test-coverage]
+description = "Run tests with coverage report"
+dependencies = ["setup", "compile"]
+script = '''
+echo "Running tests with coverage..."
+COVERAGE=true bundle exec rspec
+echo "Coverage report: coverage/index.html"
+'''
+
+[tasks.coverage]
+description = "Run coverage and generate normalized JSON (for root delegation)"
+dependencies = ["setup", "compile"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "Running Ruby coverage..."
+mkdir -p ../../coverage-reports/ruby
+
+# Run tests with coverage enabled
+# COVERAGE_COLLECT_ONLY disables SimpleCov's minimum_coverage threshold;
+# threshold enforcement happens via cargo make coverage-check
+COVERAGE=true COVERAGE_COLLECT_ONLY=true bundle exec rspec
+
+# Normalize to standard schema
+uv run --project ../../cargo-make/scripts/coverage python3 \
+  ../../cargo-make/scripts/coverage/normalize-ruby.py \
+  coverage/.resultset.json \
+  ../../coverage-reports/ruby/tasker-worker-rb-coverage.json
+
+echo "Coverage complete"
+echo "  Normalized: ../../coverage-reports/ruby/tasker-worker-rb-coverage.json"
+'''
+
 # =============================================================================
 # Documentation Tasks
 # =============================================================================

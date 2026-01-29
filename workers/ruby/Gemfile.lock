@@ -266,10 +266,11 @@ DEPENDENCIES
   rubocop-rspec (~> 2.20)
   ruby-prof (~> 1.0)
   simplecov (~> 0.22)
+  simplecov_json_formatter (~> 0.1)
   tasker-worker-rb!
   timecop (~> 0.9)
   webmock (~> 3.18)
   yard (~> 0.9)
 
 BUNDLED WITH
-  2.7.2
+   2.7.2

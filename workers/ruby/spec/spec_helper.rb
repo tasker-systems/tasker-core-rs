@@ -1,5 +1,38 @@
 # frozen_string_literal: true
 
+# SimpleCov must be loaded before any other requires
+# Activated by COVERAGE=true environment variable
+if ENV['COVERAGE']
+  require 'simplecov'
+  require 'simplecov_json_formatter'
+
+  SimpleCov.start do
+    formatter SimpleCov::Formatter::MultiFormatter.new([
+      SimpleCov::Formatter::HTMLFormatter,
+      SimpleCov::Formatter::JSONFormatter
+    ])
+
+    coverage_dir 'coverage'
+    track_files 'lib/**/*.rb'
+
+    add_filter '/spec/'
+    add_filter '/vendor/'
+    add_filter '/ext/'
+
+    add_group 'Core', 'lib/tasker'
+    add_group 'Handlers', 'lib/handlers'
+
+    # Skip threshold when COVERAGE_COLLECT_ONLY is set (data collection mode);
+    # threshold enforcement happens via cargo make coverage-check
+    unless ENV['COVERAGE_COLLECT_ONLY']
+      minimum_coverage 70
+      refuse_coverage_drop
+    end
+
+    enable_coverage :branch
+  end
+end
+
 require 'rspec'
 require 'json'
 require 'yaml'

@@ -1,0 +1,19 @@
+{
+  "rust": {
+    "tasker-shared": 70,
+    "tasker-pgmq": 65,
+    "tasker-orchestration": 55,
+    "tasker-worker": 55,
+    "tasker-client": 60,
+    "tasker-worker-rust": 55
+  },
+  "python": {
+    "tasker-core-py": 80
+  },
+  "ruby": {
+    "tasker-worker-rb": 70
+  },
+  "typescript": {
+    "tasker-worker-ts": 60
+  }
+}

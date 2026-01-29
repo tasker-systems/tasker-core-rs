@@ -154,6 +154,43 @@ script = '''
 bun test --coverage
 '''
 
+[tasks.coverage]
+description = "Run coverage and generate normalized JSON (for root delegation)"
+dependencies = ["install"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "Running TypeScript coverage..."
+mkdir -p ../../coverage-reports/typescript
+
+# Load environment
+source scripts/load-env.sh
+
+# Run bun test with LCOV coverage output to shared reports directory
+bun test --coverage --coverage-reporter=lcov --coverage-dir=../../coverage-reports/typescript
+
+# Normalize to standard schema
+uv run --project ../../cargo-make/scripts/coverage python3 \
+  ../../cargo-make/scripts/coverage/normalize-typescript.py \
+  ../../coverage-reports/typescript \
+  ../../coverage-reports/typescript/tasker-worker-ts-coverage.json
+
+echo "Coverage complete"
+echo "  Normalized: ../../coverage-reports/typescript/tasker-worker-ts-coverage.json"
+'''
+
+[tasks.coverage-json]
+description = "Generate coverage JSON report (for CI/integration)"
+dependencies = ["install"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+source scripts/load-env.sh
+mkdir -p ../../coverage-reports/typescript
+bun test --coverage --coverage-reporter=lcov --coverage-dir=../../coverage-reports/typescript
+'''
+
 [tasks.test-ci]
 description = "Run tests with CI output format (text logs for artifact upload)"
 dependencies = ["install"]

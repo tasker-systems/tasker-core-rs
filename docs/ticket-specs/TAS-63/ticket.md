@@ -1,10 +1,14 @@
 # TAS-63: Code Coverage Analysis and Gap Closure
 
-**Status**: In Progress
+**Status**: In Progress (Tooling Complete, Gap Closure Ongoing)
 **Priority**: High
-**Last Updated**: 2026-01-28
+**Last Updated**: 2026-01-29
 **Original Baseline**: 2025-11-02 (43.35% line coverage, 917 tests)
 **Current State**: 1,185+ tests across workspace
+
+**Related documents:**
+- `README.md` - Coverage tooling quick start and command reference
+- `coverage-tooling.md` - Architecture, JSON schema, and script reference
 
 ---
 
@@ -251,41 +255,40 @@ async fn test_circuit_breaker_opens_after_threshold() { ... }
 
 ## Commands Reference
 
-### Generate Coverage Report
+Coverage tooling is now fully integrated with cargo-make. See `README.md` for
+the complete command reference. Quick summary:
+
 ```bash
-# CORRECT - Run ALL tests with coverage
-DATABASE_URL=postgresql://tasker:tasker@localhost/tasker_rust_test \
-TASKER_ENV=test \
-cargo llvm-cov nextest --no-fail-fast --all-features --workspace
+# Per-crate coverage with normalized JSON + file-level detail
+CRATE_NAME=tasker-shared cargo make coverage-crate
 
-# HTML report for browsing
-DATABASE_URL=postgresql://tasker:tasker@localhost/tasker_rust_test \
-TASKER_ENV=test \
-cargo llvm-cov nextest --all-features --workspace \
-  --html --output-dir coverage/html
+# All Rust crates
+cargo make coverage-foundational   # tasker-shared, tasker-pgmq
+cargo make coverage-core           # tasker-orchestration, tasker-worker, tasker-client
 
-# LCOV for CI
-DATABASE_URL=postgresql://tasker:tasker@localhost/tasker_rust_test \
-TASKER_ENV=test \
-cargo llvm-cov nextest --all-features --workspace \
-  --lcov --output-path coverage/full-suite.lcov
+# All languages
+cargo make coverage-all
+
+# Aggregate report + threshold check
+cargo make coverage-report
+cargo make coverage-check
+
+# Query the reports
+jq '.files[:10][] | "\(.line_coverage_percent)% \(.path)"' \
+  coverage-reports/rust/tasker-shared-coverage.json
 ```
 
 **Critical Note**: Do NOT add `run` after `nextest` - it acts as a test filter!
-
-### Per-Package Analysis
-```bash
-cargo llvm-cov nextest --all-features \
-  --package tasker-orchestration \
-  --html --output-dir coverage/orchestration
-```
+All coverage tasks use `cargo llvm-cov nextest` (without `run`) for test isolation.
 
 ---
 
 ## Open Questions
 
-1. **Coverage Tool**: Continue with `cargo-llvm-cov` or also evaluate `tarpaulin`?
-2. **FFI Coverage**: How do we capture coverage for Ruby/Python code paths?
+1. ~~**Coverage Tool**: Continue with `cargo-llvm-cov` or also evaluate `tarpaulin`?~~
+   **Resolved**: Using `cargo-llvm-cov` with `nextest` for Rust. Language-native tools for workers.
+2. ~~**FFI Coverage**: How do we capture coverage for Ruby/Python code paths?~~
+   **Resolved**: `pytest-cov` for Python, `SimpleCov` for Ruby, `bun --coverage` for TypeScript. All normalized to a common JSON schema.
 3. **Integration vs Unit**: Should we shift strategy toward more unit tests?
 4. **CI Frequency**: Coverage on every PR or just main branch?
 5. **Blocking PRs**: Should coverage regression block merges?

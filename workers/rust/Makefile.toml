@@ -68,6 +68,52 @@ description = "Clean build artifacts"
 command = "cargo"
 args = ["clean", "-p", "${CRATE_NAME}"]
 
+[tasks.coverage]
+description = "Run coverage and generate normalized JSON"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Source environment like test tasks do (from project root)
+set -a
+source ../../.env 2>/dev/null || true
+source .env 2>/dev/null || true
+set +a
+
+echo "Running Rust worker coverage..."
+mkdir -p ../../coverage-reports/rust
+
+# Use nextest for test isolation (auth tests set env vars that leak in cargo test)
+cargo llvm-cov nextest --package tasker-worker-rust --all-features \
+  --json --output-path ../../coverage-reports/rust/tasker-worker-rust-raw.json
+
+# Normalize to standard schema
+uv run --project ../../cargo-make/scripts/coverage python3 \
+  ../../cargo-make/scripts/coverage/normalize-rust.py \
+  ../../coverage-reports/rust/tasker-worker-rust-raw.json \
+  ../../coverage-reports/rust/tasker-worker-rust-coverage.json \
+  --crate tasker-worker-rust
+
+echo "Coverage complete"
+echo "  Normalized: ../../coverage-reports/rust/tasker-worker-rust-coverage.json"
+'''
+
+[tasks.test-coverage]
+description = "Run tests with coverage report (HTML)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+# Source environment like test tasks do (from project root)
+set -a
+source ../../.env 2>/dev/null || true
+source .env 2>/dev/null || true
+set +a
+
+cargo llvm-cov nextest --package tasker-worker-rust --all-features --html
+echo "HTML coverage report: target/llvm-cov/html/index.html"
+'''
+
 # =============================================================================
 # Service Tasks
 # =============================================================================

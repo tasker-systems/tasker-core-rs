@@ -59,3 +59,19 @@ rspec_results.json
 
 .pids/*
 .logs/*
+
+# Coverage reports (TAS-63)
+coverage-reports/
+*.profraw
+*.profdata
+workers/ruby/coverage/
+workers/python/.coverage
+workers/python/htmlcov/
+workers/typescript/coverage/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# uv virtual environments (coverage tooling)
+cargo-make/scripts/coverage/.venv/
