@@ -103,7 +103,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls"
 ] }
 rsa = { version = "0.9" }
-rust_decimal = { version = "1.37", features = ["serde-with-str"] }
+rust_decimal = { version = "1.40", features = ["serde-with-str"] }
 # Serialization
 # IMPORTANT: Pin to 1.0.219 - serde 1.0.220+ has breaking changes that affect pythonize/pyo3
 # See: https://github.com/swc-project/swc/issues/11092

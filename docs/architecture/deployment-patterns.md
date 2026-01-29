@@ -1145,6 +1145,60 @@ readinessProbe:
   failureThreshold: 2
 ```
 
+### gRPC Health Checks (TAS-177)
+
+Tasker Core exposes gRPC health endpoints alongside REST for Kubernetes gRPC health probes.
+
+**Port Allocation**:
+
+| Service | REST Port | gRPC Port |
+|---------|-----------|-----------|
+| Orchestration | 8080 | 9090 |
+| Rust Worker | 8081 | 9100 |
+| Ruby Worker | 8082 | 9200 |
+| Python Worker | 8083 | 9300 |
+| TypeScript Worker | 8085 | 9400 |
+
+**gRPC Health Endpoints**:
+```bash
+# Using grpcurl
+grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckLiveness
+grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckReadiness
+grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckDetailedHealth
+```
+
+**Kubernetes gRPC Probes** (Kubernetes 1.24+):
+```yaml
+# gRPC liveness probe
+livenessProbe:
+  grpc:
+    port: 9090
+    service: tasker.v1.HealthService
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# gRPC readiness probe
+readinessProbe:
+  grpc:
+    port: 9090
+    service: tasker.v1.HealthService
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+```
+
+**Configuration** (`config/tasker/base/orchestration.toml`):
+```toml
+[orchestration.grpc]
+enabled = true
+bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9090}"
+enable_reflection = true       # Service discovery via grpcurl
+enable_health_service = true   # gRPC health checks
+```
+
 ---
 
 ## Scaling Patterns
