@@ -2,13 +2,34 @@ name: "Install Protobuf Compiler"
 description: "Installs protobuf compiler for gRPC proto compilation (TAS-177)"
 author: "Tasker Systems"
 
+inputs:
+  version:
+    description: "Protobuf version to install (must be 3.15+ for proto3 optional support)"
+    required: false
+    default: "28.3"
+
 runs:
   using: "composite"
   steps:
     - name: Install protobuf compiler
       shell: bash
       run: |
-        echo "🔧 Installing protobuf compiler..."
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq protobuf-compiler
+        echo "🔧 Installing protobuf compiler v${{ inputs.version }}..."
+
+        # Download protoc from GitHub releases
+        PROTOC_VERSION="${{ inputs.version }}"
+        PROTOC_ZIP="protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+        PROTOC_URL="https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${PROTOC_ZIP}"
+
+        echo "📥 Downloading from: ${PROTOC_URL}"
+        curl -sLO "${PROTOC_URL}"
+
+        # Extract to /usr/local
+        sudo unzip -o "${PROTOC_ZIP}" -d /usr/local bin/protoc 'include/*'
+        sudo chmod +x /usr/local/bin/protoc
+
+        # Clean up
+        rm -f "${PROTOC_ZIP}"
+
+        # Verify installation
         echo "✅ Protobuf compiler installed: $(protoc --version)"

@@ -5,7 +5,6 @@ syntax = "proto3";
 package tasker.v1;
 
 import "google/protobuf/struct.proto";
-import "tasker/v1/common.proto";
 
 option java_multiple_files = true;
 option java_package = "com.tasker.v1";
