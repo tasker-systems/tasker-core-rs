@@ -147,6 +147,9 @@ jobs:
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
 
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
+
       - name: Build Ruby FFI extension
         run: |
           echo "🔨 Building Ruby FFI extension..."
@@ -210,6 +213,9 @@ jobs:
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
 
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
+
       - name: Build Python FFI extension
         run: |
           echo "🔨 Building Python FFI extension..."
@@ -260,6 +266,9 @@ jobs:
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
 
       - name: Install tools
         uses: ./.github/actions/install-tools
@@ -318,6 +327,9 @@ jobs:
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
 
       - name: Build Rust worker
         run: |
