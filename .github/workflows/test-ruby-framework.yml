@@ -117,8 +117,10 @@ jobs:
           cargo make test-ci
         env:
           TASKER_ENV: test
-          # Use worker-test-embedded.toml which has web API disabled to prevent port binding conflicts
-          TASKER_CONFIG_PATH: ../../config/tasker/generated/worker-test-embedded.toml
+          # Use worker-test.toml with unique port to enable health/observability FFI
+          TASKER_CONFIG_PATH: ../../config/tasker/generated/worker-test.toml
+          TASKER_WEB_BIND_ADDRESS: "0.0.0.0:8182"
+          TASKER_WORKER_GRPC_BIND_ADDRESS: "0.0.0.0:9182"
           TASKER_TEMPLATE_PATH: ./spec/fixtures/templates
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
           # TAS-156: Redis for distributed template cache

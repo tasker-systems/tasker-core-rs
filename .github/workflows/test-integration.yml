@@ -432,6 +432,28 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+          working-directory: workers/ruby
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Setup Rust build cache
         uses: ./.github/actions/setup-rust-cache
 
@@ -446,14 +468,87 @@ jobs:
       - name: Install protobuf compiler
         uses: ./.github/actions/install-protobuf
 
+      # ========================================================================
+      # Download artifacts from multi-job build-workers workflow
+      # ========================================================================
       - name: Download core artifacts
         uses: actions/download-artifact@v7
         with:
           name: core-artifacts
           path: artifacts/core
 
+      - name: Download Ruby extension artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: ruby-extension
+          path: artifacts/ruby
+        continue-on-error: true
+
+      - name: Download TypeScript artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: typescript-artifacts
+          path: artifacts/typescript
+        continue-on-error: true
+
+      - name: Download Rust worker artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: rust-worker-artifact
+          path: artifacts/rust-worker
+        continue-on-error: true
+
       - name: Restore artifacts to correct locations
         run: ARTIFACTS_BASE=artifacts cargo-make/scripts/ci-restore-all-artifacts.sh
+
+      - name: Build Ruby FFI extension (if not from artifacts)
+        run: |
+          cd workers/ruby
+          if ls lib/tasker_core/*.so 2>/dev/null || ls lib/tasker_core/*.bundle 2>/dev/null; then
+            echo "✅ Ruby extension already available from artifacts"
+            ls -lh lib/tasker_core/
+          else
+            echo "🔨 Building Ruby extension from source..."
+            bundle install
+            bundle exec rake compile
+          fi
+        env:
+          SQLX_OFFLINE: "true"
+
+      - name: Build Python FFI extension
+        run: |
+          echo "🔨 Building Python FFI extension (uses warm cache)..."
+          cd workers/python
+          uv sync --dev
+          uv run maturin develop
+        env:
+          SQLX_OFFLINE: "true"
+
+      - name: Build Rust worker (if not from artifacts)
+        run: |
+          if [ -f target/debug/rust-worker ]; then
+            echo "✅ Rust worker already available from artifacts"
+          else
+            echo "🔨 Building Rust worker from source..."
+            cargo build --package tasker-worker-rust
+          fi
+        env:
+          SQLX_OFFLINE: "true"
+
+      - name: Setup TypeScript worker
+        run: |
+          echo "📜 Setting up TypeScript worker..."
+          cd workers/typescript
+          bun install --frozen-lockfile
+          bun run build
+          if [ -f "../../target/debug/libtasker_worker.so" ]; then
+            echo "✅ FFI library found at target/debug/libtasker_worker.so"
+          else
+            echo "⚠️ FFI library not found, building..."
+            cargo build -p tasker-worker-ts
+          fi
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Run database migrations
         run: sqlx migrate run
@@ -502,6 +597,9 @@ jobs:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
           TASKER_TEST_ORCHESTRATION_URL: http://localhost:8080
           TASKER_TEST_WORKER_URL: http://localhost:8081
+          TASKER_TEST_RUBY_WORKER_URL: http://localhost:8082
+          TASKER_TEST_PYTHON_WORKER_URL: http://localhost:8083
+          TASKER_TEST_TYPESCRIPT_WORKER_URL: http://localhost:8085
           TASKER_TEST_ORCHESTRATION_GRPC_URL: http://localhost:9190
           TASKER_TEST_WORKER_GRPC_URL: http://localhost:9191
           TASKER_FIXTURE_PATH: ${{ github.workspace }}/tests/fixtures
@@ -520,7 +618,6 @@ jobs:
         uses: ./.github/actions/collect-service-logs
         with:
           artifact-name: service-logs-grpc-transport
-          log-files: "orchestration.log worker.log"
 
       - name: Stop native services
         if: always()
