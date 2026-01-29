@@ -140,28 +140,25 @@ impl EventSchemaValidator {
                     event_name: event_name.to_string(),
                 })?;
 
-        // Validate the payload
-        let validation_result = schema.validate(payload);
+        // Validate the payload - collect all validation errors
+        let error_messages: Vec<String> = schema
+            .iter_errors(payload)
+            .map(|e| {
+                format!(
+                    "Property '{}': {}",
+                    e.instance_path(),
+                    e.to_string().replace('\n', " ")
+                )
+            })
+            .collect();
 
-        match validation_result {
-            Ok(()) => Ok(()),
-            Err(errors) => {
-                // Collect all validation errors into a vector
-                let error_messages: Vec<String> = errors
-                    .map(|e| {
-                        format!(
-                            "Property '{}': {}",
-                            e.instance_path,
-                            e.to_string().replace('\n', " ")
-                        )
-                    })
-                    .collect();
-
-                Err(EventValidationError::ValidationFailed {
-                    event_name: event_name.to_string(),
-                    errors: error_messages,
-                })
-            }
+        if error_messages.is_empty() {
+            Ok(())
+        } else {
+            Err(EventValidationError::ValidationFailed {
+                event_name: event_name.to_string(),
+                errors: error_messages,
+            })
         }
     }
 

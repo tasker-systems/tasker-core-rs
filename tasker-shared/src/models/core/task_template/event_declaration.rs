@@ -332,13 +332,12 @@ impl EventDeclaration {
         let compiled_schema =
             Validator::new(&self.schema).map_err(|e| format!("Failed to compile schema: {}", e))?;
 
-        let result = compiled_schema.validate(payload);
+        let error_messages: Vec<String> = compiled_schema
+            .iter_errors(payload)
+            .map(|e| format!("{} at {}", e, e.instance_path()))
+            .collect();
 
-        if let Err(errors) = result {
-            let error_messages: Vec<String> = errors
-                .into_iter()
-                .map(|e| format!("{} at {}", e, e.instance_path))
-                .collect();
+        if !error_messages.is_empty() {
             return Err(format!(
                 "Payload validation failed: {}",
                 error_messages.join("; ")
