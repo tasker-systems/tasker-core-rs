@@ -24,7 +24,7 @@ ignored = [
 [workspace]
 members = [
   ".",  # Current crate temporarily remains during migration
-  "pgmq-notify",
+  "tasker-pgmq",
   "tasker-client",
   "tasker-orchestration",
   "tasker-shared",
@@ -90,7 +90,7 @@ opentelemetry_sdk = { version = "0.31", features = [
 opentelemetry-semantic-conventions = "0.31"
 # Message queue management
 pgmq = "0.31.2"
-pgmq-notify = { path = "pgmq-notify" }
+tasker-pgmq = { path = "tasker-pgmq" }
 rand = "0.9.1"
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 # In-process cache with TTL support (TAS-168)

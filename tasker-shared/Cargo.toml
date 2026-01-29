@@ -85,7 +85,7 @@ opentelemetry_sdk = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true }
 # Message queue management
 pgmq = { workspace = true }
-pgmq-notify = { workspace = true }
+tasker-pgmq = { workspace = true }
 rand = { workspace = true }
 redis = { workspace = true, optional = true }
 moka = { workspace = true, optional = true }

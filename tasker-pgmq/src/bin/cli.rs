@@ -5,13 +5,13 @@
 
 use chrono::Utc;
 use clap::{Args, Parser, Subcommand};
-use pgmq_notify::PgmqNotifyConfig;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use tasker_pgmq::PgmqNotifyConfig;
 
 #[derive(Parser)]
-#[command(name = "pgmq-notify-cli")]
+#[command(name = "tasker-pgmq-cli")]
 #[command(about = "Generate PGMQ notification migration files")]
 #[command(version)]
 struct Cli {

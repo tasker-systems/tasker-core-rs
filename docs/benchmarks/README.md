@@ -326,7 +326,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: tembo-io/pgmq-pg:latest
+        image: ghcr.io/pgmq/pg18-pgmq:v1.8.1
         env:
           POSTGRES_DB: tasker_rust_test
           POSTGRES_USER: tasker

@@ -413,7 +413,7 @@ impl CommandHandler {
     ///
     /// Returns an error if the provider is not PGMQ. Event-driven operations
     /// using `MessageEvent` with PGMQ-specific `read_specific_message` require a PGMQ provider.
-    fn pgmq_client(&self) -> TaskerResult<&pgmq_notify::PgmqClient> {
+    fn pgmq_client(&self) -> TaskerResult<&tasker_pgmq::PgmqClient> {
         self.message_client
             .provider()
             .as_pgmq()

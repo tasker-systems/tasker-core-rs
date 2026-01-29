@@ -71,7 +71,7 @@ impl Default for WorkerPollerConfig {
 
 /// Fallback poller for worker namespace queue messages
 ///
-/// Provides queue polling safety net to catch messages missed by pgmq-notify events.
+/// Provides queue polling safety net to catch messages missed by tasker-pgmq events.
 /// Uses direct queue queries to find older messages that may have been missed
 /// by the event-driven coordination system.
 pub(crate) struct WorkerFallbackPoller {

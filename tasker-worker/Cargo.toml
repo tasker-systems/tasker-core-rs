@@ -88,7 +88,7 @@ opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 # Message queue management
 pgmq = { workspace = true }
-pgmq-notify = { package = "pgmq-notify", path = "../pgmq-notify" }
+tasker-pgmq = { path = "../tasker-pgmq" }
 rand = { workspace = true }
 regex = { workspace = true }
 # Web API testing and API Integration

@@ -98,7 +98,7 @@ curl http://localhost:8080/health
 
 | Crate | Purpose |
 |-------|---------|
-| `pgmq-notify` | PGMQ wrapper with atomic notify (PostgreSQL backend) |
+| `tasker-pgmq` | PGMQ wrapper with atomic notify (PostgreSQL backend) |
 | `tasker-shared` | Core types, state machines, messaging abstraction |
 | `tasker-orchestration` | Task coordination, REST API |
 | `tasker-worker` | Step execution, FFI layer |

@@ -83,7 +83,7 @@ jobs:
             --package tasker-shared \
             --package tasker-orchestration \
             --package tasker-worker \
-            --package pgmq-notify \
+            --package tasker-pgmq \
             --package tasker-client \
             --bins
           echo "📦 Verifying binaries were created..."

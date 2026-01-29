@@ -1,4 +1,4 @@
-//! # Configuration for pgmq-notify
+//! # Configuration for tasker-pgmq
 //!
 //! This module provides configuration structures for customizing PGMQ notification
 //! behavior, including queue naming patterns, channel prefixes, and notification settings.
@@ -18,7 +18,7 @@ use crate::error::{PgmqNotifyError, Result};
 /// # Examples
 ///
 /// ```rust
-/// use pgmq_notify::config::PgmqNotifyConfig;
+/// use tasker_pgmq::config::PgmqNotifyConfig;
 /// use std::collections::HashSet;
 ///
 /// // Basic configuration with defaults

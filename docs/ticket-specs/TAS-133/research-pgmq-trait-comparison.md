@@ -138,7 +138,7 @@ This allows:
 | PgmqClientTrait | Spec Marker Trait | Strategy |
 |-----------------|-------------------|----------|
 | `archive_message()` | `SupportsDeadLetter::configure_dead_letter()` | PGMQ: Configure DLQ; automatic archival on `nack()` |
-| (N/A) | `SupportsPushNotifications::subscribe()` | PGMQ: Leverage `pgmq-notify` for pg_notify streaming |
+| (N/A) | `SupportsPushNotifications::subscribe()` | PGMQ: Leverage `tasker-pgmq` for pg_notify streaming |
 
 ---
 
@@ -193,7 +193,7 @@ PGMQ achieves push notifications via atomic `pgmq_send_with_notify()` wrapper fu
 
 **Spec Integration**:
 - Handled via `SupportsPushNotifications` marker trait
-- PGMQ implementation uses existing `pgmq-notify` crate's notification mechanism
+- PGMQ implementation uses existing `tasker-pgmq` crate's notification mechanism
 - Callers don't need to know about this; it's transparent
 
 ---
@@ -256,7 +256,7 @@ async fn verify_queues(&self, queue_names: &[String]) -> Result<QueueHealthRepor
 **Spec Addition**: `SupportsPushNotifications` trait with `subscribe()` and `subscribe_pattern()`
 
 **PGMQ Implementation**:
-- Wrap existing `pgmq-notify` PgmqNotifyListener
+- Wrap existing `tasker-pgmq` PgmqNotifyListener
 - Return stream of `MessageNotification::Available` events
 
 ---

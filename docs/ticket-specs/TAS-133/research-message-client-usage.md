@@ -9,7 +9,7 @@
 
 The `MessageClient` trait is a high-level abstraction in `tasker-shared/src/messaging/clients/traits.rs` that defines provider-agnostic message queue operations. Currently, the codebase uses two main implementations:
 
-1. **PgmqClient** (from pgmq-notify) - implements MessageClient directly
+1. **PgmqClient** (from tasker-pgmq) - implements MessageClient directly
 2. **UnifiedMessageClient** - enum-based abstraction that wraps multiple backends (Pgmq, RabbitMq, InMemory)
 
 The trait provides 11 async methods covering step messages, results, task requests, and queue management. It's injected via `SystemContext` as `message_client: Arc<UnifiedPgmqClient>` and is used primarily by:
@@ -26,7 +26,7 @@ There's an architectural inconsistency: `SystemContext` declares `message_client
 
 ## Trait Implementors
 
-### 1. PgmqClient (pgmq-notify crate)
+### 1. PgmqClient (tasker-pgmq crate)
 
 **Location**: `tasker-shared/src/messaging/clients/unified_client.rs` (lines 392-634)
 

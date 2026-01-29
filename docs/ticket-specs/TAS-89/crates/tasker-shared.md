@@ -44,7 +44,7 @@
 ### Production Features
 - **Configuration**: V2 canonical system (TAS-61) fully implemented
 - **Event System**: TAS-65 with domain events, publishers, schema validation
-- **Messaging**: PGMQ integration with pgmq-notify
+- **Messaging**: PGMQ integration with tasker-pgmq
 - **Resilience**: Circuit breaker patterns (TAS-31)
 
 ---

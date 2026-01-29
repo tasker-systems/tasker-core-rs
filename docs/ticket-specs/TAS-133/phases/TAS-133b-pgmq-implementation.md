@@ -10,24 +10,24 @@
 
 ## Overview
 
-Implement `PgmqMessagingService` that wraps existing pgmq-notify functionality, conforming to the `MessagingService` trait defined in TAS-133a. This phase also adds a prerequisite method to `pgmq-notify` for visibility timeout extension.
+Implement `PgmqMessagingService` that wraps existing tasker-pgmq functionality, conforming to the `MessagingService` trait defined in TAS-133a. This phase also adds a prerequisite method to `tasker-pgmq` for visibility timeout extension.
 
 ## Validation Gate
 
 - [ ] `PgmqMessagingService` implements all `MessagingService` trait methods
 - [ ] Conformance test suite passes for PGMQ provider
 - [ ] Existing orchestration/worker tests pass unchanged
-- [ ] `set_visibility_timeout` added to `pgmq-notify/src/client.rs`
+- [ ] `set_visibility_timeout` added to `tasker-pgmq/src/client.rs`
 - [ ] `InMemoryMessagingService` implemented for testing
 
 ## Scope
 
-### Prerequisite: pgmq-notify Update
+### Prerequisite: tasker-pgmq Update
 
 Add `set_visibility_timeout` method to `PgmqClient`:
 
 ```rust
-// pgmq-notify/src/client.rs
+// tasker-pgmq/src/client.rs
 
 /// Extend visibility timeout for a message (heartbeat during long processing)
 #[instrument(skip(self), fields(queue = %queue_name, message_id = %message_id))]
@@ -48,7 +48,7 @@ pub async fn set_visibility_timeout(
 // tasker-shared/src/messaging/service/pgmq.rs
 
 pub struct PgmqMessagingService {
-    client: PgmqClient,  // From pgmq-notify
+    client: PgmqClient,  // From tasker-pgmq
 }
 ```
 
@@ -166,7 +166,7 @@ Apply same pattern to:
 
 | File | Change |
 |------|--------|
-| `pgmq-notify/src/client.rs` | Add `set_visibility_timeout()` method |
+| `tasker-pgmq/src/client.rs` | Add `set_visibility_timeout()` method |
 | `tasker-shared/src/messaging/service/provider.rs` | Replace stubs with real impls |
 | `tasker-shared/src/messaging/service/mod.rs` | Export new modules |
 | `tasker-shared/src/messaging/message.rs` | Implement `QueueMessage` for domain types |
@@ -212,4 +212,4 @@ Apply to both `PgmqMessagingService` and `InMemoryMessagingService`.
 
 - [implementation-plan.md](../implementation-plan.md) - Phase 2 section
 - [research-pgmq-trait-comparison.md](../research-pgmq-trait-comparison.md) - Method mapping details
-- [pgmq-notify/src/client.rs](../../../../pgmq-notify/src/client.rs) - Existing client
+- [tasker-pgmq/src/client.rs](../../../../tasker-pgmq/src/client.rs) - Existing client

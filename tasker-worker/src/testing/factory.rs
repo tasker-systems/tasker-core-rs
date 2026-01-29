@@ -11,13 +11,13 @@
 //! - Database-backed test data persistence
 //! - Namespace and queue setup for testing
 
-use pgmq_notify::PgmqClient;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tasker_client::api_clients::orchestration_client::{
     OrchestrationApiClient, OrchestrationApiConfig,
 };
+use tasker_pgmq::PgmqClient;
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::models::{NamedStep, NamedTask, TaskNamespace, WorkflowStep};
 use tasker_shared::types::api::orchestration::TaskResponse;

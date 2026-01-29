@@ -1,10 +1,10 @@
-# PGMQ-Notify Integration Tests
+# Tasker-PGMQ Integration Tests
 
 This directory contains comprehensive integration tests for the PGMQ notification wrapper system, validating the complete event-driven message queue architecture built on PostgreSQL LISTEN/NOTIFY and PGMQ.
 
 ## Architecture Overview
 
-The `pgmq-notify` crate provides a generic PostgreSQL LISTEN/NOTIFY integration layer for PGMQ (PostgreSQL Message Queue) operations, enabling real-time notifications for queue operations without application-specific dependencies.
+The `tasker-pgmq` crate provides a generic PostgreSQL LISTEN/NOTIFY integration layer for PGMQ (PostgreSQL Message Queue) operations, enabling real-time notifications for queue operations without application-specific dependencies.
 
 ### Core Components
 

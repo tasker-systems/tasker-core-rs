@@ -1,4 +1,4 @@
-//! # pgmq-notify
+//! # tasker-pgmq
 //!
 //! Generic `PostgreSQL` LISTEN/NOTIFY integration for PGMQ queues.
 //!
@@ -26,10 +26,10 @@
 //! ## Usage - Trigger-Based (Recommended)
 //!
 //! ```rust,ignore
-//! use pgmq_notify::{PgmqNotifyClient, PgmqNotifyListener, PgmqNotifyConfig, PgmqNotifyEvent};
+//! use tasker_pgmq::{PgmqNotifyClient, PgmqNotifyListener, PgmqNotifyConfig, PgmqNotifyEvent};
 //!
 //! // 1. Install database triggers via migration (one-time setup)
-//! // Run: pgmq-notify-cli generate-migration --name pgmq_notifications
+//! // Run: tasker-pgmq-cli generate-migration --name pgmq_notifications
 //! // Then apply the generated migration to your database
 //!
 //! // 2. Create enhanced PGMQ client with trigger-based notifications

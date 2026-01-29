@@ -1,6 +1,6 @@
 //! # PGMQ Messaging Service
 //!
-//! PostgreSQL Message Queue implementation via pgmq-notify crate.
+//! PostgreSQL Message Queue implementation via tasker-pgmq crate.
 //!
 //! ## Features
 //!
@@ -15,8 +15,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::Stream;
-use pgmq_notify::{PgmqClient, PgmqNotifyConfig};
 use sqlx::PgPool;
+use tasker_pgmq::{PgmqClient, PgmqNotifyConfig};
 
 use crate::messaging::service::traits::{
     MessagingService, NotificationStream, QueueMessage, SupportsPushNotifications,
@@ -29,7 +29,7 @@ use crate::messaging::MessagingError;
 
 /// PGMQ-based messaging service implementation
 ///
-/// Wraps the `pgmq_notify::PgmqClient` to provide the `MessagingService` trait interface.
+/// Wraps the `tasker_pgmq::PgmqClient` to provide the `MessagingService` trait interface.
 /// Supports all standard PGMQ operations plus LISTEN/NOTIFY for event-driven processing.
 ///
 /// # Example
@@ -400,8 +400,8 @@ impl SupportsPushNotifications for PgmqMessagingService {
 
         // Spawn a task to manage the listener lifecycle
         tokio::spawn(async move {
-            use pgmq_notify::listener::PgmqEventHandler;
-            use pgmq_notify::{PgmqNotifyEvent, PgmqNotifyListener};
+            use tasker_pgmq::listener::PgmqEventHandler;
+            use tasker_pgmq::{PgmqNotifyEvent, PgmqNotifyListener};
             use tracing::{debug, error, warn};
 
             // Create and connect listener
@@ -455,7 +455,7 @@ impl SupportsPushNotifications for PgmqMessagingService {
                 async fn handle_event(
                     &self,
                     event: PgmqNotifyEvent,
-                ) -> pgmq_notify::error::Result<()> {
+                ) -> tasker_pgmq::error::Result<()> {
                     // Only forward events for our target queue
                     if event.queue_name() != self.target_queue {
                         return Ok(());
@@ -638,8 +638,8 @@ impl SupportsPushNotifications for PgmqMessagingService {
 
         // Spawn a SINGLE task with ONE listener for all queues
         tokio::spawn(async move {
-            use pgmq_notify::listener::PgmqEventHandler;
-            use pgmq_notify::{PgmqNotifyEvent, PgmqNotifyListener};
+            use tasker_pgmq::listener::PgmqEventHandler;
+            use tasker_pgmq::{PgmqNotifyEvent, PgmqNotifyListener};
             use tracing::{debug, error, info};
 
             // Create and connect ONE listener
@@ -692,7 +692,7 @@ impl SupportsPushNotifications for PgmqMessagingService {
                 async fn handle_event(
                     &self,
                     event: PgmqNotifyEvent,
-                ) -> pgmq_notify::error::Result<()> {
+                ) -> tasker_pgmq::error::Result<()> {
                     let event_queue_name = event.queue_name();
 
                     // Find matching queue(s) for this event

@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use futures::Stream;
-use pgmq_notify::PgmqNotifyConfig;
+use tasker_pgmq::PgmqNotifyConfig;
 
 use super::providers::{InMemoryMessagingService, PgmqMessagingService, RabbitMqMessagingService};
 use super::traits::{
@@ -27,7 +27,7 @@ use crate::config::tasker::RabbitmqConfig;
 ///
 /// # Variants
 ///
-/// - `Pgmq` - PostgreSQL Message Queue via pgmq-notify (TAS-133b)
+/// - `Pgmq` - PostgreSQL Message Queue via tasker-pgmq (TAS-133b)
 /// - `RabbitMq` - RabbitMQ via lapin crate (TAS-133d)
 /// - `InMemory` - In-memory queue for testing (TAS-133b)
 ///
@@ -43,7 +43,7 @@ use crate::config::tasker::RabbitmqConfig;
 pub enum MessagingProvider {
     /// PGMQ provider (PostgreSQL-based message queue)
     ///
-    /// Uses pgmq-notify crate for LISTEN/NOTIFY support.
+    /// Uses tasker-pgmq crate for LISTEN/NOTIFY support.
     Pgmq(PgmqMessagingService),
 
     /// RabbitMQ provider (AMQP 0.9.1)

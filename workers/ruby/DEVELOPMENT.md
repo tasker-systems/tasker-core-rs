@@ -88,7 +88,7 @@ cargo build --all-features
 # - tasker-orchestration: Core orchestration logic
 # - tasker-worker: Worker implementation
 # - tasker-shared: Shared types and utilities
-# - pgmq-notify: PostgreSQL message queue wrapper
+# - tasker-pgmq: PostgreSQL message queue wrapper
 ```
 
 ## Configuration

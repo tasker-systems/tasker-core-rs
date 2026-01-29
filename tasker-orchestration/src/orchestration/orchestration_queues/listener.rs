@@ -118,7 +118,7 @@ pub enum OrchestrationNotification {
     /// Used by RabbitMQ which delivers complete messages via basic_consume
     /// TAS-133: Enables proper RabbitMQ push-based message processing
     StepResultWithPayload(tasker_shared::messaging::service::QueuedMessage<Vec<u8>>),
-    /// Connection error from pgmq-notify listener
+    /// Connection error from tasker-pgmq listener
     ConnectionError(String),
     /// Listener reconnected successfully
     Reconnected,

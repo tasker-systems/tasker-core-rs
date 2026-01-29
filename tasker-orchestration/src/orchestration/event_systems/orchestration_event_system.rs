@@ -37,7 +37,7 @@ use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 /// Queue-level event system for orchestration coordination
 ///
 /// This system handles step result notifications and task request events through
-/// pgmq-notify and queue polling, coordinating orchestration operations through
+/// tasker-pgmq and queue polling, coordinating orchestration operations through
 /// the command pattern. It integrates the orchestration queue components with
 /// the unified EventDrivenSystem interface.
 #[derive(Debug)]

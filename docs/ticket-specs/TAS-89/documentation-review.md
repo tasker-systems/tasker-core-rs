@@ -29,7 +29,7 @@ The tasker-core codebase demonstrates **strong foundational documentation** with
 
 | Crate | Files | Module Docs | Public Item Docs | Doc Examples |
 |-------|-------|-------------|------------------|--------------|
-| `pgmq-notify` | 10 | 100% | 90% | 0% |
+| `tasker-pgmq` | 10 | 100% | 90% | 0% |
 | `tasker-shared` | 141 | 77% | 85% | 16% |
 | `tasker-client` | 14 | 100% | 43% | 0% |
 | `tasker-orchestration` | 99 | 99% | 85% | 6% |
@@ -38,7 +38,7 @@ The tasker-core codebase demonstrates **strong foundational documentation** with
 
 ### Well-Documented Crates (100% module docs)
 
-**pgmq-notify**:
+**tasker-pgmq**:
 - Comprehensive usage example in lib.rs
 - Clear architecture description with components enumerated
 - Event types, database triggers, listeners all explained
@@ -107,7 +107,7 @@ The tasker-core codebase demonstrates **strong foundational documentation** with
 
 | Crate | Files with Examples | Total | Coverage |
 |-------|-------------------|-------|----------|
-| pgmq-notify | 0 | 10 | 0% |
+| tasker-pgmq | 0 | 10 | 0% |
 | tasker-shared | 23 | 141 | 16% |
 | tasker-client | 0 | 14 | 0% |
 | tasker-orchestration | 6 | 99 | 6% |
@@ -166,7 +166,7 @@ The tasker-core codebase demonstrates **strong foundational documentation** with
 
 ### Priority 3: MEDIUM (Effort: 3-4 hours)
 
-- [ ] **pgmq-notify examples**: Uncomment/test existing examples
+- [ ] **tasker-pgmq examples**: Uncomment/test existing examples
 - [ ] **Configuration examples**: Add to config modules
 
 ### Priority 4: LOW (Ongoing)
