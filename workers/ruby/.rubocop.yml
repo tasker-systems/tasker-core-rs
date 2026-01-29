@@ -139,6 +139,7 @@ RSpec/DescribeClass:
   Exclude:
     - "spec/examples/**/*" # Example integration tests may not follow this pattern
     - "spec/ffi/**/*" # FFI tests describe modules/integration behavior
+    - "spec/version_spec.rb" # Version spec tests constants, not a single class
 
 # Our spec directory structure follows a logical organization
 # rather than mirroring the exact lib/ path structure
@@ -155,6 +156,9 @@ RSpec/FilePath:
     - "spec/domain_events/**/*" # Domain events specs in dedicated directory
     - "spec/handlers/**/*" # Handler specs organized by workflow type
     - "spec/registry/**/*" # Registry specs in dedicated directory
+    - "spec/errors/**/*" # Error specs organized by concept, not nested path
+    - "spec/tracing_spec.rb" # Top-level spec for Tracing module
+    - "spec/version_spec.rb" # Top-level spec for version constants
 
 RSpec/SpecFilePathFormat:
   Exclude:
@@ -169,6 +173,9 @@ RSpec/SpecFilePathFormat:
     - "spec/domain_events/**/*" # Domain events specs in dedicated directory
     - "spec/handlers/**/*" # Handler specs organized by workflow type
     - "spec/registry/**/*" # Registry specs in dedicated directory
+    - "spec/errors/**/*" # Error specs organized by concept, not nested path
+    - "spec/tracing_spec.rb" # Top-level spec for Tracing module
+    - "spec/version_spec.rb" # Top-level spec for version constants
 
 RSpec/DescribeMethod:
   Exclude:

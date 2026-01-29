@@ -9,9 +9,9 @@ SimpleCov.start do
 
   # Output formats
   formatter SimpleCov::Formatter::MultiFormatter.new([
-    SimpleCov::Formatter::HTMLFormatter,
-    SimpleCov::Formatter::JSONFormatter
-  ])
+                                                       SimpleCov::Formatter::HTMLFormatter,
+                                                       SimpleCov::Formatter::JSONFormatter
+                                                     ])
 
   # Coverage directory
   coverage_dir 'coverage'

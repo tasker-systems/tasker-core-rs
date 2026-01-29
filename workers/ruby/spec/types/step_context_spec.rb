@@ -235,6 +235,221 @@ RSpec.describe TaskerCore::Types::StepContext do
     end
   end
 
+  describe 'checkpoint accessors' do
+    context 'when checkpoint data exists' do
+      let(:workflow_step_wrapper) do
+        double('WorkflowStepWrapper',
+               workflow_step_uuid: 'step-uuid-456',
+               name: 'validate_order',
+               inputs: { 'field1' => 'value1' },
+               attempts: 0,
+               max_attempts: 3,
+               checkpoint: {
+                 'cursor' => 500,
+                 'items_processed' => 500,
+                 'accumulated_results' => { 'total' => 1000 }
+               })
+      end
+
+      it 'returns the raw checkpoint' do
+        expect(context.checkpoint).to eq({
+                                           'cursor' => 500,
+                                           'items_processed' => 500,
+                                           'accumulated_results' => { 'total' => 1000 }
+                                         })
+      end
+
+      it 'returns the checkpoint cursor' do
+        expect(context.checkpoint_cursor).to eq(500)
+      end
+
+      it 'returns items processed' do
+        expect(context.checkpoint_items_processed).to eq(500)
+      end
+
+      it 'returns accumulated results' do
+        expect(context.accumulated_results).to eq({ 'total' => 1000 })
+      end
+
+      it 'reports checkpoint exists' do
+        expect(context.has_checkpoint?).to be true
+      end
+    end
+
+    context 'when no checkpoint data exists' do
+      let(:workflow_step_wrapper) do
+        double('WorkflowStepWrapper',
+               workflow_step_uuid: 'step-uuid-456',
+               name: 'validate_order',
+               inputs: {},
+               attempts: 0,
+               max_attempts: 3,
+               checkpoint: nil)
+      end
+
+      it 'returns nil checkpoint' do
+        expect(context.checkpoint).to be_nil
+      end
+
+      it 'returns nil cursor' do
+        expect(context.checkpoint_cursor).to be_nil
+      end
+
+      it 'returns 0 items processed' do
+        expect(context.checkpoint_items_processed).to eq(0)
+      end
+
+      it 'returns nil accumulated results' do
+        expect(context.accumulated_results).to be_nil
+      end
+
+      it 'reports no checkpoint' do
+        expect(context.has_checkpoint?).to be false
+      end
+    end
+  end
+
+  describe 'retry helpers' do
+    describe '#is_retry?' do
+      context 'when attempts > 0' do
+        it 'returns true' do
+          expect(context.is_retry?).to be true
+        end
+      end
+
+      context 'when attempts is 0' do
+        let(:workflow_step_wrapper) do
+          double('WorkflowStepWrapper',
+                 workflow_step_uuid: 'step-uuid-456',
+                 name: 'validate_order',
+                 inputs: {},
+                 attempts: 0,
+                 max_attempts: 5)
+        end
+
+        it 'returns false' do
+          expect(context.is_retry?).to be false
+        end
+      end
+    end
+
+    describe '#is_last_retry?' do
+      context 'when attempts >= max_attempts - 1' do
+        let(:workflow_step_wrapper) do
+          double('WorkflowStepWrapper',
+                 workflow_step_uuid: 'step-uuid-456',
+                 name: 'validate_order',
+                 inputs: {},
+                 attempts: 4,
+                 max_attempts: 5)
+        end
+
+        it 'returns true' do
+          expect(context.is_last_retry?).to be true
+        end
+      end
+
+      context 'when attempts < max_attempts - 1' do
+        let(:workflow_step_wrapper) do
+          double('WorkflowStepWrapper',
+                 workflow_step_uuid: 'step-uuid-456',
+                 name: 'validate_order',
+                 inputs: {},
+                 attempts: 1,
+                 max_attempts: 5)
+        end
+
+        it 'returns false' do
+          expect(context.is_last_retry?).to be false
+        end
+      end
+    end
+  end
+
+  describe 'additional accessors' do
+    describe '#retryable?' do
+      let(:workflow_step_wrapper) do
+        double('WorkflowStepWrapper',
+               workflow_step_uuid: 'step-uuid-456',
+               name: 'validate_order',
+               inputs: {},
+               attempts: 0,
+               max_attempts: 3,
+               retryable: true)
+      end
+
+      it 'delegates to workflow_step' do
+        expect(context.retryable?).to be true
+      end
+    end
+
+    describe '#context' do
+      it 'returns the task context' do
+        expect(context.context).to eq({ 'customer_id' => 42, 'order_amount' => 100.0 })
+      end
+    end
+  end
+
+  describe 'debug methods' do
+    describe '#to_s' do
+      it 'includes task_uuid, step_uuid, and step_name' do
+        str = context.to_s
+        expect(str).to include('task-uuid-123')
+        expect(str).to include('step-uuid-456')
+        expect(str).to include('validate_order')
+      end
+    end
+
+    describe '#inspect' do
+      it 'includes all identifying fields' do
+        str = context.inspect
+        expect(str).to include('task-uuid-123')
+        expect(str).to include('step-uuid-456')
+        expect(str).to include('validate_order')
+        expect(str).to include('ValidateOrderHandler')
+      end
+    end
+  end
+
+  describe '#get_input_or' do
+    it 'returns the value when present' do
+      expect(context.get_input_or('customer_id', 0)).to eq(42)
+    end
+
+    it 'returns the default when value is nil' do
+      expect(context.get_input_or('nonexistent', 'default_value')).to eq('default_value')
+    end
+  end
+
+  describe '#get_config' do
+    it 'returns config value by key' do
+      expect(context.get_config('timeout')).to eq(30)
+    end
+
+    it 'returns nil for missing key' do
+      expect(context.get_config('nonexistent')).to be_nil
+    end
+  end
+
+  describe '#get_dependency_field' do
+    let(:dependency_results_wrapper) do
+      mock = double('DependencyResultsWrapper')
+      allow(mock).to receive(:get_results).with('previous_step').and_return({
+                                                                              'data' => { 'items' => %w[a b c] }
+                                                                            })
+      allow(mock).to receive(:get_results).with('nonexistent').and_return(nil)
+      mock
+    end
+
+    it 'extracts nested fields from dependency results' do
+      expect(context.get_dependency_field('previous_step', 'data', 'items')).to eq(%w[a b c])
+    end
+
+    it 'returns nil when dependency does not exist' do
+      expect(context.get_dependency_field('nonexistent', 'data')).to be_nil
+    end
+  end
+
   describe 'integration with handler pattern' do
     class TestContextHandler < TaskerCore::StepHandler::Base
       def call(context)

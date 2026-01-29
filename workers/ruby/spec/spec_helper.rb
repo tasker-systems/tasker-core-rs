@@ -8,9 +8,9 @@ if ENV['COVERAGE']
 
   SimpleCov.start do
     formatter SimpleCov::Formatter::MultiFormatter.new([
-      SimpleCov::Formatter::HTMLFormatter,
-      SimpleCov::Formatter::JSONFormatter
-    ])
+                                                         SimpleCov::Formatter::HTMLFormatter,
+                                                         SimpleCov::Formatter::JSONFormatter
+                                                       ])
 
     coverage_dir 'coverage'
     track_files 'lib/**/*.rb'
