@@ -158,7 +158,8 @@ circuit_breaker_enabled = true
 # Configuration for the gRPC server that runs alongside the REST API
 [orchestration.grpc]
 enabled = true
-bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9090}"
+# Note: Default changed from 9090 to 9190 to avoid conflict with Prometheus in docker-compose
+bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9190}"
 tls_enabled = false
 # tls_cert_path = "/path/to/cert.pem"   # Required if tls_enabled = true
 # tls_key_path = "/path/to/key.pem"     # Required if tls_enabled = true

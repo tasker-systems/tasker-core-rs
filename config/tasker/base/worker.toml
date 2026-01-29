@@ -178,7 +178,8 @@ circuit_breaker_enabled = true
 # TAS-177: gRPC API Configuration
 [worker.grpc]
 enabled = true
-bind_address = "${TASKER_WORKER_GRPC_BIND_ADDRESS:-0.0.0.0:9100}"
+# Note: Default changed from 9100 to 9191 to avoid potential conflicts
+bind_address = "${TASKER_WORKER_GRPC_BIND_ADDRESS:-0.0.0.0:9191}"
 tls_enabled = false
 keepalive_interval_seconds = 30
 keepalive_timeout_seconds = 20

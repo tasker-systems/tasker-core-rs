@@ -1,0 +1,122 @@
+# Tasker Client Configuration Profiles (TAS-177)
+#
+# Similar to .config/nextest.toml, this file defines named profiles for different
+# scenarios. Use with: tasker-cli --profile <name> <command>
+#
+# Profile precedence:
+#   1. Environment variables (highest)
+#   2. Selected profile settings
+#   3. [profile.default] settings
+#   4. Hardcoded defaults (lowest)
+#
+# Available transports: "rest" (default), "grpc"
+
+# =============================================================================
+# Default Profile - REST API
+# =============================================================================
+[profile.default]
+transport = "rest"
+
+[profile.default.orchestration]
+base_url = "http://localhost:8080"
+timeout_ms = 30000
+max_retries = 3
+
+[profile.default.worker]
+base_url = "http://localhost:8081"
+timeout_ms = 30000
+max_retries = 3
+
+[profile.default.cli]
+default_format = "table"
+colored_output = true
+
+# =============================================================================
+# gRPC Profile - gRPC API
+# =============================================================================
+[profile.grpc]
+transport = "grpc"
+
+[profile.grpc.orchestration]
+base_url = "http://localhost:9190"
+timeout_ms = 30000
+
+[profile.grpc.worker]
+base_url = "http://localhost:9191"
+timeout_ms = 30000
+
+# =============================================================================
+# Auth Profile - REST with API Key Authentication
+# =============================================================================
+# Use this profile with servers running auth-test.toml configuration
+[profile.auth]
+transport = "rest"
+
+[profile.auth.orchestration]
+base_url = "http://localhost:8080"
+
+[profile.auth.orchestration.auth]
+method = { type = "ApiKey", value = { key = "test-api-key-full-access", header_name = "X-API-Key" } }
+
+[profile.auth.worker]
+base_url = "http://localhost:8081"
+
+[profile.auth.worker.auth]
+method = { type = "ApiKey", value = { key = "test-api-key-full-access", header_name = "X-API-Key" } }
+
+# =============================================================================
+# gRPC Auth Profile - gRPC with API Key Authentication
+# =============================================================================
+[profile.grpc-auth]
+transport = "grpc"
+
+[profile.grpc-auth.orchestration]
+base_url = "http://localhost:9190"
+
+[profile.grpc-auth.orchestration.auth]
+method = { type = "ApiKey", value = { key = "test-api-key-full-access", header_name = "X-API-Key" } }
+
+[profile.grpc-auth.worker]
+base_url = "http://localhost:9191"
+
+[profile.grpc-auth.worker.auth]
+method = { type = "ApiKey", value = { key = "test-api-key-full-access", header_name = "X-API-Key" } }
+
+# =============================================================================
+# CI Profile - Longer Timeouts for CI Environments
+# =============================================================================
+[profile.ci]
+transport = "rest"
+
+[profile.ci.orchestration]
+base_url = "http://localhost:8080"
+timeout_ms = 60000
+max_retries = 5
+
+[profile.ci.worker]
+base_url = "http://localhost:8081"
+timeout_ms = 60000
+max_retries = 5
+
+[profile.ci.cli]
+colored_output = false
+
+# =============================================================================
+# Local Development Profile
+# =============================================================================
+[profile.local]
+transport = "rest"
+
+[profile.local.orchestration]
+base_url = "http://localhost:8080"
+timeout_ms = 10000
+max_retries = 1
+
+[profile.local.worker]
+base_url = "http://localhost:8081"
+timeout_ms = 10000
+max_retries = 1
+
+[profile.local.cli]
+default_format = "table"
+colored_output = true

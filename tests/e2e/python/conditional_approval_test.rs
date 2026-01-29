@@ -98,10 +98,7 @@ async fn test_python_small_amount_auto_approval() -> Result<()> {
         .await?;
 
     // Verify task is complete
-    assert_eq!(
-        task.status, "all_complete",
-        "Task should complete successfully"
-    );
+    assert_eq!(task.status, "complete", "Task should complete successfully");
 
     // Expected steps for small amount
     verify_steps_created(
@@ -166,10 +163,7 @@ async fn test_python_medium_amount_manager_approval() -> Result<()> {
         .list_task_steps(task_uuid)
         .await?;
 
-    assert_eq!(
-        task.status, "all_complete",
-        "Task should complete successfully"
-    );
+    assert_eq!(task.status, "complete", "Task should complete successfully");
 
     // Expected steps for medium amount
     verify_steps_created(
@@ -233,10 +227,7 @@ async fn test_python_large_amount_dual_approval() -> Result<()> {
         .list_task_steps(task_uuid)
         .await?;
 
-    assert_eq!(
-        task.status, "all_complete",
-        "Task should complete successfully"
-    );
+    assert_eq!(task.status, "complete", "Task should complete successfully");
 
     // Expected steps for large amount
     verify_steps_created(
@@ -407,10 +398,7 @@ async fn test_python_very_small_amount() -> Result<()> {
         .list_task_steps(task_uuid)
         .await?;
 
-    assert_eq!(
-        task.status, "all_complete",
-        "Very small amount should complete"
-    );
+    assert_eq!(task.status, "complete", "Very small amount should complete");
 
     // Should use auto-approval
     verify_steps_created(

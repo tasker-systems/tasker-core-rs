@@ -1,0 +1,14 @@
+name: "Install Protobuf Compiler"
+description: "Installs protobuf compiler for gRPC proto compilation (TAS-177)"
+author: "Tasker Systems"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install protobuf compiler
+      shell: bash
+      run: |
+        echo "🔧 Installing protobuf compiler..."
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq protobuf-compiler
+        echo "✅ Protobuf compiler installed: $(protoc --version)"

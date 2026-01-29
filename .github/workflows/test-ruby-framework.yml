@@ -62,19 +62,8 @@ jobs:
       - name: Setup Rust (for sqlx-cli)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env

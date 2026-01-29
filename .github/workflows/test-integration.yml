@@ -21,6 +21,11 @@ on:
         required: true
         type: string
 
+# =============================================================================
+# Shared service definitions (YAML anchors not supported in GitHub Actions,
+# so services must be repeated per job)
+# =============================================================================
+
 jobs:
   # ============================================================================
   # Stage 1: Unit Tests
@@ -48,7 +53,6 @@ jobs:
           --health-retries 5
 
       # TAS-171: Dragonfly (Redis + Memcached compatible) for distributed cache
-      # Exposes both Redis (6379) and Memcached (11211) protocols
       dragonfly:
         image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
         ports:
@@ -69,19 +73,8 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
@@ -91,12 +84,8 @@ jobs:
         with:
           tools: "nextest sqlx-cli make"
 
-      # TAS-177: Install protobuf compiler for gRPC proto compilation
       - name: Install protobuf compiler
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-          protoc --version
+        uses: ./.github/actions/install-protobuf
 
       - name: Setup database
         run: sqlx migrate run
@@ -189,7 +178,6 @@ jobs:
           --health-retries 5
 
       # TAS-171: Dragonfly (Redis + Memcached compatible) for distributed cache
-      # Exposes both Redis (6379) and Memcached (11211) protocols
       dragonfly:
         image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
         ports:
@@ -235,24 +223,12 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
         env:
-          # TAS-133: Pass matrix messaging backend to setup-env action
           TASKER_MESSAGING_BACKEND: ${{ matrix.messaging_backend }}
 
       - name: Install tools
@@ -260,12 +236,8 @@ jobs:
         with:
           tools: "nextest sqlx-cli make"
 
-      # TAS-177: Install protobuf compiler for gRPC proto compilation
       - name: Install protobuf compiler
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-          protoc --version
+        uses: ./.github/actions/install-protobuf
 
       # ========================================================================
       # Download artifacts from multi-job build-workers workflow
@@ -339,12 +311,7 @@ jobs:
           echo "📜 Setting up TypeScript worker..."
           cd workers/typescript
           bun install --frozen-lockfile
-
-          # Build the TypeScript worker (compiles to dist/)
           bun run build
-
-          # The FFI library should be available from the debug build (matches sccache config)
-          # For CI, we need to ensure the path is correct
           if [ -f "../../target/debug/libtasker_worker.so" ]; then
             echo "✅ FFI library found at target/debug/libtasker_worker.so"
           else
@@ -360,22 +327,7 @@ jobs:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
 
       - name: Generate test configuration
-        run: |
-          mkdir -p config/tasker
-          echo "🔧 Generating orchestration configuration..."
-          cargo run --package tasker-client --bin tasker-cli -- config generate \
-            --context orchestration \
-            --environment test \
-            --source-dir config/tasker \
-            --output config/tasker/generated/orchestration-test.toml
-          echo "🔧 Generating worker configuration..."
-          cargo run --package tasker-client --bin tasker-cli -- config generate \
-            --context worker \
-            --environment test \
-            --source-dir config/tasker \
-            --output config/tasker/generated/worker-test.toml
-        env:
-          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+        uses: ./.github/actions/generate-test-config
 
       - name: Start native services
         run: |
@@ -386,10 +338,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
           SKIP_MIGRATIONS: "true"
-          # TAS-133: Messaging backend from matrix
           TASKER_MESSAGING_BACKEND: ${{ matrix.messaging_backend }}
           RABBITMQ_URL: amqp://tasker:tasker@localhost:5672/%2F
-          # TAS-156: Redis for distributed template cache
           REDIS_URL: redis://localhost:6379
 
       - name: Run integration tests
@@ -409,34 +359,168 @@ jobs:
           TASKER_TEST_TYPESCRIPT_WORKER_URL: http://localhost:8085
           TASKER_FIXTURE_PATH: ${{ github.workspace }}/tests/fixtures
           RUST_LOG: info
-          # TAS-156: Redis for distributed template cache
           REDIS_URL: redis://localhost:6379
 
       - name: Upload integration test results
         uses: actions/upload-artifact@v6
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
-          # TAS-133: Unique artifact name per matrix job
           name: integration-test-results-${{ matrix.messaging_backend }}
           path: target/nextest/ci/junit.xml
 
       - name: Collect service logs on failure
         if: failure()
-        run: |
-          mkdir -p service-logs
-          [ -f orchestration.log ] && cp orchestration.log service-logs/
-          [ -f worker.log ] && cp worker.log service-logs/
-          [ -f ruby-worker.log ] && cp ruby-worker.log service-logs/
-          [ -f python-worker.log ] && cp python-worker.log service-logs/
-          [ -f typescript-worker.log ] && cp typescript-worker.log service-logs/
-
-      - name: Upload service logs
-        if: failure()
-        uses: actions/upload-artifact@v6
+        uses: ./.github/actions/collect-service-logs
         with:
-          # TAS-133: Unique artifact name per matrix job
-          name: service-logs-${{ matrix.messaging_backend }}
-          path: service-logs/
+          artifact-name: service-logs-${{ matrix.messaging_backend }}
+
+      - name: Stop native services
+        if: always()
+        run: |
+          chmod +x .github/scripts/stop-native-services.sh
+          .github/scripts/stop-native-services.sh
+
+  # ============================================================================
+  # Stage 3: gRPC Transport Tests (TAS-177)
+  # Run gRPC-specific tests to verify transport parity
+  # This is part of the 2+1 matrix strategy:
+  #   - 2 jobs: (PGMQ, RabbitMQ) × REST transport
+  #   - 1 job: gRPC transport (messaging backend independent)
+  # ============================================================================
+  grpc-transport-tests:
+    name: gRPC Transport Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    needs: unit-tests
+
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # TAS-171: Dragonfly for distributed cache
+      dragonfly:
+        image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+        ports:
+          - "6379:6379"
+          - "11211:11211"
+        env:
+          DFLY_memcached_port: 11211
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Free up disk space
+        uses: ./.github/actions/free-disk-space
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install tools
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "nextest sqlx-cli make"
+
+      - name: Install protobuf compiler
+        uses: ./.github/actions/install-protobuf
+
+      - name: Download core artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: core-artifacts
+          path: artifacts/core
+
+      - name: Restore artifacts to correct locations
+        run: ARTIFACTS_BASE=artifacts cargo-make/scripts/ci-restore-all-artifacts.sh
+
+      - name: Run database migrations
+        run: sqlx migrate run
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+
+      - name: Generate test configuration
+        uses: ./.github/actions/generate-test-config
+
+      - name: Start native services with gRPC
+        run: |
+          mkdir -p .pids
+          chmod +x .github/scripts/start-native-services.sh
+          echo "🔧 Starting services with gRPC enabled..."
+          .github/scripts/start-native-services.sh
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          SKIP_MIGRATIONS: "true"
+          TASKER_MESSAGING_BACKEND: pgmq
+          REDIS_URL: redis://localhost:6379
+
+      - name: Run gRPC transport tests
+        run: |
+          echo "🔌 Running gRPC transport tests..."
+          mkdir -p target/nextest/ci
+
+          # Run gRPC-specific tests (health, parity)
+          echo "🔍 Running gRPC health and parity tests..."
+          cargo nextest run \
+            --profile ci \
+            --workspace \
+            --features test-services \
+            -E 'binary(grpc_tests)' \
+            --no-fail-fast
+
+          # Run E2E tests with gRPC transport
+          echo "🏁 Running E2E tests with gRPC transport..."
+          TASKER_TEST_TRANSPORT=grpc \
+          cargo nextest run \
+            --profile ci \
+            --workspace \
+            --features test-services \
+            -E 'binary(e2e_tests) | binary(integration_tests)' \
+            --no-fail-fast
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+          TASKER_TEST_ORCHESTRATION_URL: http://localhost:8080
+          TASKER_TEST_WORKER_URL: http://localhost:8081
+          TASKER_TEST_ORCHESTRATION_GRPC_URL: http://localhost:9190
+          TASKER_TEST_WORKER_GRPC_URL: http://localhost:9191
+          TASKER_FIXTURE_PATH: ${{ github.workspace }}/tests/fixtures
+          RUST_LOG: info
+          REDIS_URL: redis://localhost:6379
+
+      - name: Upload gRPC test results
+        uses: actions/upload-artifact@v6
+        if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
+        with:
+          name: grpc-transport-test-results
+          path: target/nextest/ci/junit.xml
+
+      - name: Collect service logs on failure
+        if: failure()
+        uses: ./.github/actions/collect-service-logs
+        with:
+          artifact-name: service-logs-grpc-transport
+          log-files: "orchestration.log worker.log"
 
       - name: Stop native services
         if: always()

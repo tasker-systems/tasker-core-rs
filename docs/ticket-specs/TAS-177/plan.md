@@ -17,54 +17,91 @@ Add Tonic gRPC support to orchestration, worker, and client crates. This builds 
 | Phase 2: Orchestration gRPC | ✅ Complete | All 7 services (20+ RPCs), SharedApiServices refactor, bootstrap refactoring |
 | Phase 3: Configuration | ✅ Complete | GrpcConfig added, TOML files updated with environment overrides |
 | Phase 4: Worker gRPC | ✅ Complete | Health, Templates, Config services on port 9100 |
-| Phase 5: gRPC Client | ⬚ Not Started | OrchestrationGrpcClient, WorkerGrpcClient, CLI integration |
-| Phase 6: Testing | ⬚ Not Started | Integration tests, grpcurl validation |
-| Phase 7: Documentation | ⬚ Not Started | CLAUDE.md, architecture docs |
+| Phase 5: gRPC Client | ✅ Complete | OrchestrationGrpcClient, WorkerGrpcClient, "fail loudly" principle |
+| Phase 6: Testing | ✅ Complete | Profile system, unified client, transport abstraction, gRPC tests |
+| Phase 7: Documentation | 🔶 Partial | "Fail loudly" principle documented in tenets |
 
-### Recent Updates (Latest Session)
+### Recent Updates (Latest Session - Phase 6 Testing Infrastructure)
 
-- **Worker Bootstrap Refactoring (SharedWorkerServices Pattern)**:
-  - Created `SharedWorkerServices` in `tasker-worker/src/services/shared.rs` mirroring orchestration's `SharedApiServices` pattern
-  - Single source of truth for worker services shared between REST and gRPC APIs
-  - Both `WorkerAppState` (REST) and `WorkerGrpcState` (gRPC) hold `Arc<SharedWorkerServices>`
-  - Extracted bootstrap helper functions: `create_shared_services()`, `create_web_state_if_enabled()`, `start_grpc_server_if_enabled()`
+- **Client Profile System** (nextest-style profiles):
+  - Added `Transport` enum (REST/gRPC) to ClientConfig
+  - Profile support: `load_profile()`, `list_profiles()`, `find_profile_config_file()`
+  - CLI `--profile` flag for transport selection
+  - `.config/tasker-client.toml` with profiles: default, grpc, auth, grpc-auth, ci, local
+  - Enhanced `config show` command with transport and profile info
 
-- **FFI Worker Bridge Fixes (Async stop() Method)**:
-  - Worker `stop()` method became async, requiring `runtime.block_on()` in FFI contexts
-  - Fixed `workers/python/src/bridge.rs` - use `self.runtime.block_on(worker.stop())`
-  - Fixed `workers/ruby/ext/tasker_core/src/bridge.rs` - use `self.runtime.block_on(worker.stop())`
-  - Fixed `workers/typescript/src-rust/bridge.rs` - use `handle.runtime.block_on(worker.stop())`
-  - Fixed `workers/rust/src/main.rs` - added `.await` to `worker.stop()`
+- **Transport Abstraction Layer**:
+  - `OrchestrationClient` trait for transport-agnostic client interface
+  - `RestOrchestrationClient` and `GrpcOrchestrationClient` implementations
+  - `UnifiedOrchestrationClient` enum for runtime transport selection
+  - Fixed `form_urlencoded::Serializer` async-trait Send issue with scope blocks
 
-- **Config Generation Updates**:
-  - Regenerated all 6 TOML config files via `tasker-cli config generate`
-  - All configs now include `[orchestration.grpc]` and `[worker.grpc]` sections
-  - Added `config_endpoint_enabled = true` to test environment overrides
-  - Restored variant-specific settings: auth-test.toml API keys, memcached-test.toml tcp:// URL scheme
+- **IntegrationTestManager gRPC Support**:
+  - `TASKER_TEST_TRANSPORT` env var for transport selection
+  - `setup_grpc()`, `setup_grpc_orchestration_only()`, `setup_from_env()` methods
+  - gRPC health validation with retry logic
+  - `unified_client` field alongside legacy REST clients
 
-- **Environment Variable Allowlist**:
-  - Added `TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS` to config_loader.rs allowlist
-  - Added `TASKER_WORKER_GRPC_BIND_ADDRESS` to config_loader.rs allowlist
-  - Both use bind address regex pattern for validation
+- **gRPC Test Infrastructure**:
+  - `tests/grpc_tests.rs` entry point with feature gate
+  - `tests/grpc/health_tests.rs` - connectivity and health response tests
+  - `tests/grpc/parity_tests.rs` - REST/gRPC response comparison tests
 
-- **Dead Code Cleanup (protected_routes Removal)**:
-  - Removed `protected_routes` configuration - superseded by SecurityContext permissions (TAS-176)
-  - Deleted `ProtectedRouteConfig` and `RouteAuthConfig` structs from `tasker-shared/src/config/tasker.rs`
-  - Deleted `routes_map()` method and related code
-  - Deleted route matching methods from `tasker-shared/src/config/web.rs`
-  - Deleted `AuthConfig` struct from `tasker-shared/src/types/web.rs`
-  - Removed dead tests from `tasker-orchestration/src/web/middleware/auth.rs`
-  - Removed all `[[orchestration.web.auth.protected_routes]]` entries from base configs
-  - Regenerated all config files to reflect removal
+- **Cargo Make Tasks**:
+  - `test-grpc` (tg), `test-grpc-health`, `test-grpc-parity` (tgp)
+  - `test-e2e-grpc` (tge), `test-both-transports`
 
-- **Previous Session (Worker gRPC Implementation)**:
-  - **Created `proto/tasker/v1/worker.proto`**: Worker-specific proto messages that match worker REST API exactly
-  - **Added From/Into trait conversions** in `tasker-shared/src/proto/conversions.rs`
-  - **Implemented gRPC services**: `WorkerHealthServiceImpl`, `WorkerConfigServiceImpl`, `WorkerTemplateServiceImpl`
-  - **Removed hardcoded dummy data**: All data comes from real service responses
-  - **Updated proto module exports** in `tasker-shared/src/proto/mod.rs` for worker types and services
+### Previous Session - Phase 5 gRPC Client
 
-- **All library tests passing** (290 orchestration + 207 worker)
+- **gRPC Client Implementation (OrchestrationGrpcClient & WorkerGrpcClient)**:
+  - Created `tasker-client/src/grpc_clients/` module with full client implementations
+  - `OrchestrationGrpcClient`: All 7 services (tasks, steps, templates, analytics, health, dlq, config)
+  - `WorkerGrpcClient`: Health, templates, config services
+  - `GrpcClientConfig` with auth, TLS, timeout, and keepalive settings
+  - `AuthInterceptor` for Bearer token and API key authentication
+
+- **Proto Schema Alignment (Rust as Source of Truth)**:
+  - Updated `proto/tasker/v1/health.proto`: `PoolDetail` from 5 to 9 fields, `PoolUtilizationInfo` from repeated to named pools
+  - Updated `proto/tasker/v1/analytics.proto`: `SystemHealthCounts` from 6 to 24 fields (all task/step states)
+  - Updated `proto/tasker/v1/worker.proto`: `WorkerPoolDetail` to 9 fields, `CacheStats` field names aligned
+  - All protos now match Rust domain types exactly - no fabricated or aggregated fields
+
+- **"Fail Loudly" Principle Implementation**:
+  - Added `ClientError::InvalidResponse` variant for protocol violations
+  - Refactored all `unwrap_or_default()` patterns to `ok_or_else(|| ClientError::invalid_response(...))`
+  - Centralized all proto-to-domain conversions in `tasker-client/src/grpc_clients/conversions.rs`
+  - Distinguishes optional fields (legitimate None) from required fields (protocol violation)
+  - Prevents "phantom data" - fabricated values that look valid but represent nothing
+
+- **Documentation - Tenet #11: Fail Loudly**:
+  - Added to `docs/principles/tasker-core-tenets.md` as the 11th tenet
+  - Created `docs/principles/fail-loudly.md` with comprehensive guidance
+  - Updated `docs/principles/defense-in-depth.md` with relationship to fail loudly
+  - Origin documented as TAS-177 gRPC client refactoring
+
+- **Server-Side Fixes**:
+  - Updated `tasker-orchestration/src/grpc/services/analytics.rs`: `convert_system_health_counts` now maps all 24 fields
+  - Fixed `tasker-shared/build.rs`: Clippy lint for `cloned_ref_to_slice_refs`
+  - Removed unfulfilled `#[expect]` attributes in conversions.rs and tasks.rs
+
+- **All tests passing**: `cargo make fix && cargo make code-quality` clean
+
+### Previous Sessions
+
+**Phase 4 - Worker gRPC**:
+- Created `SharedWorkerServices` pattern mirroring orchestration
+- Worker bootstrap refactoring with helper functions
+- FFI bridge fixes for async `stop()` method (Python, Ruby, TypeScript)
+- Config generation updates with gRPC sections
+- Environment variable allowlist for gRPC bind addresses
+- Dead code cleanup (protected_routes removal)
+
+**Phases 1-3 - Orchestration gRPC**:
+- Proto definitions audited and rewritten to match REST API exactly
+- SharedApiServices architecture for REST/gRPC service sharing
+- Bootstrap refactoring with 11 focused helper functions
+- All 7 orchestration services (20+ RPCs)
+- Dual-server startup with feature gates
 
 ---
 
@@ -358,98 +395,109 @@ enable_health_service = true
 
 ---
 
-## Phase 5: gRPC Client ⬚
+## Phase 5: gRPC Client ✅
 
 ### 5.1 Overview
 
-Feature-gated gRPC client implementations mirroring the existing REST clients. Enables users to choose transport protocol.
+Feature-gated gRPC client implementations mirroring the existing REST clients. Returns the same domain types as REST clients for seamless switching.
 
-### 5.2 Module Structure
+### 5.2 Module Structure ✅
 
 ```
 tasker-client/src/grpc_clients/
-├── mod.rs
-├── common.rs                       # Shared utilities (channel management, auth)
+├── mod.rs                          # Module exports
+├── common.rs                       # GrpcClientConfig, GrpcAuthConfig, AuthInterceptor
+├── conversions.rs                  # Proto-to-domain conversions ("fail loudly")
 ├── orchestration_grpc_client.rs    # OrchestrationGrpcClient
 └── worker_grpc_client.rs           # WorkerGrpcClient
 ```
 
-### 5.3 Feature Flag
+### 5.3 Feature Flag ✅
 
 ```toml
 [features]
-default = []
+default = ["grpc"]  # gRPC enabled by default
 grpc = ["tonic", "tasker-shared/grpc-api"]
 ```
 
-### 5.4 OrchestrationGrpcClient
+### 5.4 OrchestrationGrpcClient ✅
 
 ```rust
 pub struct OrchestrationGrpcClient {
-    channel: Channel,
-    auth: Option<AuthConfig>,
-    timeout: Duration,
-    // Service clients (lazily initialized or eagerly)
-    task_client: TaskServiceClient<Channel>,
-    step_client: StepServiceClient<Channel>,
-    template_client: TemplateServiceClient<Channel>,
-    analytics_client: AnalyticsServiceClient<Channel>,
-    health_client: HealthServiceClient<Channel>,
-    dlq_client: DlqServiceClient<Channel>,
-    config_client: ConfigServiceClient<Channel>,
+    task_client: TaskServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    step_client: StepServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    template_client: TemplateServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    analytics_client: AnalyticsServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    health_client: HealthServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    dlq_client: DlqServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    config_client: ConfigServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    endpoint: String,
 }
 ```
 
-**Methods** (mirror REST client):
+**Implemented Methods**:
 - Task operations: `create_task()`, `get_task()`, `list_tasks()`, `cancel_task()`, `get_task_context()`
 - Step operations: `get_step()`, `list_steps()`, `resolve_step()`, `get_step_audit()`
 - Template operations: `list_templates()`, `get_template()`
 - Analytics: `get_performance_metrics()`, `get_bottleneck_analysis()`
-- Health: `health_check()`, `liveness_check()`, `readiness_check()`, `detailed_health_check()`
-- DLQ: `list_dlq_entries()`, `get_dlq_entry()`, `update_investigation()`, `get_dlq_stats()`
+- Health: `health_check()`, `liveness_probe()`, `readiness_probe()`, `get_detailed_health()`
+- DLQ: `list_dlq_entries()`, `get_dlq_entry()`, `update_investigation()`, `get_dlq_stats()`, `get_investigation_queue()`, `get_staleness_monitoring()`
 - Config: `get_config()`
 
-### 5.5 WorkerGrpcClient
+### 5.5 WorkerGrpcClient ✅
 
 ```rust
 pub struct WorkerGrpcClient {
-    channel: Channel,
-    auth: Option<AuthConfig>,
-    timeout: Duration,
-    health_client: HealthServiceClient<Channel>,
-    template_client: TemplateServiceClient<Channel>,
-    config_client: ConfigServiceClient<Channel>,
+    health_client: WorkerHealthServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    template_client: WorkerTemplateServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    config_client: WorkerConfigServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    endpoint: String,
 }
 ```
 
-### 5.6 Configuration
+**Implemented Methods**:
+- Health: `health_check()`, `liveness_probe()`, `readiness_probe()`, `get_detailed_health()`
+- Templates: `list_templates()`, `get_template()`
+- Config: `get_config()`
 
-Extend or parallel existing REST config:
+### 5.6 Configuration ✅
+
 ```rust
 pub struct GrpcClientConfig {
-    pub endpoint: String,              // e.g., "http://localhost:9090"
-    pub timeout_seconds: u64,
-    pub auth: Option<AuthConfig>,
-    pub tls_config: Option<TlsConfig>,
-    pub keepalive_interval: Option<Duration>,
+    pub endpoint: String,
+    pub timeout: Duration,
+    pub auth: Option<GrpcAuthConfig>,
+}
+
+pub enum GrpcAuthConfig {
+    Bearer(String),
+    ApiKey(String),
 }
 ```
 
-### 5.7 Builder Pattern
+### 5.7 Connection Pattern ✅
 
 ```rust
-OrchestrationGrpcClient::builder()
-    .with_endpoint("http://localhost:9090")
-    .with_timeout(Duration::from_secs(30))
-    .with_auth(AuthConfig::ApiKey("..."))
-    .build()
-    .await?
+// Simple connection
+let client = OrchestrationGrpcClient::connect("http://localhost:9090").await?;
+
+// With authentication
+let client = OrchestrationGrpcClient::connect_with_auth(
+    "http://localhost:9090",
+    GrpcAuthConfig::Bearer("token".to_string()),
+).await?;
+
+// Full configuration
+let config = GrpcClientConfig::new("http://localhost:9090")
+    .with_auth(GrpcAuthConfig::ApiKey("key".to_string()))
+    .with_timeout(Duration::from_secs(60));
+let client = OrchestrationGrpcClient::with_config(config).await?;
 ```
 
-### 5.8 Error Handling
+### 5.8 Error Handling ✅
 
-Map `tonic::Status` to existing `ClientError` enum:
 ```rust
+// tonic::Status maps to ClientError
 impl From<tonic::Status> for ClientError {
     fn from(status: tonic::Status) -> Self {
         match status.code() {
@@ -461,27 +509,44 @@ impl From<tonic::Status> for ClientError {
         }
     }
 }
+
+// Protocol violations use InvalidResponse
+ClientError::InvalidResponse { field, reason }
 ```
 
-### 5.9 CLI Integration
+### 5.9 "Fail Loudly" Principle ✅
 
-Update `tasker-cli` to support gRPC:
-- Add `--transport grpc|rest` flag (default: rest)
-- Auto-detect based on port or config
-- Graceful fallback if gRPC unavailable
+**Key Design Decision**: Proto-to-domain conversions never fabricate data.
 
-### 5.10 Implementation Checklist
+```rust
+// WRONG - phantom data (creates false values)
+let checks = response.checks.unwrap_or_else(|| ReadinessChecks::default());
 
-- [ ] Add `grpc` feature to `tasker-client/Cargo.toml`
-- [ ] Create `grpc_clients/` module structure
-- [ ] Implement `OrchestrationGrpcClient` with all service methods
-- [ ] Implement `WorkerGrpcClient`
-- [ ] Add auth interceptor for bearer/api-key
-- [ ] Add channel management (connection pooling, reconnection)
-- [ ] Implement builder pattern
-- [ ] Map gRPC errors to ClientError
-- [ ] Update CLI with `--transport` flag
-- [ ] Add client tests
+// RIGHT - fail loudly (surfaces protocol violations)
+let checks = response.checks.ok_or_else(|| {
+    ClientError::invalid_response(
+        "ReadinessResponse.checks",
+        "Readiness response missing required health checks",
+    )
+})?;
+```
+
+**Rationale**: A client that returns fabricated data is worse than one that fails. Operators cannot distinguish "system is idle" from "data was missing" when defaults are silently applied.
+
+### 5.10 Implementation Checklist ✅
+
+- [x] Add `grpc` feature to `tasker-client/Cargo.toml`
+- [x] Create `grpc_clients/` module structure
+- [x] Implement `OrchestrationGrpcClient` with all service methods
+- [x] Implement `WorkerGrpcClient`
+- [x] Add auth interceptor for bearer/api-key
+- [x] Add channel management (connection pooling via tonic)
+- [x] Implement connection methods (connect, connect_with_auth, with_config)
+- [x] Map gRPC errors to ClientError
+- [x] Map proto-to-domain with "fail loudly" pattern
+- [x] Align proto schemas with Rust domain types (24-field SystemHealthCounts, 9-field PoolDetail)
+- [ ] CLI `--transport` flag (deferred - not blocking for Phase 5)
+- [ ] Client tests (deferred to Phase 6)
 
 ---
 
@@ -605,24 +670,101 @@ Update `tasker-cli` to support gRPC:
 | `tasker-orchestration/src/web/middleware/auth.rs` | ✅ | Removed dead tests for protected_routes |
 | `config/tasker/base/orchestration.toml` | ✅ | Removed [[orchestration.web.auth.protected_routes]] |
 
+### Phase 5: gRPC Client Files
+| File | Status | Change |
+|------|--------|--------|
+| `tasker-client/src/grpc_clients/mod.rs` | ✅ | Module exports for gRPC clients |
+| `tasker-client/src/grpc_clients/common.rs` | ✅ | GrpcClientConfig, GrpcAuthConfig, AuthInterceptor |
+| `tasker-client/src/grpc_clients/conversions.rs` | ✅ | Proto-to-domain conversions with "fail loudly" |
+| `tasker-client/src/grpc_clients/orchestration_grpc_client.rs` | ✅ | OrchestrationGrpcClient (7 services) |
+| `tasker-client/src/grpc_clients/worker_grpc_client.rs` | ✅ | WorkerGrpcClient (3 services) |
+| `tasker-client/src/error.rs` | ✅ | Added InvalidResponse variant for protocol violations |
+| `tasker-client/src/lib.rs` | ✅ | Export grpc_clients module |
+| `tasker-client/Cargo.toml` | ✅ | Added tonic dependency, grpc feature |
+
+### Phase 5: Proto Schema Alignment
+| File | Status | Change |
+|------|--------|--------|
+| `proto/tasker/v1/health.proto` | ✅ | PoolDetail: 5→9 fields, PoolUtilizationInfo: named pools |
+| `proto/tasker/v1/analytics.proto` | ✅ | SystemHealthCounts: 6→24 fields (all task/step states) |
+| `proto/tasker/v1/worker.proto` | ✅ | WorkerPoolDetail: 9 fields, CacheStats field alignment |
+| `tasker-orchestration/src/grpc/services/analytics.rs` | ✅ | convert_system_health_counts: maps all 24 fields |
+| `tasker-orchestration/src/grpc/conversions.rs` | ✅ | Removed unfulfilled #[expect] attribute |
+| `tasker-orchestration/src/grpc/services/tasks.rs` | ✅ | Removed unfulfilled #[expect] attribute |
+| `tasker-shared/build.rs` | ✅ | Fixed clippy cloned_ref_to_slice_refs lint |
+
+### Phase 5: Documentation ("Fail Loudly" Principle)
+| File | Status | Change |
+|------|--------|--------|
+| `docs/principles/tasker-core-tenets.md` | ✅ | Added Tenet #11: Fail Loudly |
+| `docs/principles/fail-loudly.md` | ✅ | **NEW** - Comprehensive principle documentation |
+| `docs/principles/defense-in-depth.md` | ✅ | Added relationship to Fail Loudly |
+| `docs/principles/README.md` | ✅ | Added Fail Loudly to index |
+
 ---
 
-## Phase 6: Testing ⬚
+## Phase 6: Testing ✅
+
+**Detailed plan**: See `docs/ticket-specs/TAS-177/testing-plan.md`
 
 ### 6.1 Unit Tests
 
 - [x] Proto conversion roundtrips (From/Into traits)
 - [x] Config tests pass with GrpcConfig
-- [x] All 290 library tests passing
-- [ ] Auth interceptor with various credential scenarios
-- [ ] Permission checking integration tests
+- [x] All 290+ library tests passing
+- [x] All 17 config tests pass with profile support
+- [x] Transport abstraction tests pass
 
-### 6.2 Integration Tests (grpcurl)
+### 6.2 Client Profile System ✅
+
+Added nextest-style profiles to `tasker-client`:
+- [x] Add `Transport` enum (REST/gRPC) to `tasker-client/src/config.rs`
+- [x] Add profile support to `ClientConfig` (`load_profile()`, `list_profiles()`, `find_profile_config_file()`)
+- [x] Add `--profile` flag to CLI (`tasker-client/src/bin/tasker-cli.rs`)
+- [x] Create `.config/tasker-client.toml` with profiles: default, grpc, auth, grpc-auth, ci, local
+- [x] Enhanced `config show` command to display transport, profiles, and env var overrides
+
+### 6.3 Transport Abstraction Layer ✅
+
+Created unified transport abstraction:
+- [x] `OrchestrationClient` trait in `tasker-client/src/transport.rs`
+- [x] `RestOrchestrationClient` implementing the trait
+- [x] `GrpcOrchestrationClient` implementing the trait (feature-gated)
+- [x] `UnifiedOrchestrationClient` enum for runtime transport selection
+- [x] `UnifiedOrchestrationClient::from_config()` for config-driven transport
+
+### 6.4 IntegrationTestManager gRPC Support ✅
+
+Extended `tests/common/integration_test_manager.rs`:
+- [x] Added `transport` field to `IntegrationConfig`
+- [x] Added gRPC URL fields (`orchestration_grpc_url`, `worker_grpc_url`)
+- [x] Added `TASKER_TEST_TRANSPORT` env var support (rest/grpc)
+- [x] Added `setup_grpc()` and `setup_grpc_orchestration_only()` methods
+- [x] Added `setup_from_env()` for transport-agnostic tests
+- [x] Added gRPC health validation methods
+- [x] Added `client()` accessor for unified client
+- [x] Added `is_grpc()` / `is_rest()` helpers
+
+### 6.5 gRPC Test Infrastructure ✅
+
+Created gRPC test files:
+- [x] `tests/grpc_tests.rs` - Entry point with feature gate
+- [x] `tests/grpc/mod.rs` - Module definitions
+- [x] `tests/grpc/health_tests.rs` - Health endpoint tests
+- [x] `tests/grpc/parity_tests.rs` - REST/gRPC response parity tests
+
+### 6.6 Cargo Make Tasks ✅
+
+Added to `Makefile.toml`:
+- [x] `test-grpc` (alias: `tg`) - All gRPC tests
+- [x] `test-grpc-health` - gRPC health endpoint tests
+- [x] `test-grpc-parity` (alias: `tgp`) - REST/gRPC parity tests
+- [x] `test-e2e-grpc` (alias: `tge`) - E2E tests with gRPC transport
+- [x] `test-both-transports` - E2E with both REST and gRPC
+
+### 6.7 Integration Tests (grpcurl)
 
 ```bash
-# Start server with gRPC enabled
-cargo run --package tasker-orchestration --bin server
-
 # Test reflection (service discovery)
 grpcurl -plaintext localhost:9090 list
 grpcurl -plaintext localhost:9090 describe tasker.v1.TaskService
@@ -630,41 +772,35 @@ grpcurl -plaintext localhost:9090 describe tasker.v1.TaskService
 # Test health checks
 grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckLiveness
 grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckReadiness
-grpcurl -plaintext localhost:9090 tasker.v1.HealthService/CheckDetailedHealth
 
 # Test task creation (with auth)
-grpcurl -plaintext -H "Authorization: Bearer <token>" \
+grpcurl -plaintext -H "X-API-Key: test-api-key-full-access" \
   -d '{"name":"test","namespace":"default","version":"1.0.0","context":{}}' \
   localhost:9090 tasker.v1.TaskService/CreateTask
-
-# Test templates
-grpcurl -plaintext -H "Authorization: Bearer <token>" \
-  localhost:9090 tasker.v1.TemplateService/ListTemplates
-
-# Test analytics
-grpcurl -plaintext -H "Authorization: Bearer <token>" \
-  -d '{"time_window_hours":24}' \
-  localhost:9090 tasker.v1.AnalyticsService/GetPerformanceMetrics
 ```
 
-### 6.3 E2E Test Scenarios
+### 6.4 E2E Test Scenarios
 
+- [ ] Extend `IntegrationTestManager` with `setup_grpc()`, `setup_from_env()`
 - [ ] Task lifecycle via gRPC (create → get → list → cancel)
 - [ ] Step resolution via gRPC (get → resolve manually)
 - [ ] Auth required without credentials (UNAUTHENTICATED)
 - [ ] Permission denied without permission (PERMISSION_DENIED)
-- [ ] Backpressure response (UNAVAILABLE with retry-after)
-- [ ] Streaming test (StreamTaskStatus)
 - [ ] Parity verification: REST vs gRPC responses should match
 
-### 6.4 Implementation Checklist
+### 6.5 gRPC-Specific Tests
 
-- [ ] Create `tests/grpc/` directory for gRPC-specific tests
-- [ ] Add gRPC integration test infrastructure
-- [ ] Test all 7 services with auth
-- [ ] Test streaming endpoints
-- [ ] Test error cases (not found, validation errors)
-- [ ] Add CI job for gRPC tests
+- [ ] Create `tests/grpc/` directory
+- [ ] `health_tests.rs` - Health endpoint tests
+- [ ] `auth_tests.rs` - Auth/permission tests (mirrors REST auth tests)
+- [ ] `parity_tests.rs` - REST/gRPC response comparison
+
+### 6.6 Cargo Make Tasks
+
+- [ ] `test-grpc` (tg) - All gRPC tests
+- [ ] `test-grpc-auth` (tga) - gRPC auth tests
+- [ ] `test-grpc-parity` (tgp) - REST/gRPC parity tests
+- [ ] `test-both` - E2E with both transports
 
 ---
 
@@ -715,9 +851,9 @@ grpcurl -plaintext -H "Authorization: Bearer <token>" \
 3. ~~**Add config file sections**~~ ✅ TOML files updated with environment overrides
 4. ~~**SharedApiServices refactor**~~ ✅ Central service container, bootstrap refactoring
 5. ~~**Phase 4: Worker gRPC**~~ ✅ SharedWorkerServices pattern, dual-server startup, FFI bridges fixed
-6. **Phase 5: gRPC Client** - Feature-gated client implementations
+6. ~~**Phase 5: gRPC Client**~~ ✅ OrchestrationGrpcClient, WorkerGrpcClient, "fail loudly" principle
 7. **Phase 6: Testing** - Integration tests for gRPC endpoints
-8. **Phase 7: Documentation** - Update CLAUDE.md and architecture docs
+8. **Phase 7: Documentation** - Update CLAUDE.md and architecture docs (partial: "fail loudly" documented)
 
 ---
 
@@ -970,3 +1106,73 @@ This blocks the FFI thread while waiting for async shutdown to complete, which i
 5. Regenerated all generated config files
 
 **Key insight**: Dead code includes configuration structures, not just executable code. Config schemas that load data that's never used are technical debt.
+
+---
+
+## Implementation Learnings (Phase 5 Session)
+
+### "Fail Loudly" Principle Discovery
+
+**Problem**: Initial gRPC client conversions used `unwrap_or_default()` pervasively, creating "phantom data" - values that look valid but represent nothing real.
+
+**Example of the problem**:
+```rust
+// Server returns empty response (protocol violation)
+// Client fabricates a response with zeros/empty strings
+let health = BasicHealthResponse {
+    status: response.status.unwrap_or_default(),  // Empty string looks like "healthy"?
+    uptime_seconds: response.uptime_seconds.unwrap_or(0),  // 0 means just started?
+};
+```
+
+Consumers cannot distinguish "data was missing" from "data was legitimately zero/empty". This breaks the trust contract.
+
+**Solution**: Return explicit errors for missing required fields:
+```rust
+let checks = response.checks.ok_or_else(|| {
+    ClientError::invalid_response(
+        "ReadinessResponse.checks",
+        "Readiness response missing required health checks",
+    )
+})?;
+```
+
+**Result**: Documented as Tenet #11 in `docs/principles/tasker-core-tenets.md`.
+
+### Proto-Rust Alignment Cascade
+
+When updating proto schemas to match Rust domain types, changes cascade through multiple layers:
+
+1. **Proto file** (`health.proto`): Add fields to message
+2. **Proto regeneration**: `cargo build` regenerates prost types
+3. **Server-side conversions** (`analytics.rs`): Update domain→proto mapping
+4. **Client-side conversions** (`conversions.rs`): Update proto→domain mapping
+
+**Key insight**: The server-side conversion (`analytics.rs`) was still using old aggregated field names (`active_tasks`, `stuck_tasks`) after proto update. Both server and client conversions must be updated together.
+
+### Centralized Conversions Pattern
+
+**Problem**: Conversion functions were scattered across orchestration_grpc_client.rs and worker_grpc_client.rs, making it hard to:
+- Audit for phantom data patterns
+- Ensure consistency between clients
+- Apply the "fail loudly" principle uniformly
+
+**Solution**: Created `tasker-client/src/grpc_clients/conversions.rs` as the single location for all proto-to-domain conversions:
+- 40+ conversion functions
+- Each validates required fields
+- Clear naming: `proto_xxx_to_domain()`
+- Helper functions for common patterns (JSON parsing, timestamps)
+
+### Required vs Optional Field Distinction
+
+**Key insight**: Proto fields may be optional at the wire level but required at the domain level.
+
+```rust
+// Wire: message may have empty `checks` field
+// Domain: ReadinessResponse REQUIRES checks to be meaningful
+
+// This is a protocol violation, not a legitimate None
+response.checks.ok_or_else(|| ClientError::invalid_response(...))
+```
+
+The distinction is semantic, not syntactic. The domain model defines what "required" means, not the proto schema.

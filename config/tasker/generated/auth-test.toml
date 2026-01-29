@@ -283,7 +283,7 @@ processing_timeout_seconds = 60
 visibility_timeout_seconds = 30
 
 [orchestration.grpc]
-bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9090}"
+bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9190}"
 enable_health_service = true
 enable_reflection = true
 enabled = true
@@ -421,7 +421,7 @@ processing_timeout_seconds = 60
 visibility_timeout_seconds = 30
 
 [worker.grpc]
-bind_address = "${TASKER_WORKER_GRPC_BIND_ADDRESS:-0.0.0.0:9100}"
+bind_address = "${TASKER_WORKER_GRPC_BIND_ADDRESS:-0.0.0.0:9191}"
 enable_health_service = true
 enable_reflection = true
 enabled = true

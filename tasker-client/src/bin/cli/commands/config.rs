@@ -1000,6 +1000,73 @@ pub async fn handle_config_command(
         }
         ConfigCommands::Show => {
             println!("Current CLI Configuration:");
+            println!("══════════════════════════\n");
+
+            // Show transport
+            println!("Transport: {:?}", _config.transport);
+            println!();
+
+            // Show endpoints
+            println!("Orchestration Endpoint:");
+            println!("  URL: {}", _config.orchestration.base_url);
+            println!("  Timeout: {}ms", _config.orchestration.timeout_ms);
+            println!("  Max Retries: {}", _config.orchestration.max_retries);
+            if let Some(ref auth) = _config.orchestration.auth {
+                println!("  Auth: {:?}", auth.method);
+            }
+            println!();
+
+            println!("Worker Endpoint:");
+            println!("  URL: {}", _config.worker.base_url);
+            println!("  Timeout: {}ms", _config.worker.timeout_ms);
+            println!("  Max Retries: {}", _config.worker.max_retries);
+            if let Some(ref auth) = _config.worker.auth {
+                println!("  Auth: {:?}", auth.method);
+            }
+            println!();
+
+            // Show available profiles
+            println!("Available Profiles:");
+            match tasker_client::ClientConfig::list_profiles() {
+                Ok(profiles) => {
+                    if profiles.is_empty() {
+                        println!("  (no profiles found)");
+                    } else {
+                        for profile in profiles {
+                            println!("  - {}", profile);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("  (error loading profiles: {})", e);
+                }
+            }
+            println!();
+
+            // Show profile config file location
+            if let Some(path) = tasker_client::ClientConfig::find_profile_config_file() {
+                println!("Profile Config File: {}", path.display());
+            } else {
+                println!("Profile Config File: (not found)");
+                println!("  Expected locations:");
+                println!("    - .config/tasker-client.toml (project)");
+                println!("    - ~/.config/tasker-client.toml (user)");
+            }
+            println!();
+
+            // Show environment variables that can override
+            println!("Environment Variable Overrides:");
+            println!("  TASKER_CLIENT_PROFILE - Select profile");
+            println!("  TASKER_TRANSPORT - Override transport (rest/grpc)");
+            println!("  TASKER_ORCHESTRATION_URL - Override orchestration URL");
+            println!("  TASKER_WORKER_URL - Override worker URL");
+            println!("  TASKER_ORCHESTRATION_GRPC_URL - Override orchestration gRPC URL");
+            println!("  TASKER_WORKER_GRPC_URL - Override worker gRPC URL");
+            println!();
+
+            // Show full TOML representation
+            println!("Full Configuration (TOML):");
+            println!("──────────────────────────");
             println!("{}", toml::to_string_pretty(_config).unwrap());
         }
     }

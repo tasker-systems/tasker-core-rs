@@ -128,6 +128,7 @@
 pub mod api_clients;
 pub mod config;
 pub mod error;
+pub mod transport;
 
 #[cfg(feature = "grpc")]
 pub mod grpc_clients;
@@ -136,8 +137,13 @@ pub mod grpc_clients;
 pub use api_clients::{
     OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig,
 };
-pub use config::{ClientAuthConfig, ClientAuthMethod, ClientConfig};
+pub use config::{ClientAuthConfig, ClientAuthMethod, ClientConfig, Transport};
 pub use error::{ClientError, ClientResult};
+
+// Re-export unified transport types
+#[cfg(feature = "grpc")]
+pub use transport::GrpcOrchestrationClient;
+pub use transport::{OrchestrationClient, RestOrchestrationClient, UnifiedOrchestrationClient};
 
 // Re-export gRPC clients when feature is enabled
 #[cfg(feature = "grpc")]

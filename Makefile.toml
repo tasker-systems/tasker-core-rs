@@ -132,12 +132,18 @@ dependencies = ["rust-fmt-check", "rust-clippy", "rust-docs", "rust-doctests", "
 # =============================================================================
 
 [tasks.test-rust]
-description = "Run Rust tests (requires DB + messaging + services)"
+description = "Run Rust tests including gRPC (requires DB + messaging + services)"
 script = '''
 #!/bin/bash
 set -a
 source .env 2>/dev/null || true
 set +a
+
+echo "🧪 Running Rust tests (REST + gRPC)..."
+echo "   gRPC Orchestration: ${TASKER_TEST_ORCHESTRATION_GRPC_URL:-http://localhost:9190}"
+echo "   gRPC Worker: ${TASKER_TEST_WORKER_GRPC_URL:-http://localhost:9191}"
+
+# test-services feature now includes grpc, so all tests run in one pass
 cargo nextest run --workspace --features test-services
 '''
 
@@ -176,6 +182,128 @@ echo "⚠️  These tests are NOT run in CI due to resource constraints"
 cargo nextest run --workspace --features test-cluster \
   -E 'test(multi_instance)'
 '''
+
+# =============================================================================
+# gRPC Tests (TAS-177)
+# =============================================================================
+
+[tasks.test-grpc]
+description = "Run all gRPC tests (requires services with gRPC enabled)"
+script = '''
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+set +a
+echo "🔌 Running gRPC tests..."
+echo "   gRPC Orchestration: ${TASKER_TEST_ORCHESTRATION_GRPC_URL:-http://localhost:9190}"
+echo "   gRPC Worker: ${TASKER_TEST_WORKER_GRPC_URL:-http://localhost:9191}"
+cargo nextest run --workspace --features test-services \
+  -E 'binary(grpc_tests)'
+'''
+
+[tasks.test-grpc-health]
+description = "Run gRPC health endpoint tests"
+script = '''
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+set +a
+cargo nextest run --workspace --features test-services \
+  -E 'binary(grpc_tests) & test(health)'
+'''
+
+[tasks.test-grpc-parity]
+description = "Run REST/gRPC response parity tests"
+script = '''
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+set +a
+echo "🔄 Running REST/gRPC parity tests..."
+echo "   REST: ${TASKER_TEST_ORCHESTRATION_URL:-http://localhost:8080}"
+echo "   gRPC: ${TASKER_TEST_ORCHESTRATION_GRPC_URL:-http://localhost:9190}"
+cargo nextest run --workspace --features test-services \
+  -E 'binary(grpc_tests) & test(parity)'
+'''
+
+[tasks.test-e2e-grpc]
+description = "Run E2E tests with gRPC transport"
+script = '''
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+export TASKER_TEST_TRANSPORT=grpc
+set +a
+echo "🔌 Running E2E tests with gRPC transport..."
+echo "   Transport: gRPC"
+echo "   Orchestration: ${TASKER_TEST_ORCHESTRATION_GRPC_URL:-http://localhost:9190}"
+cargo nextest run --workspace --features test-services \
+  -E 'binary(e2e_tests) | binary(integration_tests)'
+'''
+
+[tasks.test-both-transports]
+description = "Run E2E tests with both REST and gRPC transports"
+script = '''
+#!/bin/bash
+set -a
+source .env 2>/dev/null || true
+set +a
+
+echo "🔄 Running E2E tests with BOTH transports..."
+
+# Run with REST first
+echo ""
+echo "═══════════════════════════════════════════════════════════"
+echo " Phase 1: REST Transport"
+echo "═══════════════════════════════════════════════════════════"
+export TASKER_TEST_TRANSPORT=rest
+cargo nextest run --workspace --features test-services \
+  -E 'binary(e2e_tests) | binary(integration_tests)'
+
+REST_EXIT=$?
+
+# Run with gRPC
+echo ""
+echo "═══════════════════════════════════════════════════════════"
+echo " Phase 2: gRPC Transport"
+echo "═══════════════════════════════════════════════════════════"
+export TASKER_TEST_TRANSPORT=grpc
+cargo nextest run --workspace --features test-services \
+  -E 'binary(e2e_tests) | binary(integration_tests)'
+
+GRPC_EXIT=$?
+
+# Report results
+echo ""
+echo "═══════════════════════════════════════════════════════════"
+echo " Summary"
+echo "═══════════════════════════════════════════════════════════"
+if [ $REST_EXIT -eq 0 ]; then
+    echo "✅ REST transport: PASSED"
+else
+    echo "❌ REST transport: FAILED"
+fi
+if [ $GRPC_EXIT -eq 0 ]; then
+    echo "✅ gRPC transport: PASSED"
+else
+    echo "❌ gRPC transport: FAILED"
+fi
+
+exit $((REST_EXIT + GRPC_EXIT))
+'''
+
+# gRPC test shortcuts
+[tasks.tg]
+alias = "test-grpc"
+description = "Shortcut for test-grpc"
+
+[tasks.tgp]
+alias = "test-grpc-parity"
+description = "Shortcut for test-grpc-parity"
+
+[tasks.tge]
+alias = "test-e2e-grpc"
+description = "Shortcut for test-e2e-grpc"
 
 [tasks.test-rust-all]
 description = "Run ALL tests including cluster (local development only)"

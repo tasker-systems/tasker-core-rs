@@ -1,6 +1,6 @@
 # Tasker Configuration - orchestration Context
 # Environment: test
-# Generated: 2026-01-27T22:38:18.441558+00:00
+# Generated: 2026-01-28T23:21:16.167378+00:00
 # Source: config/tasker
 #
 # This file is a MERGED configuration (base + environment overrides).
@@ -283,7 +283,7 @@ processing_timeout_seconds = 60
 visibility_timeout_seconds = 30
 
 [orchestration.grpc]
-bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9090}"
+bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9190}"
 enable_health_service = true
 enable_reflection = true
 enabled = true

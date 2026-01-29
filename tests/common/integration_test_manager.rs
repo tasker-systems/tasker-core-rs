@@ -52,22 +52,43 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use tasker_client::{
-    OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig,
+    OrchestrationApiClient, OrchestrationApiConfig, OrchestrationClient, Transport,
+    UnifiedOrchestrationClient, WorkerApiClient, WorkerApiConfig,
 };
 
 /// Integration test manager for Docker Compose-based testing
 pub struct IntegrationTestManager {
+    /// REST orchestration client (legacy, for backward compatibility)
     pub orchestration_client: OrchestrationApiClient,
+    /// REST worker client (legacy)
     pub worker_client: Option<WorkerApiClient>,
+    /// Unified client supporting both REST and gRPC transports
+    pub unified_client: UnifiedOrchestrationClient,
+    /// Transport being used
+    pub transport: Transport,
+    /// REST orchestration URL
     pub orchestration_url: String,
+    /// REST worker URL
     pub worker_url: Option<String>,
+    /// gRPC orchestration URL (if configured)
+    pub orchestration_grpc_url: Option<String>,
+    /// gRPC worker URL (if configured)
+    pub worker_grpc_url: Option<String>,
 }
 
 /// Configuration for service discovery and health checks
 #[derive(Debug, Clone)]
 pub struct IntegrationConfig {
+    /// Transport protocol to use (REST or gRPC)
+    pub transport: Transport,
+    /// REST orchestration URL
     pub orchestration_url: String,
+    /// REST worker URL
     pub worker_url: Option<String>,
+    /// gRPC orchestration URL (for gRPC transport)
+    pub orchestration_grpc_url: String,
+    /// gRPC worker URL (for gRPC transport)
+    pub worker_grpc_url: Option<String>,
     pub skip_health_check: bool,
     pub health_timeout_seconds: u64,
     pub health_retry_interval_seconds: u64,
@@ -78,6 +99,17 @@ impl Default for IntegrationConfig {
         // 2-tier precedence: ENV VAR → Code Default
         // Configuration loading removed - tests should use environment variables to override defaults
 
+        // Transport selection from environment
+        let transport = env::var("TASKER_TEST_TRANSPORT")
+            .ok()
+            .and_then(|v| match v.to_lowercase().as_str() {
+                "grpc" => Some(Transport::Grpc),
+                "rest" => Some(Transport::Rest),
+                _ => None,
+            })
+            .unwrap_or(Transport::Rest);
+
+        // REST endpoints
         let orchestration_url = env::var("TASKER_TEST_ORCHESTRATION_URL")
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
@@ -85,9 +117,20 @@ impl Default for IntegrationConfig {
             .ok()
             .or_else(|| Some("http://localhost:8081".to_string()));
 
+        // gRPC endpoints
+        let orchestration_grpc_url = env::var("TASKER_TEST_ORCHESTRATION_GRPC_URL")
+            .unwrap_or_else(|_| "http://localhost:9190".to_string());
+
+        let worker_grpc_url = env::var("TASKER_TEST_WORKER_GRPC_URL")
+            .ok()
+            .or_else(|| Some("http://localhost:9191".to_string()));
+
         Self {
+            transport,
             orchestration_url,
             worker_url,
+            orchestration_grpc_url,
+            worker_grpc_url,
 
             skip_health_check: env::var("TASKER_TEST_SKIP_HEALTH_CHECK")
                 .ok()
@@ -134,26 +177,44 @@ impl IntegrationTestManager {
     /// Set up integration test environment with custom configuration
     pub async fn setup_with_config(config: IntegrationConfig) -> Result<Self> {
         println!("🚀 Setting up Docker Integration Test Manager");
-        println!("   Orchestration URL: {}", config.orchestration_url);
+        println!("   Transport: {:?}", config.transport);
+        println!("   REST Orchestration URL: {}", config.orchestration_url);
+        println!(
+            "   gRPC Orchestration URL: {}",
+            config.orchestration_grpc_url
+        );
 
         if let Some(ref worker_url) = config.worker_url {
-            println!("   Worker URL: {}", worker_url);
+            println!("   REST Worker URL: {}", worker_url);
         } else {
-            println!("   Worker URL: None (orchestration only)");
+            println!("   REST Worker URL: None (orchestration only)");
         }
 
-        // Validate services are running and healthy
-        if !config.skip_health_check {
-            Self::validate_orchestration_service(&config).await?;
+        if let Some(ref worker_url) = config.worker_grpc_url {
+            println!("   gRPC Worker URL: {}", worker_url);
+        }
 
-            if let Some(ref worker_url) = config.worker_url {
-                Self::validate_worker_service(worker_url, &config).await?;
+        // Validate services are running and healthy based on transport
+        if !config.skip_health_check {
+            match config.transport {
+                Transport::Rest => {
+                    Self::validate_orchestration_service(&config).await?;
+                    if let Some(ref worker_url) = config.worker_url {
+                        Self::validate_worker_service(worker_url, &config).await?;
+                    }
+                }
+                Transport::Grpc => {
+                    Self::validate_grpc_orchestration_service(&config).await?;
+                    if let Some(ref worker_url) = config.worker_grpc_url {
+                        Self::validate_grpc_worker_service(worker_url, &config).await?;
+                    }
+                }
             }
         } else {
             println!("⚠️  Health checks skipped (TASKER_TEST_SKIP_HEALTH_CHECK=true)");
         }
 
-        // Create API clients
+        // Create REST API clients (for backward compatibility)
         let orchestration_client = Self::create_orchestration_client(&config.orchestration_url)?;
 
         let worker_client = match &config.worker_url {
@@ -161,13 +222,20 @@ impl IntegrationTestManager {
             None => None,
         };
 
+        // Create unified client based on transport
+        let unified_client = Self::create_unified_client(&config).await?;
+
         println!("✅ Docker Integration Test Manager ready!");
 
         Ok(Self {
             orchestration_client,
             worker_client,
+            unified_client,
+            transport: config.transport,
             orchestration_url: config.orchestration_url,
             worker_url: config.worker_url,
+            orchestration_grpc_url: Some(config.orchestration_grpc_url),
+            worker_grpc_url: config.worker_grpc_url,
         })
     }
 
@@ -307,6 +375,160 @@ impl IntegrationTestManager {
         Ok(())
     }
 
+    // ===================================================================================
+    // GRPC HEALTH VALIDATION (TAS-177)
+    // ===================================================================================
+
+    /// Validate gRPC orchestration service is healthy
+    async fn validate_grpc_orchestration_service(config: &IntegrationConfig) -> Result<()> {
+        println!("🔍 Validating gRPC orchestration service health...");
+
+        let start_time = std::time::Instant::now();
+        let timeout_duration = Duration::from_secs(config.health_timeout_seconds);
+        let retry_interval = Duration::from_secs(config.health_retry_interval_seconds);
+
+        while start_time.elapsed() < timeout_duration {
+            match Self::check_grpc_orchestration_health(&config.orchestration_grpc_url).await {
+                Ok(()) => {
+                    println!("✅ gRPC orchestration service is healthy");
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!(
+                        "   ⏳ gRPC orchestration health check failed, retrying: {}",
+                        e
+                    );
+                    sleep(retry_interval).await;
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "gRPC orchestration service at {} is not healthy after {}s. Is Docker Compose running with gRPC enabled?",
+            config.orchestration_grpc_url,
+            config.health_timeout_seconds
+        ))
+    }
+
+    /// Validate gRPC worker service is healthy
+    async fn validate_grpc_worker_service(
+        worker_url: &str,
+        config: &IntegrationConfig,
+    ) -> Result<()> {
+        println!("🔍 Validating gRPC worker service health...");
+
+        let start_time = std::time::Instant::now();
+        let timeout_duration = Duration::from_secs(config.health_timeout_seconds);
+        let retry_interval = Duration::from_secs(config.health_retry_interval_seconds);
+
+        while start_time.elapsed() < timeout_duration {
+            match Self::check_grpc_worker_health(worker_url).await {
+                Ok(()) => {
+                    println!("✅ gRPC worker service is healthy");
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("   ⏳ gRPC worker health check failed, retrying: {}", e);
+                    sleep(retry_interval).await;
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "gRPC worker service at {} is not healthy after {}s",
+            worker_url,
+            config.health_timeout_seconds
+        ))
+    }
+
+    /// Check gRPC orchestration service health using the gRPC client
+    #[cfg(feature = "grpc")]
+    async fn check_grpc_orchestration_health(grpc_url: &str) -> Result<()> {
+        use tasker_client::GrpcOrchestrationClient;
+
+        let client = GrpcOrchestrationClient::connect(grpc_url)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to connect to gRPC orchestration: {}", e))?;
+
+        client
+            .health_check()
+            .await
+            .map_err(|e| anyhow::anyhow!("gRPC health check failed: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Fallback when gRPC feature is not enabled
+    #[cfg(not(feature = "grpc"))]
+    async fn check_grpc_orchestration_health(_grpc_url: &str) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "gRPC feature not enabled. Enable with --features grpc"
+        ))
+    }
+
+    /// Check gRPC worker service health
+    #[cfg(feature = "grpc")]
+    async fn check_grpc_worker_health(grpc_url: &str) -> Result<()> {
+        use tasker_client::WorkerGrpcClient;
+
+        let client = WorkerGrpcClient::connect(grpc_url)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to connect to gRPC worker: {}", e))?;
+
+        client
+            .health_check()
+            .await
+            .map_err(|e| anyhow::anyhow!("gRPC worker health check failed: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Fallback when gRPC feature is not enabled
+    #[cfg(not(feature = "grpc"))]
+    async fn check_grpc_worker_health(_grpc_url: &str) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "gRPC feature not enabled. Enable with --features grpc"
+        ))
+    }
+
+    // ===================================================================================
+    // CLIENT CREATION
+    // ===================================================================================
+
+    /// Create unified orchestration client based on transport config
+    async fn create_unified_client(
+        config: &IntegrationConfig,
+    ) -> Result<UnifiedOrchestrationClient> {
+        let client_config = match config.transport {
+            Transport::Rest => tasker_client::ClientConfig {
+                transport: Transport::Rest,
+                orchestration: tasker_client::config::ApiEndpointConfig {
+                    base_url: config.orchestration_url.clone(),
+                    timeout_ms: 10000,
+                    max_retries: 3,
+                    auth_token: None,
+                    auth: None,
+                },
+                ..Default::default()
+            },
+            Transport::Grpc => tasker_client::ClientConfig {
+                transport: Transport::Grpc,
+                orchestration: tasker_client::config::ApiEndpointConfig {
+                    base_url: config.orchestration_grpc_url.clone(),
+                    timeout_ms: 10000,
+                    max_retries: 3,
+                    auth_token: None,
+                    auth: None,
+                },
+                ..Default::default()
+            },
+        };
+
+        UnifiedOrchestrationClient::from_config(&client_config)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to create unified client: {}", e))
+    }
+
     /// Create orchestration API client
     fn create_orchestration_client(orchestration_url: &str) -> Result<OrchestrationApiClient> {
         let config = OrchestrationApiConfig {
@@ -354,22 +576,44 @@ impl IntegrationTestManager {
     /// Display helpful diagnostic information
     pub fn display_info(&self) {
         println!("\n📊 Docker Integration Test Manager Info:");
-        println!("   Orchestration URL: {}", self.orchestration_url);
+        println!("   Transport: {:?}", self.transport);
+        println!("   REST Orchestration URL: {}", self.orchestration_url);
 
-        if let Some(ref worker_url) = self.worker_url {
-            println!("   Worker URL: {}", worker_url);
-        } else {
-            println!("   Worker: Not configured");
+        if let Some(ref grpc_url) = self.orchestration_grpc_url {
+            println!("   gRPC Orchestration URL: {}", grpc_url);
         }
 
-        println!("   Configuration:");
+        if let Some(ref worker_url) = self.worker_url {
+            println!("   REST Worker URL: {}", worker_url);
+        } else {
+            println!("   REST Worker: Not configured");
+        }
+
+        if let Some(ref grpc_url) = self.worker_grpc_url {
+            println!("   gRPC Worker URL: {}", grpc_url);
+        }
+
+        println!("   Environment Variables:");
+        println!(
+            "     TASKER_TEST_TRANSPORT: {}",
+            env::var("TASKER_TEST_TRANSPORT").unwrap_or_else(|_| "rest (default)".to_string())
+        );
         println!(
             "     TASKER_TEST_ORCHESTRATION_URL: {}",
             env::var("TASKER_TEST_ORCHESTRATION_URL").unwrap_or_else(|_| "default".to_string())
         );
         println!(
+            "     TASKER_TEST_ORCHESTRATION_GRPC_URL: {}",
+            env::var("TASKER_TEST_ORCHESTRATION_GRPC_URL")
+                .unwrap_or_else(|_| "default".to_string())
+        );
+        println!(
             "     TASKER_TEST_WORKER_URL: {}",
             env::var("TASKER_TEST_WORKER_URL").unwrap_or_else(|_| "default".to_string())
+        );
+        println!(
+            "     TASKER_TEST_WORKER_GRPC_URL: {}",
+            env::var("TASKER_TEST_WORKER_GRPC_URL").unwrap_or_else(|_| "default".to_string())
         );
         println!(
             "     TASKER_TEST_SKIP_HEALTH_CHECK: {}",
@@ -447,6 +691,69 @@ impl IntegrationTestManager {
         };
 
         Self::setup_with_config(config).await
+    }
+
+    // ===================================================================================
+    // GRPC SETUP METHODS (TAS-177)
+    // ===================================================================================
+
+    /// Set up integration test environment with gRPC transport.
+    ///
+    /// Uses gRPC endpoints for both orchestration and worker services.
+    /// Default gRPC ports:
+    /// - Orchestration: 9090
+    /// - Worker: 9100
+    ///
+    /// Environment variables:
+    /// - `TASKER_TEST_ORCHESTRATION_GRPC_URL` - gRPC orchestration endpoint
+    /// - `TASKER_TEST_WORKER_GRPC_URL` - gRPC worker endpoint
+    pub async fn setup_grpc() -> Result<Self> {
+        let config = IntegrationConfig {
+            transport: Transport::Grpc,
+            ..Default::default()
+        };
+        Self::setup_with_config(config).await
+    }
+
+    /// Set up integration test environment with gRPC transport (orchestration only).
+    ///
+    /// Use this for gRPC API-only tests that don't require a worker service.
+    pub async fn setup_grpc_orchestration_only() -> Result<Self> {
+        let config = IntegrationConfig {
+            transport: Transport::Grpc,
+            worker_grpc_url: None,
+            ..Default::default()
+        };
+        Self::setup_with_config(config).await
+    }
+
+    /// Set up integration test environment using transport from environment.
+    ///
+    /// Reads `TASKER_TEST_TRANSPORT` environment variable:
+    /// - `rest` (default): Use REST transport
+    /// - `grpc`: Use gRPC transport
+    ///
+    /// This is the recommended entry point for transport-agnostic tests.
+    pub async fn setup_from_env() -> Result<Self> {
+        let config = IntegrationConfig::default();
+        Self::setup_with_config(config).await
+    }
+
+    /// Get a reference to the unified orchestration client.
+    ///
+    /// This client supports both REST and gRPC transports transparently.
+    pub fn client(&self) -> &UnifiedOrchestrationClient {
+        &self.unified_client
+    }
+
+    /// Check if using gRPC transport.
+    pub fn is_grpc(&self) -> bool {
+        matches!(self.transport, Transport::Grpc)
+    }
+
+    /// Check if using REST transport.
+    pub fn is_rest(&self) -> bool {
+        matches!(self.transport, Transport::Rest)
     }
 }
 

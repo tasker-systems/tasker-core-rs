@@ -532,24 +532,25 @@ impl OrchestrationApiClient {
             TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
         })?;
 
-        // Build query parameters
-        let mut query_pairs = url.query_pairs_mut();
-        query_pairs.append_pair("page", &query.page.to_string());
-        query_pairs.append_pair("per_page", &query.per_page.to_string());
+        // Build query parameters (block scope ensures borrow ends before await)
+        {
+            let mut query_pairs = url.query_pairs_mut();
+            query_pairs.append_pair("page", &query.page.to_string());
+            query_pairs.append_pair("per_page", &query.per_page.to_string());
 
-        if let Some(ref namespace) = query.namespace {
-            query_pairs.append_pair("namespace", namespace);
+            if let Some(ref namespace) = query.namespace {
+                query_pairs.append_pair("namespace", namespace);
+            }
+            if let Some(ref status) = query.status {
+                query_pairs.append_pair("status", status);
+            }
+            if let Some(ref initiator) = query.initiator {
+                query_pairs.append_pair("initiator", initiator);
+            }
+            if let Some(ref source_system) = query.source_system {
+                query_pairs.append_pair("source_system", source_system);
+            }
         }
-        if let Some(ref status) = query.status {
-            query_pairs.append_pair("status", status);
-        }
-        if let Some(ref initiator) = query.initiator {
-            query_pairs.append_pair("initiator", initiator);
-        }
-        if let Some(ref source_system) = query.source_system {
-            query_pairs.append_pair("source_system", source_system);
-        }
-        drop(query_pairs);
 
         debug!(url = %url, "Listing tasks via orchestration API");
 

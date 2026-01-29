@@ -1,0 +1,37 @@
+name: "Setup Rust Build Cache"
+description: "Restores Rust build cache with consistent keys across CI workflows"
+author: "Tasker Systems"
+
+inputs:
+  cache-prefix:
+    description: "Cache key prefix for different workflow types"
+    required: false
+    default: "integration"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Restore Rust build cache
+      uses: actions/cache@v5
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ inputs.cache-prefix }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ inputs.cache-prefix }}-
+          ${{ runner.os }}-cargo-
+
+    - name: Display cache status
+      shell: bash
+      run: |
+        echo "✅ Rust build cache configured"
+        echo "- Cache prefix: ${{ inputs.cache-prefix }}"
+        if [ -d "target" ]; then
+          echo "- Target directory exists: $(du -sh target 2>/dev/null | cut -f1 || echo 'unknown size')"
+        else
+          echo "- Target directory: not cached (will build from scratch)"
+        fi

@@ -31,24 +31,15 @@ jobs:
 
       - name: Free up disk space
         uses: ./.github/actions/free-disk-space
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Cache Rust build artifacts
-        uses: actions/cache@v5
+      - name: Setup Rust build cache
+        uses: ./.github/actions/setup-rust-cache
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-quality-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-quality-
-            ${{ runner.os }}-cargo-integration-
-            ${{ runner.os }}-cargo-
+          cache-prefix: quality
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
@@ -58,12 +49,8 @@ jobs:
         with:
           tools: "sqlx-cli audit make"
 
-      # TAS-177: Install protobuf compiler for gRPC proto compilation
       - name: Install protobuf compiler
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-          protoc --version
+        uses: ./.github/actions/install-protobuf
 
       - name: Setup database
         run: sqlx migrate run
