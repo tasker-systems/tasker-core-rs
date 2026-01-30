@@ -501,6 +501,17 @@ pub enum DocsCommands {
         #[arg(long, default_value = "config/tasker/base")]
         base_dir: String,
     },
+
+    /// Generate documentation index showing all contexts and coverage
+    Index {
+        /// Write to file instead of stdout
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Base config directory for _docs metadata
+        #[arg(long, default_value = "config/tasker/base")]
+        base_dir: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]

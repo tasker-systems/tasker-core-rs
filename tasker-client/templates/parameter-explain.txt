@@ -1,31 +1,36 @@
 Configuration Parameter: {{ parameter.path }}
 {% if !parameter.description.is_empty() %}
   {{ parameter.description }}
-{% endif %}
+{% endif -%}
+
   Type:        {{ parameter.rust_type }}
   Default:     {{ parameter.default_value }}
-{% if !parameter.valid_range.is_empty() %}
+{%- if !parameter.valid_range.is_empty() %}
   Valid Range: {{ parameter.valid_range }}
-{% endif %}
-{% if !parameter.system_impact.is_empty() %}
+{%- endif %}
+{%- if !parameter.system_impact.is_empty() %}
+
   System Impact:
     {{ parameter.system_impact }}
-{% endif %}
-{% if !parameter.recommendations.is_empty() %}
+{%- endif %}
+{%- if !parameter.recommendations.is_empty() %}
+
   Environment Recommendations:
-{% for rec in parameter.recommendations %}
+{%- for rec in parameter.recommendations %}
     {{ rec.environment }}:
       Value:     {{ rec.value }}
       Rationale: {{ rec.rationale }}
-{% endfor %}
-{% endif %}
-{% if !parameter.related.is_empty() %}
+{%- endfor %}
+{%- endif %}
+{%- if !parameter.related.is_empty() %}
+
   Related Parameters:
-{% for r in parameter.related %}
+{%- for r in parameter.related %}
     - {{ r }}
-{% endfor %}
-{% endif %}
-{% if !parameter.example.is_empty() %}
+{%- endfor %}
+{%- endif %}
+{%- if !parameter.example.is_empty() %}
+
   Example:
 {{ parameter.example }}
-{% endif %}
+{%- endif %}

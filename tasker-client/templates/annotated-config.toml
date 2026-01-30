@@ -5,44 +5,61 @@
 # with their default values and documentation.
 #
 # Generate a deployable config: tasker-cli config generate
-# Look up a parameter:         tasker-cli config explain -p <path>
+# Look up a parameter:         tasker-cli docs explain -p <path>
 {% for section in sections %}
 
 # ─────────────────────────────────────────────────────────────
 # {{ section.name }}
 # ─────────────────────────────────────────────────────────────
-{% if !section.parameters.is_empty() %}
+{%- if !section.parameters.is_empty() %}
 [{{ section.path }}]
-{% for p in section.parameters %}
-{% if p.is_documented %}
+{%- for p in section.parameters %}
+{%- if p.is_documented %}
 # {{ p.description }}
-# Type: {{ p.rust_type }} | Range: {{ p.valid_range }}
-{% endif %}
+# Type: {{ p.rust_type }}
+{%- if !p.valid_range.is_empty() %} | Range: {{ p.valid_range }}{% endif %}
+{%- else %}
+{%- endif %}
 {{ p.name }} = {{ p.default_value }}
-{% endfor %}
-{% endif %}
+{%- endfor %}
+{%- endif %}
 {% for sub in section.subsections %}
 
 # {{ sub.name }}
-{% if !sub.parameters.is_empty() %}
+{%- if !sub.parameters.is_empty() %}
 [{{ sub.path }}]
-{% for p in sub.parameters %}
-{% if p.is_documented %}
+{%- for p in sub.parameters %}
+{%- if p.is_documented %}
 # {{ p.description }}
-# Type: {{ p.rust_type }} | Range: {{ p.valid_range }}
-{% endif %}
+# Type: {{ p.rust_type }}
+{%- if !p.valid_range.is_empty() %} | Range: {{ p.valid_range }}{% endif %}
+{%- endif %}
 {{ p.name }} = {{ p.default_value }}
-{% endfor %}
-{% endif %}
-{% for nested in sub.subsections %}
+{%- endfor %}
+{%- endif %}
+{%- for nested in sub.subsections %}
+
 [{{ nested.path }}]
-{% for p in nested.parameters %}
-{% if p.is_documented %}
+{%- for p in nested.parameters %}
+{%- if p.is_documented %}
 # {{ p.description }}
-# Type: {{ p.rust_type }} | Range: {{ p.valid_range }}
-{% endif %}
+# Type: {{ p.rust_type }}
+{%- if !p.valid_range.is_empty() %} | Range: {{ p.valid_range }}{% endif %}
+{%- endif %}
 {{ p.name }} = {{ p.default_value }}
-{% endfor %}
-{% endfor %}
-{% endfor %}
-{% endfor %}
+{%- endfor %}
+{%- for deep in nested.subsections %}
+
+[{{ deep.path }}]
+{%- for p in deep.parameters %}
+{%- if p.is_documented %}
+# {{ p.description }}
+# Type: {{ p.rust_type }}
+{%- if !p.valid_range.is_empty() %} | Range: {{ p.valid_range }}{% endif %}
+{%- endif %}
+{{ p.name }} = {{ p.default_value }}
+{%- endfor %}
+{%- endfor %}
+{%- endfor %}
+{%- endfor %}
+{%- endfor %}

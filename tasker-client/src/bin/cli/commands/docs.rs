@@ -11,7 +11,7 @@ use tasker_shared::config::doc_context_builder::DocContextBuilder;
 use askama::Template;
 #[cfg(feature = "docs-gen")]
 use tasker_client::docs::{
-    AnnotatedConfigTemplate, ConfigReferenceTemplate, ParameterExplainTemplate,
+    AnnotatedConfigTemplate, ConfigReferenceTemplate, DocIndexTemplate, ParameterExplainTemplate,
     SectionDetailTemplate,
 };
 
@@ -49,6 +49,9 @@ pub async fn handle_docs_command(cmd: DocsCommands) -> ClientResult<()> {
             environment,
             base_dir,
         } => handle_explain(&parameter, environment.as_deref(), &base_dir).await,
+        DocsCommands::Index { output, base_dir } => {
+            handle_index(output.as_deref(), &base_dir).await
+        }
     }
 }
 
@@ -238,6 +241,33 @@ async fn handle_explain(
     Ok(())
 }
 
+async fn handle_index(output: Option<&str>, base_dir: &str) -> ClientResult<()> {
+    let builder = create_builder(base_dir)?;
+
+    let common_sections = builder.build_sections(ConfigContext::Common);
+    let orchestration_sections = builder.build_sections(ConfigContext::Orchestration);
+    let worker_sections = builder.build_sections(ConfigContext::Worker);
+
+    let (total, documented, _) = builder.coverage_stats();
+    let coverage_percent = if total > 0 {
+        (documented * 100) / total
+    } else {
+        0
+    };
+
+    let rendered = render_index(
+        &common_sections,
+        &orchestration_sections,
+        &worker_sections,
+        total,
+        documented,
+        coverage_percent,
+    )?;
+
+    write_output(&rendered, output)?;
+    Ok(())
+}
+
 // ── Rendering helpers ────────────────────────────────────────────────────
 
 #[cfg(feature = "docs-gen")]
@@ -359,6 +389,47 @@ fn render_parameter_explain(
     Ok(format!(
         "Parameter: {}\n  Type: {}\n  Default: {}\n  {}",
         parameter.path, parameter.rust_type, parameter.default_value, parameter.description
+    ))
+}
+
+#[cfg(feature = "docs-gen")]
+fn render_index(
+    common_sections: &[tasker_shared::config::doc_context::SectionContext],
+    orchestration_sections: &[tasker_shared::config::doc_context::SectionContext],
+    worker_sections: &[tasker_shared::config::doc_context::SectionContext],
+    total_parameters: usize,
+    documented_parameters: usize,
+    coverage_percent: usize,
+) -> ClientResult<String> {
+    let template = DocIndexTemplate {
+        common_sections,
+        orchestration_sections,
+        worker_sections,
+        total_parameters,
+        documented_parameters,
+        coverage_percent,
+    };
+    template.render().map_err(|e| {
+        tasker_client::ClientError::ConfigError(format!("Template rendering failed: {}", e))
+    })
+}
+
+#[cfg(not(feature = "docs-gen"))]
+fn render_index(
+    common_sections: &[tasker_shared::config::doc_context::SectionContext],
+    orchestration_sections: &[tasker_shared::config::doc_context::SectionContext],
+    worker_sections: &[tasker_shared::config::doc_context::SectionContext],
+    total_parameters: usize,
+    documented_parameters: usize,
+    _coverage_percent: usize,
+) -> ClientResult<String> {
+    Ok(format!(
+        "# Documentation Index\n\n{}/{} parameters documented\n\nCommon: {} sections\nOrchestration: {} sections\nWorker: {} sections",
+        documented_parameters,
+        total_parameters,
+        common_sections.len(),
+        orchestration_sections.len(),
+        worker_sections.len()
     ))
 }
 
