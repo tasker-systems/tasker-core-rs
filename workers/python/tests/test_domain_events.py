@@ -1075,6 +1075,237 @@ class TestPublisherSubscriberIntegration:
         assert subscriber.matches("order.created") is False
 
 
+class TestBaseSubscriberStartStop:
+    """Tests for BaseSubscriber start() and stop() lifecycle."""
+
+    def test_start_registers_with_poller(self):
+        """start() registers event handlers with the poller."""
+        subscriber = MockSubscriber()
+        poller = MagicMock(spec=InProcessDomainEventPoller)
+
+        subscriber.start(poller)
+
+        assert subscriber.active is True
+        assert len(subscriber.subscriptions) > 0
+        assert poller.on_event.called
+
+    def test_start_is_idempotent(self):
+        """Calling start() twice doesn't double-register."""
+        subscriber = MockSubscriber()
+        poller = MagicMock(spec=InProcessDomainEventPoller)
+
+        subscriber.start(poller)
+        initial_sub_count = len(subscriber.subscriptions)
+        initial_call_count = poller.on_event.call_count
+
+        subscriber.start(poller)
+
+        assert len(subscriber.subscriptions) == initial_sub_count
+        assert poller.on_event.call_count == initial_call_count
+
+    def test_stop_deactivates_subscriber(self):
+        """stop() sets active to False and clears subscriptions."""
+        subscriber = MockSubscriber()
+        poller = MagicMock(spec=InProcessDomainEventPoller)
+
+        subscriber.start(poller)
+        assert subscriber.active is True
+
+        subscriber.stop()
+        assert subscriber.active is False
+        assert subscriber.subscriptions == []
+
+    def test_stop_is_idempotent(self):
+        """Calling stop() on inactive subscriber is safe."""
+        subscriber = MockSubscriber()
+        # Don't start - already inactive
+        subscriber.stop()
+        assert subscriber.active is False
+        assert subscriber.subscriptions == []
+
+    def test_start_registers_multiple_patterns(self):
+        """start() registers a handler for each subscribed pattern."""
+
+        class MultiPatternSubscriber(BaseSubscriber):
+            @classmethod
+            def subscribes_to(cls) -> list[str]:
+                return ["order.*", "payment.*", "inventory.*"]
+
+            def handle(self, event: dict[str, Any]) -> None:
+                pass
+
+        subscriber = MultiPatternSubscriber()
+        poller = MagicMock(spec=InProcessDomainEventPoller)
+
+        subscriber.start(poller)
+
+        assert len(subscriber.subscriptions) == 3
+        assert poller.on_event.call_count == 3
+
+
+class TestSubscriberHandleIfMatches:
+    """Tests for BaseSubscriber._handle_if_matches()."""
+
+    def test_handle_if_matches_matching_pattern(self):
+        """_handle_if_matches calls handle for matching events."""
+        subscriber = MockSubscriber()
+        subscriber._active = True
+
+        event = MagicMock()
+        event.event_name = "payment.processed"
+        event.model_dump.return_value = {
+            "event_name": "payment.processed",
+            "payload": {"amount": 100},
+        }
+
+        subscriber._handle_if_matches(event, "*")
+
+        assert len(subscriber.handled_events) == 1
+        assert subscriber.handled_events[0]["event_name"] == "payment.processed"
+
+    def test_handle_if_matches_non_matching_pattern(self):
+        """_handle_if_matches skips non-matching events."""
+        subscriber = MockSubscriber()
+        subscriber._active = True
+
+        event = MagicMock()
+        event.event_name = "order.created"
+
+        subscriber._handle_if_matches(event, "payment.*")
+
+        assert len(subscriber.handled_events) == 0
+
+
+class TestPublisherRegistryEdgeCases:
+    """Tests for PublisherRegistry edge cases."""
+
+    @pytest.fixture(autouse=True)
+    def reset_registry(self) -> None:
+        """Reset registry before each test."""
+        PublisherRegistry.reset()
+        yield
+        PublisherRegistry.reset()
+
+    def test_freeze_then_unfreeze_then_register(self):
+        """freeze/unfreeze cycle allows registration again."""
+        registry = PublisherRegistry.instance()
+        registry.freeze()
+        assert registry.is_frozen is True
+
+        registry.unfreeze()
+        assert registry.is_frozen is False
+
+        # Should work after unfreeze
+        registry.register(MockEventPublisher())
+        assert len(registry.list_publishers()) == 1
+
+    def test_register_non_publisher_raises_value_error(self):
+        """Registering a non-BasePublisher raises ValueError."""
+        registry = PublisherRegistry.instance()
+
+        with pytest.raises(ValueError, match="Expected BasePublisher"):
+            registry.register("not_a_publisher")  # type: ignore[arg-type]
+
+    def test_clear_when_frozen_raises_runtime_error(self):
+        """clear() raises RuntimeError when registry is frozen."""
+        registry = PublisherRegistry.instance()
+        registry.register(MockEventPublisher())
+        registry.freeze()
+
+        with pytest.raises(RuntimeError, match="frozen"):
+            registry.clear()
+
+    def test_register_overwrites_existing_publisher(self):
+        """Registering a publisher with same name overwrites."""
+        registry = PublisherRegistry.instance()
+        pub1 = MockEventPublisher()
+        pub2 = MockEventPublisher()
+
+        registry.register(pub1)
+        registry.register(pub2)
+
+        assert registry.get("MockEventPublisher") is pub2
+
+
+class TestSubscriberRegistryEdgeCases:
+    """Tests for SubscriberRegistry edge cases."""
+
+    @pytest.fixture(autouse=True)
+    def reset_registry(self) -> None:
+        """Reset registry before each test."""
+        SubscriberRegistry.reset()
+        yield
+        SubscriberRegistry.reset()
+
+    def test_register_non_subscriber_class_raises_value_error(self):
+        """Registering a non-BaseSubscriber class raises ValueError."""
+        registry = SubscriberRegistry.instance()
+
+        with pytest.raises(ValueError, match="Expected BaseSubscriber"):
+            registry.register(str)  # type: ignore[arg-type]
+
+    def test_register_instance_non_subscriber_raises_value_error(self):
+        """Registering a non-BaseSubscriber instance raises ValueError."""
+        registry = SubscriberRegistry.instance()
+
+        with pytest.raises(ValueError, match="Expected BaseSubscriber"):
+            registry.register_instance("not_a_subscriber")  # type: ignore[arg-type]
+
+    def test_start_all_with_failing_class(self):
+        """start_all continues when a subscriber class fails to instantiate."""
+
+        class FailingSubscriber(BaseSubscriber):
+            def __init__(self):
+                raise RuntimeError("Initialization failure")
+
+            @classmethod
+            def subscribes_to(cls) -> list[str]:
+                return ["*"]
+
+            def handle(self, event: dict[str, Any]) -> None:
+                pass
+
+        registry = SubscriberRegistry.instance()
+        registry.register(FailingSubscriber)
+        registry.register(MockSubscriber)
+        poller = MagicMock(spec=InProcessDomainEventPoller)
+
+        started = registry.start_all(poller)
+
+        # Only MockSubscriber should start successfully
+        assert started == 1
+        assert registry.active_count == 1
+
+    def test_active_count_tracks_started_subscribers(self):
+        """active_count reflects number of started subscribers."""
+        registry = SubscriberRegistry.instance()
+        assert registry.active_count == 0
+
+        registry.register(MockSubscriber)
+        registry.register(PaymentSubscriber)
+        poller = MagicMock(spec=InProcessDomainEventPoller)
+
+        registry.start_all(poller)
+        assert registry.active_count == 2
+
+        registry.stop_all()
+        assert registry.active_count == 0
+
+    def test_stats_reflects_active_subscribers(self):
+        """stats() includes active subscriber information."""
+        registry = SubscriberRegistry.instance()
+        registry.register(PaymentSubscriber)
+        poller = MagicMock(spec=InProcessDomainEventPoller)
+
+        registry.start_all(poller)
+        stats = registry.stats()
+
+        assert stats["registered_classes"] == 1
+        assert stats["active_subscribers"] == 1
+        assert len(stats["subscriptions"]) == 1
+        assert stats["subscriptions"][0]["class"] == "PaymentSubscriber"
+
+
 class TestEventDeclarationStepResult:
     """Tests for EventDeclaration and StepResult types (TAS-112)."""
 

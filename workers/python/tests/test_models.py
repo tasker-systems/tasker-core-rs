@@ -688,3 +688,177 @@ class TestModelSerialization:
         assert event.event_name == "task.completed"
         assert event.payload == {"result": "success"}
         assert event.metadata.task_uuid == task_uuid
+
+
+class TestFFIModelWrappers:
+    """Tests for FFI model wrapper classes (models.py)."""
+
+    def test_dependency_results_wrapper_iter(self):
+        """Test DependencyResultsWrapper.__iter__() yields step names."""
+        from tasker_core.models import DependencyResultsWrapper
+
+        deps = DependencyResultsWrapper.from_dict(
+            {"step_a": {"result": 1}, "step_b": {"result": 2}}
+        )
+        names = list(deps)
+        assert "step_a" in names
+        assert "step_b" in names
+
+    def test_dependency_results_wrapper_contains(self):
+        """Test DependencyResultsWrapper.__contains__()."""
+        from tasker_core.models import DependencyResultsWrapper
+
+        deps = DependencyResultsWrapper.from_dict({"step_a": {"result": 1}})
+        assert "step_a" in deps
+        assert "step_b" not in deps
+
+    def test_dependency_results_wrapper_keys(self):
+        """Test DependencyResultsWrapper.keys() returns step names."""
+        from tasker_core.models import DependencyResultsWrapper
+
+        deps = DependencyResultsWrapper.from_dict({"x": 1, "y": 2, "z": 3})
+        keys = deps.keys()
+        assert sorted(keys) == ["x", "y", "z"]
+
+    def test_dependency_results_wrapper_get_results_unwraps(self):
+        """Test get_results() unwraps {'result': value} structure."""
+        from tasker_core.models import DependencyResultsWrapper
+
+        deps = DependencyResultsWrapper.from_dict(
+            {
+                "step_1": {"result": 42, "metadata": {"ts": "now"}},
+                "step_2": "raw_value",
+            }
+        )
+        assert deps.get_results("step_1") == 42
+        assert deps.get_results("step_2") == "raw_value"
+        assert deps.get_results("missing") is None
+
+    def test_dependency_results_wrapper_getitem(self):
+        """Test DependencyResultsWrapper[] returns full result hash."""
+        from tasker_core.models import DependencyResultsWrapper
+
+        deps = DependencyResultsWrapper.from_dict({"s": {"result": 10, "meta": "x"}})
+        assert deps["s"] == {"result": 10, "meta": "x"}
+        assert deps["missing"] is None
+
+    def test_workflow_step_wrapper_from_dict_full(self):
+        """Test WorkflowStepWrapper.from_dict with full data."""
+        from tasker_core.models import WorkflowStepWrapper
+
+        data = {
+            "workflow_step_uuid": "ws-uuid",
+            "task_uuid": "t-uuid",
+            "named_step_uuid": "ns-uuid",
+            "name": "step_1",
+            "retryable": False,
+            "max_attempts": 5,
+            "in_process": True,
+            "processed": True,
+            "attempts": 2,
+            "backoff_request_seconds": 10,
+            "inputs": {"key": "val"},
+            "results": {"data": 42},
+        }
+        step = WorkflowStepWrapper.from_dict(data)
+        assert step.workflow_step_uuid == "ws-uuid"
+        assert step.named_step_uuid == "ns-uuid"
+        assert step.retryable is False
+        assert step.max_attempts == 5
+        assert step.in_process is True
+        assert step.processed is True
+        assert step.attempts == 2
+        assert step.backoff_request_seconds == 10
+        assert step.inputs == {"key": "val"}
+        assert step.results == {"data": 42}
+
+    def test_workflow_step_wrapper_from_dict_none(self):
+        """Test WorkflowStepWrapper.from_dict with None data uses defaults."""
+        from tasker_core.models import WorkflowStepWrapper
+
+        step = WorkflowStepWrapper.from_dict(None)
+        assert step.workflow_step_uuid == ""
+        assert step.task_uuid == ""
+        assert step.name == ""
+        assert step.retryable is True
+        assert step.max_attempts == 3
+        assert step.attempts == 0
+
+    def test_task_wrapper_from_dict_nested_structure(self):
+        """Test TaskWrapper.from_dict with nested task key."""
+        from tasker_core.models import TaskWrapper
+
+        data = {
+            "task": {
+                "task_uuid": "inner-uuid",
+                "context": {"even_number": 4},
+                "correlation_id": "corr-1",
+                "parent_correlation_id": "parent-1",
+            },
+            "namespace_name": "outer_ns",
+            "task_name": "outer_task",
+            "task_version": "2.0",
+        }
+        task = TaskWrapper.from_dict(data)
+        assert task.task_uuid == "inner-uuid"
+        assert task.context == {"even_number": 4}
+        assert task.namespace_name == "outer_ns"
+        assert task.task_name == "outer_task"
+        assert task.task_version == "2.0"
+        assert task.correlation_id == "corr-1"
+        assert task.parent_correlation_id == "parent-1"
+
+    def test_task_wrapper_from_dict_flat_structure(self):
+        """Test TaskWrapper.from_dict with flat data (no nested task key)."""
+        from tasker_core.models import TaskWrapper
+
+        data = {
+            "task_uuid": "flat-uuid",
+            "context": {"x": 1},
+            "namespace_name": "flat_ns",
+            "task_name": "flat_task",
+            "task_version": "1.0",
+        }
+        task = TaskWrapper.from_dict(data)
+        assert task.task_uuid == "flat-uuid"
+        assert task.context == {"x": 1}
+        assert task.namespace_name == "flat_ns"
+
+    def test_task_wrapper_from_dict_none(self):
+        """Test TaskWrapper.from_dict with None uses defaults."""
+        from tasker_core.models import TaskWrapper
+
+        task = TaskWrapper.from_dict(None)
+        assert task.task_uuid == ""
+        assert task.context == {}
+        assert task.namespace_name == ""
+
+    def test_task_sequence_step_wrapper_convenience_methods(self):
+        """Test TaskSequenceStepWrapper convenience methods."""
+        from tasker_core.models import TaskSequenceStepWrapper
+
+        data = {
+            "task": {
+                "task": {"task_uuid": "t-1", "context": {"even_number": 6}},
+                "task_name": "linear",
+            },
+            "workflow_step": {
+                "workflow_step_uuid": "ws-1",
+                "task_uuid": "t-1",
+                "name": "step_1",
+            },
+            "dependency_results": {
+                "prev_step": {"result": 36, "metadata": {}},
+            },
+            "step_definition": {
+                "name": "step_1",
+                "description": "first step",
+                "handler": {"callable": "test.Handler"},
+            },
+        }
+        wrapper = TaskSequenceStepWrapper.from_dict(data)
+        assert wrapper.get_task_field("even_number") == 6
+        assert wrapper.get_task_field("missing") is None
+        assert wrapper.get_dependency_result("prev_step") == 36
+        assert wrapper.get_dependency_result("missing") is None
+        assert wrapper.get_results("prev_step") == 36

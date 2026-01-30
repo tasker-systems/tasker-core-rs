@@ -923,3 +923,279 @@ class TestBatchableValidationErrors:
         handler = TestHandler()
         with pytest.raises(ValueError, match="batch_size must be > 0"):
             handler.create_cursor_ranges(1000, -10)
+
+
+class TestBatchWorkerConfig:
+    """Tests for BatchWorkerConfig class."""
+
+    def test_creation_and_attributes(self):
+        """Test BatchWorkerConfig creation and attribute access."""
+        from tasker_core.batch_processing.batchable import BatchWorkerConfig
+
+        config = BatchWorkerConfig(
+            batch_id="001",
+            cursor_start=0,
+            cursor_end=334,
+            row_count=334,
+            worker_index=0,
+            total_workers=3,
+        )
+        assert config.batch_id == "001"
+        assert config.cursor_start == 0
+        assert config.cursor_end == 334
+        assert config.row_count == 334
+        assert config.worker_index == 0
+        assert config.total_workers == 3
+
+    def test_to_dict(self):
+        """Test BatchWorkerConfig.to_dict() serialization."""
+        from tasker_core.batch_processing.batchable import BatchWorkerConfig
+
+        config = BatchWorkerConfig(
+            batch_id="002",
+            cursor_start=334,
+            cursor_end=668,
+            row_count=334,
+            worker_index=1,
+            total_workers=3,
+        )
+        d = config.to_dict()
+        assert d == {
+            "batch_id": "002",
+            "cursor_start": 334,
+            "cursor_end": 668,
+            "row_count": 334,
+            "worker_index": 1,
+            "total_workers": 3,
+        }
+
+
+class TestBatchableCursorConfigs:
+    """Tests for create_cursor_configs worker division."""
+
+    def test_even_division(self):
+        """Test even division of items across workers."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        configs = handler.create_cursor_configs(900, 3)
+        assert len(configs) == 3
+        assert configs[0].cursor_start == 0
+        assert configs[0].cursor_end == 300
+        assert configs[0].row_count == 300
+        assert configs[1].cursor_start == 300
+        assert configs[1].cursor_end == 600
+        assert configs[2].cursor_start == 600
+        assert configs[2].cursor_end == 900
+
+    def test_uneven_division(self):
+        """Test uneven division gives last worker fewer items."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        configs = handler.create_cursor_configs(1000, 3)
+        assert len(configs) == 3
+        # ceil(1000/3) = 334
+        assert configs[0].cursor_end - configs[0].cursor_start == 334
+        assert configs[1].cursor_end - configs[1].cursor_start == 334
+        assert configs[2].cursor_end - configs[2].cursor_start == 332
+
+    def test_more_workers_than_items(self):
+        """Test more workers than items returns fewer configs."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        configs = handler.create_cursor_configs(3, 10)
+        # Only 3 workers needed for 3 items
+        assert len(configs) == 3
+        for i, config in enumerate(configs):
+            assert config.worker_index == i
+            assert config.total_workers == 10
+
+    def test_batch_ids_are_zero_padded(self):
+        """Test batch IDs are 3-digit zero-padded."""
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        configs = handler.create_cursor_configs(100, 2)
+        assert configs[0].batch_id == "001"
+        assert configs[1].batch_id == "002"
+
+
+class TestBatchableKeywordArgs:
+    """Tests for batch_analyzer_success and batch_worker_success keyword args."""
+
+    def test_batch_analyzer_success_with_kwargs(self):
+        """Test batch_analyzer_success with keyword arguments."""
+        from tasker_core import Batchable, CursorConfig, StepHandler
+
+        class TestAnalyzer(StepHandler, Batchable):
+            handler_name = "test_analyzer_kwargs"
+
+            def call(self, _context):
+                pass
+
+        handler = TestAnalyzer()
+        configs = [
+            CursorConfig(start_cursor=0, end_cursor=50),
+            CursorConfig(start_cursor=50, end_cursor=100),
+        ]
+        result = handler.batch_analyzer_success(
+            cursor_configs=configs,
+            total_items=100,
+            batch_metadata={"source": "test"},
+        )
+        assert result.is_success is True
+        assert result.result["worker_count"] == 2
+        assert result.result["total_items"] == 100
+        assert result.result["batch_metadata"] == {"source": "test"}
+
+    def test_batch_analyzer_success_empty_configs(self):
+        """Test batch_analyzer_success with empty cursor configs returns no_batches."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestAnalyzer(StepHandler, Batchable):
+            handler_name = "test_analyzer_empty"
+
+            def call(self, _context):
+                pass
+
+        handler = TestAnalyzer()
+        result = handler.batch_analyzer_success(cursor_configs=[])
+        assert result.is_success is True
+        assert result.result["batch_processing_outcome"]["type"] == "no_batches"
+
+    def test_batch_analyzer_success_no_args(self):
+        """Test batch_analyzer_success with no args returns no_batches."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestAnalyzer(StepHandler, Batchable):
+            handler_name = "test_analyzer_noargs"
+
+            def call(self, _context):
+                pass
+
+        handler = TestAnalyzer()
+        result = handler.batch_analyzer_success()
+        assert result.is_success is True
+        assert "no_batches" in str(
+            result.result.get("batch_processing_outcome", {}).get("type", "")
+        )
+
+    def test_batch_worker_success_with_kwargs(self):
+        """Test batch_worker_success with keyword arguments."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_worker_kwargs"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        result = handler.batch_worker_success(
+            items_processed=50,
+            items_succeeded=48,
+            items_failed=2,
+        )
+        assert result.is_success is True
+        assert result.result["items_processed"] == 50
+        assert result.result["items_succeeded"] == 48
+        assert result.result["items_failed"] == 2
+
+    def test_batch_worker_success_no_args_returns_failure(self):
+        """Test batch_worker_success with no args returns failure."""
+        from tasker_core import Batchable, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_worker_noargs"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        result = handler.batch_worker_success()
+        assert result.is_success is False
+
+    def test_batch_worker_partial_failure(self):
+        """Test batch_worker_partial_failure marks result with failure info."""
+        from tasker_core import Batchable, BatchWorkerOutcome, StepHandler
+
+        class TestWorker(StepHandler, Batchable):
+            handler_name = "test_worker_partial"
+
+            def call(self, _context):
+                pass
+
+        handler = TestWorker()
+        outcome = BatchWorkerOutcome(
+            items_processed=100,
+            items_succeeded=90,
+            items_failed=10,
+            items_skipped=0,
+            errors=[{"id": i, "error": "fail"} for i in range(10)],
+        )
+        result = handler.batch_worker_partial_failure(outcome, message="10 items failed")
+        assert result.is_success is True
+        assert result.result["partial_failure"] is True
+        assert result.result["partial_failure_message"] == "10 items failed"
+        assert result.metadata["had_failures"] is True
+
+
+class TestBatchableFFIHelpers:
+    """Tests for get_batch_worker_inputs and handle_no_op_worker."""
+
+    def test_get_batch_worker_inputs_empty_inputs(self):
+        """Test get_batch_worker_inputs returns None for empty inputs."""
+        from unittest.mock import MagicMock
+
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        context = MagicMock()
+        context.step_inputs = {}
+        assert handler.get_batch_worker_inputs(context) is None
+
+    def test_get_batch_worker_inputs_none_inputs(self):
+        """Test get_batch_worker_inputs returns None for None inputs."""
+        from unittest.mock import MagicMock
+
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        context = MagicMock()
+        context.step_inputs = None
+        assert handler.get_batch_worker_inputs(context) is None
+
+    def test_handle_no_op_worker_for_non_no_op(self):
+        """Test handle_no_op_worker returns None when not a no-op."""
+        from unittest.mock import MagicMock
+
+        from tasker_core import Batchable
+
+        class TestHandler(Batchable):
+            pass
+
+        handler = TestHandler()
+        context = MagicMock()
+        context.step_inputs = {}  # No valid batch inputs
+        result = handler.handle_no_op_worker(context)
+        assert result is None

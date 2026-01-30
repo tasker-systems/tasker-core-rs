@@ -529,3 +529,209 @@ class TestResolverChainIntegration:
         handler = chain.resolve(definition)
         assert handler is not None
         assert isinstance(handler, TestHandler)
+
+
+# =============================================================================
+# Extended ResolverChain Tests (Phase 1.3)
+# =============================================================================
+
+
+class TestResolverChainExtended:
+    """Extended tests for ResolverChain methods."""
+
+    def test_resolve_with_hint_success(self):
+        """Test _resolve_with_hint returns handler from named resolver."""
+        chain = ResolverChain.default()
+        explicit = chain.get_resolver("explicit_mapping")
+        explicit.register("test_handler", TestHandler)
+
+        definition = HandlerDefinition(callable="test_handler", resolver="explicit_mapping")
+        handler = chain.resolve(definition)
+        assert handler is not None
+        assert isinstance(handler, TestHandler)
+
+    def test_resolve_with_hint_resolver_returns_none(self):
+        """Test _resolve_with_hint returns None when resolver can't resolve."""
+        chain = ResolverChain.default()
+
+        definition = HandlerDefinition(callable="nonexistent", resolver="explicit_mapping")
+        handler = chain.resolve(definition)
+        assert handler is None
+
+    def test_can_resolve_chain_wide(self):
+        """Test can_resolve checks all resolvers in chain."""
+        chain = ResolverChain.default()
+        explicit = chain.get_resolver("explicit_mapping")
+        explicit.register("test_handler", TestHandler)
+
+        assert chain.can_resolve(HandlerDefinition(callable="test_handler")) is True
+        assert chain.can_resolve(HandlerDefinition(callable="nonexistent_handler")) is False
+
+    def test_can_resolve_with_hint(self):
+        """Test can_resolve with resolver hint delegates to named resolver."""
+        chain = ResolverChain.default()
+        explicit = chain.get_resolver("explicit_mapping")
+        explicit.register("test_handler", TestHandler)
+
+        # With hint pointing to explicit_mapping
+        assert (
+            chain.can_resolve(
+                HandlerDefinition(callable="test_handler", resolver="explicit_mapping")
+            )
+            is True
+        )
+        assert (
+            chain.can_resolve(HandlerDefinition(callable="missing", resolver="explicit_mapping"))
+            is False
+        )
+
+    def test_can_resolve_with_unknown_hint(self):
+        """Test can_resolve returns False for unknown resolver hint."""
+        chain = ResolverChain.default()
+        assert (
+            chain.can_resolve(HandlerDefinition(callable="x", resolver="nonexistent_resolver"))
+            is False
+        )
+
+    def test_register_convenience_method(self):
+        """Test register() adds to explicit_mapping resolver."""
+        chain = ResolverChain.default()
+        chain.register("direct_handler", TestHandler)
+
+        handler = chain.resolve(HandlerDefinition(callable="direct_handler"))
+        assert handler is not None
+        assert isinstance(handler, TestHandler)
+
+    def test_register_raises_without_explicit_resolver(self):
+        """Test register() raises RuntimeError without ExplicitMappingResolver."""
+        chain = ResolverChain()
+        chain.add_resolver(ClassLookupResolver())
+
+        with pytest.raises(RuntimeError, match="No ExplicitMappingResolver"):
+            chain.register("key", TestHandler)
+
+    def test_wrap_for_method_dispatch_missing_method(self):
+        """Test wrap_for_method_dispatch returns None for missing method."""
+        chain = ResolverChain.default()
+        handler = TestHandler()
+        definition = HandlerDefinition(callable="test", handler_method="nonexistent_method")
+
+        result = chain.wrap_for_method_dispatch(handler, definition)
+        assert result is None
+
+    def test_chain_info(self):
+        """Test chain_info returns resolver metadata."""
+        chain = ResolverChain.default()
+        info = chain.chain_info()
+
+        assert len(info) == 2
+        names = [entry["name"] for entry in info]
+        assert "explicit_mapping" in names
+        assert "class_lookup" in names
+        for entry in info:
+            assert "priority" in entry
+            assert "callables" in entry
+
+    def test_remove_resolver(self):
+        """Test remove_resolver removes by name."""
+        chain = ResolverChain.default()
+        assert len(chain) == 2
+
+        removed = chain.remove_resolver("class_lookup")
+        assert removed is not None
+        assert removed.name == "class_lookup"
+        assert len(chain) == 1
+
+    def test_remove_resolver_nonexistent(self):
+        """Test remove_resolver returns None for unknown name."""
+        chain = ResolverChain.default()
+        removed = chain.remove_resolver("nonexistent")
+        assert removed is None
+
+    def test_resolver_names_property(self):
+        """Test resolver_names returns names in priority order."""
+        chain = ResolverChain.default()
+        names = chain.resolver_names
+        assert names == ["explicit_mapping", "class_lookup"]
+
+    def test_registered_callables(self):
+        """Test registered_callables aggregates across resolvers."""
+        chain = ResolverChain.default()
+        explicit = chain.get_resolver("explicit_mapping")
+        explicit.register("handler_a", TestHandler)
+        explicit.register("handler_b", MultiMethodHandler)
+
+        callables = chain.registered_callables()
+        assert "handler_a" in callables
+        assert "handler_b" in callables
+
+
+# =============================================================================
+# ClassLookupResolver Extended Tests (Phase 1.5)
+# =============================================================================
+
+
+class TestClassLookupResolverExtended:
+    """Extended tests for ClassLookupResolver error paths."""
+
+    def test_import_class_import_error(self):
+        """Test _import_class returns None on ImportError."""
+        resolver = ClassLookupResolver()
+        result = resolver._import_class("nonexistent_module_xyz.Handler")
+        assert result is None
+
+    def test_import_class_non_type_attribute(self):
+        """Test _import_class returns None when attribute is not a type."""
+        resolver = ClassLookupResolver()
+        # os.path is a module, not a type
+        result = resolver._import_class("os.path")
+        assert result is None
+
+    def test_import_class_no_dot(self):
+        """Test _import_class returns None for no-dot strings."""
+        resolver = ClassLookupResolver()
+        result = resolver._import_class("NoDotHere")
+        assert result is None
+
+    def test_instantiate_handler_config_fallback(self):
+        """Test _instantiate_handler tries config kwarg on TypeError."""
+        resolver = ClassLookupResolver()
+
+        class NeedsConfig:
+            def __init__(self, config):
+                self.config = config
+
+        definition = HandlerDefinition(
+            callable="test",
+            initialization={"key": "value"},
+        )
+        result = resolver._instantiate_handler(NeedsConfig, definition, {})
+        assert result is not None
+        assert result.config == {"key": "value"}
+
+    def test_instantiate_handler_failure(self):
+        """Test _instantiate_handler returns None when both attempts fail."""
+        resolver = ClassLookupResolver()
+
+        class BadInit:
+            def __init__(self, required_arg, another_arg):
+                pass
+
+        definition = HandlerDefinition(callable="test")
+        result = resolver._instantiate_handler(BadInit, definition, {})
+        assert result is None
+
+
+# =============================================================================
+# BaseResolver Extended Tests (Phase 1.6)
+# =============================================================================
+
+
+class TestBaseResolverExtended:
+    """Extended tests for BaseResolver default implementations."""
+
+    def test_registered_callables_returns_empty_list(self):
+        """Test registered_callables() default returns empty list."""
+        resolver = CustomResolver(name="test", priority=50)
+        callables = resolver.registered_callables()
+        assert callables == []
