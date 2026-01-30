@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { StepHandler } from '../../../src/handler/base';
 import type { Batchable } from '../../../src/handler/batchable';
-import { applyBatchable, BatchableMixin } from '../../../src/handler/batchable';
+import {
+  applyBatchable,
+  BatchableMixin,
+  BatchableStepHandler,
+} from '../../../src/handler/batchable';
 import type { BatchAnalyzerOutcome, BatchWorkerOutcome } from '../../../src/types/batch';
 import { StepContext } from '../../../src/types/step-context';
 import type { StepHandlerResult } from '../../../src/types/step-handler-result';
@@ -1016,5 +1020,399 @@ describe('Batchable Validation Errors', () => {
     if (batchContext !== null) {
       expect(batchContext.batchId).toBe('batch-123');
     }
+  });
+});
+
+// =============================================================================
+// createCursorConfigs Tests (TAS-92 Ruby-style worker division)
+// =============================================================================
+
+describe('BatchableMixin.createCursorConfigs', () => {
+  let mixin: BatchableMixin;
+
+  beforeEach(() => {
+    mixin = new BatchableMixin();
+  });
+
+  test('should divide items evenly across workers', () => {
+    const configs = mixin.createCursorConfigs(1000, 5);
+
+    expect(configs).toHaveLength(5);
+    expect(configs[0].cursor_start).toBe(0);
+    expect(configs[0].cursor_end).toBe(200);
+    expect(configs[0].row_count).toBe(200);
+    expect(configs[0].batch_id).toBe('001');
+    expect(configs[0].worker_index).toBe(0);
+    expect(configs[0].total_workers).toBe(5);
+
+    expect(configs[4].cursor_start).toBe(800);
+    expect(configs[4].cursor_end).toBe(1000);
+    expect(configs[4].row_count).toBe(200);
+    expect(configs[4].batch_id).toBe('005');
+    expect(configs[4].worker_index).toBe(4);
+  });
+
+  test('should handle uneven division (1000 items, 3 workers)', () => {
+    const configs = mixin.createCursorConfigs(1000, 3);
+
+    expect(configs).toHaveLength(3);
+    // ceil(1000/3) = 334
+    expect(configs[0].cursor_start).toBe(0);
+    expect(configs[0].cursor_end).toBe(334);
+    expect(configs[0].row_count).toBe(334);
+
+    expect(configs[1].cursor_start).toBe(334);
+    expect(configs[1].cursor_end).toBe(668);
+    expect(configs[1].row_count).toBe(334);
+
+    expect(configs[2].cursor_start).toBe(668);
+    expect(configs[2].cursor_end).toBe(1000);
+    expect(configs[2].row_count).toBe(332);
+  });
+
+  test('should stop early when more workers than items', () => {
+    const configs = mixin.createCursorConfigs(5, 10);
+
+    // ceil(5/10) = 1 item per worker, only 5 workers should be created
+    expect(configs).toHaveLength(5);
+    expect(configs[0].row_count).toBe(1);
+    expect(configs[4].cursor_start).toBe(4);
+    expect(configs[4].cursor_end).toBe(5);
+  });
+
+  test('should return empty array for zero items', () => {
+    const configs = mixin.createCursorConfigs(0, 5);
+
+    expect(configs).toHaveLength(0);
+  });
+
+  test('should throw for workerCount <= 0', () => {
+    expect(() => mixin.createCursorConfigs(100, 0)).toThrow('workerCount must be > 0');
+    expect(() => mixin.createCursorConfigs(100, -1)).toThrow('workerCount must be > 0');
+  });
+
+  test('should handle single worker', () => {
+    const configs = mixin.createCursorConfigs(1000, 1);
+
+    expect(configs).toHaveLength(1);
+    expect(configs[0].cursor_start).toBe(0);
+    expect(configs[0].cursor_end).toBe(1000);
+    expect(configs[0].row_count).toBe(1000);
+  });
+
+  test('should pad batch_id with leading zeros', () => {
+    const configs = mixin.createCursorConfigs(100, 2);
+
+    expect(configs[0].batch_id).toBe('001');
+    expect(configs[1].batch_id).toBe('002');
+  });
+});
+
+// =============================================================================
+// getBatchWorkerInputs Tests (TAS-112/TAS-123)
+// =============================================================================
+
+describe('BatchableMixin.getBatchWorkerInputs', () => {
+  let mixin: BatchableMixin;
+
+  beforeEach(() => {
+    mixin = new BatchableMixin();
+  });
+
+  test('should return stepInputs when present with cursor/batch_metadata', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+      stepInputs: {
+        cursor: { batch_id: '001', start_cursor: 0, end_cursor: 100, batch_size: 100 },
+        batch_metadata: { cursor_field: 'id', failure_strategy: 'continue_on_failure' },
+        is_no_op: false,
+      },
+    });
+
+    const inputs = mixin.getBatchWorkerInputs(context);
+
+    expect(inputs).not.toBeNull();
+    expect(inputs?.is_no_op).toBe(false);
+    expect(inputs?.cursor).toBeDefined();
+  });
+
+  test('should return null for empty stepInputs', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+      stepInputs: {},
+    });
+
+    const inputs = mixin.getBatchWorkerInputs(context);
+
+    expect(inputs).toBeNull();
+  });
+
+  test('should return null when no stepInputs', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+    });
+
+    const inputs = mixin.getBatchWorkerInputs(context);
+
+    expect(inputs).toBeNull();
+  });
+});
+
+// =============================================================================
+// handleNoOpWorker Tests (TAS-112/TAS-123)
+// =============================================================================
+
+describe('BatchableMixin.handleNoOpWorker', () => {
+  let mixin: BatchableMixin;
+
+  beforeEach(() => {
+    mixin = new BatchableMixin();
+  });
+
+  test('should return success result for no-op worker', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+      stepInputs: {
+        cursor: { batch_id: 'no_op', start_cursor: 0, end_cursor: 0, batch_size: 0 },
+        batch_metadata: { cursor_field: 'id', failure_strategy: 'continue_on_failure' },
+        is_no_op: true,
+      },
+    });
+
+    const result = mixin.handleNoOpWorker(context);
+
+    expect(result).not.toBeNull();
+    expect(result?.success).toBe(true);
+    expect(result?.result?.no_op).toBe(true);
+    expect(result?.result?.processed_count).toBe(0);
+    expect(result?.result?.message).toBe('No batches to process');
+  });
+
+  test('should return null when is_no_op is false', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+      stepInputs: {
+        cursor: { batch_id: '001', start_cursor: 0, end_cursor: 100, batch_size: 100 },
+        is_no_op: false,
+      },
+    });
+
+    const result = mixin.handleNoOpWorker(context);
+
+    expect(result).toBeNull();
+  });
+
+  test('should return null when no stepInputs', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+    });
+
+    const result = mixin.handleNoOpWorker(context);
+
+    expect(result).toBeNull();
+  });
+
+  test('should extract batch_id from cursor', () => {
+    const context = new StepContext({
+      taskUuid: 'task-1',
+      stepUuid: 'step-1',
+      stepInputs: {
+        cursor: { batch_id: 'my_batch' },
+        is_no_op: true,
+      },
+    });
+
+    const result = mixin.handleNoOpWorker(context);
+
+    expect(result?.result?.batch_id).toBe('my_batch');
+  });
+});
+
+// =============================================================================
+// BatchableStepHandler Tests (TAS-112/TAS-123)
+// =============================================================================
+
+describe('BatchableStepHandler', () => {
+  /**
+   * Concrete subclass for testing abstract BatchableStepHandler.
+   */
+  class TestBatchableHandler extends BatchableStepHandler {
+    static handlerName = 'test_batchable_handler';
+
+    async call(_context: StepContext): Promise<StepHandlerResult> {
+      return this.success({ processed: true });
+    }
+  }
+
+  describe('batchSuccess', () => {
+    test('should convert BatchWorkerConfig[] to RustCursorConfig[]', () => {
+      const handler = new TestBatchableHandler();
+      const batchConfigs = [
+        {
+          batch_id: '001',
+          cursor_start: 0,
+          cursor_end: 500,
+          row_count: 500,
+          worker_index: 0,
+          total_workers: 2,
+        },
+        {
+          batch_id: '002',
+          cursor_start: 500,
+          cursor_end: 1000,
+          row_count: 500,
+          worker_index: 1,
+          total_workers: 2,
+        },
+      ];
+
+      const result = handler.batchSuccess('process_batch_ts', batchConfigs);
+
+      expect(result.success).toBe(true);
+      const outcome = result.result?.batch_processing_outcome as Record<string, unknown>;
+      expect(outcome.type).toBe('create_batches');
+      expect(outcome.worker_template_name).toBe('process_batch_ts');
+      expect(outcome.worker_count).toBe(2);
+      const configs = outcome.cursor_configs as Array<Record<string, unknown>>;
+      expect(configs).toHaveLength(2);
+      expect(configs[0].batch_id).toBe('001');
+      expect(configs[0].start_cursor).toBe(0);
+      expect(configs[0].end_cursor).toBe(500);
+      expect(configs[0].batch_size).toBe(500);
+    });
+
+    test('should calculate totalItems from row_count sum', () => {
+      const handler = new TestBatchableHandler();
+      const batchConfigs = [
+        {
+          batch_id: '001',
+          cursor_start: 0,
+          cursor_end: 300,
+          row_count: 300,
+          worker_index: 0,
+          total_workers: 3,
+        },
+        {
+          batch_id: '002',
+          cursor_start: 300,
+          cursor_end: 600,
+          row_count: 300,
+          worker_index: 1,
+          total_workers: 3,
+        },
+        {
+          batch_id: '003',
+          cursor_start: 600,
+          cursor_end: 800,
+          row_count: 200,
+          worker_index: 2,
+          total_workers: 3,
+        },
+      ];
+
+      const result = handler.batchSuccess('template', batchConfigs);
+
+      const outcome = result.result?.batch_processing_outcome as Record<string, unknown>;
+      expect(outcome.total_items).toBe(800);
+    });
+
+    test('should include metadata in result', () => {
+      const handler = new TestBatchableHandler();
+      const batchConfigs = [
+        {
+          batch_id: '001',
+          cursor_start: 0,
+          cursor_end: 100,
+          row_count: 100,
+          worker_index: 0,
+          total_workers: 1,
+        },
+      ];
+
+      const result = handler.batchSuccess('template', batchConfigs, { analyzed_at: '2025-01-01' });
+
+      expect(result.result?.analyzed_at).toBe('2025-01-01');
+      expect(result.metadata?.analyzed_at).toBe('2025-01-01');
+    });
+  });
+
+  describe('noBatchesResult', () => {
+    test('should return batch_processing_outcome with type no_batches', () => {
+      const handler = new TestBatchableHandler();
+
+      const result = handler.noBatchesResult();
+
+      expect(result.success).toBe(true);
+      const outcome = result.result?.batch_processing_outcome as Record<string, unknown>;
+      expect(outcome.type).toBe('no_batches');
+    });
+
+    test('should include reason when provided', () => {
+      const handler = new TestBatchableHandler();
+
+      const result = handler.noBatchesResult('empty_dataset');
+
+      expect(result.result?.reason).toBe('empty_dataset');
+    });
+
+    test('should not include reason when not provided', () => {
+      const handler = new TestBatchableHandler();
+
+      const result = handler.noBatchesResult();
+
+      expect(result.result?.reason).toBeUndefined();
+    });
+
+    test('should include metadata when provided', () => {
+      const handler = new TestBatchableHandler();
+
+      const result = handler.noBatchesResult('no_data', { total_rows: 0 });
+
+      expect(result.result?.total_rows).toBe(0);
+      expect(result.metadata?.total_rows).toBe(0);
+    });
+  });
+
+  describe('delegates to BatchableMixin', () => {
+    test('createCursorConfigs delegates correctly', () => {
+      const handler = new TestBatchableHandler();
+      const configs = handler.createCursorConfigs(100, 2);
+
+      expect(configs).toHaveLength(2);
+      expect(configs[0].cursor_start).toBe(0);
+      expect(configs[0].cursor_end).toBe(50);
+    });
+
+    test('getBatchWorkerInputs delegates correctly', () => {
+      const handler = new TestBatchableHandler();
+      const context = new StepContext({
+        taskUuid: 'task-1',
+        stepUuid: 'step-1',
+        stepInputs: { cursor: { batch_id: '001' }, is_no_op: false },
+      });
+
+      const inputs = handler.getBatchWorkerInputs(context);
+      expect(inputs).not.toBeNull();
+      expect(inputs?.is_no_op).toBe(false);
+    });
+
+    test('handleNoOpWorker delegates correctly', () => {
+      const handler = new TestBatchableHandler();
+      const context = new StepContext({
+        taskUuid: 'task-1',
+        stepUuid: 'step-1',
+        stepInputs: { is_no_op: true, cursor: { batch_id: 'noop' } },
+      });
+
+      const result = handler.handleNoOpWorker(context);
+      expect(result).not.toBeNull();
+      expect(result?.result?.no_op).toBe(true);
+    });
   });
 });

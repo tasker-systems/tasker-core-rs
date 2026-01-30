@@ -160,4 +160,94 @@ describe('createBatchWorkerContext', () => {
     expect(context.cursorConfig.startCursor).toBe(0);
     expect(context.totalBatches).toBe(1);
   });
+
+  describe('checkpoint accessors (TAS-125)', () => {
+    test('checkpointCursor returns numeric cursor', () => {
+      const context = createBatchWorkerContext(
+        { batch_id: 'b1' },
+        { cursor: 500, items_processed: 500 }
+      );
+
+      expect(context.checkpointCursor).toBe(500);
+    });
+
+    test('checkpointCursor returns string cursor', () => {
+      const context = createBatchWorkerContext({ batch_id: 'b1' }, { cursor: 'page_token_abc' });
+
+      expect(context.checkpointCursor).toBe('page_token_abc');
+    });
+
+    test('checkpointCursor returns object cursor', () => {
+      const objCursor = { page: 5, offset: 200 };
+      const context = createBatchWorkerContext({ batch_id: 'b1' }, { cursor: objCursor });
+
+      expect(context.checkpointCursor).toEqual(objCursor);
+    });
+
+    test('checkpointCursor returns undefined when no cursor in checkpoint', () => {
+      const context = createBatchWorkerContext({ batch_id: 'b1' }, { items_processed: 100 });
+
+      expect(context.checkpointCursor).toBeUndefined();
+    });
+
+    test('checkpointCursor returns undefined when no checkpoint', () => {
+      const context = createBatchWorkerContext({ batch_id: 'b1' });
+
+      expect(context.checkpointCursor).toBeUndefined();
+    });
+
+    test('accumulatedResults returns data when present', () => {
+      const context = createBatchWorkerContext(
+        { batch_id: 'b1' },
+        { cursor: 100, accumulated_results: { sum: 5000, count: 100 } }
+      );
+
+      expect(context.accumulatedResults).toEqual({ sum: 5000, count: 100 });
+    });
+
+    test('accumulatedResults returns undefined when not present', () => {
+      const context = createBatchWorkerContext({ batch_id: 'b1' }, { cursor: 100 });
+
+      expect(context.accumulatedResults).toBeUndefined();
+    });
+
+    test('checkpointItemsProcessed returns count when present', () => {
+      const context = createBatchWorkerContext(
+        { batch_id: 'b1' },
+        { cursor: 100, items_processed: 750 }
+      );
+
+      expect(context.checkpointItemsProcessed).toBe(750);
+    });
+
+    test('checkpointItemsProcessed defaults to 0 when not present', () => {
+      const context = createBatchWorkerContext({ batch_id: 'b1' }, { cursor: 100 });
+
+      expect(context.checkpointItemsProcessed).toBe(0);
+    });
+
+    test('checkpointItemsProcessed defaults to 0 when no checkpoint', () => {
+      const context = createBatchWorkerContext({ batch_id: 'b1' });
+
+      expect(context.checkpointItemsProcessed).toBe(0);
+    });
+
+    test('hasCheckpoint returns true when cursor exists', () => {
+      const context = createBatchWorkerContext({ batch_id: 'b1' }, { cursor: 42 });
+
+      expect(context.hasCheckpoint()).toBe(true);
+    });
+
+    test('hasCheckpoint returns false when no checkpoint', () => {
+      const context = createBatchWorkerContext({ batch_id: 'b1' });
+
+      expect(context.hasCheckpoint()).toBe(false);
+    });
+
+    test('hasCheckpoint returns false when checkpoint has no cursor', () => {
+      const context = createBatchWorkerContext({ batch_id: 'b1' }, { items_processed: 100 });
+
+      expect(context.hasCheckpoint()).toBe(false);
+    });
+  });
 });

@@ -284,6 +284,289 @@ describe('StepContext', () => {
       expect(context.isLastRetry()).toBe(true);
     });
   });
+
+  describe('getInputOr', () => {
+    it('returns value when key exists', () => {
+      const context = createValidStepContext({
+        inputData: { batch_size: 200 },
+      });
+
+      expect(context.getInputOr('batch_size', 100)).toBe(200);
+    });
+
+    it('returns default when key is missing', () => {
+      const context = createValidStepContext({ inputData: {} });
+
+      expect(context.getInputOr('batch_size', 100)).toBe(100);
+    });
+
+    it('returns default when value is undefined', () => {
+      const context = createValidStepContext({
+        inputData: { batch_size: undefined },
+      });
+
+      expect(context.getInputOr('batch_size', 100)).toBe(100);
+    });
+
+    it('returns falsy value when present (not default)', () => {
+      const context = createValidStepContext({
+        inputData: { count: 0, flag: false, name: '' },
+      });
+
+      expect(context.getInputOr('count', 99)).toBe(0);
+      expect(context.getInputOr('flag', true)).toBe(false);
+      expect(context.getInputOr('name', 'default')).toBe('');
+    });
+  });
+
+  describe('getDependencyField', () => {
+    it('extracts a single-level field from dependency result', () => {
+      const context = createValidStepContext({
+        dependencyResults: {
+          analyze_csv: { result: { csv_file_path: '/tmp/data.csv', row_count: 500 } },
+        },
+      });
+
+      expect(context.getDependencyField('analyze_csv', 'csv_file_path')).toBe('/tmp/data.csv');
+    });
+
+    it('extracts a multi-level path from dependency result', () => {
+      const context = createValidStepContext({
+        dependencyResults: {
+          step_1: { result: { data: { items: [1, 2, 3] } } },
+        },
+      });
+
+      expect(context.getDependencyField('step_1', 'data', 'items')).toEqual([1, 2, 3]);
+    });
+
+    it('returns null when dependency is missing', () => {
+      const context = createValidStepContext({ dependencyResults: {} });
+
+      expect(context.getDependencyField('nonexistent', 'field')).toBeNull();
+    });
+
+    it('returns null when dependency result is null', () => {
+      const context = createValidStepContext({
+        dependencyResults: { step_1: null },
+      });
+
+      expect(context.getDependencyField('step_1', 'field')).toBeNull();
+    });
+
+    it('returns null when intermediate path is not an object', () => {
+      const context = createValidStepContext({
+        dependencyResults: {
+          step_1: { result: { data: 'not_an_object' } },
+        },
+      });
+
+      expect(context.getDependencyField('step_1', 'data', 'nested')).toBeNull();
+    });
+
+    it('returns undefined for missing key at end of valid path', () => {
+      const context = createValidStepContext({
+        dependencyResults: {
+          step_1: { result: { data: { present: true } } },
+        },
+      });
+
+      expect(context.getDependencyField('step_1', 'data', 'missing')).toBeUndefined();
+    });
+  });
+
+  describe('checkpoint', () => {
+    it('returns checkpoint data when present', () => {
+      const event = createValidFfiStepEvent();
+      event.workflow_step.checkpoint = { cursor: 500, items_processed: 500 };
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.checkpoint).toEqual({ cursor: 500, items_processed: 500 });
+    });
+
+    it('returns null when no checkpoint exists', () => {
+      const event = createValidFfiStepEvent();
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.checkpoint).toBeNull();
+    });
+  });
+
+  describe('checkpointCursor', () => {
+    it('returns cursor value when present', () => {
+      const event = createValidFfiStepEvent();
+      event.workflow_step.checkpoint = { cursor: 1000 };
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.checkpointCursor).toBe(1000);
+    });
+
+    it('returns null when no checkpoint', () => {
+      const context = createValidStepContext();
+
+      expect(context.checkpointCursor).toBeNull();
+    });
+
+    it('returns string cursor', () => {
+      const event = createValidFfiStepEvent();
+      event.workflow_step.checkpoint = { cursor: 'page_token_abc' };
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.checkpointCursor).toBe('page_token_abc');
+    });
+  });
+
+  describe('checkpointItemsProcessed', () => {
+    it('returns items_processed when present', () => {
+      const event = createValidFfiStepEvent();
+      event.workflow_step.checkpoint = { cursor: 100, items_processed: 250 };
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.checkpointItemsProcessed).toBe(250);
+    });
+
+    it('returns 0 when no checkpoint', () => {
+      const context = createValidStepContext();
+
+      expect(context.checkpointItemsProcessed).toBe(0);
+    });
+
+    it('returns 0 when checkpoint has no items_processed', () => {
+      const event = createValidFfiStepEvent();
+      event.workflow_step.checkpoint = { cursor: 100 };
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.checkpointItemsProcessed).toBe(0);
+    });
+  });
+
+  describe('accumulatedResults', () => {
+    it('returns accumulated_results when present', () => {
+      const event = createValidFfiStepEvent();
+      event.workflow_step.checkpoint = {
+        cursor: 100,
+        accumulated_results: { sum: 5000, count: 100 },
+      };
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.accumulatedResults).toEqual({ sum: 5000, count: 100 });
+    });
+
+    it('returns null when no checkpoint', () => {
+      const context = createValidStepContext();
+
+      expect(context.accumulatedResults).toBeNull();
+    });
+
+    it('returns null when checkpoint has no accumulated_results', () => {
+      const event = createValidFfiStepEvent();
+      event.workflow_step.checkpoint = { cursor: 100 };
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.accumulatedResults).toBeNull();
+    });
+  });
+
+  describe('hasCheckpoint', () => {
+    it('returns true when cursor exists', () => {
+      const event = createValidFfiStepEvent();
+      event.workflow_step.checkpoint = { cursor: 500 };
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.hasCheckpoint()).toBe(true);
+    });
+
+    it('returns false when no checkpoint', () => {
+      const context = createValidStepContext();
+
+      expect(context.hasCheckpoint()).toBe(false);
+    });
+
+    it('returns false when checkpoint has no cursor', () => {
+      const event = createValidFfiStepEvent();
+      event.workflow_step.checkpoint = { items_processed: 100 };
+      const context = StepContext.fromFfiEvent(event, 'handler');
+
+      expect(context.hasCheckpoint()).toBe(false);
+    });
+  });
+
+  describe('getDependencyResultKeys', () => {
+    it('returns array of step names', () => {
+      const context = createValidStepContext({
+        dependencyResults: {
+          step_1: { result: 'a' },
+          step_2: { result: 'b' },
+          step_3: { result: 'c' },
+        },
+      });
+
+      const keys = context.getDependencyResultKeys();
+
+      expect(keys).toEqual(['step_1', 'step_2', 'step_3']);
+    });
+
+    it('returns empty array when no dependencies', () => {
+      const context = createValidStepContext({ dependencyResults: {} });
+
+      expect(context.getDependencyResultKeys()).toEqual([]);
+    });
+  });
+
+  describe('getAllDependencyResults', () => {
+    it('returns results matching prefix', () => {
+      const context = createValidStepContext({
+        dependencyResults: {
+          process_batch_001: { result: { count: 10 } },
+          process_batch_002: { result: { count: 20 } },
+          analyze_csv: { result: { total: 30 } },
+        },
+      });
+
+      const results = context.getAllDependencyResults('process_batch_');
+
+      expect(results).toHaveLength(2);
+      expect(results).toContainEqual({ count: 10 });
+      expect(results).toContainEqual({ count: 20 });
+    });
+
+    it('returns empty array when no prefix matches', () => {
+      const context = createValidStepContext({
+        dependencyResults: {
+          step_1: { result: 'data' },
+        },
+      });
+
+      expect(context.getAllDependencyResults('nonexistent_')).toEqual([]);
+    });
+
+    it('skips null dependency results', () => {
+      const context = createValidStepContext({
+        dependencyResults: {
+          batch_001: null,
+          batch_002: { result: { count: 5 } },
+        },
+      });
+
+      const results = context.getAllDependencyResults('batch_');
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toEqual({ count: 5 });
+    });
+
+    it('returns all matching results for broad prefix', () => {
+      const context = createValidStepContext({
+        dependencyResults: {
+          step_1: { result: 'a' },
+          step_2: { result: 'b' },
+        },
+      });
+
+      const results = context.getAllDependencyResults('step_');
+
+      expect(results).toHaveLength(2);
+    });
+  });
 });
 
 // Test helpers
