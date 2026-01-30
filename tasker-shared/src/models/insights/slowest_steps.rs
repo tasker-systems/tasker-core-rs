@@ -221,3 +221,131 @@ impl SlowestSteps {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    fn make_default_step() -> SlowestSteps {
+        SlowestSteps {
+            workflow_step_uuid: Uuid::nil(),
+            task_uuid: Uuid::nil(),
+            step_name: "test_step".to_string(),
+            task_name: "test_task".to_string(),
+            namespace_name: "default".to_string(),
+            version: "1.0.0".to_string(),
+            duration_seconds: BigDecimal::from_str("45.5").unwrap(),
+            attempts: 1,
+            created_at: NaiveDateTime::parse_from_str("2024-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
+            completed_at: Some(
+                NaiveDateTime::parse_from_str("2024-01-01 00:00:45", "%Y-%m-%d %H:%M:%S").unwrap(),
+            ),
+            retryable: true,
+            step_status: "complete".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_filter_default_values() {
+        let filter = SlowestStepsFilter::default();
+        assert!(filter.since_timestamp.is_none());
+        assert_eq!(filter.limit_count, Some(10));
+        assert!(filter.namespace_filter.is_none());
+        assert!(filter.task_name_filter.is_none());
+        assert!(filter.version_filter.is_none());
+    }
+
+    #[test]
+    fn test_duration_as_seconds() {
+        let step = make_default_step();
+        assert_eq!(step.duration_as_seconds(), 45.5);
+    }
+
+    #[test]
+    fn test_was_retried_single_attempt() {
+        let step = make_default_step();
+        assert!(!step.was_retried());
+    }
+
+    #[test]
+    fn test_was_retried_multiple_attempts() {
+        let mut step = make_default_step();
+        step.attempts = 3;
+        assert!(step.was_retried());
+    }
+
+    #[test]
+    fn test_is_running_true() {
+        let mut step = make_default_step();
+        step.completed_at = None;
+        step.step_status = "in_progress".to_string();
+        assert!(step.is_running());
+    }
+
+    #[test]
+    fn test_is_running_false_with_completed_at() {
+        let mut step = make_default_step();
+        step.step_status = "in_progress".to_string();
+        // completed_at is Some from default
+        assert!(!step.is_running());
+    }
+
+    #[test]
+    fn test_is_running_false_with_complete_status() {
+        let mut step = make_default_step();
+        step.completed_at = None;
+        step.step_status = "complete".to_string();
+        assert!(!step.is_running());
+    }
+
+    #[test]
+    fn test_completed_successfully_true() {
+        let mut step = make_default_step();
+        step.step_status = "complete".to_string();
+        assert!(step.completed_successfully());
+    }
+
+    #[test]
+    fn test_completed_successfully_false() {
+        let mut step = make_default_step();
+        step.step_status = "error".to_string();
+        assert!(!step.completed_successfully());
+    }
+
+    #[test]
+    fn test_failed_true() {
+        let mut step = make_default_step();
+        step.step_status = "error".to_string();
+        assert!(step.failed());
+    }
+
+    #[test]
+    fn test_failed_false() {
+        let mut step = make_default_step();
+        step.step_status = "complete".to_string();
+        assert!(!step.failed());
+    }
+
+    #[test]
+    fn test_duration_display_seconds() {
+        let mut step = make_default_step();
+        step.duration_seconds = BigDecimal::from_str("30.5").unwrap();
+        assert_eq!(step.duration_display(), "30.5s");
+    }
+
+    #[test]
+    fn test_duration_display_minutes() {
+        let mut step = make_default_step();
+        step.duration_seconds = BigDecimal::from_str("150.0").unwrap();
+        assert_eq!(step.duration_display(), "2.5m");
+    }
+
+    #[test]
+    fn test_duration_display_hours() {
+        let mut step = make_default_step();
+        step.duration_seconds = BigDecimal::from_str("7200.0").unwrap();
+        assert_eq!(step.duration_display(), "2.0h");
+    }
+}

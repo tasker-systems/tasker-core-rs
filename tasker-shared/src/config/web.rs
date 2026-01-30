@@ -128,3 +128,85 @@ impl From<crate::config::tasker::AuthConfig> for WebAuthConfig {
 
 // Note: WebConfig is now a type alias for OrchestrationWebConfig, so no From impl needed
 // (From<T> for T is automatically implemented)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::tasker::AuthConfig;
+
+    #[test]
+    fn test_web_auth_config_default_values() {
+        let config = WebAuthConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.jwt_issuer, "tasker-core");
+        assert_eq!(config.jwt_audience, "tasker-api");
+        assert_eq!(config.jwt_token_expiry_hours, 24);
+        assert!(config.jwt_private_key.is_empty());
+        assert!(config.jwt_public_key.is_empty());
+        assert_eq!(config.jwt_verification_method, "public_key");
+        assert!(config.jwt_public_key_path.is_empty());
+        assert!(config.jwks_url.is_empty());
+        assert_eq!(config.jwks_refresh_interval_seconds, 3600);
+        assert_eq!(config.permissions_claim, "permissions");
+        assert!(config.strict_validation);
+        assert!(config.log_unknown_permissions);
+        assert!(config.bearer_token.is_empty());
+        assert!(config.api_key.is_empty());
+        assert_eq!(config.api_key_header, "X-API-Key");
+        assert!(!config.api_keys_enabled);
+        assert!(config.api_keys.is_empty());
+    }
+
+    #[test]
+    fn test_from_auth_config_preserves_fields() {
+        let v2 = AuthConfig::builder()
+            .enabled(true)
+            .jwt_issuer("my-issuer".to_string())
+            .jwt_audience("my-audience".to_string())
+            .jwt_token_expiry_hours(48)
+            .jwt_private_key("private-key".to_string())
+            .jwt_public_key("public-key".to_string())
+            .jwt_verification_method("jwks".to_string())
+            .jwt_public_key_path("/path/to/key".to_string())
+            .jwks_url("https://example.com/.well-known/jwks.json".to_string())
+            .jwks_refresh_interval_seconds(1800)
+            .permissions_claim("roles".to_string())
+            .strict_validation(false)
+            .log_unknown_permissions(false)
+            .api_key("test-key".to_string())
+            .api_key_header("Authorization".to_string())
+            .api_keys_enabled(true)
+            .build();
+
+        let web_auth: WebAuthConfig = v2.into();
+        assert!(web_auth.enabled);
+        assert_eq!(web_auth.jwt_issuer, "my-issuer");
+        assert_eq!(web_auth.jwt_audience, "my-audience");
+        assert_eq!(web_auth.jwt_token_expiry_hours, 48);
+        assert_eq!(web_auth.jwt_private_key, "private-key");
+        assert_eq!(web_auth.jwt_public_key, "public-key");
+        assert_eq!(web_auth.jwt_verification_method, "jwks");
+        assert_eq!(web_auth.jwt_public_key_path, "/path/to/key");
+        assert_eq!(
+            web_auth.jwks_url,
+            "https://example.com/.well-known/jwks.json"
+        );
+        assert_eq!(web_auth.jwks_refresh_interval_seconds, 1800);
+        assert_eq!(web_auth.permissions_claim, "roles");
+        assert!(!web_auth.strict_validation);
+        assert!(!web_auth.log_unknown_permissions);
+        // bearer_token is always empty from conversion
+        assert!(web_auth.bearer_token.is_empty());
+        assert_eq!(web_auth.api_key, "test-key");
+        assert_eq!(web_auth.api_key_header, "Authorization");
+        assert!(web_auth.api_keys_enabled);
+    }
+
+    #[test]
+    fn test_from_auth_config_token_expiry_type_conversion() {
+        // AuthConfig uses u32, WebAuthConfig uses u64
+        let v2 = AuthConfig::builder().jwt_token_expiry_hours(168).build();
+        let web_auth: WebAuthConfig = v2.into();
+        assert_eq!(web_auth.jwt_token_expiry_hours, 168u64);
+    }
+}

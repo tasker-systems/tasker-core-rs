@@ -124,13 +124,9 @@ fn test_compute_identity_hash_strict_strategy() {
     )
     .unwrap();
 
-    let hash2 = Task::compute_identity_hash(
-        IdentityStrategy::Strict,
-        named_task_uuid,
-        &context,
-        None,
-    )
-    .unwrap();
+    let hash2 =
+        Task::compute_identity_hash(IdentityStrategy::Strict, named_task_uuid, &context, None)
+            .unwrap();
 
     // Same inputs should produce same hash
     assert_eq!(hash1, hash2);
@@ -162,9 +158,7 @@ fn test_compute_identity_hash_caller_provided_strategy() {
 
     // Should fail without idempotency_key
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .contains("idempotency_key is required"));
+    assert!(result.unwrap_err().contains("idempotency_key is required"));
 
     // With idempotency_key, should succeed
     let hash = Task::compute_identity_hash(

@@ -167,3 +167,32 @@ pub fn init() {
     DB_POOL_CHECKOUT_DURATION.get_or_init(db_pool_checkout_duration);
     DB_POOL_CONNECTIONS.get_or_init(db_pool_connections);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_init_does_not_panic() {
+        init();
+    }
+
+    #[test]
+    fn test_counter_factories() {
+        let _c = sql_queries_total();
+        let _c = db_pool_checkouts_total();
+        let _c = db_connection_errors_total();
+    }
+
+    #[test]
+    fn test_histogram_factories() {
+        let _h = sql_query_duration();
+        let _h = db_transaction_duration();
+        let _h = db_pool_checkout_duration();
+    }
+
+    #[test]
+    fn test_gauge_factories() {
+        let _g = db_pool_connections();
+    }
+}

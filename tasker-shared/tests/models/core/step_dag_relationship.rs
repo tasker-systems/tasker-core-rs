@@ -30,10 +30,12 @@ async fn test_get_step_dag_relationships(pool: PgPool) -> sqlx::Result<()> {
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_by_task(pool: PgPool) -> sqlx::Result<()> {
-    // Test with a hypothetical task ID
-    let relationships = StepDagRelationship::get_by_task(&pool, 999999)
-        .await
-        .expect("Failed to get DAG relationships by task");
+    // Test with a non-existent task UUID
+    let non_existent_uuid = uuid::Uuid::now_v7();
+    let relationships: Vec<StepDagRelationship> =
+        StepDagRelationship::get_for_task(&pool, non_existent_uuid)
+            .await
+            .expect("Failed to get DAG relationships by task");
 
     // Should return empty for non-existent task
     assert!(relationships.is_empty());
@@ -43,11 +45,12 @@ async fn test_get_by_task(pool: PgPool) -> sqlx::Result<()> {
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_root_and_leaf_steps(pool: PgPool) -> sqlx::Result<()> {
-    // Test with a hypothetical task ID
-    let root_steps = StepDagRelationship::get_root_steps(&pool, 999999)
+    // Test with a non-existent task UUID
+    let non_existent_uuid = uuid::Uuid::now_v7();
+    let root_steps = StepDagRelationship::get_root_steps(&pool, non_existent_uuid)
         .await
         .expect("Failed to get root steps");
-    let leaf_steps = StepDagRelationship::get_leaf_steps(&pool, 999999)
+    let leaf_steps = StepDagRelationship::get_leaf_steps(&pool, non_existent_uuid)
         .await
         .expect("Failed to get leaf steps");
 
@@ -61,9 +64,9 @@ async fn test_get_root_and_leaf_steps(pool: PgPool) -> sqlx::Result<()> {
 #[test]
 fn test_helper_methods() {
     let relationship = StepDagRelationship {
-        workflow_step_uuid: 1,
-        task_uuid: 1,
-        named_step_uuid: 1,
+        workflow_step_uuid: uuid::Uuid::now_v7(),
+        task_uuid: uuid::Uuid::now_v7(),
+        named_step_uuid: uuid::Uuid::now_v7(),
         parent_step_uuids: serde_json::json!([10, 20, 30]),
         child_step_uuids: serde_json::json!([40, 50]),
         parent_count: 3,

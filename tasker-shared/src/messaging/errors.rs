@@ -473,4 +473,313 @@ mod tests {
         assert!(display_str.contains("read"));
         assert!(display_str.contains("Read failed"));
     }
+
+    // ---------------------------------------------------------------
+    // Helper method tests: individual constructors
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_queue_not_found() {
+        let err = MessagingError::queue_not_found("test_queue");
+        assert!(matches!(
+            err,
+            MessagingError::QueueNotFound { ref queue_name } if queue_name == "test_queue"
+        ));
+        assert!(format!("{err}").contains("test_queue"));
+    }
+
+    #[test]
+    fn test_message_serialization() {
+        let err = MessagingError::message_serialization("bad data");
+        assert!(matches!(
+            err,
+            MessagingError::MessageSerialization { ref message } if message == "bad data"
+        ));
+        assert!(format!("{err}").contains("bad data"));
+    }
+
+    #[test]
+    fn test_message_deserialization() {
+        let err = MessagingError::message_deserialization("bad data");
+        assert!(matches!(
+            err,
+            MessagingError::MessageDeserialization { ref message } if message == "bad data"
+        ));
+        assert!(format!("{err}").contains("bad data"));
+    }
+
+    #[test]
+    fn test_circuit_breaker_open() {
+        let err = MessagingError::circuit_breaker_open("db");
+        assert!(matches!(
+            err,
+            MessagingError::CircuitBreakerOpen { ref component } if component == "db"
+        ));
+        assert!(format!("{err}").contains("db"));
+    }
+
+    #[test]
+    fn test_configuration() {
+        let err = MessagingError::configuration("pgmq", "bad config");
+        assert!(matches!(
+            err,
+            MessagingError::Configuration { ref component, ref message }
+                if component == "pgmq" && message == "bad config"
+        ));
+        let display = format!("{err}");
+        assert!(display.contains("pgmq"));
+        assert!(display.contains("bad config"));
+    }
+
+    #[test]
+    fn test_pool_exhausted() {
+        let err = MessagingError::pool_exhausted("no pools");
+        assert!(matches!(
+            err,
+            MessagingError::PoolExhausted { ref message } if message == "no pools"
+        ));
+        assert!(format!("{err}").contains("no pools"));
+    }
+
+    #[test]
+    fn test_internal() {
+        let err = MessagingError::internal("internal error");
+        assert!(matches!(
+            err,
+            MessagingError::Internal { ref message } if message == "internal error"
+        ));
+        assert!(format!("{err}").contains("internal error"));
+    }
+
+    // ---------------------------------------------------------------
+    // Alias helper methods
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_connection_alias() {
+        let err = MessagingError::connection("conn failed");
+        assert!(matches!(
+            err,
+            MessagingError::DatabaseConnection { ref message } if message == "conn failed"
+        ));
+        assert!(format!("{err}").contains("conn failed"));
+    }
+
+    #[test]
+    fn test_serialization_alias() {
+        let err = MessagingError::serialization("ser error");
+        assert!(matches!(
+            err,
+            MessagingError::MessageSerialization { ref message } if message == "ser error"
+        ));
+        assert!(format!("{err}").contains("ser error"));
+    }
+
+    #[test]
+    fn test_deserialization_alias() {
+        let err = MessagingError::deserialization("deser error");
+        assert!(matches!(
+            err,
+            MessagingError::MessageDeserialization { ref message } if message == "deser error"
+        ));
+        assert!(format!("{err}").contains("deser error"));
+    }
+
+    // ---------------------------------------------------------------
+    // Queue operation helper methods
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_queue_creation() {
+        let err = MessagingError::queue_creation("q1", "failed");
+        assert!(matches!(
+            err,
+            MessagingError::QueueOperation {
+                ref queue_name,
+                ref operation,
+                ref message
+            } if queue_name == "q1" && operation == "create" && message == "failed"
+        ));
+    }
+
+    #[test]
+    fn test_send() {
+        let err = MessagingError::send("q1", "send failed");
+        assert!(matches!(
+            err,
+            MessagingError::QueueOperation {
+                ref queue_name,
+                ref operation,
+                ref message
+            } if queue_name == "q1" && operation == "send" && message == "send failed"
+        ));
+    }
+
+    #[test]
+    fn test_receive() {
+        let err = MessagingError::receive("q1", "recv failed");
+        assert!(matches!(
+            err,
+            MessagingError::QueueOperation {
+                ref queue_name,
+                ref operation,
+                ref message
+            } if queue_name == "q1" && operation == "receive" && message == "recv failed"
+        ));
+    }
+
+    #[test]
+    fn test_ack() {
+        let err = MessagingError::ack("q1", 42, "ack failed");
+        assert!(matches!(
+            err,
+            MessagingError::QueueOperation {
+                ref queue_name,
+                ref operation,
+                ref message
+            } if queue_name == "q1" && operation.contains("ack") && message == "ack failed"
+        ));
+        let display = format!("{err}");
+        assert!(display.contains("42"));
+    }
+
+    #[test]
+    fn test_nack() {
+        let err = MessagingError::nack("q1", 42, "nack failed");
+        assert!(matches!(
+            err,
+            MessagingError::QueueOperation {
+                ref queue_name,
+                ref operation,
+                ref message
+            } if queue_name == "q1" && operation.contains("nack") && message == "nack failed"
+        ));
+        let display = format!("{err}");
+        assert!(display.contains("42"));
+    }
+
+    #[test]
+    fn test_extend_visibility() {
+        let err = MessagingError::extend_visibility("q1", 42, "failed");
+        assert!(matches!(
+            err,
+            MessagingError::QueueOperation { ref queue_name, ref operation, .. }
+                if queue_name == "q1" && operation.contains("extend_visibility")
+        ));
+        let display = format!("{err}");
+        assert!(display.contains("42"));
+    }
+
+    #[test]
+    fn test_queue_stats() {
+        let err = MessagingError::queue_stats("q1", "stats failed");
+        assert!(matches!(
+            err,
+            MessagingError::QueueOperation {
+                ref queue_name,
+                ref operation,
+                ref message
+            } if queue_name == "q1" && operation == "queue_stats" && message == "stats failed"
+        ));
+    }
+
+    // ---------------------------------------------------------------
+    // Internal-wrapping helper methods
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_health_check() {
+        let err = MessagingError::health_check("check failed");
+        assert!(matches!(err, MessagingError::Internal { .. }));
+        let display = format!("{err}");
+        assert!(display.contains("health_check:"));
+        assert!(display.contains("check failed"));
+    }
+
+    #[test]
+    fn test_invalid_receipt_handle() {
+        let err = MessagingError::invalid_receipt_handle("handle123");
+        assert!(matches!(err, MessagingError::Internal { .. }));
+        let display = format!("{err}");
+        assert!(display.contains("Invalid receipt handle"));
+        assert!(display.contains("handle123"));
+    }
+
+    #[test]
+    fn test_message_not_found() {
+        let err = MessagingError::message_not_found("msg42");
+        assert!(matches!(err, MessagingError::Internal { .. }));
+        let display = format!("{err}");
+        assert!(display.contains("Message not found"));
+        assert!(display.contains("msg42"));
+    }
+
+    // ---------------------------------------------------------------
+    // Conversion tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_serde_json_non_syntax_error_converts_to_serialization() {
+        // Deserializing a JSON string into u32 produces a "data" error, not a syntax error
+        let serde_err = serde_json::from_str::<u32>("\"not_a_number\"").unwrap_err();
+        assert!(!serde_err.is_syntax(), "expected a non-syntax serde error");
+        let messaging_err: MessagingError = serde_err.into();
+        assert!(matches!(
+            messaging_err,
+            MessagingError::MessageSerialization { .. }
+        ));
+    }
+
+    #[test]
+    fn test_from_string_converts_to_internal() {
+        let err: MessagingError = String::from("something went wrong").into();
+        assert!(matches!(
+            err,
+            MessagingError::Internal { ref message } if message == "something went wrong"
+        ));
+    }
+
+    #[test]
+    fn test_from_circuit_breaker_error_circuit_open() {
+        use crate::resilience::CircuitBreakerError;
+
+        let cb_err: CircuitBreakerError<MessagingError> = CircuitBreakerError::CircuitOpen {
+            component: "db_pool".to_string(),
+        };
+        let messaging_err: MessagingError = cb_err.into();
+        assert!(matches!(
+            messaging_err,
+            MessagingError::CircuitBreakerOpen { ref component } if component == "db_pool"
+        ));
+    }
+
+    #[test]
+    fn test_from_circuit_breaker_error_operation_failed() {
+        use crate::resilience::CircuitBreakerError;
+
+        let inner = MessagingError::database_connection("pool lost");
+        let cb_err: CircuitBreakerError<MessagingError> =
+            CircuitBreakerError::OperationFailed(inner);
+        let messaging_err: MessagingError = cb_err.into();
+        assert!(matches!(
+            messaging_err,
+            MessagingError::DatabaseConnection { ref message } if message == "pool lost"
+        ));
+    }
+
+    #[test]
+    fn test_from_circuit_breaker_error_configuration_error() {
+        use crate::resilience::CircuitBreakerError;
+
+        let cb_err: CircuitBreakerError<MessagingError> =
+            CircuitBreakerError::ConfigurationError("bad threshold".to_string());
+        let messaging_err: MessagingError = cb_err.into();
+        assert!(matches!(
+            messaging_err,
+            MessagingError::Configuration {
+                ref component,
+                ref message
+            } if component == "circuit_breaker" && message == "bad threshold"
+        ));
+    }
 }

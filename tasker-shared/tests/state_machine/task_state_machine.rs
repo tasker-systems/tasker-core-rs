@@ -4,8 +4,6 @@
 //! for automatic database isolation.
 
 use sqlx::PgPool;
-use tasker_shared::events::publisher::EventPublisher;
-use tasker_shared::models::Task;
 use tasker_shared::state_machine::events::TaskEvent;
 use tasker_shared::state_machine::states::TaskState;
 use tasker_shared::state_machine::task_state_machine::TaskStateMachine;
@@ -13,24 +11,30 @@ use uuid::Uuid;
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_state_transitions(pool: PgPool) -> sqlx::Result<()> {
-    // Test valid transitions
-    let sm = create_test_state_machine(pool);
+    // Test valid transitions using for_task constructor
+    let sm = create_test_state_machine(pool.clone()).await;
 
+    // Pending -> Initializing (via Start)
     assert_eq!(
         sm.determine_target_state(TaskState::Pending, &TaskEvent::Start)
             .unwrap(),
-        TaskState::InProgress
+        TaskState::Initializing
     );
 
+    // StepsInProcess -> Complete (via legacy Complete event)
     assert_eq!(
-        sm.determine_target_state(TaskState::InProgress, &TaskEvent::Complete)
+        sm.determine_target_state(TaskState::StepsInProcess, &TaskEvent::Complete)
             .unwrap(),
         TaskState::Complete
     );
 
+    // StepsInProcess -> Error (via Fail event)
     assert_eq!(
-        sm.determine_target_state(TaskState::InProgress, &TaskEvent::Fail("error".to_string()))
-            .unwrap(),
+        sm.determine_target_state(
+            TaskState::StepsInProcess,
+            &TaskEvent::Fail("error".to_string())
+        )
+        .unwrap(),
         TaskState::Error
     );
 
@@ -39,7 +43,7 @@ async fn test_state_transitions(pool: PgPool) -> sqlx::Result<()> {
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
-    let sm = create_test_state_machine(pool);
+    let sm = create_test_state_machine(pool.clone()).await;
 
     // Cannot start from complete state
     assert!(sm
@@ -57,7 +61,7 @@ async fn test_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_state_machine_creation(pool: PgPool) -> sqlx::Result<()> {
     // Test that we can create a state machine instance
-    let sm = create_test_state_machine(pool);
+    let sm = create_test_state_machine(pool.clone()).await;
 
     // Basic validation that the state machine is created with expected values
     assert!(
@@ -79,45 +83,23 @@ async fn test_state_machine_creation(pool: PgPool) -> sqlx::Result<()> {
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_properties(pool: PgPool) -> sqlx::Result<()> {
-    let sm = create_test_state_machine(pool);
+    let sm = create_test_state_machine(pool.clone()).await;
 
-    // Test task property access
+    // Test task property access - for_task creates a minimal task with placeholder values
     let task = sm.task();
-    assert_eq!(task.initiator.as_deref(), Some("test"));
-    assert_eq!(task.source_system.as_deref(), Some("test_system"));
-    assert_eq!(task.reason.as_deref(), Some("test reason"));
-    assert_eq!(task.identity_hash, "test_hash");
+    assert_eq!(task.identity_hash, "placeholder");
+    assert_eq!(task.priority, 0);
+    assert!(!task.complete);
 
     Ok(())
 }
 
-fn create_test_state_machine(pool: PgPool) -> TaskStateMachine {
-    use chrono::NaiveDateTime;
+async fn create_test_state_machine(pool: PgPool) -> TaskStateMachine {
+    let task_uuid = Uuid::now_v7();
+    let processor_uuid = Uuid::now_v7();
 
-    // Use static timestamp instead of Utc::now()
-    let static_timestamp =
-        NaiveDateTime::parse_from_str("2023-01-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-
-    let task = Task {
-        task_uuid: Uuid::now_v7(),
-        named_task_uuid: Uuid::now_v7(),
-        complete: false,
-        requested_at: static_timestamp,
-        initiator: Some("test".to_string()),
-        source_system: Some("test_system".to_string()),
-        reason: Some("test reason".to_string()),
-
-        tags: None,
-        context: Some(serde_json::json!({})),
-        identity_hash: "test_hash".to_string(),
-        priority: 5,
-
-        correlation_id: Uuid::now_v7(),
-        parent_correlation_id: None,
-        created_at: static_timestamp,
-        updated_at: static_timestamp,
-    };
-
-    // Use the public constructor with provided pool
-    TaskStateMachine::new(task, pool, EventPublisher::default())
+    // Use the for_task constructor which takes simpler arguments
+    TaskStateMachine::for_task(task_uuid, pool, processor_uuid)
+        .await
+        .expect("should create task state machine")
 }

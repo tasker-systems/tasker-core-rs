@@ -359,3 +359,65 @@ pub fn record_evaluation_error(error_type: &str) {
         counter.add(1, &[KeyValue::new("error_type", error_type.to_string())]);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_init_does_not_panic() {
+        init();
+    }
+
+    #[test]
+    fn test_counter_factories() {
+        let _c = health_evaluations_total();
+        let _c = backpressure_activations_total();
+        let _c = health_evaluation_errors_total();
+    }
+
+    #[test]
+    fn test_gauge_factories() {
+        let _g = backpressure_active();
+        let _g = queue_depth_current();
+        let _g = queue_depth_tier();
+        let _g = channel_saturation_percent();
+        let _g = database_connected();
+        let _g = circuit_breaker_failures();
+    }
+
+    #[test]
+    fn test_histogram_factories() {
+        let _h = health_evaluation_duration();
+        let _h = database_check_duration();
+    }
+
+    #[test]
+    fn test_record_evaluation_cycle_does_not_panic() {
+        // The helper function guards each static with `if let Some()`,
+        // so calling it without prior init() should not panic.
+        let queue_depths = vec![
+            ("orchestration_step_results".to_string(), 42_i64),
+            ("worker_queue".to_string(), 7_i64),
+        ];
+        record_evaluation_cycle(
+            12.5,                    // duration_ms
+            true,                    // is_backpressure_active
+            Some("circuit_breaker"), // backpressure_source
+            true,                    // db_connected
+            Some(3.2),               // db_check_duration_ms
+            0,                       // cb_failures
+            25.0,                    // channel_saturation
+            1,                       // queue_tier_value
+            &queue_depths,           // queue_depths
+        );
+    }
+
+    #[test]
+    fn test_record_evaluation_error_does_not_panic() {
+        // Same guard pattern -- should not panic even without statics initialized
+        record_evaluation_error("database");
+        record_evaluation_error("channel");
+        record_evaluation_error("queue");
+    }
+}

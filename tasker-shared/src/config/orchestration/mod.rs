@@ -143,3 +143,51 @@ impl OrchestrationSystemConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_orchestration_config_default_values() {
+        let config = OrchestrationConfig::default();
+        assert_eq!(config.mode, "standalone");
+        assert!(!config.enable_performance_logging);
+    }
+
+    #[test]
+    fn test_orchestration_config_web_config() {
+        let config = OrchestrationConfig::default();
+        let web = config.web_config();
+        // web_config returns a clone of the web field
+        assert_eq!(web.enabled, config.web.enabled);
+    }
+
+    #[test]
+    fn test_orchestration_config_web_enabled() {
+        let mut config = OrchestrationConfig::default();
+        // Default web config has enabled field from WebConfig::default()
+        let default_enabled = config.web_enabled();
+
+        // Verify web_enabled reflects the web.enabled field
+        config.web.enabled = !default_enabled;
+        assert_eq!(config.web_enabled(), !default_enabled);
+    }
+
+    #[test]
+    fn test_orchestration_system_config_default_generates_id() {
+        let config = OrchestrationSystemConfig::default();
+        assert!(config.orchestrator_id.starts_with("orchestrator-"));
+        assert!(!config.enable_performance_logging);
+    }
+
+    #[test]
+    fn test_orchestration_system_config_unique_ids() {
+        let config1 = OrchestrationSystemConfig::default();
+        // Small delay to ensure different timestamp
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let config2 = OrchestrationSystemConfig::default();
+        // IDs should differ (based on timestamp)
+        assert_ne!(config1.orchestrator_id, config2.orchestrator_id);
+    }
+}

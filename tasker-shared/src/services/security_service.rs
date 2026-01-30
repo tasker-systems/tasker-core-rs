@@ -292,3 +292,181 @@ impl SecurityService {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===================================================================
+    // 1. parse_algorithm() — all supported algorithms + unknown
+    // ===================================================================
+    #[test]
+    fn test_parse_algorithm_rs256() {
+        let alg = SecurityService::parse_algorithm("RS256");
+        assert_eq!(alg, Some(jsonwebtoken::Algorithm::RS256));
+    }
+
+    #[test]
+    fn test_parse_algorithm_rs384() {
+        let alg = SecurityService::parse_algorithm("RS384");
+        assert_eq!(alg, Some(jsonwebtoken::Algorithm::RS384));
+    }
+
+    #[test]
+    fn test_parse_algorithm_rs512() {
+        let alg = SecurityService::parse_algorithm("RS512");
+        assert_eq!(alg, Some(jsonwebtoken::Algorithm::RS512));
+    }
+
+    #[test]
+    fn test_parse_algorithm_es256() {
+        let alg = SecurityService::parse_algorithm("ES256");
+        assert_eq!(alg, Some(jsonwebtoken::Algorithm::ES256));
+    }
+
+    #[test]
+    fn test_parse_algorithm_es384() {
+        let alg = SecurityService::parse_algorithm("ES384");
+        assert_eq!(alg, Some(jsonwebtoken::Algorithm::ES384));
+    }
+
+    #[test]
+    fn test_parse_algorithm_ps256() {
+        let alg = SecurityService::parse_algorithm("PS256");
+        assert_eq!(alg, Some(jsonwebtoken::Algorithm::PS256));
+    }
+
+    #[test]
+    fn test_parse_algorithm_ps384() {
+        let alg = SecurityService::parse_algorithm("PS384");
+        assert_eq!(alg, Some(jsonwebtoken::Algorithm::PS384));
+    }
+
+    #[test]
+    fn test_parse_algorithm_ps512() {
+        let alg = SecurityService::parse_algorithm("PS512");
+        assert_eq!(alg, Some(jsonwebtoken::Algorithm::PS512));
+    }
+
+    #[test]
+    fn test_parse_algorithm_unknown_returns_none() {
+        assert_eq!(SecurityService::parse_algorithm("HS256"), None);
+        assert_eq!(SecurityService::parse_algorithm("HS384"), None);
+        assert_eq!(SecurityService::parse_algorithm("none"), None);
+        assert_eq!(SecurityService::parse_algorithm(""), None);
+    }
+
+    // ===================================================================
+    // 2. claims_to_context() — maps TokenClaims to SecurityContext
+    // ===================================================================
+    #[test]
+    fn test_claims_to_context_maps_fields_correctly() {
+        let claims = TokenClaims {
+            sub: "worker-42".to_string(),
+            worker_namespaces: vec!["production".to_string()],
+            iss: "tasker-core-test".to_string(),
+            aud: "tasker-api-test".to_string(),
+            exp: 1_700_000_000,
+            iat: 1_699_990_000,
+            permissions: vec!["tasks:read".to_string(), "tasks:create".to_string()],
+        };
+
+        let ctx = SecurityService::claims_to_context(claims);
+
+        assert_eq!(ctx.subject, "worker-42");
+        assert_eq!(ctx.auth_method, AuthMethod::Jwt);
+        assert_eq!(ctx.permissions, vec!["tasks:read", "tasks:create"]);
+        assert_eq!(ctx.issuer, Some("tasker-core-test".to_string()));
+        assert_eq!(ctx.expires_at, Some(1_700_000_000));
+    }
+
+    #[test]
+    fn test_claims_to_context_empty_permissions() {
+        let claims = TokenClaims {
+            sub: "svc-empty".to_string(),
+            worker_namespaces: vec![],
+            iss: "issuer".to_string(),
+            aud: "audience".to_string(),
+            exp: 0,
+            iat: 0,
+            permissions: vec![],
+        };
+
+        let ctx = SecurityService::claims_to_context(claims);
+
+        assert_eq!(ctx.subject, "svc-empty");
+        assert!(ctx.permissions.is_empty());
+        assert_eq!(ctx.auth_method, AuthMethod::Jwt);
+    }
+
+    // ===================================================================
+    // 3. Disabled auth from_config()
+    // ===================================================================
+    #[tokio::test]
+    async fn test_from_config_disabled_returns_service_not_enabled() {
+        let config = AuthConfig::builder().enabled(false).build();
+
+        let service = SecurityService::from_config(&config)
+            .await
+            .expect("should build disabled service");
+
+        assert!(!service.is_enabled());
+        assert!(service.jwt_authenticator.is_none());
+        assert!(service.jwks_store.is_none());
+        assert!(service.api_key_registry.is_none());
+    }
+
+    // ===================================================================
+    // 4. Getters: is_enabled(), strict_validation(), api_key_header()
+    // ===================================================================
+    #[tokio::test]
+    async fn test_is_enabled_reflects_config() {
+        let disabled = AuthConfig::builder().enabled(false).build();
+        let service = SecurityService::from_config(&disabled)
+            .await
+            .expect("disabled service");
+        assert!(!service.is_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_strict_validation_reflects_config() {
+        let strict_on = AuthConfig::builder()
+            .enabled(false)
+            .strict_validation(true)
+            .build();
+        let service = SecurityService::from_config(&strict_on)
+            .await
+            .expect("service");
+        assert!(service.strict_validation());
+
+        let strict_off = AuthConfig::builder()
+            .enabled(false)
+            .strict_validation(false)
+            .build();
+        let service2 = SecurityService::from_config(&strict_off)
+            .await
+            .expect("service");
+        assert!(!service2.strict_validation());
+    }
+
+    #[tokio::test]
+    async fn test_api_key_header_reflects_config() {
+        let config = AuthConfig::builder()
+            .enabled(false)
+            .api_key_header("X-Custom-Key".to_string())
+            .build();
+        let service = SecurityService::from_config(&config)
+            .await
+            .expect("service");
+        assert_eq!(service.api_key_header(), "X-Custom-Key");
+    }
+
+    #[tokio::test]
+    async fn test_api_key_header_default_value() {
+        let config = AuthConfig::builder().enabled(false).build();
+        let service = SecurityService::from_config(&config)
+            .await
+            .expect("service");
+        assert_eq!(service.api_key_header(), "X-API-Key");
+    }
+}

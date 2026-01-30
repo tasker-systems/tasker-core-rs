@@ -93,9 +93,11 @@ async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
 
 #[test]
 fn test_helper_methods() {
+    use tasker_shared::models::orchestration::execution_status::ExecutionStatus;
+
     let context = TaskExecutionContext {
-        task_uuid: 1,
-        named_task_uuid: 1,
+        task_uuid: uuid::Uuid::now_v7(),
+        named_task_uuid: uuid::Uuid::now_v7(),
         status: "processing".to_string(),
         total_steps: 10,
         pending_steps: 2,
@@ -103,10 +105,11 @@ fn test_helper_methods() {
         completed_steps: 4,
         failed_steps: 1,
         ready_steps: 2,
-        execution_status: "has_ready_steps".to_string(),
+        execution_status: ExecutionStatus::HasReadySteps,
         recommended_action: None,
         completion_percentage: BigDecimal::from(40),
         health_status: "healthy".to_string(),
+        enqueued_steps: 0,
     };
 
     assert!(context.has_ready_steps());

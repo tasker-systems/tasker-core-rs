@@ -100,3 +100,18 @@ impl From<Arc<TaskerConfig>> for StepResultProcessorConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_step_result_processor_config_default_values() {
+        let config = StepResultProcessorConfig::default();
+        assert_eq!(config.step_results_queue_name, "orchestration_step_results");
+        assert_eq!(config.batch_size, 10);
+        assert_eq!(config.visibility_timeout_seconds, 300);
+        assert_eq!(config.polling_interval_seconds, 1);
+        assert_eq!(config.max_processing_attempts, 3);
+    }
+}

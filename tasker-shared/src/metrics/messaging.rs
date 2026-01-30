@@ -243,3 +243,36 @@ pub fn init() {
     QUEUE_DEPTH.get_or_init(queue_depth);
     QUEUE_OLDEST_MESSAGE_AGE.get_or_init(queue_oldest_message_age);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_init_does_not_panic() {
+        init();
+    }
+
+    #[test]
+    fn test_counter_factories() {
+        let _c = messages_sent_total();
+        let _c = messages_received_total();
+        let _c = messages_archived_total();
+        let _c = message_send_failures_total();
+        let _c = message_receive_failures_total();
+    }
+
+    #[test]
+    fn test_histogram_factories() {
+        let _h = message_latency();
+        let _h = message_send_duration();
+        let _h = message_receive_duration();
+        let _h = message_archive_duration();
+    }
+
+    #[test]
+    fn test_gauge_factories() {
+        let _g = queue_depth();
+        let _g = queue_oldest_message_age();
+    }
+}

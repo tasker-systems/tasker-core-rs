@@ -139,6 +139,8 @@ brew "grpcurl"
 # hyperfine - Command-line benchmarking tool
 brew "hyperfine"
 
+# sccache - Local caching compiler backend
+brew "sccache"
 
 # -----------------------------------------------------------------------------
 # Optional: GUI Applications (Casks)

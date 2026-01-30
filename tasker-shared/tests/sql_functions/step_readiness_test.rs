@@ -40,6 +40,7 @@ mod tests {
                 task_uuid,
                 to_state: "pending".to_string(),
                 from_state: None,
+                processor_uuid: None,
                 metadata: None,
             },
         )
@@ -219,25 +220,40 @@ mod tests {
         .execute(&pool)
         .await?;
 
-        // Back-date the error transition to be past the exponential backoff period
+        // Back-date the error transition so that next_retry_time is in the past.
+        // The last_failures CTE picks up the most recent error transition's created_at,
+        // which feeds calculate_step_next_retry_time. With attempts=1, the fallback
+        // computes: failure_time + power(2, 1) seconds = failure_time + 2s.
+        // We back-date to 120 seconds ago so the retry window is well past.
         sqlx::query!(
             "UPDATE tasker.workflow_step_transitions
-             SET created_at = NOW() - INTERVAL '5 seconds'
-             WHERE workflow_step_uuid = $1 AND to_state = 'error' AND most_recent = true",
+             SET created_at = NOW() - INTERVAL '120 seconds'
+             WHERE workflow_step_uuid = $1 AND to_state = 'error'",
             step_uuids[1]
         )
         .execute(&pool)
         .await?;
 
+        // Transition the step from error to waiting_for_retry state.
+        // The SQL function evaluate_step_state_readiness only considers steps
+        // in 'pending' or 'waiting_for_retry' states as candidates for execution.
+        WorkflowStepTransitionFactory::new()
+            .for_workflow_step(step_uuids[1])
+            .from_state("error")
+            .to_state("waiting_for_retry")
+            .create(&pool)
+            .await
+            .map_err(map_factory_error)?;
+
         let readiness = StepReadinessStatus::get_for_task(&pool, task_uuid).await?;
 
-        // Find the error step
+        // Find the step that is now in waiting_for_retry state
         let error_step = readiness
             .iter()
             .find(|s| s.workflow_step_uuid == step_uuids[1])
             .unwrap();
 
-        assert_eq!(error_step.current_state, "error");
+        assert_eq!(error_step.current_state, "waiting_for_retry");
         assert!(error_step.retry_eligible);
         assert!(error_step.ready_for_execution); // Ready to retry
         assert_eq!(error_step.attempts, 1);

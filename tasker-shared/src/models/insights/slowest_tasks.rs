@@ -261,3 +261,196 @@ impl SlowestTasks {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    fn make_default_task() -> SlowestTasks {
+        SlowestTasks {
+            task_uuid: Uuid::nil(),
+            task_name: "test_task".to_string(),
+            namespace_name: "default".to_string(),
+            version: "1.0.0".to_string(),
+            duration_seconds: BigDecimal::from_str("120.5").unwrap(),
+            step_count: 10,
+            completed_steps: 8,
+            error_steps: 0,
+            created_at: NaiveDateTime::parse_from_str("2024-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
+            completed_at: Some(
+                NaiveDateTime::parse_from_str("2024-01-01 00:02:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            ),
+            initiator: Some("user".to_string()),
+            source_system: Some("api".to_string()),
+        }
+    }
+
+    #[test]
+    fn test_filter_default_values() {
+        let filter = SlowestTasksFilter::default();
+        assert!(filter.since_timestamp.is_none());
+        assert_eq!(filter.limit_count, Some(10));
+        assert!(filter.namespace_filter.is_none());
+        assert!(filter.task_name_filter.is_none());
+        assert!(filter.version_filter.is_none());
+    }
+
+    #[test]
+    fn test_duration_as_seconds() {
+        let task = make_default_task();
+        assert_eq!(task.duration_as_seconds(), 120.5);
+    }
+
+    #[test]
+    fn test_completion_ratio() {
+        let task = make_default_task();
+        assert_eq!(task.completion_ratio(), 0.8);
+    }
+
+    #[test]
+    fn test_completion_ratio_zero_steps() {
+        let mut task = make_default_task();
+        task.step_count = 0;
+        assert_eq!(task.completion_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_error_ratio() {
+        let mut task = make_default_task();
+        task.error_steps = 2;
+        assert_eq!(task.error_ratio(), 0.2);
+    }
+
+    #[test]
+    fn test_error_ratio_zero_steps() {
+        let mut task = make_default_task();
+        task.step_count = 0;
+        assert_eq!(task.error_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_is_running_true() {
+        let mut task = make_default_task();
+        task.completed_at = None;
+        assert!(task.is_running());
+    }
+
+    #[test]
+    fn test_is_running_false() {
+        let task = make_default_task();
+        assert!(!task.is_running());
+    }
+
+    #[test]
+    fn test_completed_successfully_true() {
+        let mut task = make_default_task();
+        task.step_count = 10;
+        task.completed_steps = 10;
+        task.error_steps = 0;
+        // completed_at is Some from default
+        assert!(task.completed_successfully());
+    }
+
+    #[test]
+    fn test_completed_successfully_false_with_errors() {
+        let mut task = make_default_task();
+        task.step_count = 10;
+        task.completed_steps = 8;
+        task.error_steps = 2;
+        assert!(!task.completed_successfully());
+    }
+
+    #[test]
+    fn test_has_errors_true() {
+        let mut task = make_default_task();
+        task.error_steps = 1;
+        assert!(task.has_errors());
+    }
+
+    #[test]
+    fn test_has_errors_false() {
+        let task = make_default_task();
+        assert!(!task.has_errors());
+    }
+
+    #[test]
+    fn test_pending_steps() {
+        let mut task = make_default_task();
+        task.step_count = 10;
+        task.completed_steps = 6;
+        task.error_steps = 2;
+        assert_eq!(task.pending_steps(), 2);
+    }
+
+    #[test]
+    fn test_duration_display_seconds() {
+        let mut task = make_default_task();
+        task.duration_seconds = BigDecimal::from_str("30.5").unwrap();
+        assert_eq!(task.duration_display(), "30.5s");
+    }
+
+    #[test]
+    fn test_duration_display_minutes() {
+        let mut task = make_default_task();
+        task.duration_seconds = BigDecimal::from_str("150.0").unwrap();
+        assert_eq!(task.duration_display(), "2.5m");
+    }
+
+    #[test]
+    fn test_duration_display_hours() {
+        let mut task = make_default_task();
+        task.duration_seconds = BigDecimal::from_str("7200.0").unwrap();
+        assert_eq!(task.duration_display(), "2.0h");
+    }
+
+    #[test]
+    fn test_duration_display_days() {
+        let mut task = make_default_task();
+        task.duration_seconds = BigDecimal::from_str("172800.0").unwrap();
+        assert_eq!(task.duration_display(), "2.0d");
+    }
+
+    #[test]
+    fn test_completion_display() {
+        let task = make_default_task();
+        assert_eq!(task.completion_display(), "80.0%");
+    }
+
+    #[test]
+    fn test_status_summary_completed() {
+        let mut task = make_default_task();
+        task.step_count = 10;
+        task.completed_steps = 10;
+        task.error_steps = 0;
+        assert_eq!(task.status_summary(), "Completed");
+    }
+
+    #[test]
+    fn test_status_summary_errors() {
+        let mut task = make_default_task();
+        task.error_steps = 2;
+        assert_eq!(task.status_summary(), "Errors (2 failed)");
+    }
+
+    #[test]
+    fn test_status_summary_running() {
+        let mut task = make_default_task();
+        task.completed_at = None;
+        task.error_steps = 0;
+        task.step_count = 10;
+        task.completed_steps = 5;
+        assert_eq!(task.status_summary(), "Running (50.0%)");
+    }
+
+    #[test]
+    fn test_status_summary_unknown() {
+        let mut task = make_default_task();
+        // completed_at is Some, but completed_steps != step_count, and no errors
+        task.step_count = 10;
+        task.completed_steps = 5;
+        task.error_steps = 0;
+        assert_eq!(task.status_summary(), "Unknown");
+    }
+}

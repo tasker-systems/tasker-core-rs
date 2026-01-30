@@ -85,3 +85,17 @@ impl From<Arc<TaskerConfig>> for StepEnqueuerConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_step_enqueuer_config_default_values() {
+        let config = StepEnqueuerConfig::default();
+        assert_eq!(config.max_steps_per_task, 100);
+        assert_eq!(config.enqueue_delay_seconds, 0);
+        assert!(!config.enable_detailed_logging);
+        assert_eq!(config.enqueue_timeout_seconds, 30);
+    }
+}

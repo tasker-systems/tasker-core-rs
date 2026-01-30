@@ -333,3 +333,158 @@ impl StepReadinessStatus {
         self.current_state == "error"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a default StepReadinessStatus for reuse in tests.
+    fn default_readiness_status() -> StepReadinessStatus {
+        StepReadinessStatus {
+            workflow_step_uuid: Uuid::nil(),
+            task_uuid: Uuid::nil(),
+            named_step_uuid: Uuid::nil(),
+            name: "test_step".to_string(),
+            current_state: "pending".to_string(),
+            dependencies_satisfied: true,
+            retry_eligible: false,
+            ready_for_execution: false,
+            last_failure_at: None,
+            next_retry_at: None,
+            total_parents: 0,
+            completed_parents: 0,
+            attempts: 0,
+            max_attempts: 3,
+            backoff_request_seconds: None,
+            last_attempted_at: None,
+        }
+    }
+
+    // ---- is_ready ----
+
+    #[test]
+    fn test_is_ready_true() {
+        let mut status = default_readiness_status();
+        status.ready_for_execution = true;
+        assert!(
+            status.is_ready(),
+            "Should be ready when ready_for_execution is true"
+        );
+    }
+
+    #[test]
+    fn test_is_ready_false() {
+        let status = default_readiness_status();
+        assert!(
+            !status.is_ready(),
+            "Should not be ready when ready_for_execution is false"
+        );
+    }
+
+    // ---- is_blocked ----
+
+    #[test]
+    fn test_is_blocked_true() {
+        let mut status = default_readiness_status();
+        status.dependencies_satisfied = false;
+        assert!(
+            status.is_blocked(),
+            "Should be blocked when dependencies_satisfied is false"
+        );
+    }
+
+    #[test]
+    fn test_is_blocked_false() {
+        let status = default_readiness_status();
+        assert!(
+            !status.is_blocked(),
+            "Should not be blocked when dependencies_satisfied is true"
+        );
+    }
+
+    // ---- can_retry ----
+
+    #[test]
+    fn test_can_retry_true() {
+        let mut status = default_readiness_status();
+        status.retry_eligible = true;
+        assert!(
+            status.can_retry(),
+            "Should be retryable when retry_eligible is true"
+        );
+    }
+
+    #[test]
+    fn test_can_retry_false() {
+        let status = default_readiness_status();
+        assert!(
+            !status.can_retry(),
+            "Should not be retryable when retry_eligible is false"
+        );
+    }
+
+    // ---- is_processing ----
+
+    #[test]
+    fn test_is_processing_true() {
+        let mut status = default_readiness_status();
+        status.current_state = "in_progress".to_string();
+        assert!(
+            status.is_processing(),
+            "Should be processing when current_state is in_progress"
+        );
+    }
+
+    #[test]
+    fn test_is_processing_false() {
+        let status = default_readiness_status();
+        assert!(
+            !status.is_processing(),
+            "Should not be processing when current_state is pending"
+        );
+    }
+
+    // ---- is_complete ----
+
+    #[test]
+    fn test_is_complete_true() {
+        let mut status = default_readiness_status();
+        status.current_state = "complete".to_string();
+        assert!(
+            status.is_complete(),
+            "Should be complete when current_state is complete"
+        );
+    }
+
+    #[test]
+    fn test_is_complete_false() {
+        let mut status = default_readiness_status();
+        status.current_state = "error".to_string();
+        assert!(
+            !status.is_complete(),
+            "Should not be complete when current_state is error"
+        );
+    }
+
+    // ---- has_failed ----
+
+    #[test]
+    fn test_has_failed_true() {
+        let mut status = default_readiness_status();
+        status.current_state = "error".to_string();
+        assert!(
+            status.has_failed(),
+            "Should have failed when current_state is error"
+        );
+    }
+
+    #[test]
+    fn test_has_failed_false() {
+        let mut status = default_readiness_status();
+        status.current_state = "complete".to_string();
+        assert!(
+            !status.has_failed(),
+            "Should not have failed when current_state is complete"
+        );
+    }
+}

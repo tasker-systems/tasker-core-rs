@@ -20,9 +20,8 @@ async fn test_get_system_health_counts(pool: PgPool) -> sqlx::Result<()> {
         let _health_status = h.health_status();
         let _is_healthy = h.is_healthy();
         let _high_errors = h.has_high_error_rate();
-        let _pool_stressed = h.connection_pool_stressed();
+        let _pool_stressed = h.has_connection_pressure();
         let _active_work = h.active_work_count();
-        let _blocked_work = h.blocked_work_count();
     }
 
     Ok(())
@@ -54,15 +53,19 @@ fn test_health_calculations() {
         cancelled_tasks: 0,
         total_steps: 500,
         pending_steps: 50,
+        enqueued_steps: 2,
         in_progress_steps: 100,
+        enqueued_for_orchestration_steps: 0,
+        enqueued_as_error_for_orchestration_steps: 0,
+        waiting_for_retry_steps: 10,
         complete_steps: 300,
         error_steps: 40,
+        cancelled_steps: 0,
+        resolved_manually_steps: 0,
         retryable_error_steps: 30,
         exhausted_retry_steps: 10,
-        in_backoff_steps: 10,
         active_connections: 8,
         max_connections: 10,
-        enqueued_steps: 2,
     };
 
     assert_eq!(health.task_completion_rate(), 0.6);
@@ -75,6 +78,6 @@ fn test_health_calculations() {
     assert!(health_score > 0.0 && health_score <= 100.0);
 
     assert!(!health.health_status().is_empty());
+    // active_work_count = in_progress_tasks(20) + in_progress_steps(100) = 120
     assert_eq!(health.active_work_count(), 120);
-    assert_eq!(health.blocked_work_count(), 70);
 }

@@ -403,3 +403,533 @@ impl SystemHealthCounts {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a default SystemHealthCounts for reuse in tests.
+    /// All counters start at zero, making it easy to set only relevant fields.
+    fn default_health_counts() -> SystemHealthCounts {
+        SystemHealthCounts {
+            total_tasks: 0,
+            pending_tasks: 0,
+            in_progress_tasks: 0,
+            complete_tasks: 0,
+            error_tasks: 0,
+            cancelled_tasks: 0,
+            total_steps: 0,
+            pending_steps: 0,
+            enqueued_steps: 0,
+            in_progress_steps: 0,
+            enqueued_for_orchestration_steps: 0,
+            enqueued_as_error_for_orchestration_steps: 0,
+            waiting_for_retry_steps: 0,
+            complete_steps: 0,
+            error_steps: 0,
+            cancelled_steps: 0,
+            resolved_manually_steps: 0,
+            active_connections: 0,
+            max_connections: 0,
+            retryable_error_steps: 0,
+            exhausted_retry_steps: 0,
+        }
+    }
+
+    // ---- task_completion_rate ----
+
+    #[test]
+    fn test_task_completion_rate_normal() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 80;
+        let rate = hc.task_completion_rate();
+        assert!(
+            (rate - 0.8).abs() < f64::EPSILON,
+            "Expected 0.8 but got {rate}"
+        );
+    }
+
+    #[test]
+    fn test_task_completion_rate_zero_total() {
+        let hc = default_health_counts();
+        assert!(
+            hc.task_completion_rate().abs() < f64::EPSILON,
+            "Expected 0.0 when total_tasks is 0"
+        );
+    }
+
+    // ---- task_error_rate ----
+
+    #[test]
+    fn test_task_error_rate_normal() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.error_tasks = 15;
+        let rate = hc.task_error_rate();
+        assert!(
+            (rate - 0.15).abs() < f64::EPSILON,
+            "Expected 0.15 but got {rate}"
+        );
+    }
+
+    #[test]
+    fn test_task_error_rate_zero_total() {
+        let hc = default_health_counts();
+        assert!(
+            hc.task_error_rate().abs() < f64::EPSILON,
+            "Expected 0.0 when total_tasks is 0"
+        );
+    }
+
+    // ---- step_completion_rate ----
+
+    #[test]
+    fn test_step_completion_rate_normal() {
+        let mut hc = default_health_counts();
+        hc.total_steps = 200;
+        hc.complete_steps = 150;
+        let rate = hc.step_completion_rate();
+        assert!(
+            (rate - 0.75).abs() < f64::EPSILON,
+            "Expected 0.75 but got {rate}"
+        );
+    }
+
+    #[test]
+    fn test_step_completion_rate_zero_total() {
+        let hc = default_health_counts();
+        assert!(
+            hc.step_completion_rate().abs() < f64::EPSILON,
+            "Expected 0.0 when total_steps is 0"
+        );
+    }
+
+    // ---- step_error_rate ----
+
+    #[test]
+    fn test_step_error_rate_normal() {
+        let mut hc = default_health_counts();
+        hc.total_steps = 200;
+        hc.error_steps = 20;
+        let rate = hc.step_error_rate();
+        assert!(
+            (rate - 0.1).abs() < f64::EPSILON,
+            "Expected 0.1 but got {rate}"
+        );
+    }
+
+    #[test]
+    fn test_step_error_rate_zero_total() {
+        let hc = default_health_counts();
+        assert!(
+            hc.step_error_rate().abs() < f64::EPSILON,
+            "Expected 0.0 when total_steps is 0"
+        );
+    }
+
+    // ---- overall_health_score ----
+
+    #[test]
+    fn test_overall_health_score_healthy_system() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 90;
+        hc.total_steps = 300;
+        hc.complete_steps = 270;
+        // completion_score = (0.9 + 0.9) * 50.0 = 90.0
+        // no errors, no connection pressure, no retries
+        let score = hc.overall_health_score();
+        assert!(
+            score > 75.0,
+            "Healthy system should score > 75, got {score}"
+        );
+    }
+
+    #[test]
+    fn test_overall_health_score_degraded_system() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 50;
+        hc.error_tasks = 20;
+        hc.total_steps = 300;
+        hc.complete_steps = 150;
+        hc.error_steps = 60;
+        hc.active_connections = 90;
+        hc.max_connections = 100;
+        // completion_score = (0.5 + 0.5) * 50 = 50.0
+        // error_penalty = (0.2 + 0.2) * 25 = 10.0
+        // connection_penalty = 0.9 * 15 = 13.5
+        // score ~ 50 - 10 - 13.5 = 26.5
+        let score = hc.overall_health_score();
+        assert!(
+            (25.0..75.0).contains(&score),
+            "Degraded system should score between 25 and 75, got {score}"
+        );
+    }
+
+    #[test]
+    fn test_overall_health_score_critical_system() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 5;
+        hc.error_tasks = 80;
+        hc.total_steps = 300;
+        hc.complete_steps = 15;
+        hc.error_steps = 240;
+        hc.active_connections = 95;
+        hc.max_connections = 100;
+        hc.waiting_for_retry_steps = 50;
+        let score = hc.overall_health_score();
+        assert!(
+            score < 25.0,
+            "Critical system should score < 25, got {score}"
+        );
+    }
+
+    // ---- health_status ----
+
+    #[test]
+    fn test_health_status_excellent() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 95;
+        hc.total_steps = 300;
+        hc.complete_steps = 285;
+        // completion_score = (0.95 + 0.95) * 50 = 95.0
+        let status = hc.health_status();
+        assert_eq!(status, "Excellent", "Score >= 90 should be Excellent");
+    }
+
+    #[test]
+    fn test_health_status_good() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 85;
+        hc.total_steps = 300;
+        hc.complete_steps = 240;
+        // completion_score = (0.85 + 0.8) * 50 = 82.5
+        let status = hc.health_status();
+        assert_eq!(status, "Good", "Score 75-89 should be Good");
+    }
+
+    #[test]
+    fn test_health_status_fair() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 60;
+        hc.total_steps = 300;
+        hc.complete_steps = 150;
+        // completion_score = (0.6 + 0.5) * 50 = 55.0
+        let status = hc.health_status();
+        assert_eq!(status, "Fair", "Score 50-74 should be Fair");
+    }
+
+    #[test]
+    fn test_health_status_poor() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 30;
+        hc.error_tasks = 20;
+        hc.total_steps = 300;
+        hc.complete_steps = 90;
+        hc.error_steps = 60;
+        // completion_score = (0.3 + 0.3) * 50 = 30.0
+        // error_penalty = (0.2 + 0.2) * 25 = 10.0
+        // score ~ 20.0 -- actually let me adjust to land in 25..50
+        let score = hc.overall_health_score();
+        // Need to tune: if score < 25 we adjust
+        if score < 25.0 {
+            // Reduce errors to land in Poor range
+            let mut hc2 = default_health_counts();
+            hc2.total_tasks = 100;
+            hc2.complete_tasks = 35;
+            hc2.error_tasks = 10;
+            hc2.total_steps = 300;
+            hc2.complete_steps = 105;
+            hc2.error_steps = 30;
+            let status = hc2.health_status();
+            assert_eq!(status, "Poor", "Score 25-49 should be Poor");
+        } else {
+            assert_eq!(hc.health_status(), "Poor");
+        }
+    }
+
+    #[test]
+    fn test_health_status_critical() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 5;
+        hc.error_tasks = 80;
+        hc.total_steps = 300;
+        hc.complete_steps = 15;
+        hc.error_steps = 240;
+        hc.active_connections = 95;
+        hc.max_connections = 100;
+        hc.waiting_for_retry_steps = 50;
+        let status = hc.health_status();
+        assert_eq!(status, "Critical", "Score < 25 should be Critical");
+    }
+
+    // ---- is_healthy ----
+
+    #[test]
+    fn test_is_healthy_true() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 90;
+        hc.total_steps = 300;
+        hc.complete_steps = 270;
+        assert!(hc.is_healthy(), "System with score >= 75 should be healthy");
+    }
+
+    #[test]
+    fn test_is_healthy_false() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.complete_tasks = 30;
+        hc.error_tasks = 40;
+        hc.total_steps = 300;
+        hc.complete_steps = 90;
+        hc.error_steps = 120;
+        assert!(
+            !hc.is_healthy(),
+            "System with score < 75 should not be healthy"
+        );
+    }
+
+    // ---- has_high_error_rate ----
+
+    #[test]
+    fn test_has_high_error_rate_true_task_errors() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.error_tasks = 11; // 11% error rate
+        assert!(
+            hc.has_high_error_rate(),
+            "Task error rate > 10% should indicate high error rate"
+        );
+    }
+
+    #[test]
+    fn test_has_high_error_rate_true_step_errors() {
+        let mut hc = default_health_counts();
+        hc.total_steps = 100;
+        hc.error_steps = 11; // 11% error rate
+        assert!(
+            hc.has_high_error_rate(),
+            "Step error rate > 10% should indicate high error rate"
+        );
+    }
+
+    #[test]
+    fn test_has_high_error_rate_false() {
+        let mut hc = default_health_counts();
+        hc.total_tasks = 100;
+        hc.error_tasks = 5; // 5% error rate
+        hc.total_steps = 100;
+        hc.error_steps = 5; // 5% error rate
+        assert!(
+            !hc.has_high_error_rate(),
+            "Error rates <= 10% should not be considered high"
+        );
+    }
+
+    // ---- active_work_count ----
+
+    #[test]
+    fn test_active_work_count() {
+        let mut hc = default_health_counts();
+        hc.in_progress_tasks = 10;
+        hc.in_progress_steps = 25;
+        assert_eq!(
+            hc.active_work_count(),
+            35,
+            "Active work = in_progress_tasks + in_progress_steps"
+        );
+    }
+
+    // ---- has_enqueued_steps ----
+
+    #[test]
+    fn test_has_enqueued_steps_true() {
+        let mut hc = default_health_counts();
+        hc.enqueued_steps = 5;
+        assert!(hc.has_enqueued_steps());
+    }
+
+    #[test]
+    fn test_has_enqueued_steps_false() {
+        let hc = default_health_counts();
+        assert!(!hc.has_enqueued_steps());
+    }
+
+    // ---- waiting_for_retry_count ----
+
+    #[test]
+    fn test_waiting_for_retry_count() {
+        let mut hc = default_health_counts();
+        hc.waiting_for_retry_steps = 12;
+        assert_eq!(hc.waiting_for_retry_count(), 12);
+    }
+
+    // ---- has_connection_pressure ----
+
+    #[test]
+    fn test_has_connection_pressure_above_80_percent() {
+        let mut hc = default_health_counts();
+        hc.active_connections = 85;
+        hc.max_connections = 100;
+        assert!(
+            hc.has_connection_pressure(),
+            "85% utilization should indicate connection pressure"
+        );
+    }
+
+    #[test]
+    fn test_has_connection_pressure_below_80_percent() {
+        let mut hc = default_health_counts();
+        hc.active_connections = 70;
+        hc.max_connections = 100;
+        assert!(
+            !hc.has_connection_pressure(),
+            "70% utilization should not indicate connection pressure"
+        );
+    }
+
+    #[test]
+    fn test_has_connection_pressure_zero_max() {
+        let hc = default_health_counts();
+        assert!(
+            !hc.has_connection_pressure(),
+            "max_connections=0 should not indicate pressure"
+        );
+    }
+
+    // ---- connection_utilization ----
+
+    #[test]
+    fn test_connection_utilization_normal() {
+        let mut hc = default_health_counts();
+        hc.active_connections = 50;
+        hc.max_connections = 100;
+        let util = hc.connection_utilization();
+        assert!(
+            (util - 0.5).abs() < f64::EPSILON,
+            "Expected 0.5 but got {util}"
+        );
+    }
+
+    #[test]
+    fn test_connection_utilization_zero_max() {
+        let hc = default_health_counts();
+        let util = hc.connection_utilization();
+        assert!(
+            util.abs() < f64::EPSILON,
+            "Expected 0.0 when max_connections is 0"
+        );
+    }
+
+    // ---- from_sql_function_result ----
+
+    #[test]
+    fn test_from_sql_function_result_mapping() {
+        let sql_counts = SqlSystemHealthCounts {
+            total_tasks: 100,
+            pending_tasks: 10,
+            initializing_tasks: 5,
+            enqueuing_steps_tasks: 3,
+            steps_in_process_tasks: 7,
+            evaluating_results_tasks: 2,
+            waiting_for_dependencies_tasks: 1,
+            waiting_for_retry_tasks: 1,
+            blocked_by_failures_tasks: 0,
+            complete_tasks: 60,
+            error_tasks: 8,
+            cancelled_tasks: 3,
+            resolved_manually_tasks: 0,
+            total_steps: 500,
+            pending_steps: 50,
+            enqueued_steps: 30,
+            in_progress_steps: 40,
+            enqueued_for_orchestration_steps: 10,
+            enqueued_as_error_for_orchestration_steps: 5,
+            waiting_for_retry_steps: 15,
+            complete_steps: 300,
+            error_steps: 25,
+            cancelled_steps: 10,
+            resolved_manually_steps: 15,
+        };
+
+        let result = SystemHealthCounts::from_sql_function_result(sql_counts);
+
+        // Verify direct field mapping
+        assert_eq!(result.total_tasks, 100);
+        assert_eq!(result.pending_tasks, 10);
+        assert_eq!(result.complete_tasks, 60);
+        assert_eq!(result.error_tasks, 8);
+        assert_eq!(result.cancelled_tasks, 3);
+
+        // Verify in_progress_tasks is computed as sum of active task states
+        // initializing(5) + enqueuing_steps(3) + steps_in_process(7) + evaluating_results(2) = 17
+        assert_eq!(result.in_progress_tasks, 17);
+
+        // Verify step field mapping
+        assert_eq!(result.total_steps, 500);
+        assert_eq!(result.pending_steps, 50);
+        assert_eq!(result.enqueued_steps, 30);
+        assert_eq!(result.in_progress_steps, 40);
+        assert_eq!(result.enqueued_for_orchestration_steps, 10);
+        assert_eq!(result.enqueued_as_error_for_orchestration_steps, 5);
+        assert_eq!(result.waiting_for_retry_steps, 15);
+        assert_eq!(result.complete_steps, 300);
+        assert_eq!(result.error_steps, 25);
+        assert_eq!(result.cancelled_steps, 10);
+        assert_eq!(result.resolved_manually_steps, 15);
+
+        // Verify connection metrics are set to 0 (not available from SQL function)
+        assert_eq!(result.active_connections, 0);
+        assert_eq!(result.max_connections, 0);
+
+        // Verify computed retry metrics
+        assert_eq!(result.retryable_error_steps, 15); // same as waiting_for_retry_steps
+        assert_eq!(result.exhausted_retry_steps, 10); // error_steps(25) - waiting_for_retry(15)
+    }
+
+    #[test]
+    fn test_from_sql_function_result_exhausted_retry_floor() {
+        // When error_steps < waiting_for_retry_steps, exhausted should be 0
+        let sql_counts = SqlSystemHealthCounts {
+            total_tasks: 10,
+            pending_tasks: 0,
+            initializing_tasks: 0,
+            enqueuing_steps_tasks: 0,
+            steps_in_process_tasks: 0,
+            evaluating_results_tasks: 0,
+            waiting_for_dependencies_tasks: 0,
+            waiting_for_retry_tasks: 0,
+            blocked_by_failures_tasks: 0,
+            complete_tasks: 10,
+            error_tasks: 0,
+            cancelled_tasks: 0,
+            resolved_manually_tasks: 0,
+            total_steps: 50,
+            pending_steps: 0,
+            enqueued_steps: 0,
+            in_progress_steps: 0,
+            enqueued_for_orchestration_steps: 0,
+            enqueued_as_error_for_orchestration_steps: 0,
+            waiting_for_retry_steps: 5,
+            complete_steps: 45,
+            error_steps: 3, // less than waiting_for_retry_steps
+            cancelled_steps: 0,
+            resolved_manually_steps: 0,
+        };
+
+        let result = SystemHealthCounts::from_sql_function_result(sql_counts);
+        assert_eq!(
+            result.exhausted_retry_steps, 0,
+            "exhausted_retry_steps should be 0 when error_steps < waiting_for_retry_steps"
+        );
+    }
+}

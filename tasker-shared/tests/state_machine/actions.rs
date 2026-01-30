@@ -3,16 +3,17 @@
 //! These tests verify the behavior of state transition actions.
 //! Since the helper functions are private implementation details,
 //! we test them indirectly through the public action APIs.
+//!
+//! Note: PublishTransitionEventAction and TriggerStepDiscoveryAction are
+//! pub(crate) and cannot be tested from integration tests. They are
+//! tested through the internal unit tests in the state_machine module.
 
 use sqlx::PgPool;
-use tasker_shared::events::publisher::EventPublisher;
 use tasker_shared::models::{Task, WorkflowStep};
 use tasker_shared::state_machine::actions::{
-    ErrorStateCleanupAction, PublishTransitionEventAction, StateAction, TriggerStepDiscoveryAction,
-    UpdateStepResultsAction, UpdateTaskCompletionAction,
+    ErrorStateCleanupAction, StateAction, UpdateStepResultsAction, UpdateTaskCompletionAction,
 };
 use uuid::Uuid;
-// Removed unused imports: timeout, Duration
 
 /// Create a test task
 fn create_test_task() -> Task {
@@ -53,140 +54,10 @@ fn create_test_step() -> WorkflowStep {
         backoff_request_seconds: None,
         inputs: None,
         results: None,
-        skippable: false,
+        checkpoint: None,
         created_at: chrono::Utc::now().naive_utc(),
         updated_at: chrono::Utc::now().naive_utc(),
     }
-}
-
-/// Helper function disabled due to EventPublisher API changes
-/// Event publishing is now tested through external callback integration tests
-fn _unused_receive_event_helper() {
-    // This function was used to test event receiving, but the EventPublisher API has changed
-    // Event publishing functionality is tested in event_bridge_integration_test.rs
-}
-
-#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_publish_task_transition_events(pool: PgPool) -> sqlx::Result<()> {
-    let publisher = EventPublisher::new();
-    // Note: subscribe method signature changed - events can be verified through external callbacks
-    let action = PublishTransitionEventAction::new(publisher);
-
-    let task = create_test_task();
-
-    // Test various state transitions
-    let test_cases = vec![
-        (None, "in_progress", "task.started"),
-        (
-            Some("in_progress".to_string()),
-            "complete",
-            "task.completed",
-        ),
-        (Some("in_progress".to_string()), "error", "task.failed"),
-        (
-            Some("in_progress".to_string()),
-            "cancelled",
-            "task.cancelled",
-        ),
-        (Some("error".to_string()), "pending", "task.reset"),
-    ];
-
-    for (from_state, to_state, _expected_event) in test_cases {
-        action
-            .execute(
-                &task,
-                from_state.clone(),
-                to_state.to_string(),
-                "test_event",
-                &pool,
-            )
-            .await
-            .unwrap();
-
-        // Event publishing verification is now done in event_bridge_integration_test.rs
-        // This test just verifies the action executes successfully
-    }
-
-    Ok(())
-}
-
-#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_publish_step_transition_events(pool: PgPool) -> sqlx::Result<()> {
-    let publisher = EventPublisher::new();
-    // Note: subscribe method signature changed - events can be verified through external callbacks
-    let action = PublishTransitionEventAction::new(publisher);
-
-    let step = create_test_step();
-
-    // Test various state transitions
-    let test_cases = vec![
-        (None, "in_progress", "step.started"),
-        (
-            Some("in_progress".to_string()),
-            "complete",
-            "step.completed",
-        ),
-        (Some("in_progress".to_string()), "error", "step.failed"),
-        (Some("error".to_string()), "pending", "step.retried"),
-    ];
-
-    for (from_state, to_state, _expected_event) in test_cases {
-        action
-            .execute(
-                &step,
-                from_state.clone(),
-                to_state.to_string(),
-                "test_event",
-                &pool,
-            )
-            .await
-            .unwrap();
-
-        // Event publishing verification is now done in event_bridge_integration_test.rs
-        // This test just verifies the action executes successfully
-    }
-
-    Ok(())
-}
-
-#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_trigger_step_discovery_on_completion(pool: PgPool) -> sqlx::Result<()> {
-    let publisher = EventPublisher::new();
-    // Note: subscribe method signature changed - events can be verified through external callbacks
-    let action = TriggerStepDiscoveryAction::new(publisher);
-
-    let step = create_test_step();
-
-    // Should trigger on complete state
-    action
-        .execute(
-            &step,
-            Some("in_progress".to_string()),
-            "complete".to_string(),
-            "test",
-            &pool,
-        )
-        .await
-        .unwrap();
-
-    // Event publishing verification is now done in event_bridge_integration_test.rs
-    // This test just verifies the action executes successfully for trigger events
-
-    // Should not trigger on non-complete state
-    action
-        .execute(
-            &step,
-            Some("pending".to_string()),
-            "in_progress".to_string(),
-            "test",
-            &pool,
-        )
-        .await
-        .unwrap();
-
-    // Action should execute successfully without throwing events for non-complete states
-
-    Ok(())
 }
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
@@ -198,28 +69,28 @@ async fn test_update_step_results_with_json_event(pool: PgPool) -> sqlx::Result<
     let event_with_results = r#"{"results": {"count": 42, "status": "ok"}}"#;
 
     // Should process without error when completing
-    action
-        .execute(
-            &step,
-            Some("in_progress".to_string()),
-            "complete".to_string(),
-            event_with_results,
-            &pool,
-        )
-        .await
-        .unwrap();
+    <UpdateStepResultsAction as StateAction<WorkflowStep>>::execute(
+        &action,
+        &step,
+        Some("in_progress".to_string()),
+        "complete".to_string(),
+        event_with_results,
+        &pool,
+    )
+    .await
+    .unwrap();
 
     // Should handle non-JSON events gracefully
-    action
-        .execute(
-            &step,
-            Some("in_progress".to_string()),
-            "complete".to_string(),
-            "plain text event",
-            &pool,
-        )
-        .await
-        .unwrap();
+    <UpdateStepResultsAction as StateAction<WorkflowStep>>::execute(
+        &action,
+        &step,
+        Some("in_progress".to_string()),
+        "complete".to_string(),
+        "plain text event",
+        &pool,
+    )
+    .await
+    .unwrap();
 
     Ok(())
 }
@@ -234,62 +105,46 @@ async fn test_error_state_cleanup_actions(pool: PgPool) -> sqlx::Result<()> {
 
     // Test with JSON error event
     let json_error = r#"{"error": "Database connection failed"}"#;
-    task_action
-        .execute(
-            &task,
-            Some("in_progress".to_string()),
-            "error".to_string(),
-            json_error,
-            &pool,
-        )
-        .await
-        .unwrap();
+    <ErrorStateCleanupAction as StateAction<Task>>::execute(
+        &task_action,
+        &task,
+        Some("in_progress".to_string()),
+        "error".to_string(),
+        json_error,
+        &pool,
+    )
+    .await
+    .unwrap();
 
-    step_action
-        .execute(
-            &step,
-            Some("in_progress".to_string()),
-            "error".to_string(),
-            json_error,
-            &pool,
-        )
-        .await
-        .unwrap();
+    <ErrorStateCleanupAction as StateAction<WorkflowStep>>::execute(
+        &step_action,
+        &step,
+        Some("in_progress".to_string()),
+        "error".to_string(),
+        json_error,
+        &pool,
+    )
+    .await
+    .unwrap();
 
     // Test with plain text error
     let plain_error = "Simple error message";
-    task_action
-        .execute(
-            &task,
-            Some("in_progress".to_string()),
-            "error".to_string(),
-            plain_error,
-            &pool,
-        )
-        .await
-        .unwrap();
+    <ErrorStateCleanupAction as StateAction<Task>>::execute(
+        &task_action,
+        &task,
+        Some("in_progress".to_string()),
+        "error".to_string(),
+        plain_error,
+        &pool,
+    )
+    .await
+    .unwrap();
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_action_descriptions() {
-    let publisher = EventPublisher::new();
-
-    assert_eq!(
-        <PublishTransitionEventAction as StateAction<Task>>::description(
-            &PublishTransitionEventAction::new(publisher.clone())
-        ),
-        "Publish lifecycle event for task transition"
-    );
-
-    assert_eq!(
-        <TriggerStepDiscoveryAction as StateAction<WorkflowStep>>::description(
-            &TriggerStepDiscoveryAction::new(publisher)
-        ),
-        "Trigger discovery of newly viable steps"
-    );
-
     assert_eq!(
         <UpdateTaskCompletionAction as StateAction<Task>>::description(&UpdateTaskCompletionAction),
         "Update task completion metadata and legacy flags"
@@ -308,28 +163,301 @@ async fn test_action_descriptions() {
     );
 }
 
+// =============================================================================
+// DB-backed action tests
+//
+// These tests use real database objects created through factories to verify
+// that actions correctly persist their side effects to the database.
+// =============================================================================
+
+use tasker_shared::models::factories::base::SqlxFactory;
+use tasker_shared::models::factories::core::{TaskFactory, WorkflowStepFactory};
+use tasker_shared::state_machine::actions::TransitionActions;
+use tasker_shared::state_machine::events::TaskEvent;
+use tasker_shared::state_machine::states::{TaskState, WorkflowStepState};
+
+/// Test that UpdateTaskCompletionAction persists the complete flag to the DB
+/// when a real task transitions to the Complete state.
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_no_event_for_unsupported_transitions(pool: PgPool) -> sqlx::Result<()> {
-    let publisher = EventPublisher::new();
-    // Note: subscribe method signature changed - events can be verified through external callbacks
-    let action = PublishTransitionEventAction::new(publisher);
+async fn test_task_completion_action_db(pool: PgPool) -> sqlx::Result<()> {
+    // Create a real task in the database via factory
+    let task = TaskFactory::new()
+        .with_initiator("action_test")
+        .create(&pool)
+        .await
+        .expect("create task");
 
-    let task = create_test_task();
+    assert!(!task.complete, "Task should start as not complete");
 
-    // Test transition that doesn't generate an event
-    action
+    // Execute the UpdateTaskCompletionAction against the real task
+    let action = UpdateTaskCompletionAction;
+    <UpdateTaskCompletionAction as StateAction<Task>>::execute(
+        &action,
+        &task,
+        Some("steps_in_process".to_string()),
+        TaskState::Complete.to_string(),
+        "test_event",
+        &pool,
+    )
+    .await
+    .expect("action should succeed");
+
+    // Verify the task is now marked complete in the database
+    let updated_task = sqlx::query_as!(
+        Task,
+        r#"
+        SELECT task_uuid, named_task_uuid, complete, requested_at, initiator,
+               source_system, reason, tags, context, identity_hash, priority,
+               correlation_id, parent_correlation_id,
+               created_at, updated_at
+        FROM tasker.tasks
+        WHERE task_uuid = $1
+        "#,
+        task.task_uuid
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    assert!(
+        updated_task.complete,
+        "Task should be marked complete in DB after action"
+    );
+
+    Ok(())
+}
+
+/// Test that UpdateStepResultsAction marks a real step as in_process in the DB
+/// when transitioning to InProgress state.
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+async fn test_step_in_progress_action_db(pool: PgPool) -> sqlx::Result<()> {
+    let task = TaskFactory::new().create(&pool).await.expect("create task");
+    let step = WorkflowStepFactory::new()
+        .for_task(task.task_uuid)
+        .create(&pool)
+        .await
+        .expect("create step");
+
+    assert!(!step.in_process, "Step should start as not in process");
+
+    let action = UpdateStepResultsAction::new();
+    <UpdateStepResultsAction as StateAction<WorkflowStep>>::execute(
+        &action,
+        &step,
+        Some(WorkflowStepState::Pending.to_string()),
+        WorkflowStepState::InProgress.to_string(),
+        "test_event",
+        &pool,
+    )
+    .await
+    .expect("action should succeed");
+
+    // Verify the step is now in_process in the database
+    let updated_step = sqlx::query_as!(
+        WorkflowStep,
+        r#"
+        SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable,
+               max_attempts, in_process, processed, processed_at,
+               attempts, last_attempted_at, backoff_request_seconds,
+               inputs, results, checkpoint,
+               created_at, updated_at
+        FROM tasker.workflow_steps
+        WHERE workflow_step_uuid = $1
+        "#,
+        step.workflow_step_uuid
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    assert!(
+        updated_step.in_process,
+        "Step should be marked in_process after InProgress action"
+    );
+
+    Ok(())
+}
+
+/// Test the full task lifecycle through TransitionActions: Pending -> Initializing
+/// -> EnqueuingSteps -> StepsInProcess -> Complete, verifying DB state at each stage.
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+async fn test_transition_actions_full_lifecycle(pool: PgPool) -> sqlx::Result<()> {
+    let task = TaskFactory::new()
+        .with_initiator("lifecycle_test")
+        .create(&pool)
+        .await
+        .expect("create task");
+
+    let processor_uuid = Uuid::now_v7();
+    let actions = TransitionActions::new(pool.clone(), None);
+
+    // Transition: Pending -> Initializing
+    actions
         .execute(
             &task,
-            Some("pending".to_string()),
-            "weird_state".to_string(),
-            "test",
-            &pool,
+            TaskState::Pending,
+            TaskState::Initializing,
+            &TaskEvent::Start,
+            processor_uuid,
+            None,
         )
         .await
-        .unwrap();
+        .expect("pending -> initializing should succeed");
 
-    // Should not receive any event - this test is disabled due to EventPublisher API changes
-    // assert!(receive_event(&mut receiver).await.is_none());
+    // Transition: Initializing -> EnqueuingSteps
+    actions
+        .execute(
+            &task,
+            TaskState::Initializing,
+            TaskState::EnqueuingSteps,
+            &TaskEvent::ReadyStepsFound(2),
+            processor_uuid,
+            None,
+        )
+        .await
+        .expect("initializing -> enqueuing_steps should succeed");
+
+    // Transition: EnqueuingSteps -> StepsInProcess
+    actions
+        .execute(
+            &task,
+            TaskState::EnqueuingSteps,
+            TaskState::StepsInProcess,
+            &TaskEvent::StepsEnqueued(vec![]),
+            processor_uuid,
+            None,
+        )
+        .await
+        .expect("enqueuing_steps -> steps_in_process should succeed");
+
+    // Transition: StepsInProcess -> Complete (this triggers set_task_completed)
+    actions
+        .execute(
+            &task,
+            TaskState::StepsInProcess,
+            TaskState::Complete,
+            &TaskEvent::Complete,
+            processor_uuid,
+            None,
+        )
+        .await
+        .expect("steps_in_process -> complete should succeed");
+
+    // Verify the task is complete in the DB
+    let updated_task = sqlx::query_as!(
+        Task,
+        r#"
+        SELECT task_uuid, named_task_uuid, complete, requested_at, initiator,
+               source_system, reason, tags, context, identity_hash, priority,
+               correlation_id, parent_correlation_id,
+               created_at, updated_at
+        FROM tasker.tasks
+        WHERE task_uuid = $1
+        "#,
+        task.task_uuid
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    assert!(
+        updated_task.complete,
+        "Task should be complete after full lifecycle"
+    );
+
+    Ok(())
+}
+
+/// Test the error path: exercise TransitionActions for error state transitions
+/// and verify that the error state is handled correctly.
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+async fn test_transition_actions_error_path(pool: PgPool) -> sqlx::Result<()> {
+    let task = TaskFactory::new()
+        .with_initiator("error_path_test")
+        .create(&pool)
+        .await
+        .expect("create task");
+
+    let processor_uuid = Uuid::now_v7();
+    let actions = TransitionActions::new(pool.clone(), None);
+
+    // Transition to error: StepsInProcess -> Error (via EnqueueFailed on EnqueuingSteps)
+    // Using the error action on the task, simulate enqueue failure
+    actions
+        .execute(
+            &task,
+            TaskState::EnqueuingSteps,
+            TaskState::Error,
+            &TaskEvent::EnqueueFailed("simulated failure".to_string()),
+            processor_uuid,
+            Some(serde_json::json!({"error": "simulated_enqueue_failure"})),
+        )
+        .await
+        .expect("enqueuing_steps -> error should succeed");
+
+    // Also test ErrorStateCleanupAction on a real task after error path
+    let cleanup_action = ErrorStateCleanupAction;
+    <ErrorStateCleanupAction as StateAction<Task>>::execute(
+        &cleanup_action,
+        &task,
+        Some(TaskState::EnqueuingSteps.to_string()),
+        TaskState::Error.to_string(),
+        r#"{"error": "simulated failure"}"#,
+        &pool,
+    )
+    .await
+    .expect("error cleanup action should succeed");
+
+    Ok(())
+}
+
+/// Test the cancellation path: execute UpdateStepResultsAction to cancel
+/// a real step in the DB and verify the persisted state.
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+async fn test_step_cancellation_action_db(pool: PgPool) -> sqlx::Result<()> {
+    let task = TaskFactory::new().create(&pool).await.expect("create task");
+    let step = WorkflowStepFactory::new()
+        .for_task(task.task_uuid)
+        .create(&pool)
+        .await
+        .expect("create step");
+
+    let action = UpdateStepResultsAction::new();
+
+    // Cancel the step
+    <UpdateStepResultsAction as StateAction<WorkflowStep>>::execute(
+        &action,
+        &step,
+        Some(WorkflowStepState::Pending.to_string()),
+        WorkflowStepState::Cancelled.to_string(),
+        "cancel_event",
+        &pool,
+    )
+    .await
+    .expect("cancel action should succeed");
+
+    // Verify the step is marked as processed and not in_process
+    let updated_step = sqlx::query_as!(
+        WorkflowStep,
+        r#"
+        SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable,
+               max_attempts, in_process, processed, processed_at,
+               attempts, last_attempted_at, backoff_request_seconds,
+               inputs, results, checkpoint,
+               created_at, updated_at
+        FROM tasker.workflow_steps
+        WHERE workflow_step_uuid = $1
+        "#,
+        step.workflow_step_uuid
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    assert!(
+        updated_step.processed,
+        "Cancelled step should be marked as processed"
+    );
+    assert!(
+        !updated_step.in_process,
+        "Cancelled step should not be in_process"
+    );
 
     Ok(())
 }

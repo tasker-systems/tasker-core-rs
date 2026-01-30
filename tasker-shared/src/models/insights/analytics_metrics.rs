@@ -331,3 +331,98 @@ impl AnalyticsMetrics {
         self.avg_step_duration.to_string().parse().unwrap_or(0.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    fn make_default_metrics() -> AnalyticsMetrics {
+        AnalyticsMetrics {
+            active_tasks_count: 100,
+            total_namespaces_count: 5,
+            unique_task_types_count: 12,
+            system_health_score: BigDecimal::from_str("85.0").unwrap(),
+            task_throughput: 156,
+            completion_count: 94,
+            error_count: 6,
+            completion_rate: BigDecimal::from_str("94.0").unwrap(),
+            error_rate: BigDecimal::from_str("3.0").unwrap(),
+            avg_task_duration: BigDecimal::from_str("300.0").unwrap(),
+            avg_step_duration: BigDecimal::from_str("45.0").unwrap(),
+            step_throughput: 320,
+            analysis_period_start: "2024-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+            calculated_at: "2024-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+        }
+    }
+
+    #[test]
+    fn test_is_healthy_with_high_score() {
+        let mut metrics = make_default_metrics();
+        metrics.system_health_score = BigDecimal::from(90);
+        assert!(metrics.is_healthy());
+    }
+
+    #[test]
+    fn test_is_healthy_with_low_score() {
+        let mut metrics = make_default_metrics();
+        metrics.system_health_score = BigDecimal::from(70);
+        assert!(!metrics.is_healthy());
+    }
+
+    #[test]
+    fn test_is_healthy_with_boundary_score() {
+        let mut metrics = make_default_metrics();
+        metrics.system_health_score = BigDecimal::from(80);
+        assert!(metrics.is_healthy());
+    }
+
+    #[test]
+    fn test_has_high_error_rate_above_threshold() {
+        let mut metrics = make_default_metrics();
+        metrics.error_rate = BigDecimal::from(10);
+        assert!(metrics.has_high_error_rate());
+    }
+
+    #[test]
+    fn test_has_high_error_rate_below_threshold() {
+        let mut metrics = make_default_metrics();
+        metrics.error_rate = BigDecimal::from(3);
+        assert!(!metrics.has_high_error_rate());
+    }
+
+    #[test]
+    fn test_has_high_error_rate_at_boundary() {
+        let mut metrics = make_default_metrics();
+        metrics.error_rate = BigDecimal::from(5);
+        assert!(!metrics.has_high_error_rate());
+    }
+
+    #[test]
+    fn test_completion_percentage() {
+        let mut metrics = make_default_metrics();
+        metrics.completion_rate = BigDecimal::from_str("94.2").unwrap();
+        assert_eq!(metrics.completion_percentage(), 94.2);
+    }
+
+    #[test]
+    fn test_error_percentage() {
+        let mut metrics = make_default_metrics();
+        metrics.error_rate = BigDecimal::from_str("2.1").unwrap();
+        assert_eq!(metrics.error_percentage(), 2.1);
+    }
+
+    #[test]
+    fn test_avg_task_duration_seconds() {
+        let mut metrics = make_default_metrics();
+        metrics.avg_task_duration = BigDecimal::from_str("312.75").unwrap();
+        assert_eq!(metrics.avg_task_duration_seconds(), 312.75);
+    }
+
+    #[test]
+    fn test_avg_step_duration_seconds() {
+        let mut metrics = make_default_metrics();
+        metrics.avg_step_duration = BigDecimal::from_str("45.8").unwrap();
+        assert_eq!(metrics.avg_step_duration_seconds(), 45.8);
+    }
+}

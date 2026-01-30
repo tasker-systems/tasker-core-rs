@@ -655,3 +655,60 @@ pub fn init() {
     API_REQUESTS_REJECTED_TOTAL.get_or_init(api_requests_rejected_total);
     API_CIRCUIT_BREAKER_STATE.get_or_init(api_circuit_breaker_state);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_init_does_not_panic() {
+        // Calling init() should not panic even in a test environment
+        init();
+    }
+
+    #[test]
+    fn test_counter_factories() {
+        // Each factory function creates a new instrument, so we can test them independently.
+        // Calling the factory function should not panic.
+        let _c = task_requests_total();
+        let _c = task_completions_total();
+        let _c = task_failures_total();
+        let _c = steps_enqueued_total();
+        let _c = step_results_processed_total();
+        let _c = tasks_excluded_staleness_total();
+        let _c = decision_outcomes_processed_total();
+        let _c = decision_steps_created_total();
+        let _c = decision_validation_errors_total();
+        let _c = decision_warnings_total();
+        let _c = dlq_entries_created_total();
+        let _c = stale_tasks_detected_total();
+        let _c = tasks_transitioned_to_error_total();
+        let _c = staleness_detection_runs_total();
+        let _c = task_state_transitions_total();
+        let _c = api_requests_rejected_total();
+    }
+
+    #[test]
+    fn test_histogram_factories() {
+        let _h = task_initialization_duration();
+        let _h = task_finalization_duration();
+        let _h = step_result_processing_duration();
+        let _h = computed_priority_histogram();
+        let _h = task_age_at_discovery_seconds();
+        let _h = decision_processing_duration();
+        let _h = decision_step_count_histogram();
+        let _h = staleness_detection_duration();
+        let _h = task_time_in_dlq_hours();
+        let _h = task_state_duration_seconds();
+        let _h = task_completion_duration_seconds();
+    }
+
+    #[test]
+    fn test_gauge_factories() {
+        let _g = active_tasks();
+        let _g = ready_steps();
+        let _g = discovery_pool_saturation();
+        let _g = dlq_pending_investigations();
+        let _g = api_circuit_breaker_state();
+    }
+}

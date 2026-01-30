@@ -4,6 +4,7 @@
 //! and ensuring proper integration with the PostgreSQL database.
 
 use tasker_shared::database::sql_functions::*;
+use tasker_shared::models::orchestration::execution_status::{ExecutionStatus, RecommendedAction};
 use uuid::Uuid;
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
@@ -41,14 +42,12 @@ async fn test_system_health_score_calculation(_pool: sqlx::PgPool) -> sqlx::Resu
         total_tasks: 100,
         complete_tasks: 80,
         error_tasks: 5,
-        active_connections: 20,
-        max_connections: 100,
         ..Default::default()
     };
 
-    let score = health.health_score();
-    assert!(score > 0.0 && score <= 1.0);
-    assert!(!health.is_under_heavy_load());
+    let success = health.success_rate();
+    assert!(success > 0.0 && success <= 1.0);
+    assert!(health.error_rate() < 0.5);
     Ok(())
 }
 
@@ -66,17 +65,18 @@ async fn test_task_execution_context_status(_pool: sqlx::PgPool) -> sqlx::Result
         completed_steps: 8,
         failed_steps: 0,
         ready_steps: 2,
-        execution_status: "has_ready_steps".to_string(),
-        recommended_action: "execute_ready_steps".to_string(),
+        execution_status: ExecutionStatus::HasReadySteps,
+        recommended_action: Some(RecommendedAction::ExecuteReadySteps),
         completion_percentage: sqlx::types::BigDecimal::from(80),
         health_status: "healthy".to_string(),
+        enqueued_steps: 0,
     };
 
-    assert!(context.can_proceed());
+    assert!(context.has_ready_steps());
     assert!(!context.is_complete());
-    assert!(!context.is_blocked());
-    assert_eq!(context.get_execution_status(), "has_ready_steps");
-    assert_eq!(context.get_health_status(), "healthy");
+    assert!(!context.execution_status.is_blocked());
+    assert_eq!(context.execution_status.as_str(), "has_ready_steps");
+    assert_eq!(context.health_status, "healthy");
     Ok(())
 }
 

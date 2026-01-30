@@ -6,8 +6,9 @@ fn test_task_state_terminal_check() {
     assert!(TaskState::Cancelled.is_terminal());
     assert!(TaskState::ResolvedManually.is_terminal());
     assert!(!TaskState::Pending.is_terminal());
-    assert!(!TaskState::InProgress.is_terminal());
-    assert!(!TaskState::Error.is_terminal());
+    assert!(!TaskState::StepsInProcess.is_terminal());
+    // Error IS terminal per the source implementation (TaskState::is_terminal includes Error)
+    assert!(TaskState::Error.is_terminal());
 }
 
 #[test]
@@ -16,7 +17,7 @@ fn test_workflow_step_state_terminal_check() {
     assert!(WorkflowStepState::Complete.is_terminal());
     assert!(WorkflowStepState::Cancelled.is_terminal());
     assert!(WorkflowStepState::ResolvedManually.is_terminal());
-    
+
     // Non-terminal states
     assert!(!WorkflowStepState::Pending.is_terminal());
     assert!(!WorkflowStepState::Enqueued.is_terminal());
@@ -41,7 +42,7 @@ fn test_step_state_dependency_satisfaction() {
 
 #[test]
 fn test_state_string_conversion() {
-    assert_eq!(TaskState::InProgress.to_string(), "in_progress");
+    assert_eq!(TaskState::StepsInProcess.to_string(), "steps_in_process");
     assert_eq!(
         "complete".parse::<TaskState>().unwrap(),
         TaskState::Complete
@@ -52,23 +53,25 @@ fn test_state_string_conversion() {
         "resolved_manually".parse::<WorkflowStepState>().unwrap(),
         WorkflowStepState::ResolvedManually
     );
-    
+
     // TAS-41: Test EnqueuedForOrchestration string conversion
     assert_eq!(
         WorkflowStepState::EnqueuedForOrchestration.to_string(),
         "enqueued_for_orchestration"
     );
     assert_eq!(
-        "enqueued_for_orchestration".parse::<WorkflowStepState>().unwrap(),
+        "enqueued_for_orchestration"
+            .parse::<WorkflowStepState>()
+            .unwrap(),
         WorkflowStepState::EnqueuedForOrchestration
     );
 }
 
 #[test]
 fn test_state_serde() {
-    let task_state = TaskState::InProgress;
+    let task_state = TaskState::StepsInProcess;
     let json = serde_json::to_string(&task_state).unwrap();
-    assert_eq!(json, "\"in_progress\"");
+    assert_eq!(json, "\"steps_in_process\"");
 
     let parsed: TaskState = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed, task_state);

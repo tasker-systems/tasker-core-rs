@@ -901,4 +901,1114 @@ mod tests {
             "Each WorkflowStepState should map to a unique proto::StepState"
         );
     }
+
+    // ========================================================================
+    // json_to_proto_struct tests
+    // ========================================================================
+
+    #[test]
+    fn test_json_to_proto_struct_null_returns_none() {
+        let result = json_to_proto_struct(&serde_json::Value::Null);
+        assert!(result.is_none(), "Null JSON should return None");
+    }
+
+    #[test]
+    fn test_json_to_proto_struct_empty_object() {
+        let value = serde_json::json!({});
+        let result = json_to_proto_struct(&value);
+        assert!(result.is_some(), "Empty object should return Some");
+        let s = result.unwrap();
+        assert!(s.fields.is_empty(), "Empty object should have no fields");
+    }
+
+    #[test]
+    fn test_json_to_proto_struct_nested_object() {
+        let value = serde_json::json!({
+            "name": "test",
+            "count": 42,
+            "active": true,
+            "nested": { "inner": "value" }
+        });
+        let result = json_to_proto_struct(&value);
+        assert!(result.is_some(), "Object should return Some");
+        let s = result.unwrap();
+        assert_eq!(s.fields.len(), 4, "Should have 4 fields");
+        assert!(s.fields.contains_key("name"));
+        assert!(s.fields.contains_key("count"));
+        assert!(s.fields.contains_key("active"));
+        assert!(s.fields.contains_key("nested"));
+    }
+
+    #[test]
+    fn test_json_to_proto_struct_non_object_returns_none() {
+        // Array is not an object
+        let array = serde_json::json!([1, 2, 3]);
+        assert!(
+            json_to_proto_struct(&array).is_none(),
+            "Array should return None"
+        );
+
+        // String is not an object
+        let string = serde_json::json!("hello");
+        assert!(
+            json_to_proto_struct(&string).is_none(),
+            "String should return None"
+        );
+
+        // Number is not an object
+        let number = serde_json::json!(42);
+        assert!(
+            json_to_proto_struct(&number).is_none(),
+            "Number should return None"
+        );
+
+        // Bool is not an object
+        let boolean = serde_json::json!(true);
+        assert!(
+            json_to_proto_struct(&boolean).is_none(),
+            "Bool should return None"
+        );
+    }
+
+    // ========================================================================
+    // json_value_to_proto_value tests
+    // ========================================================================
+
+    #[test]
+    fn test_json_value_to_proto_value_null() {
+        use prost_types::value::Kind;
+
+        let result = json_value_to_proto_value(&serde_json::Value::Null);
+        assert!(result.is_some());
+        let v = result.unwrap();
+        assert!(
+            matches!(v.kind, Some(Kind::NullValue(0))),
+            "Null JSON should produce NullValue"
+        );
+    }
+
+    #[test]
+    fn test_json_value_to_proto_value_bool() {
+        use prost_types::value::Kind;
+
+        let result = json_value_to_proto_value(&serde_json::json!(true));
+        assert!(result.is_some());
+        let v = result.unwrap();
+        assert!(
+            matches!(v.kind, Some(Kind::BoolValue(true))),
+            "true should produce BoolValue(true)"
+        );
+
+        let result_false = json_value_to_proto_value(&serde_json::json!(false));
+        let vf = result_false.unwrap();
+        assert!(
+            matches!(vf.kind, Some(Kind::BoolValue(false))),
+            "false should produce BoolValue(false)"
+        );
+    }
+
+    #[test]
+    fn test_json_value_to_proto_value_number() {
+        use prost_types::value::Kind;
+
+        let result = json_value_to_proto_value(&serde_json::json!(2.72));
+        assert!(result.is_some());
+        let v = result.unwrap();
+        match v.kind {
+            Some(Kind::NumberValue(n)) => {
+                assert!(
+                    (n - 2.72).abs() < f64::EPSILON,
+                    "Number should be close to 2.72"
+                );
+            }
+            _ => panic!("Expected NumberValue"),
+        }
+
+        // Integer
+        let result_int = json_value_to_proto_value(&serde_json::json!(42));
+        let vi = result_int.unwrap();
+        match vi.kind {
+            Some(Kind::NumberValue(n)) => {
+                assert!(
+                    (n - 42.0).abs() < f64::EPSILON,
+                    "Integer should convert to 42.0"
+                );
+            }
+            _ => panic!("Expected NumberValue for integer"),
+        }
+    }
+
+    #[test]
+    fn test_json_value_to_proto_value_string() {
+        use prost_types::value::Kind;
+
+        let result = json_value_to_proto_value(&serde_json::json!("hello world"));
+        assert!(result.is_some());
+        let v = result.unwrap();
+        match v.kind {
+            Some(Kind::StringValue(ref s)) => {
+                assert_eq!(s, "hello world");
+            }
+            _ => panic!("Expected StringValue"),
+        }
+    }
+
+    #[test]
+    fn test_json_value_to_proto_value_array() {
+        use prost_types::value::Kind;
+
+        let result = json_value_to_proto_value(&serde_json::json!([1, "two", true]));
+        assert!(result.is_some());
+        let v = result.unwrap();
+        match v.kind {
+            Some(Kind::ListValue(list)) => {
+                assert_eq!(list.values.len(), 3, "Array should have 3 elements");
+            }
+            _ => panic!("Expected ListValue"),
+        }
+    }
+
+    #[test]
+    fn test_json_value_to_proto_value_nested_object() {
+        use prost_types::value::Kind;
+
+        let result = json_value_to_proto_value(&serde_json::json!({"key": "value"}));
+        assert!(result.is_some());
+        let v = result.unwrap();
+        match v.kind {
+            Some(Kind::StructValue(s)) => {
+                assert_eq!(s.fields.len(), 1, "Object should have 1 field");
+                assert!(s.fields.contains_key("key"));
+            }
+            _ => panic!("Expected StructValue"),
+        }
+    }
+
+    // ========================================================================
+    // parse_rfc3339_timestamp tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_rfc3339_timestamp_valid() {
+        let result = parse_rfc3339_timestamp("2024-01-15T10:30:00Z");
+        assert!(
+            result.is_some(),
+            "Valid RFC3339 timestamp should parse successfully"
+        );
+        let ts = result.unwrap();
+        assert!(ts.seconds > 0, "Seconds should be positive for a 2024 date");
+    }
+
+    #[test]
+    fn test_parse_rfc3339_timestamp_invalid() {
+        let result = parse_rfc3339_timestamp("not-a-timestamp");
+        assert!(result.is_none(), "Invalid string should return None");
+
+        let result_empty = parse_rfc3339_timestamp("");
+        assert!(result_empty.is_none(), "Empty string should return None");
+    }
+
+    // ========================================================================
+    // From<&TaskResponse> for proto::Task
+    // ========================================================================
+
+    #[test]
+    fn test_task_response_to_proto_task() {
+        use uuid::Uuid;
+
+        let corr_id = Uuid::new_v4();
+        let parent_corr_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        let response = TaskResponse {
+            task_uuid: "task-uuid-123".to_string(),
+            name: "my_task".to_string(),
+            namespace: "default".to_string(),
+            version: "1.0.0".to_string(),
+            status: "pending".to_string(),
+            created_at: now,
+            updated_at: now,
+            completed_at: Some(now),
+            context: serde_json::json!({"key": "value"}),
+            initiator: "test-user".to_string(),
+            source_system: "test-system".to_string(),
+            reason: "testing".to_string(),
+            priority: Some(2),
+            tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
+            correlation_id: corr_id,
+            parent_correlation_id: Some(parent_corr_id),
+            total_steps: 5,
+            pending_steps: 2,
+            in_progress_steps: 1,
+            completed_steps: 2,
+            failed_steps: 0,
+            ready_steps: 1,
+            execution_status: "processing".to_string(),
+            recommended_action: "wait".to_string(),
+            completion_percentage: 40.0,
+            health_status: "healthy".to_string(),
+            steps: vec![],
+        };
+
+        let proto_task = proto::Task::from(&response);
+
+        assert_eq!(proto_task.task_uuid, "task-uuid-123");
+        assert_eq!(proto_task.name, "my_task");
+        assert_eq!(proto_task.namespace, "default");
+        assert_eq!(proto_task.version, "1.0.0");
+        assert_eq!(proto_task.state, proto::TaskState::Pending as i32);
+        assert!(proto_task.created_at.is_some());
+        assert!(proto_task.updated_at.is_some());
+        assert!(proto_task.completed_at.is_some());
+        assert!(proto_task.context.is_some());
+        assert_eq!(proto_task.initiator, "test-user");
+        assert_eq!(proto_task.source_system, "test-system");
+        assert_eq!(proto_task.reason, "testing");
+        assert_eq!(proto_task.priority, Some(2));
+        assert_eq!(proto_task.tags, vec!["tag1", "tag2"]);
+        assert_eq!(proto_task.correlation_id, corr_id.to_string());
+        assert_eq!(
+            proto_task.parent_correlation_id,
+            Some(parent_corr_id.to_string())
+        );
+        assert_eq!(proto_task.total_steps, 5);
+        assert_eq!(proto_task.pending_steps, 2);
+        assert_eq!(proto_task.in_progress_steps, 1);
+        assert_eq!(proto_task.completed_steps, 2);
+        assert_eq!(proto_task.failed_steps, 0);
+        assert_eq!(proto_task.ready_steps, 1);
+        assert_eq!(proto_task.execution_status, "processing");
+        assert_eq!(proto_task.recommended_action, "wait");
+        assert!((proto_task.completion_percentage - 40.0).abs() < f64::EPSILON);
+        assert_eq!(proto_task.health_status, "healthy");
+    }
+
+    // ========================================================================
+    // From<&StepResponse> for proto::Step
+    // ========================================================================
+
+    #[test]
+    fn test_step_response_to_proto_step() {
+        let response = StepResponse {
+            step_uuid: "step-uuid-456".to_string(),
+            task_uuid: "task-uuid-123".to_string(),
+            name: "validate_order".to_string(),
+            created_at: "2024-01-15T10:30:00Z".to_string(),
+            updated_at: "2024-01-15T10:31:00Z".to_string(),
+            completed_at: Some("2024-01-15T10:32:00Z".to_string()),
+            results: Some(serde_json::json!({"validated": true})),
+            current_state: "complete".to_string(),
+            dependencies_satisfied: true,
+            retry_eligible: false,
+            ready_for_execution: false,
+            total_parents: 1,
+            completed_parents: 1,
+            attempts: 1,
+            max_attempts: 3,
+            last_failure_at: None,
+            next_retry_at: None,
+            last_attempted_at: Some("2024-01-15T10:30:30Z".to_string()),
+        };
+
+        let proto_step = proto::Step::from(&response);
+
+        assert_eq!(proto_step.step_uuid, "step-uuid-456");
+        assert_eq!(proto_step.task_uuid, "task-uuid-123");
+        assert_eq!(proto_step.name, "validate_order");
+        assert_eq!(proto_step.state, proto::StepState::Complete as i32);
+        assert!(proto_step.created_at.is_some());
+        assert!(proto_step.updated_at.is_some());
+        assert!(proto_step.completed_at.is_some());
+        assert!(proto_step.results.is_some());
+        assert!(proto_step.dependencies_satisfied);
+        assert!(!proto_step.retry_eligible);
+        assert!(!proto_step.ready_for_execution);
+        assert_eq!(proto_step.total_parents, 1);
+        assert_eq!(proto_step.completed_parents, 1);
+        assert_eq!(proto_step.attempts, 1);
+        assert_eq!(proto_step.max_attempts, 3);
+        assert!(proto_step.last_failure_at.is_none());
+        assert!(proto_step.next_retry_at.is_none());
+        assert!(proto_step.last_attempted_at.is_some());
+    }
+
+    // ========================================================================
+    // From<&StepAuditResponse> for proto::StepAuditRecord
+    // ========================================================================
+
+    #[test]
+    fn test_step_audit_response_to_proto() {
+        let response = StepAuditResponse {
+            audit_uuid: "audit-uuid-789".to_string(),
+            workflow_step_uuid: "step-uuid-456".to_string(),
+            transition_uuid: "transition-uuid-012".to_string(),
+            task_uuid: "task-uuid-123".to_string(),
+            recorded_at: "2024-01-15T10:30:00Z".to_string(),
+            worker_uuid: Some("worker-abc".to_string()),
+            correlation_id: Some("corr-xyz".to_string()),
+            success: true,
+            execution_time_ms: Some(150),
+            result: Some(serde_json::json!({"output": "done"})),
+            step_name: "validate_order".to_string(),
+            from_state: Some("in_progress".to_string()),
+            to_state: "enqueued_for_orchestration".to_string(),
+        };
+
+        let proto_audit = proto::StepAuditRecord::from(&response);
+
+        assert_eq!(proto_audit.audit_uuid, "audit-uuid-789");
+        assert_eq!(proto_audit.step_uuid, "step-uuid-456");
+        assert_eq!(proto_audit.transition_uuid, "transition-uuid-012");
+        assert_eq!(proto_audit.task_uuid, "task-uuid-123");
+        assert!(proto_audit.recorded_at.is_some());
+        assert_eq!(proto_audit.worker_uuid, Some("worker-abc".to_string()));
+        assert_eq!(proto_audit.correlation_id, Some("corr-xyz".to_string()));
+        assert!(proto_audit.success);
+        assert_eq!(proto_audit.execution_time_ms, Some(150));
+        assert!(proto_audit.result.is_some());
+        assert_eq!(proto_audit.step_name, "validate_order");
+        assert!(
+            proto_audit.from_state.is_some(),
+            "from_state should be parsed for valid state"
+        );
+        assert_eq!(
+            proto_audit.to_state,
+            proto::StepState::EnqueuedForOrchestration as i32
+        );
+    }
+
+    // ========================================================================
+    // From<&HealthResponse> for proto::HealthResponse
+    // ========================================================================
+
+    #[test]
+    fn test_health_response_to_proto() {
+        let response = HealthResponse {
+            status: "healthy".to_string(),
+            timestamp: "2024-01-15T10:30:00Z".to_string(),
+        };
+
+        let proto_health = proto::HealthResponse::from(&response);
+        assert_eq!(proto_health.status, "healthy");
+        assert_eq!(proto_health.timestamp, "2024-01-15T10:30:00Z");
+    }
+
+    // ========================================================================
+    // From<&ReadinessResponse> for proto::ReadinessResponse
+    // ========================================================================
+
+    #[test]
+    fn test_readiness_response_to_proto() {
+        let response = ReadinessResponse {
+            status: "ready".to_string(),
+            timestamp: "2024-01-15T10:30:00Z".to_string(),
+            checks: ReadinessChecks {
+                web_database: HealthCheck::healthy("db ok", 5),
+                orchestration_database: HealthCheck::healthy("orch db ok", 3),
+                circuit_breaker: HealthCheck::healthy("cb ok", 1),
+                orchestration_system: HealthCheck::healthy("orch ok", 2),
+                command_processor: HealthCheck::healthy("cmd ok", 1),
+            },
+            info: HealthInfo {
+                version: "1.0.0".to_string(),
+                environment: "test".to_string(),
+                operational_state: "running".to_string(),
+                web_database_pool_size: 10,
+                orchestration_database_pool_size: 5,
+                circuit_breaker_state: "closed".to_string(),
+                pool_utilization: None,
+            },
+        };
+
+        let proto_readiness = proto::ReadinessResponse::from(&response);
+        assert_eq!(proto_readiness.status, "ready");
+        assert_eq!(proto_readiness.timestamp, "2024-01-15T10:30:00Z");
+        assert!(proto_readiness.checks.is_some());
+        assert!(proto_readiness.info.is_some());
+
+        let checks = proto_readiness.checks.unwrap();
+        assert!(checks.web_database.is_some());
+        assert!(checks.orchestration_database.is_some());
+        assert!(checks.circuit_breaker.is_some());
+        assert!(checks.orchestration_system.is_some());
+        assert!(checks.command_processor.is_some());
+
+        let info = proto_readiness.info.unwrap();
+        assert_eq!(info.version, "1.0.0");
+        assert_eq!(info.environment, "test");
+        assert_eq!(info.operational_state, "running");
+        assert_eq!(info.web_database_pool_size, 10);
+        assert_eq!(info.orchestration_database_pool_size, 5);
+        assert_eq!(info.circuit_breaker_state, "closed");
+        assert!(
+            info.pool_utilization.is_none(),
+            "pool_utilization should be None when domain is None"
+        );
+    }
+
+    // ========================================================================
+    // From<&DetailedHealthResponse> for proto::DetailedHealthResponse
+    // ========================================================================
+
+    #[test]
+    fn test_detailed_health_response_to_proto() {
+        let pool_util = PoolUtilizationInfo {
+            tasker_pool: PoolDetail {
+                active_connections: 3,
+                idle_connections: 7,
+                max_connections: 10,
+                utilization_percent: 30.0,
+                total_acquires: 100,
+                slow_acquires: 2,
+                acquire_errors: 0,
+                average_acquire_time_ms: 1.5,
+                max_acquire_time_ms: 10.0,
+            },
+            pgmq_pool: PoolDetail {
+                active_connections: 1,
+                idle_connections: 4,
+                max_connections: 5,
+                utilization_percent: 20.0,
+                total_acquires: 50,
+                slow_acquires: 0,
+                acquire_errors: 0,
+                average_acquire_time_ms: 0.8,
+                max_acquire_time_ms: 5.0,
+            },
+        };
+
+        let response = DetailedHealthResponse {
+            status: "healthy".to_string(),
+            timestamp: "2024-01-15T10:30:00Z".to_string(),
+            checks: DetailedHealthChecks {
+                web_database: HealthCheck::healthy("db ok", 5),
+                orchestration_database: HealthCheck::healthy("orch db ok", 3),
+                circuit_breaker: HealthCheck::healthy("cb ok", 1),
+                orchestration_system: HealthCheck::healthy("orch ok", 2),
+                command_processor: HealthCheck::healthy("cmd ok", 1),
+                pool_utilization: HealthCheck::healthy("pools ok", 1),
+                queue_depth: HealthCheck::healthy("queues ok", 1),
+                channel_saturation: HealthCheck::healthy("channels ok", 1),
+            },
+            info: HealthInfo {
+                version: "1.0.0".to_string(),
+                environment: "test".to_string(),
+                operational_state: "running".to_string(),
+                web_database_pool_size: 10,
+                orchestration_database_pool_size: 5,
+                circuit_breaker_state: "closed".to_string(),
+                pool_utilization: Some(pool_util),
+            },
+        };
+
+        let proto_detailed = proto::DetailedHealthResponse::from(&response);
+        assert_eq!(proto_detailed.status, "healthy");
+        assert!(proto_detailed.checks.is_some());
+        assert!(proto_detailed.info.is_some());
+
+        let checks = proto_detailed.checks.unwrap();
+        assert!(checks.web_database.is_some());
+        assert!(checks.orchestration_database.is_some());
+        assert!(checks.circuit_breaker.is_some());
+        assert!(checks.orchestration_system.is_some());
+        assert!(checks.command_processor.is_some());
+        assert!(checks.pool_utilization.is_some());
+        assert!(checks.queue_depth.is_some());
+        assert!(checks.channel_saturation.is_some());
+
+        let info = proto_detailed.info.unwrap();
+        assert!(
+            info.pool_utilization.is_some(),
+            "pool_utilization should be Some when domain has it"
+        );
+    }
+
+    // ========================================================================
+    // From<&HealthCheck> for proto::HealthCheck
+    // ========================================================================
+
+    #[test]
+    fn test_health_check_to_proto() {
+        let check = HealthCheck::healthy("all systems go", 42);
+        let proto_check = proto::HealthCheck::from(&check);
+
+        assert_eq!(proto_check.status, "healthy");
+        assert_eq!(proto_check.message, Some("all systems go".to_string()));
+        assert_eq!(proto_check.duration_ms, 42);
+    }
+
+    // ========================================================================
+    // From<&HealthInfo> for proto::HealthInfo
+    // ========================================================================
+
+    #[test]
+    fn test_health_info_to_proto_without_pool_utilization() {
+        let info = HealthInfo {
+            version: "2.0.0".to_string(),
+            environment: "production".to_string(),
+            operational_state: "active".to_string(),
+            web_database_pool_size: 20,
+            orchestration_database_pool_size: 10,
+            circuit_breaker_state: "closed".to_string(),
+            pool_utilization: None,
+        };
+
+        let proto_info = proto::HealthInfo::from(&info);
+        assert_eq!(proto_info.version, "2.0.0");
+        assert_eq!(proto_info.environment, "production");
+        assert_eq!(proto_info.operational_state, "active");
+        assert_eq!(proto_info.web_database_pool_size, 20);
+        assert_eq!(proto_info.orchestration_database_pool_size, 10);
+        assert_eq!(proto_info.circuit_breaker_state, "closed");
+        assert!(proto_info.pool_utilization.is_none());
+    }
+
+    #[test]
+    fn test_health_info_to_proto_with_pool_utilization() {
+        let info = HealthInfo {
+            version: "2.0.0".to_string(),
+            environment: "production".to_string(),
+            operational_state: "active".to_string(),
+            web_database_pool_size: 20,
+            orchestration_database_pool_size: 10,
+            circuit_breaker_state: "closed".to_string(),
+            pool_utilization: Some(PoolUtilizationInfo {
+                tasker_pool: PoolDetail {
+                    active_connections: 5,
+                    idle_connections: 15,
+                    max_connections: 20,
+                    utilization_percent: 25.0,
+                    total_acquires: 200,
+                    slow_acquires: 1,
+                    acquire_errors: 0,
+                    average_acquire_time_ms: 2.0,
+                    max_acquire_time_ms: 15.0,
+                },
+                pgmq_pool: PoolDetail {
+                    active_connections: 2,
+                    idle_connections: 8,
+                    max_connections: 10,
+                    utilization_percent: 20.0,
+                    total_acquires: 80,
+                    slow_acquires: 0,
+                    acquire_errors: 0,
+                    average_acquire_time_ms: 1.0,
+                    max_acquire_time_ms: 8.0,
+                },
+            }),
+        };
+
+        let proto_info = proto::HealthInfo::from(&info);
+        assert!(proto_info.pool_utilization.is_some());
+    }
+
+    // ========================================================================
+    // From<&PoolUtilizationInfo> for proto::PoolUtilizationInfo
+    // ========================================================================
+
+    #[test]
+    fn test_pool_utilization_info_to_proto() {
+        let info = PoolUtilizationInfo {
+            tasker_pool: PoolDetail {
+                active_connections: 4,
+                idle_connections: 6,
+                max_connections: 10,
+                utilization_percent: 40.0,
+                total_acquires: 500,
+                slow_acquires: 3,
+                acquire_errors: 1,
+                average_acquire_time_ms: 2.5,
+                max_acquire_time_ms: 20.0,
+            },
+            pgmq_pool: PoolDetail {
+                active_connections: 2,
+                idle_connections: 3,
+                max_connections: 5,
+                utilization_percent: 40.0,
+                total_acquires: 200,
+                slow_acquires: 1,
+                acquire_errors: 0,
+                average_acquire_time_ms: 1.2,
+                max_acquire_time_ms: 7.0,
+            },
+        };
+
+        let proto_util = proto::PoolUtilizationInfo::from(&info);
+        assert!(proto_util.tasker_pool.is_some());
+        assert!(proto_util.pgmq_pool.is_some());
+    }
+
+    // ========================================================================
+    // From<&PoolDetail> for proto::PoolDetail
+    // ========================================================================
+
+    #[test]
+    fn test_pool_detail_to_proto() {
+        let detail = PoolDetail {
+            active_connections: 7,
+            idle_connections: 13,
+            max_connections: 20,
+            utilization_percent: 35.0,
+            total_acquires: 1000,
+            slow_acquires: 5,
+            acquire_errors: 2,
+            average_acquire_time_ms: 3.0,
+            max_acquire_time_ms: 25.0,
+        };
+
+        let proto_detail = proto::PoolDetail::from(&detail);
+        assert_eq!(proto_detail.active_connections, 7);
+        assert_eq!(proto_detail.idle_connections, 13);
+        assert_eq!(proto_detail.max_connections, 20);
+        assert!((proto_detail.utilization_percent - 35.0).abs() < f64::EPSILON);
+        assert_eq!(proto_detail.total_acquires, 1000);
+        assert_eq!(proto_detail.slow_acquires, 5);
+        assert_eq!(proto_detail.acquire_errors, 2);
+        assert!((proto_detail.average_acquire_time_ms - 3.0).abs() < f64::EPSILON);
+        assert!((proto_detail.max_acquire_time_ms - 25.0).abs() < f64::EPSILON);
+    }
+
+    // ========================================================================
+    // Worker health conversions
+    // ========================================================================
+
+    #[test]
+    fn test_worker_basic_health_to_proto() {
+        let now = Utc::now();
+        let response = WorkerBasicHealth {
+            status: "healthy".to_string(),
+            timestamp: now,
+            worker_id: "worker-001".to_string(),
+        };
+
+        let proto_health = proto::WorkerBasicHealthResponse::from(&response);
+        assert_eq!(proto_health.status, "healthy");
+        assert!(proto_health.timestamp.is_some());
+        assert_eq!(proto_health.worker_id, "worker-001");
+    }
+
+    #[test]
+    fn test_worker_readiness_to_proto() {
+        let now = Utc::now();
+        let response = WorkerReadiness {
+            status: "ready".to_string(),
+            timestamp: now,
+            worker_id: "worker-002".to_string(),
+            checks: WorkerReadinessChecks {
+                database: WorkerDomainHealthCheck::healthy("db ok", 5),
+                command_processor: WorkerDomainHealthCheck::healthy("cmd ok", 3),
+                queue_processing: WorkerDomainHealthCheck::healthy("queue ok", 2),
+            },
+            system_info: WorkerSystemInfo {
+                version: "1.0.0".to_string(),
+                environment: "test".to_string(),
+                uptime_seconds: 3600,
+                worker_type: "rust".to_string(),
+                database_pool_size: 10,
+                command_processor_active: true,
+                supported_namespaces: vec!["default".to_string()],
+                pool_utilization: None,
+            },
+        };
+
+        let proto_readiness = proto::WorkerReadinessResponse::from(&response);
+        assert_eq!(proto_readiness.status, "ready");
+        assert!(proto_readiness.timestamp.is_some());
+        assert_eq!(proto_readiness.worker_id, "worker-002");
+        assert!(proto_readiness.checks.is_some());
+        assert!(proto_readiness.system_info.is_some());
+
+        let checks = proto_readiness.checks.unwrap();
+        assert!(checks.database.is_some());
+        assert!(checks.command_processor.is_some());
+        assert!(checks.queue_processing.is_some());
+    }
+
+    #[test]
+    fn test_worker_detailed_health_to_proto() {
+        let now = Utc::now();
+        let response = WorkerDetailedHealth {
+            status: "healthy".to_string(),
+            timestamp: now,
+            worker_id: "worker-003".to_string(),
+            checks: WorkerDetailedChecks {
+                database: WorkerDomainHealthCheck::healthy("db ok", 5),
+                command_processor: WorkerDomainHealthCheck::healthy("cmd ok", 3),
+                queue_processing: WorkerDomainHealthCheck::healthy("queue ok", 2),
+                event_system: WorkerDomainHealthCheck::healthy("events ok", 1),
+                step_processing: WorkerDomainHealthCheck::healthy("steps ok", 4),
+                circuit_breakers: WorkerDomainHealthCheck::healthy("circuits ok", 1),
+            },
+            system_info: WorkerSystemInfo {
+                version: "1.0.0".to_string(),
+                environment: "test".to_string(),
+                uptime_seconds: 7200,
+                worker_type: "rust".to_string(),
+                database_pool_size: 10,
+                command_processor_active: true,
+                supported_namespaces: vec!["default".to_string(), "custom".to_string()],
+                pool_utilization: None,
+            },
+            distributed_cache: Some(DistributedCacheInfo {
+                enabled: true,
+                provider: "redis".to_string(),
+                healthy: true,
+            }),
+        };
+
+        let proto_detailed = proto::WorkerDetailedHealthResponse::from(&response);
+        assert_eq!(proto_detailed.status, "healthy");
+        assert!(proto_detailed.timestamp.is_some());
+        assert_eq!(proto_detailed.worker_id, "worker-003");
+        assert!(proto_detailed.checks.is_some());
+        assert!(proto_detailed.system_info.is_some());
+        assert!(proto_detailed.distributed_cache.is_some());
+
+        let cache = proto_detailed.distributed_cache.unwrap();
+        assert!(cache.enabled);
+        assert_eq!(cache.provider, "redis");
+        assert!(cache.healthy);
+    }
+
+    // ========================================================================
+    // From<&WorkerReadinessChecks> for proto::WorkerReadinessChecks
+    // ========================================================================
+
+    #[test]
+    fn test_worker_readiness_checks_to_proto() {
+        let checks = WorkerReadinessChecks {
+            database: WorkerDomainHealthCheck::healthy("db ok", 5),
+            command_processor: WorkerDomainHealthCheck::healthy("cmd ok", 3),
+            queue_processing: WorkerDomainHealthCheck::degraded("queue slow", 150),
+        };
+
+        let proto_checks = proto::WorkerReadinessChecks::from(&checks);
+        assert!(proto_checks.database.is_some());
+        assert!(proto_checks.command_processor.is_some());
+        assert!(proto_checks.queue_processing.is_some());
+
+        let queue_check = proto_checks.queue_processing.unwrap();
+        assert_eq!(queue_check.status, "degraded");
+    }
+
+    // ========================================================================
+    // From<&WorkerDetailedChecks> for proto::WorkerDetailedChecks
+    // ========================================================================
+
+    #[test]
+    fn test_worker_detailed_checks_to_proto() {
+        let checks = WorkerDetailedChecks {
+            database: WorkerDomainHealthCheck::healthy("db ok", 5),
+            command_processor: WorkerDomainHealthCheck::healthy("cmd ok", 3),
+            queue_processing: WorkerDomainHealthCheck::healthy("queue ok", 2),
+            event_system: WorkerDomainHealthCheck::unhealthy("events down", 5000),
+            step_processing: WorkerDomainHealthCheck::healthy("steps ok", 4),
+            circuit_breakers: WorkerDomainHealthCheck::healthy("circuits ok", 1),
+        };
+
+        let proto_checks = proto::WorkerDetailedChecks::from(&checks);
+        assert!(proto_checks.database.is_some());
+        assert!(proto_checks.command_processor.is_some());
+        assert!(proto_checks.queue_processing.is_some());
+        assert!(proto_checks.event_system.is_some());
+        assert!(proto_checks.step_processing.is_some());
+        assert!(proto_checks.circuit_breakers.is_some());
+
+        let event_check = proto_checks.event_system.unwrap();
+        assert_eq!(event_check.status, "unhealthy");
+    }
+
+    // ========================================================================
+    // From<&WorkerDomainHealthCheck> for proto::WorkerHealthCheck
+    // ========================================================================
+
+    #[test]
+    fn test_worker_domain_health_check_to_proto() {
+        let check = WorkerDomainHealthCheck::healthy("service operational", 8);
+
+        let proto_check = proto::WorkerHealthCheck::from(&check);
+        assert_eq!(proto_check.status, "healthy");
+        assert_eq!(proto_check.message, Some("service operational".to_string()));
+        assert_eq!(proto_check.duration_ms, 8);
+        assert!(
+            proto_check.last_checked.is_some(),
+            "last_checked should be set"
+        );
+    }
+
+    // ========================================================================
+    // From<&WorkerSystemInfo> for proto::WorkerSystemInfo
+    // ========================================================================
+
+    #[test]
+    fn test_worker_system_info_to_proto_without_pool_utilization() {
+        let info = WorkerSystemInfo {
+            version: "1.2.3".to_string(),
+            environment: "staging".to_string(),
+            uptime_seconds: 86400,
+            worker_type: "python".to_string(),
+            database_pool_size: 15,
+            command_processor_active: true,
+            supported_namespaces: vec!["ns1".to_string(), "ns2".to_string()],
+            pool_utilization: None,
+        };
+
+        let proto_info = proto::WorkerSystemInfo::from(&info);
+        assert_eq!(proto_info.version, "1.2.3");
+        assert_eq!(proto_info.environment, "staging");
+        assert_eq!(proto_info.uptime_seconds, 86400);
+        assert_eq!(proto_info.worker_type, "python");
+        assert_eq!(proto_info.database_pool_size, 15);
+        assert!(proto_info.command_processor_active);
+        assert_eq!(proto_info.supported_namespaces, vec!["ns1", "ns2"]);
+        assert!(proto_info.pool_utilization.is_none());
+    }
+
+    #[test]
+    fn test_worker_system_info_to_proto_with_pool_utilization() {
+        let info = WorkerSystemInfo {
+            version: "1.2.3".to_string(),
+            environment: "production".to_string(),
+            uptime_seconds: 172800,
+            worker_type: "rust".to_string(),
+            database_pool_size: 20,
+            command_processor_active: true,
+            supported_namespaces: vec!["default".to_string()],
+            pool_utilization: Some(DomainPoolUtilizationInfo {
+                tasker_pool: crate::types::api::health::PoolDetail {
+                    active_connections: 5,
+                    idle_connections: 15,
+                    max_connections: 20,
+                    utilization_percent: 25.0,
+                    total_acquires: 1000,
+                    slow_acquires: 2,
+                    acquire_errors: 0,
+                    average_acquire_time_ms: 1.5,
+                    max_acquire_time_ms: 12.0,
+                },
+                pgmq_pool: crate::types::api::health::PoolDetail {
+                    active_connections: 3,
+                    idle_connections: 7,
+                    max_connections: 10,
+                    utilization_percent: 30.0,
+                    total_acquires: 500,
+                    slow_acquires: 1,
+                    acquire_errors: 0,
+                    average_acquire_time_ms: 0.9,
+                    max_acquire_time_ms: 6.0,
+                },
+            }),
+        };
+
+        let proto_info = proto::WorkerSystemInfo::from(&info);
+        assert!(
+            proto_info.pool_utilization.is_some(),
+            "pool_utilization should be present"
+        );
+        let pool = proto_info.pool_utilization.unwrap();
+        assert!(pool.tasker_pool.is_some());
+        assert!(pool.pgmq_pool.is_some());
+
+        let tasker = pool.tasker_pool.unwrap();
+        assert_eq!(tasker.active_connections, 5);
+        assert_eq!(tasker.idle_connections, 15);
+        assert_eq!(tasker.max_connections, 20);
+    }
+
+    // ========================================================================
+    // From<&WorkerConfigResponse> for proto::WorkerGetConfigResponse
+    // ========================================================================
+
+    #[test]
+    fn test_worker_config_response_to_proto() {
+        let now = Utc::now();
+        let response = WorkerConfigResponse {
+            metadata: ConfigMetadata {
+                timestamp: now,
+                environment: "test".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            worker_id: "worker-config-001".to_string(),
+            worker_type: "rust".to_string(),
+            auth: SafeAuthConfig {
+                enabled: true,
+                verification_method: "public_key".to_string(),
+                jwt_issuer: "tasker".to_string(),
+                jwt_audience: "api".to_string(),
+                api_key_header: "X-API-Key".to_string(),
+                api_key_count: 3,
+                strict_validation: true,
+                allowed_algorithms: vec!["RS256".to_string(), "ES256".to_string()],
+            },
+            messaging: SafeMessagingConfig {
+                backend: "pgmq".to_string(),
+                queues: vec!["worker_commands".to_string(), "worker_results".to_string()],
+            },
+        };
+
+        let proto_config = proto::WorkerGetConfigResponse::from(&response);
+        assert!(proto_config.metadata.is_some());
+        assert_eq!(proto_config.worker_id, "worker-config-001");
+        assert_eq!(proto_config.worker_type, "rust");
+        assert!(proto_config.auth.is_some());
+        assert!(proto_config.messaging.is_some());
+
+        let metadata = proto_config.metadata.unwrap();
+        assert!(metadata.timestamp.is_some());
+        assert_eq!(metadata.environment, "test");
+        assert_eq!(metadata.version, "1.0.0");
+
+        let auth = proto_config.auth.unwrap();
+        assert!(auth.enabled);
+        assert_eq!(auth.verification_method, "public_key");
+        assert_eq!(auth.jwt_issuer, "tasker");
+        assert_eq!(auth.jwt_audience, "api");
+        assert_eq!(auth.api_key_header, "X-API-Key");
+        assert_eq!(auth.api_key_count, 3);
+        assert!(auth.strict_validation);
+        assert_eq!(auth.allowed_algorithms, vec!["RS256", "ES256"]);
+
+        let messaging = proto_config.messaging.unwrap();
+        assert_eq!(messaging.backend, "pgmq");
+        assert_eq!(messaging.queues, vec!["worker_commands", "worker_results"]);
+    }
+
+    // ========================================================================
+    // From<&WorkerTemplateList> for proto::WorkerTemplateListResponse
+    // ========================================================================
+
+    #[test]
+    fn test_worker_template_list_to_proto_without_cache_stats() {
+        let response = WorkerTemplateList {
+            supported_namespaces: vec!["ns1".to_string(), "ns2".to_string()],
+            template_count: 5,
+            cache_stats: None,
+            worker_capabilities: vec!["ruby".to_string(), "python".to_string()],
+        };
+
+        let proto_list = proto::WorkerTemplateListResponse::from(&response);
+        assert_eq!(proto_list.supported_namespaces, vec!["ns1", "ns2"]);
+        assert_eq!(proto_list.template_count, 5);
+        assert!(proto_list.cache_stats.is_none());
+        assert_eq!(proto_list.worker_capabilities, vec!["ruby", "python"]);
+    }
+
+    #[test]
+    fn test_worker_template_list_to_proto_with_cache_stats() {
+        let response = WorkerTemplateList {
+            supported_namespaces: vec!["default".to_string()],
+            template_count: 10,
+            cache_stats: Some(CacheStats {
+                total_cached: 10,
+                cache_hits: 500,
+                cache_misses: 50,
+                cache_evictions: 5,
+                oldest_entry_age_seconds: 3600,
+                average_access_count: 45.5,
+                supported_namespaces: vec!["default".to_string()],
+            }),
+            worker_capabilities: vec!["rust".to_string()],
+        };
+
+        let proto_list = proto::WorkerTemplateListResponse::from(&response);
+        assert_eq!(proto_list.template_count, 10);
+        assert!(proto_list.cache_stats.is_some());
+
+        let stats = proto_list.cache_stats.unwrap();
+        assert_eq!(stats.total_cached, 10);
+        assert_eq!(stats.cache_hits, 500);
+        assert_eq!(stats.cache_misses, 50);
+        assert_eq!(stats.cache_evictions, 5);
+        assert_eq!(stats.oldest_entry_age_seconds, 3600);
+        assert!((stats.average_access_count - 45.5).abs() < f64::EPSILON);
+        assert_eq!(stats.supported_namespaces, vec!["default"]);
+    }
+
+    // ========================================================================
+    // From<&CacheStats> for proto::CacheStats
+    // ========================================================================
+
+    #[test]
+    fn test_cache_stats_to_proto() {
+        let stats = CacheStats {
+            total_cached: 25,
+            cache_hits: 1000,
+            cache_misses: 100,
+            cache_evictions: 10,
+            oldest_entry_age_seconds: 7200,
+            average_access_count: 38.2,
+            supported_namespaces: vec!["ns_a".to_string(), "ns_b".to_string()],
+        };
+
+        let proto_stats = proto::CacheStats::from(&stats);
+        assert_eq!(proto_stats.total_cached, 25);
+        assert_eq!(proto_stats.cache_hits, 1000);
+        assert_eq!(proto_stats.cache_misses, 100);
+        assert_eq!(proto_stats.cache_evictions, 10);
+        assert_eq!(proto_stats.oldest_entry_age_seconds, 7200);
+        assert!((proto_stats.average_access_count - 38.2).abs() < f64::EPSILON);
+        assert_eq!(proto_stats.supported_namespaces, vec!["ns_a", "ns_b"]);
+    }
+
+    // ========================================================================
+    // From<&DistributedCacheInfo> for proto::DistributedCacheInfo
+    // ========================================================================
+
+    #[test]
+    fn test_distributed_cache_info_to_proto() {
+        let info = DistributedCacheInfo {
+            enabled: true,
+            provider: "redis".to_string(),
+            healthy: true,
+        };
+
+        let proto_info = proto::DistributedCacheInfo::from(&info);
+        assert!(proto_info.enabled);
+        assert_eq!(proto_info.provider, "redis");
+        assert!(proto_info.healthy);
+    }
+
+    #[test]
+    fn test_distributed_cache_info_to_proto_disabled() {
+        let info = DistributedCacheInfo {
+            enabled: false,
+            provider: "noop".to_string(),
+            healthy: false,
+        };
+
+        let proto_info = proto::DistributedCacheInfo::from(&info);
+        assert!(!proto_info.enabled);
+        assert_eq!(proto_info.provider, "noop");
+        assert!(!proto_info.healthy);
+    }
+
+    // ========================================================================
+    // From<&HandlerMetadata> for proto::WorkerHandlerMetadata
+    // ========================================================================
+
+    #[test]
+    fn test_handler_metadata_to_proto() {
+        let metadata = HandlerMetadata {
+            namespace: "default".to_string(),
+            name: "my_handler".to_string(),
+            version: "2.0.0".to_string(),
+            handler_class: "MyHandler".to_string(),
+            config_schema: Some(serde_json::json!({"type": "object"})),
+            default_dependent_system: Some("external-api".to_string()),
+            registered_at: Utc::now(),
+        };
+
+        let proto_metadata = proto::WorkerHandlerMetadata::from(&metadata);
+        assert_eq!(proto_metadata.namespace, "default");
+        assert_eq!(proto_metadata.handler_name, "my_handler");
+        assert_eq!(proto_metadata.version, "2.0.0");
+        assert!(
+            proto_metadata.description.is_none(),
+            "description should be None (HandlerMetadata has no description field)"
+        );
+        assert!(
+            proto_metadata.step_names.is_empty(),
+            "step_names should be empty (not populated from HandlerMetadata)"
+        );
+    }
 }

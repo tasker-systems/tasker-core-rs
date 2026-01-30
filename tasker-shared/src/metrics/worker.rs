@@ -596,3 +596,178 @@ pub fn init() {
     FFI_COMPLETION_CIRCUIT_REJECTIONS_TOTAL.get_or_init(ffi_completion_circuit_rejections_total);
     FFI_COMPLETION_CIRCUIT_STATE.get_or_init(ffi_completion_circuit_state);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_init_does_not_panic() {
+        init();
+    }
+
+    #[test]
+    fn test_counter_factories() {
+        let _c = step_executions_total();
+        let _c = step_successes_total();
+        let _c = step_failures_total();
+        let _c = steps_claimed_total();
+        let _c = step_results_submitted_total();
+        let _c = step_state_transitions_total();
+        let _c = step_attempts_total();
+        let _c = domain_events_dispatched_total();
+        let _c = domain_events_published_total();
+        let _c = domain_events_failed_total();
+        let _c = domain_events_dropped_total();
+        let _c = ffi_completion_sends_total();
+        let _c = ffi_completion_slow_sends_total();
+        let _c = ffi_completion_circuit_rejections_total();
+    }
+
+    #[test]
+    fn test_histogram_factories() {
+        let _h = step_execution_duration();
+        let _h = step_claim_duration();
+        let _h = step_result_submission_duration();
+        let _h = domain_event_publish_duration();
+        let _h = ffi_completion_send_duration();
+    }
+
+    #[test]
+    fn test_gauge_factories() {
+        let _g = active_step_executions();
+        let _g = queue_depth();
+        let _g = domain_event_channel_depth();
+        let _g = ffi_completion_circuit_state();
+    }
+
+    #[test]
+    fn test_domain_event_system_stats_default() {
+        let stats = DomainEventSystemStats::default();
+        assert_eq!(stats.events_dispatched, 0);
+        assert_eq!(stats.events_published, 0);
+        assert_eq!(stats.events_failed, 0);
+        assert_eq!(stats.events_dropped, 0);
+        assert_eq!(stats.durable_events, 0);
+        assert_eq!(stats.fast_events, 0);
+        assert_eq!(stats.broadcast_events, 0);
+        assert!(stats.last_event_at.is_none());
+        assert_eq!(stats.channel_depth, 0);
+        assert_eq!(stats.channel_capacity, 0);
+    }
+
+    #[test]
+    fn test_domain_event_system_stats_serde_roundtrip() {
+        let stats = DomainEventSystemStats {
+            events_dispatched: 100,
+            events_published: 95,
+            events_failed: 3,
+            events_dropped: 2,
+            durable_events: 50,
+            fast_events: 40,
+            broadcast_events: 10,
+            last_event_at: Some(chrono::Utc::now()),
+            channel_depth: 5,
+            channel_capacity: 1000,
+        };
+        let json = serde_json::to_string(&stats).expect("serialize DomainEventSystemStats");
+        let deserialized: DomainEventSystemStats =
+            serde_json::from_str(&json).expect("deserialize DomainEventSystemStats");
+        assert_eq!(deserialized.events_dispatched, 100);
+        assert_eq!(deserialized.events_published, 95);
+        assert_eq!(deserialized.events_failed, 3);
+        assert_eq!(deserialized.events_dropped, 2);
+        assert_eq!(deserialized.durable_events, 50);
+        assert_eq!(deserialized.fast_events, 40);
+        assert_eq!(deserialized.broadcast_events, 10);
+        assert!(deserialized.last_event_at.is_some());
+        assert_eq!(deserialized.channel_depth, 5);
+        assert_eq!(deserialized.channel_capacity, 1000);
+    }
+
+    #[test]
+    fn test_domain_event_shutdown_result_serde_roundtrip() {
+        // DomainEventShutdownResult does not derive Default, construct manually
+        let result = DomainEventShutdownResult {
+            success: true,
+            events_drained: 42,
+            duration_ms: 150,
+        };
+        let json = serde_json::to_string(&result).expect("serialize DomainEventShutdownResult");
+        let deserialized: DomainEventShutdownResult =
+            serde_json::from_str(&json).expect("deserialize DomainEventShutdownResult");
+        assert!(deserialized.success);
+        assert_eq!(deserialized.events_drained, 42);
+        assert_eq!(deserialized.duration_ms, 150);
+    }
+
+    #[test]
+    fn test_event_router_stats_default() {
+        let stats = EventRouterStats::default();
+        assert_eq!(stats.total_routed, 0);
+        assert_eq!(stats.durable_routed, 0);
+        assert_eq!(stats.fast_routed, 0);
+        assert_eq!(stats.broadcast_routed, 0);
+        assert_eq!(stats.fast_delivery_errors, 0);
+        assert_eq!(stats.routing_errors, 0);
+    }
+
+    #[test]
+    fn test_event_router_stats_serde_roundtrip() {
+        let stats = EventRouterStats {
+            total_routed: 200,
+            durable_routed: 100,
+            fast_routed: 80,
+            broadcast_routed: 20,
+            fast_delivery_errors: 1,
+            routing_errors: 2,
+        };
+        let json = serde_json::to_string(&stats).expect("serialize EventRouterStats");
+        let deserialized: EventRouterStats =
+            serde_json::from_str(&json).expect("deserialize EventRouterStats");
+        assert_eq!(deserialized.total_routed, 200);
+        assert_eq!(deserialized.durable_routed, 100);
+        assert_eq!(deserialized.fast_routed, 80);
+        assert_eq!(deserialized.broadcast_routed, 20);
+        assert_eq!(deserialized.fast_delivery_errors, 1);
+        assert_eq!(deserialized.routing_errors, 2);
+    }
+
+    #[test]
+    fn test_in_process_event_bus_stats_default() {
+        let stats = InProcessEventBusStats::default();
+        assert_eq!(stats.total_events_dispatched, 0);
+        assert_eq!(stats.rust_handler_dispatches, 0);
+        assert_eq!(stats.ffi_channel_dispatches, 0);
+        assert_eq!(stats.rust_handler_errors, 0);
+        assert_eq!(stats.ffi_channel_drops, 0);
+        assert_eq!(stats.rust_subscriber_patterns, 0);
+        assert_eq!(stats.rust_handler_count, 0);
+        assert_eq!(stats.ffi_subscriber_count, 0);
+    }
+
+    #[test]
+    fn test_in_process_event_bus_stats_serde_roundtrip() {
+        let stats = InProcessEventBusStats {
+            total_events_dispatched: 500,
+            rust_handler_dispatches: 300,
+            ffi_channel_dispatches: 200,
+            rust_handler_errors: 5,
+            ffi_channel_drops: 3,
+            rust_subscriber_patterns: 10,
+            rust_handler_count: 8,
+            ffi_subscriber_count: 2,
+        };
+        let json = serde_json::to_string(&stats).expect("serialize InProcessEventBusStats");
+        let deserialized: InProcessEventBusStats =
+            serde_json::from_str(&json).expect("deserialize InProcessEventBusStats");
+        assert_eq!(deserialized.total_events_dispatched, 500);
+        assert_eq!(deserialized.rust_handler_dispatches, 300);
+        assert_eq!(deserialized.ffi_channel_dispatches, 200);
+        assert_eq!(deserialized.rust_handler_errors, 5);
+        assert_eq!(deserialized.ffi_channel_drops, 3);
+        assert_eq!(deserialized.rust_subscriber_patterns, 10);
+        assert_eq!(deserialized.rust_handler_count, 8);
+        assert_eq!(deserialized.ffi_subscriber_count, 2);
+    }
+}

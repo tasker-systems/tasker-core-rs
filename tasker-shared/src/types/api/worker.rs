@@ -316,3 +316,121 @@ pub struct CircuitBreakersHealth {
     /// Individual circuit breaker statuses
     pub circuit_breakers: Vec<CircuitBreakerStatus>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_health_check_healthy() {
+        let check = HealthCheck::healthy("all good", 42);
+        assert_eq!(check.status, "healthy");
+        assert_eq!(check.message, Some("all good".to_string()));
+        assert_eq!(check.duration_ms, 42);
+    }
+
+    #[test]
+    fn test_health_check_degraded() {
+        let check = HealthCheck::degraded("slow response", 150);
+        assert_eq!(check.status, "degraded");
+        assert_eq!(check.message, Some("slow response".to_string()));
+        assert_eq!(check.duration_ms, 150);
+    }
+
+    #[test]
+    fn test_health_check_unhealthy() {
+        let check = HealthCheck::unhealthy("connection refused", 5000);
+        assert_eq!(check.status, "unhealthy");
+        assert_eq!(check.message, Some("connection refused".to_string()));
+        assert_eq!(check.duration_ms, 5000);
+    }
+
+    #[test]
+    fn test_health_check_is_healthy() {
+        let healthy = HealthCheck::healthy("ok", 10);
+        assert!(healthy.is_healthy());
+
+        let degraded = HealthCheck::degraded("slow", 100);
+        assert!(!degraded.is_healthy());
+
+        let unhealthy = HealthCheck::unhealthy("down", 5000);
+        assert!(!unhealthy.is_healthy());
+    }
+
+    #[test]
+    fn test_worker_readiness_checks_all_healthy() {
+        let checks = WorkerReadinessChecks {
+            database: HealthCheck::healthy("db ok", 5),
+            command_processor: HealthCheck::healthy("cmd ok", 3),
+            queue_processing: HealthCheck::healthy("queue ok", 2),
+        };
+        assert!(checks.all_healthy());
+    }
+
+    #[test]
+    fn test_worker_readiness_checks_not_all_healthy() {
+        let checks = WorkerReadinessChecks {
+            database: HealthCheck::healthy("db ok", 5),
+            command_processor: HealthCheck::degraded("cmd slow", 200),
+            queue_processing: HealthCheck::healthy("queue ok", 2),
+        };
+        assert!(!checks.all_healthy());
+    }
+
+    #[test]
+    fn test_worker_detailed_checks_all_healthy() {
+        let checks = WorkerDetailedChecks {
+            database: HealthCheck::healthy("db ok", 5),
+            command_processor: HealthCheck::healthy("cmd ok", 3),
+            queue_processing: HealthCheck::healthy("queue ok", 2),
+            event_system: HealthCheck::healthy("events ok", 1),
+            step_processing: HealthCheck::healthy("steps ok", 4),
+            circuit_breakers: HealthCheck::healthy("circuits ok", 1),
+        };
+        assert!(checks.all_healthy());
+    }
+
+    #[test]
+    fn test_worker_detailed_checks_not_all_healthy() {
+        let checks = WorkerDetailedChecks {
+            database: HealthCheck::healthy("db ok", 5),
+            command_processor: HealthCheck::healthy("cmd ok", 3),
+            queue_processing: HealthCheck::healthy("queue ok", 2),
+            event_system: HealthCheck::unhealthy("events down", 5000),
+            step_processing: HealthCheck::healthy("steps ok", 4),
+            circuit_breakers: HealthCheck::healthy("circuits ok", 1),
+        };
+        assert!(!checks.all_healthy());
+    }
+
+    #[test]
+    fn test_circuit_breaker_state_display() {
+        assert_eq!(CircuitBreakerState::Closed.to_string(), "closed");
+        assert_eq!(CircuitBreakerState::Open.to_string(), "open");
+        assert_eq!(CircuitBreakerState::HalfOpen.to_string(), "half_open");
+    }
+
+    #[test]
+    fn test_circuit_breaker_status_default() {
+        let status = CircuitBreakerStatus::default();
+        assert_eq!(status.name, "unknown");
+        assert_eq!(status.state, CircuitBreakerState::Closed);
+        assert!(status.is_healthy);
+        assert_eq!(status.success_count, 0);
+        assert_eq!(status.failure_count, 0);
+        assert_eq!(status.consecutive_failures, 0);
+        assert_eq!(status.total_calls, 0);
+        assert_eq!(status.circuit_open_rejections, 0);
+        assert!(status.additional_metrics.is_none());
+    }
+
+    #[test]
+    fn test_circuit_breakers_health_default() {
+        let health = CircuitBreakersHealth::default();
+        assert!(!health.all_healthy);
+        assert_eq!(health.closed_count, 0);
+        assert_eq!(health.open_count, 0);
+        assert_eq!(health.half_open_count, 0);
+        assert!(health.circuit_breakers.is_empty());
+    }
+}

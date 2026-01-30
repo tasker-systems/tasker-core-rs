@@ -72,3 +72,49 @@ impl From<Arc<TaskerConfig>> for TaskClaimStepEnqueuerConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_claim_step_enqueuer_config_default_values() {
+        let config = TaskClaimStepEnqueuerConfig::default();
+        assert_eq!(config.batch_size, 5);
+        assert!(config.namespace_filter.is_none());
+        assert!(!config.enable_performance_logging);
+        assert!(config.enable_heartbeat);
+    }
+
+    #[test]
+    fn test_task_claim_step_enqueuer_config_nested_defaults() {
+        let config = TaskClaimStepEnqueuerConfig::default();
+
+        // Verify nested StepEnqueuerConfig defaults
+        assert_eq!(config.step_enqueuer_config.max_steps_per_task, 100);
+        assert_eq!(config.step_enqueuer_config.enqueue_delay_seconds, 0);
+        assert!(!config.step_enqueuer_config.enable_detailed_logging);
+        assert_eq!(config.step_enqueuer_config.enqueue_timeout_seconds, 30);
+
+        // Verify nested StepResultProcessorConfig defaults
+        assert_eq!(
+            config.step_result_processor_config.step_results_queue_name,
+            "orchestration_step_results"
+        );
+        assert_eq!(config.step_result_processor_config.batch_size, 10);
+        assert_eq!(
+            config
+                .step_result_processor_config
+                .visibility_timeout_seconds,
+            300
+        );
+        assert_eq!(
+            config.step_result_processor_config.polling_interval_seconds,
+            1
+        );
+        assert_eq!(
+            config.step_result_processor_config.max_processing_attempts,
+            3
+        );
+    }
+}

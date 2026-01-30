@@ -627,3 +627,178 @@ impl StepDagRelationship {
         self.min_depth_from_root.is_none()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_dag_relationship(
+        parent_uuids: serde_json::Value,
+        child_uuids: serde_json::Value,
+        is_root: bool,
+        is_leaf: bool,
+        depth: Option<i32>,
+    ) -> StepDagRelationship {
+        StepDagRelationship {
+            workflow_step_uuid: Uuid::now_v7(),
+            task_uuid: Uuid::now_v7(),
+            named_step_uuid: Uuid::now_v7(),
+            parent_step_uuids: parent_uuids,
+            child_step_uuids: child_uuids,
+            parent_count: 0,
+            child_count: 0,
+            is_root_step: is_root,
+            is_leaf_step: is_leaf,
+            min_depth_from_root: depth,
+        }
+    }
+
+    #[test]
+    fn test_parent_ids_with_uuid_array() {
+        let rel = make_dag_relationship(
+            json!([
+                "550e8400-e29b-41d4-a716-446655440001",
+                "660e8400-e29b-41d4-a716-446655440002"
+            ]),
+            json!([]),
+            false,
+            false,
+            Some(1),
+        );
+        let parents = rel.parent_ids();
+        assert_eq!(parents.len(), 2);
+        assert_eq!(
+            parents[0],
+            Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap()
+        );
+        assert_eq!(
+            parents[1],
+            Uuid::parse_str("660e8400-e29b-41d4-a716-446655440002").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_parent_ids_with_empty_array() {
+        let rel = make_dag_relationship(json!([]), json!([]), true, false, Some(0));
+        let parents = rel.parent_ids();
+        assert!(parents.is_empty());
+    }
+
+    #[test]
+    fn test_parent_ids_with_null() {
+        let rel = make_dag_relationship(json!(null), json!([]), false, false, None);
+        let parents = rel.parent_ids();
+        assert!(parents.is_empty());
+    }
+
+    #[test]
+    fn test_child_ids_with_uuid_array() {
+        let rel = make_dag_relationship(
+            json!([]),
+            json!([
+                "770e8400-e29b-41d4-a716-446655440003",
+                "880e8400-e29b-41d4-a716-446655440004"
+            ]),
+            true,
+            false,
+            Some(0),
+        );
+        let children = rel.child_ids();
+        assert_eq!(children.len(), 2);
+        assert_eq!(
+            children[0],
+            Uuid::parse_str("770e8400-e29b-41d4-a716-446655440003").unwrap()
+        );
+        assert_eq!(
+            children[1],
+            Uuid::parse_str("880e8400-e29b-41d4-a716-446655440004").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_child_ids_with_empty_array() {
+        let rel = make_dag_relationship(json!([]), json!([]), false, true, Some(2));
+        let children = rel.child_ids();
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn test_can_execute_immediately_root_step() {
+        let rel = make_dag_relationship(json!([]), json!([]), true, false, Some(0));
+        assert!(rel.can_execute_immediately());
+    }
+
+    #[test]
+    fn test_can_execute_immediately_non_root_step() {
+        let rel = make_dag_relationship(
+            json!(["550e8400-e29b-41d4-a716-446655440001"]),
+            json!([]),
+            false,
+            true,
+            Some(1),
+        );
+        assert!(!rel.can_execute_immediately());
+    }
+
+    #[test]
+    fn test_is_workflow_exit_leaf_step() {
+        let rel = make_dag_relationship(json!([]), json!([]), false, true, Some(3));
+        assert!(rel.is_workflow_exit());
+    }
+
+    #[test]
+    fn test_is_workflow_exit_non_leaf_step() {
+        let rel = make_dag_relationship(
+            json!([]),
+            json!(["550e8400-e29b-41d4-a716-446655440001"]),
+            true,
+            false,
+            Some(0),
+        );
+        assert!(!rel.is_workflow_exit());
+    }
+
+    #[test]
+    fn test_execution_level_with_some_depth() {
+        let rel = make_dag_relationship(json!([]), json!([]), false, false, Some(2));
+        assert_eq!(rel.execution_level(), Some(2));
+    }
+
+    #[test]
+    fn test_execution_level_with_none() {
+        let rel = make_dag_relationship(json!([]), json!([]), false, false, None);
+        assert_eq!(rel.execution_level(), None);
+    }
+
+    #[test]
+    fn test_is_orphaned_with_none_depth() {
+        let rel = make_dag_relationship(json!([]), json!([]), false, false, None);
+        assert!(rel.is_orphaned());
+    }
+
+    #[test]
+    fn test_is_orphaned_with_some_depth() {
+        let rel = make_dag_relationship(json!([]), json!([]), true, false, Some(0));
+        assert!(!rel.is_orphaned());
+    }
+
+    #[test]
+    fn test_step_dag_relationship_query_construction() {
+        let task_uuid = Uuid::now_v7();
+        let query = StepDagRelationshipQuery {
+            task_uuid: Some(task_uuid),
+            workflow_step_uuid: None,
+            min_depth: Some(0),
+            max_depth: Some(5),
+            is_root_step: Some(true),
+            is_leaf_step: None,
+        };
+        assert_eq!(query.task_uuid, Some(task_uuid));
+        assert!(query.workflow_step_uuid.is_none());
+        assert_eq!(query.min_depth, Some(0));
+        assert_eq!(query.max_depth, Some(5));
+        assert_eq!(query.is_root_step, Some(true));
+        assert!(query.is_leaf_step.is_none());
+    }
+}
