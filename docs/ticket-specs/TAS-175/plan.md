@@ -13,7 +13,7 @@ Tasker has ~303 configurable parameters across 51 distinct config sections (comm
 
 However:
 
-1. **Zero `_docs` coverage today.** The infrastructure is implemented but no parameters have documentation metadata. The `tasker-cli config explain` command exists but returns empty results.
+1. **Minimal `_docs` coverage.** The infrastructure is implemented and Phase 0 seeds ~95 parameters with documentation metadata, but the majority of ~303 parameters remain undocumented. The `tasker-cli config explain` command can render Phase 0 entries.
 
 2. **No rendered documentation.** There's no way to generate a browsable config reference, annotated config examples, or per-section deep-dives. Configuration knowledge lives in code comments and the heads of contributors.
 
@@ -117,6 +117,41 @@ Askama is behind a `docs-gen` feature in `tasker-client` (default-enabled) so it
 ---
 
 ## Implementation Plan
+
+### Phase 0: Seed `_docs` Coverage (Low-Hanging Fruit)
+
+Before building the Askama pipeline, populate `_docs` entries for self-evident parameters across all three base TOML files. This provides:
+
+1. **Proof data** for validating the Askama pipeline against real content
+2. **Verification** that `ConfigMerger` and `ConfigLoader` correctly strip `_docs` from generated output (the stripping logic in `merge.rs:deep_merge_tables` skips keys ending with `_docs`, and `strip_docs_sections` removes any remaining)
+3. **Immediate value** — the existing `tasker-cli config explain` infrastructure can render these even before Askama templates exist
+
+**Scope: ~95 parameters documented across 3 files.**
+
+Selection criteria: parameters whose purpose is self-evident from their name, type, and context — URLs, backend selectors, queue names, bind addresses, boolean toggles, timeout/buffer sizes, IDs, and concurrency limits. These don't require deep architectural research to describe accurately.
+
+| File | Sections Covered | Params Documented |
+|------|-----------------|-------------------|
+| `common.toml` | system, database (url, pool, variables), pgmq_database, queues (backend, namespaces, orchestration_queues, pgmq, queue_depth_thresholds, rabbitmq), circuit_breakers (enabled, global_settings, default_config), execution, backoff (delays, reenqueue_delays), cache (enabled, backend, redis, moka) | ~70 |
+| `orchestration.toml` | mode, enable_performance_logging, event_systems (system_id, deployment_mode), dlq (enabled, auto_dlq, staleness_detection, thresholds, actions), web (enabled, bind_address, request_timeout, auth), grpc (enabled, bind_address, tls, reflection, health) | ~18 |
+| `worker.toml` | worker_id, worker_type, circuit_breakers (slow_send_threshold), event_systems (system_id, deployment_mode), step_processing, health_monitoring, orchestration_client (base_url, timeout, retries), web (enabled, bind_address, auth), grpc (enabled, bind_address, max_concurrent_streams) | ~17 |
+
+Each `_docs` entry follows the established convention from `documentation.rs`:
+```toml
+[section._docs.parameter_name]
+description = "Human-readable description"
+type = "Rust type name"
+valid_range = "Value constraints"
+system_impact = "What this controls and what happens at boundary values"
+related = ["other.param.paths"]  # optional
+example = "..."                   # optional
+
+[section._docs.parameter_name.recommendations]  # optional
+test = { value = "...", rationale = "..." }
+production = { value = "...", rationale = "..." }
+```
+
+**Not in Phase 0 scope**: MPSC channel buffer sizes (require understanding actor message flow), event system timing parameters (require understanding deployment mode interactions), component-specific circuit breaker tuning. These are deferred to Phase 4 tiers.
 
 ### Phase 1: Foundation (Askama Integration + Context Types)
 

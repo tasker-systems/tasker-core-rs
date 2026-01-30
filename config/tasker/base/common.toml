@@ -6,10 +6,52 @@ version = "0.1.0"
 default_dependent_system = "default"
 max_recursion_depth = 50
 
+[common.system._docs.version]
+description = "Tasker configuration schema version"
+type = "String"
+valid_range = "semver"
+system_impact = "Used for configuration compatibility checks during upgrades"
+
+[common.system._docs.default_dependent_system]
+description = "Default system name assigned to tasks that do not specify a dependent system"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Groups tasks for routing and reporting; most single-system deployments can leave this as default"
+
+[common.system._docs.max_recursion_depth]
+description = "Maximum depth for recursive dependency resolution in workflow graphs"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Prevents infinite loops from circular dependencies; raise only for deeply nested workflows"
+
 [common.database]
 url = "${DATABASE_URL:-postgresql://localhost/tasker}"
 database = "tasker_development"
 skip_migration_check = false
+
+[common.database._docs.url]
+description = "PostgreSQL connection URL for the primary database"
+type = "String"
+valid_range = "valid PostgreSQL connection URI"
+system_impact = "All task, step, and workflow state is stored here; must be reachable at startup"
+related = ["common.database.pool.max_connections", "common.pgmq_database.url"]
+
+[common.database._docs.url.recommendations]
+test = { value = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test", rationale = "Isolated test database with known credentials" }
+development = { value = "postgresql://localhost/tasker", rationale = "Local default, no auth" }
+production = { value = "${DATABASE_URL}", rationale = "Always use env var injection for secrets rotation" }
+
+[common.database._docs.database]
+description = "Database name used for display and connection verification logging"
+type = "String"
+valid_range = "valid PostgreSQL database name"
+system_impact = "Informational; the actual database is determined by the connection URL"
+
+[common.database._docs.skip_migration_check]
+description = "Skip database migration version check at startup"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, the system will not verify that migrations are current; use only for testing or when migrations are managed externally"
 
 [common.database.pool]
 max_connections = 25
@@ -19,8 +61,56 @@ idle_timeout_seconds = 300
 max_lifetime_seconds = 1800
 slow_acquire_threshold_ms = 100
 
+[common.database.pool._docs.max_connections]
+description = "Maximum number of concurrent database connections in the pool"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Controls database connection concurrency; too few causes query queuing under load, too many risks DB resource exhaustion"
+related = ["common.database.pool.min_connections", "common.database.pool.acquire_timeout_seconds"]
+
+[common.database.pool._docs.max_connections.recommendations]
+test = { value = "10-30", rationale = "Moderate pool; cluster tests may run 10 services sharing the same DB" }
+development = { value = "10-25", rationale = "Small pool for local development" }
+production = { value = "30-50", rationale = "Scale based on worker count and concurrent task volume" }
+
+[common.database.pool._docs.min_connections]
+description = "Minimum number of idle connections maintained in the pool"
+type = "u32"
+valid_range = "0-100"
+system_impact = "Keeps connections warm to avoid cold-start latency on first queries after idle periods"
+
+[common.database.pool._docs.acquire_timeout_seconds]
+description = "Maximum time to wait when acquiring a connection from the pool"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Queries fail with a timeout error if no connection is available within this window"
+
+[common.database.pool._docs.idle_timeout_seconds]
+description = "Time before an idle connection is closed and removed from the pool"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how quickly the pool shrinks back to min_connections after load drops"
+
+[common.database.pool._docs.max_lifetime_seconds]
+description = "Maximum total lifetime of a connection before it is closed and replaced"
+type = "u32"
+valid_range = "60-86400"
+system_impact = "Prevents connection drift from server-side config changes or memory leaks in long-lived connections"
+
+[common.database.pool._docs.slow_acquire_threshold_ms]
+description = "Threshold in milliseconds above which connection acquisition is logged as slow"
+type = "u32"
+valid_range = "10-60000"
+system_impact = "Observability: slow acquire warnings indicate pool pressure or network issues"
+
 [common.database.variables]
 statement_timeout = 30000
+
+[common.database.variables._docs.statement_timeout]
+description = "PostgreSQL statement_timeout in milliseconds, set per-connection via SET statement_timeout"
+type = "u32"
+valid_range = "100-600000"
+system_impact = "Prevents runaway queries from holding connections indefinitely; queries exceeding this limit are cancelled by PostgreSQL"
 
 # PGMQ Separate Database Configuration (optional)
 # When url is empty or PGMQ_DATABASE_URL not set, PGMQ uses main database
@@ -28,6 +118,19 @@ statement_timeout = 30000
 url = "${PGMQ_DATABASE_URL:-}"
 enabled = true
 skip_migration_check = false
+
+[common.pgmq_database._docs.url]
+description = "PostgreSQL connection URL for a dedicated PGMQ database; when empty, PGMQ shares the primary database"
+type = "String"
+valid_range = "valid PostgreSQL connection URI or empty string"
+system_impact = "Separating PGMQ to its own database isolates messaging I/O from task state queries, reducing contention under heavy load"
+related = ["common.database.url", "common.pgmq_database.enabled"]
+
+[common.pgmq_database._docs.enabled]
+description = "Enable PGMQ messaging subsystem"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, PGMQ queue operations are disabled; only useful if using RabbitMQ as the sole messaging backend"
 
 [common.pgmq_database.pool]
 max_connections = 15
@@ -51,15 +154,104 @@ max_batch_size = 100
 naming_pattern = "{namespace}_{name}_queue"
 health_check_interval = 60
 
+[common.queues._docs.backend]
+description = "Messaging backend: 'pgmq' (PostgreSQL-based, LISTEN/NOTIFY) or 'rabbitmq' (AMQP broker)"
+type = "String"
+valid_range = "pgmq | rabbitmq"
+system_impact = "Determines the entire message transport layer; pgmq requires only PostgreSQL, rabbitmq requires a separate AMQP broker"
+related = ["common.queues.pgmq", "common.queues.rabbitmq"]
+
+[common.queues._docs.backend.recommendations]
+test = { value = "pgmq", rationale = "Single-dependency setup, simpler CI" }
+production = { value = "pgmq or rabbitmq", rationale = "pgmq for simplicity, rabbitmq for high-throughput push semantics" }
+
+[common.queues._docs.orchestration_namespace]
+description = "Namespace prefix for orchestration queue names"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Used in queue naming pattern to isolate orchestration queues from worker queues"
+
+[common.queues._docs.worker_namespace]
+description = "Namespace prefix for worker queue names"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Used in queue naming pattern to isolate worker queues from orchestration queues"
+
+[common.queues._docs.default_visibility_timeout_seconds]
+description = "Default time a dequeued message remains invisible to other consumers"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "If a consumer fails to process a message within this window, the message becomes visible again for retry"
+
+[common.queues._docs.default_batch_size]
+description = "Default number of messages to dequeue in a single batch read"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Larger batches improve throughput but increase per-batch processing latency"
+
+[common.queues._docs.max_batch_size]
+description = "Hard upper limit on batch size for any single dequeue operation"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Safety cap to prevent a single consumer from monopolizing queue messages"
+
+[common.queues._docs.naming_pattern]
+description = "Template pattern for constructing queue names from namespace and name"
+type = "String"
+valid_range = "string containing {namespace} and {name} placeholders"
+system_impact = "Determines the actual PGMQ/RabbitMQ queue names; changing this after deployment requires manual queue migration"
+
+[common.queues._docs.health_check_interval]
+description = "Interval in seconds between queue health check probes"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how frequently queue connectivity and depth are checked for health reporting"
+
 [common.queues.orchestration_queues]
 task_requests = "orchestration_task_requests"
 task_finalizations = "orchestration_task_finalizations"
 step_results = "orchestration_step_results"
 
+[common.queues.orchestration_queues._docs.task_requests]
+description = "Queue name for incoming task execution requests"
+type = "String"
+valid_range = "valid queue name"
+system_impact = "The orchestration system reads new task requests from this queue"
+
+[common.queues.orchestration_queues._docs.task_finalizations]
+description = "Queue name for task finalization messages"
+type = "String"
+valid_range = "valid queue name"
+system_impact = "Tasks ready for completion evaluation are enqueued here"
+
+[common.queues.orchestration_queues._docs.step_results]
+description = "Queue name for step execution results returned by workers"
+type = "String"
+valid_range = "valid queue name"
+system_impact = "Workers publish step completion results here for the orchestration result processor"
+
 [common.queues.pgmq]
 poll_interval_ms = 500
 shutdown_timeout_seconds = 10
 max_retries = 3
+
+[common.queues.pgmq._docs.poll_interval_ms]
+description = "Interval in milliseconds between PGMQ polling cycles when no LISTEN/NOTIFY events arrive"
+type = "u32"
+valid_range = "10-10000"
+system_impact = "Lower values reduce message latency in polling mode but increase database load; in Hybrid mode this is the fallback interval"
+
+[common.queues.pgmq._docs.shutdown_timeout_seconds]
+description = "Maximum time to wait for in-flight PGMQ operations to complete during graceful shutdown"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Prevents shutdown from hanging indefinitely on stuck queue operations"
+
+[common.queues.pgmq._docs.max_retries]
+description = "Maximum number of times a failed PGMQ operation is retried before giving up"
+type = "u32"
+valid_range = "0-100"
+system_impact = "Controls retry behavior for transient PGMQ failures such as connection resets"
 
 # TAS-75 Phase 3: Queue depth thresholds for backpressure monitoring
 # These are SOFT limits - messages are never rejected, but API returns 503 at critical depth
@@ -67,6 +259,24 @@ max_retries = 3
 warning_threshold = 1000    # Log warnings above this depth
 critical_threshold = 5000   # Return 503 Service Unavailable above this depth
 overflow_threshold = 10000  # Emergency level requiring manual intervention
+
+[common.queues.pgmq.queue_depth_thresholds._docs.warning_threshold]
+description = "Queue depth at which warning-level log messages are emitted"
+type = "i64"
+valid_range = "1+"
+system_impact = "Observability threshold only; no behavioral change, but alerts operators to growing backlog"
+
+[common.queues.pgmq.queue_depth_thresholds._docs.critical_threshold]
+description = "Queue depth at which the API returns HTTP 503 Service Unavailable for new task submissions"
+type = "i64"
+valid_range = "1+"
+system_impact = "Backpressure mechanism: rejects new work to allow the system to drain existing messages"
+
+[common.queues.pgmq.queue_depth_thresholds._docs.overflow_threshold]
+description = "Queue depth indicating an emergency condition requiring manual intervention"
+type = "i64"
+valid_range = "1+"
+system_impact = "Highest severity threshold; triggers error-level logging and metrics for operational alerting"
 
 # RabbitMQ Configuration (TAS-133d - alternative to PGMQ)
 # Only used when backend = "rabbitmq"
@@ -77,18 +287,72 @@ prefetch_count = 100
 heartbeat_seconds = 30
 connection_timeout_seconds = 10
 
+[common.queues.rabbitmq._docs.url]
+description = "AMQP connection URL for RabbitMQ; %2F is the URL-encoded default vhost '/'"
+type = "String"
+valid_range = "valid AMQP URI"
+system_impact = "Only used when queues.backend = 'rabbitmq'; must be reachable at startup"
+
+[common.queues.rabbitmq._docs.prefetch_count]
+description = "Number of unacknowledged messages RabbitMQ will deliver before waiting for acks"
+type = "u16"
+valid_range = "1-65535"
+system_impact = "Controls consumer throughput vs. memory usage; higher values increase throughput but buffer more messages in-process"
+
+[common.queues.rabbitmq._docs.heartbeat_seconds]
+description = "AMQP heartbeat interval for connection liveness detection"
+type = "u16"
+valid_range = "0-3600"
+system_impact = "Detects dead connections; 0 disables heartbeats (not recommended in production)"
+
+[common.queues.rabbitmq._docs.connection_timeout_seconds]
+description = "Maximum time to wait when establishing a new RabbitMQ connection"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Connections that cannot be established within this timeout fail with an error"
+
 [common.circuit_breakers]
 enabled = true
+
+[common.circuit_breakers._docs.enabled]
+description = "Master switch for the circuit breaker subsystem"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, all circuit breakers are disabled and operations always proceed; use only for debugging"
 
 [common.circuit_breakers.global_settings]
 max_circuit_breakers = 50
 metrics_collection_interval_seconds = 30
 min_state_transition_interval_seconds = 5.0
 
+[common.circuit_breakers.global_settings._docs.max_circuit_breakers]
+description = "Maximum number of circuit breaker instances that can be registered"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Safety limit to prevent unbounded circuit breaker allocation; increase only if adding many component-specific breakers"
+
 [common.circuit_breakers.default_config]
 failure_threshold = 5
 timeout_seconds = 30
 success_threshold = 2
+
+[common.circuit_breakers.default_config._docs.failure_threshold]
+description = "Number of consecutive failures before a circuit breaker trips to the Open state"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Lower values make the breaker more sensitive; higher values tolerate more transient failures before tripping"
+
+[common.circuit_breakers.default_config._docs.timeout_seconds]
+description = "Time the circuit breaker remains in Open state before transitioning to Half-Open for a probe"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Controls how long the system waits before retesting a failed dependency"
+
+[common.circuit_breakers.default_config._docs.success_threshold]
+description = "Number of consecutive successes in Half-Open state required to close the circuit breaker"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Higher values require more proof of recovery before restoring full traffic"
 
 [common.circuit_breakers.component_configs.task_readiness]
 failure_threshold = 10
@@ -132,12 +396,84 @@ max_workflow_steps = 10000
 connection_timeout_seconds = 30
 environment = "development"
 
+[common.execution._docs.max_concurrent_tasks]
+description = "Maximum number of tasks that can be actively processed simultaneously"
+type = "u32"
+valid_range = "1-100000"
+system_impact = "Primary concurrency control; limits how many task state machines are active at once"
+
+[common.execution._docs.max_concurrent_steps]
+description = "Maximum number of steps that can be executing simultaneously across all tasks"
+type = "u32"
+valid_range = "1-1000000"
+system_impact = "Bounds total worker-side parallelism; should be larger than max_concurrent_tasks since tasks have multiple steps"
+
+[common.execution._docs.default_timeout_seconds]
+description = "Default maximum wall-clock time for an entire task to complete"
+type = "u32"
+valid_range = "1-86400"
+system_impact = "Tasks exceeding this timeout are transitioned to error state; individual step timeouts are separate"
+
+[common.execution._docs.step_execution_timeout_seconds]
+description = "Default maximum time for a single step execution before it is considered timed out"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Guards against hung step handlers; overridden by step-level timeout configuration if present"
+
+[common.execution._docs.max_retries]
+description = "Default maximum number of retry attempts for a failed step"
+type = "u32"
+valid_range = "0-100"
+system_impact = "Applies when step definitions do not specify their own retry count; 0 means no retries"
+
+[common.execution._docs.step_batch_size]
+description = "Number of steps to enqueue in a single batch during task initialization"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Controls step enqueueing throughput; larger batches reduce round trips but increase per-batch latency"
+
+[common.execution._docs.environment]
+description = "Runtime environment identifier used for configuration context selection and logging"
+type = "String"
+valid_range = "test | development | production"
+system_impact = "Affects log levels, default tuning, and environment-specific behavior throughout the system"
+
 [common.backoff]
 default_backoff_seconds = [1, 5, 15, 30, 60]
 max_backoff_seconds = 3600
 backoff_multiplier = 2.0
 jitter_enabled = true
 jitter_max_percentage = 0.15
+
+[common.backoff._docs.default_backoff_seconds]
+description = "Sequence of backoff delays in seconds for successive retry attempts"
+type = "Vec<u32>"
+valid_range = "non-empty array of positive integers"
+system_impact = "Defines the retry cadence; after exhausting the array, the last value is reused up to max_backoff_seconds"
+
+[common.backoff._docs.max_backoff_seconds]
+description = "Hard upper limit on any single backoff delay"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Caps exponential backoff growth to prevent excessively long delays between retries"
+
+[common.backoff._docs.backoff_multiplier]
+description = "Multiplier applied to the previous delay for exponential backoff calculations"
+type = "f64"
+valid_range = "1.0-10.0"
+system_impact = "Controls how aggressively delays grow; 2.0 means each delay is double the previous"
+
+[common.backoff._docs.jitter_enabled]
+description = "Add random jitter to backoff delays to prevent thundering herd on retry"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, backoff delays are randomized within jitter_max_percentage to spread retries across time"
+
+[common.backoff._docs.jitter_max_percentage]
+description = "Maximum jitter as a fraction of the computed backoff delay"
+type = "f64"
+valid_range = "0.0-1.0"
+system_impact = "A value of 0.15 means delays vary by up to +/-15% of the base delay"
 
 [common.backoff.reenqueue_delays]
 initializing = 10
@@ -147,6 +483,24 @@ evaluating_results = 10
 waiting_for_dependencies = 60
 waiting_for_retry = 30
 blocked_by_failures = 120
+
+[common.backoff.reenqueue_delays._docs.initializing]
+description = "Delay in seconds before re-enqueueing a task stuck in the Initializing state"
+type = "u32"
+valid_range = "0-300"
+system_impact = "Controls how quickly the system retries task initialization after a transient failure"
+
+[common.backoff.reenqueue_delays._docs.waiting_for_dependencies]
+description = "Delay in seconds before re-checking a task that is waiting for upstream step dependencies"
+type = "u32"
+valid_range = "0-3600"
+system_impact = "Longer delays reduce polling overhead for tasks with slow dependencies; shorter delays improve responsiveness"
+
+[common.backoff.reenqueue_delays._docs.blocked_by_failures]
+description = "Delay in seconds before re-evaluating a task that is blocked due to step failures"
+type = "u32"
+valid_range = "0-3600"
+system_impact = "Gives operators time to investigate before the system retries; longer values prevent retry storms"
 
 # Distributed Cache Configuration (TAS-156)
 # When enabled=false or section missing, system uses direct DB queries only
@@ -158,16 +512,58 @@ template_ttl_seconds = 3600
 analytics_ttl_seconds = 60
 key_prefix = "tasker"
 
+[common.cache._docs.enabled]
+description = "Enable the distributed cache layer for template and analytics data"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, all cache reads fall through to direct database queries; no cache dependency required"
+
+[common.cache._docs.backend]
+description = "Cache backend implementation: 'redis' (distributed) or 'moka' (in-process)"
+type = "String"
+valid_range = "redis | moka"
+system_impact = "Redis is required for multi-instance deployments to avoid stale data; moka is suitable for single-instance or DoS protection"
+
+[common.cache._docs.default_ttl_seconds]
+description = "Default time-to-live in seconds for cached entries"
+type = "u32"
+valid_range = "1-86400"
+system_impact = "Controls how long cached data remains valid before being re-fetched from the database"
+
+[common.cache._docs.key_prefix]
+description = "Prefix applied to all cache keys to namespace entries"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Prevents key collisions when multiple Tasker instances or other applications share the same cache backend"
+
 [common.cache.redis]
 url = "${REDIS_URL:-redis://localhost:6379}"
 max_connections = 10
 connection_timeout_seconds = 5
 database = 0
 
+[common.cache.redis._docs.url]
+description = "Redis connection URL"
+type = "String"
+valid_range = "valid Redis URI"
+system_impact = "Must be reachable when cache is enabled with redis backend"
+
+[common.cache.redis._docs.database]
+description = "Redis database number (0-15)"
+type = "u32"
+valid_range = "0-15"
+system_impact = "Isolates Tasker cache keys from other applications sharing the same Redis instance"
+
 # In-memory cache (Moka) for single-instance deployments or DoS protection layer
 # Note: Templates MUST use Redis (distributed) to avoid stale data across instances
 [common.cache.moka]
 max_capacity = 10000
+
+[common.cache.moka._docs.max_capacity]
+description = "Maximum number of entries the in-process Moka cache can hold"
+type = "u64"
+valid_range = "1-1000000"
+system_impact = "Bounds memory usage; least-recently-used entries are evicted when capacity is reached"
 
 # TAS-171: Memcached configuration (optional, requires cache-memcached feature)
 # Uncomment to use memcached as distributed cache instead of Redis

@@ -5,6 +5,18 @@
 worker_id = "worker-default-001"
 worker_type = "general"
 
+[worker._docs.worker_id]
+description = "Unique identifier for this worker instance"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Used in logging, metrics, and step claim attribution; must be unique across all worker instances in a cluster"
+
+[worker._docs.worker_type]
+description = "Worker type classification for routing and reporting"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Used to match worker capabilities with step handler requirements; 'general' handles all step types"
+
 # TAS-75: Worker circuit breakers configuration
 [worker.circuit_breakers.ffi_completion_send]
 failure_threshold = 5
@@ -12,9 +24,27 @@ recovery_timeout_seconds = 5
 success_threshold = 2
 slow_send_threshold_ms = 100
 
+[worker.circuit_breakers.ffi_completion_send._docs.slow_send_threshold_ms]
+description = "Threshold in milliseconds above which FFI completion channel sends are logged as slow"
+type = "u32"
+valid_range = "10-10000"
+system_impact = "Observability: identifies when the FFI completion channel is under pressure from slow consumers"
+
 [worker.event_systems.worker]
 system_id = "worker-event-system"
 deployment_mode = "Hybrid"
+
+[worker.event_systems.worker._docs.system_id]
+description = "Unique identifier for the worker event system instance"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Used in logging and metrics to distinguish this event system from others"
+
+[worker.event_systems.worker._docs.deployment_mode]
+description = "Event delivery mode: 'Hybrid' (LISTEN/NOTIFY + polling fallback), 'EventDrivenOnly', or 'PollingOnly'"
+type = "DeploymentMode"
+valid_range = "Hybrid | EventDrivenOnly | PollingOnly"
+system_impact = "Hybrid is recommended; EventDrivenOnly has lowest latency but no fallback; PollingOnly has highest latency but no LISTEN/NOTIFY dependency"
 
 [worker.event_systems.worker.timing]
 health_check_interval_seconds = 30
@@ -71,10 +101,40 @@ claim_timeout_seconds = 300
 max_retries = 3
 max_concurrent_steps = 50
 
+[worker.step_processing._docs.claim_timeout_seconds]
+description = "Maximum time in seconds a step claim remains valid before expiring"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "If a worker fails to complete a step within this window, the claim expires and the step becomes available for retry"
+
+[worker.step_processing._docs.max_retries]
+description = "Maximum number of retry attempts for a failed step at the worker level"
+type = "u32"
+valid_range = "0-100"
+system_impact = "Worker-level retry cap; interacts with the orchestration-level execution.max_retries"
+
+[worker.step_processing._docs.max_concurrent_steps]
+description = "Maximum number of steps this worker processes simultaneously"
+type = "u32"
+valid_range = "1-100000"
+system_impact = "Primary worker concurrency control; bounded by semaphore in HandlerDispatchService"
+
 [worker.health_monitoring]
 health_check_interval_seconds = 30
 performance_monitoring_enabled = true
 error_rate_threshold = 0.05
+
+[worker.health_monitoring._docs.health_check_interval_seconds]
+description = "Interval in seconds between worker health self-checks"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how frequently the worker evaluates its own health status for readiness probes"
+
+[worker.health_monitoring._docs.error_rate_threshold]
+description = "Error rate threshold (0.0-1.0) above which the worker reports as unhealthy"
+type = "f64"
+valid_range = "0.0-1.0"
+system_impact = "A value of 0.05 means the worker becomes unhealthy if more than 5% of recent step executions fail"
 
 [worker.mpsc_channels.command_processor]
 command_buffer_size = 2000
@@ -139,10 +199,49 @@ base_url = "http://localhost:8080"
 timeout_ms = 30000
 max_retries = 3
 
+[worker.orchestration_client._docs.base_url]
+description = "Base URL of the orchestration REST API that this worker reports to"
+type = "String"
+valid_range = "valid HTTP(S) URL"
+system_impact = "Workers send step completion results and health reports to this endpoint"
+related = ["orchestration.web.bind_address"]
+
+[worker.orchestration_client._docs.base_url.recommendations]
+test = { value = "http://localhost:8080", rationale = "Local orchestration for testing" }
+production = { value = "http://orchestration:8080", rationale = "Container-internal DNS in Kubernetes/Docker" }
+
+[worker.orchestration_client._docs.timeout_ms]
+description = "HTTP request timeout in milliseconds for orchestration API calls"
+type = "u32"
+valid_range = "100-300000"
+system_impact = "Worker-to-orchestration calls exceeding this timeout fail and may be retried"
+
+[worker.orchestration_client._docs.max_retries]
+description = "Maximum retry attempts for failed orchestration API calls"
+type = "u32"
+valid_range = "0-10"
+system_impact = "Retries use backoff; higher values improve resilience to transient network issues"
+
 [worker.web]
 enabled = true
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
 request_timeout_ms = 30000
+
+[worker.web._docs.enabled]
+description = "Enable the REST API server for the worker service"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, no HTTP endpoints are available; the worker operates via messaging only"
+
+[worker.web._docs.bind_address]
+description = "Socket address for the worker REST API server"
+type = "String"
+valid_range = "host:port"
+system_impact = "Must not conflict with orchestration.web.bind_address when co-located; default 8081"
+
+[worker.web._docs.bind_address.recommendations]
+test = { value = "0.0.0.0:8081", rationale = "Default port offset from orchestration (8080)" }
+production = { value = "0.0.0.0:8081", rationale = "Standard worker port; use TASKER_WEB_BIND_ADDRESS env var to override" }
 
 [worker.web.database_pools]
 web_api_pool_size = 10
@@ -163,6 +262,12 @@ jwt_public_key = "${TASKER_JWT_PUBLIC_KEY:-}"
 jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
 api_key = ""
 api_key_header = "X-API-Key"
+
+[worker.web.auth._docs.enabled]
+description = "Enable authentication for the worker REST API"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, all worker API endpoints are unauthenticated"
 
 # TAS-169: Template routes moved to /v1/templates, cache operations removed
 # Old routes removed: DELETE /templates/cache, POST /templates/cache/maintain,
@@ -187,3 +292,21 @@ max_concurrent_streams = 1000
 max_frame_size = 16384
 enable_reflection = true
 enable_health_service = true
+
+[worker.grpc._docs.enabled]
+description = "Enable the gRPC API server for the worker service"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, no gRPC endpoints are available; clients must use REST"
+
+[worker.grpc._docs.bind_address]
+description = "Socket address for the worker gRPC server"
+type = "String"
+valid_range = "host:port"
+system_impact = "Must not conflict with the REST API or orchestration gRPC ports; default 9191"
+
+[worker.grpc._docs.max_concurrent_streams]
+description = "Maximum number of concurrent gRPC streams per connection"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Workers typically handle more concurrent streams than orchestration; default 1000 reflects this"
